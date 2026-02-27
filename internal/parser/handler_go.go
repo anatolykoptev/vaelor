@@ -184,6 +184,7 @@ func detectTypeKind(typeSpec *sitter.Node) NodeKind {
 }
 
 // constVarName finds the first named identifier inside a const_spec or var_spec.
+// Note: multi-name declarations (var a, b int) only return the first name.
 func constVarName(node *sitter.Node, specType string) *sitter.Node {
 	spec := firstChildOfType(node, specType)
 	if spec == nil {

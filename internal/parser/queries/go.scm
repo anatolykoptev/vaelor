@@ -22,12 +22,6 @@
     name: (type_identifier) @symbol.name
     type: (_) @symbol.type_body)) @symbol.type
 
-; Struct type body (for struct field extraction).
-(struct_type) @symbol.struct
-
-; Interface type body.
-(interface_type) @symbol.interface
-
 ; Top-level const declarations.
 (const_declaration
   (const_spec
