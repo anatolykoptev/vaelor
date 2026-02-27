@@ -11,6 +11,19 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+// Tree-sitter capture name constants used across multiple language handlers.
+// These correspond to the @symbol.* and @import.* captures in .scm query files.
+const (
+	captureFunction  = "symbol.function"
+	captureMethod    = "symbol.method"
+	captureClass     = "symbol.class"
+	captureInterface = "symbol.interface"
+	captureType      = "symbol.type"
+	captureConst     = "symbol.const"
+	captureVar       = "symbol.var"
+	captureImport    = "import.path"
+)
+
 // LanguageHandler abstracts a tree-sitter language grammar and its query logic.
 // Each handler knows how to parse its language and map tree-sitter captures
 // to the common Symbol type.

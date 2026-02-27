@@ -43,15 +43,15 @@ func (h *goHandler) TagsQuery() *sitter.Query { return h.query }
 // Returns nil for captures that are not top-level declarations.
 func (h *goHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
 	switch captureName {
-	case "symbol.function":
+	case captureFunction:
 		return h.mapFunction(node, source)
-	case "symbol.method":
+	case captureMethod:
 		return h.mapMethod(node, source)
-	case "symbol.type":
+	case captureType:
 		return h.mapType(node, source)
-	case "symbol.const":
+	case captureConst:
 		return h.mapConst(node, source)
-	case "symbol.var":
+	case captureVar:
 		return h.mapVar(node, source)
 	}
 	return nil

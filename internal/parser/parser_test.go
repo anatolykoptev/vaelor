@@ -157,6 +157,159 @@ func TestParseUnsupportedExtension(t *testing.T) {
 	}
 }
 
+func TestParsePythonFile(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sample.py"))
+	if err != nil {
+		t.Fatalf("read testdata/sample.py: %v", err)
+	}
+
+	result, err := parser.ParseFile("testdata/sample.py", source, parser.ParseOpts{
+		IncludeImports: true,
+	})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "python" {
+		t.Errorf("Language = %q, want %q", result.Language, "python")
+	}
+
+	// Verify imports.
+	wantImports := []string{"os", "pathlib"}
+	for _, want := range wantImports {
+		if !slices.Contains(result.Imports, want) {
+			t.Errorf("imports missing %q; got %v", want, result.Imports)
+		}
+	}
+
+	// Index symbols by name for convenient lookup.
+	byName := make(map[string]*parser.Symbol)
+	for _, sym := range result.Symbols {
+		byName[sym.Name] = sym
+	}
+
+	// Verify expected symbols with correct kinds.
+	type wantSym struct {
+		name string
+		kind parser.NodeKind
+	}
+	wantSymbols := []wantSym{
+		{"Config", parser.KindClass},
+		{"create_config", parser.KindFunction},
+		{"__init__", parser.KindMethod},
+		{"address", parser.KindMethod},
+	}
+
+	for _, ws := range wantSymbols {
+		sym, ok := byName[ws.name]
+		if !ok {
+			t.Errorf("symbol %q not found; all symbols: %v", ws.name, symbolNames(result.Symbols))
+			continue
+		}
+		if sym.Kind != ws.kind {
+			t.Errorf("symbol %q: Kind = %q, want %q", ws.name, sym.Kind, ws.kind)
+		}
+	}
+
+	// Verify signatures are non-empty for functions and methods.
+	for _, name := range []string{"create_config", "__init__", "address"} {
+		sym, ok := byName[name]
+		if !ok {
+			continue
+		}
+		if sym.Signature == "" {
+			t.Errorf("symbol %q has empty Signature", name)
+		}
+	}
+
+	// Verify StartLine/EndLine are set and reasonable (1-based, start <= end).
+	for _, sym := range result.Symbols {
+		if sym.StartLine == 0 {
+			t.Errorf("symbol %q: StartLine is 0 (should be 1-based)", sym.Name)
+		}
+		if sym.EndLine < sym.StartLine {
+			t.Errorf("symbol %q: EndLine %d < StartLine %d", sym.Name, sym.EndLine, sym.StartLine)
+		}
+	}
+}
+
+func TestParseTypeScriptFile(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sample.ts"))
+	if err != nil {
+		t.Fatalf("read testdata/sample.ts: %v", err)
+	}
+
+	result, err := parser.ParseFile("testdata/sample.ts", source, parser.ParseOpts{
+		IncludeImports: true,
+	})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "typescript" {
+		t.Errorf("Language = %q, want %q", result.Language, "typescript")
+	}
+
+	// Verify imports.
+	wantImports := []string{"express"}
+	for _, want := range wantImports {
+		if !slices.Contains(result.Imports, want) {
+			t.Errorf("imports missing %q; got %v", want, result.Imports)
+		}
+	}
+
+	// Index symbols by name for convenient lookup.
+	byName := make(map[string]*parser.Symbol)
+	for _, sym := range result.Symbols {
+		byName[sym.Name] = sym
+	}
+
+	// Verify expected symbols with correct kinds.
+	type wantSym struct {
+		name string
+		kind parser.NodeKind
+	}
+	wantSymbols := []wantSym{
+		{"Handler", parser.KindInterface},
+		{"Server", parser.KindClass},
+		{"createServer", parser.KindFunction},
+		{"constructor", parser.KindMethod},
+		{"start", parser.KindMethod},
+	}
+
+	for _, ws := range wantSymbols {
+		sym, ok := byName[ws.name]
+		if !ok {
+			t.Errorf("symbol %q not found; all symbols: %v", ws.name, symbolNames(result.Symbols))
+			continue
+		}
+		if sym.Kind != ws.kind {
+			t.Errorf("symbol %q: Kind = %q, want %q", ws.name, sym.Kind, ws.kind)
+		}
+	}
+
+	// Verify signatures are non-empty for functions and methods.
+	for _, name := range []string{"createServer", "start"} {
+		sym, ok := byName[name]
+		if !ok {
+			continue
+		}
+		if sym.Signature == "" {
+			t.Errorf("symbol %q has empty Signature", name)
+		}
+	}
+
+	// Verify StartLine/EndLine are set and reasonable (1-based, start <= end).
+	for _, sym := range result.Symbols {
+		if sym.StartLine == 0 {
+			t.Errorf("symbol %q: StartLine is 0 (should be 1-based)", sym.Name)
+		}
+		if sym.EndLine < sym.StartLine {
+			t.Errorf("symbol %q: EndLine %d < StartLine %d", sym.Name, sym.EndLine, sym.StartLine)
+		}
+	}
+}
+
 // symbolNames returns just the names for error messages.
 func symbolNames(syms []*parser.Symbol) []string {
 	names := make([]string, len(syms))

@@ -1,40 +1,47 @@
 ; tree-sitter query for TypeScript/JavaScript symbol extraction.
 ; Used by internal/parser to extract functions, classes, interfaces, and imports.
 
-; Function declarations.
+; Function declarations: function foo() {}
 (function_declaration
   name: (identifier) @symbol.name
-  parameters: (formal_parameters) @symbol.params
-  return_type: (type_annotation)? @symbol.result) @symbol.function
+  parameters: (formal_parameters) @symbol.params) @symbol.function
 
-; Arrow function assignments at module level.
-(lexical_declaration
-  (variable_declarator
-    name: (identifier) @symbol.name
-    value: [(arrow_function) (function)] @symbol.body)) @symbol.function
-
-; Class declarations.
+; Class declarations: class Foo {}
 (class_declaration
   name: (type_identifier) @symbol.name) @symbol.class
 
-; Interface declarations (TypeScript).
+; Interface declarations (TypeScript): interface Foo {}
 (interface_declaration
   name: (type_identifier) @symbol.name) @symbol.interface
 
-; Type alias declarations (TypeScript).
+; Type alias declarations (TypeScript): type Foo = ...
 (type_alias_declaration
   name: (type_identifier) @symbol.name) @symbol.type
 
 ; Method definitions inside classes.
-(method_definition
-  name: (property_identifier) @symbol.name
-  parameters: (formal_parameters) @symbol.params) @symbol.method
+(class_declaration
+  body: (class_body
+    (method_definition
+      name: (property_identifier) @symbol.name) @symbol.method))
 
-; Import declarations.
-(import_statement
-  source: (string) @import.path)
+; Arrow functions at module level: const foo = () => {}
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @symbol.name
+    value: (arrow_function))) @symbol.function
 
-; Export + function.
+; Exported arrow functions: export const foo = () => {}
+(export_statement
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @symbol.name
+      value: (arrow_function)))) @symbol.function
+
+; Export + function declaration: export function foo() {}
 (export_statement
   declaration: (function_declaration
     name: (identifier) @symbol.name)) @symbol.function
+
+; Import declarations: import { x } from 'module'
+(import_statement
+  source: (string) @import.path)

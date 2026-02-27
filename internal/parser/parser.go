@@ -172,9 +172,10 @@ func processCapture(
 	opts ParseOpts,
 	seen map[string]struct{},
 ) {
-	if captureName == "import.path" {
+	if captureName == captureImport {
 		if opts.IncludeImports {
-			importPath := strings.Trim(node.Content(source), `"`)
+			// Strip surrounding quotes — languages use `"..."` or `'...'`.
+			importPath := strings.Trim(node.Content(source), `"'`)
 			result.Imports = append(result.Imports, importPath)
 		}
 		return
