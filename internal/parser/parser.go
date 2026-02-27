@@ -1,0 +1,244 @@
+// Package parser provides multi-language AST parsing via tree-sitter.
+//
+// Each supported language has a corresponding grammar library and a set of
+// tree-sitter query files (.scm) in the queries/ subdirectory that extract
+// symbols (functions, types, imports, etc.) from the parsed syntax tree.
+//
+// CGO_ENABLED=1 is required because tree-sitter grammars are C libraries.
+package parser
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	sitter "github.com/smacker/go-tree-sitter"
+)
+
+// NodeKind represents the kind of a code symbol extracted from the AST.
+type NodeKind string
+
+const (
+	KindFunction  NodeKind = "function"
+	KindMethod    NodeKind = "method"
+	KindType      NodeKind = "type"
+	KindStruct    NodeKind = "struct"
+	KindInterface NodeKind = "interface"
+	KindConst     NodeKind = "const"
+	KindVar       NodeKind = "var"
+	KindImport    NodeKind = "import"
+	KindClass     NodeKind = "class"
+	KindModule    NodeKind = "module"
+)
+
+// Symbol is a named code entity extracted from a parsed file.
+type Symbol struct {
+	// Name is the symbol's identifier (e.g. "ServeHTTP", "Config", "maxRetries").
+	Name string
+
+	// Kind is the symbol type (function, struct, etc.).
+	Kind NodeKind
+
+	// Language is the source language (go, python, etc.).
+	Language string
+
+	// File is the absolute path to the source file.
+	File string
+
+	// StartLine is the 1-based line number where the symbol definition begins.
+	StartLine uint32
+
+	// EndLine is the 1-based line number where the symbol definition ends.
+	EndLine uint32
+
+	// Signature is the function/type signature extracted from the AST.
+	// For functions: full signature with parameters and return types.
+	// For types: the type definition header.
+	Signature string
+
+	// Body is the full source text of the symbol (only populated when requested).
+	Body string
+
+	// DocComment is the documentation comment immediately preceding the symbol.
+	DocComment string
+}
+
+// ParseResult contains the symbols extracted from a single source file.
+type ParseResult struct {
+	// File is the absolute path to the parsed file.
+	File string
+
+	// Language is the detected programming language.
+	Language string
+
+	// Symbols is the ordered list of symbols found in the file.
+	Symbols []*Symbol
+
+	// Imports is the list of import paths/modules declared in the file.
+	Imports []string
+
+	// Error is set if parsing failed or produced an error node in the tree.
+	Error error
+}
+
+// ParseOpts controls how a file is parsed.
+type ParseOpts struct {
+	// Language overrides auto-detection.
+	Language string
+
+	// IncludeBody includes the full source text of each symbol.
+	IncludeBody bool
+
+	// IncludeImports includes import declarations in the result.
+	IncludeImports bool
+}
+
+// ParseFile parses a single source file and returns its symbol table.
+// source contains the raw file bytes. path is used for language detection
+// and to populate Symbol.File fields.
+func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error) {
+	lang := opts.Language
+	if lang == "" {
+		lang = DetectLanguageFromPath(path)
+	}
+	if lang == "" {
+		return nil, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
+	}
+
+	ext := filepath.Ext(path)
+	handler := HandlerForExt(ext)
+	if handler == nil {
+		// Language is detected but no tree-sitter handler registered yet.
+		return &ParseResult{
+			File:     path,
+			Language: lang,
+			Symbols:  []*Symbol{},
+			Imports:  []string{},
+		}, nil
+	}
+
+	p := sitter.NewParser()
+	p.SetLanguage(handler.SitterLanguage())
+
+	tree, err := p.ParseCtx(context.Background(), nil, source)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	result := &ParseResult{
+		File:     path,
+		Language: lang,
+		Symbols:  make([]*Symbol, 0),
+		Imports:  make([]string, 0),
+	}
+
+	runQuery(result, handler, tree.RootNode(), source, path, opts)
+
+	return result, nil
+}
+
+// runQuery executes the language handler's TagsQuery against the tree root
+// and populates result with symbols and imports.
+func runQuery(result *ParseResult, handler LanguageHandler, root *sitter.Node, source []byte, path string, opts ParseOpts) {
+	qc := sitter.NewQueryCursor()
+	qc.Exec(handler.TagsQuery(), root)
+
+	// Deduplicate symbols by "kind:name:startLine" to avoid duplicates
+	// that arise when multiple captures match the same declaration node.
+	seen := make(map[string]struct{})
+	q := handler.TagsQuery()
+
+	for {
+		match, ok := qc.NextMatch()
+		if !ok {
+			break
+		}
+		for _, capture := range match.Captures {
+			captureName := q.CaptureNameForId(capture.Index)
+			processCapture(result, handler, captureName, capture.Node, source, path, opts, seen)
+		}
+	}
+}
+
+// processCapture handles a single tree-sitter query capture and updates result accordingly.
+func processCapture(
+	result *ParseResult,
+	handler LanguageHandler,
+	captureName string,
+	node *sitter.Node,
+	source []byte,
+	path string,
+	opts ParseOpts,
+	seen map[string]struct{},
+) {
+	if captureName == "import.path" {
+		if opts.IncludeImports {
+			importPath := strings.Trim(node.Content(source), `"`)
+			result.Imports = append(result.Imports, importPath)
+		}
+		return
+	}
+
+	sym := handler.MapCapture(captureName, node, source)
+	if sym == nil {
+		return
+	}
+
+	dedupeKey := fmt.Sprintf("%s:%s:%d", sym.Kind, sym.Name, sym.StartLine)
+	if _, exists := seen[dedupeKey]; exists {
+		return
+	}
+	seen[dedupeKey] = struct{}{}
+
+	sym.File = path
+	if opts.IncludeBody {
+		sym.Body = node.Content(source)
+	}
+	result.Symbols = append(result.Symbols, sym)
+}
+
+// SupportedLanguages returns the list of languages that have tree-sitter grammar support.
+func SupportedLanguages() []string {
+	return []string{
+		"go",
+		"python",
+		"typescript",
+		"javascript",
+		"rust",
+		"java",
+		"c",
+		"cpp",
+		"ruby",
+		"csharp",
+	}
+}
+
+// DetectLanguageFromPath returns the language based on file extension.
+// Exported so tests and other packages can use it without parsing a full file.
+func DetectLanguageFromPath(path string) string {
+	switch filepath.Ext(path) {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".js", ".jsx", ".mjs":
+		return "javascript"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cc", ".cxx", ".hpp":
+		return "cpp"
+	case ".rb":
+		return "ruby"
+	case ".cs":
+		return "csharp"
+	default:
+		return ""
+	}
+}

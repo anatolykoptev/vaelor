@@ -1,0 +1,176 @@
+// Package llm provides an OpenAI-compatible LLM client for go-code.
+//
+// It targets CLIProxyAPI at :8317 (configured via LLM_URL env var) which
+// routes requests across Gemini OAuth accounts with quota switching.
+// Supports structured JSON output extraction and streaming (future).
+package llm
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+)
+
+const (
+	defaultModel       = "gemini-2.5-flash"
+	defaultMaxTokens   = 16384
+	defaultTemperature = 0.1
+	defaultTimeout     = 90 * time.Second
+
+	completionsPath = "/chat/completions"
+)
+
+// Client is an OpenAI-compatible LLM client.
+type Client struct {
+	baseURL    string
+	apiKey     string
+	model      string
+	maxTokens  int
+	httpClient *http.Client
+}
+
+// Config holds LLM client configuration.
+type Config struct {
+	// BaseURL is the OpenAI-compatible base URL (e.g. http://127.0.0.1:8317/v1).
+	BaseURL string
+
+	// APIKey is the API key for authentication.
+	APIKey string //nolint:gosec // not a hardcoded secret — loaded from env
+
+	// Model is the model name to use.
+	Model string
+
+	// MaxTokens limits the response length.
+	MaxTokens int
+}
+
+// Message is a chat message.
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// CompletionRequest is the request body for a chat completion.
+type CompletionRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	MaxTokens   int       `json:"max_tokens"`
+	Temperature float64   `json:"temperature"`
+}
+
+// CompletionResponse is the response from a chat completion.
+type CompletionResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+// NewClient creates a new LLM client with the given configuration.
+func NewClient(cfg Config) *Client {
+	model := cfg.Model
+	if model == "" {
+		model = defaultModel
+	}
+
+	maxTokens := cfg.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = defaultMaxTokens
+	}
+
+	return &Client{
+		baseURL:   strings.TrimRight(cfg.BaseURL, "/"),
+		apiKey:    cfg.APIKey,
+		model:     model,
+		maxTokens: maxTokens,
+		httpClient: &http.Client{
+			Timeout: defaultTimeout,
+		},
+	}
+}
+
+// Complete sends a chat completion request and returns the response text.
+func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	messages := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	reqBody := CompletionRequest{
+		Model:       c.model,
+		Messages:    messages,
+		MaxTokens:   c.maxTokens,
+		Temperature: defaultTemperature,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := c.baseURL + completionsPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // URL comes from trusted config (LLM_URL env var)
+	if err != nil {
+		return "", fmt.Errorf("llm request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("llm returned %d", resp.StatusCode)
+	}
+
+	var completion CompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	if len(completion.Choices) == 0 {
+		return "", errors.New("empty choices in llm response")
+	}
+
+	return completion.Choices[0].Message.Content, nil
+}
+
+// SystemPromptRepoAnalysis is the system prompt for repository analysis queries.
+const SystemPromptRepoAnalysis = `You are a senior software engineer analyzing a code repository.
+You have been provided with the repository's file tree, key source files, and parsed symbol information.
+Answer the user's question about the codebase accurately and concisely.
+Focus on architecture, design decisions, and implementation patterns.
+Use code examples from the provided context when relevant.
+If you cannot answer from the provided context, say so clearly.`
+
+// SystemPromptCodeCompare is the system prompt for code comparison queries.
+const SystemPromptCodeCompare = `You are a senior software architect comparing two code repositories.
+You have been provided with parsed symbol tables, dependency graphs, and file structures for both repos.
+Produce a structured comparison highlighting:
+1. Architectural similarities and differences
+2. API design choices
+3. Dependency strategies
+4. Code quality indicators
+5. When to choose one over the other
+Be specific and cite actual code patterns from the provided context.`
+
+// SystemPromptDepGraph is the system prompt for dependency graph analysis.
+const SystemPromptDepGraph = `You are a senior software engineer analyzing a dependency graph.
+Based on the provided import/dependency data, describe:
+1. The overall layering and module structure
+2. Any circular dependencies or problematic coupling
+3. Hotspot packages (many dependents)
+4. Suggestions for improving the dependency structure
+Be concise and actionable.`
