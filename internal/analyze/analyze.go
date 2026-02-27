@@ -109,10 +109,11 @@ type DepGraphInput struct {
 	// Root is the local path to the repository.
 	Root string
 
-	// Type selects the graph type: imports, packages, modules, calls.
+	// Type selects the graph type.
+	// TODO: reserved for future use; currently only "imports" is supported.
 	Type string
 
-	// Format controls output format: json, dot, mermaid, summary.
+	// Format controls output format: json, dot, mermaid.
 	Format string
 
 	// Focus limits the graph to a specific package.
@@ -126,6 +127,7 @@ type DepGraphInput struct {
 type fileParseResult struct {
 	file   *ingest.File
 	result *parser.ParseResult
+	err    error // non-nil if parsing failed
 }
 
 // AnalyzeRepo ingests and analyzes a repository, answering the given query.
@@ -240,8 +242,9 @@ func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 	return renderGraph(graph, format)
 }
 
-// parseFilesParallel reads and parses all files concurrently.
-// It uses runtime.NumCPU() goroutines bounded by a semaphore channel.
+// parseFilesParallel reads and parses all files concurrently using a fixed
+// worker pool capped at runtime.NumCPU(). This bounds both goroutine count
+// and memory usage regardless of the number of files.
 func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody bool) []fileParseResult {
 	results := make([]fileParseResult, len(files))
 
@@ -250,32 +253,36 @@ func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody b
 		workers = 1
 	}
 
-	sem := make(chan struct{}, workers)
+	work := make(chan int, len(files))
+	for i := range files {
+		work <- i
+	}
+	close(work)
+
 	var wg sync.WaitGroup
-
-	for i, f := range files {
+	for range workers {
 		wg.Add(1)
-		go func(idx int, file *ingest.File) {
+		go func() {
 			defer wg.Done()
-			if ctx.Err() != nil {
-				return
+			for idx := range work {
+				if ctx.Err() != nil {
+					return
+				}
+				results[idx] = parseOneFile(files[idx], includeBody)
 			}
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			results[idx] = parseOneFile(file, includeBody)
-		}(i, f)
+		}()
 	}
 
 	wg.Wait()
 	return results
 }
 
-// parseOneFile reads and parses a single file. Errors are non-fatal (nil result).
+// parseOneFile reads and parses a single file. Parse failures are non-fatal:
+// result is nil and the error is recorded in fileParseResult.err.
 func parseOneFile(file *ingest.File, includeBody bool) fileParseResult {
 	source, err := os.ReadFile(file.Path)
 	if err != nil {
-		return fileParseResult{file: file, result: nil}
+		return fileParseResult{file: file, err: fmt.Errorf("read %s: %w", file.Path, err)}
 	}
 
 	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
@@ -284,7 +291,7 @@ func parseOneFile(file *ingest.File, includeBody bool) fileParseResult {
 		IncludeImports: true,
 	})
 	if err != nil {
-		return fileParseResult{file: file, result: nil}
+		return fileParseResult{file: file, err: fmt.Errorf("parse %s: %w", file.Path, err)}
 	}
 
 	return fileParseResult{file: file, result: pr}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -357,36 +358,13 @@ func TestWildcardToRegexp(t *testing.T) {
 }
 
 func TestDominantLanguage(t *testing.T) {
-	root := makeFixtureRepo(t)
-	ctx := context.Background()
-
-	// Use SearchSymbols as a proxy: all fixture files are Go.
-	_, err := SearchSymbols(ctx, SymbolSearchInput{Root: root, Query: "*"})
-	if err != nil {
-		t.Fatalf("SearchSymbols: %v", err)
+	files := []*ingest.File{
+		{Language: "go"}, {Language: "go"}, {Language: "go"}, {Language: "python"},
 	}
-	// The fixture repo has only Go files, so dominant language should be "go".
-	// We test dominantLanguage directly.
-	files := []*fakeIngestFile{
-		{"go"}, {"go"}, {"go"}, {"python"},
-	}
-	langs := make(map[string]int)
-	for _, f := range files {
-		langs[f.Language]++
-	}
-	best, max := "", 0
-	for l, c := range langs {
-		if c > max {
-			max = c
-			best = l
-		}
-	}
-	if best != "go" {
-		t.Errorf("expected dominant language 'go', got %q", best)
+	if got := dominantLanguage(files); got != "go" {
+		t.Errorf("dominantLanguage = %q, want %q", got, "go")
 	}
 }
-
-type fakeIngestFile struct{ Language string }
 
 func TestMermaidID(t *testing.T) {
 	tests := []struct {
@@ -420,34 +398,16 @@ func TestExtractQueryTerms(t *testing.T) {
 
 func TestBuildLLMContext_ContainsSections(t *testing.T) {
 	root := makeFixtureRepo(t)
-
-	// Simulate what AnalyzeRepo does before calling LLM.
-	from := root
-	_ = from
-
-	// Read and parse the fixture files.
-	goFile := filepath.Join(root, "main.go")
-	src, _ := os.ReadFile(goFile)
-	_ = src
-
-	// We can't directly test buildLLMContext without importing ingest here,
-	// but since we're in the same package, we can call it.
-	// Use AnalyzeRepo with mock LLM and check the answer contains expected content.
-	srv := startMockLLMServer(t)
-	deps := Deps{
-		LLM:          newTestLLMClient(srv.URL),
-		MaxFileBytes: defaultMaxFileBytes,
-	}
-
-	result, err := AnalyzeRepo(context.Background(), RepoAnalysisInput{
-		Root:  root,
-		Query: "What is the main function?",
-	}, deps)
+	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})
 	if err != nil {
-		t.Fatalf("AnalyzeRepo: %v", err)
+		t.Fatalf("IngestRepo: %v", err)
 	}
-	// The mock LLM returns a fixed string.
-	if !strings.Contains(result.Answer, "main()") {
-		t.Errorf("expected answer to contain 'main()', got: %q", result.Answer)
+	results := parseFilesParallel(context.Background(), ir.Files, false)
+	ctx := buildLLMContext(ir, results, "test query")
+
+	for _, section := range []string{"## Query", "## Repository File Tree", "## Symbol Summary", "## File Contents"} {
+		if !strings.Contains(ctx, section) {
+			t.Errorf("LLM context missing section %q", section)
+		}
 	}
 }
