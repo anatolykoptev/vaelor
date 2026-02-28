@@ -32,6 +32,19 @@ type Config struct {
 
 	// PathMappings translates external paths to container-internal paths.
 	PathMappings []analyze.PathMapping
+
+	// DatabaseURL is the PostgreSQL DSN for Apache AGE graph storage.
+	// Empty means code_graph tool is disabled.
+	DatabaseURL string
+
+	// GraphTTLLocal is the TTL in seconds for local repo graphs.
+	GraphTTLLocal int
+
+	// GraphTTLRemote is the TTL in seconds for remote repo graphs.
+	GraphTTLRemote int
+
+	// GraphBatchSize is the batch size for graph upsert operations.
+	GraphBatchSize int
 }
 
 const (
@@ -46,6 +59,11 @@ const (
 	// 200 MB per repo.
 	defaultMaxRepoBytesMB = 200
 	bytesPerMB            = 1024 * 1024
+
+	// Graph defaults.
+	defaultGraphTTLLocal  = 3600  // 1 hour
+	defaultGraphTTLRemote = 86400 // 24 hours
+	defaultGraphBatchSize = 100
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -59,7 +77,11 @@ func loadConfig() Config {
 		WorkspaceDir: env("WORKSPACE_DIR", defaultWorkspaceDir),
 		PathMappings: parsePathMappings(env("PATH_MAPPINGS", "")),
 		MaxFileBytes: int64(envInt("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
-		MaxRepoBytes: int64(envInt("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
+		MaxRepoBytes:  int64(envInt("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
+		DatabaseURL:    env("DATABASE_URL", ""),
+		GraphTTLLocal:  envInt("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
+		GraphTTLRemote: envInt("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
+		GraphBatchSize: envInt("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 	}
 }
 
