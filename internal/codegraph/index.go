@@ -3,10 +3,16 @@ package codegraph
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/polyglot"
+	"github.com/anatolykoptev/go-code/internal/routes"
 )
 
 const (
@@ -87,6 +93,19 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		return nil, fmt.Errorf("insert edges: %w", err)
 	}
 
+	// --- Cross-language analysis ---
+	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles)
+	if len(crossVertices) > 0 {
+		if err := insertBatches(ctx, store, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
+			log.Printf("codegraph: cross-language vertices: %v", err)
+		}
+	}
+	if len(crossEdges) > 0 {
+		if err := insertEdgeBatches(ctx, store, gname, cfg.BatchSize, crossEdges); err != nil {
+			log.Printf("codegraph: cross-language edges: %v", err)
+		}
+	}
+
 	ttl := cfg.TTLLocal
 	if isRemote {
 		ttl = cfg.TTLRemote
@@ -151,4 +170,99 @@ func relPath(abs, root string) string {
 		return abs
 	}
 	return rel
+}
+
+// maxRoleSampleBytes limits how much source code is read per file for role
+// classification.
+const maxRoleSampleBytes = 500
+
+// buildCrossLanguageData performs polyglot detection, route extraction, role
+// classification, and returns cross-language vertices and edges ready for
+// insertion. It also produces BELONGS_TO edges (File -> Layer).
+func buildCrossLanguageData(root string, allFiles []*ingest.File) ([]vertexData, []edgeData) {
+	structure := polyglot.DetectStructure(allFiles)
+
+	// Extract routes from all applicable files.
+	var routeList []routes.Route
+	for _, f := range allFiles {
+		if f.Language == "" || f.Language == "c" || f.Language == "cpp" {
+			continue
+		}
+		src, err := os.ReadFile(f.Path)
+		if err != nil {
+			continue
+		}
+		fileRoutes := routes.ExtractAll(f.Language, src)
+		rel := relPath(f.Path, root)
+		for i := range fileRoutes {
+			fileRoutes[i].File = rel
+		}
+		routeList = append(routeList, fileRoutes...)
+	}
+
+	// Classify layer roles by sampling source snippets.
+	layerSources := make(map[string][]string)
+	for _, f := range allFiles {
+		if f.Language == "" {
+			continue
+		}
+		for i := range structure.Layers {
+			l := &structure.Layers[i]
+			if matchesLayer(f.RelPath, l.RootDir) {
+				src, err := os.ReadFile(f.Path)
+				if err == nil {
+					limit := maxRoleSampleBytes
+					if len(src) < limit {
+						limit = len(src)
+					}
+					layerSources[l.Name] = append(layerSources[l.Name], string(src[:limit]))
+				}
+				break
+			}
+		}
+	}
+	for i := range structure.Layers {
+		l := &structure.Layers[i]
+		if samples, ok := layerSources[l.Name]; ok {
+			l.Role = polyglot.ClassifyLayerRole(samples)
+		}
+	}
+
+	// Build file -> layer mapping.
+	fileToLayer := make(map[string]string)
+	for _, f := range allFiles {
+		rel := relPath(f.Path, root)
+		for _, l := range structure.Layers {
+			if matchesLayer(f.RelPath, l.RootDir) {
+				fileToLayer[rel] = l.Name
+				break
+			}
+		}
+	}
+
+	// Build Layer/Route vertices and HANDLES/FETCHES edges.
+	crossVertices, crossEdges := buildCrossLanguageGraph(structure.Layers, routeList, fileToLayer)
+
+	// Append BELONGS_TO edges (File -> Layer).
+	for file, layerName := range fileToLayer {
+		crossEdges = append(crossEdges, edgeData{
+			FromLabel: "File",
+			FromKey:   file,
+			ToLabel:   "Layer",
+			ToKey:     layerName,
+			EdgeLabel: "BELONGS_TO",
+			Props:     map[string]string{},
+		})
+	}
+
+	return crossVertices, crossEdges
+}
+
+// matchesLayer reports whether a relative file path belongs to the given layer
+// root directory.
+func matchesLayer(relPath, rootDir string) bool {
+	if rootDir == "" || rootDir == "." {
+		return true
+	}
+	return strings.HasPrefix(relPath, rootDir+"/") || relPath == rootDir
 }
