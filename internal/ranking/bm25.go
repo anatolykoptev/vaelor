@@ -8,9 +8,8 @@ import (
 
 // Field weight constants for BM25F scoring.
 const (
-	WeightSymbol  = 5.0 // symbol name matches are most important
-	WeightPath    = 3.0 // file path matches are moderately important
-	WeightContent = 1.0 // content matches are baseline importance
+	WeightSymbol = 5.0 // symbol name matches are most important
+	WeightPath   = 3.0 // file path matches are moderately important
 )
 
 // BM25 tuning parameters.
@@ -20,10 +19,10 @@ const (
 )
 
 // Document represents a file for BM25F scoring.
+// Only Path and Symbols are used — file content is scored via LLM, not BM25F.
 type Document struct {
 	Path    string   // relative file path
 	Symbols []string // symbol names in the file
-	Content string   // file content (or cleaned excerpt)
 }
 
 // BM25F implements field-weighted BM25 scoring.
@@ -42,7 +41,6 @@ type BM25F struct {
 type documentInternal struct {
 	pathLower    string
 	symbolsLower []string
-	contentLower string
 }
 
 // NewBM25F creates a BM25F scorer from a corpus of documents.
@@ -62,18 +60,16 @@ func NewBM25F(docs []Document) *BM25F {
 	var totalDL float64
 	for i, doc := range docs {
 		b.docs[i] = documentInternal{
-			pathLower:    strings.ToLower(doc.Path),
-			contentLower: strings.ToLower(doc.Content),
+			pathLower: strings.ToLower(doc.Path),
 		}
 		b.docs[i].symbolsLower = make([]string, len(doc.Symbols))
 		for j, sym := range doc.Symbols {
 			b.docs[i].symbolsLower[j] = strings.ToLower(sym)
 		}
 
-		// Compute weighted document length: sum of all field contributions.
+		// Compute weighted document length: sum of field contributions.
 		dl := float64(len(b.docs[i].symbolsLower))*WeightSymbol +
-			WeightPath + // path always contributes a baseline length
-			float64(wordCount(b.docs[i].contentLower))*WeightContent
+			WeightPath // path always contributes a baseline length
 		b.docDL[i] = dl
 		totalDL += dl
 	}
@@ -183,7 +179,7 @@ func (b *BM25F) scoreTermAtIndex(termLower string, docIdx int) float64 {
 }
 
 // computeWeightedTF computes the weighted term frequency for a term in a document.
-// tf = (symbol match count * WeightSymbol) + (path match * WeightPath) + (content match count * WeightContent)
+// tf = (symbol match count * WeightSymbol) + (path match * WeightPath)
 func computeWeightedTF(doc documentInternal, termLower string) float64 {
 	var tf float64
 
@@ -199,11 +195,6 @@ func computeWeightedTF(doc documentInternal, termLower string) float64 {
 		tf += WeightPath
 	}
 
-	// Content matches: count occurrences in content.
-	if doc.contentLower != "" {
-		tf += float64(strings.Count(doc.contentLower, termLower)) * WeightContent
-	}
-
 	return tf
 }
 
@@ -217,10 +208,5 @@ func documentContainsTerm(doc documentInternal, termLower string) bool {
 			return true
 		}
 	}
-	return strings.Contains(doc.contentLower, termLower)
-}
-
-// wordCount returns an approximate word count for a string.
-func wordCount(s string) int {
-	return len(strings.Fields(s))
+	return false
 }

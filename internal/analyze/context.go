@@ -3,7 +3,6 @@ package analyze
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -106,7 +105,7 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 	}
 
 	queryTerms := extractQueryTerms(query)
-	prioritized := prioritizeFiles(ir.Files, results, queryTerms)
+	prioritized := prioritizeFiles(ir.Root, ir.Files, results, queryTerms)
 
 	// Build path → ParseResult lookup for render modes that need symbols.
 	parseMap := make(map[string]*parser.ParseResult, len(results))
@@ -116,7 +115,7 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 		}
 	}
 
-	importedBy := computeImportedByCounts(results)
+	importedBy := computeImportedByCounts(ir.Root, results)
 	symbolCounts := computeSymbolCounts(results)
 
 	appendFileContents(&sb, prioritized, budget.fileBudget(), renderMode, queryTerms, parseMap, budget.maxFileChars, importedBy, symbolCounts)
@@ -137,9 +136,9 @@ func appendDepGraph(sb *strings.Builder, root string, results []fileParseResult,
 		mermaid = mermaid[:maxChars] + "\n... (truncated)\n"
 	}
 
-	sb.WriteString("## Dependency Graph\n```mermaid\n")
+	sb.WriteString("<dependency-graph format=\"mermaid\">\n")
 	sb.WriteString(mermaid)
-	sb.WriteString("```\n\n")
+	sb.WriteString("</dependency-graph>\n\n")
 }
 
 // buildSymbolSummary returns a compact summary of symbols per file.
@@ -151,7 +150,7 @@ func buildSymbolSummary(results []fileParseResult, budget int) string {
 		if pr.result == nil || len(pr.result.Symbols) == 0 {
 			continue
 		}
-		header := fmt.Sprintf("### %s\n", pr.file.RelPath)
+		header := fmt.Sprintf("  %s:\n", pr.file.RelPath)
 		if remaining < len(header) {
 			break
 		}
@@ -190,28 +189,50 @@ func computeSymbolCounts(results []fileParseResult) map[string]int {
 	return counts
 }
 
-// computeImportedByCounts returns how many files import each file (by RelPath).
-// This is the reverse of buildPageRankGraph — counts inbound references.
-func computeImportedByCounts(results []fileParseResult) map[string]int {
-	baseToRel := make(map[string]string)
+// computeImportedByCounts returns how many packages import the package of each file.
+// Uses the package-level import graph with suffix matching for import resolution.
+func computeImportedByCounts(root string, results []fileParseResult) map[string]int {
+	pkgGraph := buildImportGraph(root, results, false)
+
+	// Collect local package names.
+	localPkgs := make(map[string]struct{})
 	for _, pr := range results {
-		base := filepath.Base(pr.file.RelPath)
-		baseToRel[base] = pr.file.RelPath
+		localPkgs[packageName(root, pr.file.Path)] = struct{}{}
 	}
 
-	counts := make(map[string]int)
-	for _, pr := range results {
-		if pr.result == nil {
-			continue
-		}
-		for _, imp := range pr.result.Imports {
-			base := filepath.Base(imp)
-			if rel, ok := baseToRel[base]; ok {
-				counts[rel]++
+	// Build reverse index: for each local package, how many packages import it.
+	// Import paths are resolved via suffix matching (same as buildPageRankGraph).
+	pkgImportedBy := make(map[string]int)
+	for _, deps := range pkgGraph {
+		for dep := range deps {
+			if resolved := resolveImportToPkg(dep, localPkgs); resolved != "" {
+				pkgImportedBy[resolved]++
 			}
 		}
 	}
+
+	// Map to files: each file gets its package's imported-by count.
+	counts := make(map[string]int)
+	for _, pr := range results {
+		pkg := packageName(root, pr.file.Path)
+		if n := pkgImportedBy[pkg]; n > 0 {
+			counts[pr.file.RelPath] = n
+		}
+	}
 	return counts
+}
+
+// resolveImportToPkg resolves an import path to a local package name using suffix matching.
+func resolveImportToPkg(importPath string, localPkgs map[string]struct{}) string {
+	if _, ok := localPkgs[importPath]; ok {
+		return importPath
+	}
+	for pkg := range localPkgs {
+		if strings.HasSuffix(importPath, "/"+pkg) {
+			return pkg
+		}
+	}
+	return ""
 }
 
 // fileAnnotation builds a short HTML comment annotation for a file.
@@ -301,12 +322,12 @@ func readFileContent(path string) (string, error) {
 }
 
 // prioritizeFiles orders files by relevance to the query using BM25F scoring
-// combined with PageRank importance from the file import graph.
+// combined with PageRank importance from the package import graph.
 //
-// BM25F weighs symbol name matches (x5), file path matches (x3), and content (x1).
-// PageRank propagates importance through import edges, surfacing core files.
+// BM25F weighs symbol name matches (x5) and file path matches (x3).
+// PageRank propagates importance through package-level import edges, surfacing core files.
 // Combined score: 70% BM25F relevance + 30% PageRank importance.
-func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms []string) []*ingest.File {
+func prioritizeFiles(root string, files []*ingest.File, results []fileParseResult, queryTerms []string) []*ingest.File {
 	// Build BM25F documents.
 	fileSymbols := buildFileSymbolMap(results)
 	docs := make([]ranking.Document, len(files))
@@ -319,7 +340,7 @@ func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms
 	scorer := ranking.NewBM25F(docs)
 
 	// Build import graph for PageRank.
-	prGraph := buildPageRankGraph(results)
+	prGraph := buildPageRankGraph(root, results)
 	pageRanks := ranking.PageRank(prGraph, 20, 0.85) //nolint:mnd // standard PageRank params
 
 	type scoredFile struct {
@@ -362,31 +383,55 @@ func buildFileSymbolMap(results []fileParseResult) map[string][]string {
 	return m
 }
 
-// buildPageRankGraph builds a file-to-file import graph for PageRank.
-// Each entry maps a source file (RelPath) to the files it imports.
-func buildPageRankGraph(results []fileParseResult) map[string][]string {
-	// Build a base-name → relPath map for resolving import targets.
-	baseToRel := make(map[string]string)
+// buildPageRankGraph builds a file-level graph for PageRank by lifting the
+// package-level import graph. Each file inherits edges from its package:
+// if package A imports package B (local), then every file in A links to every file in B.
+//
+// Import paths (e.g. "github.com/project/internal/auth") are resolved to local
+// packages by suffix matching against directory names (e.g. "internal/auth").
+func buildPageRankGraph(root string, results []fileParseResult) map[string][]string {
+	// Build package-level import graph (proven logic).
+	pkgGraph := buildImportGraph(root, results, false)
+
+	// Map each local package to its files.
+	pkgFiles := make(map[string][]string)
 	for _, pr := range results {
-		base := filepath.Base(pr.file.RelPath)
-		baseToRel[base] = pr.file.RelPath
+		pkg := packageName(root, pr.file.Path)
+		pkgFiles[pkg] = append(pkgFiles[pkg], pr.file.RelPath)
 	}
 
+	// For each file, resolve its package's imports to local files.
 	graph := make(map[string][]string)
 	for _, pr := range results {
-		if pr.result == nil {
+		pkg := packageName(root, pr.file.Path)
+		deps, ok := pkgGraph[pkg]
+		if !ok {
+			graph[pr.file.RelPath] = nil
 			continue
 		}
 		var targets []string
-		for _, imp := range pr.result.Imports {
-			base := filepath.Base(imp)
-			if rel, ok := baseToRel[base]; ok {
-				targets = append(targets, rel)
-			}
+		for dep := range deps {
+			targets = append(targets, resolveImportToFiles(dep, pkgFiles)...)
 		}
 		graph[pr.file.RelPath] = targets
 	}
 	return graph
+}
+
+// resolveImportToFiles resolves an import path to local files using suffix matching.
+// E.g. "github.com/project/internal/auth" matches local package "internal/auth".
+func resolveImportToFiles(importPath string, pkgFiles map[string][]string) []string {
+	// Exact match first.
+	if files, ok := pkgFiles[importPath]; ok {
+		return files
+	}
+	// Suffix match: check if any local package is a suffix of the import path.
+	for localPkg, files := range pkgFiles {
+		if strings.HasSuffix(importPath, "/"+localPkg) {
+			return files
+		}
+	}
+	return nil
 }
 
 
