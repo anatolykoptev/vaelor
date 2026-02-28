@@ -199,14 +199,16 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	metricsB := ComputeMetrics(snapB)
 
 	// Count matches and gaps.
+	// SymbolA == nil means the symbol exists only in B (missing from A).
+	// SymbolB == nil means the symbol exists only in A (missing from B).
 	matched, unmatchedA, unmatchedB := 0, 0, 0
 	for _, m := range matches {
 		switch {
-		case m.SymbolA == nil:
+		case m.SymbolB == nil && m.SymbolA != nil:
 			unmatchedA++
-		case m.SymbolB == nil:
+		case m.SymbolA == nil && m.SymbolB != nil:
 			unmatchedB++
-		default:
+		case m.SymbolA != nil && m.SymbolB != nil:
 			matched++
 		}
 	}
@@ -222,14 +224,18 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		UnmatchedB:     unmatchedB,
 	}
 
-	// LLM analysis (optional).
+	// LLM analysis (optional). Errors are non-fatal — structural results are
+	// always returned even when the LLM is unavailable.
 	if llmClient != nil {
 		compareCtx := BuildCompareContext(matches, metricsA, metricsB, input.Query)
 		answer, err := llmClient.Complete(ctx, llm.SystemPromptCodeCompare, compareCtx)
-		if err != nil {
-			return nil, fmt.Errorf("llm compare: %w", err)
+		if err == nil {
+			result.Analysis = parseAnalysis(answer)
+		} else {
+			result.Analysis = LLMAnalysis{
+				Recommendations: []string{fmt.Sprintf("LLM analysis unavailable: %v", err)},
+			}
 		}
-		result.Analysis = parseAnalysis(answer)
 	}
 
 	return result, nil

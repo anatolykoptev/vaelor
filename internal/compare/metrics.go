@@ -161,8 +161,28 @@ func countExternalDeps(imports []string) int {
 	return count
 }
 
+// errorHandlingPatterns are substrings that reliably indicate error handling in function bodies.
+var errorHandlingPatterns = []string{
+	"if err ",
+	"if err!",
+	"!= nil",
+	"err :=",
+	"err =",
+	"return err",
+	"return fmt.Errorf",
+	"errors.New",
+	"errors.Is(",
+	"errors.As(",
+	"errors.Join(",
+	".Error()",
+	"except ",  // Python
+	"catch (",  // Java/TS
+	"catch(",
+	"rescue ",  // Ruby
+}
+
 // computeErrorHandlingRatio returns the fraction of functions/methods whose body
-// contains "err" or "error" references, as a rough proxy for error handling.
+// contains reliable error-handling patterns (not just the substring "err").
 func computeErrorHandlingRatio(symbols []*parser.Symbol) float64 {
 	funcCount := 0
 	withErrorHandling := 0
@@ -171,7 +191,7 @@ func computeErrorHandlingRatio(symbols []*parser.Symbol) float64 {
 			continue
 		}
 		funcCount++
-		if strings.Contains(sym.Body, "err") || strings.Contains(sym.Body, "Error") {
+		if hasErrorHandling(sym.Body) {
 			withErrorHandling++
 		}
 	}
@@ -179,6 +199,16 @@ func computeErrorHandlingRatio(symbols []*parser.Symbol) float64 {
 		return 0
 	}
 	return float64(withErrorHandling) / float64(funcCount)
+}
+
+// hasErrorHandling checks whether a function body contains reliable error handling patterns.
+func hasErrorHandling(body string) bool {
+	for _, pattern := range errorHandlingPatterns {
+		if strings.Contains(body, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // countInterfaces returns the number of interface symbols.

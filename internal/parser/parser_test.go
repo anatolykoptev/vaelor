@@ -848,3 +848,56 @@ func symbolNames(syms []*parser.Symbol) []string {
 	}
 	return names
 }
+
+func TestDocCommentExtraction(t *testing.T) {
+	source := []byte(`package sample
+
+// Exported is a documented function.
+func Exported() {}
+
+func NoDoc() {}
+
+// MultiLine is documented
+// with multiple lines.
+func MultiLine() {}
+
+// DocType is a documented type.
+type DocType struct{}
+`)
+
+	result, err := parser.ParseFile("doc_test.go", source, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	byName := make(map[string]*parser.Symbol)
+	for _, sym := range result.Symbols {
+		byName[sym.Name] = sym
+	}
+
+	if sym, ok := byName["Exported"]; !ok {
+		t.Error("Exported symbol not found")
+	} else if sym.DocComment == "" {
+		t.Error("Exported should have a doc comment")
+	} else if !strings.Contains(sym.DocComment, "documented function") {
+		t.Errorf("Exported doc = %q, want to contain 'documented function'", sym.DocComment)
+	}
+
+	if sym, ok := byName["NoDoc"]; !ok {
+		t.Error("NoDoc symbol not found")
+	} else if sym.DocComment != "" {
+		t.Errorf("NoDoc should have no doc comment, got %q", sym.DocComment)
+	}
+
+	if sym, ok := byName["MultiLine"]; !ok {
+		t.Error("MultiLine symbol not found")
+	} else if !strings.Contains(sym.DocComment, "multiple lines") {
+		t.Errorf("MultiLine doc = %q, want to contain 'multiple lines'", sym.DocComment)
+	}
+
+	if sym, ok := byName["DocType"]; !ok {
+		t.Error("DocType symbol not found")
+	} else if sym.DocComment == "" {
+		t.Error("DocType should have a doc comment")
+	}
+}
