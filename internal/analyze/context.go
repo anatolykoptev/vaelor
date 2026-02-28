@@ -48,8 +48,8 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 	sb.WriteString(symbolSection)
 	sb.WriteString("\n")
 
-	prioritized := prioritizeFiles(ir.Files, results, query)
 	queryTerms := extractQueryTerms(query)
+	prioritized := prioritizeFiles(ir.Files, results, queryTerms)
 
 	// Build path → ParseResult lookup for render modes that need symbols.
 	parseMap := make(map[string]*parser.ParseResult, len(results))
@@ -173,10 +173,9 @@ func readFileContent(path string) (string, error) {
 //  2. Files imported by many other files (high connectivity)
 //  3. Files with the most symbols
 //  4. Remaining files (by path alphabetically)
-func prioritizeFiles(files []*ingest.File, results []fileParseResult, query string) []*ingest.File {
+func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms []string) []*ingest.File {
 	importCounts := computeImportCounts(results)
 	symbolCounts := computeSymbolCounts(results)
-	queryTerms := extractQueryTerms(query)
 
 	type scoredFile struct {
 		file  *ingest.File

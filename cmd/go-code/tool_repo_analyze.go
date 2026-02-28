@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/render"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -44,6 +45,9 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 		}
 		if input.Query == "" {
 			return errResult("query is required"), nil, nil
+		}
+		if input.Mode != "" && !render.ValidMode(input.Mode) {
+			return errResult(fmt.Sprintf("invalid mode %q: use signatures, skeleton, or focused", input.Mode)), nil, nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
