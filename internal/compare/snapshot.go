@@ -1,0 +1,208 @@
+package compare
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"sync"
+
+	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// maxFileBytes is the default maximum file size ingested per file (512 KB).
+const maxFileBytes = 512 * 1024
+
+// SnapshotOpts controls what gets ingested and parsed when building a snapshot.
+type SnapshotOpts struct {
+	// Focus limits ingestion to files under this subdirectory or matching this
+	// glob pattern. Empty means process the entire repository.
+	Focus string
+
+	// Language limits ingestion to files of this programming language.
+	// Empty means accept all supported languages.
+	Language string
+}
+
+// snapshotParseResult pairs an ingest.File with its parsed output and source.
+type snapshotParseResult struct {
+	file   *ingest.File
+	result *parser.ParseResult
+	lines  int
+}
+
+// BuildSnapshot ingests and parses a repository, returning a RepoSnapshot
+// suitable for structural comparison.
+//
+// Steps:
+//  1. Ingest the repository tree filtered by opts.Focus / opts.Language.
+//  2. Parse all files in parallel (worker pool of runtime.NumCPU goroutines).
+//  3. Aggregate symbols, unique imports, per-file entries, and line counts.
+func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSnapshot, error) {
+	var langs []string
+	if opts.Language != "" {
+		langs = []string{opts.Language}
+	}
+
+	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+		Root:         root,
+		Focus:        opts.Focus,
+		Languages:    langs,
+		MaxFileBytes: maxFileBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ingest repo: %w", err)
+	}
+
+	parsed := parseSnapshotFiles(ctx, ir.Files)
+
+	return buildSnapshotResult(root, ir, parsed), nil
+}
+
+// parseSnapshotFiles parses all files concurrently using a CPU-bounded worker pool.
+func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotParseResult {
+	results := make([]snapshotParseResult, len(files))
+
+	workers := runtime.NumCPU()
+	if workers < 1 {
+		workers = 1
+	}
+
+	work := make(chan int, len(files))
+	for i := range files {
+		work <- i
+	}
+	close(work)
+
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range work {
+				if ctx.Err() != nil {
+					return
+				}
+				results[idx] = parseSnapshotFile(files[idx])
+			}
+		}()
+	}
+
+	wg.Wait()
+	return results
+}
+
+// parseSnapshotFile reads and parses a single file. Failures are non-fatal:
+// the result field remains nil and lines is zero.
+func parseSnapshotFile(file *ingest.File) snapshotParseResult {
+	source, err := os.ReadFile(file.Path)
+	if err != nil {
+		return snapshotParseResult{file: file}
+	}
+
+	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
+		Language:       file.Language,
+		IncludeBody:    true,
+		IncludeImports: true,
+	})
+	if err != nil {
+		return snapshotParseResult{file: file, lines: countLines(source)}
+	}
+
+	return snapshotParseResult{file: file, result: pr, lines: countLines(source)}
+}
+
+// countLines returns the number of lines in source (newline count + 1, or 0
+// when source is empty).
+func countLines(source []byte) int {
+	if len(source) == 0 {
+		return 0
+	}
+	return bytes.Count(source, []byte("\n")) + 1
+}
+
+// buildSnapshotResult assembles a RepoSnapshot from parse results.
+func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshotParseResult) *RepoSnapshot {
+	var (
+		allSymbols  []*parser.Symbol
+		importsSeen = make(map[string]struct{})
+		files       = make([]SnapshotFile, 0, len(parsed))
+		totalLines  int
+	)
+
+	for _, pr := range parsed {
+		if pr.file == nil {
+			continue
+		}
+
+		totalLines += pr.lines
+		sf := SnapshotFile{
+			RelPath:  pr.file.RelPath,
+			Language: pr.file.Language,
+			Lines:    pr.lines,
+		}
+
+		if pr.result != nil {
+			sf.Symbols = pr.result.Symbols
+			sf.Imports = pr.result.Imports
+
+			allSymbols = append(allSymbols, pr.result.Symbols...)
+			for _, imp := range pr.result.Imports {
+				if imp != "" {
+					importsSeen[imp] = struct{}{}
+				}
+			}
+		}
+
+		files = append(files, sf)
+	}
+
+	uniqueImports := sortedImports(importsSeen)
+
+	return &RepoSnapshot{
+		Name:       filepath.Base(root),
+		Root:       root,
+		Language:   snapshotDominantLanguage(ir.Files),
+		Symbols:    allSymbols,
+		Imports:    uniqueImports,
+		Files:      files,
+		FileCount:  len(ir.Files),
+		TotalLines: totalLines,
+	}
+}
+
+// snapshotDominantLanguage returns the most frequent language among files.
+func snapshotDominantLanguage(files []*ingest.File) string {
+	counts := make(map[string]int)
+	for _, f := range files {
+		if f.Language != "" {
+			counts[f.Language]++
+		}
+	}
+	best := ""
+	bestCount := 0
+	for lang, count := range counts {
+		if count > bestCount {
+			bestCount = count
+			best = lang
+		}
+	}
+	return best
+}
+
+// sortedImports returns the import map keys as a sorted slice.
+func sortedImports(seen map[string]struct{}) []string {
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for imp := range seen {
+		out = append(out, imp)
+	}
+	sort.Strings(out)
+	return out
+}

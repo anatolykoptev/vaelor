@@ -22,6 +22,9 @@ const (
 
 	// MatchSemantic means the symbols serve the same purpose (LLM-determined).
 	MatchSemantic MatchType = "semantic"
+
+	// MatchGap means the symbol has no counterpart in the other repository.
+	MatchGap MatchType = "gap"
 )
 
 // SymbolMatch pairs a symbol from repo A with its counterpart in repo B.
