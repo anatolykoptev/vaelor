@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/clean"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/polyglot"
 	"github.com/anatolykoptev/go-code/internal/render"
 )
 
@@ -86,6 +87,11 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 	sb.WriteString("## Repository File Tree\n```\n")
 	sb.WriteString(ingest.RenderTree(ir.Files))
 	sb.WriteString("\n```\n\n")
+
+	// Append cross-language architecture section for polyglot repositories.
+	if section := buildPolyglotSection(ir.Files); section != "" {
+		sb.WriteString(section)
+	}
 
 	symbolSection := buildSymbolSummary(results, budget.symbolSummary)
 	sb.WriteString("## Symbol Summary\n")
@@ -336,4 +342,52 @@ func extractQueryTerms(query string) []string {
 		}
 	}
 	return terms
+}
+
+// buildPolyglotSection returns a "Cross-Language Architecture" section for
+// polyglot repositories. Returns "" for single-language repos (no noise).
+func buildPolyglotSection(files []*ingest.File) string {
+	structure := polyglot.DetectStructure(files)
+	if !structure.IsPolyglot() {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Cross-Language Architecture\n")
+	fmt.Fprintf(&sb, "This is a polyglot repository with %d languages.\n\n", len(structure.Languages))
+
+	if len(structure.Layers) > 0 {
+		sb.WriteString("Layers:\n")
+		for _, layer := range structure.Layers {
+			if layer.Role != "" {
+				fmt.Fprintf(&sb, "- %s (%s, %s, %d files)\n", layer.Name, layer.Language, layer.Role, layer.Files)
+			} else {
+				fmt.Fprintf(&sb, "- %s (%s, %d files)\n", layer.Name, layer.Language, layer.Files)
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Language summary sorted by file count (descending).
+	type langCount struct {
+		lang  string
+		count int
+	}
+	langs := make([]langCount, 0, len(structure.Languages))
+	for lang, count := range structure.Languages {
+		langs = append(langs, langCount{lang, count})
+	}
+	sort.Slice(langs, func(i, j int) bool {
+		return langs[i].count > langs[j].count
+	})
+	sb.WriteString("Languages: ")
+	for i, lc := range langs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "%s (%d files)", lc.lang, lc.count)
+	}
+	sb.WriteString("\n\n")
+
+	return sb.String()
 }
