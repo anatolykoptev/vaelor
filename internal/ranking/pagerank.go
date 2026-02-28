@@ -3,13 +3,31 @@ package ranking
 // PageRank computes PageRank scores for nodes in a directed graph.
 // graph maps each node to the list of nodes it links TO (outgoing edges).
 // iterations controls convergence (20 is typical), damping is usually 0.85.
-// Returns normalized scores (sum = 1.0).
+// Returns normalized scores (sum ≈ 1.0).
 func PageRank(graph map[string][]string, iterations int, damping float64) map[string]float64 {
 	if len(graph) == 0 {
 		return nil
 	}
 
-	// Step 1: Collect all unique nodes (sources AND targets).
+	nodes, nodeIndex := collectNodes(graph)
+	n := len(nodes)
+	if n == 0 {
+		return nil
+	}
+
+	nf := float64(n)
+	rank := uniformRanks(n, nf)
+
+	inbound, outDegree := buildReverseGraph(graph, nodeIndex, n)
+	danglingNodes := findDanglingNodes(outDegree, n)
+
+	rank = iterate(rank, inbound, outDegree, danglingNodes, iterations, damping, nf)
+
+	return buildResultMap(nodes, rank)
+}
+
+// collectNodes extracts all unique nodes and assigns indices.
+func collectNodes(graph map[string][]string) ([]string, map[string]int) {
 	nodeSet := make(map[string]struct{})
 	for src, targets := range graph {
 		nodeSet[src] = struct{}{}
@@ -18,28 +36,26 @@ func PageRank(graph map[string][]string, iterations int, damping float64) map[st
 		}
 	}
 
-	n := len(nodeSet)
-	if n == 0 {
-		return nil
-	}
-
-	// Map nodes to indices for efficient iteration.
-	nodeIndex := make(map[string]int, n)
-	indexNode := make([]string, 0, n)
+	nodeIndex := make(map[string]int, len(nodeSet))
+	nodes := make([]string, 0, len(nodeSet))
 	for node := range nodeSet {
-		nodeIndex[node] = len(indexNode)
-		indexNode = append(indexNode, node)
+		nodeIndex[node] = len(nodes)
+		nodes = append(nodes, node)
 	}
+	return nodes, nodeIndex
+}
 
-	// Step 2: Initialize ranks uniformly.
-	nf := float64(n)
+// uniformRanks initializes a rank slice with uniform values.
+func uniformRanks(n int, nf float64) []float64 {
 	rank := make([]float64, n)
 	for i := range rank {
 		rank[i] = 1.0 / nf
 	}
+	return rank
+}
 
-	// Step 3: Build reverse graph (inbound links) and outgoing degree.
-	// inbound[i] = list of node indices that link TO node i.
+// buildReverseGraph constructs inbound links and outgoing degree arrays.
+func buildReverseGraph(graph map[string][]string, nodeIndex map[string]int, n int) ([][]int, []int) {
 	inbound := make([][]int, n)
 	outDegree := make([]int, n)
 
@@ -51,23 +67,26 @@ func PageRank(graph map[string][]string, iterations int, damping float64) map[st
 			inbound[tgtIdx] = append(inbound[tgtIdx], srcIdx)
 		}
 	}
+	return inbound, outDegree
+}
 
-	// Identify dangling nodes (no outgoing edges) for rank redistribution.
-	var danglingNodes []int
-	for i := 0; i < n; i++ {
+// findDanglingNodes returns indices of nodes with no outgoing edges.
+func findDanglingNodes(outDegree []int, n int) []int {
+	var dangling []int
+	for i := range n {
 		if outDegree[i] == 0 {
-			danglingNodes = append(danglingNodes, i)
+			dangling = append(dangling, i)
 		}
 	}
+	return dangling
+}
 
-	// Step 4: Iterate with dangling node redistribution.
-	// Dangling nodes have no outgoing links, so their rank would be lost.
-	// Standard fix: redistribute their rank uniformly to all nodes.
+// iterate runs the PageRank iterations with dangling node redistribution.
+func iterate(rank []float64, inbound [][]int, outDegree []int, danglingNodes []int, iterations int, damping, nf float64) []float64 {
 	base := (1 - damping) / nf
-	newRank := make([]float64, n)
+	newRank := make([]float64, len(rank))
 
-	for iter := 0; iter < iterations; iter++ {
-		// Sum rank mass from all dangling nodes.
+	for range iterations {
 		danglingSum := 0.0
 		for _, idx := range danglingNodes {
 			danglingSum += rank[idx]
@@ -85,12 +104,14 @@ func PageRank(graph map[string][]string, iterations int, damping float64) map[st
 		}
 		rank, newRank = newRank, rank
 	}
+	return rank
+}
 
-	// Step 5: Build result map.
-	result := make(map[string]float64, n)
-	for i, node := range indexNode {
+// buildResultMap converts indexed ranks back to a string-keyed map.
+func buildResultMap(nodes []string, rank []float64) map[string]float64 {
+	result := make(map[string]float64, len(nodes))
+	for i, node := range nodes {
 		result[node] = rank[i]
 	}
-
 	return result
 }
