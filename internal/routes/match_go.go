@@ -43,8 +43,10 @@ var (
 
 	// http.NewRequest("METHOD", "url", ...) and
 	// http.NewRequestWithContext(ctx, "METHOD", "url", ...).
+	// The URL must be a complete string literal (followed by , or )), not a
+	// concatenated expression (followed by +).
 	httpNewRequestRe = regexp.MustCompile(
-		`http\.NewRequest(?:WithContext)?\([^,]*,?\s*"([A-Z]+)"\s*,\s*"([^"]+)"`,
+		`http\.NewRequest(?:WithContext)?\([^,]*,?\s*"([A-Z]+)"\s*,\s*"([^"]+)"\s*[,)]`,
 	)
 )
 
@@ -61,6 +63,13 @@ func (g *GoMatcher) Match(source []byte) []Route {
 		if parts := go122MethodRe.FindStringSubmatch(raw); parts != nil {
 			method = parts[1]
 			path = parts[2]
+			// Go 1.22 host patterns: "GET example.com/api/data" — strip
+			// the host portion so only the path remains.
+			if !strings.HasPrefix(path, "/") {
+				if slashIdx := strings.Index(path, "/"); slashIdx >= 0 {
+					path = path[slashIdx:]
+				}
+			}
 		}
 		routes = append(routes, Route{
 			Method:    method,

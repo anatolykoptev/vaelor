@@ -21,10 +21,10 @@ func (ts *TypeScriptMatcher) Language() string { return "typescript" }
 // Server-side patterns.
 var (
 	// Express / Fastify / Hono: app.get("/path", handler), router.post("/path", handler).
-	// Captures the receiver name in group 1 so we can filter out client-side
-	// libraries like axios that use the same .get()/.post() pattern.
+	// Captures: 1=receiver, 2=method, 3=path, 4=optional handler name.
+	// Arrow functions and inline callbacks don't match group 4, leaving Handler empty.
 	tsRouterMethodRe = regexp.MustCompile(
-		`(\w+)\.(get|post|put|delete|patch)\(\s*["']([^"']+)["']`,
+		`(\w+)\.(get|post|put|delete|patch)\(\s*["']([^"']+)["']\s*(?:,\s*([A-Za-z_]\w*))?`,
 	)
 
 	// NestJS decorators: @Get("/path"), @Post("/path"), etc.
@@ -59,10 +59,15 @@ func (ts *TypeScriptMatcher) Match(source []byte) []Route {
 		}
 		method := normalizeMethod(string(m[2]))
 		raw := string(m[3])
+		var handler string
+		if len(m) > 4 && len(m[4]) > 0 {
+			handler = string(m[4])
+		}
 		routes = append(routes, Route{
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
+			Handler:   handler,
 			Framework: "express",
 			Side:      "server",
 		})
@@ -81,14 +86,14 @@ func (ts *TypeScriptMatcher) Match(source []byte) []Route {
 		})
 	}
 
-	// Client: fetch().
+	// Client: fetch() — defaults to GET per Fetch API spec.
 	for _, m := range tsFetchRe.FindAllSubmatch(source, -1) {
 		raw := string(m[1])
 		routes = append(routes, Route{
-			Method:    "*",
+			Method:    "GET",
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
-			Framework: "express",
+			Framework: "fetch",
 			Side:      "client",
 		})
 	}

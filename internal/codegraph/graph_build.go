@@ -11,6 +11,12 @@ import (
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
 
+// Route side constants.
+const (
+	sideServer = "server"
+	sideClient = "client"
+)
+
 // buildGraph constructs vertices and edges from ingested files and parsed symbols.
 func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg *callgraph.CallGraph) ([]vertexData, []edgeData) {
 	// Collect unique packages (directories).
@@ -152,7 +158,7 @@ func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, 
 		}
 		routeKey := r.Method + ":" + r.Path
 		edgeLabel := "HANDLES"
-		if r.Side == "client" {
+		if r.Side == sideClient {
 			edgeLabel = "FETCHES"
 		}
 		edges = append(edges, edgeData{
