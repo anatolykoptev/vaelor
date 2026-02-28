@@ -27,6 +27,10 @@ type DepGraphInput struct {
 
 	// IncludeStdlib includes Go standard library imports in the graph.
 	IncludeStdlib bool `json:"include_stdlib,omitempty" jsonschema_description:"Include standard library imports in graph. Default false (stdlib excluded)."`
+
+	// CrossLanguage includes cross-language API route connections between layers.
+	// Cross-language dependencies are available via code_graph polyglot_overview and layer_deps templates.
+	CrossLanguage bool `json:"cross_language,omitempty" jsonschema_description:"Include cross-language API route connections between layers"`
 }
 
 // registerDepGraph registers the dep_graph MCP tool.
@@ -57,6 +61,7 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 			Focus:         input.Focus,
 			MaxDepth:      input.MaxDepth,
 			IncludeStdlib: input.IncludeStdlib,
+			CrossLanguage: input.CrossLanguage,
 		})
 		if err != nil {
 			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil, nil
