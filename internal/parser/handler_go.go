@@ -110,7 +110,15 @@ func (h *goHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 }
 
 func (h *goHandler) mapConst(node *sitter.Node, source []byte) *Symbol {
-	nameNode := constVarName(node, "const_spec")
+	// Skip function-local const declarations.
+	if parent := node.Parent(); parent != nil && parent.Type() != "source_file" {
+		return nil
+	}
+	spec := firstChildOfType(node, "const_spec")
+	if spec == nil {
+		return nil
+	}
+	nameNode := spec.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil
 	}
@@ -120,12 +128,20 @@ func (h *goHandler) mapConst(node *sitter.Node, source []byte) *Symbol {
 		Language:  "go",
 		StartLine: node.StartPoint().Row + 1,
 		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Signature: extractSignature(spec, source), // spec, not node — avoids "const (" for blocks
 	}
 }
 
 func (h *goHandler) mapVar(node *sitter.Node, source []byte) *Symbol {
-	nameNode := constVarName(node, "var_spec")
+	// Skip function-local var declarations.
+	if parent := node.Parent(); parent != nil && parent.Type() != "source_file" {
+		return nil
+	}
+	spec := firstChildOfType(node, "var_spec")
+	if spec == nil {
+		return nil
+	}
+	nameNode := spec.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil
 	}
@@ -135,7 +151,7 @@ func (h *goHandler) mapVar(node *sitter.Node, source []byte) *Symbol {
 		Language:  "go",
 		StartLine: node.StartPoint().Row + 1,
 		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Signature: extractSignature(spec, source), // spec, not node
 	}
 }
 
@@ -183,12 +199,3 @@ func detectTypeKind(typeSpec *sitter.Node) NodeKind {
 	}
 }
 
-// constVarName finds the first named identifier inside a const_spec or var_spec.
-// Note: multi-name declarations (var a, b int) only return the first name.
-func constVarName(node *sitter.Node, specType string) *sitter.Node {
-	spec := firstChildOfType(node, specType)
-	if spec == nil {
-		return nil
-	}
-	return spec.ChildByFieldName("name")
-}

@@ -257,6 +257,23 @@ func TestSearchSymbols_NoMatch(t *testing.T) {
 	}
 }
 
+func TestSearchSymbols_Limit(t *testing.T) {
+	root := makeFixtureRepo(t)
+	ctx := context.Background()
+
+	symbols, err := SearchSymbols(ctx, SymbolSearchInput{
+		Root:  root,
+		Query: "*",
+		Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) > 2 {
+		t.Errorf("expected at most 2 symbols, got %d", len(symbols))
+	}
+}
+
 // --- BuildDepGraph tests ---
 
 func TestBuildDepGraph_Formats(t *testing.T) {
@@ -409,5 +426,43 @@ func TestBuildLLMContext_ContainsSections(t *testing.T) {
 		if !strings.Contains(ctx, section) {
 			t.Errorf("LLM context missing section %q", section)
 		}
+	}
+}
+
+func TestBuildDepGraph_InvalidFormat(t *testing.T) {
+	root := makeFixtureRepo(t)
+	ctx := context.Background()
+
+	_, err := BuildDepGraph(ctx, DepGraphInput{
+		Root:   root,
+		Format: "invalid_format_xyz",
+	})
+	if err == nil {
+		t.Error("expected error for invalid format, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "unsupported format") {
+		t.Errorf("expected 'unsupported format' error, got: %v", err)
+	}
+}
+
+func TestIsStdlibImport(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"fmt", true},
+		{"net/http", true},
+		{"context", true},
+		{"strings", true},
+		{"github.com/foo/bar", false},
+		{"golang.org/x/tools", false},
+		{"example.com/pkg", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := isStdlibImport(tc.path); got != tc.want {
+				t.Errorf("isStdlibImport(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
 	}
 }

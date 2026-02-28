@@ -47,6 +47,9 @@ type IngestOpts struct {
 
 	// FollowSymlinks controls whether symlinks are followed.
 	FollowSymlinks bool
+
+	// ExcludeTests skips test files (*_test.go) when true.
+	ExcludeTests bool
 }
 
 // IngestResult contains all files found after filtering.
@@ -144,6 +147,10 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 
 	if shouldIgnoreFile(name) || matchGitignore(relPath, false, patterns) {
 		return true, nil
+	}
+
+	if opts.ExcludeTests && strings.HasSuffix(name, "_test.go") {
+		return false, nil
 	}
 
 	lang := DetectLanguage(name)
