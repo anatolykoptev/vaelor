@@ -665,9 +665,9 @@ func TestParseRubyFile(t *testing.T) {
 		{"MAX_RETRIES", parser.KindConst},
 		{"Server", parser.KindType},
 		{"Config", parser.KindClass},
-		{"initialize", parser.KindFunction},
-		{"address", parser.KindFunction},
-		{"default", parser.KindFunction},
+		{"initialize", parser.KindMethod},
+		{"address", parser.KindMethod},
+		{"default", parser.KindMethod},
 		{"create_config", parser.KindFunction},
 	}
 

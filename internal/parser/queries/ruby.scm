@@ -19,11 +19,11 @@
 (class
   body: (body_statement
     (method
-      name: (identifier) @symbol.name) @symbol.function))
+      name: (identifier) @symbol.name) @symbol.method))
 
 ; Singleton methods (def self.foo) — class-level methods.
 (singleton_method
-  name: (identifier) @symbol.name) @symbol.function
+  name: (identifier) @symbol.name) @symbol.method
 
 ; Class declarations.
 (class

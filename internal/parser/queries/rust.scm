@@ -6,6 +6,12 @@
   (function_item
     name: (identifier) @symbol.name) @symbol.function)
 
+; Free functions inside mod blocks.
+(mod_item
+  body: (declaration_list
+    (function_item
+      name: (identifier) @symbol.name) @symbol.function))
+
 ; Methods inside impl blocks.
 (impl_item
   body: (declaration_list
