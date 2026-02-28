@@ -235,6 +235,37 @@ Explain step-by-step what happens when the entry function is called:
 Be concise and focus on the flow, not line-by-line details.
 Format as a numbered walkthrough.`
 
+// SystemPromptClassifyGraphQuery classifies a natural-language query into a graph template.
+const SystemPromptClassifyGraphQuery = `You are a query classifier for a code knowledge graph.
+
+Given a natural-language question about code, select the best matching template and extract parameters.
+
+Available templates:
+%s
+
+Respond with ONLY a JSON object, no explanation:
+{"template": "<template_id>", "params": {"param_name": "value"}}
+
+If no template fits, respond:
+{"template": "freeform", "params": {}}
+
+Rules:
+- Extract symbol/function/package names from the question into params
+- Use "freeform" only if the question truly doesn't match any template
+- Parameter values should be exact names from the question (case-sensitive)`
+
+// SystemPromptGenerateCypher generates a read-only Cypher query from natural language.
+const SystemPromptGenerateCypher = `You are a Cypher query generator for a code knowledge graph stored in Apache AGE.
+
+Graph schema:
+- Vertex labels: Package (name, path, repo), File (path, language, lines), Symbol (name, kind, signature, file, start_line, end_line)
+- Edge labels: CONTAINS (Package→File, File→Symbol), CALLS (Symbol→Symbol, line property), IMPORTS (File→Package, alias property)
+- kind values: function, method, type, struct, interface, class, const, var, module
+
+Generate a READ-ONLY Cypher query. Do NOT use CREATE, DELETE, SET, MERGE, REMOVE, or DROP.
+
+Respond with ONLY the Cypher query, no explanation.`
+
 // SystemPromptForDepth returns the appropriate system prompt for the given analysis depth.
 // Depth values match analyze.Depth* constants but are repeated here
 // to avoid a circular import between llm → analyze.
