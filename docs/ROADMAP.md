@@ -117,29 +117,32 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 3: Comparison Engine
+## Phase 3: Comparison Engine ✅
 
-**Goal**: Compare implementations between repositories.
+**Goal**: Compare implementations between repositories to find the better solution.
 
-### 3.1 Structural diff
-- [ ] Symbol-level matching by (kind, name, signature hash)
-- [ ] Fuzzy matching for renamed/similar functions
-- [ ] Side-by-side alignment of matched symbols
-- [ ] Metrics: LOC, complexity, dependency count per repo
+**Status**: Complete (2026-02-28). `code_compare` tool fully operational.
 
-### 3.2 `code_compare` tool (wire the stub)
-- [ ] Input: 2-3 repos + query/focus area
-- [ ] Parallel ingest + parse
-- [ ] Structural alignment
-- [ ] LLM: compare aligned code, produce structured report
-- [ ] Output: aspect-by-aspect comparison with code snippets
+### 3.1 Structural diff ✅
+- [x] Symbol-level matching: exact (name+kind), fuzzy (Levenshtein, threshold 0.7), semantic (LLM classifier)
+- [x] Side-by-side alignment of matched symbols with match score
+- [x] Coverage gap detection (symbols missing from one side)
+- [x] Metrics: avg/max function lines, test ratio, doc ratio, error handling ratio, interfaces, external deps (9 signals)
 
-### 3.3 Module-level comparison
-- [ ] Compare specific directories/packages between repos
-- [ ] "How does repo-A implement auth vs repo-B?"
-- [ ] Focus on: architecture, patterns, error handling, testing approach
+### 3.2 `code_compare` tool ✅
+- [x] Input: 2 repos (GitHub or local) + query + optional focus/language filter
+- [x] Parallel snapshot building (goroutine worker pool)
+- [x] Three-pass symbol matching (exact → fuzzy → semantic)
+- [x] LLM analysis: quality verdicts, coverage gaps, architecture insights, recommendations
+- [x] JSON output structured for AI consumption (CompareResult)
+- [x] Budget-aware LLM context assembly (180K chars, 3K per snippet, 80 matched pairs, 40 gaps)
 
-**Deliverable**: `code_compare` tool that can meaningfully compare two implementations.
+### 3.3 Module-level comparison ✅
+- [x] Focus parameter for subdirectory-level comparison
+- [x] Language filter for cross-language comparison
+- [x] Quality-focused LLM prompt: finds better solution, not just differences
+
+**Deliverable**: `code_compare` tool that compares two implementations and finds the better one. ✅
 
 ---
 
@@ -193,7 +196,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 ## Dependencies Between Phases
 
 ```
-Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Comparison)
+Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Comparison) ✅
                               2.1 Languages ✅              │
                               2.2 Cleaning ✅                ▼
                               2.3 Analysis ✅   Phase 4 (Advanced) ←──┘
@@ -202,9 +205,9 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2 complete (all sub-phases: 2.1 languages, 2.2 cleaning, 2.3 multi-level, 2.3a noise reduction, 2.4 caching).
-Phase 3 is now unblocked.
-Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
+Phase 1 complete. Phase 2 complete. Phase 3 complete.
+Phase 4 (advanced analysis) is now unblocked.
+Phase 5 (migration) should only happen after Phase 4 proves go-code is better.
 
 ## Releases
 
@@ -216,6 +219,7 @@ Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 | v1.3.0 | `24613ba` | Phase 2.2: Render modes (signatures, skeleton, focused) for `repo_analyze` |
 | v1.3.1 | `72e8617` | Fix render bugs: dangling braces, nested symbols, validation |
 | v1.4.0 | `a99d14d` | Phase 2.3+2.4: Multi-level analysis (depth) + LRU caching |
+| v1.5.0 | `4e471f0` | Phase 3: Comparison Engine — `code_compare` with structural diff + LLM analysis |
 
 ## Technical Debt Watch
 
