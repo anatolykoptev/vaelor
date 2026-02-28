@@ -147,8 +147,11 @@ func applyConfigDefaults(cfg IndexConfig) IndexConfig {
 // nil+err on a hard failure (e.g. drop failed).
 func checkCache(ctx context.Context, store *Store, repoKey, gname string) (*GraphMeta, error) {
 	existing, err := getMeta(ctx, store, repoKey)
-	if err != nil || existing == nil {
-		return nil, nil //nolint:nilerr // missing meta = no cache, not an error
+	if err != nil {
+		return nil, fmt.Errorf("check cache: %w", err)
+	}
+	if existing == nil {
+		return nil, nil
 	}
 	if isFresh(existing.BuiltAt, existing.TTLSeconds) {
 		return existing, nil
