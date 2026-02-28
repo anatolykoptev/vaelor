@@ -33,6 +33,18 @@ type Config struct {
 	// PathMappings translates external paths to container-internal paths.
 	PathMappings []analyze.PathMapping
 
+	// SearxngURL is the SearXNG instance URL for repo_search.
+	SearxngURL string
+
+	// RedisURL is the optional Redis URL for L2 cache (e.g. redis://redis:6379/6).
+	RedisURL string
+
+	// LLMFallbackKeys are fallback API keys tried when primary gets 429/5xx.
+	LLMFallbackKeys []string
+
+	// GithubSearchRepos are default repos for quick mode code search.
+	GithubSearchRepos []string
+
 	// DatabaseURL is the PostgreSQL DSN for Apache AGE graph storage.
 	// Empty means code_graph tool is disabled.
 	DatabaseURL string
@@ -75,6 +87,10 @@ func loadConfig() Config {
 		LLMModel:     env("LLM_MODEL", defaultLLMModel),
 		GithubToken:  env("GITHUB_TOKEN", ""),
 		WorkspaceDir: env("WORKSPACE_DIR", defaultWorkspaceDir),
+		SearxngURL:        env("SEARXNG_URL", "http://searxng:8888"),
+		RedisURL:          env("REDIS_URL", ""),
+		LLMFallbackKeys:  envList("LLM_API_KEY_FALLBACK", ""),
+		GithubSearchRepos: envList("GITHUB_SEARCH_REPOS", ""),
 		PathMappings: parsePathMappings(env("PATH_MAPPINGS", "")),
 		MaxFileBytes: int64(envInt("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
 		MaxRepoBytes:  int64(envInt("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
@@ -107,6 +123,21 @@ func parsePathMappings(raw string) []analyze.PathMapping {
 		}
 	}
 	return mappings
+}
+
+func envList(key, def string) []string {
+	v := env(key, def)
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	var out []string
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func envInt(key string, def int) int {

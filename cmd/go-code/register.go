@@ -7,7 +7,9 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/llm"
+	"github.com/anatolykoptev/go-code/internal/search"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -21,11 +23,18 @@ func registerTools(server *mcp.Server, cfg Config) {
 	parseCache := cache.NewParseCache(parseCacheSize)
 	llmCache := cache.NewLLMCache(llmCacheSize, time.Duration(llmCacheTTLMin)*time.Minute)
 
+	toolCache := cache.NewGenericCache[string](cache.GenericCacheConfig{
+		MaxSize:  envIntOrDefault("TOOL_CACHE_SIZE", 200), //nolint:mnd // default cache size
+		TTL:      time.Hour,
+		RedisURL: cfg.RedisURL,
+	})
+
 	deps := analyze.Deps{
 		LLM: llm.NewClient(llm.Config{
-			BaseURL: cfg.LLMURL,
-			APIKey:  cfg.LLMAPIKey,
-			Model:   cfg.LLMModel,
+			BaseURL:      cfg.LLMURL,
+			APIKey:       cfg.LLMAPIKey,
+			Model:        cfg.LLMModel,
+			FallbackKeys: cfg.LLMFallbackKeys,
 		}),
 		MaxFileBytes: cfg.MaxFileBytes,
 		GithubToken:  cfg.GithubToken,
@@ -33,6 +42,9 @@ func registerTools(server *mcp.Server, cfg Config) {
 		PathMappings: cfg.PathMappings,
 		ParseCache:   parseCache,
 		LLMCache:     llmCache,
+		GitHub:       github.NewClient(cfg.GithubToken),
+		SearXNG:      search.NewSearXNGClient(cfg.SearxngURL),
+		ToolCache:    toolCache,
 	}
 
 	registerRepoAnalyze(server, cfg, deps)

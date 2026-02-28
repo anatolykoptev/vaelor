@@ -20,10 +20,12 @@ import (
 	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/render"
+	"github.com/anatolykoptev/go-code/internal/search"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
@@ -57,6 +59,15 @@ type Deps struct {
 
 	// LLMCache caches LLM responses. Optional.
 	LLMCache *cache.LLMCache
+
+	// GitHub is the GitHub API client for search operations.
+	GitHub *github.Client
+
+	// SearXNG is the SearXNG client for web/repo search.
+	SearXNG *search.SearXNGClient
+
+	// ToolCache is a generic cache for tool results (search, etc.).
+	ToolCache *cache.GenericCache[string]
 }
 
 // maxFileBytes returns the effective file size limit.
