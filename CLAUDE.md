@@ -4,6 +4,8 @@ Multi-language code intelligence server powered by tree-sitter AST parsing.
 Provides MCP tools for repository analysis, code comparison, dependency graph
 visualization, and symbol search across any GitHub or local codebase.
 
+**Supported languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#
+
 **Go module**: `github.com/anatolykoptev/go-code`
 **Port**: 8897
 **MCP endpoint**: `http://127.0.0.1:8897/mcp`
@@ -23,10 +25,19 @@ internal/
     clone.go           — CloneRepo: shallow git clone with auth
   parser/              — tree-sitter AST parsing
     parser.go          — ParseFile: extract symbols from source files
+    handler.go         — LanguageHandler interface + registry
+    handler_go.go      — Go handler
+    handler_python.go  — Python handler
+    handler_typescript.go — TypeScript/JS handler
+    handler_rust.go    — Rust handler
+    handler_java.go    — Java handler
+    handler_c.go       — C handler
+    handler_cpp.go     — C++ handler
+    handler_ruby.go    — Ruby handler
+    handler_csharp.go  — C# handler
     queries/           — .scm tree-sitter query files per language
-      go.scm           — Go symbols: functions, types, methods, imports
-      python.scm       — Python symbols: functions, classes, imports
-      typescript.scm   — TypeScript/JS symbols: functions, classes, interfaces
+      go.scm, python.scm, typescript.scm, rust.scm,
+      java.scm, c.scm, cpp.scm, ruby.scm, csharp.scm
   clean/               — Smart code cleaning for LLM context
     clean.go           — CleanSource: strip comments, collapse blanks, truncate
   compare/             — Code comparison engine
@@ -89,6 +100,17 @@ make deploy      # docker compose build --no-cache + up -d
 4. Implement backing logic in the appropriate `internal/` package
 5. Update tool count and description in this CLAUDE.md
 
+## Adding a New Language
+
+1. Create `internal/parser/queries/<lang>.scm` with tree-sitter query patterns
+2. Create `internal/parser/handler_<lang>.go` implementing `LanguageHandler` interface
+3. Register the handler in `init()` via `registerHandler("<lang>", ...)`
+4. Add test sample `internal/parser/testdata/sample.<ext>`
+5. Add `TestParse<Lang>File` in `internal/parser/parser_test.go`
+6. Update this CLAUDE.md
+
+The `LanguageHandler` interface requires: `Language()`, `Extensions()`, `Grammar()`, `QuerySource()`, `MapSymbol()`.
+
 ## CGO Requirement
 
 tree-sitter grammars are C libraries. This means:
@@ -118,10 +140,14 @@ go-code:
     context: /path/to/repos/src/go-code
   ports:
     - "127.0.0.1:8897:8897"
+  volumes:
+    - /path/to/repos/src:/host-src:ro
   env_file:
     - .env
   restart: unless-stopped
 ```
+
+**Note**: Local paths are mounted at `/host-src/` inside the container. When analyzing local repos via MCP, use the host path — the server translates automatically.
 
 Register as MCP server after deployment:
 ```bash

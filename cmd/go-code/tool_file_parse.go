@@ -41,6 +41,7 @@ func registerFileParse(server *mcp.Server, cfg Config) {
 			return errResult("path is required"), nil, nil
 		}
 
+		input.Path = rewritePath(input.Path, cfg.PathMappings)
 		fi, err := os.Stat(input.Path)
 		if err != nil {
 			return errResult(fmt.Sprintf("stat file: %s", err)), nil, nil
