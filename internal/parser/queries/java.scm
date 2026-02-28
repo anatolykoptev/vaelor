@@ -31,6 +31,20 @@
     (method_declaration
       name: (identifier) @symbol.name) @symbol.method))
 
+; Method declarations inside enum bodies.
+(enum_declaration
+  body: (enum_body
+    (enum_body_declarations
+      (method_declaration
+        name: (identifier) @symbol.name) @symbol.method)))
+
+; Constructor declarations inside enum bodies.
+(enum_declaration
+  body: (enum_body
+    (enum_body_declarations
+      (constructor_declaration
+        name: (identifier) @symbol.name) @symbol.method)))
+
 ; Import declarations.
 (import_declaration
   (scoped_identifier) @import.path)

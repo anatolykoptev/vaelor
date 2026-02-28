@@ -109,9 +109,14 @@ func (h *cppHandler) mapClass(node *sitter.Node, source []byte) *Symbol {
 
 // mapType maps struct_specifier and enum_specifier captures.
 // struct_specifier → KindStruct, everything else → KindType.
+// Only captures definitions with a body — skips type references like "struct Foo* p".
 func (h *cppHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
+		return nil
+	}
+	// Skip type references without a body (e.g. "struct Foo* ptr;").
+	if (node.Type() == "struct_specifier" || node.Type() == "enum_specifier") && node.ChildByFieldName("body") == nil {
 		return nil
 	}
 	kind := KindType

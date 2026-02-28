@@ -44,6 +44,8 @@ func (h *rubyHandler) MapCapture(captureName string, node *sitter.Node, source [
 	switch captureName {
 	case captureFunction:
 		return h.mapFunction(node, source)
+	case captureMethod:
+		return h.mapMethod(node, source)
 	case captureClass:
 		return h.mapClass(node, source)
 	case captureType:
@@ -62,6 +64,21 @@ func (h *rubyHandler) mapFunction(node *sitter.Node, source []byte) *Symbol {
 	return &Symbol{
 		Name:      nameNode.Content(source),
 		Kind:      KindFunction,
+		Language:  "ruby",
+		StartLine: node.StartPoint().Row + 1,
+		EndLine:   node.EndPoint().Row + 1,
+		Signature: extractSignature(node, source),
+	}
+}
+
+func (h *rubyHandler) mapMethod(node *sitter.Node, source []byte) *Symbol {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil
+	}
+	return &Symbol{
+		Name:      nameNode.Content(source),
+		Kind:      KindMethod,
 		Language:  "ruby",
 		StartLine: node.StartPoint().Row + 1,
 		EndLine:   node.EndPoint().Row + 1,

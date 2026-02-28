@@ -82,9 +82,13 @@ func (h *cHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 
 	switch node.Type() {
 	case "struct_specifier":
-		// Named struct: "struct Server { ... }"
+		// Named struct definition: "struct Server { ... }"
+		// Skip type references like "struct Node* next;" (no body).
 		nameNode := node.ChildByFieldName("name")
 		if nameNode == nil {
+			return nil
+		}
+		if node.ChildByFieldName("body") == nil {
 			return nil
 		}
 		name = nameNode.Content(source)
@@ -100,9 +104,13 @@ func (h *cHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 		name = declNode.Content(source)
 
 	case "enum_specifier":
-		// Named enum: "enum Status { ... }"
+		// Named enum definition: "enum Status { ... }"
+		// Skip type references like "enum LogLevel level" (no body).
 		nameNode := node.ChildByFieldName("name")
 		if nameNode == nil {
+			return nil
+		}
+		if node.ChildByFieldName("body") == nil {
 			return nil
 		}
 		name = nameNode.Content(source)
