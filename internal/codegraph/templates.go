@@ -14,13 +14,28 @@ type Template struct {
 	Cols        int
 }
 
-// Render substitutes $param placeholders with escaped values from params.
+// Render substitutes {param} placeholders with escaped values from params.
+// Uses curly-brace syntax to avoid conflicts with AGE's $-parameter references.
 func (t *Template) Render(params map[string]string) string {
 	q := t.Cypher
-	for k, v := range params {
-		q = strings.ReplaceAll(q, "$"+k, escapeCypher(v))
+	for _, key := range t.Params {
+		v, ok := params[key]
+		if !ok || v == "" {
+			v = templateDefaults[key]
+		}
+		q = strings.ReplaceAll(q, "{"+key+"}", escapeCypher(v))
 	}
 	return q
+}
+
+// templateDefaults provides fallback values for unspecified template parameters.
+var templateDefaults = map[string]string{
+	"limit": "20",
+	"name":  "",
+	"path":  "",
+	"pkg":   "",
+	"from":  "",
+	"to":    "",
 }
 
 // templates holds all built-in query templates keyed by ID.
@@ -29,49 +44,49 @@ var templates = map[string]*Template{
 		ID:          "who_calls",
 		Description: "Find all symbols that call the named symbol",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (caller:Symbol)-[:CALLS]->(target:Symbol {name: '$name'}) RETURN caller",
+		Cypher:      "MATCH (caller:Symbol)-[:CALLS]->(target:Symbol {name: '{name}'}) RETURN caller",
 		Cols:        1,
 	},
 	"calls_of": {
 		ID:          "calls_of",
 		Description: "Find all symbols called by the named symbol",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (src:Symbol {name: '$name'})-[:CALLS]->(callee:Symbol) RETURN callee",
+		Cypher:      "MATCH (src:Symbol {name: '{name}'})-[:CALLS]->(callee:Symbol) RETURN callee",
 		Cols:        1,
 	},
 	"imports_of": {
 		ID:          "imports_of",
 		Description: "Find packages imported by files matching a path",
 		Params:      []string{"path"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '$path' RETURN p",
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{path}' RETURN p",
 		Cols:        1,
 	},
 	"importers_of": {
 		ID:          "importers_of",
 		Description: "Find files that import the named package",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '$name'}) RETURN f",
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '{name}'}) RETURN f",
 		Cols:        1,
 	},
 	"symbols_in": {
 		ID:          "symbols_in",
 		Description: "Find symbols contained in files matching a path",
 		Params:      []string{"path"},
-		Cypher:      "MATCH (c)-[:CONTAINS]->(s:Symbol) WHERE c.path CONTAINS '$path' RETURN s",
+		Cypher:      "MATCH (c)-[:CONTAINS]->(s:Symbol) WHERE c.path CONTAINS '{path}' RETURN s",
 		Cols:        1,
 	},
 	"call_chain": {
 		ID:          "call_chain",
 		Description: "Find the shortest call path between two symbols",
 		Params:      []string{"from", "to"},
-		Cypher:      "MATCH path = shortestPath((a:Symbol {name: '$from'})-[:CALLS*..10]->(b:Symbol {name: '$to'})) RETURN path",
+		Cypher:      "MATCH path = shortestPath((a:Symbol {name: '{from}'})-[:CALLS*..10]->(b:Symbol {name: '{to}'})) RETURN path",
 		Cols:        1,
 	},
 	"most_connected": {
 		ID:          "most_connected",
 		Description: "List the most-called symbols up to a limit",
 		Params:      []string{"limit"},
-		Cypher:      "MATCH (s:Symbol)<-[:CALLS]-(caller:Symbol) RETURN s.name, s.kind, s.file, count(caller) AS call_count ORDER BY call_count DESC LIMIT $limit",
+		Cypher:      "MATCH (s:Symbol)<-[:CALLS]-(caller:Symbol) RETURN s.name, s.kind, s.file, count(caller) AS call_count ORDER BY call_count DESC LIMIT {limit}",
 		Cols:        4,
 	},
 	"dead_code": {
@@ -85,14 +100,14 @@ var templates = map[string]*Template{
 		ID:          "depends_on",
 		Description: "Find distinct packages depended on by files matching a path prefix",
 		Params:      []string{"pkg"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '$pkg' RETURN DISTINCT p",
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{pkg}' RETURN DISTINCT p",
 		Cols:        1,
 	},
 	"dependents_of": {
 		ID:          "dependents_of",
 		Description: "Find distinct files that depend on the named package",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '$name'}) RETURN DISTINCT f",
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '{name}'}) RETURN DISTINCT f",
 		Cols:        1,
 	},
 }

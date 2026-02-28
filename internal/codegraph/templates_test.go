@@ -73,10 +73,10 @@ func TestTemplateRender(t *testing.T) {
 			if !strings.Contains(got, tc.want) {
 				t.Errorf("Render(%v) = %q, want substring %q", tc.params, got, tc.want)
 			}
-			// Verify no unsubstituted $param placeholders remain for provided params.
+			// Verify no unsubstituted {param} placeholders remain for provided params.
 			for k := range tc.params {
-				if strings.Contains(got, "$"+k) {
-					t.Errorf("Render left unsubstituted placeholder $%s in %q", k, got)
+				if strings.Contains(got, "{"+k+"}") {
+					t.Errorf("Render left unsubstituted placeholder {%s} in %q", k, got)
 				}
 			}
 		})
