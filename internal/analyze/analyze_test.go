@@ -414,6 +414,66 @@ func TestExtractQueryTerms(t *testing.T) {
 	}
 }
 
+func TestExtractQueryTerms_CamelCase(t *testing.T) {
+	terms := extractQueryTerms("handleUserAuth middleware")
+	want := map[string]bool{
+		"handle":          true,
+		"user":            true,
+		"auth":            true,
+		"handleuserauth":  true,
+		"middleware":       true,
+	}
+	got := make(map[string]bool)
+	for _, term := range terms {
+		got[term] = true
+	}
+	for w := range want {
+		if !got[w] {
+			t.Errorf("expected term %q, got terms: %v", w, terms)
+		}
+	}
+}
+
+func TestExtractQueryTerms_SnakeCase(t *testing.T) {
+	terms := extractQueryTerms("parse_file_content")
+	want := map[string]bool{
+		"parse":              true,
+		"file":               true,
+		"content":            true,
+		"parse_file_content": true,
+	}
+	got := make(map[string]bool)
+	for _, term := range terms {
+		got[term] = true
+	}
+	for w := range want {
+		if !got[w] {
+			t.Errorf("expected term %q, got terms: %v", w, terms)
+		}
+	}
+}
+
+func TestExtractQueryTerms_MixedIdentifiers(t *testing.T) {
+	terms := extractQueryTerms("What does BuildLLMContext do?")
+	want := map[string]bool{
+		"build":           true,
+		"llm":             true,
+		"context":         true,
+		"buildllmcontext": true,
+		"what":            true,
+		"does":            true,
+	}
+	got := make(map[string]bool)
+	for _, term := range terms {
+		got[term] = true
+	}
+	for w := range want {
+		if !got[w] {
+			t.Errorf("expected term %q, got terms: %v", w, terms)
+		}
+	}
+}
+
 func TestBuildLLMContext_ContainsSections(t *testing.T) {
 	root := makeFixtureRepo(t)
 	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})

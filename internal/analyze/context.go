@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/clean"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -331,16 +332,108 @@ func computeSymbolCounts(results []fileParseResult) map[string]int {
 // nonAlphanumRe matches characters that are not letters, digits, or underscores.
 var nonAlphanumRe = regexp.MustCompile(`[^\w]`)
 
-// extractQueryTerms splits the query into lowercase alphanumeric terms for matching.
-func extractQueryTerms(query string) []string {
-	words := strings.Fields(strings.ToLower(query))
-	var terms []string
-	for _, w := range words {
-		clean := nonAlphanumRe.ReplaceAllString(w, "")
-		if len(clean) >= 3 { //nolint:mnd // minimum term length to avoid noise
-			terms = append(terms, clean)
+// splitCamelCase splits a camelCase or PascalCase identifier into lowercase subwords.
+// Consecutive uppercase letters are treated as an acronym (e.g. "LLMClient" → ["llm", "client"]).
+// Subwords shorter than 2 characters are discarded.
+func splitCamelCase(s string) []string {
+	var parts []string
+	runes := []rune(s)
+	start := 0
+
+	for i := 1; i < len(runes); i++ {
+		prev := runes[i-1]
+		cur := runes[i]
+
+		split := false
+		switch {
+		// lowerUpper boundary: "handleUser" → split before 'U'
+		case unicode.IsLower(prev) && unicode.IsUpper(cur):
+			split = true
+		// letter-digit boundary: "v2" is kept, but "Auth2Factor" splits before '2'
+		case unicode.IsLetter(prev) && unicode.IsDigit(cur):
+			split = true
+		// digit-letter boundary: "2Factor" → split before 'F'
+		case unicode.IsDigit(prev) && unicode.IsLetter(cur):
+			split = true
+		// acronym end: "LLMClient" → 'M' is upper, 'C' is upper, 'l' is lower → split before 'C'
+		case unicode.IsUpper(prev) && unicode.IsUpper(cur) && i+1 < len(runes) && unicode.IsLower(runes[i+1]):
+			split = true
+		}
+
+		if split {
+			part := strings.ToLower(string(runes[start:i]))
+			if len(part) >= 2 { //nolint:mnd // minimum subword length
+				parts = append(parts, part)
+			}
+			start = i
 		}
 	}
+
+	// Append the last segment.
+	if start < len(runes) {
+		part := strings.ToLower(string(runes[start:]))
+		if len(part) >= 2 { //nolint:mnd // minimum subword length
+			parts = append(parts, part)
+		}
+	}
+
+	return parts
+}
+
+// splitIdentifier splits an identifier on underscores, then splits each part by camelCase.
+func splitIdentifier(s string) []string {
+	snakeParts := strings.Split(s, "_")
+	var result []string
+
+	for _, part := range snakeParts {
+		if part == "" {
+			continue
+		}
+		camelParts := splitCamelCase(part)
+		result = append(result, camelParts...)
+	}
+
+	return result
+}
+
+// extractQueryTerms splits the query into lowercase alphanumeric terms for matching.
+// Compound identifiers (camelCase, snake_case) are split into subwords alongside
+// the original compound term for better file and symbol matching.
+func extractQueryTerms(query string) []string {
+	seen := make(map[string]struct{})
+	var terms []string
+
+	addTerm := func(t string) {
+		if _, ok := seen[t]; !ok && len(t) >= 3 { //nolint:mnd // minimum term length to avoid noise
+			seen[t] = struct{}{}
+			terms = append(terms, t)
+		}
+	}
+
+	// Original (pre-lowercase) words for identifier splitting.
+	rawWords := strings.Fields(query)
+
+	// First pass: add cleaned lowercase words (existing behavior, but min length 3).
+	for _, raw := range rawWords {
+		lower := strings.ToLower(raw)
+		cleaned := nonAlphanumRe.ReplaceAllString(lower, "")
+		if len(cleaned) >= 3 { //nolint:mnd // minimum term length to avoid noise
+			addTerm(cleaned)
+		}
+	}
+
+	// Second pass: split identifiers into subwords from the original casing.
+	for _, raw := range rawWords {
+		cleaned := nonAlphanumRe.ReplaceAllString(raw, "")
+		if len(cleaned) < 2 { //nolint:mnd // minimum length for splitting
+			continue
+		}
+		subwords := splitIdentifier(cleaned)
+		for _, sw := range subwords {
+			addTerm(sw)
+		}
+	}
+
 	return terms
 }
 
