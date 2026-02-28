@@ -10,10 +10,14 @@ import (
 //go:embed queries/typescript.scm
 var typescriptQueryBytes []byte
 
+//go:embed queries/typescript_calls.scm
+var tsCallsQueryBytes []byte
+
 // typescriptHandler implements LanguageHandler for TypeScript and JavaScript source files.
 type typescriptHandler struct {
-	lang  *sitter.Language
-	query *sitter.Query
+	lang      *sitter.Language
+	query     *sitter.Query
+	callQuery *sitter.Query
 }
 
 // tsLang is the singleton TypeScript language handler, registered on package init.
@@ -25,8 +29,13 @@ func init() {
 	if err != nil {
 		panic("typescript.scm query compile error: " + err.Error())
 	}
+	cq, err := sitter.NewQuery(tsCallsQueryBytes, lang)
+	if err != nil {
+		panic("typescript_calls.scm query compile error: " + err.Error())
+	}
 	tsLang.lang = lang
 	tsLang.query = q
+	tsLang.callQuery = cq
 	registerHandler(tsLang)
 }
 
@@ -39,6 +48,8 @@ func (h *typescriptHandler) Extensions() []string {
 func (h *typescriptHandler) SitterLanguage() *sitter.Language { return h.lang }
 
 func (h *typescriptHandler) TagsQuery() *sitter.Query { return h.query }
+
+func (h *typescriptHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for TypeScript/JavaScript.
 func (h *typescriptHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

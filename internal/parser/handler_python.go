@@ -10,10 +10,14 @@ import (
 //go:embed queries/python.scm
 var pythonQueryBytes []byte
 
+//go:embed queries/python_calls.scm
+var pythonCallsQueryBytes []byte
+
 // pythonHandler implements LanguageHandler for Python source files.
 type pythonHandler struct {
-	lang  *sitter.Language
-	query *sitter.Query
+	lang      *sitter.Language
+	query     *sitter.Query
+	callQuery *sitter.Query
 }
 
 // pyLang is the singleton Python language handler, registered on package init.
@@ -25,8 +29,13 @@ func init() {
 	if err != nil {
 		panic("python.scm query compile error: " + err.Error())
 	}
+	cq, err := sitter.NewQuery(pythonCallsQueryBytes, lang)
+	if err != nil {
+		panic("python_calls.scm query compile error: " + err.Error())
+	}
 	pyLang.lang = lang
 	pyLang.query = q
+	pyLang.callQuery = cq
 	registerHandler(pyLang)
 }
 
@@ -37,6 +46,8 @@ func (h *pythonHandler) Extensions() []string { return []string{".py"} }
 func (h *pythonHandler) SitterLanguage() *sitter.Language { return h.lang }
 
 func (h *pythonHandler) TagsQuery() *sitter.Query { return h.query }
+
+func (h *pythonHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for Python.
 func (h *pythonHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
