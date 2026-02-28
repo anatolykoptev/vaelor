@@ -40,58 +40,18 @@ type QueryResult struct {
 //  4. On freeform exec error: GenerateCypherWithRetry + retry ExecCypher
 //  5. LLM narrative (non-fatal, skipped when results are empty)
 func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphName, query string, meta *GraphMeta) (*QueryResult, error) {
-	// Step 1: Classify.
-	cls, err := Classify(ctx, llmClient, query)
+	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query)
 	if err != nil {
-		// Total LLM failure — fall back to freeform.
-		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
+		return nil, err
 	}
 
-	var cypher string
-	var cols int
-
-	// Step 2: Template path.
-	if cls.Template != templateFreeform {
-		tmpl := GetTemplate(cls.Template)
-		if tmpl != nil {
-			cypher = tmpl.Render(cls.Params)
-			cols = tmpl.Cols
-		} else {
-			// Unknown template returned — fall through to freeform.
-			cls.Template = templateFreeform
-		}
+	rows, cypher, err := execWithRetry(ctx, store, llmClient, graphName, query, cypher, cols, cls.Template)
+	if err != nil {
+		return nil, err
 	}
 
-	// Step 3: Freeform path.
-	if cls.Template == templateFreeform {
-		generated, genErr := GenerateCypher(ctx, llmClient, query)
-		if genErr != nil {
-			return nil, fmt.Errorf("generate cypher: %w", genErr)
-		}
-		cypher = generated
-		cols = 1 // freeform queries project one column by default
-	}
-
-	// Execute the Cypher query.
-	rows, execErr := store.ExecCypher(ctx, graphName, cypher, cols)
-	if execErr != nil {
-		// Step 4: Retry once for freeform queries with self-correcting prompt.
-		if cls.Template != templateFreeform {
-			return nil, fmt.Errorf("cypher exec: %w", execErr)
-		}
-
-		slog.Info("freeform cypher failed, retrying with self-correction",
-			slog.String("error", execErr.Error()))
-
-		retryCypher, retryErr := GenerateCypherWithRetry(ctx, llmClient, query, execErr.Error())
-		if retryErr != nil {
-			return nil, fmt.Errorf("cypher failed after retry: %w (original: %w)", retryErr, execErr)
-		}
-		cypher = retryCypher
-		rows, execErr = store.ExecCypher(ctx, graphName, cypher, cols)
-		if execErr != nil {
-			return nil, fmt.Errorf("cypher retry exec: %w", execErr)
-		}
+	if rows == nil {
+		rows = [][]string{}
 	}
 
 	result := &QueryResult{
@@ -107,17 +67,79 @@ func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphN
 		},
 	}
 
-	// Step 5: LLM narrative (non-fatal — never fail the whole query over this).
-	if llmClient != nil && len(rows) > 0 {
-		rawJSON, _ := json.Marshal(rows)
-		prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
-		narrative, narrativeErr := llmClient.Complete(ctx, llm.SystemPromptGraphNarrative, prompt)
-		if narrativeErr == nil {
-			result.Narrative = narrative
+	addNarrative(ctx, llmClient, result, rows, query, cypher)
+	return result, nil
+}
+
+// classifyAndBuildCypher classifies the query and generates Cypher via template or freeform.
+func classifyAndBuildCypher(ctx context.Context, llmClient *llm.Client, query string) (*Classification, string, int, error) {
+	cls, err := Classify(ctx, llmClient, query)
+	if err != nil {
+		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
+	}
+
+	var cypher string
+	var cols int
+
+	if cls.Template != templateFreeform {
+		tmpl := GetTemplate(cls.Template)
+		if tmpl != nil {
+			cypher = tmpl.Render(cls.Params)
+			cols = tmpl.Cols
 		} else {
-			slog.Warn("narrative generation failed (non-fatal)", slog.Any("error", narrativeErr))
+			cls.Template = templateFreeform
 		}
 	}
 
-	return result, nil
+	if cls.Template == templateFreeform {
+		generated, genErr := GenerateCypher(ctx, llmClient, query)
+		if genErr != nil {
+			return nil, "", 0, fmt.Errorf("generate cypher: %w", genErr)
+		}
+		cypher = generated
+		cols = 1
+	}
+
+	return cls, cypher, cols, nil
+}
+
+// execWithRetry executes Cypher, retrying once for freeform queries with self-correction.
+func execWithRetry(ctx context.Context, store *Store, llmClient *llm.Client, graphName, query, cypher string, cols int, template string) ([][]string, string, error) {
+	rows, execErr := store.ExecCypher(ctx, graphName, cypher, cols)
+	if execErr == nil {
+		return rows, cypher, nil
+	}
+
+	if template != templateFreeform {
+		return nil, cypher, fmt.Errorf("cypher exec: %w", execErr)
+	}
+
+	slog.Info("freeform cypher failed, retrying with self-correction",
+		slog.String("error", execErr.Error()))
+
+	retryCypher, retryErr := GenerateCypherWithRetry(ctx, llmClient, query, execErr.Error())
+	if retryErr != nil {
+		return nil, cypher, fmt.Errorf("cypher failed after retry: %w (original: %w)", retryErr, execErr)
+	}
+
+	rows, execErr = store.ExecCypher(ctx, graphName, retryCypher, cols)
+	if execErr != nil {
+		return nil, retryCypher, fmt.Errorf("cypher retry exec: %w", execErr)
+	}
+	return rows, retryCypher, nil
+}
+
+// addNarrative generates an LLM narrative for the query results (non-fatal).
+func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResult, rows [][]string, query, cypher string) {
+	if llmClient == nil || len(rows) == 0 {
+		return
+	}
+	rawJSON, _ := json.Marshal(rows)
+	prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
+	narrative, err := llmClient.Complete(ctx, llm.SystemPromptGraphNarrative, prompt)
+	if err == nil {
+		result.Narrative = narrative
+	} else {
+		slog.Warn("narrative generation failed (non-fatal)", slog.Any("error", err))
+	}
 }

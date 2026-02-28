@@ -297,11 +297,13 @@ func stripCommentMarker(line string) string {
 	line = strings.TrimSpace(line)
 	switch {
 	case strings.HasPrefix(line, "//"):
-		return strings.TrimPrefix(line, "// ")
+		line = strings.TrimPrefix(line, "//")
+		return strings.TrimPrefix(line, " ")
 	case strings.HasPrefix(line, "/*") && strings.HasSuffix(line, "*/"):
 		return strings.TrimSpace(line[2 : len(line)-2])
 	case strings.HasPrefix(line, "#"):
-		return strings.TrimPrefix(line, "# ")
+		line = strings.TrimPrefix(line, "#")
+		return strings.TrimPrefix(line, " ")
 	default:
 		return line
 	}

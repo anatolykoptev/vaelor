@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"math/rand/v2"
 	"regexp"
 	"strings"
 	"sync"
@@ -36,9 +37,9 @@ var reWriteOp = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|D
 
 // Store wraps a pgxpool for Apache AGE graph operations on code repositories.
 type Store struct {
-	pool    *pgxpool.Pool
-	ageOnce sync.Once
-	ageAvail bool
+	pool     *pgxpool.Pool
+	ageMu    sync.Mutex
+	ageState int8 // 0 = unknown, 1 = available, -1 = unavailable
 }
 
 // NewStore creates a Store backed by the given pool.
@@ -52,34 +53,48 @@ func (s *Store) Pool() *pgxpool.Pool {
 }
 
 // HasAGE checks if Apache AGE extension is available in this PostgreSQL instance.
-// The result is cached after the first check.
+// A positive result is cached permanently. Failures are retried on subsequent calls
+// so that a temporary DB outage at startup does not permanently disable AGE.
 func (s *Store) HasAGE(ctx context.Context) bool {
-	s.ageOnce.Do(func() {
-		conn, err := s.pool.Acquire(ctx)
-		if err != nil {
-			slog.Warn("AGE check: failed to acquire connection", slog.Any("error", err))
-			return
-		}
-		defer conn.Release()
+	s.ageMu.Lock()
+	defer s.ageMu.Unlock()
 
-		var exists bool
-		err = conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'age')`,
-		).Scan(&exists)
-		if err != nil {
-			slog.Warn("AGE check: query failed", slog.Any("error", err))
-			return
-		}
-		s.ageAvail = exists
-		slog.Info("AGE availability checked", slog.Bool("available", exists))
-	})
-	return s.ageAvail
+	if s.ageState != 0 {
+		return s.ageState == 1
+	}
+
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		slog.Warn("AGE check: failed to acquire connection", slog.Any("error", err))
+		return false // leave ageState=0 so next call retries
+	}
+	defer conn.Release()
+
+	var exists bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'age')`,
+	).Scan(&exists)
+	if err != nil {
+		slog.Warn("AGE check: query failed", slog.Any("error", err))
+		return false // leave ageState=0 so next call retries
+	}
+
+	if exists {
+		s.ageState = 1
+	} else {
+		s.ageState = -1
+	}
+	slog.Info("AGE availability checked", slog.Bool("available", exists))
+	return exists
 }
 
 // ExecCypher executes a read-only Cypher query against the named graph and returns
 // string rows. cols is the number of projected columns in the query.
 // Returns an error if the Cypher contains write operations.
 func (s *Store) ExecCypher(ctx context.Context, graph, cypher string, cols int) ([][]string, error) {
+	if err := validateGraphName(graph); err != nil {
+		return nil, err
+	}
 	if !isReadOnly(cypher) {
 		return nil, errors.New("ExecCypher: write operation detected in Cypher — use ExecCypherWrite")
 	}
@@ -95,8 +110,9 @@ func (s *Store) ExecCypher(ctx context.Context, graph, cypher string, cols int) 
 	}
 
 	colDefs := buildColDefs(cols)
-	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', $cypher$ %s $cypher$) AS (%s)`,
-		graph, cypher, colDefs)
+	tag := cypherDollarQuote(cypher)
+	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
+		graph, tag, cypher, tag, colDefs)
 
 	rows, err := conn.Query(ctx, sql)
 	if err != nil {
@@ -127,6 +143,10 @@ func (s *Store) ExecCypher(ctx context.Context, graph, cypher string, cols int) 
 // ExecCypherWrite executes a write Cypher statement (MERGE/CREATE/SET/DELETE) and
 // drains any returned rows without collecting them.
 func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error {
+	if err := validateGraphName(graph); err != nil {
+		return err
+	}
+
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
@@ -138,9 +158,9 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 	}
 
 	// Write statements must project at least one column for cypher() to accept them.
-	// Use a unique tag ($cypher$) to avoid breakage if Cypher contains $$.
-	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', $cypher$ %s $cypher$) AS (v ag_catalog.agtype)`,
-		graph, cypher)
+	tag := cypherDollarQuote(cypher)
+	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (v ag_catalog.agtype)`,
+		graph, tag, cypher, tag)
 
 	slog.Debug("ExecCypherWrite", slog.Int("sql_len", len(sql)))
 
@@ -167,17 +187,22 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 	return nil
 }
 
-// truncate returns the first n bytes of s, or s if shorter.
+// truncate returns the first n runes of s, or s if shorter.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return string(runes[:n]) + "..."
 }
 
 // EnsureGraph creates the AGE graph if it does not exist and ensures the
 // code_graph_meta bookkeeping table is present.
 func (s *Store) EnsureGraph(ctx context.Context, name string) error {
+	if err := validateGraphName(name); err != nil {
+		return err
+	}
+
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
@@ -204,6 +229,10 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 
 // DropGraph drops the AGE graph and removes the meta row for the given repoKey.
 func (s *Store) DropGraph(ctx context.Context, name, repoKey string) error {
+	if err := validateGraphName(name); err != nil {
+		return err
+	}
+
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
@@ -253,6 +282,27 @@ func escapeCypher(s string) string {
 	s = strings.ReplaceAll(s, "\r", `\r`)
 	s = strings.ReplaceAll(s, "\t", `\t`)
 	return s
+}
+
+// reGraphName validates graph names: only lowercase alphanumeric and underscores.
+var reGraphName = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+// validateGraphName returns an error if the name contains unsafe characters.
+func validateGraphName(name string) error {
+	if !reGraphName.MatchString(name) {
+		return fmt.Errorf("invalid graph name %q: must match [a-z0-9_]+", name)
+	}
+	return nil
+}
+
+// cypherDollarQuote returns a dollar-quoting tag that does not appear in the
+// Cypher body. PostgreSQL dollar-quoting: $tag$...$tag$.
+func cypherDollarQuote(cypher string) string {
+	tag := "$cq$"
+	for strings.Contains(cypher, tag) {
+		tag = fmt.Sprintf("$cq%d$", rand.IntN(99999)) //nolint:mnd,gosec // random suffix, not crypto
+	}
+	return tag
 }
 
 // isReadOnly returns true if cypher contains no write operations.

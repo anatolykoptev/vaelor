@@ -3,6 +3,7 @@ package compare
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -40,7 +41,7 @@ func isExported(name string) bool {
 	if name == "" {
 		return false
 	}
-	r := rune(name[0])
+	r, _ := utf8.DecodeRuneInString(name)
 	return unicode.IsUpper(r)
 }
 

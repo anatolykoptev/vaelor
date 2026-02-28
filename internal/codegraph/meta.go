@@ -2,8 +2,11 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // getMeta retrieves the stored GraphMeta for repoKey, or returns nil if none exists.
@@ -27,6 +30,9 @@ func getMeta(ctx context.Context, store *Store, repoKey string) (*GraphMeta, err
 		&m.BuiltAt, &m.TTLSeconds,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("query meta: %w", err)
 	}
 	return &m, nil

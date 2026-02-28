@@ -79,8 +79,14 @@ func CleanSource(source, language string, opts CleanOpts) string {
 		result = truncateLongLines(result, opts.MaxLineChars)
 	}
 
-	if opts.MaxFileChars > 0 && len(result) > opts.MaxFileChars {
-		result = result[:opts.MaxFileChars] + "\n... [truncated]\n"
+	if opts.MaxFileChars > 0 && utf8.RuneCountInString(result) > opts.MaxFileChars {
+		// Truncate at a rune boundary.
+		byteOffset := 0
+		for j := 0; j < opts.MaxFileChars; j++ {
+			_, size := utf8.DecodeRuneInString(result[byteOffset:])
+			byteOffset += size
+		}
+		result = result[:byteOffset] + "\n... [truncated]\n"
 	}
 
 	return result
@@ -107,15 +113,21 @@ func collapseBlankLines(s string) string {
 	return strings.Join(out, "\n")
 }
 
-// truncateLongLines shortens any line longer than maxChars by cutting it
-// and appending a marker.
+// truncateLongLines shortens any line longer than maxChars runes by cutting it
+// at a rune boundary and appending a marker.
 func truncateLongLines(s string, maxChars int) string {
 	const truncMarker = " …"
 	lines := strings.Split(s, "\n")
 
 	for i, line := range lines {
-		if len(line) > maxChars {
-			lines[i] = line[:maxChars] + truncMarker
+		if utf8.RuneCountInString(line) > maxChars {
+			// Advance rune-by-rune to find the byte offset of maxChars runes.
+			byteOffset := 0
+			for j := 0; j < maxChars; j++ {
+				_, size := utf8.DecodeRuneInString(line[byteOffset:])
+				byteOffset += size
+			}
+			lines[i] = line[:byteOffset] + truncMarker
 		}
 	}
 
