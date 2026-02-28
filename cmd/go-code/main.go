@@ -20,10 +20,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// version is set at build time via -ldflags "-X main.version=...".
+// Falls back to "dev" for local `go run` / `go build` without flags.
+var version = "dev"
+
 const (
-	serviceName    = "go-code"
-	serviceVersion = "1.3.1"
-	toolCount      = 5
+	serviceName = "go-code"
+	toolCount   = 5
 
 	defaultPort = "8897"
 
@@ -73,7 +76,7 @@ func main() {
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serviceName,
-		Version: serviceVersion,
+		Version: version,
 	}, nil)
 
 	registerTools(server, cfg)
@@ -100,7 +103,7 @@ func main() {
 	mux.Handle("/mcp/", handler)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","service":"` + serviceName + `","version":"` + serviceVersion + `"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","service":"` + serviceName + `","version":"` + version + `"}`))
 	})
 
 	srv := &http.Server{

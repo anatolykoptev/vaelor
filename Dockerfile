@@ -14,9 +14,10 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build.
+# Copy source and build with version from git tag.
 COPY . .
-RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o go-code ./cmd/go-code
+RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
+    CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o go-code ./cmd/go-code
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM alpine:3.21
