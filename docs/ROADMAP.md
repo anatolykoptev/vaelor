@@ -5,7 +5,7 @@
 **Goal**: Replace `github_repo_analyze` with a better version.
 Single tool (`repo_analyze`) that works better than the current one.
 
-**Status**: Complete (2026-02-28). Deployed on :8897, registered as MCP server.
+**Status**: Complete (2026-02-28). Deployed on :8897, registered as MCP server. Released as v0.1.0.
 
 ### 1.1 tree-sitter integration ✅
 - [x] Add `smacker/go-tree-sitter` dependency
@@ -47,7 +47,6 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Support GitHub repos (clone) and local paths
 - [x] Health endpoint (`/health`)
 - [x] Docker build and deploy (docker-compose + MCP registration)
-- [ ] Caching: in-memory by (repo, query) hash (deferred)
 
 **Deliverable**: 5 MCP tools on :8897. `repo_analyze` + `file_parse` + `symbol_search` + `dep_graph` working. ✅
 
@@ -72,7 +71,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ### 2.2 Advanced cleaning modes ✅
 
-**Status**: Complete (2026-02-28). New `internal/render` package, `mode` parameter on `repo_analyze`. Released as v1.3.0.
+**Status**: Complete (2026-02-28). New `internal/render` package, `mode` parameter on `repo_analyze`.
 
 - [x] Signatures-only mode: extract API surface without bodies
 - [x] Skeleton mode: structure with `// ...` placeholders
@@ -84,6 +83,19 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [ ] Level 1 (overview): file tree + symbol signatures only
 - [ ] Level 2 (module): selected files + dependency graph subset
 - [ ] Level 3 (deep): full function bodies + call chain tracing
+
+### 2.3a Noise reduction & quality fixes ✅
+
+**Status**: Complete (2026-02-28). Released as v0.2.0.
+
+- [x] `testdata/` added to default ignore dirs (all tools benefit)
+- [x] `ExcludeTests` option — `symbol_search` and `dep_graph` skip `_test.go` files; `repo_analyze` keeps them for full picture
+- [x] `symbol_search` result limit (default 100, max 500) — prevents unbounded output
+- [x] `dep_graph`: stdlib imports filtered by default (`IncludeStdlib` opt-in)
+- [x] `dep_graph`: self-import edges removed (test files importing own package)
+- [x] `dep_graph`: format validation — unknown format returns error instead of silent fallback
+- [x] Go parser: skip function-local var/const declarations (only package-level symbols)
+- [x] Go parser: const block signature shows individual spec, not `const (`
 
 ### 2.4 Caching & performance
 - [ ] In-memory cache by (repo, query) hash with TTL
@@ -179,10 +191,17 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ──→ Phase 3 (Compar
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2.1 (languages) complete. Phase 2.2 (cleaning modes) complete.
+Phase 1 complete (v0.1.0). Phase 2.1 (languages), 2.2 (cleaning), 2.3a (noise reduction) complete (v0.2.0).
 Phase 2.3–2.4 can proceed independently of each other.
 Phase 3 is now unblocked (required Phase 2.2).
 Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
+
+## Releases
+
+| Version | Date | What |
+|---------|------|------|
+| v0.1.0 | 2026-02-28 | Phase 1 MVP + Phase 2.1 languages + Phase 2.2 cleaning modes |
+| v0.2.0 | 2026-02-28 | Noise reduction: testdata/test filtering, symbol limits, dep_graph fixes, parser fixes |
 
 ## Technical Debt Watch
 
