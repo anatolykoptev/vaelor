@@ -7,6 +7,13 @@
 package compare
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -148,4 +155,114 @@ type CompareResult struct {
 	MatchedSymbols int         `json:"matched_symbols"`
 	UnmatchedA     int         `json:"unmatched_a"`
 	UnmatchedB     int         `json:"unmatched_b"`
+}
+
+// CompareInput is the input for CompareRepos.
+type CompareInput struct {
+	RootA string
+	RootB string
+	Query string
+	Opts  SnapshotOpts
+}
+
+// CompareRepos orchestrates a full comparison between two repositories.
+// llmClient may be nil to skip LLM analysis (useful for testing).
+func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client) (*CompareResult, error) {
+	// Build snapshots in parallel.
+	var snapA, snapB *RepoSnapshot
+	var errA, errB error
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		snapA, errA = BuildSnapshot(ctx, input.RootA, input.Opts)
+	}()
+	go func() {
+		defer wg.Done()
+		snapB, errB = BuildSnapshot(ctx, input.RootB, input.Opts)
+	}()
+	wg.Wait()
+
+	if errA != nil {
+		return nil, fmt.Errorf("snapshot repo_a: %w", errA)
+	}
+	if errB != nil {
+		return nil, fmt.Errorf("snapshot repo_b: %w", errB)
+	}
+
+	// Match symbols.
+	matches := MatchSymbols(snapA.Symbols, snapB.Symbols, nil)
+
+	// Compute metrics.
+	metricsA := ComputeMetrics(snapA)
+	metricsB := ComputeMetrics(snapB)
+
+	// Count matches and gaps.
+	matched, unmatchedA, unmatchedB := 0, 0, 0
+	for _, m := range matches {
+		switch {
+		case m.SymbolA == nil:
+			unmatchedA++
+		case m.SymbolB == nil:
+			unmatchedB++
+		default:
+			matched++
+		}
+	}
+
+	result := &CompareResult{
+		RepoA:          snapA.Name,
+		RepoB:          snapB.Name,
+		Query:          input.Query,
+		MetricsA:       metricsA,
+		MetricsB:       metricsB,
+		MatchedSymbols: matched,
+		UnmatchedA:     unmatchedA,
+		UnmatchedB:     unmatchedB,
+	}
+
+	// LLM analysis (optional).
+	if llmClient != nil {
+		compareCtx := BuildCompareContext(matches, metricsA, metricsB, input.Query)
+		answer, err := llmClient.Complete(ctx, llm.SystemPromptCodeCompare, compareCtx)
+		if err != nil {
+			return nil, fmt.Errorf("llm compare: %w", err)
+		}
+		result.Analysis = parseAnalysis(answer)
+	}
+
+	return result, nil
+}
+
+// parseAnalysis tries to parse LLM response as JSON LLMAnalysis.
+// Falls back to wrapping raw text in recommendations.
+func parseAnalysis(raw string) LLMAnalysis {
+	cleaned := extractJSON(raw)
+
+	var analysis LLMAnalysis
+	if err := json.Unmarshal([]byte(cleaned), &analysis); err != nil {
+		return LLMAnalysis{
+			Recommendations: []string{raw},
+		}
+	}
+	return analysis
+}
+
+// extractJSON tries to extract a JSON block from markdown-wrapped LLM output.
+func extractJSON(s string) string {
+	start := strings.Index(s, "```json")
+	if start >= 0 {
+		s = s[start+7:]
+		end := strings.Index(s, "```")
+		if end >= 0 {
+			return strings.TrimSpace(s[:end])
+		}
+	}
+	start = strings.IndexByte(s, '{')
+	end := strings.LastIndexByte(s, '}')
+	if start >= 0 && end > start {
+		return s[start : end+1]
+	}
+	return s
 }

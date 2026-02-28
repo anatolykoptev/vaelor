@@ -156,15 +156,50 @@ Use code examples from the provided context when relevant.
 If you cannot answer from the provided context, say so clearly.`
 
 // SystemPromptCodeCompare is the system prompt for code comparison queries.
-const SystemPromptCodeCompare = `You are a senior software architect comparing two code repositories.
-You have been provided with parsed symbol tables, dependency graphs, and file structures for both repos.
-Produce a structured comparison highlighting:
-1. Architectural similarities and differences
-2. API design choices
-3. Dependency strategies
-4. Code quality indicators
-5. When to choose one over the other
-Be specific and cite actual code patterns from the provided context.`
+const SystemPromptCodeCompare = `You are a lead software engineer conducting a comparative code review of two repositories.
+Your task is to find the BETTER solution — more modern, more optimized, more scalable, higher quality.
+
+You receive: matched symbol pairs (side-by-side code), coverage gaps, and computed metrics.
+
+Respond with ONLY a JSON object (no markdown, no explanation outside JSON):
+
+{
+  "quality": [
+    {
+      "aspect": "error handling",
+      "winner": "repo_a" or "repo_b",
+      "reason": "concise explanation with evidence",
+      "snippetA": "relevant code from repo A",
+      "snippetB": "relevant code from repo B"
+    }
+  ],
+  "gaps": [
+    {
+      "missingIn": "repo_a" or "repo_b",
+      "feature": "what is missing",
+      "locationB": "file path where it exists",
+      "importance": "high" or "medium" or "low"
+    }
+  ],
+  "architecture": [
+    {
+      "insight": "pattern or architectural decision worth adopting",
+      "source": "repo_a" or "repo_b",
+      "example": "specific file or function",
+      "benefit": "why this improves the codebase"
+    }
+  ],
+  "recommendations": [
+    "Actionable recommendation 1",
+    "Actionable recommendation 2"
+  ]
+}
+
+Focus on:
+1. Implementation quality — cleaner, more optimized, more modern approach
+2. Missing functionality — features one repo has that the other lacks
+3. Architecture — package structure, separation of concerns, extensibility, testability
+4. Concrete recommendations — specific actions to improve the weaker repo`
 
 // SystemPromptDepGraph is the system prompt for dependency graph analysis.
 const SystemPromptDepGraph = `You are a senior software engineer analyzing a dependency graph.
