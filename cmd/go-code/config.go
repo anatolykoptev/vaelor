@@ -3,6 +3,9 @@ package main
 import (
 	"os"
 	"strconv"
+	"strings"
+
+	"github.com/anatolykoptev/go-code/internal/analyze"
 )
 
 // Config holds all runtime configuration for go-code.
@@ -26,6 +29,9 @@ type Config struct {
 
 	// Max total repo size to accept for analysis (bytes).
 	MaxRepoBytes int64
+
+	// PathMappings translates external paths to container-internal paths.
+	PathMappings []analyze.PathMapping
 }
 
 const (
@@ -51,6 +57,7 @@ func loadConfig() Config {
 		LLMModel:     env("LLM_MODEL", defaultLLMModel),
 		GithubToken:  env("GITHUB_TOKEN", ""),
 		WorkspaceDir: env("WORKSPACE_DIR", defaultWorkspaceDir),
+		PathMappings: parsePathMappings(env("PATH_MAPPINGS", "")),
 		MaxFileBytes: int64(envInt("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
 		MaxRepoBytes: int64(envInt("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
 	}
@@ -61,6 +68,23 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func parsePathMappings(raw string) []analyze.PathMapping {
+	if raw == "" {
+		return nil
+	}
+	var mappings []analyze.PathMapping
+	for _, pair := range strings.Split(raw, ",") {
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			mappings = append(mappings, analyze.PathMapping{
+				External: parts[0],
+				Internal: parts[1],
+			})
+		}
+	}
+	return mappings
 }
 
 func envInt(key string, def int) int {

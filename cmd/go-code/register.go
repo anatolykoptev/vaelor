@@ -18,6 +18,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 		MaxFileBytes: cfg.MaxFileBytes,
 		GithubToken:  cfg.GithubToken,
 		WorkspaceDir: cfg.WorkspaceDir,
+		PathMappings: cfg.PathMappings,
 	}
 
 	registerRepoAnalyze(server, cfg, deps)

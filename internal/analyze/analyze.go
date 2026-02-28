@@ -27,6 +27,12 @@ import (
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
 const defaultMaxFileBytes = 512 * 1024
 
+// PathMapping maps an external filesystem prefix to a container-internal prefix.
+type PathMapping struct {
+	External string
+	Internal string
+}
+
 // Deps holds injected dependencies for analysis operations.
 type Deps struct {
 	// LLM is the client used for natural-language queries.
@@ -40,6 +46,9 @@ type Deps struct {
 
 	// WorkspaceDir is the directory used for temporary clones.
 	WorkspaceDir string
+
+	// PathMappings translates external paths to container-internal paths.
+	PathMappings []PathMapping
 }
 
 // maxFileBytes returns the effective file size limit.
