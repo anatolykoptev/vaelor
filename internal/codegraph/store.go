@@ -95,7 +95,7 @@ func (s *Store) ExecCypher(ctx context.Context, graph, cypher string, cols int) 
 	}
 
 	colDefs := buildColDefs(cols)
-	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', $$ %s $$) AS (%s)`,
+	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', $cypher$ %s $cypher$) AS (%s)`,
 		graph, cypher, colDefs)
 
 	rows, err := conn.Query(ctx, sql)
@@ -138,11 +138,17 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 	}
 
 	// Write statements must project at least one column for cypher() to accept them.
-	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', $$ %s $$) AS (v ag_catalog.agtype)`,
+	// Use a unique tag ($cypher$) to avoid breakage if Cypher contains $$.
+	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', $cypher$ %s $cypher$) AS (v ag_catalog.agtype)`,
 		graph, cypher)
+
+	slog.Debug("ExecCypherWrite", slog.Int("sql_len", len(sql)))
 
 	rows, err := conn.Query(ctx, sql)
 	if err != nil {
+		slog.Error("cypher write failed", slog.Any("error", err),
+			slog.Int("sql_len", len(sql)),
+			slog.String("cypher_head", truncate(cypher, 200))) //nolint:mnd // debug truncation
 		return fmt.Errorf("cypher write: %w", err)
 	}
 	defer rows.Close()
@@ -153,10 +159,20 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 	}
 
 	if err := rows.Err(); err != nil {
+		slog.Error("cypher write drain failed", slog.Any("error", err),
+			slog.Int("sql_len", len(sql)))
 		return fmt.Errorf("cypher write drain: %w", err)
 	}
 
 	return nil
+}
+
+// truncate returns the first n bytes of s, or s if shorter.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // EnsureGraph creates the AGE graph if it does not exist and ensures the
@@ -232,8 +248,6 @@ func graphName(repoPath string) string {
 func escapeCypher(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `'`, `\'`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "`", "\\`")
 	s = strings.ReplaceAll(s, "\x00", "") // strip null bytes
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\r", `\r`)

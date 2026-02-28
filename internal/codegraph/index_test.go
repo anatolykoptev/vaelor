@@ -120,9 +120,9 @@ func TestBuildVertexBatch(t *testing.T) {
 		t.Error("expected 'BuildCallGraph' in vertex batch Cypher")
 	}
 
-	// Must contain ON CREATE SET / ON MATCH SET since props are non-empty.
-	if !strings.Contains(cypher, "ON CREATE SET") {
-		t.Error("expected 'ON CREATE SET' in vertex batch Cypher")
+	// Must contain SET for property updates (AGE uses plain SET, not ON CREATE/MATCH SET).
+	if !strings.Contains(cypher, "SET ") {
+		t.Error("expected 'SET' in vertex batch Cypher")
 	}
 }
 
