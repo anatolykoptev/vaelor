@@ -94,16 +94,16 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 		switch e.EdgeLabel {
 		case "HANDLES":
 			handlesCount++
-			if e.FromKey != "handleGetUsers:backend/handler.go" {
-				t.Errorf("HANDLES FromKey = %q, want handleGetUsers:backend/handler.go", e.FromKey)
+			if e.FromKey != "handleGetUsers" {
+				t.Errorf("HANDLES FromKey = %q, want handleGetUsers", e.FromKey)
 			}
 			if e.ToKey != "GET:/api/users" {
 				t.Errorf("HANDLES ToKey = %q, want GET:/api/users", e.ToKey)
 			}
 		case "FETCHES":
 			fetchesCount++
-			if e.FromKey != "fetchUsers:frontend/api.ts" {
-				t.Errorf("FETCHES FromKey = %q, want fetchUsers:frontend/api.ts", e.FromKey)
+			if e.FromKey != "fetchUsers" {
+				t.Errorf("FETCHES FromKey = %q, want fetchUsers", e.FromKey)
 			}
 		}
 	}
