@@ -544,6 +544,38 @@ func assertNotContains(t *testing.T, s, substr string) {
 	}
 }
 
+func TestBuildLLMContext_FileAnnotations(t *testing.T) {
+	root := makeFixtureRepo(t)
+	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
+	ctx := buildLLMContext(ir, results, "Add function", render.ModeDefault, "")
+
+	// File blocks should include annotation comments.
+	assertContains(t, ctx, "<!-- ")
+	assertContains(t, ctx, "symbols")
+}
+
+func TestFileAnnotation(t *testing.T) {
+	importedBy := map[string]int{"core.go": 5}
+	symbolCounts := map[string]int{"core.go": 12}
+
+	ann := fileAnnotation("core.go", importedBy, symbolCounts, "go")
+	assertContains(t, ann, "imported by 5 files")
+	assertContains(t, ann, "12 symbols")
+	assertContains(t, ann, "go")
+	assertContains(t, ann, "<!-- ")
+	assertContains(t, ann, " -->")
+
+	// No annotation for file with nothing to say.
+	empty := fileAnnotation("empty.go", nil, nil, "")
+	if empty != "" {
+		t.Errorf("expected empty annotation, got %q", empty)
+	}
+}
+
 func TestIsStdlibImport(t *testing.T) {
 	tests := []struct {
 		path string

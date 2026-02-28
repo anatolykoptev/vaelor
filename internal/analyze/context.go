@@ -116,7 +116,10 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 		}
 	}
 
-	appendFileContents(&sb, prioritized, budget.fileBudget(), renderMode, queryTerms, parseMap, budget.maxFileChars)
+	importedBy := computeImportedByCounts(results)
+	symbolCounts := computeSymbolCounts(results)
+
+	appendFileContents(&sb, prioritized, budget.fileBudget(), renderMode, queryTerms, parseMap, budget.maxFileChars, importedBy, symbolCounts)
 
 	return sb.String()
 }
@@ -176,6 +179,60 @@ func formatSymbolLine(sym *parser.Symbol) string {
 	return fmt.Sprintf("  %s %s\n", sym.Kind, sym.Name)
 }
 
+// computeSymbolCounts returns the number of symbols in each file (by RelPath).
+func computeSymbolCounts(results []fileParseResult) map[string]int {
+	counts := make(map[string]int)
+	for _, pr := range results {
+		if pr.result != nil {
+			counts[pr.file.RelPath] = len(pr.result.Symbols)
+		}
+	}
+	return counts
+}
+
+// computeImportedByCounts returns how many files import each file (by RelPath).
+// This is the reverse of buildPageRankGraph — counts inbound references.
+func computeImportedByCounts(results []fileParseResult) map[string]int {
+	baseToRel := make(map[string]string)
+	for _, pr := range results {
+		base := filepath.Base(pr.file.RelPath)
+		baseToRel[base] = pr.file.RelPath
+	}
+
+	counts := make(map[string]int)
+	for _, pr := range results {
+		if pr.result == nil {
+			continue
+		}
+		for _, imp := range pr.result.Imports {
+			base := filepath.Base(imp)
+			if rel, ok := baseToRel[base]; ok {
+				counts[rel]++
+			}
+		}
+	}
+	return counts
+}
+
+// fileAnnotation builds a short HTML comment annotation for a file.
+// Returns "" if there's nothing useful to annotate.
+func fileAnnotation(relPath string, importedBy, symbolCounts map[string]int, language string) string {
+	var parts []string
+	if n := importedBy[relPath]; n > 0 {
+		parts = append(parts, fmt.Sprintf("imported by %d files", n))
+	}
+	if n := symbolCounts[relPath]; n > 0 {
+		parts = append(parts, fmt.Sprintf("%d symbols", n))
+	}
+	if language != "" {
+		parts = append(parts, language)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("<!-- %s -->\n", strings.Join(parts, ", "))
+}
+
 // appendFileContents writes file content blocks into sb, stopping at the budget.
 // When renderMode is non-default and symbol data is available, files are
 // rendered using the render package before cleaning.
@@ -187,6 +244,7 @@ func appendFileContents(
 	queryTerms []string,
 	parseMap map[string]*parser.ParseResult,
 	maxFileChars int,
+	importedBy, symbolCounts map[string]int,
 ) {
 	remaining := budget
 	cleanOpts := clean.CleanOpts{
@@ -218,7 +276,8 @@ func appendFileContents(
 		}
 
 		cleaned := clean.CleanSource(rendered, f.Language, cleanOpts)
-		block := formatFileBlock(f.RelPath, cleaned)
+		annotation := fileAnnotation(f.RelPath, importedBy, symbolCounts, f.Language)
+		block := annotation + formatFileBlock(f.RelPath, cleaned)
 		if remaining < len(block) {
 			break
 		}
