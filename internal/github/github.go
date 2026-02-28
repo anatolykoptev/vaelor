@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	apiBase        = "https://api.github.com"
-	defaultTimeout = 15 * time.Second
+	defaultAPIBase  = "https://api.github.com"
+	defaultTimeout  = 15 * time.Second
 
 	headerAccept        = "Accept"
 	headerAuth          = "Authorization"
@@ -26,8 +26,9 @@ const (
 
 // Client is a GitHub API client.
 type Client struct {
-	http  *http.Client
-	token string
+	http    *http.Client
+	token   string
+	apiBase string
 }
 
 // RepoMeta contains key metadata about a GitHub repository.
@@ -64,7 +65,8 @@ type RepoMeta struct {
 // token may be empty for unauthenticated requests (lower rate limits).
 func NewClient(token string) *Client {
 	return &Client{
-		token: token,
+		token:   token,
+		apiBase: defaultAPIBase,
 		http: &http.Client{
 			Timeout: defaultTimeout,
 		},
@@ -76,7 +78,7 @@ func (c *Client) FetchRepoMeta(ctx context.Context, slug string) (*RepoMeta, err
 	slug = strings.TrimPrefix(slug, "https://github.com/")
 	slug = strings.TrimSuffix(slug, ".git")
 
-	url := fmt.Sprintf("%s/repos/%s", apiBase, slug)
+	url := fmt.Sprintf("%s/repos/%s", c.apiBase, slug)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -109,7 +111,7 @@ func (c *Client) FetchREADME(ctx context.Context, slug string) (string, error) {
 	slug = strings.TrimPrefix(slug, "https://github.com/")
 	slug = strings.TrimSuffix(slug, ".git")
 
-	url := fmt.Sprintf("%s/repos/%s/readme", apiBase, slug)
+	url := fmt.Sprintf("%s/repos/%s/readme", c.apiBase, slug)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
