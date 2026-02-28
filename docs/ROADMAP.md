@@ -236,6 +236,7 @@ Phase 4.2/4.3 remain.
 | v1.5.0 | `4e471f0` | Phase 3: Comparison Engine — `code_compare` with structural diff + LLM analysis |
 | v1.5.1 | `eb70fe0` | Fix 6 bugs found during practical testing of `code_compare` |
 | v1.6.0 | `36f2144` | Phase 4.1: Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
+| v1.7.0 | `07e8907` | Phase 5: go-search migration — `repo_search`, `repo_analyze` quick/issues modes, retry, Redis L2, metrics |
 
 ## Technical Debt Watch
 
