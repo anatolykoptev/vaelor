@@ -334,8 +334,12 @@ var nonAlphanumRe = regexp.MustCompile(`[^\w]`)
 
 // splitCamelCase splits a camelCase or PascalCase identifier into lowercase subwords.
 // Consecutive uppercase letters are treated as an acronym (e.g. "LLMClient" → ["llm", "client"]).
+// Letter-digit and digit-letter transitions are also split (e.g. "Auth2Factor" → ["auth", "factor"]).
 // Subwords shorter than 2 characters are discarded.
 func splitCamelCase(s string) []string {
+	if s == "" {
+		return nil
+	}
 	var parts []string
 	runes := []rune(s)
 	start := 0
@@ -425,7 +429,7 @@ func extractQueryTerms(query string) []string {
 	// Second pass: split identifiers into subwords from the original casing.
 	for _, raw := range rawWords {
 		cleaned := nonAlphanumRe.ReplaceAllString(raw, "")
-		if len(cleaned) < 2 { //nolint:mnd // minimum length for splitting
+		if len(cleaned) < 3 { //nolint:mnd // minimum term length to avoid noise
 			continue
 		}
 		subwords := splitIdentifier(cleaned)
