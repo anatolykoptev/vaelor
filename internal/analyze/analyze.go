@@ -162,6 +162,11 @@ type DepGraphInput struct {
 
 	// IncludeStdlib includes standard library imports. Default false.
 	IncludeStdlib bool
+
+	// CrossLanguage includes cross-language API route connections between layers.
+	// Currently a schema-only field: cross-language dependencies are stored in
+	// Apache AGE and queried via code_graph polyglot_overview and layer_deps templates.
+	CrossLanguage bool
 }
 
 // fileParseResult pairs an ingest.File with its parser output.
