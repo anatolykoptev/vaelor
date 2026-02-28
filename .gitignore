@@ -1,0 +1,29 @@
+# Compiled binary
+bin/
+/go-code
+
+# Environment files with real secrets
+*.env
+!deploy/go-code.env
+
+# Go test artifacts
+*.test
+*.out
+coverage.html
+
+# Temporary clone workspace (used at runtime)
+/tmp/go-code-workspace/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# GoReleaser dist
+dist/

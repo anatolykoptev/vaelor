@@ -1,0 +1,73 @@
+package main
+
+import (
+	"os"
+	"strconv"
+)
+
+// Config holds all runtime configuration for go-code.
+type Config struct {
+	// HTTP server port.
+	Port string
+
+	// LLM (CLIProxyAPI) config.
+	LLMURL    string
+	LLMAPIKey string
+	LLMModel  string
+
+	// GitHub API token for cloning private repos and higher rate limits.
+	GithubToken string
+
+	// Workspace directory for cloning repos.
+	WorkspaceDir string
+
+	// Max file size to parse (bytes). Files larger than this are skipped.
+	MaxFileBytes int64
+
+	// Max total repo size to accept for analysis (bytes).
+	MaxRepoBytes int64
+}
+
+const (
+	defaultLLMURL       = "http://127.0.0.1:8317/v1"
+	defaultLLMModel     = "gemini-2.5-flash"
+	defaultWorkspaceDir = "/tmp/go-code-workspace"
+
+	// 512 KB per file.
+	defaultMaxFileBytesKB = 512
+	bytesPerKB            = 1024
+
+	// 200 MB per repo.
+	defaultMaxRepoBytesMB = 200
+	bytesPerMB            = 1024 * 1024
+)
+
+// loadConfig reads environment variables and returns a Config with defaults applied.
+func loadConfig() Config {
+	return Config{
+		Port:         env("MCP_PORT", defaultPort),
+		LLMURL:       env("LLM_URL", defaultLLMURL),
+		LLMAPIKey:    env("LLM_API_KEY", ""),
+		LLMModel:     env("LLM_MODEL", defaultLLMModel),
+		GithubToken:  env("GITHUB_TOKEN", ""),
+		WorkspaceDir: env("WORKSPACE_DIR", defaultWorkspaceDir),
+		MaxFileBytes: int64(envInt("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
+		MaxRepoBytes: int64(envInt("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
+	}
+}
+
+func env(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
