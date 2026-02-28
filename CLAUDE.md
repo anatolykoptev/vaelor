@@ -35,9 +35,15 @@ internal/
     handler_cpp.go     — C++ handler
     handler_ruby.go    — Ruby handler
     handler_csharp.go  — C# handler
+    calls.go           — ExtractCalls: call expression extraction from source
     queries/           — .scm tree-sitter query files per language
       go.scm, python.scm, typescript.scm, rust.scm,
       java.scm, c.scm, cpp.scm, ruby.scm, csharp.scm
+      *_calls.scm      — Call expression queries per language
+  callgraph/           — Call chain tracing
+    graph.go           — BuildCallGraph: name-based resolution (same-file → same-pkg → global)
+    trace.go           — Trace: BFS/DFS with depth limit, cycle detection, bidirectional
+    repo.go            — TraceRepo: orchestrator (ingest → parse → graph → trace)
   clean/               — Smart code cleaning for LLM context
     clean.go           — CleanSource: strip comments, collapse blanks, truncate
   compare/             — Code comparison engine
@@ -62,6 +68,7 @@ deploy/
 | `code_compare` | Compare two repositories structurally: architecture, API design, dependency strategies, code quality. |
 | `dep_graph` | Build and visualize the dependency graph of a repository. Output as Mermaid, Graphviz DOT, or JSON. |
 | `symbol_search` | Search for symbols (functions, types, consts) across a repo by name pattern or wildcard. |
+| `call_trace` | Trace call chains from a function: callees (forward) or callers (reverse) with depth control and LLM narrative. |
 
 ## Environment Variables
 
@@ -123,7 +130,7 @@ tree-sitter grammars are C libraries. This means:
 
 - All internal packages are self-contained with no circular dependencies
 - ingest → parser → clean → analyze → llm (dependency direction)
-- compare and analyze are peers; neither imports the other
+- compare, analyze, and callgraph are peers; none imports the others
 - github package has no dependencies on other internal packages
 - Tool handlers in `cmd/go-code/tool_*.go` import `internal/analyze` only
 - Error messages use lowercase, wrap with `fmt.Errorf("context: %w", err)`
