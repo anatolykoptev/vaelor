@@ -4,11 +4,20 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/render"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// Mode constants for repo_analyze.
+const (
+	modeQuick = "quick"
+	modeRaw   = "raw"
 )
 
 // RepoAnalyzeInput is the input schema for the repo_analyze tool.
@@ -26,10 +35,19 @@ type RepoAnalyzeInput struct {
 	Focus string `json:"focus,omitempty" jsonschema_description:"Subdirectory or glob pattern to focus on (e.g. internal/auth or **/*.go)"`
 
 	// Mode controls how file contents are rendered for LLM context.
-	Mode string `json:"mode,omitempty" jsonschema_description:"Rendering mode for file contents: signatures (API only) | skeleton (structure with ... placeholders) | focused (full for relevant symbols, signatures for rest). Default: full content."`
+	Mode string `json:"mode,omitempty" jsonschema_description:"Rendering mode: signatures (API only) | skeleton (structure with ... placeholders) | focused (full for relevant symbols, signatures for rest) | quick (GitHub Code Search, no clone) | raw (code fragments without LLM summary). Default: full content."`
 
 	// Depth controls analysis depth: overview (high-level, compact), module (default, balanced), deep (detailed).
 	Depth string `json:"depth,omitempty" jsonschema_description:"Analysis depth: overview (high-level, 50K context) | module (balanced, 150K context, default) | deep (detailed, 200K context)"`
+
+	// Type selects search type: pr (pull requests) or issue (GitHub issues). Switches to GitHub Issues Search API.
+	Type string `json:"type,omitempty" jsonschema_description:"Search type: pr (pull requests) or issue (GitHub issues). Switches to GitHub Issues Search API."`
+
+	// Repos lists multiple repos for quick mode (e.g. ['owner/repo1','owner/repo2']).
+	Repos []string `json:"repos,omitempty" jsonschema_description:"Multiple repos for quick mode (e.g. ['owner/repo1','owner/repo2'])"`
+
+	// Pattern is a file include pattern for filtering.
+	Pattern string `json:"pattern,omitempty" jsonschema_description:"File include pattern for filtering"`
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
@@ -41,46 +59,261 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 		Description: "Analyze a code repository (GitHub or local). " +
 			"Clones the repo if remote, walks the file tree, parses ASTs with tree-sitter, " +
 			"and answers a natural-language question about the codebase structure, " +
-			"architecture, or implementation details.",
+			"architecture, or implementation details. " +
+			"Use mode=quick for fast GitHub Code Search without cloning. " +
+			"Use type=pr or type=issue to search pull requests and issues.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, any, error) {
-		if input.Repo == "" {
-			return errResult("repo is required"), nil, nil
+		// Issues/PRs mode — uses GitHub Issues Search API, no cloning required.
+		if input.Type == "pr" || input.Type == "issue" {
+			return handleIssuesMode(ctx, input, deps)
 		}
-		if input.Query == "" {
-			return errResult("query is required"), nil, nil
+		// Quick/raw mode — uses GitHub Code Search, no cloning required.
+		if input.Mode == modeQuick || input.Mode == modeRaw {
+			return handleQuickMode(ctx, input, deps)
 		}
-		if input.Mode != "" && !render.ValidMode(input.Mode) {
-			return errResult(fmt.Sprintf("invalid mode %q: use signatures, skeleton, or focused", input.Mode)), nil, nil
-		}
-		if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
-			return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
-		}
-
-		root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
-		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
-		}
-		defer cleanup()
-
-		// If user specified depth but not mode, use the default mode for that depth.
-		renderMode := input.Mode
-		if renderMode == "" && input.Depth != "" {
-			renderMode = analyze.DefaultModeForDepth(input.Depth)
-		}
-
-		result, err := analyze.AnalyzeRepo(ctx, analyze.RepoAnalysisInput{
-			Root:       root,
-			Query:      input.Query,
-			Focus:      input.Focus,
-			RenderMode: renderMode,
-			Depth:      input.Depth,
-		}, deps)
-		if err != nil {
-			return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil
-		}
-
-		return textResult(formatAnalysisResult(result)), nil, nil
+		return handleDeepMode(ctx, input, deps)
 	})
+}
+
+// handleDeepMode performs a full clone + AST analysis of a repository.
+// It is the default path when no lightweight mode is selected.
+func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	if input.Repo == "" {
+		return errResult("repo is required"), nil, nil
+	}
+	if input.Query == "" {
+		return errResult("query is required"), nil, nil
+	}
+	if input.Mode != "" && !render.ValidMode(input.Mode) {
+		return errResult(fmt.Sprintf("invalid mode %q: use signatures, skeleton, or focused", input.Mode)), nil, nil
+	}
+	if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
+		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
+	}
+
+	root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+	}
+	defer cleanup()
+
+	// If user specified depth but not mode, use the default mode for that depth.
+	renderMode := input.Mode
+	if renderMode == "" && input.Depth != "" {
+		renderMode = analyze.DefaultModeForDepth(input.Depth)
+	}
+
+	result, err := analyze.AnalyzeRepo(ctx, analyze.RepoAnalysisInput{
+		Root:       root,
+		Query:      input.Query,
+		Focus:      input.Focus,
+		RenderMode: renderMode,
+		Depth:      input.Depth,
+	}, deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil
+	}
+
+	return textResult(formatAnalysisResult(result)), nil, nil
+}
+
+// handleQuickMode performs a fast GitHub Code Search without cloning the repo.
+// Falls back to README + repo metadata if no code matches are found.
+func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	repos := resolveQuickRepos(input)
+	if len(repos) == 0 {
+		return errResult("repo or repos is required for quick mode"), nil, nil
+	}
+
+	repoSlug := strings.Join(repos, ", ")
+	codeQuery := sanitizeCodeSearchQuery(input.Query)
+
+	results, err := deps.GitHub.SearchCode(ctx, codeQuery, repos)
+	if err != nil {
+		return errResult(fmt.Sprintf("code search: %s", err)), nil, nil
+	}
+
+	if len(results) == 0 {
+		return handleQuickFallback(ctx, input, repos, repoSlug, deps)
+	}
+
+	var sb strings.Builder
+	for i, r := range results {
+		fmt.Fprintf(&sb, "[%d] %s (%s)\n%s\n\n", i+1, r.Path, r.Repo, r.Content)
+	}
+
+	// Raw mode: return fragments without LLM summarization.
+	if input.Mode == modeRaw {
+		return textResult(fmt.Sprintf("Found %d code matches in %s:\n\n%s", len(results), repoSlug, sb.String())), nil, nil
+	}
+
+	// Quick mode: summarize with LLM.
+	summary, llmErr := deps.LLM.Complete(ctx, llm.SystemPromptQuickSearch,
+		fmt.Sprintf("Query: %s\n\nCode search results:\n%s", input.Query, sb.String()))
+	if llmErr != nil {
+		return textResult(fmt.Sprintf("Found %d code matches (LLM unavailable):\n\n%s", len(results), sb.String())), nil, nil
+	}
+
+	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n\n%s", input.Query, repoSlug, summary)), nil, nil
+}
+
+// handleIssuesMode searches GitHub issues or pull requests via the Issues Search API.
+func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	kind := input.Type // "pr" or "issue"
+	repos := resolveQuickRepos(input)
+	if len(repos) == 0 {
+		return errResult(fmt.Sprintf("repo is required for %s search", kind)), nil, nil
+	}
+
+	repoSlug := strings.Join(repos, ", ")
+
+	// Build GitHub Issues search query.
+	var qb strings.Builder
+	qb.WriteString("is:")
+	qb.WriteString(kind)
+	for _, r := range repos {
+		qb.WriteString(" repo:")
+		qb.WriteString(r)
+	}
+	if input.Query != "" {
+		qb.WriteString(" ")
+		qb.WriteString(input.Query)
+	}
+
+	issues, err := deps.GitHub.SearchIssues(ctx, qb.String())
+	if err != nil {
+		return errResult(fmt.Sprintf("issues search: %s", err)), nil, nil
+	}
+
+	if len(issues) == 0 {
+		return textResult(fmt.Sprintf("No %ss found for query: %s", kind, input.Query)), nil, nil
+	}
+
+	var sb strings.Builder
+	for i, item := range issues {
+		state := item.State
+		if item.MergedAt != "" {
+			state = "merged"
+		}
+		fmt.Fprintf(&sb, "[%d] #%d %s\nURL: %s | State: %s | Author: %s | Comments: %d\n",
+			i+1, item.Number, item.Title, item.URL, state, item.Author, item.Comments)
+		if len(item.Labels) > 0 {
+			fmt.Fprintf(&sb, "Labels: %s\n", strings.Join(item.Labels, ", "))
+		}
+		if item.Body != "" {
+			body := item.Body
+			const maxBodyLen = 500
+			if len(body) > maxBodyLen {
+				body = body[:maxBodyLen] + "..."
+			}
+			fmt.Fprintf(&sb, "Body: %s\n", body)
+		}
+		sb.WriteString("\n")
+	}
+
+	// Raw mode: return items without LLM summarization.
+	if input.Mode == modeRaw {
+		return textResult(fmt.Sprintf("Found %d %ss:\n\n%s", len(issues), kind, sb.String())), nil, nil
+	}
+
+	// LLM summarize.
+	summary, llmErr := deps.LLM.Complete(ctx, llm.SystemPromptIssuesAnalysis,
+		fmt.Sprintf("Query: %s\n\n%s results:\n%s", input.Query, kind, sb.String()))
+	if llmErr != nil {
+		return textResult(fmt.Sprintf("Found %d %ss (LLM unavailable):\n\n%s", len(issues), kind, sb.String())), nil, nil
+	}
+
+	return textResult(fmt.Sprintf("# %s Search: %s\nRepo: %s | Found: %d\n\n%s",
+		capitalizeFirst(kind), input.Query, repoSlug, len(issues), summary)), nil, nil
+}
+
+// resolveQuickRepos returns the list of owner/repo slugs for quick/issues modes.
+// Prefers input.Repos; falls back to parsing input.Repo.
+func resolveQuickRepos(input RepoAnalyzeInput) []string {
+	if len(input.Repos) > 0 {
+		return input.Repos
+	}
+	if input.Repo == "" {
+		return nil
+	}
+	// Try as a full GitHub URL first.
+	owner, repo, ok := github.ExtractOwnerRepo("https://github.com/" + input.Repo)
+	if ok {
+		return []string{owner + "/" + repo}
+	}
+	// Try direct slug (owner/repo).
+	parts := strings.SplitN(input.Repo, "/", 2)
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return []string{input.Repo}
+	}
+	return nil
+}
+
+// sanitizeCodeSearchQuery trims the query to a form safe for GitHub Code Search:
+// strips everything after a comma or semicolon and truncates to 60 characters
+// at a word boundary.
+func sanitizeCodeSearchQuery(q string) string {
+	const maxLen = 60
+	const minWordBoundary = 10
+
+	for _, sep := range []string{",", ";"} {
+		if idx := strings.Index(q, sep); idx > 0 {
+			q = q[:idx]
+		}
+	}
+	q = strings.TrimSpace(q)
+	if len(q) > maxLen {
+		if idx := strings.LastIndex(q[:maxLen], " "); idx > minWordBoundary {
+			q = q[:idx]
+		} else {
+			q = q[:maxLen]
+		}
+	}
+	return strings.TrimSpace(q)
+}
+
+// handleQuickFallback fetches repo metadata and README when code search returns nothing.
+func handleQuickFallback(ctx context.Context, input RepoAnalyzeInput, repos []string, repoSlug string, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	var sb strings.Builder
+	for _, r := range repos {
+		meta, err := deps.GitHub.FetchRepoMeta(ctx, r)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&sb, "Repository: %s\nDescription: %s\nLanguage: %s\nStars: %d\n\n",
+			meta.FullName, meta.Description, meta.Language, meta.Stars)
+		readme, err := deps.GitHub.FetchREADME(ctx, r)
+		if err == nil && readme != "" {
+			const maxReadmeLen = 8000
+			if len(readme) > maxReadmeLen {
+				readme = readme[:maxReadmeLen] + "\n...(truncated)"
+			}
+			fmt.Fprintf(&sb, "README:\n%s\n\n", readme)
+		}
+	}
+
+	if sb.Len() == 0 {
+		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil, nil
+	}
+
+	summary, err := deps.LLM.Complete(ctx, llm.SystemPromptQuickSearch,
+		fmt.Sprintf("Query: %s\n\nRepository overview:\n%s", input.Query, sb.String()))
+	if err != nil {
+		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil, nil
+	}
+
+	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n(No code matches — overview from README)\n\n%s",
+		input.Query, repoSlug, summary)), nil, nil
+}
+
+// capitalizeFirst returns s with the first Unicode letter uppercased.
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }
 
 // formatAnalysisResult formats a RepoAnalysisResult as human-readable text.
@@ -119,7 +352,6 @@ func writeSymbolLine(sb *strings.Builder, sym *parser.Symbol) {
 		fmt.Fprintf(sb, "  [%s] %s (line %d)\n", sym.Kind, sym.Name, sym.StartLine)
 	}
 }
-
 
 // errResult returns a CallToolResult representing a tool-level error.
 func errResult(msg string) *mcp.CallToolResult {
