@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"net/http"
 	"testing"
 )
 
@@ -363,8 +364,8 @@ await axios.post("/api/orders", body);
 		}
 	}
 
-	// fetch has method "*", axios.get has "GET", axios.post has "POST".
-	wantMethods := []string{"*", "GET", "POST"}
+	// fetch defaults to "GET", axios.get has "GET", axios.post has "POST".
+	wantMethods := []string{"GET", "GET", "POST"}
 	for i, wm := range wantMethods {
 		if routes[i].Method != wm {
 			t.Errorf("route[%d].Method = %q, want %q", i, routes[i].Method, wm)
@@ -466,10 +467,10 @@ data = httpx.post("https://api.example.com/items", json=payload)
 		}
 	}
 
-	if routes[0].Method != "GET" {
+	if routes[0].Method != http.MethodGet {
 		t.Errorf("route[0].Method = %q, want %q", routes[0].Method, "GET")
 	}
-	if routes[1].Method != "POST" {
+	if routes[1].Method != http.MethodPost {
 		t.Errorf("route[1].Method = %q, want %q", routes[1].Method, "POST")
 	}
 }
@@ -530,7 +531,7 @@ async fn list_users() -> impl Responder { ... }
 		t.Fatalf("got %d routes, want 2", len(routes))
 	}
 
-	if routes[0].Method != "GET" {
+	if routes[0].Method != http.MethodGet {
 		t.Errorf("route[0].Method = %q, want %q", routes[0].Method, "GET")
 	}
 	if routes[0].Path != "/api/users" {
@@ -540,7 +541,7 @@ async fn list_users() -> impl Responder { ... }
 		t.Errorf("route[0].Framework = %q, want %q", routes[0].Framework, "rust")
 	}
 
-	if routes[1].Method != "POST" {
+	if routes[1].Method != http.MethodPost {
 		t.Errorf("route[1].Method = %q, want %q", routes[1].Method, "POST")
 	}
 	if routes[1].Path != "/api/items" {
@@ -577,7 +578,7 @@ end
 		t.Fatalf("got %d routes, want at least 2", len(routes))
 	}
 
-	if routes[0].Method != "GET" {
+	if routes[0].Method != http.MethodGet {
 		t.Errorf("route[0].Method = %q, want %q", routes[0].Method, "GET")
 	}
 	if routes[0].Path != "/api/users" {
@@ -587,7 +588,7 @@ end
 		t.Errorf("route[0].Framework = %q, want %q", routes[0].Framework, "ruby")
 	}
 
-	if routes[1].Method != "POST" {
+	if routes[1].Method != http.MethodPost {
 		t.Errorf("route[1].Method = %q, want %q", routes[1].Method, "POST")
 	}
 
