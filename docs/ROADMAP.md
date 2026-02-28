@@ -35,7 +35,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] System prompts for repo analysis, code comparison, dep graph
 - [x] LLM context builder with 150K char budget
 - [x] File prioritization by query relevance + import frequency + symbol count
-- [ ] Multi-level analysis: overview → zoom → deep dive (deferred to Phase 2)
+- [x] Multi-level analysis: overview → module → deep (Phase 2.3)
 - [ ] JSON output parsing with fallback (deferred)
 
 ### 1.5 MCP tools ✅
@@ -79,10 +79,16 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Structural kinds (struct/interface/class/type) always preserve full body
 - [x] Exposed as `mode` parameter on `repo_analyze` MCP tool
 
-### 2.3 Multi-level analysis
-- [ ] Level 1 (overview): file tree + symbol signatures only
-- [ ] Level 2 (module): selected files + dependency graph subset
-- [ ] Level 3 (deep): full function bodies + call chain tracing
+### 2.3 Multi-level analysis ✅
+
+**Status**: Complete (2026-02-28). `depth` parameter on `repo_analyze`, three analysis levels.
+
+- [x] Level 1 (overview): file tree + symbol signatures only (50K budget, signatures render mode)
+- [x] Level 2 (module): selected files + dependency graph in Mermaid (150K budget, skeleton render mode)
+- [x] Level 3 (deep): full function bodies for relevant symbols (200K budget, focused render mode)
+- [x] Depth-aware system prompts (`SystemPromptForDepth`)
+- [x] Default render mode inferred from depth (explicit `mode` overrides)
+- [x] Dependency graph section injected between symbol summary and file contents
 
 ### 2.3a Noise reduction & quality fixes ✅
 
@@ -97,12 +103,17 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Go parser: skip function-local var/const declarations (only package-level symbols)
 - [x] Go parser: const block signature shows individual spec, not `const (`
 
-### 2.4 Caching & performance
-- [ ] In-memory cache by (repo, query) hash with TTL
-- [ ] Parsed AST cache by (filePath, modTime) key
-- [ ] Git change frequency for file relevance ranking
+### 2.4 Caching & performance ✅
 
-**Deliverable**: Better analysis quality, more languages, faster repeated queries.
+**Status**: Complete (2026-02-28). New `internal/cache` package with LRU caches.
+
+- [x] LLM response cache by FNV-1a hash of (systemPrompt + userPrompt), TTL 1h, LRU eviction (500 entries)
+- [x] Parsed AST cache by (filePath, modTime, size) key, LRU eviction (5000 entries)
+- [x] Configurable via env: `PARSE_CACHE_SIZE`, `LLM_CACHE_SIZE`, `LLM_CACHE_TTL_MIN`
+- [x] 14 unit tests: get/set, TTL expiry, LRU eviction, staleness, concurrent access
+- [ ] Git change frequency for file relevance ranking (deferred — using symbol count proxy)
+
+**Deliverable**: Better analysis quality, more languages, faster repeated queries. ✅ Phase 2 complete.
 
 ---
 
@@ -182,37 +193,37 @@ Single tool (`repo_analyze`) that works better than the current one.
 ## Dependencies Between Phases
 
 ```
-Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ──→ Phase 3 (Comparison)
-                              2.1 Languages ✅            │
-                              2.2 Cleaning ✅              ▼
-                              2.3 Analysis    Phase 4 (Advanced) ←──┘
-                              2.4 Caching            │
-                                                     ▼
+Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Comparison)
+                              2.1 Languages ✅              │
+                              2.2 Cleaning ✅                ▼
+                              2.3 Analysis ✅   Phase 4 (Advanced) ←──┘
+                              2.3a Noise ✅            │
+                              2.4 Caching ✅           ▼
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2.1 (languages), 2.2 (cleaning, v1.3.0–v1.3.1), 2.3a (noise reduction, v0.2.0) complete.
-Phase 2.3–2.4 can proceed independently of each other.
-Phase 3 is now unblocked (required Phase 2.2).
+Phase 1 complete. Phase 2 complete (all sub-phases: 2.1 languages, 2.2 cleaning, 2.3 multi-level, 2.3a noise reduction, 2.4 caching).
+Phase 3 is now unblocked.
 Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 
 ## Releases
 
 | Tag | Commit | What |
 |-----|--------|------|
-| v0.2.0 | `cb0fc1f` | Noise reduction: testdata/test filtering, symbol limits, dep_graph fixes, parser fixes |
-| v1.3.0 | `24613ba` | Render modes: signatures-only, skeleton, focused for `repo_analyze` |
-| v1.3.1 | `72e8617` | Render bug fixes: dangling braces, nested symbols, validation |
-
-Note: versioning is inconsistent (v0.2.0 was tagged after v1.3.x but on an earlier commit). Next release should continue from v1.4.0+.
+| v1.0.0 | `c4a5c55` | Phase 1: Foundation — 5 MCP tools, Go/Python/TypeScript parsing |
+| v1.1.0 | `5e75bc5` | Phase 2.1: 6 new languages (Rust, Java, C, C++, Ruby, C#) |
+| v1.2.0 | `cb0fc1f` | Phase 2.3a: Noise reduction, test filtering, symbol limits, dep_graph fixes |
+| v1.3.0 | `24613ba` | Phase 2.2: Render modes (signatures, skeleton, focused) for `repo_analyze` |
+| v1.3.1 | `72e8617` | Fix render bugs: dangling braces, nested symbols, validation |
+| v1.4.0 | `a99d14d` | Phase 2.3+2.4: Multi-level analysis (depth) + LRU caching |
 
 ## Technical Debt Watch
 
 - [ ] tree-sitter grammar version pinning (test after upgrades)
 - [ ] CGO cross-compilation for ARM64 Docker builds
 - [ ] Memory usage profiling for large repos (10K+ files)
-- [ ] Cache eviction strategy for long-running server
+- [x] Cache eviction strategy for long-running server (LRU + TTL in internal/cache)
 - [ ] Rate limiting for GitHub API calls
 - [x] MCP SDK v1.4.0 output schema compatibility (fixed: Out type must be `any`, not struct — otherwise `structuredContent: {}` overrides `content`)
 - [x] jsonschema tag format (fixed: jsonschema_description instead of jsonschema:"description=")
-- [ ] Consistent versioning scheme (v0.2.0 was tagged out of order after v1.3.x)
+- [x] Consistent versioning scheme (re-tagged: v1.0.0 → v1.4.0 in correct order)
