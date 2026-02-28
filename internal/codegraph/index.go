@@ -438,8 +438,7 @@ func buildVertexBatch(graphName string, vertices []vertexData) string {
 		varName := fmt.Sprintf("v%d", i)
 		fmt.Fprintf(&sb, "MERGE (%s:%s {%s})\n", varName, v.Label, matchKey(v.Label, key))
 		if len(v.Props) > 0 {
-			fmt.Fprintf(&sb, "ON CREATE SET %s\n", formatSet(varName, v.Props))
-			fmt.Fprintf(&sb, "ON MATCH SET %s\n", formatSet(varName, v.Props))
+			fmt.Fprintf(&sb, "SET %s\n", formatSet(varName, v.Props))
 		}
 	}
 	sb.WriteString("RETURN 1")
@@ -577,21 +576,31 @@ func insertBatches(
 	return nil
 }
 
-// insertEdgeBatches splits edges into batches and executes each as a Cypher write.
-func insertEdgeBatches(ctx context.Context, store *Store, gname string, batchSize int, edges []edgeData) error {
-	for i := 0; i < len(edges); i += batchSize {
-		end := i + batchSize
-		if end > len(edges) {
-			end = len(edges)
-		}
-		batch := edges[i:end]
-		cypher := buildEdgeBatch(gname, batch)
+// insertEdgeBatches inserts edges one at a time — AGE doesn't support
+// MATCH after MERGE in a single cypher() call, so batching isn't possible.
+func insertEdgeBatches(ctx context.Context, store *Store, gname string, _ int, edges []edgeData) error {
+	for i, e := range edges {
+		cypher := buildSingleEdge(e)
 		if cypher == "" {
 			continue
 		}
 		if err := store.ExecCypherWrite(ctx, gname, cypher); err != nil {
-			return fmt.Errorf("edge batch [%d:%d]: %w", i, end, err)
+			return fmt.Errorf("edge %d (%s->%s): %w", i, e.FromKey, e.ToKey, err)
 		}
 	}
 	return nil
+}
+
+// buildSingleEdge generates a Cypher statement for one edge: MATCH endpoints, MERGE edge.
+func buildSingleEdge(e edgeData) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "MATCH (f:%s {%s})\n", e.FromLabel, matchKey(e.FromLabel, e.FromKey))
+	fmt.Fprintf(&sb, "MATCH (t:%s {%s})\n", e.ToLabel, matchKey(e.ToLabel, e.ToKey))
+	if len(e.Props) > 0 {
+		fmt.Fprintf(&sb, "MERGE (f)-[e:%s {%s}]->(t)\n", e.EdgeLabel, formatProps(e.Props))
+	} else {
+		fmt.Fprintf(&sb, "MERGE (f)-[e:%s]->(t)\n", e.EdgeLabel)
+	}
+	sb.WriteString("RETURN 1")
+	return sb.String()
 }

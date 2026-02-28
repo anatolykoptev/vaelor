@@ -75,7 +75,7 @@ const (
 	// Graph defaults.
 	defaultGraphTTLLocal  = 3600  // 1 hour
 	defaultGraphTTLRemote = 86400 // 24 hours
-	defaultGraphBatchSize = 100
+	defaultGraphBatchSize = 5
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.

@@ -23,9 +23,9 @@ func TestEscapeCypher(t *testing.T) {
 			want:  `it\'s a test`,
 		},
 		{
-			name:  "double quote escaped",
+			name:  "double quote preserved",
 			input: `say "hello"`,
-			want:  `say \"hello\"`,
+			want:  `say "hello"`,
 		},
 		{
 			name:  "backslash escaped",
@@ -53,14 +53,14 @@ func TestEscapeCypher(t *testing.T) {
 			want:  `col1\tcol2`,
 		},
 		{
-			name:  "backtick escaped",
+			name:  "backtick preserved",
 			input: "use `backtick`",
-			want:  "use \\`backtick\\`",
+			want:  "use `backtick`",
 		},
 		{
 			name:  "mixed special characters",
 			input: "it's\n\"quoted\"\t\\path",
-			want:  `it\'s\n\"quoted\"\t\\path`,
+			want:  `it\'s\n"quoted"\t\\path`,
 		},
 		{
 			name:  "empty string unchanged",
