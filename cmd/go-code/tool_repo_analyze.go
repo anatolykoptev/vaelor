@@ -27,6 +27,9 @@ type RepoAnalyzeInput struct {
 
 	// Mode controls how file contents are rendered for LLM context.
 	Mode string `json:"mode,omitempty" jsonschema_description:"Rendering mode for file contents: signatures (API only) | skeleton (structure with ... placeholders) | focused (full for relevant symbols, signatures for rest). Default: full content."`
+
+	// Depth controls analysis depth: overview (high-level, compact), module (default, balanced), deep (detailed).
+	Depth string `json:"depth,omitempty" jsonschema_description:"Analysis depth: overview (high-level, 50K context) | module (balanced, 150K context, default) | deep (detailed, 200K context)"`
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
@@ -49,6 +52,9 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 		if input.Mode != "" && !render.ValidMode(input.Mode) {
 			return errResult(fmt.Sprintf("invalid mode %q: use signatures, skeleton, or focused", input.Mode)), nil, nil
 		}
+		if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
+			return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
+		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 		if err != nil {
@@ -56,11 +62,18 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 		}
 		defer cleanup()
 
+		// If user specified depth but not mode, use the default mode for that depth.
+		renderMode := input.Mode
+		if renderMode == "" && input.Depth != "" {
+			renderMode = analyze.DefaultModeForDepth(input.Depth)
+		}
+
 		result, err := analyze.AnalyzeRepo(ctx, analyze.RepoAnalysisInput{
 			Root:       root,
 			Query:      input.Query,
 			Focus:      input.Focus,
-			RenderMode: input.Mode,
+			RenderMode: renderMode,
+			Depth:      input.Depth,
 		}, deps)
 		if err != nil {
 			return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil

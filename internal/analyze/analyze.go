@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -50,6 +51,12 @@ type Deps struct {
 
 	// PathMappings translates external paths to container-internal paths.
 	PathMappings []PathMapping
+
+	// ParseCache caches parsed AST results per file. Optional.
+	ParseCache *cache.ParseCache
+
+	// LLMCache caches LLM responses. Optional.
+	LLMCache *cache.LLMCache
 }
 
 // maxFileBytes returns the effective file size limit.
@@ -77,6 +84,9 @@ type RepoAnalysisInput struct {
 	// RenderMode controls how file contents are rendered for LLM context.
 	// Valid values: "" (default/full), "signatures", "skeleton", "focused".
 	RenderMode string
+
+	// Depth controls analysis depth: overview, module (default), deep.
+	Depth string
 }
 
 // RepoAnalysisResult is the output of a repository analysis.
@@ -168,13 +178,29 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 		return nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
-	parseResults := parseFilesParallel(ctx, ingestResult.Files, false)
+	parseResults := parseFilesParallel(ctx, ingestResult.Files, false, deps.ParseCache)
 
-	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query, render.Mode(input.RenderMode))
+	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query, render.Mode(input.RenderMode), input.Depth)
 
-	answer, err := deps.LLM.Complete(ctx, llm.SystemPromptRepoAnalysis, llmCtx)
-	if err != nil {
-		return nil, fmt.Errorf("llm complete: %w", err)
+	systemPrompt := llm.SystemPromptForDepth(input.Depth)
+
+	var answer string
+	var llmCacheKey uint64
+	if deps.LLMCache != nil {
+		llmCacheKey = cache.PromptHash(systemPrompt, llmCtx)
+		if cached, ok := deps.LLMCache.Get(llmCacheKey); ok {
+			answer = cached
+		}
+	}
+
+	if answer == "" {
+		answer, err = deps.LLM.Complete(ctx, systemPrompt, llmCtx)
+		if err != nil {
+			return nil, fmt.Errorf("llm complete: %w", err)
+		}
+		if deps.LLMCache != nil {
+			deps.LLMCache.Put(llmCacheKey, answer)
+		}
 	}
 
 	return buildAnalysisResult(input.Root, answer, ingestResult, parseResults), nil
@@ -217,7 +243,7 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 		return nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
-	parseResults := parseFilesParallel(ctx, ingestResult.Files, input.IncludeBody)
+	parseResults := parseFilesParallel(ctx, ingestResult.Files, input.IncludeBody, nil)
 
 	pattern, err := wildcardToRegexp(input.Query)
 	if err != nil {
@@ -262,7 +288,7 @@ func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 		return "", fmt.Errorf("ingest repo: %w", err)
 	}
 
-	parseResults := parseFilesParallel(ctx, ingestResult.Files, false)
+	parseResults := parseFilesParallel(ctx, ingestResult.Files, false, nil)
 
 	graph := buildImportGraph(ingestResult.Root, parseResults, input.IncludeStdlib)
 
@@ -281,7 +307,8 @@ func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 // parseFilesParallel reads and parses all files concurrently using a fixed
 // worker pool capped at runtime.NumCPU(). This bounds both goroutine count
 // and memory usage regardless of the number of files.
-func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody bool) []fileParseResult {
+// parseCache may be nil to skip caching.
+func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody bool, parseCache *cache.ParseCache) []fileParseResult {
 	results := make([]fileParseResult, len(files))
 
 	workers := runtime.NumCPU()
@@ -304,7 +331,7 @@ func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody b
 				if ctx.Err() != nil {
 					return
 				}
-				results[idx] = parseOneFile(files[idx], includeBody)
+				results[idx] = parseOneFile(files[idx], includeBody, parseCache)
 			}
 		}()
 	}
@@ -315,7 +342,22 @@ func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody b
 
 // parseOneFile reads and parses a single file. Parse failures are non-fatal:
 // result is nil and the error is recorded in fileParseResult.err.
-func parseOneFile(file *ingest.File, includeBody bool) fileParseResult {
+// parseCache may be nil to skip caching.
+func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCache) fileParseResult {
+	// Check parse cache before reading the file.
+	var modTime, size int64
+	if parseCache != nil {
+		info, err := os.Stat(file.Path)
+		if err != nil {
+			return fileParseResult{file: file, err: fmt.Errorf("stat %s: %w", file.Path, err)}
+		}
+		modTime = info.ModTime().UnixNano()
+		size = info.Size()
+		if cached := parseCache.Get(file.Path, modTime, size); cached != nil {
+			return fileParseResult{file: file, result: cached}
+		}
+	}
+
 	source, err := os.ReadFile(file.Path)
 	if err != nil {
 		return fileParseResult{file: file, err: fmt.Errorf("read %s: %w", file.Path, err)}
@@ -328,6 +370,10 @@ func parseOneFile(file *ingest.File, includeBody bool) fileParseResult {
 	})
 	if err != nil {
 		return fileParseResult{file: file, err: fmt.Errorf("parse %s: %w", file.Path, err)}
+	}
+
+	if parseCache != nil {
+		parseCache.Put(file.Path, modTime, size, pr)
 	}
 
 	return fileParseResult{file: file, result: pr}
