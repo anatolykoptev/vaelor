@@ -444,7 +444,7 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
 | v1.6.0 | `36f2144` | Phase 4.1: Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
 | v1.7.0 | `07e8907` | Phase 5: go-search migration — `repo_search`, `repo_analyze` quick/issues modes, retry, Redis L2, metrics |
 | v1.8.0 | `127fd2d` | Phase 4.2: Code graph — `code_graph` with Apache AGE, NL→Cypher templates + LLM freeform, lazy indexing |
-| v1.9.0 | (pending) | Phase 4.3: Cross-language analysis — polyglot detection, HTTP route extraction (7 langs), Layer/Route graph, 14 Cypher templates |
+| v1.9.0 | `b06e340` | Phase 4.3: Cross-language analysis — polyglot detection, HTTP route extraction (7 langs), Layer/Route graph, 14 Cypher templates |
 
 ## Technical Debt Watch
 
