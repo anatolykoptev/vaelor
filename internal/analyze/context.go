@@ -13,6 +13,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/polyglot"
+	"github.com/anatolykoptev/go-code/internal/ranking"
 	"github.com/anatolykoptev/go-code/internal/render"
 )
 
@@ -241,26 +242,34 @@ func readFileContent(path string) (string, error) {
 	return string(b), nil
 }
 
-// prioritizeFiles orders files by relevance to the query.
+// prioritizeFiles orders files by relevance to the query using BM25F scoring.
 //
-// Priority order:
-//  1. Files whose path contains focus/query keywords (highest relevance)
-//  2. Files imported by many other files (high connectivity)
-//  3. Files with the most symbols
-//  4. Remaining files (by path alphabetically)
+// BM25F weighs symbol name matches (×5), file path matches (×3), and content (×1).
+// Import counts are added as a bonus to surface highly-connected files.
 func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms []string) []*ingest.File {
 	importCounts := computeImportCounts(results)
-	symbolCounts := computeSymbolCounts(results)
+
+	// Build BM25F documents.
+	fileSymbols := buildFileSymbolMap(results)
+	docs := make([]ranking.Document, len(files))
+	for i, f := range files {
+		docs[i] = ranking.Document{
+			Path:    f.RelPath,
+			Symbols: fileSymbols[f.RelPath],
+		}
+	}
+	scorer := ranking.NewBM25F(docs)
 
 	type scoredFile struct {
 		file  *ingest.File
-		score int
+		score float64
 	}
 
 	scored := make([]scoredFile, 0, len(files))
-	for _, f := range files {
-		score := scoreFile(f.RelPath, importCounts, symbolCounts, queryTerms)
-		scored = append(scored, scoredFile{file: f, score: score})
+	for i, f := range files {
+		bm25Score := scorer.ScoreTerms(queryTerms, docs[i])
+		importBonus := float64(importCounts[f.RelPath]) * 0.5
+		scored = append(scored, scoredFile{file: f, score: bm25Score + importBonus})
 	}
 
 	sort.SliceStable(scored, func(i, j int) bool {
@@ -274,24 +283,20 @@ func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms
 	return out
 }
 
-// scoreFile computes a relevance score for a file.
-func scoreFile(relPath string, importCounts, symbolCounts map[string]int, queryTerms []string) int {
-	const (
-		queryMatchScore  = 100
-		importScore      = 10
-		symbolScoreScale = 1
-	)
-	score := 0
-	lower := strings.ToLower(relPath)
-
-	for _, term := range queryTerms {
-		if strings.Contains(lower, term) {
-			score += queryMatchScore
+// buildFileSymbolMap extracts symbol names per file from parse results.
+func buildFileSymbolMap(results []fileParseResult) map[string][]string {
+	m := make(map[string][]string)
+	for _, pr := range results {
+		if pr.result == nil {
+			continue
 		}
+		names := make([]string, 0, len(pr.result.Symbols))
+		for _, sym := range pr.result.Symbols {
+			names = append(names, sym.Name)
+		}
+		m[pr.file.RelPath] = names
 	}
-	score += importCounts[relPath] * importScore
-	score += symbolCounts[relPath] * symbolScoreScale
-	return score
+	return m
 }
 
 // computeImportCounts returns how many files import each file (by RelPath).
@@ -318,16 +323,6 @@ func computeImportCounts(results []fileParseResult) map[string]int {
 	return counts
 }
 
-// computeSymbolCounts returns the number of symbols in each file (by RelPath).
-func computeSymbolCounts(results []fileParseResult) map[string]int {
-	counts := make(map[string]int)
-	for _, pr := range results {
-		if pr.result != nil {
-			counts[pr.file.RelPath] = len(pr.result.Symbols)
-		}
-	}
-	return counts
-}
 
 // nonAlphanumRe matches characters that are not letters, digits, or underscores.
 var nonAlphanumRe = regexp.MustCompile(`[^\w]`)
