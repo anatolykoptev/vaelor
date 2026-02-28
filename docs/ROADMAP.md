@@ -5,7 +5,7 @@
 **Goal**: Replace `github_repo_analyze` with a better version.
 Single tool (`repo_analyze`) that works better than the current one.
 
-**Status**: Complete (2026-02-28). Deployed on :8897, registered as MCP server. Released as v0.1.0.
+**Status**: Complete (2026-02-28). Deployed on :8897, registered as MCP server.
 
 ### 1.1 tree-sitter integration ✅
 - [x] Add `smacker/go-tree-sitter` dependency
@@ -191,17 +191,20 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ──→ Phase 3 (Compar
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete (v0.1.0). Phase 2.1 (languages), 2.2 (cleaning), 2.3a (noise reduction) complete (v0.2.0).
+Phase 1 complete. Phase 2.1 (languages), 2.2 (cleaning, v1.3.0–v1.3.1), 2.3a (noise reduction, v0.2.0) complete.
 Phase 2.3–2.4 can proceed independently of each other.
 Phase 3 is now unblocked (required Phase 2.2).
 Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 
 ## Releases
 
-| Version | Date | What |
-|---------|------|------|
-| v0.1.0 | 2026-02-28 | Phase 1 MVP + Phase 2.1 languages + Phase 2.2 cleaning modes |
-| v0.2.0 | 2026-02-28 | Noise reduction: testdata/test filtering, symbol limits, dep_graph fixes, parser fixes |
+| Tag | Commit | What |
+|-----|--------|------|
+| v0.2.0 | `cb0fc1f` | Noise reduction: testdata/test filtering, symbol limits, dep_graph fixes, parser fixes |
+| v1.3.0 | `24613ba` | Render modes: signatures-only, skeleton, focused for `repo_analyze` |
+| v1.3.1 | `72e8617` | Render bug fixes: dangling braces, nested symbols, validation |
+
+Note: versioning is inconsistent (v0.2.0 was tagged after v1.3.x but on an earlier commit). Next release should continue from v1.4.0+.
 
 ## Technical Debt Watch
 
@@ -212,3 +215,4 @@ Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 - [ ] Rate limiting for GitHub API calls
 - [x] MCP SDK v1.4.0 output schema compatibility (fixed: Out type must be `any`, not struct — otherwise `structuredContent: {}` overrides `content`)
 - [x] jsonschema tag format (fixed: jsonschema_description instead of jsonschema:"description=")
+- [ ] Consistent versioning scheme (v0.2.0 was tagged out of order after v1.3.x)
