@@ -45,7 +45,7 @@ func registerSymbolSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 			return errResult("query is required"), "", nil
 		}
 
-		root, cleanup, err := resolveRoot(ctx, input.Repo, deps)
+		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
 			return errResult(fmt.Sprintf("resolve repo: %s", err)), "", nil
 		}

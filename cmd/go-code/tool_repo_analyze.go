@@ -43,7 +43,7 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 			return errResult("query is required"), "", nil
 		}
 
-		root, cleanup, err := resolveRoot(ctx, input.Repo, deps)
+		root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 		if err != nil {
 			return errResult(fmt.Sprintf("resolve repo: %s", err)), "", nil
 		}
@@ -80,7 +80,7 @@ func formatAnalysisResult(r *analyze.RepoAnalysisResult) string {
 	if len(r.Symbols) > 0 {
 		fmt.Fprintf(&sb, "## Key Symbols (%d)\n", len(r.Symbols))
 		for _, sym := range r.Symbols {
-			formatSymbolLine(&sb, sym)
+			writeSymbolLine(&sb, sym)
 		}
 		sb.WriteString("\n")
 	}
@@ -90,8 +90,8 @@ func formatAnalysisResult(r *analyze.RepoAnalysisResult) string {
 	return sb.String()
 }
 
-// formatSymbolLine writes a single symbol summary line into sb.
-func formatSymbolLine(sb *strings.Builder, sym *parser.Symbol) {
+// writeSymbolLine writes a single symbol summary line into sb.
+func writeSymbolLine(sb *strings.Builder, sym *parser.Symbol) {
 	if sym.Signature != "" {
 		fmt.Fprintf(sb, "  [%s] %s — %s (line %d)\n", sym.Kind, sym.Name, sym.Signature, sym.StartLine)
 	} else {

@@ -10,11 +10,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// outputFormatAST and outputFormatSymbols are the valid output_format values.
-const (
-	outputFormatAST     = "ast"
-	outputFormatSymbols = "symbols"
-)
+// outputFormatAST is the output_format value that returns the raw syntax tree.
+// The default (empty or any other value) returns the symbols table.
+const outputFormatAST = "ast"
 
 // FileParseInput is the input schema for the file_parse tool.
 type FileParseInput struct {
@@ -30,7 +28,8 @@ type FileParseInput struct {
 
 // registerFileParse registers the file_parse MCP tool.
 // Parses a single source file with tree-sitter and extracts the AST or symbol table.
-func registerFileParse(server *mcp.Server, _ Config) {
+func registerFileParse(server *mcp.Server, cfg Config) {
+	maxBytes := cfg.MaxFileBytes
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "file_parse",
 		Description: "Parse a single source file using tree-sitter and return its AST or symbol table. " +
@@ -40,6 +39,14 @@ func registerFileParse(server *mcp.Server, _ Config) {
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input FileParseInput) (*mcp.CallToolResult, string, error) {
 		if input.Path == "" {
 			return errResult("path is required"), "", nil
+		}
+
+		fi, err := os.Stat(input.Path)
+		if err != nil {
+			return errResult(fmt.Sprintf("stat file: %s", err)), "", nil
+		}
+		if fi.Size() > maxBytes {
+			return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), "", nil
 		}
 
 		source, err := os.ReadFile(input.Path)
