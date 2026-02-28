@@ -22,7 +22,7 @@ import (
 
 const (
 	serviceName    = "go-code"
-	serviceVersion = "0.1.0"
+	serviceVersion = "1.3.1"
 	toolCount      = 5
 
 	defaultPort = "8897"
