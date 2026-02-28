@@ -2,6 +2,7 @@ package metrics_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/metrics"
@@ -59,6 +60,30 @@ func TestTrackOperationSuccess(t *testing.T) {
 	}
 	if got := snap[metrics.LLMErrors]; got != 0 {
 		t.Errorf("LLMErrors: want 0, got %d", got)
+	}
+}
+
+func TestConcurrentIncr(t *testing.T) {
+	metrics.Reset()
+
+	const goroutines = 100
+	const incrsPerGoroutine = 1000
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range incrsPerGoroutine {
+				metrics.Incr(metrics.LLMCalls)
+			}
+		}()
+	}
+	wg.Wait()
+
+	snap := metrics.Snapshot()
+	if got := snap[metrics.LLMCalls]; got != goroutines*incrsPerGoroutine {
+		t.Errorf("LLMCalls: want %d, got %d", goroutines*incrsPerGoroutine, got)
 	}
 }
 
