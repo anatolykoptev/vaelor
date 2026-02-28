@@ -52,8 +52,15 @@ internal/
     analyze.go         — AnalyzeRepo, SearchSymbols, BuildDepGraph
   github/              — GitHub API client
     github.go          — FetchRepoMeta, FetchREADME
+    search.go          — SearchCode, SearchIssues, SearchRepos, ExtractOwnerRepo
   llm/                 — LLM client (CLIProxyAPI)
-    llm.go             — Complete: OpenAI-compatible chat completion
+    llm.go             — Complete, CompleteRaw: OpenAI-compatible chat completion with retry + fallback
+  retry/               — Generic retry with exponential backoff
+    retry.go           — Do[T], HTTP: retry with jitter and context awareness
+  metrics/             — Atomic operation counters
+    metrics.go         — Incr, Snapshot, TrackOperation: lock-free metrics
+  search/              — SearXNG web search client
+    searxng.go         — Search, FilterByScore, DedupByDomain
 
 deploy/
   go-code.env          — Environment template (no real secrets)
@@ -63,12 +70,14 @@ deploy/
 
 | Tool | Description |
 |------|-------------|
-| `repo_analyze` | Analyze a GitHub repo or local path. Clones, parses ASTs, answers natural-language questions about architecture and implementation. |
+| `repo_analyze` | Analyze a GitHub repo or local path. Supports deep mode (AST + LLM), quick mode (GitHub Code Search), and issue/PR search. |
 | `file_parse` | Parse a single source file with tree-sitter. Returns symbol table (functions, types, methods) or raw AST. |
 | `code_compare` | Compare two repositories structurally: architecture, API design, dependency strategies, code quality. |
 | `dep_graph` | Build and visualize the dependency graph of a repository. Output as Mermaid, Graphviz DOT, or JSON. |
 | `symbol_search` | Search for symbols (functions, types, consts) across a repo by name pattern or wildcard. |
 | `call_trace` | Trace call chains from a function: callees (forward) or callers (reverse) with depth control and LLM narrative. |
+| `code_graph` | Query code knowledge graph stored in Apache AGE (requires DATABASE_URL). |
+| `repo_search` | Discover GitHub repositories. Parallel search (SearXNG + GitHub API), enrichment with metadata + README, LLM-ranked recommendations. |
 
 ## Environment Variables
 
@@ -77,11 +86,16 @@ deploy/
 | `MCP_PORT` | `8897` | HTTP server port |
 | `LLM_URL` | `http://127.0.0.1:8317/v1` | CLIProxyAPI base URL |
 | `LLM_API_KEY` | (required) | API key for LLM proxy |
+| `LLM_API_KEY_FALLBACK` | (optional) | Comma-separated fallback API keys for 429/5xx |
 | `LLM_MODEL` | `gemini-2.5-flash` | Model name |
 | `GITHUB_TOKEN` | (optional) | GitHub token for private repos and higher rate limits |
+| `GITHUB_SEARCH_REPOS` | (optional) | Default repos for quick mode code search (comma-separated) |
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Directory for temporary clones |
 | `MAX_FILE_KB` | `512` | Max file size to parse (KB) |
 | `MAX_REPO_MB` | `200` | Max repo size to accept (MB) |
+| `SEARXNG_URL` | `http://searxng:8888` | SearXNG instance URL for repo_search |
+| `REDIS_URL` | (optional) | Redis URL for L2 cache (e.g. redis://redis:6379/6) |
+| `DATABASE_URL` | (optional) | PostgreSQL DSN for Apache AGE code graph |
 
 ## Build & Deploy
 

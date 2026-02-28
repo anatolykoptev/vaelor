@@ -177,26 +177,34 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 5: go-search Migration
+## Phase 5: go-search Migration ✅
 
 **Goal**: Remove code tools from go-search, point to go-code.
 
-### 5.1 Migration
-- [ ] Verify go-code covers all github_repo_analyze modes
-- [ ] Verify go-code covers github_repo_search functionality
-- [x] Update Claude MCP config: add go-code ✅ (done in Phase 1)
-- [ ] Remove `tool_github_repo_analyze.go` from go-search
-- [ ] Remove `tool_github_repo_search.go` from go-search
-- [ ] Remove `internal/gitingest/` from go-search
-- [ ] Remove `sources/github.go` code-specific functions from go-search
-- [ ] Update go-search CLAUDE.md and tool count
+**Status**: Complete (2026-02-28). All code tools migrated to go-code, removed from go-search.
 
-### 5.2 Cleanup
-- [ ] Remove dead code from go-search
-- [ ] Update MEMORY.md with new tool locations
-- [ ] Update agent configurations that reference go-search code tools
+### 5.1 New infrastructure ✅
+- [x] `internal/retry` — generic exponential backoff with jitter
+- [x] `internal/metrics` — atomic operation counters
+- [x] `internal/cache` — GenericCache[T] with Redis L2 (go-redis/v9)
+- [x] `internal/llm` — retry + fallback API keys + CompleteRaw
+- [x] `internal/github` — SearchCode, SearchIssues, SearchRepos, ExtractOwnerRepo
+- [x] `internal/search` — SearXNG client with FilterByScore, DedupByDomain
 
-**Deliverable**: Clean separation. go-search = web search. go-code = code intelligence.
+### 5.2 New tool modes ✅
+- [x] `repo_analyze` mode=quick — GitHub Code Search + LLM summary
+- [x] `repo_analyze` type=issue/pr — GitHub Issues/PR search + LLM analysis
+- [x] `repo_search` — parallel SearXNG + GitHub API search, enrichment, LLM recommendations
+
+### 5.3 go-search cleanup ✅
+- [x] Remove `tool_github_repo_analyze.go` from go-search
+- [x] Remove `tool_github_repo_search.go` from go-search
+- [x] Remove `internal/gitingest/` from go-search
+- [x] Remove code-specific functions from `sources/github.go`
+- [x] Update go-search CLAUDE.md, tool count, metrics
+- [x] Deploy both services, verify health
+
+**Deliverable**: Clean separation. go-search = web search. go-code = code intelligence. ✅
 
 ---
 
@@ -212,8 +220,8 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2 complete. Phase 3 complete. Phase 4.1 complete.
-Phase 4.2/4.3 and Phase 5 remain.
+Phase 1 complete. Phase 2 complete. Phase 3 complete. Phase 4.1 complete. Phase 5 complete.
+Phase 4.2/4.3 remain.
 
 ## Releases
 
