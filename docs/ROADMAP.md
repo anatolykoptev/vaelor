@@ -27,8 +27,8 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Preservation rules: TODO/FIXME/nolint/doc comments kept
 - [x] Blank line collapsing, long line truncation, file-level truncation
 - [x] 14 tests covering all cleaning modes
-- [ ] Signatures-only mode (deferred to Phase 2)
-- [ ] Skeleton mode with `...` placeholders (deferred to Phase 2)
+- [x] Signatures-only mode (Phase 2.2)
+- [x] Skeleton mode with `...` placeholders (Phase 2.2)
 
 ### 1.4 LLM analysis ✅
 - [x] LLM client via CLIProxyAPI (OpenAI-compatible)
@@ -70,10 +70,15 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Total supported languages**: Go, Python, TypeScript/JS, Rust, Java, C, C++, Ruby, C# (9 languages).
 
-### 2.2 Advanced cleaning modes
-- [ ] Signatures-only mode: extract API surface without bodies
-- [ ] Skeleton mode: structure with `...` placeholders
-- [ ] Focused mode: full bodies for query-relevant symbols, signatures for rest
+### 2.2 Advanced cleaning modes ✅
+
+**Status**: Complete (2026-02-28). New `internal/render` package, `mode` parameter on `repo_analyze`. Released as v1.3.0.
+
+- [x] Signatures-only mode: extract API surface without bodies
+- [x] Skeleton mode: structure with `// ...` placeholders
+- [x] Focused mode: full bodies for query-relevant symbols, signatures for rest
+- [x] Structural kinds (struct/interface/class/type) always preserve full body
+- [x] Exposed as `mode` parameter on `repo_analyze` MCP tool
 
 ### 2.3 Multi-level analysis
 - [ ] Level 1 (overview): file tree + symbol signatures only
@@ -167,16 +172,16 @@ Single tool (`repo_analyze`) that works better than the current one.
 ```
 Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ──→ Phase 3 (Comparison)
                               2.1 Languages ✅            │
-                              2.2 Cleaning                ▼
+                              2.2 Cleaning ✅              ▼
                               2.3 Analysis    Phase 4 (Advanced) ←──┘
                               2.4 Caching            │
                                                      ▼
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2.1 (languages) complete.
-Phase 2.2–2.4 can proceed independently of each other.
-Phase 3 requires at least Phase 2.2 (cleaning modes) for meaningful comparison.
+Phase 1 complete. Phase 2.1 (languages) complete. Phase 2.2 (cleaning modes) complete.
+Phase 2.3–2.4 can proceed independently of each other.
+Phase 3 is now unblocked (required Phase 2.2).
 Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 
 ## Technical Debt Watch
