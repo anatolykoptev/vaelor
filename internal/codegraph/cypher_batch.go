@@ -79,6 +79,10 @@ func vertexKey(v vertexData) string {
 		name := v.Props["name"]
 		file := v.Props["file"]
 		return name + ":" + file
+	case "Layer":
+		return v.Props["name"]
+	case "Route":
+		return v.Props["method"] + ":" + v.Props["path"]
 	default:
 		return v.Props["name"]
 	}
@@ -103,6 +107,14 @@ func matchKey(label, key string) string {
 			return fmt.Sprintf("name: '%s', file: '%s'", escapeCypher(name), escapeCypher(file))
 		}
 		return fmt.Sprintf("name: '%s'", escapeCypher(key))
+	case "Layer":
+		return fmt.Sprintf("name: '%s'", escapeCypher(key))
+	case "Route":
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) == 2 {
+			return fmt.Sprintf("method: '%s', path: '%s'", escapeCypher(parts[0]), escapeCypher(parts[1]))
+		}
+		return fmt.Sprintf("path: '%s'", escapeCypher(key))
 	default:
 		return fmt.Sprintf("path: '%s'", escapeCypher(key))
 	}
