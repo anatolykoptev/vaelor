@@ -150,10 +150,17 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Goal**: Deeper understanding of code.
 
-### 4.1 Call chain tracing
-- [ ] "What happens when function X is called?" — trace the full execution path
-- [ ] Cross-file, cross-package call chain resolution
-- [ ] For Go: enhance with `golang.org/x/tools/go/callgraph/rta` for precision
+### 4.1 Call chain tracing ✅
+
+**Status**: Complete (2026-02-27). `call_trace` MCP tool operational.
+
+- [x] Call extraction via tree-sitter queries for all 9 languages (separate `*_calls.scm` files)
+- [x] Name-based resolution: same-file → same-package → cross-package
+- [x] BFS trace with configurable depth (default 5, max 10)
+- [x] Bidirectional: callees (forward) and callers (reverse)
+- [x] Cycle detection (marks cycles, avoids infinite loops)
+- [x] LLM narrative explanation of execution flow
+- [x] `call_trace` MCP tool with JSON output
 
 ### 4.2 Code graph (optional, if needed)
 - [ ] Store symbols + relationships in Apache AGE (already in stack)
@@ -205,9 +212,8 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2 complete. Phase 3 complete.
-Phase 4 (advanced analysis) is now unblocked.
-Phase 5 (migration) should only happen after Phase 4 proves go-code is better.
+Phase 1 complete. Phase 2 complete. Phase 3 complete. Phase 4.1 complete.
+Phase 4.2/4.3 and Phase 5 remain.
 
 ## Releases
 
@@ -220,6 +226,8 @@ Phase 5 (migration) should only happen after Phase 4 proves go-code is better.
 | v1.3.1 | `72e8617` | Fix render bugs: dangling braces, nested symbols, validation |
 | v1.4.0 | `a99d14d` | Phase 2.3+2.4: Multi-level analysis (depth) + LRU caching |
 | v1.5.0 | `4e471f0` | Phase 3: Comparison Engine — `code_compare` with structural diff + LLM analysis |
+| v1.5.1 | `eb70fe0` | Fix 6 bugs found during practical testing of `code_compare` |
+| v1.6.0 | `36f2144` | Phase 4.1: Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
 
 ## Technical Debt Watch
 
