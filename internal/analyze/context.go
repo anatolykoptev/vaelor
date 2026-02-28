@@ -82,13 +82,13 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 
 	budget := budgetForDepth(depth)
 
-	sb.WriteString("## Query\n")
+	sb.WriteString("<query>\n")
 	sb.WriteString(query)
-	sb.WriteString("\n\n")
+	sb.WriteString("\n</query>\n\n")
 
-	sb.WriteString("## Repository File Tree\n```\n")
+	sb.WriteString("<file-tree>\n")
 	sb.WriteString(ingest.RenderTree(ir.Files))
-	sb.WriteString("\n```\n\n")
+	sb.WriteString("\n</file-tree>\n\n")
 
 	// Append cross-language architecture section for polyglot repositories.
 	if section := buildPolyglotSection(ir.Files); section != "" {
@@ -96,9 +96,9 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 	}
 
 	symbolSection := buildSymbolSummary(results, budget.symbolSummary)
-	sb.WriteString("## Symbol Summary\n")
+	sb.WriteString("<symbols>\n")
 	sb.WriteString(symbolSection)
-	sb.WriteString("\n")
+	sb.WriteString("</symbols>\n\n")
 
 	// Insert dependency graph for module and deep depths.
 	if budget.depGraph > 0 {
@@ -188,7 +188,6 @@ func appendFileContents(
 	parseMap map[string]*parser.ParseResult,
 	maxFileChars int,
 ) {
-	sb.WriteString("## File Contents\n\n")
 	remaining := budget
 	cleanOpts := clean.CleanOpts{
 		StripComments:     true,
@@ -228,9 +227,9 @@ func appendFileContents(
 	}
 }
 
-// formatFileBlock wraps file content in a labeled section block.
+// formatFileBlock wraps file content in an XML-tagged section block.
 func formatFileBlock(relPath, content string) string {
-	return fmt.Sprintf("=== File: %s ===\n%s\n\n", relPath, content)
+	return fmt.Sprintf("<file path=%q>\n%s\n</file>\n\n", relPath, content)
 }
 
 // readFileContent reads a file and returns its content as a string.

@@ -483,7 +483,7 @@ func TestBuildLLMContext_ContainsSections(t *testing.T) {
 	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
 	ctx := buildLLMContext(ir, results, "test query", render.ModeDefault, "")
 
-	for _, section := range []string{"## Query", "## Repository File Tree", "## Symbol Summary", "## File Contents"} {
+	for _, section := range []string{"<query>", "<file-tree>", "<symbols>", "<file path="} {
 		if !strings.Contains(ctx, section) {
 			t.Errorf("LLM context missing section %q", section)
 		}
@@ -503,6 +503,44 @@ func TestBuildDepGraph_InvalidFormat(t *testing.T) {
 	}
 	if err != nil && !strings.Contains(err.Error(), "unsupported format") {
 		t.Errorf("expected 'unsupported format' error, got: %v", err)
+	}
+}
+
+func TestBuildLLMContext_XMLFormat(t *testing.T) {
+	root := makeFixtureRepo(t)
+	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
+	ctx := buildLLMContext(ir, results, "test query", render.ModeDefault, "")
+
+	// Should NOT use old Markdown format.
+	assertNotContains(t, ctx, "=== File:")
+	assertNotContains(t, ctx, "## Query")
+	assertNotContains(t, ctx, "## Repository File Tree")
+	assertNotContains(t, ctx, "## File Contents")
+
+	// Should use XML format.
+	assertContains(t, ctx, "<query>")
+	assertContains(t, ctx, "</query>")
+	assertContains(t, ctx, "<file-tree>")
+	assertContains(t, ctx, "</file-tree>")
+	assertContains(t, ctx, "<file path=")
+	assertContains(t, ctx, "</file>")
+}
+
+func assertContains(t *testing.T, s, substr string) {
+	t.Helper()
+	if !strings.Contains(s, substr) {
+		t.Errorf("expected output to contain %q\ngot:\n%s", substr, s)
+	}
+}
+
+func assertNotContains(t *testing.T, s, substr string) {
+	t.Helper()
+	if strings.Contains(s, substr) {
+		t.Errorf("expected output to NOT contain %q\ngot:\n%s", substr, s)
 	}
 }
 
