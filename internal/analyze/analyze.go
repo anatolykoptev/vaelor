@@ -198,7 +198,8 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 
 	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query, render.Mode(input.RenderMode), input.Depth)
 
-	systemPrompt := llm.SystemPromptForDepth(input.Depth)
+	intent := llm.ClassifyIntent(input.Query)
+	systemPrompt := llm.SystemPromptForIntent(intent, input.Depth)
 
 	var answer string
 	var llmCacheKey uint64
