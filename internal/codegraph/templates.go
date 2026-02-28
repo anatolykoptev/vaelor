@@ -110,6 +110,34 @@ var templates = map[string]*Template{
 		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '{name}'}) RETURN DISTINCT f",
 		Cols:        1,
 	},
+	"api_routes": {
+		ID:          "api_routes",
+		Description: "Find HTTP routes with their handler symbols, optionally filtered by path",
+		Params:      []string{"path"},
+		Cypher:      "MATCH (s:Symbol)-[r]->(route:Route) WHERE route.path CONTAINS '{path}' RETURN s.name, s.file, type(r) AS relation, route.method, route.path",
+		Cols:        5,
+	},
+	"cross_calls": {
+		ID:          "cross_calls",
+		Description: "Find backend handlers and frontend callers connected through shared HTTP routes",
+		Params:      []string{"path"},
+		Cypher:      "MATCH (server:Symbol)-[:HANDLES]->(route:Route)<-[:FETCHES]-(client:Symbol) WHERE route.path CONTAINS '{path}' RETURN server.name, server.file, route.method, route.path, client.name, client.file",
+		Cols:        6,
+	},
+	"layer_deps": {
+		ID:          "layer_deps",
+		Description: "Show dependencies between architectural layers via function calls",
+		Params:      []string{},
+		Cypher:      "MATCH (f1:File)-[:BELONGS_TO]->(l1:Layer), (f2:File)-[:BELONGS_TO]->(l2:Layer), (s1:Symbol)<-[:CONTAINS]-(f1), (s1)-[:CALLS]->(s2), (s2)<-[:CONTAINS]-(f2) WHERE l1.name <> l2.name RETURN l1.name, l2.name, count(*) AS connections ORDER BY connections DESC",
+		Cols:        3,
+	},
+	"polyglot_overview": {
+		ID:          "polyglot_overview",
+		Description: "Show repository structure with layers, languages, and route counts",
+		Params:      []string{},
+		Cypher:      "MATCH (l:Layer)<-[:BELONGS_TO]-(f:File) OPTIONAL MATCH (f)-[:CONTAINS]->(s:Symbol)-[:HANDLES]->(r:Route) RETURN l.name, l.role, l.language, count(DISTINCT f) AS files, count(DISTINCT r) AS routes",
+		Cols:        5,
+	},
 }
 
 // GetTemplate returns the template with the given ID, or nil if not found.
