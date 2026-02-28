@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/retry"
 )
 
 const (
@@ -25,13 +27,18 @@ const (
 	completionsPath = "/chat/completions"
 )
 
+// defaultMaxRetries is used when Config.MaxRetries is not set.
+const defaultMaxRetries = 2
+
 // Client is an OpenAI-compatible LLM client.
 type Client struct {
-	baseURL    string
-	apiKey     string
-	model      string
-	maxTokens  int
-	httpClient *http.Client
+	baseURL      string
+	apiKey       string
+	model        string
+	maxTokens    int
+	httpClient   *http.Client
+	fallbackKeys []string
+	maxRetries   int
 }
 
 // Config holds LLM client configuration.
@@ -41,6 +48,12 @@ type Config struct {
 
 	// APIKey is the API key for authentication.
 	APIKey string //nolint:gosec // not a hardcoded secret — loaded from env
+
+	// FallbackKeys are tried if the primary APIKey gets 429/5xx.
+	FallbackKeys []string //nolint:gosec // not a hardcoded secret — loaded from env
+
+	// MaxRetries is the max retry attempts per key. Default: 2.
+	MaxRetries int
 
 	// Model is the model name to use.
 	Model string
@@ -84,11 +97,18 @@ func NewClient(cfg Config) *Client {
 		maxTokens = defaultMaxTokens
 	}
 
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = defaultMaxRetries
+	}
+
 	return &Client{
-		baseURL:   strings.TrimRight(cfg.BaseURL, "/"),
-		apiKey:    cfg.APIKey,
-		model:     model,
-		maxTokens: maxTokens,
+		baseURL:      strings.TrimRight(cfg.BaseURL, "/"),
+		apiKey:       cfg.APIKey,
+		model:        model,
+		maxTokens:    maxTokens,
+		fallbackKeys: cfg.FallbackKeys,
+		maxRetries:   maxRetries,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 		},
@@ -96,6 +116,7 @@ func NewClient(cfg Config) *Client {
 }
 
 // Complete sends a chat completion request and returns the response text.
+// It retries on 429/5xx using the primary key, then falls back to FallbackKeys.
 func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
@@ -114,6 +135,36 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) 
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
+	keys := append([]string{c.apiKey}, c.fallbackKeys...)
+	var lastErr error
+	for _, key := range keys {
+		result, err := retry.Do(ctx, retry.Options{
+			MaxAttempts:  c.maxRetries,
+			InitialDelay: retry.DefaultInitialDelay,
+			MaxDelay:     retry.DefaultMaxDelay,
+		}, func() (string, error) {
+			return c.doRequest(ctx, bodyBytes, key)
+		})
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+	}
+
+	return "", lastErr
+}
+
+// CompleteRaw sends a single user prompt with no system prompt.
+func (c *Client) CompleteRaw(ctx context.Context, prompt string) (string, error) {
+	return c.Complete(ctx, "", prompt)
+}
+
+// doRequest performs a single HTTP request to the LLM API with the given key and body.
+// On retryable status codes (429, 5xx) it returns an error so the caller can retry.
+func (c *Client) doRequest(ctx context.Context, bodyBytes []byte, apiKey string) (string, error) {
 	url := c.baseURL + completionsPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -121,8 +172,8 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec // URL comes from trusted config (LLM_URL env var)
@@ -130,6 +181,10 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) 
 		return "", fmt.Errorf("llm request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if isRetryableStatus(resp.StatusCode) {
+		return "", fmt.Errorf("llm returned %d", resp.StatusCode)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("llm returned %d", resp.StatusCode)
@@ -146,6 +201,26 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) 
 
 	return completion.Choices[0].Message.Content, nil
 }
+
+// isRetryableStatus reports whether the HTTP status code warrants a retry.
+func isRetryableStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+// SystemPromptQuickSearch is the system prompt for GitHub code search result summarization.
+const SystemPromptQuickSearch = `You are analyzing GitHub code search results. Summarize the relevant code patterns found for the query. Be concise, reference file paths.`
+
+// SystemPromptIssuesAnalysis is the system prompt for GitHub issues/PRs analysis.
+const SystemPromptIssuesAnalysis = `You are analyzing GitHub issues/PRs. Summarize the key findings for the query. Focus on what's most relevant. Be concise.`
 
 // SystemPromptRepoAnalysis is the system prompt for repository analysis queries.
 const SystemPromptRepoAnalysis = `You are a senior software engineer analyzing a code repository.
@@ -253,6 +328,12 @@ Rules:
 - Extract symbol/function/package names from the question into params
 - Use "freeform" only if the question truly doesn't match any template
 - Parameter values should be exact names from the question (case-sensitive)`
+
+// SystemPromptGraphNarrative formats raw graph query results into a narrative.
+const SystemPromptGraphNarrative = `You are a senior software engineer explaining code graph query results.
+You receive: the original question, the Cypher query used, and the raw results.
+Provide a concise narrative answer. Reference file paths and function names.
+If results are empty, say so clearly. Do not speculate beyond what the data shows.`
 
 // SystemPromptGenerateCypher generates a read-only Cypher query from natural language.
 const SystemPromptGenerateCypher = `You are a Cypher query generator for a code knowledge graph stored in Apache AGE.
