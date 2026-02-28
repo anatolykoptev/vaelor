@@ -1,3 +1,4 @@
+//nolint:dupl // Language handlers are intentionally similar — each links a separate C grammar.
 package parser
 
 import (
