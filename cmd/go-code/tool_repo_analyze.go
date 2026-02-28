@@ -168,7 +168,7 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
 	kind := input.Type // "pr" or "issue"
 	if isLocalPath(input.Repo) {
-		return errResult(fmt.Sprintf("%s search requires a GitHub repo (owner/repo), not a local path", kind)), nil, nil
+		return errResult(kind + " search requires a GitHub repo (owner/repo), not a local path"), nil, nil
 	}
 	repos := resolveQuickRepos(input)
 	if len(repos) == 0 {

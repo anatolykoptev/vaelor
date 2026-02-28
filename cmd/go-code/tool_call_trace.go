@@ -37,6 +37,8 @@ type traceStats struct {
 	ResolvedRatio float64 `json:"resolved_ratio"`
 }
 
+const defaultTraceDepth = 5
+
 // registerCallTrace registers the call_trace MCP tool.
 func registerCallTrace(server *mcp.Server, _ Config, deps analyze.Deps) {
 	mcp.AddTool(server, &mcp.Tool{
@@ -46,84 +48,94 @@ func registerCallTrace(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Returns a call tree with resolved cross-file references and an LLM-generated " +
 			"narrative explanation of the execution flow.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, any, error) {
-		if input.Repo == "" {
-			return errResult("repo is required"), nil, nil
-		}
-		if input.Symbol == "" {
-			return errResult("symbol is required"), nil, nil
-		}
-
-		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
-		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
-		}
-		defer cleanup()
-
-		depth := input.Depth
-		if depth <= 0 {
-			depth = 5
-		}
-
-		direction := input.Direction
-		if direction == "" {
-			direction = "callees"
-		}
-
-		result, err := callgraph.TraceRepo(ctx, callgraph.TraceRepoInput{
-			Root:     root,
-			Symbol:   input.Symbol,
-			Focus:    input.Focus,
-			Language: input.Language,
-			Opts: callgraph.TraceOpts{
-				Direction: direction,
-				MaxDepth:  depth,
-			},
-		})
-		if err != nil {
-			return errResult(fmt.Sprintf("trace: %s", err)), nil, nil
-		}
-
-		if result.Root == nil {
-			return errResult(fmt.Sprintf("symbol %q not found in repository", input.Symbol)), nil, nil
-		}
-
-		total := result.Resolved + result.Unresolved
-		var ratio float64
-		if total > 0 {
-			ratio = float64(result.Resolved) / float64(total)
-		}
-
-		output := callTraceOutput{
-			Symbol:    input.Symbol,
-			Direction: direction,
-			CallTree:  result.Tree,
-			Stats: traceStats{
-				TotalNodes:    result.TotalNodes,
-				MaxDepth:      result.MaxDepth,
-				Resolved:      result.Resolved,
-				Unresolved:    result.Unresolved,
-				ResolvedRatio: ratio,
-			},
-		}
-
-		// LLM narrative (optional, non-fatal).
-		if deps.LLM != nil && result.TotalNodes > 1 {
-			treeJSON, _ := json.Marshal(result.Tree)
-			prompt := fmt.Sprintf("Entry function: %s\nDirection: %s\n\nCall tree:\n%s",
-				input.Symbol, direction, string(treeJSON))
-			narrative, narErr := deps.LLM.Complete(ctx, llm.SystemPromptCallTrace, prompt)
-			if narErr == nil {
-				output.Narrative = narrative
-			}
-		}
-
-		data, err := json.MarshalIndent(output, "", "  ")
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
-		}
-
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-		}, nil, nil
+		return handleCallTrace(ctx, input, deps)
 	})
+}
+
+func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	if input.Repo == "" {
+		return errResult("repo is required"), nil, nil
+	}
+	if input.Symbol == "" {
+		return errResult("symbol is required"), nil, nil
+	}
+
+	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+	}
+	defer cleanup()
+
+	depth := input.Depth
+	if depth <= 0 {
+		depth = defaultTraceDepth
+	}
+
+	direction := input.Direction
+	if direction == "" {
+		direction = "callees"
+	}
+
+	result, err := callgraph.TraceRepo(ctx, callgraph.TraceRepoInput{
+		Root:     root,
+		Symbol:   input.Symbol,
+		Focus:    input.Focus,
+		Language: input.Language,
+		Opts: callgraph.TraceOpts{
+			Direction: direction,
+			MaxDepth:  depth,
+		},
+	})
+	if err != nil {
+		return errResult(fmt.Sprintf("trace: %s", err)), nil, nil
+	}
+
+	if result.Root == nil {
+		return errResult(fmt.Sprintf("symbol %q not found in repository", input.Symbol)), nil, nil
+	}
+
+	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps)
+
+	data, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+	}, nil, nil
+}
+
+func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps) callTraceOutput {
+	total := result.Resolved + result.Unresolved
+	var ratio float64
+	if total > 0 {
+		ratio = float64(result.Resolved) / float64(total)
+	}
+
+	output := callTraceOutput{
+		Symbol:    symbol,
+		Direction: direction,
+		CallTree:  result.Tree,
+		Stats: traceStats{
+			TotalNodes:    result.TotalNodes,
+			MaxDepth:      result.MaxDepth,
+			Resolved:      result.Resolved,
+			Unresolved:    result.Unresolved,
+			ResolvedRatio: ratio,
+		},
+	}
+
+	// LLM narrative (optional, non-fatal).
+	if deps.LLM != nil && result.TotalNodes > 1 {
+		treeJSON, _ := json.Marshal(result.Tree)
+		prompt := fmt.Sprintf("Entry function: %s\nDirection: %s\n\nCall tree:\n%s",
+			symbol, direction, string(treeJSON))
+		narrative, narErr := deps.LLM.Complete(ctx, llm.SystemPromptCallTrace, prompt)
+		if narErr == nil {
+			output.Narrative = narrative
+		}
+	}
+
+	return output
 }

@@ -498,35 +498,44 @@ func buildImportGraph(root string, results []fileParseResult, includeStdlib bool
 		if pr.result == nil || len(pr.result.Imports) == 0 {
 			continue
 		}
-
-		relPath, err := filepath.Rel(root, pr.file.Path)
-		if err != nil {
-			relPath = pr.file.Path
-		}
-		pkg := filepath.Dir(relPath)
-		if pkg == "." {
-			pkg = filepath.Base(root)
-		}
-
-		if _, ok := graph[pkg]; !ok {
-			graph[pkg] = make(map[string]struct{})
-		}
-		for _, imp := range pr.result.Imports {
-			if imp == "" {
-				continue
-			}
-			if !includeStdlib && isStdlibImport(imp) {
-				continue
-			}
-			// Skip self-import (e.g. test files importing their own package).
-			if strings.HasSuffix(imp, "/"+pkg) {
-				continue
-			}
-			graph[pkg][imp] = struct{}{}
-		}
+		pkg := packageName(root, pr.file.Path)
+		addImports(graph, pkg, pr.result.Imports, includeStdlib)
 	}
 
 	return graph
+}
+
+// packageName derives the package directory name from a file path relative to root.
+func packageName(root, filePath string) string {
+	relPath, err := filepath.Rel(root, filePath)
+	if err != nil {
+		relPath = filePath
+	}
+	pkg := filepath.Dir(relPath)
+	if pkg == "." {
+		pkg = filepath.Base(root)
+	}
+	return pkg
+}
+
+// addImports inserts all valid imports for a package into the graph.
+func addImports(graph importGraph, pkg string, imports []string, includeStdlib bool) {
+	if _, ok := graph[pkg]; !ok {
+		graph[pkg] = make(map[string]struct{})
+	}
+	for _, imp := range imports {
+		if imp == "" {
+			continue
+		}
+		if !includeStdlib && isStdlibImport(imp) {
+			continue
+		}
+		// Skip self-import (e.g. test files importing their own package).
+		if strings.HasSuffix(imp, "/"+pkg) {
+			continue
+		}
+		graph[pkg][imp] = struct{}{}
+	}
 }
 
 // filterGraph returns a subgraph reachable from focus within maxDepth hops.

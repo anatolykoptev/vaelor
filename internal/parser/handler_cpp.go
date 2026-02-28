@@ -7,6 +7,8 @@ import (
 	"github.com/smacker/go-tree-sitter/cpp"
 )
 
+const nodeTypeStructSpecifier = "struct_specifier"
+
 //go:embed queries/cpp.scm
 var cppQueryBytes []byte
 
@@ -127,11 +129,11 @@ func (h *cppHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	// Skip type references without a body (e.g. "struct Foo* ptr;").
-	if (node.Type() == "struct_specifier" || node.Type() == "enum_specifier") && node.ChildByFieldName("body") == nil {
+	if (node.Type() == nodeTypeStructSpecifier || node.Type() == "enum_specifier") && node.ChildByFieldName("body") == nil {
 		return nil
 	}
 	kind := KindType
-	if node.Type() == "struct_specifier" {
+	if node.Type() == nodeTypeStructSpecifier {
 		kind = KindStruct
 	}
 	return &Symbol{
