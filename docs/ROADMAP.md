@@ -57,11 +57,12 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Goal**: Improve code understanding quality. Additional languages, smarter cleaning modes, caching.
 
-### 2.1 Additional languages
-- [ ] Rust handler + queries
-- [ ] Java handler + queries
-- [ ] C/C++ handler + queries
-- [ ] Ruby handler + queries
+### 2.1 Additional languages ✅
+- [x] Rust handler + queries
+- [x] Java handler + queries
+- [x] C/C++ handler + queries
+- [x] Ruby handler + queries
+- [x] C# handler + queries (bonus)
 
 ### 2.2 Advanced cleaning modes
 - [ ] Signatures-only mode: extract API surface without bodies
