@@ -12,8 +12,8 @@ import (
 
 // CodeCompareInput is the input schema for the code_compare tool.
 type CodeCompareInput struct {
-	RepoA    string `json:"repo_a" jsonschema_description:"First repository: GitHub slug (owner/repo) or absolute local path"`
-	RepoB    string `json:"repo_b" jsonschema_description:"Second repository: GitHub slug (owner/repo) or absolute local path"`
+	RepoA    string `json:"repo_a" jsonschema_description:"First repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
+	RepoB    string `json:"repo_b" jsonschema_description:"Second repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Query    string `json:"query" jsonschema_description:"What to compare or what quality aspects to evaluate"`
 	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory filter for module-level comparison (e.g. internal/auth)"`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit comparison to files of this language (e.g. go, python, rust)"`

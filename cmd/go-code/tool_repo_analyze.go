@@ -14,7 +14,7 @@ import (
 // RepoAnalyzeInput is the input schema for the repo_analyze tool.
 type RepoAnalyzeInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
-	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo) or absolute local path"`
+	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 
 	// Query is a natural-language question about the repository.
 	Query string `json:"query" jsonschema_description:"What you want to understand about the repository"`

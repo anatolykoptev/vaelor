@@ -11,7 +11,7 @@ import (
 // DepGraphInput is the input schema for the dep_graph tool.
 type DepGraphInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
-	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo) or absolute local path"`
+	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 
 	// Type selects what to graph: imports (file-level), packages, modules, or calls (function call graph).
 	Type string `json:"type,omitempty" jsonschema_description:"Graph type: imports | packages | modules | calls (default: packages)"`

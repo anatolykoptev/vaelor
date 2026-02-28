@@ -25,6 +25,10 @@ func rewritePath(path string, mappings []analyze.PathMapping) string {
 // the clone dir along with a cleanup function. For local paths, it validates the
 // directory exists and returns a no-op cleanup.
 func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root string, cleanup func(), err error) {
+	// Strip common prefix mistakes from callers.
+	repo = strings.TrimPrefix(repo, "path=")
+	repo = strings.TrimPrefix(repo, "local:")
+
 	if ingest.IsRemote(repo) {
 		slug, err := ingest.NormalizeSlug(repo)
 		if err != nil {

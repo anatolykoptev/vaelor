@@ -13,7 +13,7 @@ import (
 
 // CallTraceInput is the input schema for the call_trace tool.
 type CallTraceInput struct {
-	Repo      string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo) or absolute local path"`
+	Repo      string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Symbol    string `json:"symbol" jsonschema_description:"Function or method name to trace (e.g. CompareRepos, Server.Serve)"`
 	Depth     int    `json:"depth,omitempty" jsonschema_description:"Max trace depth (default 5, max 10)"`
 	Direction string `json:"direction,omitempty" jsonschema_description:"Trace direction: callees (what does X call?) or callers (who calls X?). Default: callees"`
