@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode"
@@ -48,6 +49,9 @@ type RepoAnalyzeInput struct {
 
 	// Pattern is a file include pattern for filtering.
 	Pattern string `json:"pattern,omitempty" jsonschema_description:"File include pattern for filtering"`
+
+	// Format controls output format: text (default) or json (structured envelope).
+	Format string `json:"format,omitempty" jsonschema_description:"Output format: text (default, human-readable) | json (structured envelope with schemaVersion, data, meta, suggestedNextCalls)"`
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
@@ -94,6 +98,9 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 	if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
 		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
 	}
+	if input.Format != "" && input.Format != "text" && input.Format != "json" {
+		return errResult(fmt.Sprintf("invalid format %q: use text or json", input.Format)), nil, nil
+	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 	if err != nil {
@@ -118,7 +125,7 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 		return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil
 	}
 
-	return textResult(formatAnalysisResult(result)), nil, nil
+	return textResult(formatAnalysisResult(result, input.Format)), nil, nil
 }
 
 // handleQuickMode performs a fast GitHub Code Search without cloning the repo.
@@ -335,8 +342,65 @@ func capitalizeFirst(s string) string {
 	return string(r)
 }
 
-// formatAnalysisResult formats a RepoAnalysisResult as human-readable text.
-func formatAnalysisResult(r *analyze.RepoAnalysisResult) string {
+// responseEnvelope wraps analysis results in a structured JSON envelope.
+type responseEnvelope struct {
+	SchemaVersion string          `json:"schemaVersion"`
+	Data          envelopeData    `json:"data"`
+	Meta          envelopeMeta    `json:"meta"`
+	SuggestedNext []suggestedCall `json:"suggestedNextCalls,omitempty"`
+}
+
+type envelopeData struct {
+	Answer    string   `json:"answer"`
+	RepoName  string   `json:"repoName"`
+	Language  string   `json:"language"`
+	FileCount int      `json:"fileCount"`
+	Packages  []string `json:"packages,omitempty"`
+}
+
+type envelopeMeta struct {
+	FilesAnalyzed int  `json:"filesAnalyzed"`
+	Truncated     bool `json:"truncated"`
+}
+
+type suggestedCall struct {
+	Tool   string            `json:"tool"`
+	Params map[string]string `json:"params"`
+	Reason string            `json:"reason"`
+}
+
+// formatAnalysisResult dispatches to text or JSON formatting based on format.
+func formatAnalysisResult(r *analyze.RepoAnalysisResult, format string) string {
+	if format == "json" {
+		return formatAnalysisJSON(r)
+	}
+	return formatAnalysisText(r)
+}
+
+// formatAnalysisJSON formats a RepoAnalysisResult as a structured JSON envelope.
+func formatAnalysisJSON(r *analyze.RepoAnalysisResult) string {
+	env := responseEnvelope{
+		SchemaVersion: "1.0",
+		Data: envelopeData{
+			Answer:    r.Answer,
+			RepoName:  r.RepoName,
+			Language:  r.Language,
+			FileCount: r.FileCount,
+			Packages:  r.Packages,
+		},
+		Meta: envelopeMeta{
+			FilesAnalyzed: r.FileCount,
+		},
+	}
+	b, err := json.MarshalIndent(env, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error": %q}`, err.Error())
+	}
+	return string(b)
+}
+
+// formatAnalysisText formats a RepoAnalysisResult as human-readable text.
+func formatAnalysisText(r *analyze.RepoAnalysisResult) string {
 	var sb strings.Builder
 
 	fmt.Fprintf(&sb, "# Repository: %s\n", r.RepoName)
