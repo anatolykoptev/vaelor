@@ -239,6 +239,7 @@ func TestShouldIgnoreDir(t *testing.T) {
 		{"dist", true},
 		{"target", true},
 		{".cargo", true},
+		{"testdata", true},
 		{"src", false},
 		{"internal", false},
 		{"cmd", false},
@@ -387,6 +388,32 @@ func TestMatchGitignore(t *testing.T) {
 				t.Errorf("matchGitignore(%q, isDir=%v) = %v, want %v", tc.relPath, tc.isDir, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestIngestRepoExcludeTests verifies that ExcludeTests=true filters out _test.go files.
+func TestIngestRepoExcludeTests(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(root, "main_test.go"), "package main\n")
+	writeFile(t, filepath.Join(root, "internal", "handler.go"), "package internal\n")
+	writeFile(t, filepath.Join(root, "internal", "handler_test.go"), "package internal\n")
+
+	result, err := IngestRepo(context.Background(), IngestOpts{
+		Root:         root,
+		ExcludeTests: true,
+	})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+
+	for _, f := range result.Files {
+		if strings.HasSuffix(f.RelPath, "_test.go") {
+			t.Errorf("ExcludeTests=true but got test file: %s", f.RelPath)
+		}
+	}
+	if len(result.Files) != 2 {
+		t.Errorf("expected 2 non-test files, got %d", len(result.Files))
 	}
 }
 

@@ -26,6 +26,9 @@ type SymbolSearchInput struct {
 
 	// IncludeBody includes the full function/type body in results.
 	IncludeBody bool `json:"include_body,omitempty" jsonschema_description:"Include the full source body in results (default: false, only signatures)"`
+
+	// Limit caps the number of results returned.
+	Limit int `json:"limit,omitempty" jsonschema_description:"Maximum number of results to return. Default 100, max 500."`
 }
 
 // registerSymbolSearch registers the symbol_search MCP tool.
@@ -57,6 +60,7 @@ func registerSymbolSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 			Kind:        parser.NodeKind(input.Kind),
 			Language:    input.Language,
 			IncludeBody: input.IncludeBody,
+			Limit:       input.Limit,
 		})
 		if err != nil {
 			return errResult(fmt.Sprintf("symbol search: %s", err)), nil, nil

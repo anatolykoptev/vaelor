@@ -111,6 +111,9 @@ type SymbolSearchInput struct {
 
 	// IncludeBody includes the full source body in results.
 	IncludeBody bool
+
+	// Limit caps the number of results returned. Default 100, max 500.
+	Limit int
 }
 
 // DepGraphInput is the input for building a dependency graph.
@@ -130,6 +133,9 @@ type DepGraphInput struct {
 
 	// MaxDepth limits traversal depth from the focus node.
 	MaxDepth int
+
+	// IncludeStdlib includes standard library imports. Default false.
+	IncludeStdlib bool
 }
 
 // fileParseResult pairs an ingest.File with its parser output.
@@ -186,6 +192,9 @@ func buildAnalysisResult(root, answer string, ir *ingest.IngestResult, results [
 	}
 }
 
+const defaultSymbolLimit = 100
+const maxSymbolLimit = 500
+
 // SearchSymbols searches for symbols matching the query across the repository.
 func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symbol, error) {
 	var langs []string
@@ -197,6 +206,7 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 		Root:         input.Root,
 		Languages:    langs,
 		MaxFileBytes: defaultMaxFileBytes,
+		ExcludeTests: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ingest repo: %w", err)
@@ -209,6 +219,14 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 		return nil, fmt.Errorf("invalid query pattern: %w", err)
 	}
 
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultSymbolLimit
+	}
+	if limit > maxSymbolLimit {
+		limit = maxSymbolLimit
+	}
+
 	var matched []*parser.Symbol
 	for _, pr := range parseResults {
 		if pr.result == nil {
@@ -219,6 +237,9 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 				continue
 			}
 			matched = append(matched, sym)
+			if len(matched) >= limit {
+				return matched, nil
+			}
 		}
 	}
 	return matched, nil
@@ -230,6 +251,7 @@ func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 		Root:         input.Root,
 		Focus:        input.Focus,
 		MaxFileBytes: defaultMaxFileBytes,
+		ExcludeTests: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("ingest repo: %w", err)
@@ -237,7 +259,7 @@ func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 
 	parseResults := parseFilesParallel(ctx, ingestResult.Files, false)
 
-	graph := buildImportGraph(ingestResult.Root, parseResults)
+	graph := buildImportGraph(ingestResult.Root, parseResults, input.IncludeStdlib)
 
 	if input.Focus != "" {
 		graph = filterGraph(graph, input.Focus, input.MaxDepth)
@@ -391,8 +413,18 @@ func collectTopSymbols(results []fileParseResult) []*parser.Symbol {
 // importGraph maps a package path to the set of packages it imports.
 type importGraph map[string]map[string]struct{}
 
+// isStdlibImport reports whether an import path looks like a Go stdlib package.
+// Stdlib paths have no dots in the first segment (e.g. "fmt", "net/http").
+func isStdlibImport(path string) bool {
+	first := path
+	if i := strings.IndexByte(path, '/'); i >= 0 {
+		first = path[:i]
+	}
+	return !strings.Contains(first, ".")
+}
+
 // buildImportGraph builds a package-level import graph from parse results.
-func buildImportGraph(root string, results []fileParseResult) importGraph {
+func buildImportGraph(root string, results []fileParseResult, includeStdlib bool) importGraph {
 	graph := make(importGraph)
 
 	for _, pr := range results {
@@ -413,9 +445,17 @@ func buildImportGraph(root string, results []fileParseResult) importGraph {
 			graph[pkg] = make(map[string]struct{})
 		}
 		for _, imp := range pr.result.Imports {
-			if imp != "" {
-				graph[pkg][imp] = struct{}{}
+			if imp == "" {
+				continue
 			}
+			if !includeStdlib && isStdlibImport(imp) {
+				continue
+			}
+			// Skip self-import (e.g. test files importing their own package).
+			if strings.HasSuffix(imp, "/"+pkg) {
+				continue
+			}
+			graph[pkg][imp] = struct{}{}
 		}
 	}
 
@@ -461,12 +501,14 @@ func filterGraph(graph importGraph, focus string, maxDepth int) importGraph {
 // renderGraph formats the import graph in the requested output format.
 func renderGraph(graph importGraph, format string) (string, error) {
 	switch format {
+	case "mermaid", "":
+		return renderMermaid(graph), nil
 	case "dot":
 		return renderDot(graph), nil
 	case "json":
 		return renderJSON(graph)
 	default:
-		return renderMermaid(graph), nil
+		return "", fmt.Errorf("unsupported format %q: use mermaid, dot, or json", format)
 	}
 }
 

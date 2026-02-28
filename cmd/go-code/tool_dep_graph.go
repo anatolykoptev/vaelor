@@ -24,6 +24,9 @@ type DepGraphInput struct {
 
 	// MaxDepth limits graph traversal depth from focused node.
 	MaxDepth int `json:"max_depth,omitempty" jsonschema_description:"Max traversal depth from focus node (default: 3, 0=unlimited)"`
+
+	// IncludeStdlib includes Go standard library imports in the graph.
+	IncludeStdlib bool `json:"include_stdlib,omitempty" jsonschema_description:"Include standard library imports in graph. Default false (stdlib excluded)."`
 }
 
 // registerDepGraph registers the dep_graph MCP tool.
@@ -48,11 +51,12 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 		defer cleanup()
 
 		graph, err := analyze.BuildDepGraph(ctx, analyze.DepGraphInput{
-			Root:     root,
-			Type:     input.Type,
-			Format:   input.Format,
-			Focus:    input.Focus,
-			MaxDepth: input.MaxDepth,
+			Root:          root,
+			Type:          input.Type,
+			Format:        input.Format,
+			Focus:         input.Focus,
+			MaxDepth:      input.MaxDepth,
+			IncludeStdlib: input.IncludeStdlib,
 		})
 		if err != nil {
 			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil, nil

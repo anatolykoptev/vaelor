@@ -36,6 +36,7 @@ var defaultIgnoreDirs = map[string]bool{
 	".cargo":         true,
 	"zig-cache":      true,
 	"zig-out":        true,
+	"testdata":       true,
 }
 
 // binaryExtensions lists file extensions that are always skipped.
