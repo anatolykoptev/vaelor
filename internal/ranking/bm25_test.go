@@ -22,7 +22,7 @@ func TestBM25F_EmptyCorpus(t *testing.T) {
 
 func TestBM25F_SingleDocument(t *testing.T) {
 	docs := []Document{
-		{Path: "handler.go", Symbols: []string{"HandleRequest", "ServeHTTP"}, Content: "func HandleRequest"},
+		{Path: "handler.go", Symbols: []string{"HandleRequest", "ServeHTTP"}},
 	}
 	scorer := NewBM25F(docs)
 
@@ -38,26 +38,24 @@ func TestBM25F_SingleDocument(t *testing.T) {
 	}
 }
 
-func TestBM25F_SymbolWeightHigherThanContent(t *testing.T) {
+func TestBM25F_SymbolWeightHigherThanPath(t *testing.T) {
 	docs := []Document{
 		{
 			Path:    "file_a.go",
 			Symbols: []string{"AuthHandler"},
-			Content: "package main",
 		},
 		{
-			Path:    "file_b.go",
+			Path:    "auth/file_b.go",
 			Symbols: []string{"main"},
-			Content: "auth check handler logic auth auth",
 		},
 	}
 	scorer := NewBM25F(docs)
 
 	symbolScore := scorer.ScoreTerms([]string{"auth"}, docs[0])
-	contentScore := scorer.ScoreTerms([]string{"auth"}, docs[1])
+	pathScore := scorer.ScoreTerms([]string{"auth"}, docs[1])
 
-	if symbolScore <= contentScore {
-		t.Errorf("symbol match (%f) should score higher than content match (%f)", symbolScore, contentScore)
+	if symbolScore <= pathScore {
+		t.Errorf("symbol match (%f) should score higher than path-only match (%f)", symbolScore, pathScore)
 	}
 }
 
@@ -66,21 +64,19 @@ func TestBM25F_PathMatchWeighted(t *testing.T) {
 		{
 			Path:    "auth/handler.go",
 			Symbols: []string{"main"},
-			Content: "package main",
 		},
 		{
 			Path:    "utils/helper.go",
 			Symbols: []string{"main"},
-			Content: "auth check logic",
 		},
 	}
 	scorer := NewBM25F(docs)
 
 	pathScore := scorer.ScoreTerms([]string{"auth"}, docs[0])
-	contentScore := scorer.ScoreTerms([]string{"auth"}, docs[1])
+	noMatchScore := scorer.ScoreTerms([]string{"auth"}, docs[1])
 
-	if pathScore <= contentScore {
-		t.Errorf("path match (%f) should score higher than content-only match (%f)", pathScore, contentScore)
+	if pathScore <= noMatchScore {
+		t.Errorf("path match (%f) should score higher than no match (%f)", pathScore, noMatchScore)
 	}
 }
 
@@ -89,17 +85,12 @@ func TestBM25F_MultipleTerms(t *testing.T) {
 		{
 			Path:    "auth_handler.go",
 			Symbols: []string{"AuthHandler", "ValidateToken"},
-			Content: "authentication and token validation",
 		},
 		{
-			Path:    "auth_handler.go",
+			Path:    "auth_only.go",
 			Symbols: []string{"AuthHandler"},
-			Content: "authentication only",
 		},
 	}
-
-	// Use separate paths so both docs are distinct.
-	docs[1].Path = "auth_only.go"
 
 	scorer := NewBM25F(docs)
 
@@ -117,17 +108,14 @@ func TestBM25F_IDF_CommonTermLowerScore(t *testing.T) {
 		{
 			Path:    "handler.go",
 			Symbols: []string{"main", "AuthMiddleware"},
-			Content: "main auth handler",
 		},
 		{
 			Path:    "server.go",
 			Symbols: []string{"main"},
-			Content: "main server",
 		},
 		{
 			Path:    "config.go",
 			Symbols: []string{"main"},
-			Content: "main config",
 		},
 	}
 	scorer := NewBM25F(docs)
