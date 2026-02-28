@@ -162,11 +162,17 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] LLM narrative explanation of execution flow
 - [x] `call_trace` MCP tool with JSON output
 
-### 4.2 Code graph (optional, if needed)
-- [ ] Store symbols + relationships in Apache AGE (already in stack)
-- [ ] Schema: File/Function/Type + CALLS/IMPORTS/CONTAINS
-- [ ] NL → Cypher query translation via LLM
-- [ ] "Who calls function X?" "What depends on package Y?"
+### 4.2 Code graph ✅
+
+**Status**: Complete (2026-02-28). `code_graph` MCP tool operational with Apache AGE.
+
+- [x] Store symbols + relationships in Apache AGE (separate `gocode` database)
+- [x] Schema: Package/File/Symbol vertices + CONTAINS/CALLS edges
+- [x] 10 Cypher query templates (who_calls, calls_of, imports_of, symbols_in, etc.)
+- [x] NL → Cypher hybrid: template classification + freeform LLM generation fallback
+- [x] Lazy indexing with TTL cache (1h local, 24h remote)
+- [x] Read-only guard on freeform Cypher (blocks writes)
+- [x] `code_graph` MCP tool with JSON + LLM narrative output
 
 ### 4.3 Cross-language analysis
 - [ ] Detect polyglot repos (Go backend + TS frontend)
@@ -220,8 +226,8 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
                                               Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2 complete. Phase 3 complete. Phase 4.1 complete. Phase 5 complete.
-Phase 4.2/4.3 remain.
+Phase 1 complete. Phase 2 complete. Phase 3 complete. Phase 4.1 complete. Phase 4.2 complete. Phase 5 complete.
+Phase 4.3 remains.
 
 ## Releases
 
@@ -237,6 +243,7 @@ Phase 4.2/4.3 remain.
 | v1.5.1 | `eb70fe0` | Fix 6 bugs found during practical testing of `code_compare` |
 | v1.6.0 | `36f2144` | Phase 4.1: Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
 | v1.7.0 | `07e8907` | Phase 5: go-search migration — `repo_search`, `repo_analyze` quick/issues modes, retry, Redis L2, metrics |
+| v1.8.0 | `127fd2d` | Phase 4.2: Code graph — `code_graph` with Apache AGE, NL→Cypher templates + LLM freeform, lazy indexing |
 
 ## Technical Debt Watch
 
