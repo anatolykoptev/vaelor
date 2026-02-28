@@ -87,11 +87,12 @@ func TestRenderFile_Signatures(t *testing.T) {
 
 	// No closing braces from function bodies (struct closing brace is OK).
 	// Count braces: only struct should have them.
+	// Strip │ prefix before checking (skeleton/signatures modes add it).
 	lines := strings.Split(result, "\n")
 	braceCount := 0
 	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "}" {
+		trimmed := strings.TrimLeft(l, "│")
+		if strings.TrimSpace(trimmed) == "}" {
 			braceCount++
 		}
 	}
@@ -111,13 +112,15 @@ func TestRenderFile_Skeleton(t *testing.T) {
 	assertContains(t, result, "func Goodbye(name string) string {")
 
 	// Placeholder should appear for function bodies.
-	assertContains(t, result, "// ...")
+	assertContains(t, result, "⋮...")
 
 	// Closing braces should be preserved.
+	// Strip │ prefix before checking (skeleton mode adds it).
 	lines := strings.Split(result, "\n")
 	braceCount := 0
 	for _, l := range lines {
-		if strings.TrimSpace(l) == "}" {
+		trimmed := strings.TrimLeft(l, "│")
+		if strings.TrimSpace(trimmed) == "}" {
 			braceCount++
 		}
 	}
@@ -292,7 +295,7 @@ func TestRenderFile_NestedFunctions_Skeleton(t *testing.T) {
 
 	// Outer opening and closing lines kept, body replaced with placeholder.
 	assertContains(t, result, "def outer():")
-	assertContains(t, result, "// ...")
+	assertContains(t, result, "⋮...")
 	// Inner function body should not leak through.
 	assertNotContains(t, result, "return 1")
 }
@@ -381,6 +384,48 @@ func TestRemoveNested(t *testing.T) {
 	}
 	if result[0].startLine != 1 || result[1].startLine != 15 {
 		t.Errorf("expected startLines [1, 15], got [%d, %d]", result[0].startLine, result[1].startLine)
+	}
+}
+
+func TestRenderFile_Skeleton_EllipsisMarker(t *testing.T) {
+	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSkeleton})
+	assertContains(t, result, "⋮...")
+	assertNotContains(t, result, "    // ...")
+}
+
+func TestRenderFile_Skeleton_LinePrefix(t *testing.T) {
+	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSkeleton})
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		if line == "" || strings.Contains(line, "⋮...") {
+			continue
+		}
+		if !strings.HasPrefix(line, "│") {
+			t.Errorf("visible line should have │ prefix, got: %q", line)
+		}
+	}
+}
+
+func TestRenderFile_Signatures_LinePrefix(t *testing.T) {
+	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSignatures})
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "│") {
+			t.Errorf("visible line should have │ prefix, got: %q", line)
+		}
+	}
+}
+
+func TestRenderFile_DefaultMode_NoPrefix(t *testing.T) {
+	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeDefault})
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "│") {
+			t.Errorf("default mode should NOT have │ prefix, got: %q", line)
+		}
 	}
 }
 
