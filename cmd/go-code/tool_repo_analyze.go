@@ -63,6 +63,10 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Use mode=quick for fast GitHub Code Search without cloning. " +
 			"Use type=pr or type=issue to search pull requests and issues.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, any, error) {
+		// Validate type parameter if provided.
+		if input.Type != "" && input.Type != "pr" && input.Type != "issue" {
+			return errResult(fmt.Sprintf("invalid type %q: use pr or issue", input.Type)), nil, nil
+		}
 		// Issues/PRs mode — uses GitHub Issues Search API, no cloning required.
 		if input.Type == "pr" || input.Type == "issue" {
 			return handleIssuesMode(ctx, input, deps)
@@ -120,6 +124,9 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 // handleQuickMode performs a fast GitHub Code Search without cloning the repo.
 // Falls back to README + repo metadata if no code matches are found.
 func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	if isLocalPath(input.Repo) {
+		return errResult("quick mode requires a GitHub repo (owner/repo), not a local path. Use deep mode for local paths."), nil, nil
+	}
 	repos := resolveQuickRepos(input)
 	if len(repos) == 0 {
 		return errResult("repo or repos is required for quick mode"), nil, nil
@@ -160,6 +167,9 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 // handleIssuesMode searches GitHub issues or pull requests via the Issues Search API.
 func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
 	kind := input.Type // "pr" or "issue"
+	if isLocalPath(input.Repo) {
+		return errResult(fmt.Sprintf("%s search requires a GitHub repo (owner/repo), not a local path", kind)), nil, nil
+	}
 	repos := resolveQuickRepos(input)
 	if len(repos) == 0 {
 		return errResult(fmt.Sprintf("repo is required for %s search", kind)), nil, nil
@@ -227,19 +237,28 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 		capitalizeFirst(kind), input.Query, repoSlug, len(issues), summary)), nil, nil
 }
 
+// isLocalPath returns true if the repo string looks like a local filesystem path.
+func isLocalPath(repo string) bool {
+	return strings.HasPrefix(repo, "/") || strings.HasPrefix(repo, "./") || strings.HasPrefix(repo, "~")
+}
+
 // resolveQuickRepos returns the list of owner/repo slugs for quick/issues modes.
 // Prefers input.Repos; falls back to parsing input.Repo.
+// Returns nil for local paths (quick/issues modes require GitHub repos).
 func resolveQuickRepos(input RepoAnalyzeInput) []string {
 	if len(input.Repos) > 0 {
 		return input.Repos
 	}
-	if input.Repo == "" {
+	if input.Repo == "" || isLocalPath(input.Repo) {
 		return nil
 	}
-	// Try as a full GitHub URL first.
-	owner, repo, ok := github.ExtractOwnerRepo("https://github.com/" + input.Repo)
-	if ok {
-		return []string{owner + "/" + repo}
+	// Try as a full GitHub URL (https://github.com/owner/repo).
+	if strings.HasPrefix(input.Repo, "http") {
+		owner, repo, ok := github.ExtractOwnerRepo(input.Repo)
+		if ok {
+			return []string{owner + "/" + repo}
+		}
+		return nil
 	}
 	// Try direct slug (owner/repo).
 	parts := strings.SplitN(input.Repo, "/", 2)
