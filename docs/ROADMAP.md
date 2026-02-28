@@ -174,12 +174,26 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Read-only guard on freeform Cypher (blocks writes)
 - [x] `code_graph` MCP tool with JSON + LLM narrative output
 
-### 4.3 Cross-language analysis
-- [ ] Detect polyglot repos (Go backend + TS frontend)
-- [ ] Map API boundaries (Go HTTP handlers ↔ TS fetch calls)
-- [ ] Unified dependency graph across languages
+### 4.3 Cross-language analysis ✅
 
-**Deliverable**: Deep analysis capabilities, call chain tracing, optional graph storage.
+**Status**: Complete (2026-02-28). Polyglot detection + HTTP route extraction + cross-language graph linking.
+
+- [x] Polyglot repo detection: manifest scan, directory grouping, layer construction
+- [x] Role classification: server/client/worker/library from source patterns + route fallback
+- [x] HTTP route extraction via regex matchers for 7 languages (Go, TS, Python, Java, Rust, Ruby, C#)
+- [x] Go 1.22+ mux pattern support ("GET /path" embedded method syntax)
+- [x] Server-side patterns: HandleFunc, chi, gin, echo, Express, Flask, FastAPI, Spring, Rocket, Actix, Sinatra, Rails, ASP.NET
+- [x] Client-side patterns: fetch, axios, requests, httpx, http.Get, http.NewRequest
+- [x] Graph schema: Layer/Route vertices, HANDLES/FETCHES/BELONGS_TO edges
+- [x] Cross-language linking: shared Route vertices connect backend handlers to frontend callers
+- [x] 4 new Cypher templates: api_routes, cross_calls, layer_deps, polyglot_overview (14 total)
+- [x] `dep_graph` cross_language parameter for Route edges in dependency output
+- [x] `repo_analyze` deep mode adds "Cross-Language Architecture" section for polyglot repos
+- [x] Route path normalization: strip scheme/host, replace params with *, case-insensitive
+
+**Ref**: [MLSA (arxiv 1808.01213)](https://arxiv.org/abs/1808.01213) — monolingual graphs stitched at FFI boundaries; [rustic-ai/codeprism](https://github.com/rustic-ai/codeprism) — `EdgeKind::RoutesTo` for HTTP API boundaries.
+
+**Deliverable**: Deep analysis capabilities — call chain tracing, code graph, cross-language API boundary linking. ✅
 
 ---
 
@@ -214,6 +228,169 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
+## Phase 6: Graph Enrichment
+
+**Goal**: Richer graph schema + faster re-indexing. Quick wins from competitive research.
+
+### 6.1 Schema injection in freeform Cypher
+- [ ] Inject full graph schema (vertex labels, edge types, properties) into `SystemPromptGenerateCypher`
+- [ ] Currently freeform Cypher generation has no schema context → hallucinated property names
+- [ ] Test on 5+ NL queries that previously failed
+
+**Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — schema text injected into LLM prompt for Cypher grounding.
+
+### 6.2 IMPORTS edges
+- [ ] Extract import paths from existing tree-sitter parsed data (already in `@import.path` captures)
+- [ ] Add `IMPORTS` edge type: File → Package (or File → File for relative imports)
+- [ ] Add Cypher template: `imports_of` (what does file X import?), `imported_by` (who imports package Y?)
+- [ ] Update graph schema documentation
+
+**Ref**: [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext), [code-graph-rag](https://github.com/vitali87/code-graph-rag) — both store IMPORTS as first-class edges.
+
+### 6.3 INHERITS / IMPLEMENTS edges
+- [ ] New tree-sitter query captures: `@extends.base`, `@implements.interface` per language
+- [ ] Go: interface satisfaction (type assertion patterns), struct embedding
+- [ ] Python: `class Foo(Bar)`, Java/C#: `extends`/`implements`, TypeScript: `extends`/`implements`
+- [ ] Rust: `impl Trait for Type`
+- [ ] Add `INHERITS` and `IMPLEMENTS` edge types to `buildGraph()`
+- [ ] Cypher templates: `hierarchy` (inheritance tree), `implementors` (who implements interface X?)
+
+**Ref**: [rustic-ai/codeprism](https://github.com/rustic-ai/codeprism) — `EdgeKind::Extends`/`Implements`, strongly typed enums.
+
+### 6.4 Incremental graph indexing
+- [ ] Store FNV-64a hash per file in `code_graph_files` table (path, hash, indexed_at)
+- [ ] On re-index: hash all files → diff against stored → parse only added/modified
+- [ ] `DETACH DELETE` for removed files (cascade edges)
+- [ ] Symbol-level diff for modified files (delete old symbols, insert new — not full file reindex)
+- [ ] Persist hash state per graph, bump graph version to force rebuild on schema changes
+
+**Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — `FileHashCache` per file, JSON state; [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext) — file watcher + per-file reindex.
+
+**Deliverable**: Richer graph queries (imports, inheritance), 10-100x faster re-indexing for local repos.
+
+---
+
+## Phase 7: AST Structural Diff
+
+**Goal**: True AST-level diff in `code_compare` using GumTree algorithm.
+
+### 7.1 Integrate smacker/gum
+- [ ] `go get github.com/smacker/gum` — same author as `smacker/go-tree-sitter`
+- [ ] Use `gum/tsitter` adapter to convert tree-sitter CST → `gum.Tree`
+- [ ] Verify tree-sitter version pin compatibility (same CGO dependency)
+
+### 7.2 AST diff in code_compare
+- [ ] `internal/compare/ast_diff.go` — function-level AST diff using `gum.Match()` + `gum.Patch()`
+- [ ] Edit script output: Insert, Delete, Update, **Move** operations
+- [ ] Move detection: function moved from file A to file B (not deleted+added)
+- [ ] Integrate into existing `code_compare` output alongside symbol-level analysis
+- [ ] LLM narrative enhanced with edit script data ("function X was moved", "function Y body changed")
+
+### 7.3 Diff visualization
+- [ ] Structured JSON output with edit operations
+- [ ] Summary statistics: N moves, N updates, N deletes, N inserts
+- [ ] Similarity score per matched function pair based on edit distance
+
+**Ref**: [smacker/gum](https://github.com/smacker/gum) — Go GumTree implementation with tree-sitter adapter; [GumTreeDiff/gumtree](https://github.com/GumTreeDiff/gumtree) — academic reference (ICSE 2014); [Wilfred/difftastic](https://github.com/Wilfred/difftastic) — hash-before-compare optimization.
+
+**Deliverable**: `code_compare` produces structural edit scripts with move detection, not just "similar symbols".
+
+---
+
+## Phase 8: Code Health & Impact Analysis
+
+**Goal**: New tools for assessing code quality and change risk.
+
+### 8.1 Complexity metrics
+- [ ] Cyclomatic complexity via tree-sitter (count decision nodes: if/for/while/switch/case/&&/||)
+- [ ] Cognitive complexity (nesting depth penalty)
+- [ ] Per-function and per-file aggregation
+- [ ] Expose as optional section in `repo_analyze` and `file_parse` output
+- [ ] Hotspot detection: high complexity + high change frequency = hotspot
+
+**Ref**: [ast-metrics](https://github.com/halleck45/ast-metrics) — Go, tree-sitter metrics with HTML dashboards; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `getFileComplexity`, `getHotspots`.
+
+### 8.2 Impact analysis / blast radius
+- [ ] New MCP tool: `impact_analysis` or extend `call_trace` with `mode=impact`
+- [ ] Input: symbol name + repo → output: direct/indirect/transitive dependents
+- [ ] Depth-scored: direct callers (high risk), transitive callers (medium), downstream (low)
+- [ ] Uses existing CALLS edges from `code_graph` + call graph from `call_trace`
+- [ ] LLM narrative: "changing this function affects N direct callers and M transitive dependents"
+
+**Ref**: [Axon](https://github.com/harshkedia177/axon) — blast radius with confidence scores; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `analyzeImpact`, `analyzeChange`.
+
+### 8.3 Dead code detection
+- [ ] Multi-pass approach: (1) build call graph, (2) identify entry points, (3) mark unreachable
+- [ ] Entry point heuristics: main(), init(), exported functions, HTTP handlers, test functions
+- [ ] Framework awareness: don't flag handler functions registered via reflect/decorators
+- [ ] Output: list of candidate dead symbols with confidence level
+- [ ] Expose as new MCP tool or mode on `symbol_search`
+
+**Ref**: [Axon](https://github.com/harshkedia177/axon) — multi-pass with framework awareness; [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext) — dead code via graph analysis.
+
+**Deliverable**: Complexity metrics, blast radius tool, dead code candidates.
+
+---
+
+## Phase 9: Semantic Code Search
+
+**Goal**: Find code by meaning, not just name patterns.
+
+### 9.1 Embedding infrastructure
+- [ ] Embed function bodies during graph indexing via memdb-go `/v1/embeddings` (1024-dim)
+- [ ] Store embeddings in pgvector column on Symbol vertices (or companion table)
+- [ ] Batch embedding: group functions into batches of 32, parallel requests
+- [ ] Cache embeddings per (file_hash, symbol_name) — skip unchanged functions
+
+**Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — UniXcoder embeddings + vector DB; [Octocode](https://github.com/Muvon/octocode) — GraphRAG + semantic search.
+
+### 9.2 Semantic search tool
+- [ ] New MCP tool: `semantic_search` — NL query → embed → cosine similarity → top-K results
+- [ ] Input: query text + repo + optional language/file filter
+- [ ] Output: ranked list of functions with similarity score + source snippet
+- [ ] Hybrid mode: combine embedding similarity with name-pattern matching
+
+### 9.3 Graph-enhanced search
+- [ ] After finding semantically similar functions, expand via graph edges
+- [ ] "Functions similar to X" + "functions that call similar functions" (graph walk)
+- [ ] Re-rank by graph centrality (PageRank or degree)
+
+**Ref**: [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) — graph-based navigation achieves 99.4% task completion vs 76.2% baseline; agents need explicit prompting to use graph tools.
+
+**Deliverable**: NL-powered code search that understands semantics beyond name matching.
+
+---
+
+## Phase 10: Type-Aware Analysis
+
+**Goal**: Precision enhancement for Go repos via compiler-level intelligence.
+
+### 10.1 SCIP backend for Go
+- [ ] Optional `scip-go` integration for Go repos
+- [ ] Parse SCIP index → extract precise CALLS/IMPLEMENTS/REFERENCES edges
+- [ ] Merge SCIP data with tree-sitter data (SCIP primary, tree-sitter fallback)
+- [ ] Stable symbol IDs from SCIP (survive renames)
+
+**Ref**: [sourcegraph/scip](https://github.com/sourcegraph/scip) — Protobuf schema, Go bindings, streaming parser; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — SCIP as primary backend with tree-sitter fallback; [williamfzc/srctx](https://github.com/williamfzc/srctx) — Go tool combining SCIP + tree-sitter.
+
+### 10.2 Go-native call graph enhancement
+- [ ] Optional `golang.org/x/tools/go/callgraph/rta` for Go repos
+- [ ] Produces type-aware, compiler-accurate call resolution
+- [ ] Merge with tree-sitter call graph (RTA for Go files, tree-sitter for others)
+- [ ] Resolves interface dispatch, method sets, embedded types
+
+### 10.3 Compound tools
+- [ ] `explore` — combines `file_parse` + `symbol_search` + `dep_graph` for area overview
+- [ ] `understand` — combines `call_trace` + `code_graph` + complexity for symbol deep-dive
+- [ ] `prepare_change` — combines `impact_analysis` + `dead_code` for pre-change assessment
+- [ ] Progressive tool disclosure: start with 8 core tools, reveal advanced on request
+
+**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `explore`, `understand`, `prepareChange`, `expandToolset`; [CodeCompass](https://arxiv.org/abs/2602.20048) — agents don't use tools they don't understand, compound tools improve discoverability.
+
+**Deliverable**: Compiler-accurate analysis for Go, compound tools for reduced round-trips.
+
+---
+
 ## Dependencies Between Phases
 
 ```
@@ -221,13 +398,36 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
                               2.1 Languages ✅              │
                               2.2 Cleaning ✅                ▼
                               2.3 Analysis ✅   Phase 4 (Advanced) ←──┘
-                              2.3a Noise ✅            │
-                              2.4 Caching ✅           ▼
-                                              Phase 5 (Migration)
+                              2.3a Noise ✅       4.1 Call trace ✅
+                              2.4 Caching ✅      4.2 Code graph ✅
+                                                  4.3 Cross-language ✅
+                                                        │
+                                        ┌───────────────┤
+                                        ▼               ▼
+                              Phase 5 (Migration) ✅   Phase 6 (Graph Enrichment)
+                                                        6.1 Schema injection
+                                                        6.2 IMPORTS edges
+                                                        6.3 INHERITS edges
+                                                        6.4 Incremental indexing
+                                                              │
+                                ┌─────────────────────────────┼───────────────┐
+                                ▼                             ▼               ▼
+                        Phase 7 (AST Diff)       Phase 8 (Code Health)  Phase 9 (Semantic)
+                          7.1 smacker/gum          8.1 Complexity         9.1 Embeddings
+                          7.2 Edit scripts         8.2 Blast radius       9.2 Search tool
+                          7.3 Visualization        8.3 Dead code          9.3 Graph-enhanced
+                                                        │
+                                                        ▼
+                                                Phase 10 (Type-Aware)
+                                                  10.1 SCIP
+                                                  10.2 Go-native RTA
+                                                  10.3 Compound tools
 ```
 
-Phase 1 complete. Phase 2 complete. Phase 3 complete. Phase 4.1 complete. Phase 4.2 complete. Phase 5 complete.
-Phase 4.3 remains.
+**Completed**: Phase 1, 2, 3, 4 (4.1+4.2+4.3), 5.
+**Next**: Phase 6 (graph enrichment — quick wins), then Phase 7/8 in parallel.
+**Independent**: Phases 7, 8, 9 can be worked on in parallel after Phase 6.
+**Depends on 6+8**: Phase 10 builds on enriched graph + impact analysis.
 
 ## Releases
 
@@ -244,6 +444,7 @@ Phase 4.3 remains.
 | v1.6.0 | `36f2144` | Phase 4.1: Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
 | v1.7.0 | `07e8907` | Phase 5: go-search migration — `repo_search`, `repo_analyze` quick/issues modes, retry, Redis L2, metrics |
 | v1.8.0 | `127fd2d` | Phase 4.2: Code graph — `code_graph` with Apache AGE, NL→Cypher templates + LLM freeform, lazy indexing |
+| v1.9.0 | (pending) | Phase 4.3: Cross-language analysis — polyglot detection, HTTP route extraction (7 langs), Layer/Route graph, 14 Cypher templates |
 
 ## Technical Debt Watch
 

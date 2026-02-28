@@ -46,15 +46,27 @@ internal/
     repo.go            — TraceRepo: orchestrator (ingest → parse → graph → trace)
   codegraph/           — Apache AGE code knowledge graph
     store.go           — Store: pgxpool wrapper, ExecCypher/Write, EnsureGraph, HasAGE
-    index.go           — IndexRepo: orchestrator, types, config, cache check
+    index.go           — IndexRepo: orchestrator, types, config, cache check, cross-language wiring
     parse.go           — Parallel file ingestion and tree-sitter parsing
-    graph_build.go     — Vertex/edge construction from parsed symbols
+    graph_build.go     — Vertex/edge construction from parsed symbols + cross-language graph
     cypher_batch.go    — Cypher generation, formatting, batch/single insertion
     meta.go            — Graph metadata persistence (code_graph_meta table)
-    templates.go       — 10 Cypher query templates (who_calls, calls_of, etc.)
+    templates.go       — 14 Cypher query templates (who_calls, api_routes, cross_calls, etc.)
     classify.go        — NL→template classification via LLM
     generate.go        — Freeform Cypher generation via LLM with retry
     query.go           — QueryGraph: classify→template/freeform→execute→narrative
+  polyglot/            — Polyglot repo detection
+    detect.go          — DetectStructure: manifest scan, directory grouping, layer construction
+    role.go            — ClassifyLayerRole: server/client/worker/library from source patterns
+  routes/              — HTTP route extraction
+    routes.go          — Route type, RouteMatcher interface, NormalizePath, ExtractAll
+    match_go.go        — Go routes (net/http, chi, gin, echo; Go 1.22+ patterns)
+    match_typescript.go — TypeScript/JS routes (Express, Fastify, NestJS, fetch, axios)
+    match_python.go    — Python routes (Flask, FastAPI, requests, httpx)
+    match_java.go      — Java routes (Spring Boot @GetMapping etc.)
+    match_rust.go      — Rust routes (Rocket, Actix-web)
+    match_ruby.go      — Ruby routes (Sinatra, Rails)
+    match_csharp.go    — C# routes (ASP.NET [HttpGet], MapGet)
   clean/               — Smart code cleaning for LLM context
     clean.go           — CleanSource: strip comments, collapse blanks, truncate
   compare/             — Code comparison engine
@@ -84,10 +96,10 @@ deploy/
 | `repo_analyze` | Analyze a GitHub repo or local path. Supports deep mode (AST + LLM), quick mode (GitHub Code Search), and issue/PR search. |
 | `file_parse` | Parse a single source file with tree-sitter. Returns symbol table (functions, types, methods) or raw AST. |
 | `code_compare` | Compare two repositories structurally: architecture, API design, dependency strategies, code quality. |
-| `dep_graph` | Build and visualize the dependency graph of a repository. Output as Mermaid, Graphviz DOT, or JSON. |
+| `dep_graph` | Build and visualize the dependency graph of a repository. Output as Mermaid, Graphviz DOT, or JSON. Optional `cross_language` flag includes Route edges. |
 | `symbol_search` | Search for symbols (functions, types, consts) across a repo by name pattern or wildcard. |
 | `call_trace` | Trace call chains from a function: callees (forward) or callers (reverse) with depth control and LLM narrative. |
-| `code_graph` | Query a persistent code knowledge graph in Apache AGE. Indexes repo as Package/File/Symbol vertices with CONTAINS/CALLS edges. Answers NL questions via 10 Cypher templates + LLM freeform fallback. Lazy indexing with TTL cache. Requires DATABASE_URL. |
+| `code_graph` | Query a persistent code knowledge graph in Apache AGE. Indexes repo as Package/File/Symbol/Layer/Route vertices with CONTAINS/CALLS/HANDLES/FETCHES/BELONGS_TO edges. Cross-language analysis: polyglot detection, HTTP route extraction (7 languages), API boundary linking. 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL cache. Requires DATABASE_URL. |
 | `repo_search` | Discover GitHub repositories. Parallel search (SearXNG + GitHub API), enrichment with metadata + README, LLM-ranked recommendations. |
 
 ## Environment Variables
