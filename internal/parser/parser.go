@@ -285,24 +285,26 @@ func extractDocComment(node *sitter.Node, source []byte) string {
 		return ""
 	}
 
-	// Strip comment markers and join.
-	var cleaned []string
+	cleaned := make([]string, 0, len(commentLines))
 	for _, line := range commentLines {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(line, "//"):
-			cleaned = append(cleaned, strings.TrimPrefix(line, "// "))
-		case strings.HasPrefix(line, "/*") && strings.HasSuffix(line, "*/"):
-			inner := line[2 : len(line)-2]
-			cleaned = append(cleaned, strings.TrimSpace(inner))
-		case strings.HasPrefix(line, "#"):
-			cleaned = append(cleaned, strings.TrimPrefix(line, "# "))
-		default:
-			cleaned = append(cleaned, line)
-		}
+		cleaned = append(cleaned, stripCommentMarker(line))
 	}
-
 	return strings.Join(cleaned, "\n")
+}
+
+// stripCommentMarker removes leading comment syntax (// /* # ) from a single line.
+func stripCommentMarker(line string) string {
+	line = strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(line, "//"):
+		return strings.TrimPrefix(line, "// ")
+	case strings.HasPrefix(line, "/*") && strings.HasSuffix(line, "*/"):
+		return strings.TrimSpace(line[2 : len(line)-2])
+	case strings.HasPrefix(line, "#"):
+		return strings.TrimPrefix(line, "# ")
+	default:
+		return line
+	}
 }
 
 // isCommentNode returns true if the node is a comment in any supported language.

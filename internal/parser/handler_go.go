@@ -8,6 +8,8 @@ import (
 	"github.com/smacker/go-tree-sitter/golang"
 )
 
+const nodeTypeSourceFile = "source_file"
+
 //go:embed queries/go.scm
 var goQueryBytes []byte
 
@@ -122,7 +124,7 @@ func (h *goHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 
 func (h *goHandler) mapConst(node *sitter.Node, source []byte) *Symbol {
 	// Skip function-local const declarations.
-	if parent := node.Parent(); parent != nil && parent.Type() != "source_file" {
+	if parent := node.Parent(); parent != nil && parent.Type() != nodeTypeSourceFile {
 		return nil
 	}
 	spec := firstChildOfType(node, "const_spec")
@@ -145,7 +147,7 @@ func (h *goHandler) mapConst(node *sitter.Node, source []byte) *Symbol {
 
 func (h *goHandler) mapVar(node *sitter.Node, source []byte) *Symbol {
 	// Skip function-local var declarations.
-	if parent := node.Parent(); parent != nil && parent.Type() != "source_file" {
+	if parent := node.Parent(); parent != nil && parent.Type() != nodeTypeSourceFile {
 		return nil
 	}
 	spec := firstChildOfType(node, "var_spec")

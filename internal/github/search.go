@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -156,7 +157,7 @@ func (c *Client) SearchIssues(ctx context.Context, query string) ([]IssueItem, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnprocessableEntity {
-		return nil, fmt.Errorf("github issues search failed (repo may not exist or query is invalid)")
+		return nil, errors.New("github issues search failed (repo may not exist or query is invalid)")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github search/issues returned %d", resp.StatusCode)
