@@ -11,10 +11,14 @@ import (
 //go:embed queries/ruby.scm
 var rubyQueryBytes []byte
 
+//go:embed queries/ruby_calls.scm
+var rubyCallsQueryBytes []byte
+
 // rubyHandler implements LanguageHandler for Ruby source files.
 type rubyHandler struct {
-	lang  *sitter.Language
-	query *sitter.Query
+	lang      *sitter.Language
+	query     *sitter.Query
+	callQuery *sitter.Query
 }
 
 // rubyLang is the singleton Ruby language handler, registered on package init.
@@ -26,8 +30,13 @@ func init() {
 	if err != nil {
 		panic("ruby.scm query compile error: " + err.Error())
 	}
+	cq, err := sitter.NewQuery(rubyCallsQueryBytes, lang)
+	if err != nil {
+		panic("ruby_calls.scm query compile error: " + err.Error())
+	}
 	rubyLang.lang = lang
 	rubyLang.query = q
+	rubyLang.callQuery = cq
 	registerHandler(rubyLang)
 }
 
@@ -38,6 +47,8 @@ func (h *rubyHandler) Extensions() []string { return []string{".rb"} }
 func (h *rubyHandler) SitterLanguage() *sitter.Language { return h.lang }
 
 func (h *rubyHandler) TagsQuery() *sitter.Query { return h.query }
+
+func (h *rubyHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for Ruby.
 func (h *rubyHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

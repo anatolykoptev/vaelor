@@ -10,10 +10,14 @@ import (
 //go:embed queries/cpp.scm
 var cppQueryBytes []byte
 
+//go:embed queries/cpp_calls.scm
+var cppCallsQueryBytes []byte
+
 // cppHandler implements LanguageHandler for C++ source files.
 type cppHandler struct {
-	lang  *sitter.Language
-	query *sitter.Query
+	lang      *sitter.Language
+	query     *sitter.Query
+	callQuery *sitter.Query
 }
 
 // cppLang is the singleton C++ language handler, registered on package init.
@@ -25,8 +29,13 @@ func init() {
 	if err != nil {
 		panic("cpp.scm query compile error: " + err.Error())
 	}
+	cq, err := sitter.NewQuery(cppCallsQueryBytes, lang)
+	if err != nil {
+		panic("cpp_calls.scm query compile error: " + err.Error())
+	}
 	cppLang.lang = lang
 	cppLang.query = q
+	cppLang.callQuery = cq
 	registerHandler(cppLang)
 }
 
@@ -37,6 +46,8 @@ func (h *cppHandler) Extensions() []string { return []string{".cpp", ".cc", ".cx
 func (h *cppHandler) SitterLanguage() *sitter.Language { return h.lang }
 
 func (h *cppHandler) TagsQuery() *sitter.Query { return h.query }
+
+func (h *cppHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for C++.
 func (h *cppHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

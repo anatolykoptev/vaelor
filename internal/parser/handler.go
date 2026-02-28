@@ -22,6 +22,9 @@ const (
 	captureConst     = "symbol.const"
 	captureVar       = "symbol.var"
 	captureImport    = "import.path"
+
+	captureCallFunction = "call.function"
+	captureCallMethod   = "call.method"
 )
 
 // LanguageHandler abstracts a tree-sitter language grammar and its query logic.
@@ -43,6 +46,12 @@ type LanguageHandler interface {
 	// MapCapture converts a single tree-sitter capture into a Symbol.
 	// Returns nil if the capture should be skipped.
 	MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol
+}
+
+// CallQueryProvider is an optional interface that LanguageHandler implementations
+// can satisfy to support call extraction.
+type CallQueryProvider interface {
+	CallsQuery() *sitter.Query
 }
 
 // registry maps file extension (e.g. ".go") to its LanguageHandler.

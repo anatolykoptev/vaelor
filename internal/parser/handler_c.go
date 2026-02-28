@@ -20,10 +20,14 @@ const (
 //go:embed queries/c.scm
 var cQueryBytes []byte
 
+//go:embed queries/c_calls.scm
+var cCallsQueryBytes []byte
+
 // cHandler implements LanguageHandler for C source files.
 type cHandler struct {
-	lang  *sitter.Language
-	query *sitter.Query
+	lang      *sitter.Language
+	query     *sitter.Query
+	callQuery *sitter.Query
 }
 
 // cLang is the singleton C language handler, registered on package init.
@@ -35,8 +39,13 @@ func init() {
 	if err != nil {
 		panic("c.scm query compile error: " + err.Error())
 	}
+	cq, err := sitter.NewQuery(cCallsQueryBytes, lang)
+	if err != nil {
+		panic("c_calls.scm query compile error: " + err.Error())
+	}
 	cLang.lang = lang
 	cLang.query = q
+	cLang.callQuery = cq
 	registerHandler(cLang)
 }
 
@@ -47,6 +56,8 @@ func (h *cHandler) Extensions() []string { return []string{".c", ".h"} }
 func (h *cHandler) SitterLanguage() *sitter.Language { return h.lang }
 
 func (h *cHandler) TagsQuery() *sitter.Query { return h.query }
+
+func (h *cHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for C.
 func (h *cHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
