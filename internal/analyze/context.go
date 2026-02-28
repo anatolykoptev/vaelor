@@ -14,17 +14,59 @@ import (
 	"github.com/anatolykoptev/go-code/internal/render"
 )
 
-// llmContextBudget is the maximum number of characters to include in the LLM context.
-const llmContextBudget = 150_000
+// Depth level constants.
+const (
+	DepthOverview = "overview"
+	DepthModule   = "module"
+	DepthDeep     = "deep"
+)
 
-// symbolSummaryBudget is the max chars reserved for the symbol summary section.
-const symbolSummaryBudget = 30_000
+// contextBudget controls how much content fits in the LLM context for each depth level.
+type contextBudget struct {
+	total         int // total character budget for the entire context
+	symbolSummary int // reserved for symbol summary section
+	depGraph      int // reserved for dep graph section (0 = skip)
+	maxFileChars  int // per-file character limit
+}
 
-// fileBudget is the max chars reserved for file contents.
-const fileBudget = llmContextBudget - symbolSummaryBudget
+// fileBudget returns the remaining budget for file contents after other sections.
+func (b contextBudget) fileBudget() int {
+	return b.total - b.symbolSummary - b.depGraph
+}
 
-// maxFileContentChars is the per-file character limit when cleaning for LLM context.
-const maxFileContentChars = 8_000
+// budgetForDepth returns the context budget for the given analysis depth.
+func budgetForDepth(depth string) contextBudget {
+	switch depth {
+	case DepthOverview:
+		return contextBudget{total: 50_000, symbolSummary: 15_000, depGraph: 0, maxFileChars: 3_000}
+	case DepthDeep:
+		return contextBudget{total: 200_000, symbolSummary: 40_000, depGraph: 20_000, maxFileChars: 12_000}
+	default: // "" or "module"
+		return contextBudget{total: 150_000, symbolSummary: 30_000, depGraph: 15_000, maxFileChars: 8_000}
+	}
+}
+
+// ValidDepth reports whether d is a recognized analysis depth.
+func ValidDepth(d string) bool {
+	switch d {
+	case "", DepthOverview, DepthModule, DepthDeep:
+		return true
+	default:
+		return false
+	}
+}
+
+// DefaultModeForDepth returns the default render mode for a given depth level.
+func DefaultModeForDepth(depth string) string {
+	switch depth {
+	case DepthOverview:
+		return "signatures"
+	case DepthDeep:
+		return "focused"
+	default: // "" or "module"
+		return "skeleton"
+	}
+}
 
 // buildLLMContext assembles a structured context string for the LLM.
 //
@@ -32,8 +74,10 @@ const maxFileContentChars = 8_000
 //  1. File tree (from ingest.RenderTree)
 //  2. Symbol summary: name, kind, signature per file
 //  3. File contents (cleaned, budget-limited, prioritized files first)
-func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query string, renderMode render.Mode) string {
+func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query string, renderMode render.Mode, depth string) string {
 	var sb strings.Builder
+
+	budget := budgetForDepth(depth)
 
 	sb.WriteString("## Query\n")
 	sb.WriteString(query)
@@ -43,10 +87,15 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 	sb.WriteString(ingest.RenderTree(ir.Files))
 	sb.WriteString("\n```\n\n")
 
-	symbolSection := buildSymbolSummary(results)
+	symbolSection := buildSymbolSummary(results, budget.symbolSummary)
 	sb.WriteString("## Symbol Summary\n")
 	sb.WriteString(symbolSection)
 	sb.WriteString("\n")
+
+	// Insert dependency graph for module and deep depths.
+	if budget.depGraph > 0 {
+		appendDepGraph(&sb, ir.Root, results, budget.depGraph)
+	}
 
 	queryTerms := extractQueryTerms(query)
 	prioritized := prioritizeFiles(ir.Files, results, queryTerms)
@@ -59,15 +108,33 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 		}
 	}
 
-	appendFileContents(&sb, prioritized, fileBudget, renderMode, queryTerms, parseMap)
+	appendFileContents(&sb, prioritized, budget.fileBudget(), renderMode, queryTerms, parseMap, budget.maxFileChars)
 
 	return sb.String()
 }
 
+// appendDepGraph builds and writes the dependency graph section into sb,
+// budget-limited to maxChars.
+func appendDepGraph(sb *strings.Builder, root string, results []fileParseResult, maxChars int) {
+	graph := buildImportGraph(root, results, false)
+	if len(graph) == 0 {
+		return
+	}
+
+	mermaid := renderMermaid(graph)
+	if len(mermaid) > maxChars {
+		mermaid = mermaid[:maxChars] + "\n... (truncated)\n"
+	}
+
+	sb.WriteString("## Dependency Graph\n```mermaid\n")
+	sb.WriteString(mermaid)
+	sb.WriteString("```\n\n")
+}
+
 // buildSymbolSummary returns a compact summary of symbols per file.
-func buildSymbolSummary(results []fileParseResult) string {
+func buildSymbolSummary(results []fileParseResult, budget int) string {
 	var sb strings.Builder
-	remaining := symbolSummaryBudget
+	remaining := budget
 
 	for _, pr := range results {
 		if pr.result == nil || len(pr.result.Symbols) == 0 {
@@ -111,6 +178,7 @@ func appendFileContents(
 	renderMode render.Mode,
 	queryTerms []string,
 	parseMap map[string]*parser.ParseResult,
+	maxFileChars int,
 ) {
 	sb.WriteString("## File Contents\n\n")
 	remaining := budget
@@ -120,7 +188,7 @@ func appendFileContents(
 		TruncateLongLines: true,
 		MaxLineChars:      500, //nolint:mnd // line length limit for LLM context
 		TruncateBase64:    true,
-		MaxFileChars:      maxFileContentChars,
+		MaxFileChars:      maxFileChars,
 	}
 
 	renderOpts := render.Opts{

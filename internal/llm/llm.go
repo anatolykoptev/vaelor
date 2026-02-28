@@ -174,3 +174,29 @@ Based on the provided import/dependency data, describe:
 3. Hotspot packages (many dependents)
 4. Suggestions for improving the dependency structure
 Be concise and actionable.`
+
+// SystemPromptOverview is the system prompt for high-level repository analysis.
+const SystemPromptOverview = `You are a senior software engineer providing a high-level overview of a code repository.
+Focus on: public API surface, key architectural components, package organization, and design patterns.
+Be concise — summarize the architecture, don't enumerate every function.
+Use the provided symbol signatures and file tree to identify the main modules and their responsibilities.`
+
+// SystemPromptDeep is the system prompt for deep repository analysis.
+const SystemPromptDeep = `You are a senior software engineer doing deep analysis of a code repository.
+Focus on: implementation details, algorithms, error handling, edge cases, and performance characteristics.
+Reference specific functions, line numbers, and code patterns.
+Explain how components interact at the implementation level, not just the interface level.`
+
+// SystemPromptForDepth returns the appropriate system prompt for the given analysis depth.
+// Depth values match analyze.Depth* constants but are repeated here
+// to avoid a circular import between llm → analyze.
+func SystemPromptForDepth(depth string) string {
+	switch depth {
+	case "overview":
+		return SystemPromptOverview
+	case "deep":
+		return SystemPromptDeep
+	default:
+		return SystemPromptRepoAnalysis
+	}
+}

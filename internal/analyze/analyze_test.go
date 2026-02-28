@@ -13,6 +13,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/render"
 )
 
 // writeFile creates parent directories and writes a file, failing the test on error.
@@ -419,8 +420,8 @@ func TestBuildLLMContext_ContainsSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IngestRepo: %v", err)
 	}
-	results := parseFilesParallel(context.Background(), ir.Files, false)
-	ctx := buildLLMContext(ir, results, "test query", "")
+	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
+	ctx := buildLLMContext(ir, results, "test query", render.ModeDefault, "")
 
 	for _, section := range []string{"## Query", "## Repository File Tree", "## Symbol Summary", "## File Contents"} {
 		if !strings.Contains(ctx, section) {
