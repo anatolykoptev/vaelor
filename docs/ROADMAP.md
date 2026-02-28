@@ -1,76 +1,84 @@
 # go-code Implementation Roadmap
 
-## Phase 1: Foundation — Parse & Analyze (MVP)
+## Phase 1: Foundation — Parse & Analyze (MVP) ✅
 
 **Goal**: Replace `github_repo_analyze` with a better version.
 Single tool (`repo_analyze`) that works better than the current one.
 
-### 1.1 tree-sitter integration
-- [ ] Add `smacker/go-tree-sitter` dependency
-- [ ] Implement `LanguageHandler` interface
-- [ ] Go handler with `go.scm` queries — functions, methods, types, imports, consts
-- [ ] Python handler with `python.scm` queries
-- [ ] TypeScript/JavaScript handler with `typescript.scm` queries
-- [ ] Unit tests: parse known Go/Python/TS files, verify symbol extraction
+**Status**: Complete (2026-02-28). Deployed on :8897, registered as MCP server.
 
-### 1.2 Improved ingestion
-- [ ] Port gitingest core: clone, walk, filter, security scanning
-- [ ] Fix file loss: increase limits, smarter filtering, configurable depth
-- [ ] Git change frequency for relevance ranking
-- [ ] File tree rendering
-- [ ] Integration test: ingest a real repo, verify no files lost
+### 1.1 tree-sitter integration ✅
+- [x] Add `smacker/go-tree-sitter` dependency
+- [x] Implement `LanguageHandler` interface
+- [x] Go handler with `go.scm` queries — functions, methods, types, imports, consts
+- [x] Python handler with `python.scm` queries
+- [x] TypeScript/JavaScript handler with `typescript.scm` queries
+- [x] Unit tests: parse known Go/Python/TS files, verify symbol extraction
 
-### 1.3 Smart cleaning
-- [ ] Signatures-only mode: extract API surface without bodies
-- [ ] Skeleton mode: structure with `...` placeholders
-- [ ] Focused mode: full bodies for relevant symbols, signatures for rest
-- [ ] Tests for each cleaning mode
+### 1.2 Improved ingestion ✅
+- [x] Clone, walk, filter with gitignore support
+- [x] Fix file loss: configurable limits (10K files, 20 depth), smarter filtering
+- [x] File tree rendering (box-drawing, max 100 lines)
+- [x] Integration tests: 25 tests covering all ingestion features
+- [ ] Git change frequency for relevance ranking (deferred — using symbol count proxy)
 
-### 1.4 LLM analysis
-- [ ] LLM client via CLIProxyAPI (OpenAI-compatible)
-- [ ] Prompts for repo analysis (overview, module-level, deep)
-- [ ] Multi-level analysis: overview → zoom into relevant modules → deep dive
-- [ ] JSON output parsing with fallback
+### 1.3 Smart cleaning ✅
+- [x] Per-language comment stripping (C-style + hash-style)
+- [x] Preservation rules: TODO/FIXME/nolint/doc comments kept
+- [x] Blank line collapsing, long line truncation, file-level truncation
+- [x] 14 tests covering all cleaning modes
+- [ ] Signatures-only mode (deferred to Phase 2)
+- [ ] Skeleton mode with `...` placeholders (deferred to Phase 2)
 
-### 1.5 `repo_analyze` tool
-- [ ] Wire everything: ingest → parse → clean → LLM → output
-- [ ] Support GitHub repos and local paths
-- [ ] Caching: in-memory by (repo, query) hash
-- [ ] Health endpoint + metrics
-- [ ] Docker build and deploy
+### 1.4 LLM analysis ✅
+- [x] LLM client via CLIProxyAPI (OpenAI-compatible)
+- [x] System prompts for repo analysis, code comparison, dep graph
+- [x] LLM context builder with 150K char budget
+- [x] File prioritization by query relevance + import frequency + symbol count
+- [ ] Multi-level analysis: overview → zoom → deep dive (deferred to Phase 2)
+- [ ] JSON output parsing with fallback (deferred)
 
-**Deliverable**: `repo_analyze` MCP tool on :8897, demonstrably better than go-search's version.
+### 1.5 MCP tools ✅
+- [x] `repo_analyze` — ingest → parse → clean → LLM → structured answer
+- [x] `file_parse` — tree-sitter AST/symbol extraction for single files
+- [x] `symbol_search` — wildcard pattern matching across repos
+- [x] `dep_graph` — import graph in mermaid/dot/json formats
+- [x] `code_compare` — registered as stub (Phase 3)
+- [x] Support GitHub repos (clone) and local paths
+- [x] Health endpoint (`/health`)
+- [x] Docker build and deploy (docker-compose + MCP registration)
+- [ ] Caching: in-memory by (repo, query) hash (deferred)
+
+**Deliverable**: 5 MCP tools on :8897. `repo_analyze` + `file_parse` + `symbol_search` + `dep_graph` working. ✅
 
 ---
 
-## Phase 2: Structure — Parse & Graph
+## Phase 2: Structure — Enhanced Parsing & Cleaning
 
-**Goal**: Expose code structure without LLM. Fast, deterministic tools.
+**Goal**: Improve code understanding quality. Additional languages, smarter cleaning modes, caching.
 
-### 2.1 `file_parse` tool
-- [ ] Parse single file → symbol table
-- [ ] Option: include body, include imports
-- [ ] Option: raw AST output (for debugging)
-
-### 2.2 `symbol_search` tool
-- [ ] Index all symbols in a repo
-- [ ] Wildcard/regex search by name
-- [ ] Filter by kind (function, type, interface)
-- [ ] Return: file path, line number, signature
-
-### 2.3 `dep_graph` tool
-- [ ] Build import graph from parsed files
-- [ ] Build call graph from function references
-- [ ] Output formats: Mermaid, DOT (Graphviz), JSON
-- [ ] Visualization: package-level and function-level views
-
-### 2.4 Additional languages
+### 2.1 Additional languages
 - [ ] Rust handler + queries
 - [ ] Java handler + queries
 - [ ] C/C++ handler + queries
 - [ ] Ruby handler + queries
 
-**Deliverable**: 4 working MCP tools. Code structure analysis without LLM dependency.
+### 2.2 Advanced cleaning modes
+- [ ] Signatures-only mode: extract API surface without bodies
+- [ ] Skeleton mode: structure with `...` placeholders
+- [ ] Focused mode: full bodies for query-relevant symbols, signatures for rest
+
+### 2.3 Multi-level analysis
+- [ ] Level 1 (overview): file tree + symbol signatures only
+- [ ] Level 2 (module): selected files + dependency graph subset
+- [ ] Level 3 (deep): full function bodies + call chain tracing
+
+### 2.4 Caching & performance
+- [ ] In-memory cache by (repo, query) hash with TTL
+- [ ] Parsed AST cache by (filePath, modTime) key
+- [ ] Git change frequency for file relevance ranking
+
+**Deliverable**: Better analysis quality, more languages, faster repeated queries.
 
 ---
 
@@ -84,7 +92,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [ ] Side-by-side alignment of matched symbols
 - [ ] Metrics: LOC, complexity, dependency count per repo
 
-### 3.2 `code_compare` tool
+### 3.2 `code_compare` tool (wire the stub)
 - [ ] Input: 2-3 repos + query/focus area
 - [ ] Parallel ingest + parse
 - [ ] Structural alignment
@@ -131,7 +139,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 ### 5.1 Migration
 - [ ] Verify go-code covers all github_repo_analyze modes
 - [ ] Verify go-code covers github_repo_search functionality
-- [ ] Update Claude MCP config: add go-code, keep go-search
+- [x] Update Claude MCP config: add go-code ✅ (done in Phase 1)
 - [ ] Remove `tool_github_repo_analyze.go` from go-search
 - [ ] Remove `tool_github_repo_search.go` from go-search
 - [ ] Remove `internal/gitingest/` from go-search
@@ -150,16 +158,16 @@ Single tool (`repo_analyze`) that works better than the current one.
 ## Dependencies Between Phases
 
 ```
-Phase 1 (Foundation) ──→ Phase 2 (Structure) ──→ Phase 3 (Comparison)
-                                                        │
-                                                        ▼
-                         Phase 4 (Advanced) ←───────────┘
-                                │
-                                ▼
-                         Phase 5 (Migration)
+Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ──→ Phase 3 (Comparison)
+                                                           │
+                                                           ▼
+                            Phase 4 (Advanced) ←───────────┘
+                                   │
+                                   ▼
+                            Phase 5 (Migration)
 ```
 
-Phase 1 is standalone MVP. Each subsequent phase builds on the previous.
+Phase 1 complete. Phase 2 can start independently.
 Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 
 ## Technical Debt Watch
@@ -169,3 +177,5 @@ Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 - [ ] Memory usage profiling for large repos (10K+ files)
 - [ ] Cache eviction strategy for long-running server
 - [ ] Rate limiting for GitHub API calls
+- [x] MCP SDK v1.4.0 output schema compatibility (fixed: noOutput struct pattern)
+- [x] jsonschema tag format (fixed: jsonschema_description instead of jsonschema:"description=")
