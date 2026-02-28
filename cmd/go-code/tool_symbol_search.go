@@ -13,7 +13,7 @@ import (
 // SymbolSearchInput is the input schema for the symbol_search tool.
 type SymbolSearchInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
-	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo) or absolute local path"`
+	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 
 	// Query is the symbol name or pattern to search for (supports wildcards: Auth*, *Handler).
 	Query string `json:"query" jsonschema_description:"Symbol name or pattern to search (supports wildcards: Auth* or *Handler)"`
