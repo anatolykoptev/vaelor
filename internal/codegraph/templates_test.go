@@ -61,6 +61,26 @@ func TestTemplateRender(t *testing.T) {
 			params: map[string]string{"name": "database/sql"},
 			want:   "database/sql",
 		},
+		{
+			id:     "api_routes",
+			params: map[string]string{"path": "/api/users"},
+			want:   "/api/users",
+		},
+		{
+			id:     "cross_calls",
+			params: map[string]string{"path": "/api"},
+			want:   "/api",
+		},
+		{
+			id:     "layer_deps",
+			params: map[string]string{},
+			want:   "BELONGS_TO",
+		},
+		{
+			id:     "polyglot_overview",
+			params: map[string]string{},
+			want:   "Layer",
+		},
 	}
 
 	for _, tc := range cases {
@@ -95,7 +115,7 @@ func TestTemplateRenderEscaping(t *testing.T) {
 }
 
 func TestTemplateCount(t *testing.T) {
-	const want = 10
+	const want = 14
 	got := len(templates)
 	if got != want {
 		t.Errorf("expected %d templates, got %d", want, got)
