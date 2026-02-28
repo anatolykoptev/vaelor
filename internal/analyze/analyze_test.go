@@ -420,7 +420,7 @@ func TestBuildLLMContext_ContainsSections(t *testing.T) {
 		t.Fatalf("IngestRepo: %v", err)
 	}
 	results := parseFilesParallel(context.Background(), ir.Files, false)
-	ctx := buildLLMContext(ir, results, "test query")
+	ctx := buildLLMContext(ir, results, "test query", "")
 
 	for _, section := range []string{"## Query", "## Repository File Tree", "## Symbol Summary", "## File Contents"} {
 		if !strings.Contains(ctx, section) {

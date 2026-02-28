@@ -22,6 +22,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/render"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
@@ -72,6 +73,10 @@ type RepoAnalysisInput struct {
 
 	// Language limits analysis to files of this language.
 	Language string
+
+	// RenderMode controls how file contents are rendered for LLM context.
+	// Valid values: "" (default/full), "signatures", "skeleton", "focused".
+	RenderMode string
 }
 
 // RepoAnalysisResult is the output of a repository analysis.
@@ -165,7 +170,7 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 
 	parseResults := parseFilesParallel(ctx, ingestResult.Files, false)
 
-	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query)
+	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query, render.Mode(input.RenderMode))
 
 	answer, err := deps.LLM.Complete(ctx, llm.SystemPromptRepoAnalysis, llmCtx)
 	if err != nil {
