@@ -7,6 +7,7 @@
 package render
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -30,6 +31,16 @@ const (
 	ModeFocused Mode = "focused"
 )
 
+// ValidMode reports whether m is a recognized rendering mode.
+func ValidMode(m string) bool {
+	switch Mode(m) {
+	case ModeDefault, ModeSignatures, ModeSkeleton, ModeFocused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Opts controls rendering behavior.
 type Opts struct {
 	// Mode selects the rendering strategy.
@@ -43,17 +54,19 @@ type Opts struct {
 // bodyPlaceholder is the placeholder inserted for omitted function bodies.
 const bodyPlaceholder = "    // ..."
 
-// actionSignatures strips the body, keeping only the signature line.
+// actionSignatures replaces the entire symbol range with its clean signature.
 const actionSignatures = "signatures"
 
-// actionSkeleton replaces the body with a placeholder.
+// actionSkeleton keeps the opening line and closing line, replaces the body
+// between them with a placeholder.
 const actionSkeleton = "skeleton"
 
 // replacement describes how a symbol's line range should be transformed.
 type replacement struct {
-	startLine int // 1-based, inclusive
-	endLine   int // 1-based, inclusive
-	action    string
+	startLine int    // 1-based, inclusive
+	endLine   int    // 1-based, inclusive
+	action    string // actionSignatures or actionSkeleton
+	signature string // clean signature text (from parser, without braces)
 }
 
 // RenderFile transforms source code according to the rendering mode,
@@ -63,7 +76,7 @@ type replacement struct {
 // For symbols of structural kinds (struct, interface, class, type),
 // the full body is always preserved since fields ARE the API surface.
 func RenderFile(source string, symbols []*parser.Symbol, opts Opts) string {
-	if opts.Mode == ModeDefault || len(symbols) == 0 {
+	if opts.Mode == ModeDefault || len(symbols) == 0 || source == "" {
 		return source
 	}
 
@@ -86,8 +99,10 @@ func RenderFile(source string, symbols []*parser.Symbol, opts Opts) string {
 }
 
 // buildReplacements determines which symbol ranges need transformation.
+// Symbols are sorted by start line and nested symbols (fully contained
+// within a parent replacement) are suppressed to avoid corrupted output.
 func buildReplacements(symbols []*parser.Symbol, opts Opts) []replacement {
-	var out []replacement
+	var candidates []replacement
 
 	for _, sym := range symbols {
 		if sym.StartLine == 0 || sym.EndLine == 0 || sym.StartLine >= sym.EndLine {
@@ -102,11 +117,42 @@ func buildReplacements(symbols []*parser.Symbol, opts Opts) []replacement {
 			continue
 		}
 
-		out = append(out, replacement{
+		candidates = append(candidates, replacement{
 			startLine: int(sym.StartLine),
 			endLine:   int(sym.EndLine),
 			action:    action,
+			signature: sym.Signature,
 		})
+	}
+
+	// Sort by startLine so we can detect nesting.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].startLine < candidates[j].startLine
+	})
+
+	// Remove nested replacements: if a child range is fully contained
+	// within a parent replacement, the parent already handles those lines.
+	return removeNested(candidates)
+}
+
+// removeNested filters out replacements whose range falls entirely within
+// a preceding replacement's range.
+func removeNested(sorted []replacement) []replacement {
+	if len(sorted) == 0 {
+		return sorted
+	}
+
+	out := make([]replacement, 0, len(sorted))
+	out = append(out, sorted[0])
+
+	for i := 1; i < len(sorted); i++ {
+		parent := out[len(out)-1]
+		child := sorted[i]
+		if child.startLine >= parent.startLine && child.endLine <= parent.endLine {
+			// Fully nested — skip.
+			continue
+		}
+		out = append(out, child)
 	}
 
 	return out
@@ -129,36 +175,79 @@ func symbolAction(sym *parser.Symbol, opts Opts) string {
 	}
 }
 
-// applyReplacements processes source lines according to the replacement list,
-// skipping body lines and optionally inserting placeholders.
-func applyReplacements(lines []string, replacements []replacement) string {
-	skipLines := make(map[int]bool)
-	insertAfter := make(map[int]string)
+// lineOps holds per-line instructions built from replacements.
+type lineOps struct {
+	skip        map[int]bool   // lines to omit entirely (1-based)
+	replaceWith map[int]string // lines to replace with different text
+	insertAfter map[int]string // text to insert after a line
+}
 
-	for _, r := range replacements {
-		for line := r.startLine + 1; line <= r.endLine; line++ {
-			skipLines[line] = true
-		}
-		if r.action == actionSkeleton {
-			insertAfter[r.startLine] = bodyPlaceholder
-		}
-	}
+// applyReplacements processes source lines according to the replacement list.
+//
+// For signatures: the entire symbol range (startLine..endLine) is replaced
+// with a single line showing the clean signature from the parser.
+//
+// For skeleton: startLine and endLine are kept (opening declaration and
+// closing brace), and the body between them is replaced with a placeholder.
+func applyReplacements(lines []string, replacements []replacement) string {
+	ops := buildLineOps(lines, replacements)
 
 	var out strings.Builder
 	for i, line := range lines {
 		lineNum := i + 1 // 1-based
-		if skipLines[lineNum] {
+		if ops.skip[lineNum] {
 			continue
 		}
-		out.WriteString(line)
+		if text, ok := ops.replaceWith[lineNum]; ok {
+			out.WriteString(text)
+		} else {
+			out.WriteString(line)
+		}
 		out.WriteByte('\n')
-		if placeholder, ok := insertAfter[lineNum]; ok {
-			out.WriteString(placeholder)
+		if text, ok := ops.insertAfter[lineNum]; ok {
+			out.WriteString(text)
 			out.WriteByte('\n')
 		}
 	}
 
 	return out.String()
+}
+
+// buildLineOps converts replacements into per-line skip/replace/insert instructions.
+func buildLineOps(lines []string, replacements []replacement) lineOps {
+	ops := lineOps{
+		skip:        make(map[int]bool),
+		replaceWith: make(map[int]string),
+		insertAfter: make(map[int]string),
+	}
+
+	totalLines := len(lines)
+	for _, r := range replacements {
+		if r.startLine > totalLines {
+			continue
+		}
+		end := r.endLine
+		if end > totalLines {
+			end = totalLines
+		}
+
+		switch r.action {
+		case actionSignatures:
+			if r.signature != "" {
+				ops.replaceWith[r.startLine] = r.signature
+			}
+			for line := r.startLine + 1; line <= end; line++ {
+				ops.skip[line] = true
+			}
+		case actionSkeleton:
+			for line := r.startLine + 1; line <= end-1; line++ {
+				ops.skip[line] = true
+			}
+			ops.insertAfter[r.startLine] = bodyPlaceholder
+		}
+	}
+
+	return ops
 }
 
 // isStructuralKind returns true for symbol kinds where the body defines
@@ -172,11 +261,12 @@ func isStructuralKind(kind parser.NodeKind) bool {
 	}
 }
 
-// isRelevant checks whether a symbol name matches any of the query terms.
+// isRelevant checks whether a symbol name or signature matches any of the query terms.
 func isRelevant(sym *parser.Symbol, terms []string) bool {
-	lower := strings.ToLower(sym.Name)
+	lowerName := strings.ToLower(sym.Name)
+	lowerSig := strings.ToLower(sym.Signature)
 	for _, t := range terms {
-		if strings.Contains(lower, t) {
+		if strings.Contains(lowerName, t) || strings.Contains(lowerSig, t) {
 			return true
 		}
 	}
