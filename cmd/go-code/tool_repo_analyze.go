@@ -23,6 +23,9 @@ type RepoAnalyzeInput struct {
 
 	// Focus narrows analysis to a subdirectory or file glob pattern.
 	Focus string `json:"focus,omitempty" jsonschema_description:"Subdirectory or glob pattern to focus on (e.g. internal/auth or **/*.go)"`
+
+	// Mode controls how file contents are rendered for LLM context.
+	Mode string `json:"mode,omitempty" jsonschema_description:"Rendering mode for file contents: signatures (API only) | skeleton (structure with ... placeholders) | focused (full for relevant symbols, signatures for rest). Default: full content."`
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
@@ -50,9 +53,10 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 		defer cleanup()
 
 		result, err := analyze.AnalyzeRepo(ctx, analyze.RepoAnalysisInput{
-			Root:  root,
-			Query: input.Query,
-			Focus: input.Focus,
+			Root:       root,
+			Query:      input.Query,
+			Focus:      input.Focus,
+			RenderMode: input.Mode,
 		}, deps)
 		if err != nil {
 			return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil

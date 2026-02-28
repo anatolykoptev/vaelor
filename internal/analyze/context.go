@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/clean"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/render"
 )
 
 // llmContextBudget is the maximum number of characters to include in the LLM context.
@@ -31,7 +32,7 @@ const maxFileContentChars = 8_000
 //  1. File tree (from ingest.RenderTree)
 //  2. Symbol summary: name, kind, signature per file
 //  3. File contents (cleaned, budget-limited, prioritized files first)
-func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query string) string {
+func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query string, renderMode render.Mode) string {
 	var sb strings.Builder
 
 	sb.WriteString("## Query\n")
@@ -48,7 +49,17 @@ func buildLLMContext(ir *ingest.IngestResult, results []fileParseResult, query s
 	sb.WriteString("\n")
 
 	prioritized := prioritizeFiles(ir.Files, results, query)
-	appendFileContents(&sb, prioritized, fileBudget)
+	queryTerms := extractQueryTerms(query)
+
+	// Build path → ParseResult lookup for render modes that need symbols.
+	parseMap := make(map[string]*parser.ParseResult, len(results))
+	for _, pr := range results {
+		if pr.result != nil {
+			parseMap[pr.file.Path] = pr.result
+		}
+	}
+
+	appendFileContents(&sb, prioritized, fileBudget, renderMode, queryTerms, parseMap)
 
 	return sb.String()
 }
@@ -91,7 +102,16 @@ func formatSymbolLine(sym *parser.Symbol) string {
 }
 
 // appendFileContents writes file content blocks into sb, stopping at the budget.
-func appendFileContents(sb *strings.Builder, files []*ingest.File, budget int) {
+// When renderMode is non-default and symbol data is available, files are
+// rendered using the render package before cleaning.
+func appendFileContents(
+	sb *strings.Builder,
+	files []*ingest.File,
+	budget int,
+	renderMode render.Mode,
+	queryTerms []string,
+	parseMap map[string]*parser.ParseResult,
+) {
 	sb.WriteString("## File Contents\n\n")
 	remaining := budget
 	cleanOpts := clean.CleanOpts{
@@ -103,12 +123,26 @@ func appendFileContents(sb *strings.Builder, files []*ingest.File, budget int) {
 		MaxFileChars:      maxFileContentChars,
 	}
 
+	renderOpts := render.Opts{
+		Mode:       renderMode,
+		QueryTerms: queryTerms,
+	}
+
 	for _, f := range files {
 		source, err := readFileContent(f.Path)
 		if err != nil {
 			continue
 		}
-		cleaned := clean.CleanSource(source, f.Language, cleanOpts)
+
+		// Apply render mode if we have symbols for this file.
+		rendered := source
+		if renderMode != render.ModeDefault {
+			if pr, ok := parseMap[f.Path]; ok && len(pr.Symbols) > 0 {
+				rendered = render.RenderFile(source, pr.Symbols, renderOpts)
+			}
+		}
+
+		cleaned := clean.CleanSource(rendered, f.Language, cleanOpts)
 		block := formatFileBlock(f.RelPath, cleaned)
 		if remaining < len(block) {
 			break
