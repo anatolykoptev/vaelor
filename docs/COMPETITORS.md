@@ -1,6 +1,6 @@
 # Competitors & Prior Art
 
-Research conducted 2026-02-27. Analysis of existing solutions in code intelligence,
+Research conducted 2026-02-27, updated 2026-02-28. Analysis of existing solutions in code intelligence,
 AST parsing, repository analysis, and code comparison.
 
 ## Tree-sitter Go Bindings
@@ -210,13 +210,116 @@ Use tree-sitter for all other languages, Go-native tools as a precision enhancem
 7. **NL → Cypher without schema in prompt** — causes hallucinated property names
 8. **Re-parsing on every request** — cache parsed trees by `(path, modtime)`
 
+## MCP Code Intelligence Servers (updated 2026-02-28)
+
+Full landscape analysis: 15+ competing MCP servers for code intelligence.
+
+### Tier 1 (1000+ stars)
+
+| Project | Stars | Lang | Approach | Key Differentiator |
+|---------|-------|------|----------|-------------------|
+| [Serena](https://github.com/oraios/serena) | 20.8K | Python | LSP-backed, 40+ languages, 30+ tools | True semantic understanding via language servers (rename, references) |
+| [kit](https://github.com/cased/kit) | 1.3K | Python | tree-sitter + Chroma + package search | AST pattern search (`grep_ast`) with 3 modes, PR review |
+| [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext) | 903 | Python | tree-sitter → FalkorDB/Neo4j | Dual graph backend (FalkorDB Lite for dev, Neo4j for prod), file watching |
+
+### Tier 2 (100-1000 stars)
+
+| Project | Stars | Lang | Approach | Key Differentiator |
+|---------|-------|------|----------|-------------------|
+| [Axon](https://github.com/harshkedia177/axon) | 384 | Python | 12-phase pipeline → KuzuDB graph | Blast radius with confidence scores, dead code, git change coupling |
+| [mcp-server-tree-sitter](https://github.com/wrale/mcp-server-tree-sitter) | 253 | Python | Cursor-based tree-sitter traversal | Parse caching, project registration model, state persistence |
+| [Octocode](https://github.com/Muvon/octocode) | 236 | Rust | GraphRAG + optional LSP | Rust performance, AI memory system, smart commits |
+| [Axon.MCP.Server](https://github.com/ali-kamali/Axon.MCP.Server) | 151 | Python | 10-service microarchitecture, pgvector | Multi-parser (tree-sitter + Roslyn), 12 tools |
+
+### Tier 3 (< 100 stars, architecturally interesting)
+
+| Project | Stars | Lang | Key Feature |
+|---------|-------|------|-------------|
+| [code-graph-mcp](https://github.com/entrepeneur4lyf/code-graph-mcp) | 80 | Python | ast-grep backend, 25+ languages, LRU cache (50-90% speedup) |
+| [CodeMCP](https://github.com/SimplyLiz/CodeMCP) | 62 | **Go** | **Most relevant competitor.** 76 tools, SCIP + tree-sitter, stable identity system, multi-repo federation, blast radius, dead code, ownership detection |
+| [ast-mcp-server](https://github.com/angrysky56/ast-mcp-server) | 30 | Python | AST diff (`diff_ast`), ASG (Abstract Semantic Graph), Neo4j |
+| [tree-sitter-mcp](https://github.com/nendotools/tree-sitter-mcp) | 27 | TypeScript | Minimal: 4 focused tools, dual CLI+MCP mode |
+| [codeprism](https://github.com/rustic-ai/codeprism) | new | Rust | Universal AST, DashMap incremental indexing, `RoutesTo` edges for polyglot |
+
+### CodeMCP Deep Dive (closest competitor)
+
+**Go-native, 76 tools.** Key architectural patterns worth studying:
+
+- **SCIP as primary backend** (`internal/backends/scip/`): Falls back to tree-sitter when SCIP unavailable. For Go, `scip-go` provides type-aware call graphs.
+- **Identity system** (`internal/identity/`): Stable symbol IDs via `SymbolFingerprint` (hash of name+kind+signature+container+location). Alias chains track renames.
+- **Personalized PageRank** (`internal/graph/ppr.go`): Graph-based ranking of related symbols.
+- **Progressive tool disclosure**: `expandToolset` dynamically reveals tools. Avoids overwhelming agents with 76 tools at once.
+- **Impact analysis** (`internal/impact/`): Blast radius with risk scoring.
+- **Ownership** combining CODEOWNERS + git blame.
+
+**Anti-pattern**: 76 tools is likely counterproductive (CodeCompass research shows agents don't use most tools). go-code's 8 tools is closer to optimal.
+
+### AST Diff Tools
+
+| Tool | Stars | Lang | Algorithm | Key Insight |
+|------|-------|------|-----------|-------------|
+| [smacker/gum](https://github.com/smacker/gum) | ~50 | **Go** | GumTree (subtree match → bottom-up Jaccard → Zhang-Shasha → edit script) | **Same author as `smacker/go-tree-sitter`**. `gum/tsitter/` adapter included. Insert/Delete/Update/Move operations. |
+| [cedricrupb/code_diff](https://github.com/cedricrupb/code_diff) | small | Python | Fast GumTree reimplementation | Confirms tree-sitter + GumTree works well together |
+
+### Academic Research
+
+| Paper | Key Finding |
+|-------|-------------|
+| [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) | Graph-based navigation: 99.4% task completion vs 76.2% baseline. But 58% of agents with graph access made 0 tool calls — need explicit prompting for graph tools. |
+| [MLSA (arxiv 1808.01213)](https://arxiv.org/abs/1808.01213) | Build monolingual call graphs independently, stitch at FFI boundaries. Lightweight polyglot analysis. |
+| [CHARON (EuroSP 2025)](https://scnps.co/papers/eurosp25_polyglot_sast.pdf) | Polyglot Property Graphs with bidirectional cross-language edges for SAST. |
+
+### Registries
+
+- [Official MCP servers](https://github.com/modelcontextprotocol/servers) — no dedicated code analysis server. Space is entirely community-driven.
+- [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) — 7260+ servers cataloged, weak coverage of dedicated code analysis.
+
+## Comparative Feature Matrix
+
+| Feature | go-code | Serena | kit | Axon | CodeMCP |
+|---------|---------|--------|-----|------|---------|
+| **Language** | Go | Python | Python | Python | Go |
+| **Parsing** | tree-sitter | LSP | tree-sitter | tree-sitter | SCIP + tree-sitter |
+| **Languages** | 9 | 40+ | 15+ | multi | multi |
+| **Call graph** | Yes (BFS) | No | No | Yes | Yes (SCIP) |
+| **Graph DB** | Apache AGE | No | No | KuzuDB | In-memory |
+| **NL→Cypher** | Yes | No | No | Yes | No |
+| **Code compare** | Yes | No | No | No | No |
+| **Impact/blast** | No | No | No | Yes | Yes |
+| **Dead code** | No | No | No | Yes | Yes |
+| **AST diff** | No | No | No | No | No |
+| **Semantic search** | No | No | Yes (Chroma) | Yes | No |
+| **SCIP backend** | No | No | No | No | Yes |
+| **Repo search** | Yes | No | Yes | No | No |
+| **Multi-repo** | No | No | No | No | Yes |
+| **Complexity** | No | No | No | No | Yes |
+
 ## Gap Analysis — What We Build
 
 No existing tool combines ALL of:
-- Multi-language AST parsing (tree-sitter)
-- Structural code comparison (not just text diff)
-- Repository-level analysis with dependency graphs
-- LLM-powered natural language Q&A about code
+- Go-native implementation (only CodeMCP is also Go)
+- Multi-language AST parsing (tree-sitter, 9 languages)
+- Apache AGE knowledge graph with NL-to-Cypher
+- Structural code comparison (`code_compare` — unique)
+- LLM-powered natural language narratives
+- Repo discovery (`repo_search`)
 - MCP server interface
 
 This is the gap `go-code` fills.
+
+### Identified Gaps (prioritized)
+
+| Priority | Gap | Effort | Reference |
+|----------|-----|--------|-----------|
+| P1 | Schema injection in freeform Cypher | 2h | code-graph-rag |
+| P1 | IMPORTS edges (data already parsed) | 1d | CodeGraphContext |
+| P1 | AST diff via smacker/gum | 1d | smacker/gum |
+| P1 | Impact/blast radius analysis | 1d | Axon, CodeMCP |
+| P2 | Dead code detection | 1d | Axon, CodeGraphContext |
+| P2 | Complexity metrics | 1d | ast-metrics, CodeMCP |
+| P2 | Incremental graph indexing | 2d | code-graph-rag |
+| P2 | INHERITS/IMPLEMENTS edges | 2d | codeprism |
+| P3 | Semantic search via embeddings | 3-4d | code-graph-rag, Octocode |
+| P3 | SCIP backend for Go | 3+d | CodeMCP, srctx |
+| P3 | Compound tools | 2d | CodeMCP |
+| P3 | Cross-language HTTP boundaries | 3d | codeprism, MLSA |
