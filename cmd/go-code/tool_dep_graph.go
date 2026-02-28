@@ -36,14 +36,14 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"then constructs a directed graph of package or module dependencies. " +
 			"Supports output as Mermaid diagrams, Graphviz DOT, or JSON adjacency lists. " +
 			"Can detect cycles, highly-connected nodes (hotspots), and layering violations.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, noOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, any, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), noOutput{}, nil
+			return errResult("repo is required"), nil, nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), noOutput{}, nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
 		}
 		defer cleanup()
 
@@ -55,9 +55,9 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 			MaxDepth: input.MaxDepth,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("build dep graph: %s", err)), noOutput{}, nil
+			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil, nil
 		}
 
-		return textResult(graph), noOutput{}, nil
+		return textResult(graph), nil, nil
 	})
 }
