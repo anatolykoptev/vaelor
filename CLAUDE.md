@@ -44,6 +44,17 @@ internal/
     graph.go           — BuildCallGraph: name-based resolution (same-file → same-pkg → global)
     trace.go           — Trace: BFS/DFS with depth limit, cycle detection, bidirectional
     repo.go            — TraceRepo: orchestrator (ingest → parse → graph → trace)
+  codegraph/           — Apache AGE code knowledge graph
+    store.go           — Store: pgxpool wrapper, ExecCypher/Write, EnsureGraph, HasAGE
+    index.go           — IndexRepo: orchestrator, types, config, cache check
+    parse.go           — Parallel file ingestion and tree-sitter parsing
+    graph_build.go     — Vertex/edge construction from parsed symbols
+    cypher_batch.go    — Cypher generation, formatting, batch/single insertion
+    meta.go            — Graph metadata persistence (code_graph_meta table)
+    templates.go       — 10 Cypher query templates (who_calls, calls_of, etc.)
+    classify.go        — NL→template classification via LLM
+    generate.go        — Freeform Cypher generation via LLM with retry
+    query.go           — QueryGraph: classify→template/freeform→execute→narrative
   clean/               — Smart code cleaning for LLM context
     clean.go           — CleanSource: strip comments, collapse blanks, truncate
   compare/             — Code comparison engine
@@ -76,7 +87,7 @@ deploy/
 | `dep_graph` | Build and visualize the dependency graph of a repository. Output as Mermaid, Graphviz DOT, or JSON. |
 | `symbol_search` | Search for symbols (functions, types, consts) across a repo by name pattern or wildcard. |
 | `call_trace` | Trace call chains from a function: callees (forward) or callers (reverse) with depth control and LLM narrative. |
-| `code_graph` | Query code knowledge graph stored in Apache AGE (requires DATABASE_URL). |
+| `code_graph` | Query a persistent code knowledge graph in Apache AGE. Indexes repo as Package/File/Symbol vertices with CONTAINS/CALLS edges. Answers NL questions via 10 Cypher templates + LLM freeform fallback. Lazy indexing with TTL cache. Requires DATABASE_URL. |
 | `repo_search` | Discover GitHub repositories. Parallel search (SearXNG + GitHub API), enrichment with metadata + README, LLM-ranked recommendations. |
 
 ## Environment Variables
@@ -95,7 +106,10 @@ deploy/
 | `MAX_REPO_MB` | `200` | Max repo size to accept (MB) |
 | `SEARXNG_URL` | `http://searxng:8888` | SearXNG instance URL for repo_search |
 | `REDIS_URL` | (optional) | Redis URL for L2 cache (e.g. redis://redis:6379/6) |
-| `DATABASE_URL` | (optional) | PostgreSQL DSN for Apache AGE code graph |
+| `DATABASE_URL` | (optional) | PostgreSQL DSN for Apache AGE code graph (e.g. `postgresql://user:pass@host:5432/gocode`) |
+| `GRAPH_TTL_LOCAL` | `3600` | TTL in seconds for local repo graph cache |
+| `GRAPH_TTL_REMOTE` | `86400` | TTL in seconds for remote repo graph cache |
+| `GRAPH_BATCH_SIZE` | `5` | Vertices per Cypher batch (keep small for AGE compatibility) |
 
 ## Build & Deploy
 
