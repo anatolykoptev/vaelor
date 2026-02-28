@@ -242,13 +242,13 @@ func readFileContent(path string) (string, error) {
 	return string(b), nil
 }
 
-// prioritizeFiles orders files by relevance to the query using BM25F scoring.
+// prioritizeFiles orders files by relevance to the query using BM25F scoring
+// combined with PageRank importance from the file import graph.
 //
-// BM25F weighs symbol name matches (×5), file path matches (×3), and content (×1).
-// Import counts are added as a bonus to surface highly-connected files.
+// BM25F weighs symbol name matches (x5), file path matches (x3), and content (x1).
+// PageRank propagates importance through import edges, surfacing core files.
+// Combined score: 70% BM25F relevance + 30% PageRank importance.
 func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms []string) []*ingest.File {
-	importCounts := computeImportCounts(results)
-
 	// Build BM25F documents.
 	fileSymbols := buildFileSymbolMap(results)
 	docs := make([]ranking.Document, len(files))
@@ -260,6 +260,10 @@ func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms
 	}
 	scorer := ranking.NewBM25F(docs)
 
+	// Build import graph for PageRank.
+	prGraph := buildPageRankGraph(results)
+	pageRanks := ranking.PageRank(prGraph, 20, 0.85) //nolint:mnd // standard PageRank params
+
 	type scoredFile struct {
 		file  *ingest.File
 		score float64
@@ -268,8 +272,9 @@ func prioritizeFiles(files []*ingest.File, results []fileParseResult, queryTerms
 	scored := make([]scoredFile, 0, len(files))
 	for i, f := range files {
 		bm25Score := scorer.ScoreTerms(queryTerms, docs[i])
-		importBonus := float64(importCounts[f.RelPath]) * 0.5
-		scored = append(scored, scoredFile{file: f, score: bm25Score + importBonus})
+		prScore := pageRanks[f.RelPath] * 100 //nolint:mnd // normalize PageRank to BM25F magnitude
+		combined := bm25Score*0.7 + prScore*0.3 //nolint:mnd // 70% relevance + 30% importance
+		scored = append(scored, scoredFile{file: f, score: combined})
 	}
 
 	sort.SliceStable(scored, func(i, j int) bool {
@@ -299,28 +304,31 @@ func buildFileSymbolMap(results []fileParseResult) map[string][]string {
 	return m
 }
 
-// computeImportCounts returns how many files import each file (by RelPath).
-func computeImportCounts(results []fileParseResult) map[string]int {
-	// Build a base-name → relPath map first.
+// buildPageRankGraph builds a file-to-file import graph for PageRank.
+// Each entry maps a source file (RelPath) to the files it imports.
+func buildPageRankGraph(results []fileParseResult) map[string][]string {
+	// Build a base-name → relPath map for resolving import targets.
 	baseToRel := make(map[string]string)
 	for _, pr := range results {
 		base := filepath.Base(pr.file.RelPath)
 		baseToRel[base] = pr.file.RelPath
 	}
 
-	counts := make(map[string]int)
+	graph := make(map[string][]string)
 	for _, pr := range results {
 		if pr.result == nil {
 			continue
 		}
+		var targets []string
 		for _, imp := range pr.result.Imports {
 			base := filepath.Base(imp)
 			if rel, ok := baseToRel[base]; ok {
-				counts[rel]++
+				targets = append(targets, rel)
 			}
 		}
+		graph[pr.file.RelPath] = targets
 	}
-	return counts
+	return graph
 }
 
 
