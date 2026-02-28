@@ -40,6 +40,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerCodeCompare(server, cfg, deps)
 	registerDepGraph(server, cfg, deps)
 	registerSymbolSearch(server, cfg, deps)
+	registerCallTrace(server, cfg, deps)
 }
 
 func envIntOrDefault(key string, def int) int {

@@ -222,6 +222,19 @@ Focus on: implementation details, algorithms, error handling, edge cases, and pe
 Reference specific functions, line numbers, and code patterns.
 Explain how components interact at the implementation level, not just the interface level.`
 
+// SystemPromptCallTrace is the system prompt for call chain narrative generation.
+const SystemPromptCallTrace = `You are a senior software engineer explaining an execution path through a codebase.
+You receive a call chain trace (JSON tree of function calls).
+
+Explain step-by-step what happens when the entry function is called:
+1. What each function does (based on its name and signature)
+2. Key decision points and error handling paths
+3. External calls that leave the codebase (stdlib, third-party)
+4. Cycles or recursive patterns if present
+
+Be concise and focus on the flow, not line-by-line details.
+Format as a numbered walkthrough.`
+
 // SystemPromptForDepth returns the appropriate system prompt for the given analysis depth.
 // Depth values match analyze.Depth* constants but are repeated here
 // to avoid a circular import between llm → analyze.
