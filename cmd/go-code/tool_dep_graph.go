@@ -11,19 +11,19 @@ import (
 // DepGraphInput is the input schema for the dep_graph tool.
 type DepGraphInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
-	Repo string `json:"repo" jsonschema:"description=GitHub repo slug (owner/repo) or absolute local path"`
+	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo) or absolute local path"`
 
 	// Type selects what to graph: imports (file-level), packages, modules, or calls (function call graph).
-	Type string `json:"type,omitempty" jsonschema:"description=Graph type: imports | packages | modules | calls (default: packages)"`
+	Type string `json:"type,omitempty" jsonschema_description:"Graph type: imports | packages | modules | calls (default: packages)"`
 
 	// Format controls output: json (adjacency list), dot (Graphviz), mermaid, or summary.
-	Format string `json:"format,omitempty" jsonschema:"description=Output format: json | dot | mermaid | summary (default: mermaid)"`
+	Format string `json:"format,omitempty" jsonschema_description:"Output format: json | dot | mermaid | summary (default: mermaid)"`
 
 	// Focus limits the graph to a specific package or module.
-	Focus string `json:"focus,omitempty" jsonschema:"description=Focus on a specific package or module (e.g. internal/auth)"`
+	Focus string `json:"focus,omitempty" jsonschema_description:"Focus on a specific package or module (e.g. internal/auth)"`
 
 	// MaxDepth limits graph traversal depth from focused node.
-	MaxDepth int `json:"max_depth,omitempty" jsonschema:"description=Max traversal depth from focus node (default: 3, 0=unlimited)"`
+	MaxDepth int `json:"max_depth,omitempty" jsonschema_description:"Max traversal depth from focus node (default: 3, 0=unlimited)"`
 }
 
 // registerDepGraph registers the dep_graph MCP tool.
@@ -36,14 +36,14 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"then constructs a directed graph of package or module dependencies. " +
 			"Supports output as Mermaid diagrams, Graphviz DOT, or JSON adjacency lists. " +
 			"Can detect cycles, highly-connected nodes (hotspots), and layering violations.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, string, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, noOutput, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), "", nil
+			return errResult("repo is required"), noOutput{}, nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), "", nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), noOutput{}, nil
 		}
 		defer cleanup()
 
@@ -55,9 +55,9 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 			MaxDepth: input.MaxDepth,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("build dep graph: %s", err)), "", nil
+			return errResult(fmt.Sprintf("build dep graph: %s", err)), noOutput{}, nil
 		}
 
-		return nil, graph, nil
+		return textResult(graph), noOutput{}, nil
 	})
 }

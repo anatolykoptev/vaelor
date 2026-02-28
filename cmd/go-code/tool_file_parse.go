@@ -17,13 +17,13 @@ const outputFormatAST = "ast"
 // FileParseInput is the input schema for the file_parse tool.
 type FileParseInput struct {
 	// Path is the absolute or relative path to the source file.
-	Path string `json:"path" jsonschema:"description=Absolute or relative path to the source file"`
+	Path string `json:"path" jsonschema_description:"Absolute or relative path to the source file"`
 
 	// Language overrides auto-detection (e.g. go, python, typescript, rust, java).
-	Language string `json:"language,omitempty" jsonschema:"description=Language override (go/python/typescript/rust/java/c/cpp). Auto-detected if omitted."`
+	Language string `json:"language,omitempty" jsonschema_description:"Language override (go/python/typescript/rust/java/c/cpp). Auto-detected if omitted."`
 
 	// OutputFormat controls what is returned: ast (raw tree) or symbols (functions/types/vars).
-	OutputFormat string `json:"output_format,omitempty" jsonschema:"description=Output format: ast (raw tree) | symbols (functions types vars) (default: symbols)"`
+	OutputFormat string `json:"output_format,omitempty" jsonschema_description:"Output format: ast (raw tree) | symbols (functions types vars) (default: symbols)"`
 }
 
 // registerFileParse registers the file_parse MCP tool.
@@ -36,22 +36,22 @@ func registerFileParse(server *mcp.Server, cfg Config) {
 			"Supports Go, Python, TypeScript, JavaScript, Rust, Java, C, C++. " +
 			"Use output_format=symbols to get a structured list of functions, types, and variables. " +
 			"Use output_format=ast to get the raw syntax tree for deep analysis.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input FileParseInput) (*mcp.CallToolResult, string, error) {
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input FileParseInput) (*mcp.CallToolResult, noOutput, error) {
 		if input.Path == "" {
-			return errResult("path is required"), "", nil
+			return errResult("path is required"), noOutput{}, nil
 		}
 
 		fi, err := os.Stat(input.Path)
 		if err != nil {
-			return errResult(fmt.Sprintf("stat file: %s", err)), "", nil
+			return errResult(fmt.Sprintf("stat file: %s", err)), noOutput{}, nil
 		}
 		if fi.Size() > maxBytes {
-			return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), "", nil
+			return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), noOutput{}, nil
 		}
 
 		source, err := os.ReadFile(input.Path)
 		if err != nil {
-			return errResult(fmt.Sprintf("read file: %s", err)), "", nil
+			return errResult(fmt.Sprintf("read file: %s", err)), noOutput{}, nil
 		}
 
 		includeBody := input.OutputFormat == outputFormatAST
@@ -61,10 +61,10 @@ func registerFileParse(server *mcp.Server, cfg Config) {
 			IncludeImports: true,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("parse file: %s", err)), "", nil
+			return errResult(fmt.Sprintf("parse file: %s", err)), noOutput{}, nil
 		}
 
-		return nil, formatParseResult(pr, input.OutputFormat), nil
+		return textResult(formatParseResult(pr, input.OutputFormat)), noOutput{}, nil
 	})
 }
 

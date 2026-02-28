@@ -13,19 +13,19 @@ import (
 // SymbolSearchInput is the input schema for the symbol_search tool.
 type SymbolSearchInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
-	Repo string `json:"repo" jsonschema:"description=GitHub repo slug (owner/repo) or absolute local path"`
+	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo) or absolute local path"`
 
 	// Query is the symbol name or pattern to search for (supports wildcards: Auth*, *Handler).
-	Query string `json:"query" jsonschema:"description=Symbol name or pattern to search (supports wildcards: Auth* or *Handler)"`
+	Query string `json:"query" jsonschema_description:"Symbol name or pattern to search (supports wildcards: Auth* or *Handler)"`
 
 	// Kind filters by symbol kind: function, method, type, struct, interface, const, var.
-	Kind string `json:"kind,omitempty" jsonschema:"description=Filter by kind: function | method | type | struct | interface | const | var (default: all)"`
+	Kind string `json:"kind,omitempty" jsonschema_description:"Filter by kind: function | method | type | struct | interface | const | var (default: all)"`
 
 	// Language filters to files of a specific language.
-	Language string `json:"language,omitempty" jsonschema:"description=Limit search to files of this language (e.g. go, python)"`
+	Language string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python)"`
 
 	// IncludeBody includes the full function/type body in results.
-	IncludeBody bool `json:"include_body,omitempty" jsonschema:"description=Include the full source body in results (default: false, only signatures)"`
+	IncludeBody bool `json:"include_body,omitempty" jsonschema_description:"Include the full source body in results (default: false, only signatures)"`
 }
 
 // registerSymbolSearch registers the symbol_search MCP tool.
@@ -37,17 +37,17 @@ func registerSymbolSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Uses tree-sitter AST parsing for accurate symbol extraction (no grep heuristics). " +
 			"Supports wildcard patterns (Auth*, *Handler), kind filtering, and language filtering. " +
 			"Optionally returns full source bodies for matched symbols.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, string, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, noOutput, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), "", nil
+			return errResult("repo is required"), noOutput{}, nil
 		}
 		if input.Query == "" {
-			return errResult("query is required"), "", nil
+			return errResult("query is required"), noOutput{}, nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), "", nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), noOutput{}, nil
 		}
 		defer cleanup()
 
@@ -59,10 +59,10 @@ func registerSymbolSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 			IncludeBody: input.IncludeBody,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("symbol search: %s", err)), "", nil
+			return errResult(fmt.Sprintf("symbol search: %s", err)), noOutput{}, nil
 		}
 
-		return nil, formatSymbolSearchResult(input.Query, symbols), nil
+		return textResult(formatSymbolSearchResult(input.Query, symbols)), noOutput{}, nil
 	})
 }
 

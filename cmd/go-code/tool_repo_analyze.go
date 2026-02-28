@@ -13,16 +13,16 @@ import (
 // RepoAnalyzeInput is the input schema for the repo_analyze tool.
 type RepoAnalyzeInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
-	Repo string `json:"repo" jsonschema:"description=GitHub repo slug (owner/repo) or absolute local path"`
+	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo) or absolute local path"`
 
 	// Query is a natural-language question about the repository.
-	Query string `json:"query" jsonschema:"description=What you want to understand about the repository"`
+	Query string `json:"query" jsonschema_description:"What you want to understand about the repository"`
 
 	// Ref is the branch, tag, or commit SHA to analyze (default: default branch).
-	Ref string `json:"ref,omitempty" jsonschema:"description=Branch, tag, or commit SHA (default: HEAD)"`
+	Ref string `json:"ref,omitempty" jsonschema_description:"Branch, tag, or commit SHA (default: HEAD)"`
 
 	// Focus narrows analysis to a subdirectory or file glob pattern.
-	Focus string `json:"focus,omitempty" jsonschema:"description=Subdirectory or glob pattern to focus on (e.g. internal/auth or **/*.go)"`
+	Focus string `json:"focus,omitempty" jsonschema_description:"Subdirectory or glob pattern to focus on (e.g. internal/auth or **/*.go)"`
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
@@ -35,17 +35,17 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Clones the repo if remote, walks the file tree, parses ASTs with tree-sitter, " +
 			"and answers a natural-language question about the codebase structure, " +
 			"architecture, or implementation details.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, string, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, noOutput, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), "", nil
+			return errResult("repo is required"), noOutput{}, nil
 		}
 		if input.Query == "" {
-			return errResult("query is required"), "", nil
+			return errResult("query is required"), noOutput{}, nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), "", nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), noOutput{}, nil
 		}
 		defer cleanup()
 
@@ -55,10 +55,10 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 			Focus: input.Focus,
 		}, deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("analyze: %s", err)), "", nil
+			return errResult(fmt.Sprintf("analyze: %s", err)), noOutput{}, nil
 		}
 
-		return nil, formatAnalysisResult(result), nil
+		return textResult(formatAnalysisResult(result)), noOutput{}, nil
 	})
 }
 
@@ -99,10 +99,22 @@ func writeSymbolLine(sb *strings.Builder, sym *parser.Symbol) {
 	}
 }
 
+// noOutput is a placeholder output type for MCP tool handlers.
+// MCP SDK v1.4.0 requires the output type to be a struct (type "object").
+// Our tools return text via *mcp.CallToolResult, so this is never serialized.
+type noOutput struct{}
+
 // errResult returns a CallToolResult representing a tool-level error.
 func errResult(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 		IsError: true,
+	}
+}
+
+// textResult returns a CallToolResult with text content.
+func textResult(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 	}
 }
