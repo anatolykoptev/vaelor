@@ -406,26 +406,7 @@ func splitCamelCase(s string) []string {
 	start := 0
 
 	for i := 1; i < len(runes); i++ {
-		prev := runes[i-1]
-		cur := runes[i]
-
-		split := false
-		switch {
-		// lowerUpper boundary: "handleUser" → split before 'U'
-		case unicode.IsLower(prev) && unicode.IsUpper(cur):
-			split = true
-		// letter-digit boundary: "v2" is kept, but "Auth2Factor" splits before '2'
-		case unicode.IsLetter(prev) && unicode.IsDigit(cur):
-			split = true
-		// digit-letter boundary: "2Factor" → split before 'F'
-		case unicode.IsDigit(prev) && unicode.IsLetter(cur):
-			split = true
-		// acronym end: "LLMClient" → 'M' is upper, 'C' is upper, 'l' is lower → split before 'C'
-		case unicode.IsUpper(prev) && unicode.IsUpper(cur) && i+1 < len(runes) && unicode.IsLower(runes[i+1]):
-			split = true
-		}
-
-		if split {
+		if isCamelBoundary(runes, i) {
 			part := strings.ToLower(string(runes[start:i]))
 			if len(part) >= 2 { //nolint:mnd // minimum subword length
 				parts = append(parts, part)
@@ -443,6 +424,29 @@ func splitCamelCase(s string) []string {
 	}
 
 	return parts
+}
+
+// isCamelBoundary returns true if position i in runes is a camelCase split point.
+func isCamelBoundary(runes []rune, i int) bool {
+	prev, cur := runes[i-1], runes[i]
+
+	// lowerUpper: "handleUser" → split before 'U'
+	if unicode.IsLower(prev) && unicode.IsUpper(cur) {
+		return true
+	}
+	// letter-digit: "Auth2Factor" splits before '2'
+	if unicode.IsLetter(prev) && unicode.IsDigit(cur) {
+		return true
+	}
+	// digit-letter: "2Factor" → split before 'F'
+	if unicode.IsDigit(prev) && unicode.IsLetter(cur) {
+		return true
+	}
+	// acronym end: "LLMClient" → split before 'C' (upper+upper+lower)
+	if unicode.IsUpper(prev) && unicode.IsUpper(cur) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+		return true
+	}
+	return false
 }
 
 // splitIdentifier splits an identifier on underscores, then splits each part by camelCase.

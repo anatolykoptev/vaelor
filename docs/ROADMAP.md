@@ -228,18 +228,94 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 6: Graph Enrichment
+## Phase 6: Analysis Quality ✅
 
-**Goal**: Richer graph schema + faster re-indexing. Quick wins from competitive research.
+**Goal**: Smarter ranking, better LLM prompts, structured output. Make existing tools produce better results.
 
-### 6.1 Schema injection in freeform Cypher
+**Status**: Complete (2026-02-28). All 9 subtasks implemented with tests.
+
+### 6.1 XML prompt format ✅
+- [x] Replace Markdown headings with XML tags: `<query>`, `<file-tree>`, `<symbols>`, `<file path="...">`
+- [x] File blocks use `<file path=%q>` with properly quoted paths
+- [x] Tests verify XML format and absence of old Markdown markers
+
+**Where**: `internal/analyze/context.go` → `buildLLMContext()`, `formatFileBlock()`.
+
+### 6.2 Skeleton markers ✅
+- [x] `⋮...` marker replaces ambiguous `// ...` placeholder
+- [x] `│` prefix on all visible lines in skeleton/signatures/focused modes
+- [x] LLM gets explicit signal that code was intentionally truncated
+- [x] 4 new tests, existing tests updated
+
+**Where**: `internal/render/render.go` → `bodyPlaceholder`, `applyReplacements()`.
+
+### 6.3 BM25F scoring ✅
+- [x] BM25F with field weights: symbol names ×5, file path ×3, content ×1
+- [x] IDF normalization: rare term matches score higher than common ones
+- [x] Lazy document-frequency caching with substring matching
+- [x] 6 unit tests in `internal/ranking/bm25_test.go`
+
+**Where**: `internal/ranking/bm25.go`, `internal/analyze/context.go` → `prioritizeFiles()`.
+
+### 6.4 Query understanding ✅
+- [x] camelCase splitting: `handleUserAuth` → [handle, user, auth, handleuserauth]
+- [x] snake_case splitting: `parse_file_content` → [parse, file, content, parse_file_content]
+- [x] Acronym handling: `LLMClient` → [llm, client]
+- [x] Digit boundaries: `Auth2Factor` → [auth, factor]
+- [x] Keeps original compound term alongside subwords
+- [x] 3 new tests
+
+**Where**: `internal/analyze/context.go` → `extractQueryTerms()`, `splitCamelCase()`, `splitIdentifier()`.
+
+### 6.5 PageRank on import graph ✅
+- [x] Iterative PageRank (damping=0.85, 20 iterations) on file→file import graph
+- [x] Dangling node handling for rank conservation
+- [x] Combined scoring: 70% BM25F + 30% PageRank × 100
+- [x] 6 unit tests (star, chain, cycle, normalization)
+
+**Where**: `internal/ranking/pagerank.go`, `internal/analyze/context.go` → `prioritizeFiles()`.
+
+### 6.6 Intent-aware system prompts ✅
+- [x] Classify queries into 5 intents: architecture, debug, navigate, dependency, general
+- [x] Keyword-based scoring with deterministic tie-breaking
+- [x] Specialized system prompts per intent (architecture, debug, navigate)
+- [x] Depth overrides still apply (overview/deep modes)
+- [x] 7 test functions
+
+**Where**: `internal/llm/intent.go`, `internal/analyze/analyze.go` → `AnalyzeRepo()`.
+
+### 6.7 + 6.8 Response envelope & structured output ✅
+- [x] `format=json` parameter on `repo_analyze`: structured envelope with `schemaVersion`, `data`, `meta`, `suggestedNextCalls`
+- [x] `format=text` (default) preserves existing human-readable output
+- [x] Format validation rejects unknown values
+- [x] Envelope types: `responseEnvelope`, `envelopeData`, `envelopeMeta`, `suggestedCall`
+
+**Where**: `cmd/go-code/tool_repo_analyze.go`.
+
+### 6.9 Contextual file annotations ✅
+- [x] `<!-- imported by N files, M symbols, lang -->` annotations before each file block
+- [x] Built from import counts and symbol counts — no LLM needed
+- [x] Empty annotations omitted (no noise for files with nothing to say)
+- [x] 2 new tests
+
+**Where**: `internal/analyze/context.go` → `fileAnnotation()`, `appendFileContents()`.
+
+**Deliverable**: Smarter file ranking (BM25F + PageRank), better LLM prompts (XML + intent), actionable output (envelope + structured JSON). ✅ All 6.1-6.9 complete.
+
+---
+
+## Phase 7: Graph Enrichment
+
+**Goal**: Richer graph schema + faster re-indexing.
+
+### 7.1 Schema injection in freeform Cypher
 - [ ] Inject full graph schema (vertex labels, edge types, properties) into `SystemPromptGenerateCypher`
 - [ ] Currently freeform Cypher generation has no schema context → hallucinated property names
 - [ ] Test on 5+ NL queries that previously failed
 
 **Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — schema text injected into LLM prompt for Cypher grounding.
 
-### 6.2 IMPORTS edges
+### 7.2 IMPORTS edges
 - [ ] Extract import paths from existing tree-sitter parsed data (already in `@import.path` captures)
 - [ ] Add `IMPORTS` edge type: File → Package (or File → File for relative imports)
 - [ ] Add Cypher template: `imports_of` (what does file X import?), `imported_by` (who imports package Y?)
@@ -247,7 +323,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext), [code-graph-rag](https://github.com/vitali87/code-graph-rag) — both store IMPORTS as first-class edges.
 
-### 6.3 INHERITS / IMPLEMENTS edges
+### 7.3 INHERITS / IMPLEMENTS edges
 - [ ] New tree-sitter query captures: `@extends.base`, `@implements.interface` per language
 - [ ] Go: interface satisfaction (type assertion patterns), struct embedding
 - [ ] Python: `class Foo(Bar)`, Java/C#: `extends`/`implements`, TypeScript: `extends`/`implements`
@@ -257,7 +333,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [rustic-ai/codeprism](https://github.com/rustic-ai/codeprism) — `EdgeKind::Extends`/`Implements`, strongly typed enums.
 
-### 6.4 Incremental graph indexing
+### 7.4 Incremental graph indexing
 - [ ] Store FNV-64a hash per file in `code_graph_files` table (path, hash, indexed_at)
 - [ ] On re-index: hash all files → diff against stored → parse only added/modified
 - [ ] `DETACH DELETE` for removed files (cascade edges)
@@ -270,23 +346,23 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 7: AST Structural Diff
+## Phase 8: AST Structural Diff
 
 **Goal**: True AST-level diff in `code_compare` using GumTree algorithm.
 
-### 7.1 Integrate smacker/gum
+### 8.1 Integrate smacker/gum
 - [ ] `go get github.com/smacker/gum` — same author as `smacker/go-tree-sitter`
 - [ ] Use `gum/tsitter` adapter to convert tree-sitter CST → `gum.Tree`
 - [ ] Verify tree-sitter version pin compatibility (same CGO dependency)
 
-### 7.2 AST diff in code_compare
+### 8.2 AST diff in code_compare
 - [ ] `internal/compare/ast_diff.go` — function-level AST diff using `gum.Match()` + `gum.Patch()`
 - [ ] Edit script output: Insert, Delete, Update, **Move** operations
 - [ ] Move detection: function moved from file A to file B (not deleted+added)
 - [ ] Integrate into existing `code_compare` output alongside symbol-level analysis
 - [ ] LLM narrative enhanced with edit script data ("function X was moved", "function Y body changed")
 
-### 7.3 Diff visualization
+### 8.3 Diff visualization
 - [ ] Structured JSON output with edit operations
 - [ ] Summary statistics: N moves, N updates, N deletes, N inserts
 - [ ] Similarity score per matched function pair based on edit distance
@@ -297,20 +373,20 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 8: Code Health & Impact Analysis
+## Phase 9: Code Health & Impact Analysis
 
 **Goal**: New tools for assessing code quality and change risk.
 
-### 8.1 Complexity metrics
+### 9.1 Complexity metrics
 - [ ] Cyclomatic complexity via tree-sitter (count decision nodes: if/for/while/switch/case/&&/||)
 - [ ] Cognitive complexity (nesting depth penalty)
 - [ ] Per-function and per-file aggregation
 - [ ] Expose as optional section in `repo_analyze` and `file_parse` output
-- [ ] Hotspot detection: high complexity + high change frequency = hotspot
+- [ ] Hotspot detection: `percentile(churn) × percentile(complexity)` — product, not sum
 
-**Ref**: [ast-metrics](https://github.com/halleck45/ast-metrics) — Go, tree-sitter metrics with HTML dashboards; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `getFileComplexity`, `getHotspots`.
+**Ref**: [ast-metrics](https://github.com/halleck45/ast-metrics) — Go, tree-sitter metrics with HTML dashboards; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `getFileComplexity`, `getHotspots`; [panbanda/omen](https://github.com/panbanda/omen) — hotspot = churn × complexity percentile product.
 
-### 8.2 Impact analysis / blast radius
+### 9.2 Impact analysis / blast radius
 - [ ] New MCP tool: `impact_analysis` or extend `call_trace` with `mode=impact`
 - [ ] Input: symbol name + repo → output: direct/indirect/transitive dependents
 - [ ] Depth-scored: direct callers (high risk), transitive callers (medium), downstream (low)
@@ -319,7 +395,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [Axon](https://github.com/harshkedia177/axon) — blast radius with confidence scores; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `analyzeImpact`, `analyzeChange`.
 
-### 8.3 Dead code detection
+### 9.3 Dead code detection
 - [ ] Multi-pass approach: (1) build call graph, (2) identify entry points, (3) mark unreachable
 - [ ] Entry point heuristics: main(), init(), exported functions, HTTP handlers, test functions
 - [ ] Framework awareness: don't flag handler functions registered via reflect/decorators
@@ -332,11 +408,11 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 9: Semantic Code Search
+## Phase 10: Semantic Code Search
 
 **Goal**: Find code by meaning, not just name patterns.
 
-### 9.1 Embedding infrastructure
+### 10.1 Embedding infrastructure
 - [ ] Embed function bodies during graph indexing via memdb-go `/v1/embeddings` (1024-dim)
 - [ ] Store embeddings in pgvector column on Symbol vertices (or companion table)
 - [ ] Batch embedding: group functions into batches of 32, parallel requests
@@ -344,13 +420,13 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — UniXcoder embeddings + vector DB; [Octocode](https://github.com/Muvon/octocode) — GraphRAG + semantic search.
 
-### 9.2 Semantic search tool
+### 10.2 Semantic search tool
 - [ ] New MCP tool: `semantic_search` — NL query → embed → cosine similarity → top-K results
 - [ ] Input: query text + repo + optional language/file filter
 - [ ] Output: ranked list of functions with similarity score + source snippet
 - [ ] Hybrid mode: combine embedding similarity with name-pattern matching
 
-### 9.3 Graph-enhanced search
+### 10.3 Graph-enhanced search
 - [ ] After finding semantically similar functions, expand via graph edges
 - [ ] "Functions similar to X" + "functions that call similar functions" (graph walk)
 - [ ] Re-rank by graph centrality (PageRank or degree)
@@ -361,11 +437,11 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 10: Type-Aware Analysis
+## Phase 11: Type-Aware Analysis
 
 **Goal**: Precision enhancement for Go repos via compiler-level intelligence.
 
-### 10.1 SCIP backend for Go
+### 11.1 SCIP backend for Go
 - [ ] Optional `scip-go` integration for Go repos
 - [ ] Parse SCIP index → extract precise CALLS/IMPLEMENTS/REFERENCES edges
 - [ ] Merge SCIP data with tree-sitter data (SCIP primary, tree-sitter fallback)
@@ -373,13 +449,13 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [sourcegraph/scip](https://github.com/sourcegraph/scip) — Protobuf schema, Go bindings, streaming parser; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — SCIP as primary backend with tree-sitter fallback; [williamfzc/srctx](https://github.com/williamfzc/srctx) — Go tool combining SCIP + tree-sitter.
 
-### 10.2 Go-native call graph enhancement
+### 11.2 Go-native call graph enhancement
 - [ ] Optional `golang.org/x/tools/go/callgraph/rta` for Go repos
 - [ ] Produces type-aware, compiler-accurate call resolution
 - [ ] Merge with tree-sitter call graph (RTA for Go files, tree-sitter for others)
 - [ ] Resolves interface dispatch, method sets, embedded types
 
-### 10.3 Compound tools
+### 11.3 Compound tools
 - [ ] `explore` — combines `file_parse` + `symbol_search` + `dep_graph` for area overview
 - [ ] `understand` — combines `call_trace` + `code_graph` + complexity for symbol deep-dive
 - [ ] `prepare_change` — combines `impact_analysis` + `dead_code` for pre-change assessment
@@ -397,37 +473,40 @@ Single tool (`repo_analyze`) that works better than the current one.
 Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Comparison) ✅
                               2.1 Languages ✅              │
                               2.2 Cleaning ✅                ▼
-                              2.3 Analysis ✅   Phase 4 (Advanced) ←──┘
+                              2.3 Analysis ✅   Phase 4 (Advanced) ✅
                               2.3a Noise ✅       4.1 Call trace ✅
                               2.4 Caching ✅      4.2 Code graph ✅
                                                   4.3 Cross-language ✅
                                                         │
                                         ┌───────────────┤
                                         ▼               ▼
-                              Phase 5 (Migration) ✅   Phase 6 (Graph Enrichment)
-                                                        6.1 Schema injection
-                                                        6.2 IMPORTS edges
-                                                        6.3 INHERITS edges
-                                                        6.4 Incremental indexing
+                              Phase 5 (Migration) ✅   Phase 6 (Analysis Quality)
+                                                        6.1-6.2 Prompt format
+                                                        6.3-6.5 Smart ranking
+                                                        6.6 Intent classification
+                                                        6.7-6.8 Output structure
+                                                        6.9 Annotations
                                                               │
-                                ┌─────────────────────────────┼───────────────┐
-                                ▼                             ▼               ▼
-                        Phase 7 (AST Diff)       Phase 8 (Code Health)  Phase 9 (Semantic)
-                          7.1 smacker/gum          8.1 Complexity         9.1 Embeddings
-                          7.2 Edit scripts         8.2 Blast radius       9.2 Search tool
-                          7.3 Visualization        8.3 Dead code          9.3 Graph-enhanced
-                                                        │
-                                                        ▼
-                                                Phase 10 (Type-Aware)
-                                                  10.1 SCIP
-                                                  10.2 Go-native RTA
-                                                  10.3 Compound tools
+                                        ┌─────────────────────┼──────────────────┐
+                                        ▼                     ▼                  ▼
+                              Phase 7 (Graph Enrich)  Phase 8 (AST Diff)  Phase 9 (Health)
+                                7.1 Schema inject       8.1 smacker/gum     9.1 Complexity
+                                7.2 IMPORTS             8.2 Edit scripts    9.2 Blast radius
+                                7.3 INHERITS            8.3 Visualization   9.3 Dead code
+                                7.4 Incremental                                  │
+                                      │                                          ▼
+                                      ▼                               Phase 10 (Semantic)
+                              Phase 11 (Type-Aware)                     10.1 Embeddings
+                                11.1 SCIP                               10.2 Search tool
+                                11.2 Go-native RTA                      10.3 Graph-enhanced
+                                11.3 Compound tools
 ```
 
 **Completed**: Phase 1, 2, 3, 4 (4.1+4.2+4.3), 5.
-**Next**: Phase 6 (graph enrichment — quick wins), then Phase 7/8 in parallel.
-**Independent**: Phases 7, 8, 9 can be worked on in parallel after Phase 6.
-**Depends on 6+8**: Phase 10 builds on enriched graph + impact analysis.
+**Next**: Phase 6 (analysis quality — ranking, prompts, output).
+**Independent**: Phases 7, 8, 9 can run in parallel after Phase 6.
+**Depends on 7+9**: Phase 11 builds on enriched graph + impact analysis.
+**Depends on 6**: Phase 10 builds on PageRank from Phase 6.5.
 
 ## Releases
 

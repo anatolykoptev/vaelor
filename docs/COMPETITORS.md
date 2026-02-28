@@ -188,6 +188,64 @@ Use tree-sitter for all other languages, Go-native tools as a precision enhancem
 - **What**: Cross-language dependency graph visualization.
 - **Useful for us**: Reference for dep graph rendering.
 
+## AI Coding Assistants — Context & Ranking (updated 2026-02-28)
+
+How leading AI coding tools build LLM context and rank code for relevance.
+
+### Aider — RepoMap with PageRank
+- **Repo**: [Aider-AI/aider](https://github.com/Aider-AI/aider) | ~22K stars | Python
+- **Key file**: `aider/repomap.py`
+- **Approach**: tree-sitter tag extraction → file-to-file reference graph → Personalized PageRank (networkx)
+- **Skeleton format**: `│func Foo()` + `⋮...` for omitted code — explicit truncation signal for LLM
+- **Dynamic budget**: 8x expansion when no specific files mentioned
+- **Personalization**: chat files weight=10, mentioned identifiers weight=1 — proximity-based ranking
+- **Go port exists**: [codeberg.org/MadsRC/aigent](https://codeberg.org/MadsRC/aigent) `internal/repomap`
+
+### Continue.dev — Hybrid BM25 + Embeddings
+- **Repo**: [continuedev/continue](https://github.com/continuedev/continue) | ~25K stars | TypeScript
+- **Key files**: `core/src/util/search/BM25.ts`, `core/src/context/providers/CodebaseContextProvider.ts`
+- **Pipeline**: keyword search (lunr/BM25) + embedding search → RRF (Reciprocal Rank Fusion) → optional LLM reranking
+- **Key insight**: Hybrid BM25+embeddings = -49% failed retrievals; +reranking = -67% (Anthropic Contextual Retrieval)
+
+### Cursor — Merkle Tree + AST Chunking
+- **Approach** (from blog, closed source): Merkle tree for incremental diff → AST chunking via tree-sitter (function boundaries) → embeddings per chunk → vector DB (Turbopuffer)
+- **Content-hash caching**: unchanged code chunks reuse embeddings. Simhash for teammate index reuse (4h → 21s)
+- **Result**: +12.5% accuracy from semantic search
+
+### Sourcegraph Zoekt — BM25F for Code
+- **Repo**: [sourcegraph/zoekt](https://github.com/sourcegraph/zoekt) | Go
+- **Blog**: [keeping-it-boring-and-relevant-with-bm25f](https://sourcegraph.com/blog/keeping-it-boring-and-relevant-with-bm25f)
+- **Fields**: symbol definitions (highest weight) > filename > file content (lowest)
+- **Params**: k1=1.2, b=0.75, language-specific stopwords
+- **Result**: +20% across all search quality metrics
+- **Code tokenization**: `getUserById` → `[get, user, by, id, getUserById]` (both original and camelCase split)
+
+### Sourcegraph — PageRank for Code
+- **Blog**: [ranking-in-a-week](https://sourcegraph.com/blog/ranking-in-a-week)
+- **Approach**: SCIP-based reference graph (file A references symbol in file B → edge A→B), PageRank via Apache Spark
+- **Interpretation**: high PageRank = high code reuse = architecturally important
+
+### Cline — Dynamic Context via Tools
+- **Repo**: [cline/cline](https://github.com/cline/cline) | ~40K stars | TypeScript
+- **System prompt**: 59K chars, 12K tokens, XML-formatted tool descriptions
+- **Context strategy**: no static pre-selection; LLM explores via `list_files`, `search_files`, `list_code_definition_names`
+- **Key insight**: for batch analysis (like go-code), pre-ranking is better; for interactive agents, exploration tools are better
+
+## Code Quality & Hotspot Analysis
+
+### panbanda/omen — Hotspot Detection
+- **Repo**: [panbanda/omen](https://github.com/panbanda/omen) | Rust
+- **Key file**: `src/analyzers/hotspot.rs`
+- **Formula**: `hotspot = percentile(churn) × percentile(complexity)` — product of percentile ranks
+- **Thresholds**: critical ≥ 0.81, high ≥ 0.64, moderate ≥ 0.36 (both churn and complexity must be ≥ 50th percentile)
+- **Churn scoring**: `sum(1.0 + (additions + deletions) / 100.0)` per commit — larger changes weighted more
+
+### Neural Code Retrieval (arxiv 2502.07067)
+- **Title**: "Repository-level Code Search with Neural Retrieval Methods" (Feb 2025)
+- **Pipeline**: BM25 over commit messages → CodeBERT CommitReranker → CodeBERT CodeReranker
+- **Key insight**: commit messages are natural language descriptions of what code does; BM25 on commit messages outperforms BM25 on source code for bug localization
+- **Result**: up to 80% improvement in MAP/MRR/P@1 vs BM25 baseline
+
 ## Key Patterns to Adopt
 
 1. **Language interface with embedded queries** (from doctree)
@@ -198,6 +256,13 @@ Use tree-sitter for all other languages, Go-native tools as a precision enhancem
 6. **Cursor-based AST traversal** (from wrale/mcp-server-tree-sitter) — avoid stack overflow
 7. **Token counting for LLM context management** (from repomix/code2prompt)
 8. **Git history for file importance ranking** (from yek) — already in our gitingest
+9. **XML tags for LLM context** (from Repomix) — `<file path="x" score="N">` beats Markdown headings
+10. **BM25F with code fields** (from Zoekt) — symbol×5, path×3, content×1; +20% quality
+11. **PageRank on import graph** (from Aider/Sourcegraph) — transitive importance via graph centrality
+12. **Response envelope with suggestedNextCalls** (from CodeMCP) — only MCP server with guided tool chaining
+13. **Skeleton markers** (from Aider) — `│` prefix + `⋮...` for truncation signals
+14. **Hotspot = churn × complexity** (from Omen) — percentile product, not sum
+15. **Intent-aware prompts** (research synthesis) — classify query type → select system prompt
 
 ## Anti-Patterns to Avoid
 
@@ -209,6 +274,8 @@ Use tree-sitter for all other languages, Go-native tools as a precision enhancem
 6. **Manual AST walking instead of queries** — tree-sitter query engine is faster
 7. **NL → Cypher without schema in prompt** — causes hallucinated property names
 8. **Re-parsing on every request** — cache parsed trees by `(path, modtime)`
+9. **Naive keyword scoring without IDF** — rare terms should score higher than common ones
+10. **76 tools** (CodeMCP anti-pattern) — agents don't use 80% of tools; 8-12 is optimal (CodeCompass research)
 
 ## MCP Code Intelligence Servers (updated 2026-02-28)
 
