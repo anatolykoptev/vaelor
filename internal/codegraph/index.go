@@ -221,10 +221,35 @@ func buildCrossLanguageData(root string, allFiles []*ingest.File) ([]vertexData,
 			}
 		}
 	}
+	// Count server/client routes per layer for role inference.
+	layerServerRoutes := make(map[string]int)
+	layerClientRoutes := make(map[string]int)
+	for _, r := range routeList {
+		for _, l := range structure.Layers {
+			if matchesLayer(r.File, l.RootDir) {
+				if r.Side == "server" {
+					layerServerRoutes[l.Name]++
+				} else if r.Side == "client" {
+					layerClientRoutes[l.Name]++
+				}
+				break
+			}
+		}
+	}
+
 	for i := range structure.Layers {
 		l := &structure.Layers[i]
 		if samples, ok := layerSources[l.Name]; ok {
 			l.Role = polyglot.ClassifyLayerRole(samples)
+		}
+		// Override role based on route extraction if snippet-based detection
+		// didn't find a specific role.
+		if l.Role == "library" {
+			if layerServerRoutes[l.Name] > 0 {
+				l.Role = "server"
+			} else if layerClientRoutes[l.Name] > 0 {
+				l.Role = "client"
+			}
 		}
 	}
 

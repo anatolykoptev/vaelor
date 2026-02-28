@@ -144,19 +144,20 @@ func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, 
 	}
 
 	// HANDLES / FETCHES edges (Symbol → Route).
+	// Match Symbol by name only — the handler may be defined in a different
+	// file from the route registration.
 	for _, r := range routeList {
-		if r.Handler == "" || r.File == "" {
+		if r.Handler == "" {
 			continue
 		}
 		routeKey := r.Method + ":" + r.Path
-		symKey := r.Handler + ":" + r.File
 		edgeLabel := "HANDLES"
 		if r.Side == "client" {
 			edgeLabel = "FETCHES"
 		}
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
-			FromKey:   symKey,
+			FromKey:   r.Handler,
 			ToLabel:   "Route",
 			ToKey:     routeKey,
 			EdgeLabel: edgeLabel,

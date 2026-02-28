@@ -5,7 +5,8 @@ import "strings"
 // serverSignals are code patterns that indicate a server/API application.
 var serverSignals = []string{
 	// Go
-	"http.ListenAndServe", "http.Serve", "gin.Default", "echo.New", "chi.NewRouter",
+	"http.ListenAndServe", "http.Serve", "http.Server{", "http.ServeMux", "http.HandleFunc",
+	"gin.Default", "echo.New", "chi.NewRouter", "mux.HandleFunc",
 	// Node.js / TypeScript
 	"express()", "fastify()", "Hono(", "createServer(",
 	// Python

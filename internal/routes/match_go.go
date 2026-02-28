@@ -18,6 +18,7 @@ func (g *GoMatcher) Language() string { return "go" }
 // Server-side patterns.
 var (
 	// http.HandleFunc("/path", handler) and http.Handle("/path", handler).
+	// Also matches Go 1.22+ pattern: HandleFunc("GET /path", handler).
 	handleFuncRe = regexp.MustCompile(
 		`(?:http\.)?(?:HandleFunc|Handle)\(\s*"([^"]+)"\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)`,
 	)
@@ -28,6 +29,9 @@ var (
 	routerMethodRe = regexp.MustCompile(
 		`\w+\.(Get|Post|Put|Patch|Delete|Options|Head|GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\(\s*"([^"]+)"\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)`,
 	)
+
+	// go122MethodRe matches Go 1.22+ mux patterns like "GET /api/users".
+	go122MethodRe = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(.+)$`)
 )
 
 // Client-side patterns.
@@ -51,11 +55,18 @@ func (g *GoMatcher) Match(source []byte) []Route {
 	// Server: http.HandleFunc / http.Handle.
 	for _, m := range handleFuncRe.FindAllSubmatch(source, -1) {
 		raw := string(m[1])
+		method := "*"
+		path := raw
+		// Go 1.22+ pattern: "GET /path" — extract method from the string.
+		if parts := go122MethodRe.FindStringSubmatch(raw); parts != nil {
+			method = parts[1]
+			path = parts[2]
+		}
 		routes = append(routes, Route{
-			Method:    "*",
-			Path:      NormalizePath(raw),
+			Method:    method,
+			Path:      NormalizePath(path),
 			RawPath:   raw,
-			Handler:   string(m[2]),
+			Handler:   stripReceiver(string(m[2])),
 			Framework: "net/http",
 			Side:      "server",
 		})
@@ -69,7 +80,7 @@ func (g *GoMatcher) Match(source []byte) []Route {
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
-			Handler:   string(m[3]),
+			Handler:   stripReceiver(string(m[3])),
 			Framework: "chi",
 			Side:      "server",
 		})
@@ -107,4 +118,13 @@ func (g *GoMatcher) Match(source []byte) []Route {
 // normalizeMethod converts mixed-case HTTP method names to uppercase.
 func normalizeMethod(m string) string {
 	return strings.ToUpper(m)
+}
+
+// stripReceiver removes a receiver prefix from a handler name.
+// For example, "s.HandleGetAccount" becomes "HandleGetAccount".
+func stripReceiver(name string) string {
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
 }
