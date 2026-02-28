@@ -58,11 +58,17 @@ Single tool (`repo_analyze`) that works better than the current one.
 **Goal**: Improve code understanding quality. Additional languages, smarter cleaning modes, caching.
 
 ### 2.1 Additional languages ✅
-- [x] Rust handler + queries
-- [x] Java handler + queries
-- [x] C/C++ handler + queries
-- [x] Ruby handler + queries
-- [x] C# handler + queries (bonus)
+
+**Status**: Complete (2026-02-28). 6 new languages added, 12 parser tests passing.
+
+- [x] Rust handler (`handler_rust.go` + `rust.scm`) — functions, methods, structs, enums, traits, type aliases, consts, statics
+- [x] Java handler (`handler_java.go` + `java.scm`) — classes, interfaces, enums, methods, constructors
+- [x] C handler (`handler_c.go` + `c.scm`) — functions, structs, enums, typedefs, macros, globals
+- [x] C++ handler (`handler_cpp.go` + `cpp.scm`) — extends C with classes, methods, namespaces, templates, qualified identifiers
+- [x] Ruby handler (`handler_ruby.go` + `ruby.scm`) — methods, singleton methods, classes, modules, constants
+- [x] C# handler (`handler_csharp.go` + `csharp.scm`) — classes, interfaces, structs, enums, methods, constructors, namespaces
+
+**Total supported languages**: Go, Python, TypeScript/JS, Rust, Java, C, C++, Ruby, C# (9 languages).
 
 ### 2.2 Advanced cleaning modes
 - [ ] Signatures-only mode: extract API surface without bodies
@@ -160,15 +166,17 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ```
 Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ──→ Phase 3 (Comparison)
-                                                           │
-                                                           ▼
-                            Phase 4 (Advanced) ←───────────┘
-                                   │
-                                   ▼
-                            Phase 5 (Migration)
+                              2.1 Languages ✅            │
+                              2.2 Cleaning                ▼
+                              2.3 Analysis    Phase 4 (Advanced) ←──┘
+                              2.4 Caching            │
+                                                     ▼
+                                              Phase 5 (Migration)
 ```
 
-Phase 1 complete. Phase 2 can start independently.
+Phase 1 complete. Phase 2.1 (languages) complete.
+Phase 2.2–2.4 can proceed independently of each other.
+Phase 3 requires at least Phase 2.2 (cleaning modes) for meaningful comparison.
 Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 
 ## Technical Debt Watch
@@ -178,5 +186,5 @@ Phase 5 (migration) should only happen after Phase 3 proves go-code is better.
 - [ ] Memory usage profiling for large repos (10K+ files)
 - [ ] Cache eviction strategy for long-running server
 - [ ] Rate limiting for GitHub API calls
-- [x] MCP SDK v1.4.0 output schema compatibility (fixed: noOutput struct pattern)
+- [x] MCP SDK v1.4.0 output schema compatibility (fixed: Out type must be `any`, not struct — otherwise `structuredContent: {}` overrides `content`)
 - [x] jsonschema tag format (fixed: jsonschema_description instead of jsonschema:"description=")
