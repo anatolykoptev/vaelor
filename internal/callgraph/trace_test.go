@@ -1,0 +1,188 @@
+package callgraph
+
+import (
+	"testing"
+
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+func TestTrace_Callees(t *testing.T) {
+	// Chain: main → serve → handle
+	main := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 10}
+	serve := &parser.Symbol{Name: "serve", Kind: parser.KindFunction, File: "/src/server.go", StartLine: 1, EndLine: 20}
+	handle := &parser.Symbol{Name: "handle", Kind: parser.KindFunction, File: "/src/handler.go", StartLine: 1, EndLine: 15}
+
+	g := &CallGraph{
+		Symbols: []*parser.Symbol{main, serve, handle},
+		Edges: []CallEdge{
+			{Caller: main, Callee: serve, CalleeName: "serve", Line: 5},
+			{Caller: serve, Callee: handle, CalleeName: "handle", Line: 10},
+		},
+	}
+
+	result := Trace(g, "main", TraceOpts{Direction: "callees"})
+
+	if result.Root == nil || result.Root.Name != "main" {
+		t.Fatalf("root should be main, got %v", result.Root)
+	}
+	if result.TotalNodes != 3 {
+		t.Errorf("expected 3 total nodes (main, serve, handle), got %d", result.TotalNodes)
+	}
+	if result.MaxDepth != 2 {
+		t.Errorf("expected max depth 2, got %d", result.MaxDepth)
+	}
+	if result.Resolved != 2 {
+		t.Errorf("expected 2 resolved, got %d", result.Resolved)
+	}
+
+	// Verify tree structure: root(main) → serve → handle
+	if len(result.Tree) != 1 {
+		t.Fatalf("expected 1 root node in tree, got %d", len(result.Tree))
+	}
+	rootNode := result.Tree[0]
+	if len(rootNode.Children) != 1 || rootNode.Children[0].Symbol.Name != "serve" {
+		t.Errorf("main should have one child 'serve', got %v", rootNode.Children)
+	}
+	serveNode := rootNode.Children[0]
+	if len(serveNode.Children) != 1 || serveNode.Children[0].Symbol.Name != "handle" {
+		t.Errorf("serve should have one child 'handle', got %v", serveNode.Children)
+	}
+}
+
+func TestTrace_Callers(t *testing.T) {
+	// Reverse: who calls handle? → serve → main
+	main := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 10}
+	serve := &parser.Symbol{Name: "serve", Kind: parser.KindFunction, File: "/src/server.go", StartLine: 1, EndLine: 20}
+	handle := &parser.Symbol{Name: "handle", Kind: parser.KindFunction, File: "/src/handler.go", StartLine: 1, EndLine: 15}
+
+	g := &CallGraph{
+		Symbols: []*parser.Symbol{main, serve, handle},
+		Edges: []CallEdge{
+			{Caller: main, Callee: serve, CalleeName: "serve", Line: 5},
+			{Caller: serve, Callee: handle, CalleeName: "handle", Line: 10},
+		},
+	}
+
+	result := Trace(g, "handle", TraceOpts{Direction: "callers"})
+
+	if result.Root == nil || result.Root.Name != "handle" {
+		t.Fatalf("root should be handle, got %v", result.Root)
+	}
+	// handle → serve → main (3 nodes)
+	if result.TotalNodes != 3 {
+		t.Errorf("expected 3 total nodes, got %d", result.TotalNodes)
+	}
+
+	// Tree: handle has child serve, serve has child main
+	rootNode := result.Tree[0]
+	if rootNode.Symbol.Name != "handle" {
+		t.Errorf("root symbol should be handle, got %s", rootNode.Symbol.Name)
+	}
+	if len(rootNode.Children) != 1 || rootNode.Children[0].Symbol.Name != "serve" {
+		t.Errorf("handle should have one caller 'serve', got %v", rootNode.Children)
+	}
+	serveNode := rootNode.Children[0]
+	if len(serveNode.Children) != 1 || serveNode.Children[0].Symbol.Name != "main" {
+		t.Errorf("serve should have one caller 'main', got %v", serveNode.Children)
+	}
+}
+
+func TestTrace_CycleDetection(t *testing.T) {
+	// ping calls pong, pong calls ping — mutual recursion.
+	ping := &parser.Symbol{Name: "ping", Kind: parser.KindFunction, File: "/src/game.go", StartLine: 1, EndLine: 10}
+	pong := &parser.Symbol{Name: "pong", Kind: parser.KindFunction, File: "/src/game.go", StartLine: 12, EndLine: 20}
+
+	g := &CallGraph{
+		Symbols: []*parser.Symbol{ping, pong},
+		Edges: []CallEdge{
+			{Caller: ping, Callee: pong, CalleeName: "pong", Line: 5},
+			{Caller: pong, Callee: ping, CalleeName: "ping", Line: 15},
+		},
+	}
+
+	result := Trace(g, "ping", TraceOpts{Direction: "callees", MaxDepth: 10})
+
+	// Must terminate (not infinite loop).
+	if result.TotalNodes < 2 {
+		t.Errorf("expected at least 2 nodes, got %d", result.TotalNodes)
+	}
+
+	// Find the cycle marker: ping → pong → ping(cycle=true)
+	rootNode := result.Tree[0]
+	if rootNode.Symbol.Name != "ping" {
+		t.Fatalf("root should be ping, got %s", rootNode.Symbol.Name)
+	}
+	if len(rootNode.Children) != 1 || rootNode.Children[0].Symbol.Name != "pong" {
+		t.Fatalf("ping should call pong, got %v", rootNode.Children)
+	}
+	pongNode := rootNode.Children[0]
+	if len(pongNode.Children) != 1 {
+		t.Fatalf("pong should have 1 child (cycle back to ping), got %d", len(pongNode.Children))
+	}
+	cycleChild := pongNode.Children[0]
+	if !cycleChild.Cycle {
+		t.Errorf("back-edge to ping should be marked as cycle")
+	}
+	if cycleChild.Symbol.Name != "ping" {
+		t.Errorf("cycle child should be ping, got %s", cycleChild.Symbol.Name)
+	}
+}
+
+func TestTrace_DepthLimit(t *testing.T) {
+	// Chain: f0 → f1 → f2 → f3 → f4 → f5 (6 functions, 5 edges).
+	// With depth=3, should stop at f3 (not recurse into f4, f5).
+	const chainLen = 6
+	syms := make([]*parser.Symbol, chainLen)
+	for i := range chainLen {
+		syms[i] = &parser.Symbol{
+			Name:      symName(i),
+			Kind:      parser.KindFunction,
+			File:      "/src/chain.go",
+			StartLine: uint32(i*10 + 1),
+			EndLine:   uint32(i*10 + 9),
+		}
+	}
+
+	edges := make([]CallEdge, chainLen-1)
+	for i := range chainLen - 1 {
+		edges[i] = CallEdge{
+			Caller:     syms[i],
+			Callee:     syms[i+1],
+			CalleeName: syms[i+1].Name,
+			Line:       uint32(i*10 + 5),
+		}
+	}
+
+	g := &CallGraph{Symbols: syms, Edges: edges}
+	result := Trace(g, "f0", TraceOpts{Direction: "callees", MaxDepth: 3})
+
+	// With depth=3: f0(depth=0), f1(depth=1), f2(depth=2), f3(depth=3, leaf).
+	// f3 is at max depth so no children expanded.
+	if result.TotalNodes != 4 {
+		t.Errorf("expected 4 nodes (f0-f3), got %d", result.TotalNodes)
+	}
+	if result.MaxDepth != 3 {
+		t.Errorf("expected max depth 3, got %d", result.MaxDepth)
+	}
+}
+
+func TestTrace_NotFound(t *testing.T) {
+	g := &CallGraph{
+		Symbols: []*parser.Symbol{
+			{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 10},
+		},
+	}
+
+	result := Trace(g, "nonexistent", TraceOpts{})
+
+	if result.Root != nil {
+		t.Errorf("root should be nil for nonexistent symbol, got %v", result.Root)
+	}
+	if result.TotalNodes != 0 {
+		t.Errorf("total nodes should be 0, got %d", result.TotalNodes)
+	}
+}
+
+func symName(i int) string {
+	return "f" + string(rune('0'+i))
+}
