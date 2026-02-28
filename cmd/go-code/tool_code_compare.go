@@ -2,37 +2,71 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // CodeCompareInput is the input schema for the code_compare tool.
 type CodeCompareInput struct {
-	// RepoA is the first repository (GitHub slug or local path).
-	RepoA string `json:"repo_a" jsonschema_description:"First repository: GitHub slug (owner/repo) or absolute local path"`
-
-	// RepoB is the second repository (GitHub slug or local path).
-	RepoB string `json:"repo_b" jsonschema_description:"Second repository: GitHub slug (owner/repo) or absolute local path"`
-
-	// Focus is what to compare: architecture, api, dependencies, patterns, quality.
-	Focus string `json:"focus,omitempty" jsonschema_description:"What to compare: architecture | api | dependencies | patterns | quality (default: architecture)"`
-
-	// Language filters comparison to files of a specific language.
-	Language string `json:"language,omitempty" jsonschema_description:"Limit comparison to files of this language (e.g. go, python)"`
+	RepoA    string `json:"repo_a" jsonschema_description:"First repository: GitHub slug (owner/repo) or absolute local path"`
+	RepoB    string `json:"repo_b" jsonschema_description:"Second repository: GitHub slug (owner/repo) or absolute local path"`
+	Query    string `json:"query" jsonschema_description:"What to compare or what quality aspects to evaluate"`
+	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory filter for module-level comparison (e.g. internal/auth)"`
+	Language string `json:"language,omitempty" jsonschema_description:"Limit comparison to files of this language (e.g. go, python, rust)"`
 }
 
 // registerCodeCompare registers the code_compare MCP tool.
-// Compares two repositories structurally and semantically.
-func registerCodeCompare(server *mcp.Server, _ Config) {
+func registerCodeCompare(server *mcp.Server, _ Config, deps analyze.Deps) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "code_compare",
-		Description: "Compare two code repositories structurally and semantically. " +
-			"Ingests both repos, parses ASTs, extracts symbols and patterns, " +
-			"and produces a diff-style analysis highlighting architectural differences, " +
-			"API design choices, dependency strategies, and code quality metrics. " +
-			"Useful for evaluating libraries, understanding forks, or porting code.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, _ CodeCompareInput) (*mcp.CallToolResult, any, error) {
-		// Phase 3 feature — not yet implemented.
-		return errResult("code_compare is not yet implemented — coming in Phase 3"), nil, nil
+		Description: "Compare two code repositories to find the better implementation. " +
+			"Analyzes architecture, code quality, patterns, and identifies missing features. " +
+			"Returns JSON with quality verdicts, coverage gaps, architecture insights, " +
+			"metrics, and actionable recommendations. Works cross-language.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeCompareInput) (*mcp.CallToolResult, any, error) {
+		if input.RepoA == "" || input.RepoB == "" {
+			return errResult("repo_a and repo_b are required"), nil, nil
+		}
+		if input.Query == "" {
+			return errResult("query is required"), nil, nil
+		}
+
+		rootA, cleanupA, err := resolveRoot(ctx, input.RepoA, "", deps)
+		if err != nil {
+			return errResult(fmt.Sprintf("resolve repo_a: %s", err)), nil, nil
+		}
+		defer cleanupA()
+
+		rootB, cleanupB, err := resolveRoot(ctx, input.RepoB, "", deps)
+		if err != nil {
+			return errResult(fmt.Sprintf("resolve repo_b: %s", err)), nil, nil
+		}
+		defer cleanupB()
+
+		result, err := compare.CompareRepos(ctx, compare.CompareInput{
+			RootA: rootA,
+			RootB: rootB,
+			Query: input.Query,
+			Opts: compare.SnapshotOpts{
+				Focus:    input.Focus,
+				Language: input.Language,
+			},
+		}, deps.LLM)
+		if err != nil {
+			return errResult(fmt.Sprintf("compare: %s", err)), nil, nil
+		}
+
+		data, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal result: %s", err)), nil, nil
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+		}, nil, nil
 	})
 }
