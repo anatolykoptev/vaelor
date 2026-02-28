@@ -39,14 +39,14 @@ func (m SymbolMatch) IsGap() bool {
 	return m.SymbolA == nil || m.SymbolB == nil
 }
 
-// MissingIn returns "A" if the symbol is missing from repo A, "B" if missing
+// MissingIn returns "repo_a" if the symbol is missing from repo A, "repo_b" if missing
 // from repo B, or "" if the symbol exists in both (or neither).
 func (m SymbolMatch) MissingIn() string {
 	switch {
-	case m.SymbolA != nil && m.SymbolB == nil:
-		return "B"
 	case m.SymbolA == nil && m.SymbolB != nil:
-		return "A"
+		return "repo_a"
+	case m.SymbolA != nil && m.SymbolB == nil:
+		return "repo_b"
 	default:
 		return ""
 	}
@@ -136,13 +136,13 @@ type LLMAnalysis struct {
 
 // CompareResult contains the full structured output of a code comparison.
 type CompareResult struct {
-	RepoA          string         `json:"repoA"`
-	RepoB          string         `json:"repoB"`
-	Query          string         `json:"query"`
-	MetricsA       RepoMetrics    `json:"metricsA"`
-	MetricsB       RepoMetrics    `json:"metricsB"`
-	Analysis       LLMAnalysis    `json:"analysis"`
-	MatchedSymbols []SymbolMatch  `json:"matchedSymbols"`
-	UnmatchedA     []SymbolMatch  `json:"unmatchedA"`
-	UnmatchedB     []SymbolMatch  `json:"unmatchedB"`
+	RepoA          string      `json:"repo_a"`
+	RepoB          string      `json:"repo_b"`
+	Query          string      `json:"query"`
+	MetricsA       RepoMetrics `json:"metrics_a"`
+	MetricsB       RepoMetrics `json:"metrics_b"`
+	Analysis       LLMAnalysis `json:"analysis"`
+	MatchedSymbols int         `json:"matched_symbols"`
+	UnmatchedA     int         `json:"unmatched_a"`
+	UnmatchedB     int         `json:"unmatched_b"`
 }

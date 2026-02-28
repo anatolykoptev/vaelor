@@ -58,18 +58,18 @@ func TestSymbolMatch_MissingIn(t *testing.T) {
 		expect string
 	}{
 		{
-			name: "missing in B",
+			name: "missing in repo_b",
 			match: SymbolMatch{
 				SymbolA: &parser.Symbol{Name: "Foo"},
 			},
-			expect: "B",
+			expect: "repo_b",
 		},
 		{
-			name: "missing in A",
+			name: "missing in repo_a",
 			match: SymbolMatch{
 				SymbolB: &parser.Symbol{Name: "Bar"},
 			},
-			expect: "A",
+			expect: "repo_a",
 		},
 		{
 			name: "both present — empty",
