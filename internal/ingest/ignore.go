@@ -10,6 +10,7 @@ import (
 // defaultIgnoreDirs lists directories that should never be descended into.
 var defaultIgnoreDirs = map[string]bool{
 	".git":           true,
+	".claude":        true,
 	"node_modules":   true,
 	"vendor":         true,
 	"__pycache__":    true,
