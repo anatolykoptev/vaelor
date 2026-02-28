@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Budget constants for LLM context size limits.
@@ -14,13 +15,18 @@ const (
 	maxGapSymbols   = 40
 )
 
-// truncate returns s unchanged when len(s) <= maxLen, otherwise s[:maxLen]
-// followed by a truncation marker.
+// truncate returns s unchanged when len(s) <= maxLen, otherwise truncates
+// at a valid UTF-8 boundary and appends a marker.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "\n... (truncated)"
+	// Walk back from maxLen to find a valid rune boundary.
+	cut := maxLen
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n... (truncated)"
 }
 
 // metricsJSON is the JSON shape written into the Metrics section.
@@ -141,6 +147,9 @@ func writeGap(sb *strings.Builder, m *SymbolMatch) {
 	sym := m.SymbolA
 	if sym == nil {
 		sym = m.SymbolB
+	}
+	if sym == nil {
+		return // both nil — skip this malformed gap
 	}
 
 	fmt.Fprintf(sb, "- MISSING in %s: %s `%s` (%s:%d)\n",

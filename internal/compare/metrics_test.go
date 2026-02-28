@@ -120,6 +120,33 @@ func TestComputeMetrics_Empty(t *testing.T) {
 	}
 }
 
+func TestErrorHandlingRatio(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"if err check", "if err != nil { return err }", true},
+		{"errors.New", "return errors.New(\"fail\")", true},
+		{"fmt.Errorf", "return fmt.Errorf(\"wrap: %w\", err)", true},
+		{"try-catch", "try { x() } catch (e) { log(e) }", true},
+		{"python except", "except ValueError as e:", true},
+		{"false positive preferred", "preferred := getDefault()", false},
+		{"false positive stderr", "log.Println(\"stderr output\")", false},
+		{"false positive different", "if different { return }", false},
+		{"empty body", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasErrorHandling(tt.body)
+			if got != tt.want {
+				t.Errorf("hasErrorHandling(%q) = %v, want %v", tt.body, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsTestFile(t *testing.T) {
 	tests := []struct {
 		path string
