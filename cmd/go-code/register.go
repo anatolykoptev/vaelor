@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/search"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -53,6 +57,20 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerDepGraph(server, cfg, deps)
 	registerSymbolSearch(server, cfg, deps)
 	registerCallTrace(server, cfg, deps)
+
+	// Code graph (optional — needs DATABASE_URL).
+	var graphStore *codegraph.Store
+	if cfg.DatabaseURL != "" {
+		pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+		if err != nil {
+			slog.Warn("code_graph: failed to connect to database, tool disabled",
+				slog.Any("error", err))
+		} else {
+			graphStore = codegraph.NewStore(pool)
+		}
+	}
+	registerCodeGraph(server, cfg, deps, graphStore)
+	registerRepoSearch(server, cfg, deps)
 }
 
 func envIntOrDefault(key string, def int) int {

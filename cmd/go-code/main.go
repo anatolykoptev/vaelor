@@ -4,7 +4,7 @@
 // code comparison, and dependency graph visualization.
 // Runs as HTTP MCP server (default) or stdio transport (--stdio flag).
 //
-// Tools: repo_analyze, file_parse, code_compare, dep_graph, symbol_search, call_trace
+// Tools: repo_analyze, file_parse, code_compare, dep_graph, symbol_search, call_trace, code_graph, repo_search
 package main
 
 import (
