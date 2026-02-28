@@ -23,7 +23,7 @@ const (
 	// ModeSignatures keeps only declaration signatures, removing all bodies.
 	ModeSignatures Mode = "signatures"
 
-	// ModeSkeleton keeps signatures with "// ..." placeholders for bodies.
+	// ModeSkeleton keeps signatures with "⋮..." placeholders for bodies.
 	ModeSkeleton Mode = "skeleton"
 
 	// ModeFocused keeps full bodies for query-relevant symbols and
@@ -52,7 +52,8 @@ type Opts struct {
 }
 
 // bodyPlaceholder is the placeholder inserted for omitted function bodies.
-const bodyPlaceholder = "    // ..."
+// Uses vertical ellipsis (⋮) to be visually distinct from real comments.
+const bodyPlaceholder = "    ⋮..."
 
 // actionSignatures replaces the entire symbol range with its clean signature.
 const actionSignatures = "signatures"
@@ -191,6 +192,7 @@ type lineOps struct {
 // closing brace), and the body between them is replaced with a placeholder.
 func applyReplacements(lines []string, replacements []replacement) string {
 	ops := buildLineOps(lines, replacements)
+	hasReplacements := len(replacements) > 0
 
 	var out strings.Builder
 	for i, line := range lines {
@@ -199,8 +201,14 @@ func applyReplacements(lines []string, replacements []replacement) string {
 			continue
 		}
 		if text, ok := ops.replaceWith[lineNum]; ok {
+			if hasReplacements {
+				out.WriteString("│")
+			}
 			out.WriteString(text)
 		} else {
+			if hasReplacements {
+				out.WriteString("│")
+			}
 			out.WriteString(line)
 		}
 		out.WriteByte('\n')
