@@ -31,8 +31,8 @@ func registerCodeCompare(server *mcp.Server, _ Config) {
 			"and produces a diff-style analysis highlighting architectural differences, " +
 			"API design choices, dependency strategies, and code quality metrics. " +
 			"Useful for evaluating libraries, understanding forks, or porting code.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, _ CodeCompareInput) (*mcp.CallToolResult, noOutput, error) {
+	}, func(_ context.Context, _ *mcp.CallToolRequest, _ CodeCompareInput) (*mcp.CallToolResult, any, error) {
 		// Phase 3 feature — not yet implemented.
-		return errResult("code_compare is not yet implemented — coming in Phase 3"), noOutput{}, nil
+		return errResult("code_compare is not yet implemented — coming in Phase 3"), nil, nil
 	})
 }

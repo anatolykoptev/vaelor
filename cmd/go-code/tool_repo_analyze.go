@@ -35,17 +35,17 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Clones the repo if remote, walks the file tree, parses ASTs with tree-sitter, " +
 			"and answers a natural-language question about the codebase structure, " +
 			"architecture, or implementation details.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, noOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, any, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), noOutput{}, nil
+			return errResult("repo is required"), nil, nil
 		}
 		if input.Query == "" {
-			return errResult("query is required"), noOutput{}, nil
+			return errResult("query is required"), nil, nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), noOutput{}, nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
 		}
 		defer cleanup()
 
@@ -55,10 +55,10 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 			Focus: input.Focus,
 		}, deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("analyze: %s", err)), noOutput{}, nil
+			return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil
 		}
 
-		return textResult(formatAnalysisResult(result)), noOutput{}, nil
+		return textResult(formatAnalysisResult(result)), nil, nil
 	})
 }
 
@@ -99,10 +99,6 @@ func writeSymbolLine(sb *strings.Builder, sym *parser.Symbol) {
 	}
 }
 
-// noOutput is a placeholder output type for MCP tool handlers.
-// MCP SDK v1.4.0 requires the output type to be a struct (type "object").
-// Our tools return text via *mcp.CallToolResult, so this is never serialized.
-type noOutput struct{}
 
 // errResult returns a CallToolResult representing a tool-level error.
 func errResult(msg string) *mcp.CallToolResult {
