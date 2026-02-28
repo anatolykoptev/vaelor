@@ -44,6 +44,7 @@ func Snapshot() map[string]int64 {
 }
 
 // Reset clears all counters. Intended for use in tests only.
+// MUST NOT be called concurrently with Incr.
 func Reset() {
 	store.Range(func(k, _ any) bool {
 		store.Delete(k)

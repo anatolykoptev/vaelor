@@ -86,7 +86,16 @@ func Do[T any](ctx context.Context, opts Options, fn func() (T, error)) (T, erro
 
 // isRetryableStatus reports whether the HTTP status code warrants a retry.
 func isRetryableStatus(code int) bool {
-	return code == http.StatusTooManyRequests || (code >= http.StatusInternalServerError && code <= 599)
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 // HTTP retries an HTTP request function, treating 429 and 5xx as retryable.
