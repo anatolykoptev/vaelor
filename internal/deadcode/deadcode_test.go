@@ -199,6 +199,43 @@ func TestAnalyzeSortsByFile(t *testing.T) {
 	}
 }
 
+// TestAnalyze_HTTPHandlerNotDead verifies that HTTP handler functions are not flagged as dead.
+func TestAnalyze_HTTPHandlerNotDead(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "handleUserCreate", Kind: parser.KindFunction, File: "/app/handlers.go", StartLine: 10, EndLine: 20,
+			Signature: "func handleUserCreate(w http.ResponseWriter, r *http.Request)"},
+		{Name: "handleHealth", Kind: parser.KindFunction, File: "/app/handlers.go", StartLine: 30, EndLine: 35,
+			Signature: "func handleHealth(w http.ResponseWriter, r *http.Request)"},
+		{Name: "reallyDead", Kind: parser.KindFunction, File: "/app/util.go", StartLine: 1, EndLine: 5,
+			Signature: "func reallyDead()"},
+	}
+	cg := &callgraph.CallGraph{Symbols: symbols, Edges: nil}
+
+	result := Analyze(cg, Options{})
+	if result.DeadCount != 1 {
+		t.Errorf("expected 1 dead function (reallyDead), got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s (%s)", d.Name, d.Confidence)
+		}
+	}
+}
+
+// TestAnalyze_InterfaceMethodNotDead verifies that well-known interface methods are not flagged as dead.
+func TestAnalyze_InterfaceMethodNotDead(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "ServeHTTP", Kind: parser.KindMethod, File: "/app/server.go", StartLine: 10, EndLine: 20,
+			Signature: "func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request)"},
+	}
+	cg := &callgraph.CallGraph{Symbols: symbols, Edges: nil}
+
+	result := Analyze(cg, Options{})
+	for _, d := range result.DeadSymbols {
+		if d.Name == "ServeHTTP" {
+			t.Error("ServeHTTP should not be flagged as dead (interface method)")
+		}
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
