@@ -110,18 +110,30 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 		})
 	}
 
-	// IMPORTS edges (File→Package).
+	// IMPORTS edges (File→Package) + external Package vertices.
+	impVertices, impEdges := buildImportsGraph(pkgDirs, fileImports)
+	vertices = append(vertices, impVertices...)
+	edges = append(edges, impEdges...)
+
+	return vertices, edges
+}
+
+// buildImportsGraph creates IMPORTS edges and external Package vertices from
+// the fileImports map. Local packages (already in pkgDirs) are not duplicated.
+func buildImportsGraph(pkgDirs map[string]struct{}, fileImports map[string][]string) ([]vertexData, []edgeData) {
+	var vertices []vertexData
+	var edges []edgeData
 	importedPkgs := make(map[string]bool)
+
 	for relFile, imports := range fileImports {
 		for _, imp := range imports {
-			pkgName := filepath.Base(imp)
 			if !importedPkgs[imp] {
 				importedPkgs[imp] = true
 				if _, isLocal := pkgDirs[imp]; !isLocal {
 					vertices = append(vertices, vertexData{
 						Label: "Package",
 						Props: map[string]string{
-							"name": pkgName,
+							"name": filepath.Base(imp),
 							"path": imp,
 							"repo": "external",
 						},
