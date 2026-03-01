@@ -27,8 +27,9 @@ type parseResult struct {
 	calls   []parser.CallSite
 }
 
-// TraceRepo ingests a repo, extracts symbols and calls, builds call graph, traces from symbol.
-func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) {
+// BuildFromRepo ingests a repo, parses files, and returns the call graph
+// without tracing a specific symbol.
+func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error) {
 	var langs []string
 	if input.Language != "" {
 		langs = []string{input.Language}
@@ -53,7 +54,16 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 		allCalls = append(allCalls, r.calls...)
 	}
 
-	g := BuildCallGraph(allSymbols, allCalls)
+	return BuildCallGraph(allSymbols, allCalls), nil
+}
+
+// TraceRepo ingests a repo, extracts symbols and calls, builds call graph, traces from symbol.
+func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) {
+	g, err := BuildFromRepo(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
 	result := Trace(g, input.Symbol, input.Opts)
 
 	return &result, nil
