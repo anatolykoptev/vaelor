@@ -121,12 +121,12 @@ Provide a concise narrative answer. Reference file paths and function names.
 If results are empty, say so clearly. Do not speculate beyond what the data shows.`
 
 // SystemPromptGenerateCypher generates a read-only Cypher query from natural language.
+// It contains a single %s placeholder that must be filled with the graph schema
+// text (see codegraph.GraphSchemaText).
 const SystemPromptGenerateCypher = `You are a Cypher query generator for a code knowledge graph stored in Apache AGE.
 
 Graph schema:
-- Vertex labels: Package (name, path, repo), File (path, language, lines), Symbol (name, kind, signature, file, start_line, end_line)
-- Edge labels: CONTAINS (Package→File, File→Symbol), CALLS (Symbol→Symbol, line property), IMPORTS (File→Package, alias property)
-- kind values: function, method, type, struct, interface, class, const, var, module
+%s
 
 Generate a READ-ONLY Cypher query. Do NOT use CREATE, DELETE, SET, MERGE, REMOVE, or DROP.
 
