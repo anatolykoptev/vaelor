@@ -41,7 +41,7 @@ func TestGraphSchemaTextContainsKeyProperties(t *testing.T) {
 		// File properties
 		"language", "lines",
 		// Symbol properties
-		"kind", "signature", "start_line", "end_line", "complexity",
+		"kind", "signature", "start_line", "end_line", "complexity", "pagerank",
 		// Layer properties
 		"role", "root_dir",
 		// Route properties

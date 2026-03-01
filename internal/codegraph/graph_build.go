@@ -1,6 +1,7 @@
 package codegraph
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 
@@ -30,6 +31,9 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 
 	var vertices []vertexData
 	var edges []edgeData
+
+	// Compute PageRank on CALLS graph.
+	prScores := computeSymbolPageRank(root, symbols, cg)
 
 	// Package vertices.
 	for dir := range pkgDirs {
@@ -85,6 +89,9 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 			}
 			props["lines"] = strconv.Itoa(lines)
 			props["complexity"] = strconv.Itoa(symbolComplexity(sym.Body))
+		}
+		if score, ok := prScores[symKey]; ok {
+			props["pagerank"] = fmt.Sprintf("%.6f", score)
 		}
 		vertices = append(vertices, vertexData{
 			Label: "Symbol",

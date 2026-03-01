@@ -93,6 +93,57 @@ func TestBuildGraphInheritsEdges(t *testing.T) {
 	}
 }
 
+// TestBuildGraphPageRankProps verifies that buildGraph attaches PageRank scores
+// to Symbol vertices when there are CALLS edges in the call graph.
+func TestBuildGraphPageRankProps(t *testing.T) {
+	t.Parallel()
+
+	root := "/repo"
+	files := []*ingest.File{
+		{Path: "/repo/main.go", RelPath: "main.go", Language: "go", Size: 100},
+		{Path: "/repo/util.go", RelPath: "util.go", Language: "go", Size: 80},
+	}
+	symMain := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/repo/main.go", StartLine: 1, EndLine: 5, Body: "helper()",
+	}
+	symHelper := &parser.Symbol{
+		Name: "helper", Kind: parser.KindFunction,
+		File: "/repo/util.go", StartLine: 1, EndLine: 3, Body: "return",
+	}
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{symMain, symHelper},
+		Edges: []callgraph.CallEdge{
+			{Caller: symMain, Callee: symHelper, Line: 2},
+		},
+	}
+	vertices, _ := buildGraph(root, files, []*parser.Symbol{symMain, symHelper}, cg, nil, nil)
+
+	var mainPR, helperPR string
+	for _, v := range vertices {
+		if v.Label != "Symbol" {
+			continue
+		}
+		switch v.Props["name"] {
+		case "main":
+			mainPR = v.Props["pagerank"]
+		case "helper":
+			helperPR = v.Props["pagerank"]
+		}
+	}
+
+	if mainPR == "" {
+		t.Error("main: missing pagerank prop")
+	}
+	if helperPR == "" {
+		t.Error("helper: missing pagerank prop")
+	}
+	// helper is called by main, so helper should have higher PageRank.
+	if helperPR <= mainPR {
+		t.Errorf("helper pagerank (%s) should be greater than main pagerank (%s)", helperPR, mainPR)
+	}
+}
+
 // TestBuildGraphInheritsEdgesExternalTarget verifies that INHERITS edges are
 // skipped when the target type is not a known symbol in the repository.
 func TestBuildGraphInheritsEdgesExternalTarget(t *testing.T) {
