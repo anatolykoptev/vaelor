@@ -160,6 +160,10 @@ Graph schema:
 IMPORTANT Apache AGE constraints:
 - Do NOT use [:TYPE1|TYPE2] pipe syntax — AGE does not support it
 - Instead use: MATCH ()-[r]->() WHERE type(r) = 'TYPE1' OR type(r) = 'TYPE2'
+- Do NOT use shortestPath() — AGE does not support it
+- Instead use variable-length paths: MATCH (a)-[:CALLS*1..10]->(b) RETURN a, b
+- Do NOT use pattern predicates like NOT ()-[:REL]->(n) — AGE does not support them
+- Instead use: OPTIONAL MATCH (caller)-[:REL]->(n) WITH n, caller WHERE caller IS NULL
 - Variable-length paths work with single types: [:CALLS*1..5]
 - OPTIONAL MATCH is supported
 - Use single quotes for string values in WHERE clauses
@@ -169,7 +173,8 @@ Example queries:
 - Type parents: MATCH (child:Symbol {name: 'Dog'})-[r]->(parent:Symbol) WHERE type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS' RETURN parent.name, parent.file, type(r) AS relation
 - Complex functions: MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL RETURN s.name, s.file, s.complexity ORDER BY s.complexity DESC LIMIT 10
 - Important symbols: MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.kind, s.file, s.pagerank ORDER BY s.pagerank DESC LIMIT 20
-- Call chain: MATCH path = shortestPath((a:Symbol {name: 'main'})-[:CALLS*..10]->(b:Symbol {name: 'query'})) RETURN path
+- Call chain: MATCH (a:Symbol {name: 'main'})-[:CALLS*1..10]->(b:Symbol {name: 'query'}) RETURN a, b
+- Dead code: MATCH (s:Symbol) WHERE s.kind = 'function' OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WITH s, caller WHERE caller IS NULL RETURN s
 
 Generate a READ-ONLY Cypher query. Do NOT use CREATE, DELETE, SET, MERGE, REMOVE, or DROP.
 
