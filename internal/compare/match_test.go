@@ -185,6 +185,54 @@ func TestMatchExact_DistinguishIdenticalFromModified(t *testing.T) {
 	}
 }
 
+// TestMatchSignature_CatchRename verifies that symbols with different names
+// but identical signature and body hash are matched as renamed.
+func TestMatchSignature_CatchRename(t *testing.T) {
+	symbolsA := []*parser.Symbol{
+		{Name: "HandleRequest", Kind: parser.KindFunction, Signature: "func(ctx context.Context, req *Request) error", BodyHash: 555},
+	}
+	symbolsB := []*parser.Symbol{
+		{Name: "ProcessRequest", Kind: parser.KindFunction, Signature: "func(ctx context.Context, req *Request) error", BodyHash: 555},
+	}
+
+	matches := MatchSymbols(symbolsA, symbolsB, nil)
+
+	found := false
+	for _, m := range matches {
+		if m.SymbolA != nil && m.SymbolB != nil {
+			found = true
+			if m.MatchType != MatchRenamed {
+				t.Errorf("MatchType = %q, want %q", m.MatchType, MatchRenamed)
+			}
+			if m.Score < 0.8 {
+				t.Errorf("Score = %.2f, want >= 0.8", m.Score)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected renamed match, got none")
+	}
+}
+
+// TestMatchSignature_DifferentSignature_NoMatch verifies that symbols with
+// different names AND different signatures are not matched as renamed.
+func TestMatchSignature_DifferentSignature_NoMatch(t *testing.T) {
+	symbolsA := []*parser.Symbol{
+		{Name: "HandleRequest", Kind: parser.KindFunction, Signature: "func(ctx context.Context) error"},
+	}
+	symbolsB := []*parser.Symbol{
+		{Name: "ProcessData", Kind: parser.KindFunction, Signature: "func(data []byte) (int, error)"},
+	}
+
+	matches := MatchSymbols(symbolsA, symbolsB, nil)
+
+	for _, m := range matches {
+		if m.SymbolA != nil && m.SymbolB != nil && m.MatchType == MatchRenamed {
+			t.Error("should not match different signatures as renamed")
+		}
+	}
+}
+
 type fakeClassifier struct {
 	called bool
 	result []SymbolMatch
