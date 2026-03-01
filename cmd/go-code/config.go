@@ -1,11 +1,10 @@
 package main
 
 import (
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-kit/env"
 )
 
 // Config holds all runtime configuration for go-code.
@@ -81,31 +80,24 @@ const (
 // loadConfig reads environment variables and returns a Config with defaults applied.
 func loadConfig() Config {
 	return Config{
-		Port:         env("MCP_PORT", defaultPort),
-		LLMURL:       env("LLM_URL", defaultLLMURL),
-		LLMAPIKey:    env("LLM_API_KEY", ""),
-		LLMModel:     env("LLM_MODEL", defaultLLMModel),
-		GithubToken:  env("GITHUB_TOKEN", ""),
-		WorkspaceDir: env("WORKSPACE_DIR", defaultWorkspaceDir),
-		SearxngURL:        env("SEARXNG_URL", "http://searxng:8888"),
-		RedisURL:          env("REDIS_URL", ""),
-		LLMFallbackKeys:  envList("LLM_API_KEY_FALLBACK", ""),
-		GithubSearchRepos: envList("GITHUB_SEARCH_REPOS", ""),
-		PathMappings: parsePathMappings(env("PATH_MAPPINGS", "")),
-		MaxFileBytes: int64(envInt("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
-		MaxRepoBytes:  int64(envInt("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
-		DatabaseURL:    env("DATABASE_URL", ""),
-		GraphTTLLocal:  envInt("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
-		GraphTTLRemote: envInt("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
-		GraphBatchSize: envInt("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
+		Port:         env.Str("MCP_PORT", defaultPort),
+		LLMURL:       env.Str("LLM_URL", defaultLLMURL),
+		LLMAPIKey:    env.Str("LLM_API_KEY", ""),
+		LLMModel:     env.Str("LLM_MODEL", defaultLLMModel),
+		GithubToken:  env.Str("GITHUB_TOKEN", ""),
+		WorkspaceDir: env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
+		SearxngURL:        env.Str("SEARXNG_URL", "http://searxng:8888"),
+		RedisURL:          env.Str("REDIS_URL", ""),
+		LLMFallbackKeys:  env.List("LLM_API_KEY_FALLBACK", ""),
+		GithubSearchRepos: env.List("GITHUB_SEARCH_REPOS", ""),
+		PathMappings: parsePathMappings(env.Str("PATH_MAPPINGS", "")),
+		MaxFileBytes: int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
+		MaxRepoBytes:  int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
+		DatabaseURL:    env.Str("DATABASE_URL", ""),
+		GraphTTLLocal:  env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
+		GraphTTLRemote: env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
+		GraphBatchSize: env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 	}
-}
-
-func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 func parsePathMappings(raw string) []analyze.PathMapping {
@@ -125,26 +117,3 @@ func parsePathMappings(raw string) []analyze.PathMapping {
 	return mappings
 }
 
-func envList(key, def string) []string {
-	v := env(key, def)
-	if v == "" {
-		return nil
-	}
-	parts := strings.Split(v, ",")
-	var out []string
-	for _, p := range parts {
-		if s := strings.TrimSpace(p); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func envInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return def
-}
