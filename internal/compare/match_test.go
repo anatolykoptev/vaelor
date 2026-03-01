@@ -152,6 +152,39 @@ func TestMatchSemantic(t *testing.T) {
 	}
 }
 
+// TestMatchExact_DistinguishIdenticalFromModified verifies that exact-name
+// matches are split into MatchExact (identical body) and MatchModified
+// (same name+kind but different body hash).
+func TestMatchExact_DistinguishIdenticalFromModified(t *testing.T) {
+	symbolsA := []*parser.Symbol{
+		{Name: "Foo", Kind: parser.KindFunction, Body: "func Foo() { return 1 }", BodyHash: 111},
+		{Name: "Bar", Kind: parser.KindFunction, Body: "func Bar() { return 2 }", BodyHash: 222},
+	}
+	symbolsB := []*parser.Symbol{
+		{Name: "Foo", Kind: parser.KindFunction, Body: "func Foo() { return 1 }", BodyHash: 111},
+		{Name: "Bar", Kind: parser.KindFunction, Body: "func Bar() { return 99 }", BodyHash: 333},
+	}
+
+	matches := MatchSymbols(symbolsA, symbolsB, nil)
+
+	var identicalCount, modifiedCount int
+	for _, m := range matches {
+		switch m.MatchType {
+		case MatchExact:
+			identicalCount++
+		case MatchModified:
+			modifiedCount++
+		}
+	}
+
+	if identicalCount != 1 {
+		t.Errorf("identicalCount = %d, want 1", identicalCount)
+	}
+	if modifiedCount != 1 {
+		t.Errorf("modifiedCount = %d, want 1", modifiedCount)
+	}
+}
+
 type fakeClassifier struct {
 	called bool
 	result []SymbolMatch
