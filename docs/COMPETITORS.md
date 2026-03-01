@@ -201,6 +201,30 @@ How leading AI coding tools build LLM context and rank code for relevance.
 - **Personalization**: chat files weight=10, mentioned identifiers weight=1 — proximity-based ranking
 - **Go port exists**: [codeberg.org/MadsRC/aigent](https://codeberg.org/MadsRC/aigent) `internal/repomap`
 
+**Deep dive (2026-02-28):**
+
+Architecture of RepoMap pipeline:
+1. **Tag extraction** (`get_tags_raw`): tree-sitter `.scm` queries extract `Tag(rel_fname, name, kind="def"|"ref", line)` per file
+2. **Pygments fallback**: if tree-sitter finds defs but no refs → fallback to `pygments` Token.Name extraction. Guarantees graph edges for poorly-covered languages
+3. **Graph construction** (`get_ranked_tags`): NetworkX MultiDiGraph, files as nodes:
+   - Self-edges: `(definer → definer, weight=0.1)` for each defined identifier
+   - Reference edges: `(referrer → definer, weight=mul/len(definers))` per identifier reference
+   - `mul` multiplier: ×10 for mentioned identifiers, ×10 for long camelCase/snake_case (≥8 chars), ×0 for `_` prefixed
+4. **Personalized PageRank** (`nx.pagerank(alpha=0.85, personalization=...)`): personalization vector boosts chat files + mentioned files + files matching mentioned identifiers
+5. **Token-budgeted output**: iterate ranked files, collect tags, stop at `max_map_tokens`
+6. **Rendering** (`render_tree`, `to_tree`): hierarchical path + lines-of-interest format
+7. **Caching**: `diskcache` (SQLite) with mtime invalidation, fallback to in-memory dict on corruption
+
+Strategy pattern for edit formats (6 coders):
+- `diff` (SEARCH/REPLACE blocks) — most common, robust `flexible_search_and_replace` with fuzzy matching
+- `whole` — entire file content
+- `patch` — custom V4A diff format
+- `udiff` — standard unified diff
+- `func` — OpenAI function calling (`write_file`)
+- `diff-fenced` — variant with filename inside fence
+
+**Key insight for go-code**: Our Phase 6.5 PageRank uses file-level import edges only. Aider builds identifier-level reference edges (much denser graph). Upgrading to identifier-level edges in Phase 7.5 would significantly improve ranking quality.
+
 ### Continue.dev — Hybrid BM25 + Embeddings
 - **Repo**: [continuedev/continue](https://github.com/continuedev/continue) | ~25K stars | TypeScript
 - **Key files**: `core/src/util/search/BM25.ts`, `core/src/context/providers/CodebaseContextProvider.ts`
@@ -310,16 +334,46 @@ Full landscape analysis: 15+ competing MCP servers for code intelligence.
 
 ### CodeMCP Deep Dive (closest competitor)
 
-**Go-native, 76 tools.** Key architectural patterns worth studying:
+**Go-native, 683 files, 80 internal packages.** Most architecturally complex code MCP server analyzed.
 
-- **SCIP as primary backend** (`internal/backends/scip/`): Falls back to tree-sitter when SCIP unavailable. For Go, `scip-go` provides type-aware call graphs.
-- **Identity system** (`internal/identity/`): Stable symbol IDs via `SymbolFingerprint` (hash of name+kind+signature+container+location). Alias chains track renames.
-- **Personalized PageRank** (`internal/graph/ppr.go`): Graph-based ranking of related symbols.
-- **Progressive tool disclosure**: `expandToolset` dynamically reveals tools. Avoids overwhelming agents with 76 tools at once.
-- **Impact analysis** (`internal/impact/`): Blast radius with risk scoring.
-- **Ownership** combining CODEOWNERS + git blame.
+**Key architecture (2026-02-28 repo_analyze deep dive):**
 
-**Anti-pattern**: 76 tools is likely counterproductive (CodeCompass research shows agents don't use most tools). go-code's 8 tools is closer to optimal.
+- **SCIP as primary backend** (`internal/backends/scip/`): `SCIPAdapter` exposes `GetSymbol`, `FindReferences`, `BuildCallGraph`. Falls back to tree-sitter when SCIP unavailable. For Go, `scip-go` provides type-aware call graphs.
+- **3-tier analysis system** (`internal/tier/`):
+  - `Basic` (tree-sitter only) → `Enhanced` (+ SCIP index) → `Full` (+ SCIP + telemetry)
+  - Each tool has `MinimumTier` + `Fallback` flag (can degrade gracefully)
+  - `tier.GetToolsForTier()` / `tier.GetUnavailableTools()` — dynamic tool filtering
+  - `tier.Detector` auto-detects available backends
+- **Identity system** (`internal/identity/`): Stable SCIP-based symbol IDs (survive minor refactors). `SymbolFingerprint` as content-hash fallback when SCIP unavailable. Alias chains track renames.
+- **Fusion ranking** (`internal/query/ranking.go`):
+  - `FusionRanker` combines 5 signals: FTS (full-text), PPR (PageRank), Hotspot, Recency, Exact Match
+  - Personalized PageRank: seeds = top 10 FTS results + expanded class methods
+  - `graph.BuildFromSCIP()` with `DefaultEdgeWeights()` — weighted graph from SCIP index
+  - Reranking formula: `0.6 * positionScore + 0.4 * pprScore`
+  - Normalization: all signals scaled to [0,1] before weighted combination
+- **Impact analysis** (`internal/impact/`):
+  - Direct: `SCIP.FindReferences()` → classify into `DirectCaller`, `ImplementsInterface` etc.
+  - Transitive: `SCIP.BuildCallGraph()` with MaxDepth + MaxNodes limits
+  - Confidence score degrades with distance
+  - Blast radius thresholds: low (2 modules / 5 callers), medium (5 / 20), high (above)
+  - Risk scoring: visibility × impact count
+  - Telemetry enhancement: observed usage data boosts/lowers risk score
+- **Progressive tool disclosure**: Presets (core, review, refactor, federation, docs, ops, full). `expandToolset` MCP tool switches active preset + sends `notifications/tools/list_changed`.
+- **Ownership** (`internal/ownership/`): CODEOWNERS + git blame.
+- **Compound tools** (`internal/query/compound.go`): `explore`, `understand`, `prepareChange` — multi-step wrappers. `understand` handles `UnderstandAmbiguity` by listing top matches with disambiguation hints.
+- **Additional packages**: audit, auth, breaking (changes), complexity, compression, coupling, cycles, daemon, deadcode, decisions, diff, docs, envelope, explain, export, extract, federation, hotspots, incremental, index, jobs, modules, scheduler, secrets, streaming, suggest, telemetry, testgap, watcher, webhooks.
+
+**What's genuinely good:**
+1. Fusion ranking (5 signals, not just 1-2) — Phase 7.5 should adopt
+2. Graceful tier degradation (tool still works, just less precise) — Phase 11 should adopt
+3. Blast radius with concrete thresholds (not vague "high/low") — Phase 9.2 should adopt
+4. Seed expansion for PPR (class → add methods) — Phase 7.5
+
+**Anti-patterns to avoid:**
+1. 683 files / 80 packages for a code analysis tool — overengineered
+2. 76+ tools (CodeCompass: agents don't use 80% of tools) — go-code's 8 is closer to optimal
+3. Telemetry as a tier requirement — premature for our use case
+4. Separate `breaking`, `coupling`, `cycles`, `responsibilities` packages — many of these are simple graph queries, not separate packages
 
 ### AST Diff Tools
 
@@ -384,6 +438,8 @@ This is the gap `go-code` fills.
 | P1 | Impact/blast radius analysis | 1d | Axon, CodeMCP |
 | P2 | Dead code detection | 1d | Axon, CodeGraphContext |
 | P2 | Complexity metrics | 1d | ast-metrics, CodeMCP |
+| P2 | Identifier-level reference graph + personalized PageRank | 2d | Aider |
+| P2 | Fallback tokenizer for under-covered languages | 0.5d | Aider |
 | P2 | Incremental graph indexing | 2d | code-graph-rag |
 | P2 | INHERITS/IMPLEMENTS edges | 2d | codeprism |
 | P3 | Semantic search via embeddings | 3-4d | code-graph-rag, Octocode |
