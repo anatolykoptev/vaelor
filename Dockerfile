@@ -3,7 +3,7 @@
 # The runtime image includes git for repository cloning operations.
 
 # ── Stage 1: Builder ─────────────────────────────────────────────────────────
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install C toolchain for CGO (tree-sitter grammars are C libraries).
 RUN apk add --no-cache gcc musl-dev git
