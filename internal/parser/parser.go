@@ -62,6 +62,10 @@ type Symbol struct {
 
 	// DocComment is the documentation comment immediately preceding the symbol.
 	DocComment string
+
+	// BodyHash is a content hash of the normalized symbol body.
+	// Used for fast equality checks in code comparison (0 means not computed).
+	BodyHash uint64
 }
 
 // ParseResult contains the symbols extracted from a single source file.

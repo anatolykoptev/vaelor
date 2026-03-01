@@ -86,3 +86,27 @@ func TestBuildSnapshotWithFocus(t *testing.T) {
 		t.Errorf("Files is empty with focus %q", focus)
 	}
 }
+
+func TestBuildSnapshot_BodyHash(t *testing.T) {
+	root := findRepoRoot(t)
+
+	snap, err := compare.BuildSnapshot(context.Background(), root, compare.SnapshotOpts{
+		Language: "go",
+	})
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	hashSeen := false
+	for _, sym := range snap.Symbols {
+		if sym.Body != "" && sym.BodyHash == 0 {
+			t.Errorf("symbol %q has body but BodyHash=0", sym.Name)
+		}
+		if sym.BodyHash != 0 {
+			hashSeen = true
+		}
+	}
+	if !hashSeen {
+		t.Error("no symbols with BodyHash set — expected at least one")
+	}
+}
