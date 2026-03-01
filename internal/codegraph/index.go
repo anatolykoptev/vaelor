@@ -126,6 +126,9 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		return nil, fmt.Errorf("upsert meta: %w", err)
 	}
 
+	// Store file mtimes for future incremental updates.
+	storeFileMtimes(ctx, store, repoKey, allFiles)
+
 	return meta, nil
 }
 
