@@ -57,6 +57,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerSymbolSearch(server, cfg, deps)
 	registerCallTrace(server, cfg, deps)
 	registerImpact(server, cfg, deps)
+	registerDeadCode(server, cfg, deps)
 
 	// Code graph (optional — needs DATABASE_URL).
 	var graphStore *codegraph.Store
