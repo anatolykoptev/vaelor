@@ -97,21 +97,21 @@ type xmlFile struct {
 }
 
 type xmlFileSym struct {
-	Kind       string `xml:"kind,attr"`
-	Name       string `xml:"name,attr"`
-	Line       uint32 `xml:"line,attr"`
-	End        uint32 `xml:"end,attr,omitempty"`
-	Complexity int    `xml:"complexity,attr,omitempty"`
-	Doc        string `xml:"doc,attr,omitempty"`
-	Signature  string `xml:",chardata"`
+	Kind       string   `xml:"kind,attr"`
+	Name       string   `xml:"name,attr"`
+	Line       uint32   `xml:"line,attr"`
+	End        uint32   `xml:"end,attr,omitempty"`
+	Complexity int      `xml:"complexity,attr,omitempty"`
+	Doc        string   `xml:"doc,attr,omitempty"`
+	Signature  xmlCDATA `xml:"signature,omitempty"`
 }
 
 type xmlSymbol struct {
-	Kind      string `xml:"kind,attr"`
-	Name      string `xml:"name,attr"`
-	File      string `xml:"file,attr"`
-	Line      uint32 `xml:"line,attr"`
-	Signature string `xml:"signature,omitempty"`
+	Kind      string   `xml:"kind,attr"`
+	Name      string   `xml:"name,attr"`
+	File      string   `xml:"file,attr"`
+	Line      uint32   `xml:"line,attr"`
+	Signature xmlCDATA `xml:"signature,omitempty"`
 }
 
 type xmlSymbols struct {
@@ -254,7 +254,7 @@ func buildTopSymbols(syms []*parser.Symbol, limit int) xmlSymbols {
 			Line: sym.StartLine,
 		}
 		if sym.Signature != "" {
-			xs.Signature = truncateSignature(sym.Signature)
+			xs.Signature = xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
 		}
 		symbols = append(symbols, xs)
 	}
@@ -357,7 +357,7 @@ func buildFileSymbols(af analyze.AnalyzedFile, limits depthLimits) []xmlFileSym 
 			xs.Doc = truncateDoc(sym.DocComment)
 		}
 		if sym.Signature != "" {
-			xs.Signature = truncateSignature(sym.Signature)
+			xs.Signature = xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
 		}
 		syms = append(syms, xs)
 	}
