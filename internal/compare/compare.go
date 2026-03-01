@@ -21,8 +21,11 @@ import (
 type MatchType string
 
 const (
-	// MatchExact means the symbols have the same name and kind.
+	// MatchExact means the symbols have the same name and kind and identical body.
 	MatchExact MatchType = "exact"
+
+	// MatchModified means the symbols have the same name and kind but different body.
+	MatchModified MatchType = "modified"
 
 	// MatchFuzzy means the symbols have similar names or signatures.
 	MatchFuzzy MatchType = "fuzzy"

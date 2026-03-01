@@ -71,10 +71,14 @@ func matchExact(a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol,
 		idx := findExact(symA, b, usedB)
 		if idx >= 0 {
 			usedB[idx] = true
+			mt := MatchExact
+			if symA.BodyHash != 0 && b[idx].BodyHash != 0 && symA.BodyHash != b[idx].BodyHash {
+				mt = MatchModified
+			}
 			matches = append(matches, SymbolMatch{
 				SymbolA:   symA,
 				SymbolB:   b[idx],
-				MatchType: MatchExact,
+				MatchType: mt,
 				Category:  string(symA.Kind),
 				Score:     1.0,
 			})
