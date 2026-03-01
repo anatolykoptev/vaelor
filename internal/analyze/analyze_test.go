@@ -2,9 +2,6 @@ package analyze
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,8 +9,6 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/render"
-	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // writeFile creates parent directories and writes a file, failing the test on error.
@@ -70,40 +65,13 @@ type Config struct {
 	return root
 }
 
-// startMockLLMServer starts an httptest server that returns a fake OpenAI response.
-func startMockLLMServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]interface{}{
-			"choices": []map[string]interface{}{
-				{
-					"message": map[string]interface{}{
-						"content": "The repository defines main(), Add(), Subtract(), and Config.",
-					},
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// newTestLLMClient creates an llm.Client pointed at the given server URL.
-func newTestLLMClient(serverURL string) *llm.Client {
-	return llm.NewClient(serverURL, "test-key", "test-model", llm.WithMaxTokens(100))
-}
-
 // --- AnalyzeRepo tests ---
 
-func TestAnalyzeRepo_WithMockLLM(t *testing.T) {
+func TestAnalyzeRepo(t *testing.T) {
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
-	srv := startMockLLMServer(t)
 	deps := Deps{
-		LLM:          newTestLLMClient(srv.URL),
 		MaxFileBytes: defaultMaxFileBytes,
 	}
 
@@ -115,9 +83,6 @@ func TestAnalyzeRepo_WithMockLLM(t *testing.T) {
 		t.Fatalf("AnalyzeRepo: %v", err)
 	}
 
-	if result.Answer == "" {
-		t.Error("expected non-empty answer")
-	}
 	if result.RepoName == "" {
 		t.Error("expected non-empty repo name")
 	}
@@ -130,6 +95,15 @@ func TestAnalyzeRepo_WithMockLLM(t *testing.T) {
 	if len(result.Packages) == 0 {
 		t.Error("expected at least one package")
 	}
+	if len(result.Files) == 0 {
+		t.Error("expected at least one analyzed file")
+	}
+	if len(result.Symbols) == 0 {
+		t.Error("expected at least one symbol")
+	}
+	if result.FileTree == "" {
+		t.Error("expected non-empty file tree")
+	}
 }
 
 func TestAnalyzeRepo_LanguageFilter(t *testing.T) {
@@ -138,9 +112,7 @@ func TestAnalyzeRepo_LanguageFilter(t *testing.T) {
 	writeFile(t, filepath.Join(root, "script.py"), "def hello(): pass\n")
 
 	ctx := context.Background()
-	srv := startMockLLMServer(t)
 	deps := Deps{
-		LLM:          newTestLLMClient(srv.URL),
 		MaxFileBytes: defaultMaxFileBytes,
 	}
 
@@ -469,22 +441,6 @@ func TestExtractQueryTerms_MixedIdentifiers(t *testing.T) {
 	}
 }
 
-func TestBuildLLMContext_ContainsSections(t *testing.T) {
-	root := makeFixtureRepo(t)
-	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})
-	if err != nil {
-		t.Fatalf("IngestRepo: %v", err)
-	}
-	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
-	ctx := buildLLMContext(ir, results, "test query", render.ModeDefault, "")
-
-	for _, section := range []string{"<query>", "<file-tree>", "<symbols>", "<file path="} {
-		if !strings.Contains(ctx, section) {
-			t.Errorf("LLM context missing section %q", section)
-		}
-	}
-}
-
 func TestBuildDepGraph_InvalidFormat(t *testing.T) {
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
@@ -498,76 +454,6 @@ func TestBuildDepGraph_InvalidFormat(t *testing.T) {
 	}
 	if err != nil && !strings.Contains(err.Error(), "unsupported format") {
 		t.Errorf("expected 'unsupported format' error, got: %v", err)
-	}
-}
-
-func TestBuildLLMContext_XMLFormat(t *testing.T) {
-	root := makeFixtureRepo(t)
-	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})
-	if err != nil {
-		t.Fatalf("IngestRepo: %v", err)
-	}
-	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
-	ctx := buildLLMContext(ir, results, "test query", render.ModeDefault, "")
-
-	// Should NOT use old Markdown format.
-	assertNotContains(t, ctx, "=== File:")
-	assertNotContains(t, ctx, "## Query")
-	assertNotContains(t, ctx, "## Repository File Tree")
-	assertNotContains(t, ctx, "## File Contents")
-
-	// Should use XML format.
-	assertContains(t, ctx, "<query>")
-	assertContains(t, ctx, "</query>")
-	assertContains(t, ctx, "<file-tree>")
-	assertContains(t, ctx, "</file-tree>")
-	assertContains(t, ctx, "<file path=")
-	assertContains(t, ctx, "</file>")
-}
-
-func assertContains(t *testing.T, s, substr string) {
-	t.Helper()
-	if !strings.Contains(s, substr) {
-		t.Errorf("expected output to contain %q\ngot:\n%s", substr, s)
-	}
-}
-
-func assertNotContains(t *testing.T, s, substr string) {
-	t.Helper()
-	if strings.Contains(s, substr) {
-		t.Errorf("expected output to NOT contain %q\ngot:\n%s", substr, s)
-	}
-}
-
-func TestBuildLLMContext_FileAnnotations(t *testing.T) {
-	root := makeFixtureRepo(t)
-	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{Root: root})
-	if err != nil {
-		t.Fatalf("IngestRepo: %v", err)
-	}
-	results := parseFilesParallel(context.Background(), ir.Files, false, nil)
-	ctx := buildLLMContext(ir, results, "Add function", render.ModeDefault, "")
-
-	// File blocks should include annotation comments.
-	assertContains(t, ctx, "<!-- ")
-	assertContains(t, ctx, "symbols")
-}
-
-func TestFileAnnotation(t *testing.T) {
-	importedBy := map[string]int{"core.go": 5}
-	symbolCounts := map[string]int{"core.go": 12}
-
-	ann := fileAnnotation("core.go", importedBy, symbolCounts, "go")
-	assertContains(t, ann, "imported by 5 files")
-	assertContains(t, ann, "12 symbols")
-	assertContains(t, ann, "go")
-	assertContains(t, ann, "<!-- ")
-	assertContains(t, ann, " -->")
-
-	// No annotation for file with nothing to say.
-	empty := fileAnnotation("empty.go", nil, nil, "")
-	if empty != "" {
-		t.Errorf("expected empty annotation, got %q", empty)
 	}
 }
 

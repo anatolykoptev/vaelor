@@ -1,8 +1,8 @@
 // Package analyze provides analysis orchestration for MCP tool handlers.
 //
-// It wires together the ingest, parser, clean, and llm packages into
+// It wires together the ingest, parser, and ranking packages into
 // high-level operations that correspond to the MCP tools:
-//   - AnalyzeRepo: full repo analysis answering a natural-language query
+//   - AnalyzeRepo: mechanical repo analysis (AST, ranking, import graph)
 //   - BuildDepGraph: construct and render the dependency graph
 //   - SearchSymbols: query the symbol index across a repo
 package analyze
@@ -23,8 +23,6 @@ import (
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/prompts"
-	"github.com/anatolykoptev/go-code/internal/render"
 	"github.com/anatolykoptev/go-code/internal/search"
 	"github.com/anatolykoptev/go-kit/llm"
 )
@@ -84,7 +82,7 @@ type RepoAnalysisInput struct {
 	// Root is the local path to the already-cloned repository.
 	Root string
 
-	// Query is the natural-language question to answer.
+	// Query is the search query for ranking files by relevance.
 	Query string
 
 	// Focus limits analysis to a subdirectory or glob pattern.
@@ -93,19 +91,12 @@ type RepoAnalysisInput struct {
 	// Language limits analysis to files of this language.
 	Language string
 
-	// RenderMode controls how file contents are rendered for LLM context.
-	// Valid values: "" (default/full), "signatures", "skeleton", "focused".
-	RenderMode string
-
 	// Depth controls analysis depth: overview, module (default), deep.
 	Depth string
 }
 
 // RepoAnalysisResult is the output of a repository analysis.
 type RepoAnalysisResult struct {
-	// Answer is the LLM-generated answer to the query.
-	Answer string
-
 	// RepoName is the detected repository name.
 	RepoName string
 
@@ -115,11 +106,41 @@ type RepoAnalysisResult struct {
 	// FileCount is the number of files analyzed.
 	FileCount int
 
-	// Symbols is a sample of key symbols found.
+	// Symbols is a sample of key symbols found (backward compat).
 	Symbols []*parser.Symbol
 
 	// Packages is the list of top-level package names.
 	Packages []string
+
+	// Files is per-file metadata ordered by relevance.
+	Files []AnalyzedFile
+
+	// ImportGraph maps pkg → []imported_pkgs (non-stdlib).
+	ImportGraph map[string][]string
+
+	// FileTree is the rendered directory tree.
+	FileTree string
+
+	// Languages maps language → file count.
+	Languages map[string]int
+
+	// TotalBytes is the total size of all ingested files.
+	TotalBytes int64
+
+	// Skipped is the number of files skipped during ingestion.
+	Skipped int
+}
+
+// AnalyzedFile holds per-file mechanical analysis data.
+type AnalyzedFile struct {
+	RelPath    string           // path relative to repo root
+	Language   string           // detected language
+	Size       int64            // file size in bytes
+	Lines      int              // line count (from symbol EndLine heuristic)
+	Symbols    []*parser.Symbol // all symbols in this file
+	Imports    []string         // imports declared in this file
+	Relevance  float64          // BM25F+PageRank combined score
+	ImportedBy int              // how many packages import this file's package
 }
 
 // SymbolSearchInput is the input for a symbol search request.
@@ -177,8 +198,9 @@ type fileParseResult struct {
 	err    error // non-nil if parsing failed
 }
 
-// AnalyzeRepo ingests and analyzes a repository, answering the given query.
-// It wires: ingest → parallel parse → LLM context → LLM completion.
+// AnalyzeRepo ingests and analyzes a repository mechanically.
+// It wires: ingest → parallel parse → rank → structured result.
+// No LLM is involved — all data is extracted from ASTs and ranking algorithms.
 func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*RepoAnalysisResult, error) {
 	var langs []string
 	if input.Language != "" {
@@ -197,47 +219,67 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 
 	parseResults := parseFilesParallel(ctx, ingestResult.Files, false, deps.ParseCache)
 
-	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query, render.Mode(input.RenderMode), input.Depth)
+	cd := buildContextData(ingestResult, parseResults, input.Query)
 
-	intent := prompts.ClassifyIntent(input.Query)
-	systemPrompt := prompts.SystemPromptForIntent(intent, input.Depth)
-
-	var answer string
-	var llmCacheKey uint64
-	if deps.LLMCache != nil {
-		llmCacheKey = cache.PromptHash(systemPrompt, llmCtx)
-		if cached, ok := deps.LLMCache.Get(llmCacheKey); ok {
-			answer = cached
-		}
-	}
-
-	if answer == "" {
-		answer, err = deps.LLM.Complete(ctx, systemPrompt, llmCtx)
-		if err != nil {
-			return nil, fmt.Errorf("llm complete: %w", err)
-		}
-		if deps.LLMCache != nil {
-			deps.LLMCache.Put(llmCacheKey, answer)
-		}
-	}
-
-	return buildAnalysisResult(input.Root, answer, ingestResult, parseResults), nil
+	return buildAnalysisResult(input.Root, ingestResult, parseResults, cd), nil
 }
 
-// buildAnalysisResult assembles the RepoAnalysisResult from parsed data.
-func buildAnalysisResult(root, answer string, ir *ingest.IngestResult, results []fileParseResult) *RepoAnalysisResult {
+// buildAnalysisResult assembles the RepoAnalysisResult from parsed data and ContextData.
+func buildAnalysisResult(root string, ir *ingest.IngestResult, results []fileParseResult, cd *ContextData) *RepoAnalysisResult {
 	repoName := filepath.Base(root)
 	lang := dominantLanguage(ir.Files)
 	packages := extractPackages(ir.Files)
 	symbols := collectTopSymbols(results)
 
+	// Build per-file index for parse results.
+	parseByPath := make(map[string]*parser.ParseResult, len(results))
+	for _, pr := range results {
+		if pr.result != nil {
+			parseByPath[pr.file.RelPath] = pr.result
+		}
+	}
+
+	// Build AnalyzedFile slice from ranked files + context data.
+	analyzedFiles := make([]AnalyzedFile, 0, len(cd.RankedFiles))
+	for _, f := range cd.RankedFiles {
+		af := AnalyzedFile{
+			RelPath:    f.RelPath,
+			Language:   f.Language,
+			Size:       f.Size,
+			Relevance:  cd.FileScores[f.RelPath],
+			ImportedBy: cd.ImportedBy[f.RelPath],
+		}
+		if pr, ok := parseByPath[f.RelPath]; ok {
+			af.Symbols = pr.Symbols
+			af.Imports = pr.Imports
+			// Estimate line count from the last symbol's EndLine.
+			for _, sym := range pr.Symbols {
+				if int(sym.EndLine) > af.Lines {
+					af.Lines = int(sym.EndLine)
+				}
+			}
+		}
+		analyzedFiles = append(analyzedFiles, af)
+	}
+
+	// Convert importGraph to serializable map[string][]string.
+	igExport := make(map[string][]string, len(cd.ImportGraph))
+	for pkg, deps := range cd.ImportGraph {
+		igExport[pkg] = sortedSetKeys(deps)
+	}
+
 	return &RepoAnalysisResult{
-		Answer:    answer,
-		RepoName:  repoName,
-		Language:  lang,
-		FileCount: len(ir.Files),
-		Symbols:   symbols,
-		Packages:  packages,
+		RepoName:    repoName,
+		Language:    lang,
+		FileCount:   len(ir.Files),
+		Symbols:     symbols,
+		Packages:    packages,
+		Files:       analyzedFiles,
+		ImportGraph: igExport,
+		FileTree:    cd.FileTree,
+		Languages:   cd.Languages,
+		TotalBytes:  ir.TotalBytes,
+		Skipped:     ir.SkippedCount,
 	}
 }
 
@@ -456,10 +498,14 @@ func extractPackages(files []*ingest.File) []string {
 	return pkgs
 }
 
-// collectTopSymbols gathers up to symbolSampleSize representative symbols.
-const symbolSampleSize = 50
+// defaultSymbolSampleSize is the default cap for top-level symbol sampling.
+const defaultSymbolSampleSize = 50
 
 func collectTopSymbols(results []fileParseResult) []*parser.Symbol {
+	return collectTopSymbolsN(results, defaultSymbolSampleSize)
+}
+
+func collectTopSymbolsN(results []fileParseResult, limit int) []*parser.Symbol {
 	var symbols []*parser.Symbol
 	for _, pr := range results {
 		if pr.result == nil {
@@ -471,7 +517,7 @@ func collectTopSymbols(results []fileParseResult) []*parser.Symbol {
 				sym.Kind == parser.KindType {
 				symbols = append(symbols, sym)
 			}
-			if len(symbols) >= symbolSampleSize {
+			if len(symbols) >= limit {
 				return symbols
 			}
 		}
