@@ -2,13 +2,131 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type xmlCompareResponse struct {
+	XMLName xml.Name   `xml:"response"`
+	Compare xmlCompare `xml:"compare"`
+}
+
+type xmlCompare struct {
+	RepoA          string         `xml:"repoA,attr"`
+	RepoB          string         `xml:"repoB,attr"`
+	Query          string         `xml:"query,attr"`
+	MatchedSymbols int            `xml:"matchedSymbols,attr"`
+	UnmatchedA     int            `xml:"unmatchedA,attr"`
+	UnmatchedB     int            `xml:"unmatchedB,attr"`
+	MetricsA       xmlCompMetrics `xml:"metricsA"`
+	MetricsB       xmlCompMetrics `xml:"metricsB"`
+	MatchBreakdown xmlMatchBreak  `xml:"matchBreakdown"`
+	ImportDiff     xmlImportDiff  `xml:"importDiff"`
+	DiffStats      *xmlDiffStats  `xml:"diffStats,omitempty"`
+	Analysis       xmlAnalysis    `xml:"analysis"`
+	HotspotsA      *xmlHotspots   `xml:"hotspotsA,omitempty"`
+	HotspotsB      *xmlHotspots   `xml:"hotspotsB,omitempty"`
+	RelStatsA      *xmlRelStats   `xml:"relStatsA,omitempty"`
+	RelStatsB      *xmlRelStats   `xml:"relStatsB,omitempty"`
+}
+
+type xmlCompMetrics struct {
+	Files              int     `xml:"files,attr"`
+	TotalLines         int     `xml:"totalLines,attr"`
+	AvgFuncLines       float64 `xml:"avgFuncLines,attr"`
+	MaxFuncLines       int     `xml:"maxFuncLines,attr"`
+	AvgComplexity      float64 `xml:"avgComplexity,attr"`
+	MaxComplexity      int     `xml:"maxComplexity,attr"`
+	TestRatio          float64 `xml:"testRatio,attr"`
+	DocRatio           float64 `xml:"docRatio,attr"`
+	ErrorHandlingRatio float64 `xml:"errorHandlingRatio,attr"`
+	Interfaces         int     `xml:"interfaces,attr"`
+	ExternalDeps       int     `xml:"externalDeps,attr"`
+	Grade              string  `xml:"grade,attr"`
+}
+
+type xmlMatchBreak struct {
+	Exact    int `xml:"exact,attr"`
+	Modified int `xml:"modified,attr"`
+	Fuzzy    int `xml:"fuzzy,attr"`
+	Renamed  int `xml:"renamed,attr"`
+	Semantic int `xml:"semantic,attr"`
+}
+
+type xmlImportDiff struct {
+	CommonCount int      `xml:"common,attr"`
+	OnlyACount  int      `xml:"onlyACount,attr"`
+	OnlyBCount  int      `xml:"onlyBCount,attr"`
+	StdlibA     int      `xml:"stdlibA,attr"`
+	StdlibB     int      `xml:"stdlibB,attr"`
+	ExternalA   int      `xml:"externalA,attr"`
+	ExternalB   int      `xml:"externalB,attr"`
+	OnlyA       []string `xml:"onlyA>dep,omitempty"`
+	OnlyB       []string `xml:"onlyB>dep,omitempty"`
+	FrameworksA []string `xml:"frameworksA>fw,omitempty"`
+	FrameworksB []string `xml:"frameworksB>fw,omitempty"`
+}
+
+type xmlDiffStats struct {
+	ModifiedWithDiff int `xml:"modified,attr"`
+	TotalInserts     int `xml:"inserts,attr"`
+	TotalDeletes     int `xml:"deletes,attr"`
+	TotalUpdates     int `xml:"updates,attr"`
+	TotalMoves       int `xml:"moves,attr"`
+}
+
+type xmlAnalysis struct {
+	Quality         []xmlQuality     `xml:"quality,omitempty"`
+	Gaps            []xmlGap         `xml:"gap,omitempty"`
+	Architecture    []xmlArchInsight `xml:"architecture,omitempty"`
+	Recommendations []string         `xml:"recommendation,omitempty"`
+}
+
+type xmlQuality struct {
+	Aspect   string `xml:"aspect,attr"`
+	Winner   string `xml:"winner,attr"`
+	Reason   string `xml:"reason,attr"`
+	SnippetA string `xml:"snippetA,omitempty"`
+	SnippetB string `xml:"snippetB,omitempty"`
+}
+
+type xmlGap struct {
+	MissingIn  string `xml:"missingIn,attr"`
+	Feature    string `xml:"feature,attr"`
+	Importance string `xml:"importance,attr"`
+	Location   string `xml:"location,attr,omitempty"`
+}
+
+type xmlArchInsight struct {
+	Insight string `xml:"insight,attr"`
+	Source  string `xml:"source,attr"`
+	Example string `xml:"example,omitempty"`
+	Benefit string `xml:"benefit,omitempty"`
+}
+
+type xmlHotspots struct {
+	Items []xmlHotspot `xml:"hotspot"`
+}
+
+type xmlHotspot struct {
+	File       string  `xml:"file,attr"`
+	Score      float64 `xml:"score,attr"`
+	Churn      int     `xml:"churn,attr"`
+	Complexity float64 `xml:"complexity,attr"`
+	Risk       string  `xml:"risk,attr"`
+}
+
+type xmlRelStats struct {
+	Total          int `xml:"total,attr"`
+	Extends        int `xml:"extends,attr"`
+	Implements     int `xml:"implements,attr"`
+	Embeds         int `xml:"embeds,attr"`
+	UniqueSubjects int `xml:"uniqueSubjects,attr"`
+}
 
 // CodeCompareInput is the input schema for the code_compare tool.
 type CodeCompareInput struct {
@@ -27,7 +145,7 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		Name: "code_compare",
 		Description: "Compare two code repositories to find the better implementation. " +
 			"Analyzes architecture, code quality, patterns, and identifies missing features. " +
-			"Returns JSON with quality verdicts, coverage gaps, architecture insights, " +
+			"Returns XML with quality verdicts, coverage gaps, architecture insights, " +
 			"metrics, and actionable recommendations. Works cross-language.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeCompareInput) (*mcp.CallToolResult, any, error) {
 		if input.RepoA == "" || input.RepoB == "" {
@@ -62,11 +180,126 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("compare: %s", err)), nil, nil
 		}
 
-		data, err := json.MarshalIndent(result, "", "  ")
+		resp := buildCompareXML(result)
+		data, err := xml.MarshalIndent(resp, "", "  ")
 		if err != nil {
-			return errResult(fmt.Sprintf("marshal result: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 		}
-
-		return largeTextResult(string(data), "code_compare", outputDir), nil, nil
+		return largeTextResult(xml.Header+string(data), "code_compare", outputDir), nil, nil
 	})
+}
+
+func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
+	resp := xmlCompareResponse{
+		Compare: xmlCompare{
+			RepoA:          r.RepoA,
+			RepoB:          r.RepoB,
+			Query:          r.Query,
+			MatchedSymbols: r.MatchedSymbols,
+			UnmatchedA:     r.UnmatchedA,
+			UnmatchedB:     r.UnmatchedB,
+			MetricsA:       convertMetrics(r.MetricsA),
+			MetricsB:       convertMetrics(r.MetricsB),
+			MatchBreakdown: xmlMatchBreak{
+				Exact:    r.MatchBreakdown.Exact,
+				Modified: r.MatchBreakdown.Modified,
+				Fuzzy:    r.MatchBreakdown.Fuzzy,
+				Renamed:  r.MatchBreakdown.Renamed,
+				Semantic: r.MatchBreakdown.Semantic,
+			},
+			ImportDiff: xmlImportDiff{
+				CommonCount: r.ImportDiff.CommonCount,
+				OnlyACount:  r.ImportDiff.OnlyACount,
+				OnlyBCount:  r.ImportDiff.OnlyBCount,
+				StdlibA:     r.ImportDiff.StdlibA,
+				StdlibB:     r.ImportDiff.StdlibB,
+				ExternalA:   r.ImportDiff.ExternalA,
+				ExternalB:   r.ImportDiff.ExternalB,
+				OnlyA:       r.ImportDiff.OnlyA,
+				OnlyB:       r.ImportDiff.OnlyB,
+				FrameworksA: r.ImportDiff.FrameworksA,
+				FrameworksB: r.ImportDiff.FrameworksB,
+			},
+			Analysis: convertAnalysis(r.Analysis),
+		},
+	}
+
+	if r.DiffStats != nil {
+		resp.Compare.DiffStats = &xmlDiffStats{
+			ModifiedWithDiff: r.DiffStats.ModifiedWithDiff,
+			TotalInserts:     r.DiffStats.TotalInserts,
+			TotalDeletes:     r.DiffStats.TotalDeletes,
+			TotalUpdates:     r.DiffStats.TotalUpdates,
+			TotalMoves:       r.DiffStats.TotalMoves,
+		}
+	}
+
+	if len(r.HotspotsA) > 0 {
+		resp.Compare.HotspotsA = convertHotspots(r.HotspotsA)
+	}
+	if len(r.HotspotsB) > 0 {
+		resp.Compare.HotspotsB = convertHotspots(r.HotspotsB)
+	}
+	if r.RelStatsA != nil {
+		resp.Compare.RelStatsA = &xmlRelStats{
+			Total: r.RelStatsA.Total, Extends: r.RelStatsA.Extends,
+			Implements: r.RelStatsA.Implements, Embeds: r.RelStatsA.Embeds,
+			UniqueSubjects: r.RelStatsA.UniqueSubjects,
+		}
+	}
+	if r.RelStatsB != nil {
+		resp.Compare.RelStatsB = &xmlRelStats{
+			Total: r.RelStatsB.Total, Extends: r.RelStatsB.Extends,
+			Implements: r.RelStatsB.Implements, Embeds: r.RelStatsB.Embeds,
+			UniqueSubjects: r.RelStatsB.UniqueSubjects,
+		}
+	}
+
+	return resp
+}
+
+func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
+	return xmlCompMetrics{
+		Files: m.Files, TotalLines: m.TotalLines,
+		AvgFuncLines: m.AvgFuncLines, MaxFuncLines: m.MaxFuncLines,
+		AvgComplexity: m.AvgComplexity, MaxComplexity: m.MaxComplexity,
+		TestRatio: m.TestRatio, DocRatio: m.DocRatio,
+		ErrorHandlingRatio: m.ErrorHandlingRatio,
+		Interfaces: m.Interfaces, ExternalDeps: m.ExternalDeps,
+		Grade: m.Grade,
+	}
+}
+
+func convertAnalysis(a compare.LLMAnalysis) xmlAnalysis {
+	xa := xmlAnalysis{Recommendations: a.Recommendations}
+	for _, q := range a.Quality {
+		xa.Quality = append(xa.Quality, xmlQuality{
+			Aspect: q.Aspect, Winner: q.Winner, Reason: q.Reason,
+			SnippetA: q.SnippetA, SnippetB: q.SnippetB,
+		})
+	}
+	for _, g := range a.Gaps {
+		xa.Gaps = append(xa.Gaps, xmlGap{
+			MissingIn: g.MissingIn, Feature: g.Feature,
+			Importance: g.Importance, Location: g.LocationB,
+		})
+	}
+	for _, ai := range a.Architecture {
+		xa.Architecture = append(xa.Architecture, xmlArchInsight{
+			Insight: ai.Insight, Source: ai.Source,
+			Example: ai.Example, Benefit: ai.Benefit,
+		})
+	}
+	return xa
+}
+
+func convertHotspots(hh []compare.HotspotFile) *xmlHotspots {
+	items := make([]xmlHotspot, len(hh))
+	for i, h := range hh {
+		items[i] = xmlHotspot{
+			File: h.File, Score: h.Score,
+			Churn: h.Churn, Complexity: h.Complexity, Risk: h.Risk,
+		}
+	}
+	return &xmlHotspots{Items: items}
 }
