@@ -36,10 +36,10 @@ type xmlSearch struct {
 }
 
 type xmlSearchMatch struct {
-	File    string   `xml:"file,attr"`
-	Line    int      `xml:"line,attr"`
-	Text    string   `xml:"text"`
-	Context []string `xml:"ctx,omitempty"`
+	File    string     `xml:"file,attr"`
+	Line    int        `xml:"line,attr"`
+	Text    xmlCDATA   `xml:"text"`
+	Context []xmlCDATA `xml:"ctx,omitempty"`
 }
 
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
@@ -123,12 +123,15 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		},
 	}
 	for i, m := range matches {
-		resp.Search.Items[i] = xmlSearchMatch{
-			File:    m.File,
-			Line:    m.Line,
-			Text:    m.Text,
-			Context: m.Context,
+		item := xmlSearchMatch{
+			File: m.File,
+			Line: m.Line,
+			Text: xmlCDATA{Inner: wrapCDATA(m.Text)},
 		}
+		for _, c := range m.Context {
+			item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+		}
+		resp.Search.Items[i] = item
 	}
 
 	data, err := xml.MarshalIndent(resp, "", "  ")
