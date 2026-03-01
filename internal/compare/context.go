@@ -3,6 +3,7 @@ package compare
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -85,22 +86,51 @@ func writeMetrics(sb *strings.Builder, metricsA, metricsB RepoMetrics) {
 	sb.WriteString("\n\n")
 }
 
+// matchPriority returns a sort key for symbol matches. Lower = higher priority.
+// Modified/renamed/fuzzy matches are more interesting than identical exact matches.
+func matchPriority(m *SymbolMatch) int {
+	switch m.MatchType {
+	case MatchModified:
+		return 0
+	case MatchRenamed:
+		return 1
+	case MatchFuzzy:
+		return 2
+	case MatchSemantic:
+		return 3
+	case MatchExact:
+		return 4
+	default:
+		return 5
+	}
+}
+
 func writeMatchedPairs(sb *strings.Builder, matches []SymbolMatch) {
 	sb.WriteString("## Matched Symbols (side-by-side)\n\n")
 
-	written := 0
+	type indexedMatch struct {
+		idx      int
+		priority int
+	}
+	var pairs []indexedMatch
 	for i := range matches {
+		if !matches[i].IsGap() {
+			pairs = append(pairs, indexedMatch{idx: i, priority: matchPriority(&matches[i])})
+		}
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].priority < pairs[j].priority
+	})
+
+	written := 0
+	for _, p := range pairs {
 		if written >= maxMatchedPairs {
 			break
-		}
-		m := &matches[i]
-		if m.IsGap() {
-			continue
 		}
 		if sb.Len() >= maxContextChars {
 			break
 		}
-		writePair(sb, m)
+		writePair(sb, &matches[p.idx])
 		written++
 	}
 }
