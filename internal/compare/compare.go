@@ -176,6 +176,8 @@ type CompareResult struct {
 	UnmatchedB     int            `json:"unmatched_b"`
 	MatchBreakdown MatchBreakdown `json:"match_breakdown"`
 	ImportDiff     ImportDiff     `json:"import_diff"`
+	HotspotsA     []HotspotFile  `json:"hotspots_a,omitempty"`
+	HotspotsB     []HotspotFile  `json:"hotspots_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -222,6 +224,17 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	// Compute import diff.
 	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports)
 
+	// Hotspot analysis (non-fatal — skip if git unavailable).
+	var hotspotsA, hotspotsB []HotspotFile
+	churnA, _ := CollectChurn(ctx, input.RootA)
+	churnB, _ := CollectChurn(ctx, input.RootB)
+	if churnA != nil {
+		hotspotsA = ComputeHotspots(churnA, FileComplexityFromSnapshot(snapA))
+	}
+	if churnB != nil {
+		hotspotsB = ComputeHotspots(churnB, FileComplexityFromSnapshot(snapB))
+	}
+
 	// Count matches and gaps.
 	// SymbolA == nil means the symbol exists only in B (missing from A).
 	// SymbolB == nil means the symbol exists only in A (missing from B).
@@ -261,12 +274,14 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		UnmatchedB:     unmatchedB,
 		MatchBreakdown: breakdown,
 		ImportDiff:     importDiff,
+		HotspotsA:     hotspotsA,
+		HotspotsB:     hotspotsB,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are
 	// always returned even when the LLM is unavailable.
 	if llmClient != nil {
-		compareCtx := BuildCompareContext(matches, metricsA, metricsB, input.Query)
+		compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, input.Query, hotspotsA, hotspotsB)
 		answer, err := llmClient.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
 		if err == nil {
 			result.Analysis = parseAnalysis(answer)
