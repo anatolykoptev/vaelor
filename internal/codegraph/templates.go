@@ -2,6 +2,7 @@ package codegraph
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -44,14 +45,14 @@ var templates = map[string]*Template{
 		ID:          "who_calls",
 		Description: "Find all symbols that call the named symbol",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (caller:Symbol)-[:CALLS]->(target:Symbol {name: '{name}'}) RETURN caller",
+		Cypher:      "MATCH (caller:Symbol)-[:CALLS]->(target:Symbol {name: '{name}'}) RETURN DISTINCT caller",
 		Cols:        1,
 	},
 	"calls_of": {
 		ID:          "calls_of",
 		Description: "Find all symbols called by the named symbol",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (src:Symbol {name: '{name}'})-[:CALLS]->(callee:Symbol) RETURN callee",
+		Cypher:      "MATCH (src:Symbol {name: '{name}'})-[:CALLS]->(callee:Symbol) RETURN DISTINCT callee",
 		Cols:        1,
 	},
 	"imports_of": {
@@ -72,7 +73,7 @@ var templates = map[string]*Template{
 		ID:          "symbols_in",
 		Description: "Find symbols contained in files matching a path",
 		Params:      []string{"path"},
-		Cypher:      "MATCH (c)-[:CONTAINS]->(s:Symbol) WHERE c.path CONTAINS '{path}' RETURN s",
+		Cypher:      "MATCH (c)-[:CONTAINS]->(s:Symbol) WHERE c.path CONTAINS '{path}' RETURN DISTINCT s",
 		Cols:        1,
 	},
 	"call_chain": {
@@ -149,7 +150,7 @@ var templates = map[string]*Template{
 		ID:          "hotspots",
 		Description: "Find hotspot functions — high complexity combined with high line count",
 		Params:      []string{"limit"},
-		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL AND s.lines IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY (s.complexity * s.lines) DESC LIMIT {limit}",
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL AND s.lines IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY s.complexity DESC, s.lines DESC LIMIT {limit}",
 		Cols:        4,
 	},
 	"inherits": {
@@ -195,9 +196,17 @@ func GetTemplate(id string) *Template {
 }
 
 // TemplateList returns a formatted list of all templates suitable for a classifier prompt.
+// Templates are sorted alphabetically by ID for deterministic prompt generation.
 func TemplateList() string {
+	ids := make([]string, 0, len(templates))
+	for id := range templates {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
 	var sb strings.Builder
-	for _, t := range templates {
+	for _, id := range ids {
+		t := templates[id]
 		params := strings.Join(t.Params, ", ")
 		if params == "" {
 			params = "(none)"

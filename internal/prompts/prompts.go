@@ -107,6 +107,29 @@ Graph schema:
 Available templates:
 %s
 
+Examples:
+"Who calls handleRequest?" → {"template": "who_calls", "params": {"name": "handleRequest"}}
+"What does main call?" → {"template": "calls_of", "params": {"name": "main"}}
+"What packages does auth import?" → {"template": "imports_of", "params": {"path": "auth"}}
+"What files import the redis package?" → {"template": "importers_of", "params": {"name": "redis"}}
+"Show symbols in parser/" → {"template": "symbols_in", "params": {"path": "parser"}}
+"How does main reach QueryGraph?" → {"template": "call_chain", "params": {"from": "main", "to": "QueryGraph"}}
+"Most called functions, top 10" → {"template": "most_connected", "params": {"limit": "10"}}
+"Find dead code" → {"template": "dead_code", "params": {}}
+"What does the analyze package depend on?" → {"template": "depends_on", "params": {"pkg": "analyze"}}
+"What depends on the cache package?" → {"template": "dependents_of", "params": {"name": "cache"}}
+"Show API routes for /users" → {"template": "api_routes", "params": {"path": "/users"}}
+"Show cross-language calls" → {"template": "cross_calls", "params": {"path": ""}}
+"Show layer dependencies" → {"template": "layer_deps", "params": {}}
+"Repository overview with languages" → {"template": "polyglot_overview", "params": {}}
+"Most complex functions, top 10" → {"template": "complex_symbols", "params": {"limit": "10"}}
+"Find hotspot functions" → {"template": "hotspots", "params": {"limit": "20"}}
+"What does UserService extend?" → {"template": "inherits", "params": {"name": "UserService"}}
+"What implements the Handler interface?" → {"template": "implementations", "params": {"name": "Handler"}}
+"Show type hierarchy for Config" → {"template": "type_hierarchy", "params": {"name": "Config"}}
+"Find all subtypes of Animal" → {"template": "subtypes", "params": {"name": "Animal"}}
+"Most important symbols by PageRank" → {"template": "important_symbols", "params": {"limit": "20"}}
+
 Respond with ONLY a JSON object, no explanation:
 {"template": "<template_id>", "params": {"param_name": "value"}}
 
@@ -114,12 +137,11 @@ If no template fits, respond:
 {"template": "freeform", "params": {}}
 
 Rules:
+- ALWAYS prefer a template over freeform — use freeform only when NO template can answer the question
 - Extract symbol/function/package names from the question into params
-- Use "freeform" only if the question truly doesn't match any template
 - Parameter values should be exact names from the question (case-sensitive)
-- For type hierarchy questions (extends, implements, embeds), prefer inherits/implementations/type_hierarchy/subtypes templates
-- For complexity questions, prefer complex_symbols or hotspots templates
-- For PageRank/importance questions, prefer important_symbols template`
+- When a limit is mentioned ("top N"), extract it into the "limit" param
+- When no limit is mentioned but the template has a "limit" param, omit it (defaults apply)`
 
 // SystemPromptGraphNarrative formats raw graph query results into a narrative.
 const SystemPromptGraphNarrative = `You are a senior software engineer explaining code graph query results.
