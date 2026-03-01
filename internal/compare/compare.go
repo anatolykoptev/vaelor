@@ -269,7 +269,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	metricsB := ComputeMetrics(snapB)
 
 	// Compute import diff.
-	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports)
+	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports, snapA.Language)
 
 	// Hotspot analysis (non-fatal — skip if git unavailable).
 	var hotspotsA, hotspotsB []HotspotFile
