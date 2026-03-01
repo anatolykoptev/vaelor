@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
@@ -98,7 +100,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient *llm.Client, query st
 			return nil, "", 0, fmt.Errorf("generate cypher: %w", genErr)
 		}
 		cypher = generated
-		cols = 1
+		cols = countReturnCols(cypher)
 	}
 
 	return cls, cypher, cols, nil
@@ -123,11 +125,47 @@ func execWithRetry(ctx context.Context, store *Store, llmClient *llm.Client, gra
 		return nil, cypher, fmt.Errorf("cypher failed after retry: %w (original: %w)", retryErr, execErr)
 	}
 
-	rows, execErr = store.ExecCypher(ctx, graphName, retryCypher, cols)
+	retryCols := countReturnCols(retryCypher)
+	rows, execErr = store.ExecCypher(ctx, graphName, retryCypher, retryCols)
 	if execErr != nil {
 		return nil, retryCypher, fmt.Errorf("cypher retry exec: %w", execErr)
 	}
 	return rows, retryCypher, nil
+}
+
+// reReturnClause matches the last RETURN ... clause in a Cypher query.
+var reReturnClause = regexp.MustCompile(`(?i)\bRETURN\b(.+?)(?:\bORDER\b|\bLIMIT\b|\bSKIP\b|\bUNION\b|$)`)
+
+// countReturnCols estimates the number of projected columns in a Cypher query
+// by counting comma-separated expressions in the RETURN clause.
+// Returns at least 1.
+func countReturnCols(cypher string) int {
+	m := reReturnClause.FindStringSubmatch(cypher)
+	if len(m) < 2 {
+		return 1
+	}
+	// Count top-level commas (not inside parentheses).
+	expr := strings.TrimSpace(m[1])
+	depth := 0
+	cols := 1
+	for _, ch := range expr {
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				cols++
+			}
+		}
+	}
+	if cols < 1 {
+		cols = 1
+	}
+	return cols
 }
 
 // addNarrative generates an LLM narrative for the query results (non-fatal).
