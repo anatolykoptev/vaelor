@@ -173,6 +173,42 @@ func TestBuildCompareContext_PrioritizesModified(t *testing.T) {
 	}
 }
 
+func TestBuildCompareContext_IncludesDiffSummary(t *testing.T) {
+	matches := []SymbolMatch{
+		{
+			SymbolA: &parser.Symbol{
+				Name: "Foo", Kind: parser.KindFunction, File: "a.go",
+				Body: "func Foo(x int) {}",
+			},
+			SymbolB: &parser.Symbol{
+				Name: "Foo", Kind: parser.KindFunction, File: "b.go",
+				Body: "func Foo(x int, y string) {}",
+			},
+			MatchType: MatchModified,
+			Score:     1.0,
+			Category:  "function",
+			Diff: &DiffSummary{
+				TotalChanges: 3,
+				Inserts:      2,
+				Updates:      1,
+				Changes: []string{
+					"added parameter_declaration in parameter_list",
+					"changed identifier: \"int\" -> \"string\"",
+				},
+			},
+		},
+	}
+
+	ctx := BuildCompareContextV2(matches, RepoMetrics{}, RepoMetrics{}, "test", nil, nil)
+
+	if !strings.Contains(ctx, "Structural changes") {
+		t.Error("context should contain 'Structural changes' section")
+	}
+	if !strings.Contains(ctx, "added parameter_declaration") {
+		t.Error("context should contain diff change description")
+	}
+}
+
 func TestBuildCompareContextBudget(t *testing.T) {
 	// Each symbol body is ~20K chars — well above maxSnippetChars (3000).
 	largeBody := strings.Repeat("x", 20_000)

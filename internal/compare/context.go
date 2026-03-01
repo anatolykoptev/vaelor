@@ -163,6 +163,21 @@ func writePair(sb *strings.Builder, m *SymbolMatch) {
 	sb.WriteString("`):\n```\n")
 	sb.WriteString(truncate(m.SymbolB.Body, maxSnippetChars))
 	sb.WriteString("\n```\n\n")
+
+	if m.Diff != nil && m.Diff.TotalChanges > 0 {
+		writeDiffSummary(sb, m.Diff)
+	}
+}
+
+func writeDiffSummary(sb *strings.Builder, diff *DiffSummary) {
+	fmt.Fprintf(sb, "**Structural changes** (%d total: +%d -%d ~%d move:%d):\n",
+		diff.TotalChanges, diff.Inserts, diff.Deletes, diff.Updates, diff.Moves)
+	for _, c := range diff.Changes {
+		sb.WriteString("- ")
+		sb.WriteString(c)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
 }
 
 func writeGaps(sb *strings.Builder, matches []SymbolMatch) {
