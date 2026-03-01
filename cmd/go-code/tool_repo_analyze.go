@@ -63,9 +63,6 @@ func registerRepoAnalyze(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	})
 }
 
-// maxInlineChars is the threshold above which output is saved to a file.
-const maxInlineChars = 50_000
-
 // handleDeepMode performs a full clone + AST analysis of a repository.
 func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
 	if input.Repo == "" {
@@ -99,8 +96,8 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 
 	formatted := formatAnalysisResult(result, input.Format, input.Depth)
 
-	if outputDir != "" && len(formatted) > maxInlineChars {
-		if path, ok := saveOutputFile(formatted, input.Format, outputDir); ok {
+	if outputDir != "" && len(formatted) > maxInlineCharsDefault {
+		if path, ok := saveAnalysisFile(formatted, input.Format, outputDir); ok {
 			return textResult(buildFileSummary(result, path, len(formatted))), nil, nil
 		}
 	}
@@ -108,9 +105,9 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 	return textResult(formatted), nil, nil
 }
 
-// saveOutputFile writes content to a timestamped file in outputDir.
-// Returns the file path and true on success, or empty string and false on error.
-func saveOutputFile(content, format, outputDir string) (string, bool) {
+// saveAnalysisFile writes analysis content to a timestamped file in outputDir
+// with a format-dependent extension. Returns the file path and true on success.
+func saveAnalysisFile(content, format, outputDir string) (string, bool) {
 	ext := ".xml"
 	switch format {
 	case formatJSON:

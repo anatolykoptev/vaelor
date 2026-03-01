@@ -20,7 +20,9 @@ type CodeCompareInput struct {
 }
 
 // registerCodeCompare registers the code_compare MCP tool.
-func registerCodeCompare(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "code_compare",
 		Description: "Compare two code repositories to find the better implementation. " +
@@ -65,8 +67,6 @@ func registerCodeCompare(server *mcp.Server, _ Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("marshal result: %s", err)), nil, nil
 		}
 
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-		}, nil, nil
+		return largeTextResult(string(data), "code_compare", outputDir), nil, nil
 	})
 }
