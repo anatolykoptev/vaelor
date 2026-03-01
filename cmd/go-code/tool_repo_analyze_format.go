@@ -50,7 +50,7 @@ type xmlResponse struct {
 	Packages      xmlPackages `xml:"packages"`
 	Imports       *xmlImports `xml:"imports,omitempty"`
 	Files         *xmlFiles   `xml:"files,omitempty"`
-	Tree          string      `xml:"tree,omitempty"`
+	Tree          xmlCDATA    `xml:"tree,omitempty"`
 	Symbols       xmlSymbols  `xml:"symbols"`
 }
 
@@ -228,7 +228,7 @@ func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string) string {
 	}
 
 	if r.FileTree != "" {
-		resp.Tree = truncateTree(r.FileTree, limits.treeLines)
+		resp.Tree = xmlCDATA{Inner: wrapCDATA(truncateTree(r.FileTree, limits.treeLines))}
 	}
 
 	resp.Symbols = buildTopSymbols(r.Symbols, limits.topSymbols)

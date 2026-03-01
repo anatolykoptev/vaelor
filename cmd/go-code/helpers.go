@@ -4,11 +4,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// xmlCDATA wraps content in a CDATA section to prevent XML escaping of
+// source code, tree diagrams, and other content with special characters.
+// Use with `xml:",innerxml"` tag on struct fields.
+type xmlCDATA struct {
+	Inner string `xml:",innerxml"`
+}
+
+// wrapCDATA wraps a string in an XML CDATA section, escaping embedded "]]>" sequences.
+func wrapCDATA(s string) string {
+	s = strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+	return "<![CDATA[" + s + "]]>"
+}
 
 // maxInlineCharsDefault is the threshold above which output is saved to a file.
 const maxInlineCharsDefault = 50_000
