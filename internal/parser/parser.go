@@ -113,13 +113,8 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 	ext := filepath.Ext(path)
 	handler := HandlerForExt(ext)
 	if handler == nil {
-		// Language is detected but no tree-sitter handler registered yet.
-		return &ParseResult{
-			File:     path,
-			Language: lang,
-			Symbols:  []*Symbol{},
-			Imports:  []string{},
-		}, nil
+		// No tree-sitter grammar — use regex-based fallback tokenizer.
+		return fallbackParse(path, source, lang), nil
 	}
 
 	p := sitter.NewParser()
@@ -244,6 +239,22 @@ func DetectLanguageFromPath(path string) string {
 		return "ruby"
 	case ".cs":
 		return "csharp"
+	case ".kt", ".kts":
+		return "kotlin"
+	case ".php":
+		return "php"
+	case ".scala", ".sc":
+		return "scala"
+	case ".lua":
+		return "lua"
+	case ".pl", ".pm":
+		return "perl"
+	case ".swift":
+		return "swift"
+	case ".dart":
+		return "dart"
+	case ".ex", ".exs":
+		return "elixir"
 	default:
 		return ""
 	}
