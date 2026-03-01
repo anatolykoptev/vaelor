@@ -1,8 +1,9 @@
 module github.com/anatolykoptev/go-code
 
-go 1.24.0
+go 1.26.0
 
 require (
+	github.com/anatolykoptev/go-kit v0.1.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/modelcontextprotocol/go-sdk v1.4.0
