@@ -107,6 +107,8 @@ type RepoMetrics struct {
 	TotalLines         int     `json:"totalLines"`
 	AvgFuncLines       float64 `json:"avgFuncLines"`
 	MaxFuncLines       int     `json:"maxFuncLines"`
+	AvgComplexity      float64 `json:"avgComplexity"`
+	MaxComplexity      int     `json:"maxComplexity"`
 	TestRatio          float64 `json:"testRatio"`
 	DocRatio           float64 `json:"docRatio"`
 	ErrorHandlingRatio float64 `json:"errorHandlingRatio"`

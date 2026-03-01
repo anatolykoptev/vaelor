@@ -59,10 +59,12 @@ func funcLines(sym *parser.Symbol) int {
 // TotalLines are copied verbatim. Test-file detection is based on Symbol.File
 // paths (unique files seen across all symbols).
 func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
-	// --- function/method lines ---
+	// --- function/method lines + complexity ---
 	totalFuncLines := 0
+	totalComplexity := 0
 	funcCount := 0
 	maxFuncLines := 0
+	maxComplexity := 0
 
 	for _, sym := range snap.Symbols {
 		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
@@ -74,11 +76,21 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 		if lines > maxFuncLines {
 			maxFuncLines = lines
 		}
+
+		cc := cyclomaticComplexity(sym.Body)
+		totalComplexity += cc
+		if cc > maxComplexity {
+			maxComplexity = cc
+		}
 	}
 
 	var avgFuncLines float64
 	if funcCount > 0 {
 		avgFuncLines = float64(totalFuncLines) / float64(funcCount)
+	}
+	var avgComplexity float64
+	if funcCount > 0 {
+		avgComplexity = float64(totalComplexity) / float64(funcCount)
 	}
 
 	// --- test-file ratio ---
@@ -107,6 +119,8 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 		TotalLines:         snap.TotalLines,
 		AvgFuncLines:       avgFuncLines,
 		MaxFuncLines:       maxFuncLines,
+		AvgComplexity:      avgComplexity,
+		MaxComplexity:      maxComplexity,
 		TestRatio:          testFileRatio,
 		DocRatio:           docRatio,
 		ErrorHandlingRatio: errorHandlingRatio,

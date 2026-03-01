@@ -174,6 +174,33 @@ func TestIsTestFile(t *testing.T) {
 	}
 }
 
+func TestComputeMetrics_Complexity(t *testing.T) {
+	snap := &RepoSnapshot{
+		FileCount:  1,
+		TotalLines: 100,
+		Symbols: []*parser.Symbol{
+			{
+				Name: "Simple", Kind: parser.KindFunction,
+				Body: "func Simple() { return 1 }", StartLine: 1, EndLine: 3,
+			},
+			{
+				Name: "Complex", Kind: parser.KindFunction,
+				Body: "func Complex() { if a { } if b && c { } for i := range x { } }",
+				StartLine: 5, EndLine: 15,
+			},
+		},
+	}
+
+	m := ComputeMetrics(snap)
+
+	if m.AvgComplexity == 0 {
+		t.Error("AvgComplexity = 0, want > 0")
+	}
+	if m.MaxComplexity < 2 {
+		t.Errorf("MaxComplexity = %d, want >= 2", m.MaxComplexity)
+	}
+}
+
 func TestIsExternalImport(t *testing.T) {
 	tests := []struct {
 		imp  string
