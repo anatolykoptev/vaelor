@@ -274,6 +274,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] 6 unit tests (star, chain, cycle, normalization)
 
 **Where**: `internal/ranking/pagerank.go`, `internal/analyze/context.go` → `prioritizeFiles()`.
+**Note**: Current implementation uses file-level import edges. Phase 7.5 upgrades to identifier-level reference edges + personalized PageRank (Aider-style).
 
 ### 6.6 Intent-aware system prompts ✅
 - [x] Classify queries into 5 intents: architecture, debug, navigate, dependency, general
@@ -342,7 +343,21 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — `FileHashCache` per file, JSON state; [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext) — file watcher + per-file reindex.
 
-**Deliverable**: Richer graph queries (imports, inheritance), 10-100x faster re-indexing for local repos.
+### 7.5 Identifier-level reference graph + fusion ranking
+- [ ] Build identifier-level reference graph: extract all symbol definitions + references via tree-sitter (not just imports)
+- [ ] File→file edges weighted by shared identifier references: `weight = mul / len(definers)` — distribute importance across multiple definition sites
+- [ ] Weight multipliers: identifiers mentioned in query → ×10, long camelCase/snake_case (≥8 chars) → ×10, private (`_` prefix) → ×0
+- [ ] Personalized PageRank: inject personalization vector boosting files that contain query-mentioned identifiers
+- [ ] Seed expansion: if query mentions a struct/class name → auto-add its methods as seeds (from CodeMCP)
+- [ ] Replace current import-only graph in `buildPageRankGraph()` with identifier-level reference graph
+- [ ] Fusion ranking: combine BM25F + PageRank + exact symbol match + import depth into weighted score (currently only BM25F×0.7 + PageRank×0.3). Normalize each signal to [0,1] before combination.
+- [ ] Fallback tokenizer: when tree-sitter finds definitions but no references for a language → regex-based `Token.Name` extraction (ensures graph edges exist for under-covered grammars)
+
+**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — `RepoMap` uses NetworkX MultiDiGraph with identifier-level edges + personalized PageRank (`alpha=0.85`); pygments fallback for reference extraction. [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `FusionRanker` combines 5 signals (FTS, PPR, Hotspot, Recency, Exact) with normalization; seed expansion via `expandSeedsWithMethods`. Our current Phase 6.5 PageRank uses file-level import edges only.
+
+**Where**: `internal/ranking/pagerank.go` → personalization vector + seed expansion; `internal/ranking/fusion.go` → new multi-signal combiner; `internal/analyze/context.go` → `buildPageRankGraph()` → identifier-level graph; new `internal/parser/fallback.go` for regex tokenizer.
+
+**Deliverable**: Richer graph queries (imports, inheritance), 10-100x faster re-indexing for local repos. Identifier-level ranking with personalized PageRank for more precise file prioritization.
 
 ---
 
@@ -390,10 +405,13 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [ ] New MCP tool: `impact_analysis` or extend `call_trace` with `mode=impact`
 - [ ] Input: symbol name + repo → output: direct/indirect/transitive dependents
 - [ ] Depth-scored: direct callers (high risk), transitive callers (medium), downstream (low)
+- [ ] Confidence score degrades with distance from changed symbol
+- [ ] Blast radius thresholds (from CodeMCP): low (≤2 modules / ≤5 callers), medium (≤5 / ≤20), high (above)
+- [ ] Risk scoring: `visibility × impact_count` — public symbols score higher
 - [ ] Uses existing CALLS edges from `code_graph` + call graph from `call_trace`
 - [ ] LLM narrative: "changing this function affects N direct callers and M transitive dependents"
 
-**Ref**: [Axon](https://github.com/harshkedia177/axon) — blast radius with confidence scores; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `analyzeImpact`, `analyzeChange`.
+**Ref**: [Axon](https://github.com/harshkedia177/axon) — blast radius with confidence scores; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `AnalyzeImpact` with SCIP FindReferences + BuildCallGraph, `ClassifyBlastRadius` with module/caller thresholds, telemetry-enhanced risk scoring.
 
 ### 9.3 Dead code detection
 - [ ] Multi-pass approach: (1) build call graph, (2) identify entry points, (3) mark unreachable
@@ -455,13 +473,15 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [ ] Merge with tree-sitter call graph (RTA for Go files, tree-sitter for others)
 - [ ] Resolves interface dispatch, method sets, embedded types
 
-### 11.3 Compound tools
+### 11.3 Compound tools + graceful degradation
 - [ ] `explore` — combines `file_parse` + `symbol_search` + `dep_graph` for area overview
 - [ ] `understand` — combines `call_trace` + `code_graph` + complexity for symbol deep-dive
 - [ ] `prepare_change` — combines `impact_analysis` + `dead_code` for pre-change assessment
+- [ ] Ambiguity handling: when symbol name matches multiple, list top matches with disambiguation hints (from CodeMCP `UnderstandAmbiguity`)
+- [ ] Graceful tier degradation (from CodeMCP): each tool has `MinimumBackend` (tree-sitter / SCIP) + `Fallback` flag. Tools still work at lower precision when SCIP unavailable, instead of failing.
 - [ ] Progressive tool disclosure: start with 8 core tools, reveal advanced on request
 
-**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `explore`, `understand`, `prepareChange`, `expandToolset`; [CodeCompass](https://arxiv.org/abs/2602.20048) — agents don't use tools they don't understand, compound tools improve discoverability.
+**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `explore`, `understand`, `prepareChange`, `expandToolset`; 3-tier system (Basic/Enhanced/Full) with `tier.Detector` + preset switching; [CodeCompass](https://arxiv.org/abs/2602.20048) — agents don't use tools they don't understand, compound tools improve discoverability.
 
 **Deliverable**: Compiler-accurate analysis for Go, compound tools for reduced round-trips.
 
@@ -502,11 +522,12 @@ Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Co
                                 11.3 Compound tools
 ```
 
-**Completed**: Phase 1, 2, 3, 4 (4.1+4.2+4.3), 5.
-**Next**: Phase 6 (analysis quality — ranking, prompts, output).
+**Completed**: Phase 1, 2, 3, 4 (4.1+4.2+4.3), 5, 6.
+**Next**: Phase 7 (graph enrichment — schema injection, IMPORTS, INHERITS, incremental indexing, identifier-level ranking).
 **Independent**: Phases 7, 8, 9 can run in parallel after Phase 6.
 **Depends on 7+9**: Phase 11 builds on enriched graph + impact analysis.
 **Depends on 6**: Phase 10 builds on PageRank from Phase 6.5.
+**Depends on 7.5**: Phase 10.3 graph-enhanced search benefits from identifier-level reference graph.
 
 ## Releases
 

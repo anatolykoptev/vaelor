@@ -1,0 +1,55 @@
+# Code Quality & Metrics Tools
+
+## panbanda/omen — Hotspot Detection
+
+- **Repo**: [panbanda/omen](https://github.com/panbanda/omen) | Rust
+- **Key file**: `src/analyzers/hotspot.rs`
+
+### Formula
+```
+hotspot = percentile(churn) × percentile(complexity)
+```
+
+Product of percentile ranks, not sum.
+
+### Thresholds
+- Critical: ≥ 0.81
+- High: ≥ 0.64
+- Moderate: ≥ 0.36
+- Both churn and complexity must be ≥ 50th percentile
+
+### Churn Scoring
+`sum(1.0 + (additions + deletions) / 100.0)` per commit — larger changes weighted more.
+
+**Status in go-code**: Planned for Phase 9.1 (complexity metrics + hotspot detection).
+
+## boyter/scc — Code Counting
+
+- **Repo**: [boyter/scc](https://github.com/boyter/scc) | 8,071 stars | Go
+- LOC, blank, comment, cyclomatic complexity per file. Duplicate detection.
+- Useful for quantitative repo fingerprinting in `code_compare`.
+
+## gabotechs/dep-tree — Dependency Graph Visualization
+
+- **Repo**: [gabotechs/dep-tree](https://github.com/gabotechs/dep-tree) | 1,696 stars | Go
+- Cross-language dependency graph visualization.
+- Reference for dep graph rendering.
+
+## Neural Code Retrieval (arxiv 2502.07067)
+
+- **Title**: "Repository-level Code Search with Neural Retrieval Methods" (Feb 2025)
+- **Pipeline**: BM25 over commit messages → CodeBERT CommitReranker → CodeBERT CodeReranker
+
+### Key Insight
+Commit messages are natural language descriptions of what code does.
+BM25 on commit messages **outperforms** BM25 on source code for bug localization.
+
+- **Result**: up to 80% improvement in MAP/MRR/P@1 vs BM25 baseline
+
+## Academic Research
+
+| Paper | Key Finding |
+|-------|-------------|
+| [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) | Graph-based navigation: 99.4% task completion vs 76.2% baseline. But 58% of agents with graph access made 0 tool calls — need explicit prompting. |
+| [MLSA (arxiv 1808.01213)](https://arxiv.org/abs/1808.01213) | Build monolingual call graphs independently, stitch at FFI boundaries. |
+| [CHARON (EuroSP 2025)](https://scnps.co/papers/eurosp25_polyglot_sast.pdf) | Polyglot Property Graphs with bidirectional cross-language edges for SAST. |
