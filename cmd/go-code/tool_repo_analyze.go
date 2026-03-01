@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/github"
@@ -32,7 +35,9 @@ type RepoAnalyzeInput struct {
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
-func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerRepoAnalyze(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "repo_analyze",
 		Description: "Analyze a code repository (GitHub or local) using AST parsing. " +
@@ -51,12 +56,15 @@ func registerRepoAnalyze(server *mcp.Server, _ Config, deps analyze.Deps) {
 		if input.Mode == modeQuick || input.Mode == modeRaw {
 			return handleQuickMode(ctx, input, deps)
 		}
-		return handleDeepMode(ctx, input, deps)
+		return handleDeepMode(ctx, input, deps, outputDir)
 	})
 }
 
+// maxInlineChars is the threshold above which output is saved to a file.
+const maxInlineChars = 50_000
+
 // handleDeepMode performs a full clone + AST analysis of a repository.
-func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil, nil
 	}
@@ -86,7 +94,67 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 		return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil
 	}
 
-	return textResult(formatAnalysisResult(result, input.Format, input.Depth)), nil, nil
+	formatted := formatAnalysisResult(result, input.Format, input.Depth)
+
+	if outputDir != "" && len(formatted) > maxInlineChars {
+		if path, ok := saveOutputFile(formatted, input.Format, outputDir); ok {
+			return textResult(buildFileSummary(result, path, len(formatted))), nil, nil
+		}
+	}
+
+	return textResult(formatted), nil, nil
+}
+
+// saveOutputFile writes content to a timestamped file in outputDir.
+// Returns the file path and true on success, or empty string and false on error.
+func saveOutputFile(content, format, outputDir string) (string, bool) {
+	ext := ".xml"
+	switch format {
+	case "json":
+		ext = ".json"
+	case "text":
+		ext = ".txt"
+	}
+
+	if err := os.MkdirAll(outputDir, 0o755); err != nil { //nolint:mnd
+		return "", false
+	}
+
+	filename := fmt.Sprintf("repo_analyze_%d%s", time.Now().UnixMilli(), ext)
+	path := filepath.Join(outputDir, filename)
+
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:mnd
+		return "", false
+	}
+
+	return path, true
+}
+
+// buildFileSummary creates a concise summary with metadata and the file path.
+func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) string {
+	var sb strings.Builder
+
+	fmt.Fprintf(&sb, "repo_analyze: %s | %d files | %s\n", r.RepoName, r.FileCount, r.Language)
+	fmt.Fprintf(&sb, "Full output (%d chars) saved to: %s\n\n", chars, path)
+
+	sb.WriteString("Contents:\n")
+	fmt.Fprintf(&sb, "- %d packages\n", len(r.Packages))
+	if len(r.Files) > 0 {
+		fmt.Fprintf(&sb, "- %d files ranked by relevance (BM25F+PageRank)\n", len(r.Files))
+	}
+	if len(r.Symbols) > 0 {
+		fmt.Fprintf(&sb, "- %d symbols with signatures\n", len(r.Symbols))
+	}
+	if len(r.ImportGraph) > 0 {
+		sb.WriteString("- Import dependency graph\n")
+	}
+	if r.FileTree != "" {
+		sb.WriteString("- Directory tree\n")
+	}
+
+	sb.WriteString("\nUse Read tool to access the file. Use Grep to search for specific symbols.")
+
+	return sb.String()
 }
 
 // handleQuickMode performs a fast GitHub Code Search without cloning the repo.
