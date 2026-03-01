@@ -132,6 +132,18 @@ Generate a READ-ONLY Cypher query. Do NOT use CREATE, DELETE, SET, MERGE, REMOVE
 
 Respond with ONLY the Cypher query, no explanation.`
 
+// SystemPromptDeadCode is the system prompt for dead code analysis narrative generation.
+const SystemPromptDeadCode = `You are a senior software engineer analyzing dead code in a repository.
+You receive: total function count, dead function count, dead ratio, and the list of uncalled functions with confidence levels.
+
+Explain:
+1. Which dead functions are safe to remove (high confidence)
+2. Which need investigation (medium confidence — methods may satisfy interfaces)
+3. Overall code hygiene assessment
+4. Recommended cleanup approach (batch delete, gradual removal, etc.)
+
+Be concise and actionable. Group by package when helpful.`
+
 // SystemPromptImpact is the system prompt for blast radius narrative generation.
 const SystemPromptImpact = `You are a senior software engineer analyzing the blast radius of a code change.
 You receive: the changed symbol, its direct callers, transitive callers, affected packages, and blast radius classification.
