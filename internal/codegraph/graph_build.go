@@ -69,16 +69,25 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	for _, sym := range symbols {
 		relFile := relPath(sym.File, root)
 		symKey := sym.Name + ":" + relFile
+		props := map[string]string{
+			"name":       sym.Name,
+			"kind":       string(sym.Kind),
+			"signature":  sym.Signature,
+			"file":       relFile,
+			"start_line": strconv.Itoa(int(sym.StartLine)),
+			"end_line":   strconv.Itoa(int(sym.EndLine)),
+		}
+		if sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod {
+			lines := 1
+			if sym.EndLine >= sym.StartLine {
+				lines = int(sym.EndLine-sym.StartLine) + 1
+			}
+			props["lines"] = strconv.Itoa(lines)
+			props["complexity"] = strconv.Itoa(symbolComplexity(sym.Body))
+		}
 		vertices = append(vertices, vertexData{
 			Label: "Symbol",
-			Props: map[string]string{
-				"name":       sym.Name,
-				"kind":       string(sym.Kind),
-				"signature":  sym.Signature,
-				"file":       relFile,
-				"start_line": strconv.Itoa(int(sym.StartLine)),
-				"end_line":   strconv.Itoa(int(sym.EndLine)),
-			},
+			Props: props,
 		})
 
 		edges = append(edges, edgeData{

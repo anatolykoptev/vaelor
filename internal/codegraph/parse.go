@@ -95,6 +95,7 @@ func indexParseFile(f *ingest.File) indexParseResult {
 	opts := parser.ParseOpts{
 		Language:       f.Language,
 		IncludeImports: true,
+		IncludeBody:    true,
 	}
 
 	pr, err := parser.ParseFile(f.Path, source, opts)
