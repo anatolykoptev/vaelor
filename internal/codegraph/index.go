@@ -77,13 +77,13 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		return nil, fmt.Errorf("ensure graph: %w", err)
 	}
 
-	allFiles, allSymbols, allCalls, err := ingestAndParse(ctx, root)
+	allFiles, allSymbols, allCalls, fileImports, err := ingestAndParse(ctx, root)
 	if err != nil {
 		return nil, err
 	}
 
 	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
-	vertices, edges := buildGraph(root, allFiles, allSymbols, cg)
+	vertices, edges := buildGraph(root, allFiles, allSymbols, cg, fileImports)
 
 	if err := insertBatches(ctx, store, gname, cfg.BatchSize, vertices, buildVertexBatch); err != nil {
 		return nil, fmt.Errorf("insert vertices: %w", err)

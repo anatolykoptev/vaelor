@@ -11,21 +11,24 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
-// indexParseResult holds symbols and calls parsed from one file.
+// indexParseResult holds symbols, calls, and imports parsed from one file.
 type indexParseResult struct {
 	file    *ingest.File
 	symbols []*parser.Symbol
 	calls   []parser.CallSite
+	imports []string
 }
 
 // ingestAndParse ingests a repository and parses all files in parallel.
-func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, error) {
+// The returned map associates each file's relative path with the import paths
+// declared in that file.
+func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
 		MaxFileBytes: maxIndexFileBytes,
 	})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
 	results := indexParseParallel(ctx, ir.Files)
@@ -33,6 +36,7 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 	var allFiles []*ingest.File
 	var allSymbols []*parser.Symbol
 	var allCalls []parser.CallSite
+	fileImports := make(map[string][]string)
 
 	for _, r := range results {
 		if r.file == nil {
@@ -41,9 +45,12 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 		allFiles = append(allFiles, r.file)
 		allSymbols = append(allSymbols, r.symbols...)
 		allCalls = append(allCalls, r.calls...)
+		if len(r.imports) > 0 {
+			fileImports[r.file.RelPath] = r.imports
+		}
 	}
 
-	return allFiles, allSymbols, allCalls, nil
+	return allFiles, allSymbols, allCalls, fileImports, nil
 }
 
 // indexParseParallel parses all files concurrently and returns results.
@@ -101,6 +108,7 @@ func indexParseFile(f *ingest.File) indexParseResult {
 		file:    f,
 		symbols: pr.Symbols,
 		calls:   calls,
+		imports: pr.Imports,
 	}
 }
 
