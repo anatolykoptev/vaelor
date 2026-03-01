@@ -25,6 +25,10 @@ const (
 
 	captureCallFunction = "call.function"
 	captureCallMethod   = "call.method"
+
+	captureRelSubject    = "rel.subject"
+	captureRelTarget     = "rel.target"
+	captureRelImplTarget = "rel.impl_target"
 )
 
 // LanguageHandler abstracts a tree-sitter language grammar and its query logic.
@@ -52,6 +56,12 @@ type LanguageHandler interface {
 // can satisfy to support call extraction.
 type CallQueryProvider interface {
 	CallsQuery() *sitter.Query
+}
+
+// RelationshipQueryProvider is an optional interface that LanguageHandler implementations
+// can satisfy to support type relationship extraction (extends, implements, embeds).
+type RelationshipQueryProvider interface {
+	RelationshipsQuery() *sitter.Query
 }
 
 // registry maps file extension (e.g. ".go") to its LanguageHandler.

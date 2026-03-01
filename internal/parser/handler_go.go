@@ -16,11 +16,15 @@ var goQueryBytes []byte
 //go:embed queries/go_calls.scm
 var goCallsQueryBytes []byte
 
+//go:embed queries/go_rels.scm
+var goRelsQueryBytes []byte
+
 // goHandler implements LanguageHandler for Go source files.
 type goHandler struct {
 	lang      *sitter.Language
 	query     *sitter.Query
 	callQuery *sitter.Query
+	relsQuery *sitter.Query
 }
 
 // goLang is the singleton Go language handler, registered on package init.
@@ -36,9 +40,14 @@ func init() {
 	if err != nil {
 		panic("go_calls.scm query compile error: " + err.Error())
 	}
+	rq, err := sitter.NewQuery(goRelsQueryBytes, lang)
+	if err != nil {
+		panic("go_rels.scm query compile error: " + err.Error())
+	}
 	goLang.lang = lang
 	goLang.query = q
 	goLang.callQuery = cq
+	goLang.relsQuery = rq
 	registerHandler(goLang)
 }
 
@@ -51,6 +60,8 @@ func (h *goHandler) SitterLanguage() *sitter.Language { return h.lang }
 func (h *goHandler) TagsQuery() *sitter.Query { return h.query }
 
 func (h *goHandler) CallsQuery() *sitter.Query { return h.callQuery }
+
+func (h *goHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol.
 // Returns nil for captures that are not top-level declarations.
