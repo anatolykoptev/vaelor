@@ -17,11 +17,17 @@ type llmCompleter interface {
 	Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 }
 
+// cypherSystemPrompt returns the Cypher generation system prompt with the full
+// graph schema injected.
+func cypherSystemPrompt() string {
+	return fmt.Sprintf(prompts.SystemPromptGenerateCypher, GraphSchemaText())
+}
+
 // GenerateCypher asks the LLM to produce a read-only Cypher query for the given
 // natural-language question. It extracts the query from any markdown code block
 // returned by the model and rejects queries containing write operations.
 func GenerateCypher(ctx context.Context, client llmCompleter, query string) (string, error) {
-	raw, err := client.Complete(ctx, prompts.SystemPromptGenerateCypher, query)
+	raw, err := client.Complete(ctx, cypherSystemPrompt(), query)
 	if err != nil {
 		return "", fmt.Errorf("llm completion: %w", err)
 	}
@@ -43,7 +49,7 @@ func GenerateCypherWithRetry(ctx context.Context, client llmCompleter, query, fi
 		query, firstErr,
 	)
 
-	raw, err := client.Complete(ctx, prompts.SystemPromptGenerateCypher, retryPrompt)
+	raw, err := client.Complete(ctx, cypherSystemPrompt(), retryPrompt)
 	if err != nil {
 		return "", fmt.Errorf("llm retry completion: %w", err)
 	}
