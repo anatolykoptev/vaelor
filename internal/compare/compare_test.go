@@ -210,6 +210,34 @@ func TestCompareRepos_MatchBreakdown(t *testing.T) {
 	}
 }
 
+func TestCompareRepos_ImportDiff(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	root := findRepoRootInternal(t)
+
+	result, err := CompareRepos(context.Background(), CompareInput{
+		RootA: root,
+		RootB: root,
+		Query: "test",
+		Opts:  SnapshotOpts{Language: "go"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("CompareRepos: %v", err)
+	}
+
+	if result.ImportDiff.CommonCount == 0 {
+		t.Error("expected CommonCount > 0 in self-compare")
+	}
+	if result.ImportDiff.OnlyACount != 0 {
+		t.Errorf("expected OnlyACount = 0 in self-compare, got %d", result.ImportDiff.OnlyACount)
+	}
+	if result.ImportDiff.OnlyBCount != 0 {
+		t.Errorf("expected OnlyBCount = 0 in self-compare, got %d", result.ImportDiff.OnlyBCount)
+	}
+}
+
 func TestParseAnalysis(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
 		input := `{"quality": [{"aspect": "error handling", "winner": "repo_a", "reason": "better"}], "recommendations": ["use errors.Is"]}`
