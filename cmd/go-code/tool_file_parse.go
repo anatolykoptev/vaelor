@@ -109,6 +109,9 @@ func formatSymbolsTable(sb *strings.Builder, symbols []*parser.Symbol) {
 			fmt.Fprintf(sb, "  [%s] %s\n    Lines: %d-%d\n",
 				sym.Kind, sym.Name, sym.StartLine, sym.EndLine)
 		}
+		if sym.Complexity > 0 {
+			fmt.Fprintf(sb, "    Complexity: %d\n", sym.Complexity)
+		}
 		if sym.DocComment != "" {
 			fmt.Fprintf(sb, "    Doc: %s\n", sym.DocComment)
 		}
@@ -118,7 +121,11 @@ func formatSymbolsTable(sb *strings.Builder, symbols []*parser.Symbol) {
 // formatSymbolsAST formats symbols with their full source body included.
 func formatSymbolsAST(sb *strings.Builder, symbols []*parser.Symbol) {
 	for _, sym := range symbols {
-		fmt.Fprintf(sb, "### [%s] %s (lines %d-%d)\n", sym.Kind, sym.Name, sym.StartLine, sym.EndLine)
+		if sym.Complexity > 0 {
+			fmt.Fprintf(sb, "### [%s] %s (lines %d-%d, complexity %d)\n", sym.Kind, sym.Name, sym.StartLine, sym.EndLine, sym.Complexity)
+		} else {
+			fmt.Fprintf(sb, "### [%s] %s (lines %d-%d)\n", sym.Kind, sym.Name, sym.StartLine, sym.EndLine)
+		}
 		if sym.DocComment != "" {
 			fmt.Fprintf(sb, "Doc: %s\n", sym.DocComment)
 		}

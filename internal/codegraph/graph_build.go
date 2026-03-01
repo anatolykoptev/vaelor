@@ -88,7 +88,11 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 				lines = int(sym.EndLine-sym.StartLine) + 1
 			}
 			props["lines"] = strconv.Itoa(lines)
-			props["complexity"] = strconv.Itoa(symbolComplexity(sym.Body))
+			cc := sym.Complexity
+			if cc == 0 && sym.Body != "" {
+				cc = parser.Complexity(sym.Body)
+			}
+			props["complexity"] = strconv.Itoa(cc)
 		}
 		if score, ok := prScores[symKey]; ok {
 			props["pagerank"] = fmt.Sprintf("%.6f", score)
