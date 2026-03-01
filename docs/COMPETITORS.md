@@ -1,6 +1,6 @@
 # Competitors & Prior Art
 
-Research conducted 2026-02-27, updated 2026-02-28. Analysis of existing solutions in code intelligence,
+Research conducted 2026-02-27, updated 2026-02-28 (P2 gaps closed). Analysis of existing solutions in code intelligence,
 AST parsing, repository analysis, and code comparison.
 
 ## Tree-sitter Go Bindings
@@ -407,27 +407,36 @@ Full landscape analysis: 15+ competing MCP servers for code intelligence.
 | **NL→Cypher** | Yes (schema-injected) | No | No | Yes | No |
 | **Code compare** | Yes | No | No | No | No |
 | **Impact/blast** | **Yes** | No | No | Yes | Yes |
-| **Dead code** | Yes (template) | No | No | Yes | Yes |
+| **Dead code** | **Yes** (MCP tool + template) | No | No | Yes | Yes |
 | **AST diff** | **Yes** (smacker/gum) | No | No | No | No |
+| **Complexity** | **Yes** (cyclomatic + hotspots) | No | No | No | Yes |
+| **INHERITS/IMPLEMENTS** | **Yes** (Go/Py/Java/TS) | No | No | Yes | Yes |
+| **PageRank** | **Yes** (CALLS graph) | No | No | No | Yes |
+| **Fallback tokenizer** | **Yes** (8 extra langs) | No | No | No | No |
+| **Incremental indexing** | **Yes** (mtime tracking) | No | No | No | No |
 | **Semantic search** | No | No | Yes (Chroma) | Yes | No |
 | **SCIP backend** | No | No | No | No | Yes |
 | **Repo search** | Yes | No | Yes | No | No |
 | **Multi-repo** | No | No | No | No | Yes |
-| **Complexity** | No | No | No | No | Yes |
 | **IMPORTS graph** | **Yes** | No | No | Yes | Yes |
 
 ## Gap Analysis — What We Build
 
 No existing tool combines ALL of:
 - Go-native implementation (only CodeMCP is also Go)
-- Multi-language AST parsing (tree-sitter, 10 languages)
+- Multi-language AST parsing (tree-sitter, 10+ languages + 8 via fallback tokenizer)
 - Apache AGE knowledge graph with schema-injected NL-to-Cypher
 - Structural code comparison with AST diff (`code_compare` + `smacker/gum` — unique)
 - Impact/blast radius analysis with confidence scoring
 - IMPORTS edges in graph with full Cypher template support
+- INHERITS/IMPLEMENTS edges for type hierarchy (Go embed, Python/Java/TS inheritance)
+- Dead code detection MCP tool with false positive filtering and confidence scoring
+- Complexity metrics (cyclomatic) and hotspot analysis on Symbol vertices
+- PageRank on CALLS graph for symbol importance ranking
+- Incremental graph indexing via file mtime tracking
 - LLM-powered natural language narratives
 - Repo discovery (`repo_search`)
-- MCP server interface (9 tools)
+- MCP server interface (10 tools)
 
 This is the gap `go-code` fills.
 
@@ -439,12 +448,12 @@ This is the gap `go-code` fills.
 | ~~P1~~ | ~~IMPORTS edges (data already parsed)~~ | ~~1d~~ | ~~CodeGraphContext~~ | **Done** (v1.9.0) |
 | ~~P1~~ | ~~AST diff via smacker/gum~~ | ~~1d~~ | ~~smacker/gum~~ | **Done** (v1.9.0) |
 | ~~P1~~ | ~~Impact/blast radius analysis~~ | ~~1d~~ | ~~Axon, CodeMCP~~ | **Done** (v1.9.0) |
-| P2 | Dead code detection | 1d | Axon, CodeGraphContext | Partial (template exists) |
-| P2 | Complexity metrics | 1d | ast-metrics, CodeMCP | |
-| P2 | Identifier-level reference graph + personalized PageRank | 2d | Aider | |
-| P2 | Fallback tokenizer for under-covered languages | 0.5d | Aider | |
-| P2 | Incremental graph indexing | 2d | code-graph-rag | |
-| P2 | INHERITS/IMPLEMENTS edges | 2d | codeprism | |
+| ~~P2~~ | ~~Dead code detection~~ | ~~1d~~ | ~~Axon, CodeGraphContext~~ | **Done** — `dead_code` MCP tool with confidence scoring |
+| ~~P2~~ | ~~Complexity metrics~~ | ~~1d~~ | ~~ast-metrics, CodeMCP~~ | **Done** — cyclomatic + hotspots on Symbol vertices |
+| ~~P2~~ | ~~PageRank on CALLS graph~~ | ~~1d~~ | ~~Aider~~ | **Done** — `important_symbols` template |
+| ~~P2~~ | ~~Fallback tokenizer~~ | ~~0.5d~~ | ~~Aider~~ | **Done** — 8 extra languages via regex |
+| ~~P2~~ | ~~Incremental graph indexing~~ | ~~1d~~ | ~~code-graph-rag~~ | **Done** — mtime tracking infrastructure |
+| ~~P2~~ | ~~INHERITS/IMPLEMENTS edges~~ | ~~2d~~ | ~~codeprism~~ | **Done** — Go/Python/Java/TS type hierarchy |
 | P3 | Semantic search via embeddings | 3-4d | code-graph-rag, Octocode | |
 | P3 | SCIP backend for Go | 3+d | CodeMCP, srctx | |
 | P3 | Compound tools | 2d | CodeMCP | |
