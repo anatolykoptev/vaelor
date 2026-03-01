@@ -103,6 +103,35 @@ func TestBuildCompareContext(t *testing.T) {
 	})
 }
 
+func TestBuildCompareContext_IncludesHotspots(t *testing.T) {
+	matches := []SymbolMatch{
+		{
+			SymbolA:   &parser.Symbol{Name: "Foo", Kind: parser.KindFunction, File: "a.go", Body: "code"},
+			SymbolB:   &parser.Symbol{Name: "Foo", Kind: parser.KindFunction, File: "b.go", Body: "code"},
+			MatchType: MatchExact, Score: 1.0, Category: "function",
+		},
+	}
+
+	hotspotsA := []HotspotFile{
+		{File: "hot.go", Score: 0.95, Churn: 50, Complexity: 12.0, Risk: "critical"},
+	}
+	hotspotsB := []HotspotFile{
+		{File: "warm.go", Score: 0.70, Churn: 30, Complexity: 8.0, Risk: "high"},
+	}
+
+	ctx := BuildCompareContextV2(matches, RepoMetrics{}, RepoMetrics{}, "test", hotspotsA, hotspotsB)
+
+	if !strings.Contains(ctx, "Hotspots") {
+		t.Error("context should contain Hotspots section")
+	}
+	if !strings.Contains(ctx, "hot.go") {
+		t.Error("context should contain hotspot file hot.go")
+	}
+	if !strings.Contains(ctx, "critical") {
+		t.Error("context should contain risk level critical")
+	}
+}
+
 func TestBuildCompareContext_PrioritizesModified(t *testing.T) {
 	matches := []SymbolMatch{
 		{

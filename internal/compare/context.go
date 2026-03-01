@@ -36,16 +36,22 @@ type metricsJSON struct {
 	RepoB RepoMetrics `json:"repo_b"`
 }
 
-// BuildCompareContext assembles a structured text context for the LLM.
+// BuildCompareContext assembles structured text context for the LLM (no hotspots).
+func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string) string {
+	return BuildCompareContextV2(matches, metricsA, metricsB, query, nil, nil)
+}
+
+// BuildCompareContextV2 assembles structured text context for the LLM, including hotspot data.
 //
 // Sections:
 //  1. ## Query — the user's question
 //  2. ## Metrics — JSON comparison of aggregate quality metrics
-//  3. ## Matched Symbols (side-by-side) — non-gap pairs up to maxMatchedPairs
-//  4. ## Coverage Gaps — symbols absent from one side, up to maxGapSymbols
+//  3. ## Maintenance Hotspots — high-churn x high-complexity files (if any)
+//  4. ## Matched Symbols (side-by-side) — non-gap pairs up to maxMatchedPairs
+//  5. ## Coverage Gaps — symbols absent from one side, up to maxGapSymbols
 //
 // Content is truncated once the cumulative output exceeds maxContextChars.
-func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string) string {
+func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string, hotspotsA, hotspotsB []HotspotFile) string {
 	var sb strings.Builder
 
 	writeQuery(&sb, query)
@@ -56,6 +62,13 @@ func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, 
 	writeMetrics(&sb, metricsA, metricsB)
 	if sb.Len() >= maxContextChars {
 		return sb.String()
+	}
+
+	if len(hotspotsA) > 0 || len(hotspotsB) > 0 {
+		writeHotspots(&sb, hotspotsA, hotspotsB)
+		if sb.Len() >= maxContextChars {
+			return sb.String()
+		}
 	}
 
 	writeMatchedPairs(&sb, matches)
@@ -169,6 +182,39 @@ func writeGaps(sb *strings.Builder, matches []SymbolMatch) {
 		}
 		writeGap(sb, m)
 		written++
+	}
+}
+
+// maxHotspotsInContext limits hotspots shown to LLM.
+const maxHotspotsInContext = 10
+
+func writeHotspots(sb *strings.Builder, hotspotsA, hotspotsB []HotspotFile) {
+	sb.WriteString("## Maintenance Hotspots\n\n")
+
+	if len(hotspotsA) > 0 {
+		sb.WriteString("**Repo A hotspots** (high churn × high complexity):\n")
+		limit := len(hotspotsA)
+		if limit > maxHotspotsInContext {
+			limit = maxHotspotsInContext
+		}
+		for _, h := range hotspotsA[:limit] {
+			fmt.Fprintf(sb, "- `%s` — risk: %s, score: %.2f, churn: %d, complexity: %.1f\n",
+				h.File, h.Risk, h.Score, h.Churn, h.Complexity)
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(hotspotsB) > 0 {
+		sb.WriteString("**Repo B hotspots** (high churn × high complexity):\n")
+		limit := len(hotspotsB)
+		if limit > maxHotspotsInContext {
+			limit = maxHotspotsInContext
+		}
+		for _, h := range hotspotsB[:limit] {
+			fmt.Fprintf(sb, "- `%s` — risk: %s, score: %.2f, churn: %d, complexity: %.1f\n",
+				h.File, h.Risk, h.Score, h.Churn, h.Complexity)
+		}
+		sb.WriteString("\n")
 	}
 }
 

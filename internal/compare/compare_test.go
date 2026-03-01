@@ -238,6 +238,26 @@ func TestCompareRepos_ImportDiff(t *testing.T) {
 	}
 }
 
+func TestCompareRepos_Hotspots(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	root := findRepoRootInternal(t)
+
+	result, err := CompareRepos(context.Background(), CompareInput{
+		RootA: root,
+		RootB: root,
+		Query: "test",
+		Opts:  SnapshotOpts{Language: "go"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("CompareRepos: %v", err)
+	}
+
+	t.Logf("HotspotsA: %d, HotspotsB: %d", len(result.HotspotsA), len(result.HotspotsB))
+}
+
 func TestParseAnalysis(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
 		input := `{"quality": [{"aspect": "error handling", "winner": "repo_a", "reason": "better"}], "recommendations": ["use errors.Is"]}`
