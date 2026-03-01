@@ -35,7 +35,9 @@ type DepGraphInput struct {
 
 // registerDepGraph registers the dep_graph MCP tool.
 // Builds and visualizes the dependency graph of a repository.
-func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "dep_graph",
 		Description: "Build and visualize the dependency graph of a repository. " +
@@ -67,6 +69,6 @@ func registerDepGraph(server *mcp.Server, _ Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil, nil
 		}
 
-		return textResult(graph), nil, nil
+		return largeTextResult(graph, "dep_graph", outputDir), nil, nil
 	})
 }

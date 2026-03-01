@@ -40,7 +40,9 @@ type traceStats struct {
 const defaultTraceDepth = 5
 
 // registerCallTrace registers the call_trace MCP tool.
-func registerCallTrace(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "call_trace",
 		Description: "Trace the execution path of a function through a codebase. " +
@@ -48,11 +50,11 @@ func registerCallTrace(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Returns a call tree with resolved cross-file references and an LLM-generated " +
 			"narrative explanation of the execution flow.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, any, error) {
-		return handleCallTrace(ctx, input, deps)
+		return handleCallTrace(ctx, input, deps, outputDir)
 	})
 }
 
-func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil, nil
 	}
@@ -101,9 +103,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
+	return largeTextResult(string(data), "call_trace", outputDir), nil, nil
 }
 
 func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps) callTraceOutput {

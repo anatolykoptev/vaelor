@@ -33,7 +33,9 @@ type SymbolSearchInput struct {
 
 // registerSymbolSearch registers the symbol_search MCP tool.
 // Searches for symbols across a repository's AST index.
-func registerSymbolSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "symbol_search",
 		Description: "Search for functions, types, methods, constants, or variables across a repository. " +
@@ -66,7 +68,7 @@ func registerSymbolSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("symbol search: %s", err)), nil, nil
 		}
 
-		return textResult(formatSymbolSearchResult(input.Query, symbols)), nil, nil
+		return largeTextResult(formatSymbolSearchResult(input.Query, symbols), "symbol_search", outputDir), nil, nil
 	})
 }
 

@@ -28,6 +28,8 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 		return
 	}
 
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "code_graph",
 		Description: "Query a persistent code knowledge graph backed by Apache AGE. " +
@@ -85,8 +87,6 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 		}
 
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-		}, nil, nil
+		return largeTextResult(string(data), "code_graph", outputDir), nil, nil
 	})
 }
