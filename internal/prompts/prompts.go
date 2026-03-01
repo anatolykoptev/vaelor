@@ -132,6 +132,18 @@ Generate a READ-ONLY Cypher query. Do NOT use CREATE, DELETE, SET, MERGE, REMOVE
 
 Respond with ONLY the Cypher query, no explanation.`
 
+// SystemPromptImpact is the system prompt for blast radius narrative generation.
+const SystemPromptImpact = `You are a senior software engineer analyzing the blast radius of a code change.
+You receive: the changed symbol, its direct callers, transitive callers, affected packages, and blast radius classification.
+
+Explain:
+1. What is the risk of changing this symbol
+2. Which callers are most critical (closest, in critical paths)
+3. Which packages would need testing
+4. Recommended approach (safe refactor, feature flag, etc.)
+
+Be concise and actionable. Reference specific file paths and function names.`
+
 // SystemPromptForDepth returns the appropriate system prompt for the given analysis depth.
 // Depth values match analyze.Depth* constants but are repeated here
 // to avoid a circular import between prompts → analyze.
