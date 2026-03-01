@@ -118,6 +118,7 @@ type RepoMetrics struct {
 	ErrorHandlingRatio float64 `json:"errorHandlingRatio"`
 	Interfaces         int     `json:"interfaces"`
 	ExternalDeps       int     `json:"externalDeps"`
+	Grade              string  `json:"grade"`
 }
 
 // QualityAspect describes a qualitative comparison point between two repos.
@@ -174,6 +175,7 @@ type CompareResult struct {
 	UnmatchedA     int            `json:"unmatched_a"`
 	UnmatchedB     int            `json:"unmatched_b"`
 	MatchBreakdown MatchBreakdown `json:"match_breakdown"`
+	ImportDiff     ImportDiff     `json:"import_diff"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -217,6 +219,9 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	metricsA := ComputeMetrics(snapA)
 	metricsB := ComputeMetrics(snapB)
 
+	// Compute import diff.
+	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports)
+
 	// Count matches and gaps.
 	// SymbolA == nil means the symbol exists only in B (missing from A).
 	// SymbolB == nil means the symbol exists only in A (missing from B).
@@ -255,6 +260,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		UnmatchedA:     unmatchedA,
 		UnmatchedB:     unmatchedB,
 		MatchBreakdown: breakdown,
+		ImportDiff:     importDiff,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are

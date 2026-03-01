@@ -114,7 +114,7 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 	// --- interface count ---
 	interfaceCount := countInterfaces(snap.Symbols)
 
-	return RepoMetrics{
+	result := RepoMetrics{
 		Files:              snap.FileCount,
 		TotalLines:         snap.TotalLines,
 		AvgFuncLines:       avgFuncLines,
@@ -127,6 +127,8 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 		Interfaces:         interfaceCount,
 		ExternalDeps:       externalDeps,
 	}
+	result.Grade = ComputeGrade(result)
+	return result
 }
 
 // collectTestFilePaths returns the set of unique test-file paths found in snap.Symbols.
