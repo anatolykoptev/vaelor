@@ -152,6 +152,20 @@ var templates = map[string]*Template{
 		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL AND s.lines IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY (s.complexity * s.lines) DESC LIMIT {limit}",
 		Cols:        4,
 	},
+	"inherits": {
+		ID:          "inherits",
+		Description: "Find what a type inherits from (embeds, extends, implements)",
+		Params:      []string{"name"},
+		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[:INHERITS]->(parent:Symbol) RETURN parent",
+		Cols:        1,
+	},
+	"implementations": {
+		ID:          "implementations",
+		Description: "Find all types that inherit from / implement the named type",
+		Params:      []string{"name"},
+		Cypher:      "MATCH (child:Symbol)-[:INHERITS]->(parent:Symbol {name: '{name}'}) RETURN child",
+		Cols:        1,
+	},
 }
 
 // GetTemplate returns the template with the given ID, or nil if not found.

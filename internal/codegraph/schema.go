@@ -20,6 +20,8 @@ func GraphSchemaText() string {
 	b.WriteString("Edge labels:\n")
 	b.WriteString("  - CONTAINS (Package->File, File->Symbol)\n")
 	b.WriteString("  - CALLS (Symbol->Symbol; properties: line)\n")
+	b.WriteString("  - INHERITS (Symbol->Symbol) — struct embedding (Go), class extends (Python/Java/TS)\n")
+	b.WriteString("  - IMPLEMENTS (Symbol->Symbol) — interface implementation (Java/TS)\n")
 	b.WriteString("  - IMPORTS (File->Package; properties: alias)\n")
 	b.WriteString("  - BELONGS_TO (File->Layer)\n")
 	b.WriteString("  - HANDLES (Symbol->Route; properties: line) — server-side handler\n")

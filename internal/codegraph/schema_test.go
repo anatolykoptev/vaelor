@@ -22,7 +22,7 @@ func TestGraphSchemaTextContainsAllEdgeLabels(t *testing.T) {
 	t.Parallel()
 
 	schema := GraphSchemaText()
-	edgeLabels := []string{"CONTAINS", "CALLS", "IMPORTS", "BELONGS_TO", "HANDLES", "FETCHES"}
+	edgeLabels := []string{"CONTAINS", "CALLS", "INHERITS", "IMPLEMENTS", "IMPORTS", "BELONGS_TO", "HANDLES", "FETCHES"}
 
 	for _, label := range edgeLabels {
 		if !strings.Contains(schema, label) {

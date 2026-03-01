@@ -11,24 +11,25 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
-// indexParseResult holds symbols, calls, and imports parsed from one file.
+// indexParseResult holds symbols, calls, imports, and type relationships parsed from one file.
 type indexParseResult struct {
 	file    *ingest.File
 	symbols []*parser.Symbol
 	calls   []parser.CallSite
 	imports []string
+	rels    []parser.TypeRelationship
 }
 
 // ingestAndParse ingests a repository and parses all files in parallel.
 // The returned map associates each file's relative path with the import paths
 // declared in that file.
-func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, error) {
+func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, []parser.TypeRelationship, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
 		MaxFileBytes: maxIndexFileBytes,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
 	results := indexParseParallel(ctx, ir.Files)
@@ -36,6 +37,7 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 	var allFiles []*ingest.File
 	var allSymbols []*parser.Symbol
 	var allCalls []parser.CallSite
+	var allRels []parser.TypeRelationship
 	fileImports := make(map[string][]string)
 
 	for _, r := range results {
@@ -45,12 +47,13 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 		allFiles = append(allFiles, r.file)
 		allSymbols = append(allSymbols, r.symbols...)
 		allCalls = append(allCalls, r.calls...)
+		allRels = append(allRels, r.rels...)
 		if len(r.imports) > 0 {
 			fileImports[r.file.RelPath] = r.imports
 		}
 	}
 
-	return allFiles, allSymbols, allCalls, fileImports, nil
+	return allFiles, allSymbols, allCalls, fileImports, allRels, nil
 }
 
 // indexParseParallel parses all files concurrently and returns results.
@@ -104,12 +107,14 @@ func indexParseFile(f *ingest.File) indexParseResult {
 	}
 
 	calls, _ := parser.ExtractCalls(f.Path, source, opts)
+	rels, _ := parser.ExtractRelationships(f.Path, source, opts)
 
 	return indexParseResult{
 		file:    f,
 		symbols: pr.Symbols,
 		calls:   calls,
 		imports: pr.Imports,
+		rels:    rels,
 	}
 }
 
