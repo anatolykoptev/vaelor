@@ -146,6 +146,9 @@ type RepoSnapshot struct {
 
 	// TotalLines is the approximate total lines of code.
 	TotalLines int `json:"totalLines"`
+
+	// Rels holds type relationships extracted from the repository.
+	Rels []parser.TypeRelationship `json:"rels,omitempty"`
 }
 
 // RepoMetrics holds aggregate quality and complexity metrics for a repo.
@@ -222,6 +225,8 @@ type CompareResult struct {
 	DiffStats      *DiffStats     `json:"diff_stats,omitempty"`
 	HotspotsA     []HotspotFile  `json:"hotspots_a,omitempty"`
 	HotspotsB     []HotspotFile  `json:"hotspots_b,omitempty"`
+	RelStatsA     *RelStats      `json:"rel_stats_a,omitempty"`
+	RelStatsB     *RelStats      `json:"rel_stats_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -282,6 +287,10 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		hotspotsB = ComputeHotspots(churnB, FileComplexityFromSnapshot(snapB))
 	}
 
+	// Compute type relationship stats.
+	relStatsA := ComputeRelStats(snapA.Rels)
+	relStatsB := ComputeRelStats(snapB.Rels)
+
 	// Count matches and gaps.
 	// SymbolA == nil means the symbol exists only in B (missing from A).
 	// SymbolB == nil means the symbol exists only in A (missing from B).
@@ -326,12 +335,14 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		DiffStats:      diffStats,
 		HotspotsA:     hotspotsA,
 		HotspotsB:     hotspotsB,
+		RelStatsA:     relStatsA,
+		RelStatsB:     relStatsB,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are
 	// always returned even when the LLM is unavailable.
 	if llmClient != nil {
-		compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, input.Query, hotspotsA, hotspotsB)
+		compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, input.Query, hotspotsA, hotspotsB, relStatsA, relStatsB)
 		answer, err := llmClient.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
 		if err == nil {
 			result.Analysis = parseAnalysis(answer)
