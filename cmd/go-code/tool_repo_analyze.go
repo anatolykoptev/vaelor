@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"strings"
 	"unicode"
@@ -50,8 +51,8 @@ type RepoAnalyzeInput struct {
 	// Pattern is a file include pattern for filtering.
 	Pattern string `json:"pattern,omitempty" jsonschema_description:"File include pattern for filtering"`
 
-	// Format controls output format: text (default) or json (structured envelope).
-	Format string `json:"format,omitempty" jsonschema_description:"Output format: text (default, human-readable) | json (structured envelope with schemaVersion, data, meta, suggestedNextCalls)"`
+	// Format controls output format: xml (default), text, or json.
+	Format string `json:"format,omitempty" jsonschema_description:"Output format: xml (default, structured for AI agents) | text (human-readable) | json (structured envelope)"`
 }
 
 // registerRepoAnalyze registers the repo_analyze MCP tool.
@@ -98,8 +99,8 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 	if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
 		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
 	}
-	if input.Format != "" && input.Format != "text" && input.Format != "json" {
-		return errResult(fmt.Sprintf("invalid format %q: use text or json", input.Format)), nil, nil
+	if input.Format != "" && input.Format != "text" && input.Format != "json" && input.Format != "xml" {
+		return errResult(fmt.Sprintf("invalid format %q: use xml, text, or json", input.Format)), nil, nil
 	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
@@ -369,12 +370,17 @@ type suggestedCall struct {
 	Reason string            `json:"reason"`
 }
 
-// formatAnalysisResult dispatches to text or JSON formatting based on format.
+// formatAnalysisResult dispatches to xml, text, or JSON formatting based on format.
+// Defaults to XML when format is empty.
 func formatAnalysisResult(r *analyze.RepoAnalysisResult, format string) string {
-	if format == "json" {
+	switch format {
+	case "json":
 		return formatAnalysisJSON(r)
+	case "text":
+		return formatAnalysisText(r)
+	default:
+		return formatAnalysisXML(r)
 	}
-	return formatAnalysisText(r)
 }
 
 // formatAnalysisJSON formats a RepoAnalysisResult as a structured JSON envelope.
@@ -397,6 +403,73 @@ func formatAnalysisJSON(r *analyze.RepoAnalysisResult) string {
 		return fmt.Sprintf(`{"error": %q}`, err.Error())
 	}
 	return string(b)
+}
+
+// xmlResponse is the top-level XML envelope for repo_analyze output.
+type xmlResponse struct {
+	XMLName       xml.Name    `xml:"response"`
+	SchemaVersion string      `xml:"schemaVersion,attr"`
+	Repo          xmlRepo     `xml:"repo"`
+	Packages      xmlPackages `xml:"packages"`
+	Symbols       xmlSymbols  `xml:"symbols"`
+	Analysis      string      `xml:"analysis"`
+}
+
+type xmlRepo struct {
+	Name     string `xml:"name,attr"`
+	Language string `xml:"language,attr"`
+	Files    int    `xml:"files,attr"`
+}
+
+type xmlPackages struct {
+	Items []string `xml:"package"`
+}
+
+type xmlSymbol struct {
+	Kind      string `xml:"kind,attr"`
+	Name      string `xml:"name,attr"`
+	File      string `xml:"file,attr"`
+	Line      uint32 `xml:"line,attr"`
+	Signature string `xml:"signature,omitempty"`
+}
+
+type xmlSymbols struct {
+	Items []xmlSymbol `xml:"symbol"`
+}
+
+// formatAnalysisXML formats a RepoAnalysisResult as structured XML.
+func formatAnalysisXML(r *analyze.RepoAnalysisResult) string {
+	resp := xmlResponse{
+		SchemaVersion: "1.0",
+		Repo: xmlRepo{
+			Name:     r.RepoName,
+			Language: r.Language,
+			Files:    r.FileCount,
+		},
+		Packages: xmlPackages{Items: r.Packages},
+		Analysis: r.Answer,
+	}
+
+	symbols := make([]xmlSymbol, 0, len(r.Symbols))
+	for _, sym := range r.Symbols {
+		xs := xmlSymbol{
+			Kind: string(sym.Kind),
+			Name: sym.Name,
+			File: sym.File,
+			Line: sym.StartLine,
+		}
+		if sym.Signature != "" {
+			xs.Signature = truncateSignature(sym.Signature)
+		}
+		symbols = append(symbols, xs)
+	}
+	resp.Symbols = xmlSymbols{Items: symbols}
+
+	b, err := xml.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("<error>%s</error>", err.Error())
+	}
+	return xml.Header + string(b)
 }
 
 // formatAnalysisText formats a RepoAnalysisResult as human-readable text.
@@ -427,10 +500,21 @@ func formatAnalysisText(r *analyze.RepoAnalysisResult) string {
 	return sb.String()
 }
 
+// maxSignatureLen is the maximum length for symbol signatures before truncation.
+const maxSignatureLen = 200
+
+// truncateSignature truncates a signature to maxSignatureLen characters.
+func truncateSignature(sig string) string {
+	if len(sig) <= maxSignatureLen {
+		return sig
+	}
+	return sig[:maxSignatureLen] + "..."
+}
+
 // writeSymbolLine writes a single symbol summary line into sb.
 func writeSymbolLine(sb *strings.Builder, sym *parser.Symbol) {
 	if sym.Signature != "" {
-		fmt.Fprintf(sb, "  [%s] %s — %s (line %d)\n", sym.Kind, sym.Name, sym.Signature, sym.StartLine)
+		fmt.Fprintf(sb, "  [%s] %s — %s (line %d)\n", sym.Kind, sym.Name, truncateSignature(sym.Signature), sym.StartLine)
 	} else {
 		fmt.Fprintf(sb, "  [%s] %s (line %d)\n", sym.Kind, sym.Name, sym.StartLine)
 	}

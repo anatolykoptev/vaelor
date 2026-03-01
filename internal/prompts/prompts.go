@@ -13,7 +13,7 @@ You have been provided with the repository's file tree, key source files, and pa
 Answer the user's question about the codebase accurately and concisely.
 Focus on architecture, design decisions, and implementation patterns.
 Use code examples from the provided context when relevant.
-If you cannot answer from the provided context, say so clearly.`
+The provided context may not include all files — if you cannot answer from what's shown, say so. Do not speculate about code you haven't seen.`
 
 // SystemPromptCodeCompare is the system prompt for code comparison queries.
 const SystemPromptCodeCompare = `You are a lead software engineer conducting a comparative code review of two repositories.

@@ -98,6 +98,24 @@ var binaryExtensions = map[string]bool{
 	".min.css": true,
 }
 
+// generatedSuffixes lists file suffixes that indicate auto-generated code.
+// These files are skipped because they add noise without useful signal.
+var generatedSuffixes = []string{
+	".pb.go",
+	".pb.gw.go",
+	"_generated.go",
+	"_gen.go",
+	".gen.go",
+	".generated.go",
+}
+
+// generatedDirs lists directory names that contain generated/migration files
+// which are typically not useful for code analysis.
+var generatedDirs = map[string]bool{
+	"migrations": true,
+	"migration":  true,
+}
+
 // ignoreFiles lists filenames that are always skipped regardless of extension.
 var ignoreFiles = map[string]bool{
 	// lock files
@@ -121,7 +139,7 @@ var ignoreFiles = map[string]bool{
 const binarySniffLen = 512
 
 func shouldIgnoreDir(name string) bool {
-	return defaultIgnoreDirs[name]
+	return defaultIgnoreDirs[name] || generatedDirs[name]
 }
 
 // shouldIgnoreFile returns true when the file should be skipped based on its
@@ -134,6 +152,12 @@ func shouldIgnoreFile(name string) bool {
 	// Check compound extensions (.min.js, .min.css) first.
 	for ext := range binaryExtensions {
 		if strings.HasSuffix(name, ext) {
+			return true
+		}
+	}
+	// Skip generated code files (protobuf, codegen, etc.).
+	for _, suffix := range generatedSuffixes {
+		if strings.HasSuffix(name, suffix) {
 			return true
 		}
 	}
