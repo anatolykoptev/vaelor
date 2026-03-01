@@ -1,6 +1,7 @@
 package codegraph
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,19 @@ This will return all symbols called by Serve.`,
 				t.Errorf("extractCypher(%q)\n got: %q\nwant: %q", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCypherSystemPrompt_ContainsExamples(t *testing.T) {
+	prompt := cypherSystemPrompt()
+	if !strings.Contains(prompt, "type(r)") {
+		t.Error("freeform prompt should contain type(r) AGE-compatible example")
+	}
+	if !strings.Contains(prompt, "INHERITS") {
+		t.Error("freeform prompt should mention INHERITS edge")
+	}
+	if !strings.Contains(prompt, "pagerank") {
+		t.Error("freeform prompt should mention pagerank property")
 	}
 }
 
