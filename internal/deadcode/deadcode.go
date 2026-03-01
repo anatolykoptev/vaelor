@@ -45,6 +45,47 @@ type Result struct {
 	DeadSymbols    []DeadSymbol `json:"dead_symbols"`
 }
 
+// httpHandlerPatterns identify HTTP handler functions by signature.
+var httpHandlerPatterns = []string{
+	"http.ResponseWriter",
+	"*http.Request",
+	"gin.Context",
+	"echo.Context",
+	"fiber.Ctx",
+	"chi.Router",
+}
+
+// wellKnownInterfaceMethods are method names commonly required by interfaces.
+var wellKnownInterfaceMethods = map[string]bool{
+	"ServeHTTP":     true,
+	"String":        true,
+	"Error":         true,
+	"MarshalJSON":   true,
+	"UnmarshalJSON": true,
+	"Close":         true,
+	"Read":          true,
+	"Write":         true,
+	"Len":           true,
+	"Less":          true,
+	"Swap":          true,
+}
+
+// isHTTPHandler checks if a symbol's signature indicates it's an HTTP handler.
+func isHTTPHandler(sym *parser.Symbol) bool {
+	sig := sym.Signature
+	for _, pattern := range httpHandlerPatterns {
+		if strings.Contains(sig, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// isWellKnownInterfaceMethod checks if the function name matches a well-known interface method.
+func isWellKnownInterfaceMethod(sym *parser.Symbol) bool {
+	return sym.Kind == parser.KindMethod && wellKnownInterfaceMethods[sym.Name]
+}
+
 // Analyze detects functions/methods with zero incoming calls in the call graph.
 // It filters out entry points (main, init, TestMain), test functions,
 // and optionally exported symbols to reduce false positives.
@@ -67,6 +108,12 @@ func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 			continue
 		}
 		if isTestFunc(sym.Name) {
+			continue
+		}
+		if isHTTPHandler(sym) {
+			continue
+		}
+		if isWellKnownInterfaceMethod(sym) {
 			continue
 		}
 		if !opts.IncludeTests && isTestFile(sym.File) {
