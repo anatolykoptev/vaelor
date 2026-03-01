@@ -14,6 +14,7 @@ import (
 type CodeSearchInput struct {
 	Repo         string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
 	Pattern      string `json:"pattern" jsonschema_description:"Search pattern (literal string or regex)"`
+	Query        string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
 	IsRegex      bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
 	FileGlob     string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go', '*.py')"`
 	Language     string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python, typescript)"`
@@ -40,6 +41,10 @@ func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil, nil
+	}
+	// Allow "query" as alias for "pattern".
+	if input.Pattern == "" && input.Query != "" {
+		input.Pattern = input.Query
 	}
 	if input.Pattern == "" {
 		return errResult("pattern is required"), nil, nil
