@@ -49,6 +49,7 @@ type SymbolMatch struct {
 	MatchType MatchType      `json:"matchType"`
 	Category  string         `json:"category"`
 	Score     float64        `json:"score"`
+	Diff      *DiffSummary   `json:"diff,omitempty"`
 }
 
 // IsGap returns true if the symbol is present in only one repository (or neither).
@@ -67,6 +68,48 @@ func (m SymbolMatch) MissingIn() string {
 	default:
 		return ""
 	}
+}
+
+// annotateASTDiffs computes AST diffs for modified symbol matches.
+func annotateASTDiffs(matches []SymbolMatch) {
+	for i := range matches {
+		m := &matches[i]
+		if m.MatchType != MatchModified || m.SymbolA == nil || m.SymbolB == nil {
+			continue
+		}
+		lang := m.SymbolA.Language
+		if lang == "" {
+			lang = m.SymbolB.Language
+		}
+		m.Diff = ComputeASTDiff(m.SymbolA.Body, m.SymbolB.Body, lang)
+	}
+}
+
+// DiffStats aggregates AST diff statistics across all modified matches.
+type DiffStats struct {
+	ModifiedWithDiff int `json:"modifiedWithDiff"`
+	TotalInserts     int `json:"totalInserts"`
+	TotalDeletes     int `json:"totalDeletes"`
+	TotalUpdates     int `json:"totalUpdates"`
+	TotalMoves       int `json:"totalMoves"`
+}
+
+func computeDiffStats(matches []SymbolMatch) *DiffStats {
+	stats := &DiffStats{}
+	for _, m := range matches {
+		if m.Diff == nil {
+			continue
+		}
+		stats.ModifiedWithDiff++
+		stats.TotalInserts += m.Diff.Inserts
+		stats.TotalDeletes += m.Diff.Deletes
+		stats.TotalUpdates += m.Diff.Updates
+		stats.TotalMoves += m.Diff.Moves
+	}
+	if stats.ModifiedWithDiff == 0 {
+		return nil
+	}
+	return stats
 }
 
 // SnapshotFile holds parsed metadata for a single source file within a repo snapshot.
@@ -176,6 +219,7 @@ type CompareResult struct {
 	UnmatchedB     int            `json:"unmatched_b"`
 	MatchBreakdown MatchBreakdown `json:"match_breakdown"`
 	ImportDiff     ImportDiff     `json:"import_diff"`
+	DiffStats      *DiffStats     `json:"diff_stats,omitempty"`
 	HotspotsA     []HotspotFile  `json:"hotspots_a,omitempty"`
 	HotspotsB     []HotspotFile  `json:"hotspots_b,omitempty"`
 }
@@ -216,6 +260,9 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 
 	// Match symbols.
 	matches := MatchSymbols(snapA.Symbols, snapB.Symbols, nil)
+
+	// Annotate modified matches with AST diffs.
+	annotateASTDiffs(matches)
 
 	// Compute metrics.
 	metricsA := ComputeMetrics(snapA)
@@ -263,6 +310,8 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		}
 	}
 
+	diffStats := computeDiffStats(matches)
+
 	result := &CompareResult{
 		RepoA:          snapA.Name,
 		RepoB:          snapB.Name,
@@ -274,6 +323,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		UnmatchedB:     unmatchedB,
 		MatchBreakdown: breakdown,
 		ImportDiff:     importDiff,
+		DiffStats:      diffStats,
 		HotspotsA:     hotspotsA,
 		HotspotsB:     hotspotsB,
 	}

@@ -258,6 +258,104 @@ func TestCompareRepos_Hotspots(t *testing.T) {
 	t.Logf("HotspotsA: %d, HotspotsB: %d", len(result.HotspotsA), len(result.HotspotsB))
 }
 
+func TestAnnotateASTDiffs(t *testing.T) {
+	matches := []SymbolMatch{
+		{
+			SymbolA: &parser.Symbol{
+				Name: "Foo", Kind: parser.KindFunction,
+				Language: "go",
+				Body:     "func Foo(x int) error {\n\treturn nil\n}",
+			},
+			SymbolB: &parser.Symbol{
+				Name: "Foo", Kind: parser.KindFunction,
+				Language: "go",
+				Body:     "func Foo(x int, y string) (int, error) {\n\treturn 0, nil\n}",
+			},
+			MatchType: MatchModified,
+			Score:     1.0,
+		},
+		{
+			SymbolA: &parser.Symbol{
+				Name: "Bar", Kind: parser.KindFunction,
+				Language: "go",
+				Body:     "func Bar() {}",
+			},
+			SymbolB: &parser.Symbol{
+				Name: "Bar", Kind: parser.KindFunction,
+				Language: "go",
+				Body:     "func Bar() {}",
+			},
+			MatchType: MatchExact,
+			Score:     1.0,
+		},
+	}
+
+	annotateASTDiffs(matches)
+
+	if matches[0].Diff == nil {
+		t.Error("expected Diff on modified match")
+	}
+	if matches[0].Diff.TotalChanges == 0 {
+		t.Error("expected TotalChanges > 0 on modified match")
+	}
+	if matches[1].Diff != nil {
+		t.Error("expected nil Diff on exact match")
+	}
+}
+
+func TestComputeDiffStats(t *testing.T) {
+	t.Run("no diffs returns nil", func(t *testing.T) {
+		matches := []SymbolMatch{
+			{MatchType: MatchExact},
+		}
+		if got := computeDiffStats(matches); got != nil {
+			t.Errorf("expected nil, got %+v", got)
+		}
+	})
+
+	t.Run("aggregates diffs", func(t *testing.T) {
+		matches := []SymbolMatch{
+			{
+				Diff: &DiffSummary{
+					TotalChanges: 5,
+					Inserts:      2,
+					Deletes:      1,
+					Updates:      1,
+					Moves:        1,
+				},
+			},
+			{
+				Diff: &DiffSummary{
+					TotalChanges: 3,
+					Inserts:      1,
+					Deletes:      0,
+					Updates:      2,
+					Moves:        0,
+				},
+			},
+		}
+		got := computeDiffStats(matches)
+		if got == nil {
+			t.Fatal("expected non-nil stats")
+		}
+		if got.ModifiedWithDiff != 2 {
+			t.Errorf("ModifiedWithDiff = %d, want 2", got.ModifiedWithDiff)
+		}
+		if got.TotalInserts != 3 {
+			t.Errorf("TotalInserts = %d, want 3", got.TotalInserts)
+		}
+		if got.TotalDeletes != 1 {
+			t.Errorf("TotalDeletes = %d, want 1", got.TotalDeletes)
+		}
+		if got.TotalUpdates != 3 {
+			t.Errorf("TotalUpdates = %d, want 3", got.TotalUpdates)
+		}
+		if got.TotalMoves != 1 {
+			t.Errorf("TotalMoves = %d, want 1", got.TotalMoves)
+		}
+	})
+}
+
 func TestParseAnalysis(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
 		input := `{"quality": [{"aspect": "error handling", "winner": "repo_a", "reason": "better"}], "recommendations": ["use errors.Is"]}`
