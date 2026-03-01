@@ -78,10 +78,10 @@ var templates = map[string]*Template{
 	},
 	"call_chain": {
 		ID:          "call_chain",
-		Description: "Find the shortest call path between two symbols",
+		Description: "Find a call path between two symbols",
 		Params:      []string{"from", "to"},
-		Cypher:      "MATCH path = shortestPath((a:Symbol {name: '{from}'})-[:CALLS*..10]->(b:Symbol {name: '{to}'})) RETURN path",
-		Cols:        1,
+		Cypher:      "MATCH (a:Symbol {name: '{from}'})-[:CALLS*1..10]->(b:Symbol {name: '{to}'}) RETURN a, b",
+		Cols:        2,
 	},
 	"most_connected": {
 		ID:          "most_connected",
@@ -94,7 +94,7 @@ var templates = map[string]*Template{
 		ID:          "dead_code",
 		Description: "Find functions that are never called",
 		Params:      []string{},
-		Cypher:      "MATCH (s:Symbol) WHERE s.kind = 'function' AND NOT ()-[:CALLS]->(s) RETURN s",
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind = 'function' OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WITH s, caller WHERE caller IS NULL RETURN s",
 		Cols:        1,
 	},
 	"depends_on": {
