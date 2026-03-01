@@ -196,8 +196,6 @@ func TestBuildGraphDeduplicatesExternalPackages(t *testing.T) {
 	if importsCount != 2 {
 		t.Errorf("IMPORTS edges to 'fmt' = %d, want 2", importsCount)
 	}
-
-	_ = edges
 }
 
 // TestBuildGraphEmptyImports verifies that buildGraph handles nil/empty
@@ -214,7 +212,7 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 	cg := &callgraph.CallGraph{}
 
 	// Test with nil map.
-	vertices, edges := buildGraph(root, files, symbols, cg, nil)
+	_, edges := buildGraph(root, files, symbols, cg, nil)
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" {
 			t.Error("unexpected IMPORTS edge with nil fileImports")
@@ -222,12 +220,10 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 	}
 
 	// Test with empty map.
-	vertices, edges = buildGraph(root, files, symbols, cg, map[string][]string{})
+	_, edges = buildGraph(root, files, symbols, cg, map[string][]string{})
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" {
 			t.Error("unexpected IMPORTS edge with empty fileImports")
 		}
 	}
-
-	_ = vertices
 }
