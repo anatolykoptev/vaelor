@@ -63,6 +63,10 @@ type Symbol struct {
 	// DocComment is the documentation comment immediately preceding the symbol.
 	DocComment string
 
+	// Complexity is the estimated cyclomatic complexity of the function/method body.
+	// Only populated for functions and methods (0 for other symbol kinds).
+	Complexity int
+
 	// BodyHash is a content hash of the normalized symbol body.
 	// Used for fast equality checks in code comparison (0 means not computed).
 	BodyHash uint64
@@ -193,6 +197,9 @@ func processCapture(
 
 	sym.File = path
 	sym.DocComment = extractDocComment(node, source)
+	if sym.Kind == KindFunction || sym.Kind == KindMethod {
+		sym.Complexity = Complexity(node.Content(source))
+	}
 	if opts.IncludeBody {
 		sym.Body = node.Content(source)
 	}
