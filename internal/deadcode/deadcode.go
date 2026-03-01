@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -146,19 +147,28 @@ func isTestFunc(name string) bool {
 
 // isTestFile returns true if the file path ends with _test.go or similar test patterns.
 func isTestFile(file string) bool {
-	base := filepath.Base(file)
-	return strings.HasSuffix(base, "_test.go") ||
-		strings.HasPrefix(base, "test_") ||
-		strings.HasSuffix(base, "_test.py")
+	lower := strings.ToLower(file)
+	testSuffixes := []string{
+		"_test.go", "_test.py",
+		".test.ts", ".test.js",
+		".spec.ts", ".spec.js",
+	}
+	for _, suf := range testSuffixes {
+		if strings.HasSuffix(lower, suf) {
+			return true
+		}
+	}
+	return strings.Contains(lower, "/test/") || strings.Contains(lower, "/tests/")
 }
 
 // isExported returns true if the name starts with an uppercase letter (Go convention)
 // or is otherwise considered public API.
 func isExported(name string) bool {
-	if len(name) == 0 {
+	if name == "" {
 		return false
 	}
-	return unicode.IsUpper(rune(name[0]))
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
 }
 
 // classifyConfidence assigns a confidence level based on symbol properties.

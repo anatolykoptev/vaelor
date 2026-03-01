@@ -125,6 +125,149 @@ type Config struct {
 	}
 }
 
+func TestExtractRelationships_Python(t *testing.T) {
+	source := []byte(`
+class Base:
+    pass
+
+class Child(Base):
+    pass
+
+class Multi(Base, Mixin):
+    pass
+
+class Dotted(module.Base):
+    pass
+`)
+	rels, err := ExtractRelationships("test.py", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractRelationships: %v", err)
+	}
+
+	t.Logf("Found %d relationships:", len(rels))
+	for _, r := range rels {
+		t.Logf("  %s --%s--> %s (line %d)", r.Subject, r.Kind, r.Target, r.Line)
+	}
+
+	want := []struct {
+		subject string
+		target  string
+		kind    RelKind
+	}{
+		{"Child", "Base", RelExtends},
+		{"Multi", "Base", RelExtends},
+		{"Multi", "Mixin", RelExtends},
+		{"Dotted", "Base", RelExtends},
+	}
+
+	for _, w := range want {
+		found := false
+		for _, r := range rels {
+			if r.Subject == w.subject && r.Target == w.target && r.Kind == w.kind {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing relationship: %s --%s--> %s", w.subject, w.kind, w.target)
+		}
+	}
+
+	// Base class itself should have no relationships
+	for _, r := range rels {
+		if r.Subject == "Base" {
+			t.Errorf("Base should have no relationships, got: %s --%s--> %s", r.Subject, r.Kind, r.Target)
+		}
+	}
+}
+
+func TestExtractRelationships_TypeScript(t *testing.T) {
+	source := []byte(`
+class Base {}
+class Child extends Base {}
+class Service extends Base implements IHandler, ILogger {}
+interface IBase {}
+interface IChild extends IBase {}
+`)
+	rels, err := ExtractRelationships("test.ts", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractRelationships: %v", err)
+	}
+
+	t.Logf("Found %d relationships:", len(rels))
+	for _, r := range rels {
+		t.Logf("  %s --%s--> %s (line %d)", r.Subject, r.Kind, r.Target, r.Line)
+	}
+
+	want := []struct {
+		subject string
+		target  string
+		kind    RelKind
+	}{
+		{"Child", "Base", RelExtends},
+		{"Service", "Base", RelExtends},
+		{"Service", "IHandler", RelImplements},
+		{"Service", "ILogger", RelImplements},
+		{"IChild", "IBase", RelExtends},
+	}
+
+	for _, w := range want {
+		found := false
+		for _, r := range rels {
+			if r.Subject == w.subject && r.Target == w.target && r.Kind == w.kind {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing relationship: %s --%s--> %s", w.subject, w.kind, w.target)
+		}
+	}
+}
+
+func TestExtractRelationships_Java(t *testing.T) {
+	source := []byte(`
+class Animal {}
+class Dog extends Animal implements Runnable, Serializable {}
+interface Base {}
+interface Child extends Base, Cloneable {}
+`)
+	rels, err := ExtractRelationships("test.java", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractRelationships: %v", err)
+	}
+
+	t.Logf("Found %d relationships:", len(rels))
+	for _, r := range rels {
+		t.Logf("  %s --%s--> %s (line %d)", r.Subject, r.Kind, r.Target, r.Line)
+	}
+
+	want := []struct {
+		subject string
+		target  string
+		kind    RelKind
+	}{
+		{"Dog", "Animal", RelExtends},
+		{"Dog", "Runnable", RelImplements},
+		{"Dog", "Serializable", RelImplements},
+		{"Child", "Base", RelExtends},
+		{"Child", "Cloneable", RelExtends},
+	}
+
+	for _, w := range want {
+		found := false
+		for _, r := range rels {
+			if r.Subject == w.subject && r.Target == w.target && r.Kind == w.kind {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing relationship: %s --%s--> %s", w.subject, w.kind, w.target)
+		}
+	}
+}
+
 func TestExtractRelationships_Unsupported(t *testing.T) {
 	rels, err := ExtractRelationships("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {
