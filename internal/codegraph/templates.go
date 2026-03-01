@@ -154,17 +154,17 @@ var templates = map[string]*Template{
 	},
 	"inherits": {
 		ID:          "inherits",
-		Description: "Find what a type inherits from (embeds, extends, implements)",
+		Description: "Find what a type inherits from or implements (embeds, extends, implements)",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[:INHERITS]->(parent:Symbol) RETURN parent",
-		Cols:        1,
+		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[r:INHERITS|IMPLEMENTS]->(parent:Symbol) RETURN parent.name, parent.file, type(r) AS relation",
+		Cols:        3,
 	},
 	"implementations": {
 		ID:          "implementations",
-		Description: "Find all types that inherit from / implement the named type",
+		Description: "Find all types that inherit from or implement the named type",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (child:Symbol)-[:INHERITS]->(parent:Symbol {name: '{name}'}) RETURN child",
-		Cols:        1,
+		Cypher:      "MATCH (child:Symbol)-[r:INHERITS|IMPLEMENTS]->(parent:Symbol {name: '{name}'}) RETURN child.name, child.file, type(r) AS relation",
+		Cols:        3,
 	},
 }
 
