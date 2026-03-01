@@ -103,6 +103,47 @@ func TestBuildCompareContext(t *testing.T) {
 	})
 }
 
+func TestBuildCompareContext_PrioritizesModified(t *testing.T) {
+	matches := []SymbolMatch{
+		{
+			SymbolA:   &parser.Symbol{Name: "Identical1", Kind: parser.KindFunction, File: "a.go", Body: "same"},
+			SymbolB:   &parser.Symbol{Name: "Identical1", Kind: parser.KindFunction, File: "b.go", Body: "same"},
+			MatchType: MatchExact, Score: 1.0, Category: "function",
+		},
+		{
+			SymbolA:   &parser.Symbol{Name: "Changed1", Kind: parser.KindFunction, File: "a.go", Body: "old code"},
+			SymbolB:   &parser.Symbol{Name: "Changed1", Kind: parser.KindFunction, File: "b.go", Body: "new code"},
+			MatchType: MatchModified, Score: 1.0, Category: "function",
+		},
+		{
+			SymbolA:   &parser.Symbol{Name: "Identical2", Kind: parser.KindFunction, File: "a.go", Body: "same2"},
+			SymbolB:   &parser.Symbol{Name: "Identical2", Kind: parser.KindFunction, File: "b.go", Body: "same2"},
+			MatchType: MatchExact, Score: 1.0, Category: "function",
+		},
+		{
+			SymbolA:   &parser.Symbol{Name: "Renamed1", Kind: parser.KindFunction, File: "a.go", Body: "code"},
+			SymbolB:   &parser.Symbol{Name: "RenamedOne", Kind: parser.KindFunction, File: "b.go", Body: "code"},
+			MatchType: MatchRenamed, Score: 0.9, Category: "function",
+		},
+	}
+
+	ctx := BuildCompareContext(matches, RepoMetrics{}, RepoMetrics{}, "test")
+
+	changedIdx := strings.Index(ctx, "Changed1")
+	renamedIdx := strings.Index(ctx, "Renamed1")
+	identical1Idx := strings.Index(ctx, "Identical1")
+
+	if changedIdx < 0 {
+		t.Fatal("Changed1 not found in context")
+	}
+	if renamedIdx < 0 {
+		t.Fatal("Renamed1 not found in context")
+	}
+	if identical1Idx >= 0 && identical1Idx < changedIdx {
+		t.Error("Identical1 appeared before Changed1 — modified symbols should be prioritized")
+	}
+}
+
 func TestBuildCompareContextBudget(t *testing.T) {
 	// Each symbol body is ~20K chars — well above maxSnippetChars (3000).
 	largeBody := strings.Repeat("x", 20_000)
