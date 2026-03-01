@@ -20,6 +20,13 @@ const (
 	weightMaxComplexity = 0.10
 )
 
+// Target ratios — ideal thresholds for normalization.
+const (
+	targetTestRatio          = 0.3 // 30% test files is ideal
+	targetDocRatio           = 0.6 // 60% documented symbols is ideal
+	targetErrorHandlingRatio = 0.6 // 60% error-handling coverage is ideal
+)
+
 // gradeScore computes a quality score in [0, 100] from RepoMetrics.
 // Higher is better.
 func gradeScore(m RepoMetrics) float64 {
@@ -30,10 +37,10 @@ func gradeScore(m RepoMetrics) float64 {
 	// Each sub-score is in [0, 1], where 1 = best.
 	complexityScore := clamp01(1.0 - (m.AvgComplexity-3.0)/12.0)
 	maxComplexityScore := clamp01(1.0 - (float64(m.MaxComplexity)-8.0)/17.0)
-	testScore := clamp01(m.TestRatio / 0.3)
-	docScore := clamp01(m.DocRatio / 0.6)
+	testScore := clamp01(m.TestRatio / targetTestRatio)
+	docScore := clamp01(m.DocRatio / targetDocRatio)
 	funcSizeScore := clamp01(1.0 - (m.AvgFuncLines-15.0)/45.0)
-	errorScore := clamp01(m.ErrorHandlingRatio / 0.6)
+	errorScore := clamp01(m.ErrorHandlingRatio / targetErrorHandlingRatio)
 
 	total := complexityScore*weightComplexity +
 		maxComplexityScore*weightMaxComplexity +

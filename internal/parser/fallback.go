@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"math"
 	"regexp"
 	"strings"
 )
@@ -63,17 +64,29 @@ func fallbackParse(path string, source []byte, lang string) *ParseResult {
 				sig = strings.TrimSpace(lines[lineNum-1])
 			}
 
+			lineU32 := safeIntToUint32(lineNum)
 			result.Symbols = append(result.Symbols, &Symbol{
 				Name:      name,
 				Kind:      fp.kind,
 				Language:  lang,
 				File:      path,
-				StartLine: uint32(lineNum),
-				EndLine:   uint32(lineNum),
+				StartLine: lineU32,
+				EndLine:   lineU32,
 				Signature: sig,
 			})
 		}
 	}
 
 	return result
+}
+
+// safeIntToUint32 converts an int to uint32 with bounds clamping.
+func safeIntToUint32(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(v) //nolint:gosec // bounds checked above
 }

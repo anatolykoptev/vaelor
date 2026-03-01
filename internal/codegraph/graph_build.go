@@ -18,6 +18,12 @@ const (
 	sideClient = "client"
 )
 
+// Edge label constants.
+const (
+	edgeLabelInherits   = "INHERITS"
+	edgeLabelImplements = "IMPLEMENTS"
+)
+
 // buildGraph constructs vertices and edges from ingested files and parsed symbols.
 // fileImports maps each file's relative path to the import paths declared in that file.
 // rels contains type relationships (embeds/extends/implements) extracted by the parser.
@@ -71,6 +77,46 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	}
 
 	// Symbol vertices + CONTAINS (file→symbol) edges.
+	symVerts, symEdges := buildSymbolGraph(root, symbols, prScores)
+	vertices = append(vertices, symVerts...)
+	edges = append(edges, symEdges...)
+
+	// CALLS edges (Symbol→Symbol).
+	for _, ce := range cg.Edges {
+		if ce.Caller == nil || ce.Callee == nil {
+			continue
+		}
+		callerRelFile := relPath(ce.Caller.File, root)
+		calleeRelFile := relPath(ce.Callee.File, root)
+		edges = append(edges, edgeData{
+			FromLabel: "Symbol",
+			FromKey:   ce.Caller.Name + ":" + callerRelFile,
+			ToLabel:   "Symbol",
+			ToKey:     ce.Callee.Name + ":" + calleeRelFile,
+			EdgeLabel: "CALLS",
+			Props: map[string]string{
+				"line": strconv.Itoa(int(ce.Line)),
+			},
+		})
+	}
+
+	// INHERITS / IMPLEMENTS edges (Symbol→Symbol).
+	relEdges := buildRelationshipEdges(root, rels, symbols)
+	edges = append(edges, relEdges...)
+
+	// IMPORTS edges (File→Package) + external Package vertices.
+	impVertices, impEdges := buildImportsGraph(pkgDirs, fileImports)
+	vertices = append(vertices, impVertices...)
+	edges = append(edges, impEdges...)
+
+	return vertices, edges
+}
+
+// buildSymbolGraph creates Symbol vertices and CONTAINS edges from file to symbol.
+func buildSymbolGraph(root string, symbols []*parser.Symbol, prScores map[string]float64) ([]vertexData, []edgeData) {
+	var vertices []vertexData
+	var edges []edgeData
+
 	for _, sym := range symbols {
 		relFile := relPath(sym.File, root)
 		symKey := sym.Name + ":" + relFile
@@ -111,34 +157,6 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 			Props:     map[string]string{},
 		})
 	}
-
-	// CALLS edges (Symbol→Symbol).
-	for _, ce := range cg.Edges {
-		if ce.Caller == nil || ce.Callee == nil {
-			continue
-		}
-		callerRelFile := relPath(ce.Caller.File, root)
-		calleeRelFile := relPath(ce.Callee.File, root)
-		edges = append(edges, edgeData{
-			FromLabel: "Symbol",
-			FromKey:   ce.Caller.Name + ":" + callerRelFile,
-			ToLabel:   "Symbol",
-			ToKey:     ce.Callee.Name + ":" + calleeRelFile,
-			EdgeLabel: "CALLS",
-			Props: map[string]string{
-				"line": strconv.Itoa(int(ce.Line)),
-			},
-		})
-	}
-
-	// INHERITS / IMPLEMENTS edges (Symbol→Symbol).
-	relEdges := buildRelationshipEdges(root, rels, symbols)
-	edges = append(edges, relEdges...)
-
-	// IMPORTS edges (File→Package) + external Package vertices.
-	impVertices, impEdges := buildImportsGraph(pkgDirs, fileImports)
-	vertices = append(vertices, impVertices...)
-	edges = append(edges, impEdges...)
 
 	return vertices, edges
 }
@@ -199,9 +217,9 @@ func buildRelationshipEdges(root string, rels []parser.TypeRelationship, symbols
 		targetSym := closestByDir(targets, r.File)
 		targetRelFile := relPath(targetSym.File, root)
 
-		edgeLabel := "INHERITS"
+		edgeLabel := edgeLabelInherits
 		if r.Kind == parser.RelImplements {
-			edgeLabel = "IMPLEMENTS"
+			edgeLabel = edgeLabelImplements
 		}
 
 		edges = append(edges, edgeData{

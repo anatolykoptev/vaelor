@@ -58,6 +58,14 @@ func ExtractRelationships(path string, source []byte, opts ParseOpts) ([]TypeRel
 	return runRelQuery(rqp.RelationshipsQuery(), tree.RootNode(), source, path, lang), nil
 }
 
+// relMatchResult holds the extracted capture fields from a single query match.
+type relMatchResult struct {
+	subject    string
+	target     string
+	implTarget string
+	line       uint32
+}
+
 func runRelQuery(q *sitter.Query, root *sitter.Node, source []byte, path, lang string) []TypeRelationship {
 	qc := sitter.NewQueryCursor()
 	qc.Exec(q, root)
@@ -71,65 +79,64 @@ func runRelQuery(q *sitter.Query, root *sitter.Node, source []byte, path, lang s
 			break
 		}
 
-		var subject, target, implTarget string
-		var line uint32
-
-		for _, capture := range match.Captures {
-			capName := q.CaptureNameForId(capture.Index)
-			text := capture.Node.Content(source)
-
-			switch capName {
-			case captureRelSubject:
-				subject = text
-			case captureRelTarget:
-				// For Go struct fields, skip named fields (non-embeddings).
-				if lang == "go" && isNamedField(capture.Node) {
-					continue
-				}
-				target = stripPackageQualifier(text)
-				line = capture.Node.StartPoint().Row + 1
-			case captureRelImplTarget:
-				implTarget = stripPackageQualifier(text)
-				line = capture.Node.StartPoint().Row + 1
-			}
-		}
-
-		if subject != "" && target != "" {
-			kind := RelExtends
-			if lang == "go" {
-				kind = RelEmbeds
-			}
-			rel := TypeRelationship{
-				Subject: subject,
-				Target:  target,
-				Kind:    kind,
-				Line:    line,
-				File:    path,
-			}
-			key := dedupeKey(rel)
-			if _, exists := seen[key]; !exists {
-				seen[key] = struct{}{}
-				rels = append(rels, rel)
-			}
-		}
-
-		if subject != "" && implTarget != "" {
-			rel := TypeRelationship{
-				Subject: subject,
-				Target:  implTarget,
-				Kind:    RelImplements,
-				Line:    line,
-				File:    path,
-			}
-			key := dedupeKey(rel)
-			if _, exists := seen[key]; !exists {
-				seen[key] = struct{}{}
-				rels = append(rels, rel)
-			}
-		}
+		m := extractRelMatch(q, match, source, lang)
+		appendRelIfNew(&rels, seen, m.subject, m.target, relKindForLang(lang), m.line, path)
+		appendRelIfNew(&rels, seen, m.subject, m.implTarget, RelImplements, m.line, path)
 	}
 
 	return rels
+}
+
+// extractRelMatch reads capture fields from a single query match.
+func extractRelMatch(q *sitter.Query, match *sitter.QueryMatch, source []byte, lang string) relMatchResult {
+	var m relMatchResult
+	for _, capture := range match.Captures {
+		capName := q.CaptureNameForId(capture.Index)
+		text := capture.Node.Content(source)
+
+		switch capName {
+		case captureRelSubject:
+			m.subject = text
+		case captureRelTarget:
+			if lang == "go" && isNamedField(capture.Node) {
+				continue
+			}
+			m.target = stripPackageQualifier(text)
+			m.line = capture.Node.StartPoint().Row + 1
+		case captureRelImplTarget:
+			m.implTarget = stripPackageQualifier(text)
+			m.line = capture.Node.StartPoint().Row + 1
+		}
+	}
+	return m
+}
+
+// relKindForLang returns the default relationship kind for a given language.
+func relKindForLang(lang string) RelKind {
+	if lang == "go" {
+		return RelEmbeds
+	}
+	return RelExtends
+}
+
+// appendRelIfNew appends a TypeRelationship to rels if both subject and target
+// are non-empty and the relationship has not been seen before.
+func appendRelIfNew(rels *[]TypeRelationship, seen map[string]struct{}, subject, target string, kind RelKind, line uint32, path string) {
+	if subject == "" || target == "" {
+		return
+	}
+	rel := TypeRelationship{
+		Subject: subject,
+		Target:  target,
+		Kind:    kind,
+		Line:    line,
+		File:    path,
+	}
+	key := dedupeKey(rel)
+	if _, exists := seen[key]; !exists {
+		seen[key] = struct{}{}
+		*rels = append(*rels, rel)
+	}
 }
 
 // stripPackageQualifier removes package/module prefix from a type name.

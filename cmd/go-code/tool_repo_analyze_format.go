@@ -168,9 +168,9 @@ func limitsForDepth(depth string) depthLimits {
 // Defaults to XML when format is empty.
 func formatAnalysisResult(r *analyze.RepoAnalysisResult, format, depth string) string {
 	switch format {
-	case "json":
+	case formatJSON:
 		return formatAnalysisJSON(r)
-	case "text":
+	case formatText:
 		return formatAnalysisText(r)
 	default:
 		return formatAnalysisXML(r, depth)
@@ -321,31 +321,7 @@ func buildXMLFiles(files []analyze.AnalyzedFile, limits depthLimits) *xmlFiles {
 		}
 
 		if limits.maxSymsPerFile != 0 || limits.includeDoc {
-			maxSyms := limits.maxSymsPerFile
-			if maxSyms == 0 {
-				maxSyms = len(af.Symbols) // 0 = all for deep
-			}
-			for j, sym := range af.Symbols {
-				if j >= maxSyms {
-					break
-				}
-				xs := xmlFileSym{
-					Kind: string(sym.Kind),
-					Name: sym.Name,
-					Line: sym.StartLine,
-					End:  sym.EndLine,
-				}
-				if sym.Complexity > 0 {
-					xs.Complexity = sym.Complexity
-				}
-				if limits.includeDoc && sym.DocComment != "" {
-					xs.Doc = truncateDoc(sym.DocComment)
-				}
-				if sym.Signature != "" {
-					xs.Signature = truncateSignature(sym.Signature)
-				}
-				xf.Symbols = append(xf.Symbols, xs)
-			}
+			xf.Symbols = buildFileSymbols(af, limits)
 		}
 
 		items = append(items, xf)
@@ -354,6 +330,38 @@ func buildXMLFiles(files []analyze.AnalyzedFile, limits depthLimits) *xmlFiles {
 		return nil
 	}
 	return &xmlFiles{Items: items}
+}
+
+// buildFileSymbols converts a file's symbols to XML with depth-dependent limits.
+func buildFileSymbols(af analyze.AnalyzedFile, limits depthLimits) []xmlFileSym {
+	maxSyms := limits.maxSymsPerFile
+	if maxSyms == 0 {
+		maxSyms = len(af.Symbols) // 0 = all for deep
+	}
+
+	syms := make([]xmlFileSym, 0, min(len(af.Symbols), maxSyms))
+	for j, sym := range af.Symbols {
+		if j >= maxSyms {
+			break
+		}
+		xs := xmlFileSym{
+			Kind: string(sym.Kind),
+			Name: sym.Name,
+			Line: sym.StartLine,
+			End:  sym.EndLine,
+		}
+		if sym.Complexity > 0 {
+			xs.Complexity = sym.Complexity
+		}
+		if limits.includeDoc && sym.DocComment != "" {
+			xs.Doc = truncateDoc(sym.DocComment)
+		}
+		if sym.Signature != "" {
+			xs.Signature = truncateSignature(sym.Signature)
+		}
+		syms = append(syms, xs)
+	}
+	return syms
 }
 
 // ---- Text formatting ----

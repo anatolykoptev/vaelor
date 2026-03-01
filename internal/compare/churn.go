@@ -32,6 +32,9 @@ func (c ChurnStats) ChurnScore() float64 {
 // gitLogTimeout is the maximum time to wait for git log.
 const gitLogTimeout = 30 * time.Second
 
+// numstatFields is the expected number of tab-separated fields in a numstat line (add, del, path).
+const numstatFields = 3
+
 // CollectChurn runs git log --numstat on the given repo root and returns
 // churn statistics per file (relative paths).
 // Returns nil map and nil error for non-git directories.
@@ -70,12 +73,10 @@ func parseNumstatOutput(data []byte) map[string]ChurnStats {
 
 		if line == "" {
 			// Commit boundary — flush current file set.
-			if currentFiles != nil {
-				for path := range currentFiles {
-					stats := result[path]
-					stats.Commits++
-					result[path] = stats
-				}
+			for path := range currentFiles {
+				stats := result[path]
+				stats.Commits++
+				result[path] = stats
 			}
 			currentFiles = make(map[string]struct{})
 			continue
@@ -98,12 +99,10 @@ func parseNumstatOutput(data []byte) map[string]ChurnStats {
 	}
 
 	// Flush last commit block.
-	if currentFiles != nil {
-		for path := range currentFiles {
-			stats := result[path]
-			stats.Commits++
-			result[path] = stats
-		}
+	for path := range currentFiles {
+		stats := result[path]
+		stats.Commits++
+		result[path] = stats
 	}
 
 	return result
@@ -116,8 +115,8 @@ func parseNumstatLine(line string) (add, del int, path string, ok bool) {
 		return 0, 0, "", false
 	}
 
-	parts := strings.SplitN(line, "\t", 3)
-	if len(parts) != 3 {
+	parts := strings.SplitN(line, "\t", numstatFields)
+	if len(parts) != numstatFields {
 		return 0, 0, "", false
 	}
 

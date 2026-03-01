@@ -159,17 +159,17 @@ func summarizeActions(actions []*gum.Action, language string) []string {
 func describeAction(a *gum.Action) string {
 	switch a.Type {
 	case gum.Insert:
-		return fmt.Sprintf("insert %s", nodeDescription(a.Node))
+		return "insert " + nodeDescription(a.Node)
 	case gum.InsertTree:
-		return fmt.Sprintf("insert tree %s", nodeDescription(a.Node))
+		return "insert tree " + nodeDescription(a.Node)
 	case gum.Delete:
-		return fmt.Sprintf("delete %s", nodeDescription(a.Node))
+		return "delete " + nodeDescription(a.Node)
 	case gum.DeleteTree:
-		return fmt.Sprintf("delete tree %s", nodeDescription(a.Node))
+		return "delete tree " + nodeDescription(a.Node)
 	case gum.Update:
 		return fmt.Sprintf("update %s to %s", nodeDescription(a.Node), truncateValue(a.Value))
 	case gum.Move:
-		return fmt.Sprintf("move %s", nodeDescription(a.Node))
+		return "move " + nodeDescription(a.Node)
 	default:
 		return ""
 	}

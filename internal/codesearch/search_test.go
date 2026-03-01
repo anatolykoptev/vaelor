@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,10 +83,7 @@ func TestSearch_ContextLines(t *testing.T) {
 
 func TestSearch_MaxResults(t *testing.T) {
 	dir := t.TempDir()
-	content := ""
-	for range 20 {
-		content += "match_line\n"
-	}
+	content := strings.Repeat("match_line\n", 20)
 	writeFile(t, dir, "main.go", content)
 
 	results, err := Search(context.Background(), SearchInput{

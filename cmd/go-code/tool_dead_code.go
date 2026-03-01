@@ -65,7 +65,7 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps)
 
 	if deps.LLM != nil && result.DeadCount > 0 {
 		resultJSON, _ := json.Marshal(result)
-		prompt := fmt.Sprintf("Repository dead code analysis:\n%s", string(resultJSON))
+		prompt := "Repository dead code analysis:\n" + string(resultJSON)
 		if input.Focus != "" {
 			prompt = fmt.Sprintf("Focus area: %s\n\n%s", input.Focus, prompt)
 		}
