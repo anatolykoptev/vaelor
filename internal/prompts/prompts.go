@@ -96,9 +96,13 @@ Be concise and focus on the flow, not line-by-line details.
 Format as a numbered walkthrough.`
 
 // SystemPromptClassifyGraphQuery classifies a natural-language query into a graph template.
+// It contains two %s placeholders: (1) graph schema text, (2) template list.
 const SystemPromptClassifyGraphQuery = `You are a query classifier for a code knowledge graph.
 
 Given a natural-language question about code, select the best matching template and extract parameters.
+
+Graph schema:
+%s
 
 Available templates:
 %s
@@ -112,7 +116,10 @@ If no template fits, respond:
 Rules:
 - Extract symbol/function/package names from the question into params
 - Use "freeform" only if the question truly doesn't match any template
-- Parameter values should be exact names from the question (case-sensitive)`
+- Parameter values should be exact names from the question (case-sensitive)
+- For type hierarchy questions (extends, implements, embeds), prefer inherits/implementations/type_hierarchy/subtypes templates
+- For complexity questions, prefer complex_symbols or hotspots templates
+- For PageRank/importance questions, prefer important_symbols template`
 
 // SystemPromptGraphNarrative formats raw graph query results into a narrative.
 const SystemPromptGraphNarrative = `You are a senior software engineer explaining code graph query results.
