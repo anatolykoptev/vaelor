@@ -27,6 +27,9 @@ const (
 	// MatchModified means the symbols have the same name and kind but different body.
 	MatchModified MatchType = "modified"
 
+	// MatchRenamed means the symbols have different names but same signature and/or body hash.
+	MatchRenamed MatchType = "renamed"
+
 	// MatchFuzzy means the symbols have similar names or signatures.
 	MatchFuzzy MatchType = "fuzzy"
 
