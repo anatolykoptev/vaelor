@@ -152,6 +152,15 @@ type LLMAnalysis struct {
 	Recommendations []string              `json:"recommendations"`
 }
 
+// MatchBreakdown counts matches by type for structured reporting.
+type MatchBreakdown struct {
+	Exact    int `json:"exact"`
+	Modified int `json:"modified"`
+	Fuzzy    int `json:"fuzzy"`
+	Renamed  int `json:"renamed"`
+	Semantic int `json:"semantic"`
+}
+
 // CompareResult contains the full structured output of a code comparison.
 type CompareResult struct {
 	RepoA          string      `json:"repo_a"`
@@ -160,9 +169,10 @@ type CompareResult struct {
 	MetricsA       RepoMetrics `json:"metrics_a"`
 	MetricsB       RepoMetrics `json:"metrics_b"`
 	Analysis       LLMAnalysis `json:"analysis"`
-	MatchedSymbols int         `json:"matched_symbols"`
-	UnmatchedA     int         `json:"unmatched_a"`
-	UnmatchedB     int         `json:"unmatched_b"`
+	MatchedSymbols int            `json:"matched_symbols"`
+	UnmatchedA     int            `json:"unmatched_a"`
+	UnmatchedB     int            `json:"unmatched_b"`
+	MatchBreakdown MatchBreakdown `json:"match_breakdown"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -210,6 +220,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	// SymbolA == nil means the symbol exists only in B (missing from A).
 	// SymbolB == nil means the symbol exists only in A (missing from B).
 	matched, unmatchedA, unmatchedB := 0, 0, 0
+	var breakdown MatchBreakdown
 	for _, m := range matches {
 		switch {
 		case m.SymbolB == nil && m.SymbolA != nil:
@@ -218,6 +229,18 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 			unmatchedB++
 		case m.SymbolA != nil && m.SymbolB != nil:
 			matched++
+			switch m.MatchType {
+			case MatchExact:
+				breakdown.Exact++
+			case MatchModified:
+				breakdown.Modified++
+			case MatchFuzzy:
+				breakdown.Fuzzy++
+			case MatchRenamed:
+				breakdown.Renamed++
+			case MatchSemantic:
+				breakdown.Semantic++
+			}
 		}
 	}
 
@@ -230,6 +253,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		MatchedSymbols: matched,
 		UnmatchedA:     unmatchedA,
 		UnmatchedB:     unmatchedB,
+		MatchBreakdown: breakdown,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are

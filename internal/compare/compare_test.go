@@ -182,6 +182,34 @@ func TestCompareReposIntegration(t *testing.T) {
 	}
 }
 
+func TestCompareRepos_MatchBreakdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	root := findRepoRootInternal(t)
+
+	result, err := CompareRepos(context.Background(), CompareInput{
+		RootA: root,
+		RootB: root,
+		Query: "test",
+		Opts:  SnapshotOpts{Language: "go"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("CompareRepos: %v", err)
+	}
+
+	if result.MatchBreakdown.Exact == 0 {
+		t.Error("expected Exact > 0 in self-compare")
+	}
+	if result.MatchBreakdown.Modified != 0 {
+		t.Errorf("expected Modified = 0 in self-compare, got %d", result.MatchBreakdown.Modified)
+	}
+	if result.MatchBreakdown.Renamed != 0 {
+		t.Errorf("expected Renamed = 0 in self-compare, got %d", result.MatchBreakdown.Renamed)
+	}
+}
+
 func TestParseAnalysis(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
 		input := `{"quality": [{"aspect": "error handling", "winner": "repo_a", "reason": "better"}], "recommendations": ["use errors.Is"]}`
