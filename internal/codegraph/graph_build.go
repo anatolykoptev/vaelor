@@ -18,7 +18,8 @@ const (
 )
 
 // buildGraph constructs vertices and edges from ingested files and parsed symbols.
-func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg *callgraph.CallGraph) ([]vertexData, []edgeData) {
+// fileImports maps each file's relative path to the import paths declared in that file.
+func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg *callgraph.CallGraph, fileImports map[string][]string) ([]vertexData, []edgeData) {
 	// Collect unique packages (directories).
 	pkgDirs := make(map[string]struct{})
 	for _, f := range files {
@@ -107,6 +108,35 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 				"line": strconv.Itoa(int(ce.Line)),
 			},
 		})
+	}
+
+	// IMPORTS edges (File→Package).
+	importedPkgs := make(map[string]bool)
+	for relFile, imports := range fileImports {
+		for _, imp := range imports {
+			pkgName := filepath.Base(imp)
+			if !importedPkgs[imp] {
+				importedPkgs[imp] = true
+				if _, isLocal := pkgDirs[imp]; !isLocal {
+					vertices = append(vertices, vertexData{
+						Label: "Package",
+						Props: map[string]string{
+							"name": pkgName,
+							"path": imp,
+							"repo": "external",
+						},
+					})
+				}
+			}
+			edges = append(edges, edgeData{
+				FromLabel: "File",
+				FromKey:   relFile,
+				ToLabel:   "Package",
+				ToKey:     imp,
+				EdgeLabel: "IMPORTS",
+				Props:     map[string]string{},
+			})
+		}
 	}
 
 	return vertices, edges
