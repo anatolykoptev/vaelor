@@ -17,8 +17,9 @@ type CodeSearchInput struct {
 	IsRegex      bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
 	FileGlob     string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go', '*.py')"`
 	Language     string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python, typescript)"`
-	ContextLines int    `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
-	MaxResults   int    `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
+	ContextLines  int   `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
+	MaxResults    int   `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
+	CaseSensitive *bool `json:"case_sensitive,omitempty" jsonschema_description:"Case-sensitive matching (default: true). Set false for case-insensitive."`
 }
 
 func registerCodeSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
@@ -68,6 +69,11 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		maxResults = maxResultsCap
 	}
 
+	caseSensitive := true
+	if input.CaseSensitive != nil {
+		caseSensitive = *input.CaseSensitive
+	}
+
 	matches, err := codesearch.Search(ctx, codesearch.SearchInput{
 		Root:          root,
 		Pattern:       input.Pattern,
@@ -76,7 +82,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		Language:      input.Language,
 		ContextLines:  contextLines,
 		MaxResults:    maxResults,
-		CaseSensitive: true,
+		CaseSensitive: caseSensitive,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("search: %s", err)), nil, nil
