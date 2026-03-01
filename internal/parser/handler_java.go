@@ -14,11 +14,15 @@ var javaQueryBytes []byte
 //go:embed queries/java_calls.scm
 var javaCallsQueryBytes []byte
 
+//go:embed queries/java_rels.scm
+var javaRelsQueryBytes []byte
+
 // javaHandler implements LanguageHandler for Java source files.
 type javaHandler struct {
 	lang      *sitter.Language
 	query     *sitter.Query
 	callQuery *sitter.Query
+	relsQuery *sitter.Query
 }
 
 // javaLang is the singleton Java language handler, registered on package init.
@@ -34,9 +38,14 @@ func init() {
 	if err != nil {
 		panic("java_calls.scm query compile error: " + err.Error())
 	}
+	rq, err := sitter.NewQuery(javaRelsQueryBytes, lang)
+	if err != nil {
+		panic("java_rels.scm query compile error: " + err.Error())
+	}
 	javaLang.lang = lang
 	javaLang.query = q
 	javaLang.callQuery = cq
+	javaLang.relsQuery = rq
 	registerHandler(javaLang)
 }
 
@@ -49,6 +58,8 @@ func (h *javaHandler) SitterLanguage() *sitter.Language { return h.lang }
 func (h *javaHandler) TagsQuery() *sitter.Query { return h.query }
 
 func (h *javaHandler) CallsQuery() *sitter.Query { return h.callQuery }
+
+func (h *javaHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for Java.
 func (h *javaHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
