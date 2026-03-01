@@ -49,9 +49,9 @@ type xmlSymSearchItem struct {
 	Line       uint32 `xml:"line,attr"`
 	End        uint32 `xml:"end,attr"`
 	Complexity int    `xml:"complexity,attr,omitempty"`
-	Signature  string `xml:"signature,omitempty"`
-	Doc        string `xml:"doc,omitempty"`
-	Body       string `xml:"body,omitempty"`
+	Signature  xmlCDATA `xml:"signature,omitempty"`
+	Doc        string   `xml:"doc,omitempty"`
+	Body       xmlCDATA `xml:"body,omitempty"`
 }
 
 // registerSymbolSearch registers the symbol_search MCP tool.
@@ -108,17 +108,22 @@ func formatSymbolSearchXML(query string, symbols []*parser.Symbol) string {
 		},
 	}
 	for i, sym := range symbols {
-		resp.Symbols.Items[i] = xmlSymSearchItem{
+		item := xmlSymSearchItem{
 			Kind:       string(sym.Kind),
 			Name:       sym.Name,
 			File:       sym.File,
 			Line:       sym.StartLine,
 			End:        sym.EndLine,
 			Complexity: sym.Complexity,
-			Signature:  sym.Signature,
 			Doc:        sym.DocComment,
-			Body:       sym.Body,
 		}
+		if sym.Signature != "" {
+			item.Signature = xmlCDATA{Inner: wrapCDATA(sym.Signature)}
+		}
+		if sym.Body != "" {
+			item.Body = xmlCDATA{Inner: wrapCDATA(sym.Body)}
+		}
+		resp.Symbols.Items[i] = item
 	}
 	data, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
