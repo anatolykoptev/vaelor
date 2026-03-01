@@ -7,7 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/llm"
+	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -131,7 +131,7 @@ func buildCallTraceOutput(ctx context.Context, symbol, direction string, result 
 		treeJSON, _ := json.Marshal(result.Tree)
 		prompt := fmt.Sprintf("Entry function: %s\nDirection: %s\n\nCall tree:\n%s",
 			symbol, direction, string(treeJSON))
-		narrative, narErr := deps.LLM.Complete(ctx, llm.SystemPromptCallTrace, prompt)
+		narrative, narErr := deps.LLM.Complete(ctx, prompts.SystemPromptCallTrace, prompt)
 		if narErr == nil {
 			output.Narrative = narrative
 		}
