@@ -457,4 +457,4 @@ This is the gap `go-code` fills.
 | P3 | Semantic search via embeddings | 3-4d | code-graph-rag, Octocode | |
 | P3 | SCIP backend for Go | 3+d | CodeMCP, srctx | |
 | P3 | Compound tools | 2d | CodeMCP | |
-| P3 | Cross-language HTTP boundaries | 3d | codeprism, MLSA | |
+| ~~P3~~ | ~~Cross-language HTTP boundaries~~ | ~~3d~~ | ~~codeprism, MLSA~~ | **Done** — Route vertices + HANDLES/FETCHES edges + `cross_calls`/`api_routes` templates + matchers for 6 languages |
