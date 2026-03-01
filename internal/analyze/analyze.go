@@ -22,10 +22,11 @@ import (
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-code/internal/render"
 	"github.com/anatolykoptev/go-code/internal/search"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
@@ -198,8 +199,8 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 
 	llmCtx := buildLLMContext(ingestResult, parseResults, input.Query, render.Mode(input.RenderMode), input.Depth)
 
-	intent := llm.ClassifyIntent(input.Query)
-	systemPrompt := llm.SystemPromptForIntent(intent, input.Depth)
+	intent := prompts.ClassifyIntent(input.Query)
+	systemPrompt := prompts.SystemPromptForIntent(intent, input.Depth)
 
 	var answer string
 	var llmCacheKey uint64

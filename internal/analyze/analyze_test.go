@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/render"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // writeFile creates parent directories and writes a file, failing the test on error.
@@ -92,12 +92,7 @@ func startMockLLMServer(t *testing.T) *httptest.Server {
 
 // newTestLLMClient creates an llm.Client pointed at the given server URL.
 func newTestLLMClient(serverURL string) *llm.Client {
-	return llm.NewClient(llm.Config{
-		BaseURL:   serverURL,
-		APIKey:    "test-key",
-		Model:     "test-model",
-		MaxTokens: 100,
-	})
+	return llm.NewClient(serverURL, "test-key", "test-model", llm.WithMaxTokens(100))
 }
 
 // --- AnalyzeRepo tests ---

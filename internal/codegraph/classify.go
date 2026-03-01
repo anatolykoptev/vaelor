@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/llm"
+	"github.com/anatolykoptev/go-code/internal/prompts"
 )
 
 // Classification holds the result of classifying a natural-language query.
@@ -19,7 +19,7 @@ type Classification struct {
 // Classify sends a natural-language query to the LLM and returns a Classification.
 // On JSON parse failure it returns a freeform fallback rather than an error.
 func Classify(ctx context.Context, client llmCompleter, query string) (*Classification, error) {
-	systemPrompt := fmt.Sprintf(llm.SystemPromptClassifyGraphQuery, TemplateList())
+	systemPrompt := fmt.Sprintf(prompts.SystemPromptClassifyGraphQuery, TemplateList())
 	raw, err := client.Complete(ctx, systemPrompt, query)
 	if err != nil {
 		return nil, fmt.Errorf("llm classify: %w", err)

@@ -13,8 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/prompts"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // MatchType describes how two symbols were matched.
@@ -260,7 +261,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	// always returned even when the LLM is unavailable.
 	if llmClient != nil {
 		compareCtx := BuildCompareContext(matches, metricsA, metricsB, input.Query)
-		answer, err := llmClient.Complete(ctx, llm.SystemPromptCodeCompare, compareCtx)
+		answer, err := llmClient.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
 		if err == nil {
 			result.Analysis = parseAnalysis(answer)
 		} else {

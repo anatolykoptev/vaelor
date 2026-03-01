@@ -9,9 +9,9 @@ import (
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/github"
-	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/search"
 	"github.com/anatolykoptev/go-kit/env"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,13 +32,13 @@ func registerTools(server *mcp.Server, cfg Config) {
 		RedisURL: cfg.RedisURL,
 	})
 
+	const defaultLLMMaxTokens = 16384
+
 	deps := analyze.Deps{
-		LLM: llm.NewClient(llm.Config{
-			BaseURL:      cfg.LLMURL,
-			APIKey:       cfg.LLMAPIKey,
-			Model:        cfg.LLMModel,
-			FallbackKeys: cfg.LLMFallbackKeys,
-		}),
+		LLM: llm.NewClient(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel,
+			llm.WithFallbackKeys(cfg.LLMFallbackKeys),
+			llm.WithMaxTokens(defaultLLMMaxTokens),
+		),
 		MaxFileBytes: cfg.MaxFileBytes,
 		GithubToken:  cfg.GithubToken,
 		WorkspaceDir: cfg.WorkspaceDir,

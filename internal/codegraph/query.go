@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/llm"
+	"github.com/anatolykoptev/go-code/internal/prompts"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // templateFreeform is the sentinel template ID used when no named template matches.
@@ -136,7 +137,7 @@ func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResul
 	}
 	rawJSON, _ := json.Marshal(rows)
 	prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
-	narrative, err := llmClient.Complete(ctx, llm.SystemPromptGraphNarrative, prompt)
+	narrative, err := llmClient.Complete(ctx, prompts.SystemPromptGraphNarrative, prompt)
 	if err == nil {
 		result.Narrative = narrative
 	} else {

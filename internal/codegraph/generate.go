@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/llm"
+	"github.com/anatolykoptev/go-code/internal/prompts"
 )
 
 // reCodeBlock matches a fenced code block, optionally with a language tag.
@@ -21,7 +21,7 @@ type llmCompleter interface {
 // natural-language question. It extracts the query from any markdown code block
 // returned by the model and rejects queries containing write operations.
 func GenerateCypher(ctx context.Context, client llmCompleter, query string) (string, error) {
-	raw, err := client.Complete(ctx, llm.SystemPromptGenerateCypher, query)
+	raw, err := client.Complete(ctx, prompts.SystemPromptGenerateCypher, query)
 	if err != nil {
 		return "", fmt.Errorf("llm completion: %w", err)
 	}
@@ -43,7 +43,7 @@ func GenerateCypherWithRetry(ctx context.Context, client llmCompleter, query, fi
 		query, firstErr,
 	)
 
-	raw, err := client.Complete(ctx, llm.SystemPromptGenerateCypher, retryPrompt)
+	raw, err := client.Complete(ctx, prompts.SystemPromptGenerateCypher, retryPrompt)
 	if err != nil {
 		return "", fmt.Errorf("llm retry completion: %w", err)
 	}

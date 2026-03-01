@@ -9,8 +9,8 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/github"
-	"github.com/anatolykoptev/go-code/internal/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-code/internal/render"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -162,7 +162,7 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 	}
 
 	// Quick mode: summarize with LLM.
-	summary, llmErr := deps.LLM.Complete(ctx, llm.SystemPromptQuickSearch,
+	summary, llmErr := deps.LLM.Complete(ctx, prompts.SystemPromptQuickSearch,
 		fmt.Sprintf("Query: %s\n\nCode search results:\n%s", input.Query, sb.String()))
 	if llmErr != nil {
 		return textResult(fmt.Sprintf("Found %d code matches (LLM unavailable):\n\n%s", len(results), sb.String())), nil, nil
@@ -234,7 +234,7 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 	}
 
 	// LLM summarize.
-	summary, llmErr := deps.LLM.Complete(ctx, llm.SystemPromptIssuesAnalysis,
+	summary, llmErr := deps.LLM.Complete(ctx, prompts.SystemPromptIssuesAnalysis,
 		fmt.Sprintf("Query: %s\n\n%s results:\n%s", input.Query, kind, sb.String()))
 	if llmErr != nil {
 		return textResult(fmt.Sprintf("Found %d %ss (LLM unavailable):\n\n%s", len(issues), kind, sb.String())), nil, nil
@@ -322,7 +322,7 @@ func handleQuickFallback(ctx context.Context, input RepoAnalyzeInput, repos []st
 		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil, nil
 	}
 
-	summary, err := deps.LLM.Complete(ctx, llm.SystemPromptQuickSearch,
+	summary, err := deps.LLM.Complete(ctx, prompts.SystemPromptQuickSearch,
 		fmt.Sprintf("Query: %s\n\nRepository overview:\n%s", input.Query, sb.String()))
 	if err != nil {
 		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil, nil
