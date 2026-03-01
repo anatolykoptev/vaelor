@@ -91,50 +91,8 @@ func isWellKnownInterfaceMethod(sym *parser.Symbol) bool {
 // and optionally exported symbols to reduce false positives.
 func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 	called := buildCalledSet(cg.Edges)
-
-	var funcSymbols []*parser.Symbol
-	for _, sym := range cg.Symbols {
-		if sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod {
-			funcSymbols = append(funcSymbols, sym)
-		}
-	}
-
-	var dead []DeadSymbol
-	for _, sym := range funcSymbols {
-		if called[sym] {
-			continue
-		}
-		if isEntryPoint(sym.Name) {
-			continue
-		}
-		if isTestFunc(sym.Name) {
-			continue
-		}
-		if isHTTPHandler(sym) {
-			continue
-		}
-		if isWellKnownInterfaceMethod(sym) {
-			continue
-		}
-		if !opts.IncludeTests && isTestFile(sym.File) {
-			continue
-		}
-		exported := isExported(sym.Name)
-		if !opts.IncludeExported && exported {
-			continue
-		}
-
-		dead = append(dead, DeadSymbol{
-			Name:       sym.Name,
-			Kind:       string(sym.Kind),
-			File:       sym.File,
-			Package:    filepath.Dir(sym.File),
-			StartLine:  int(sym.StartLine),
-			Lines:      lines(sym),
-			Exported:   exported,
-			Confidence: classifyConfidence(sym, exported),
-		})
-	}
+	funcSymbols := filterFuncSymbols(cg.Symbols)
+	dead := collectDeadSymbols(funcSymbols, called, opts)
 
 	sort.Slice(dead, func(i, j int) bool {
 		if dead[i].File != dead[j].File {
@@ -156,6 +114,56 @@ func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 		DeadRatio:      ratio,
 		DeadSymbols:    dead,
 	}
+}
+
+// filterFuncSymbols returns only function and method symbols from the list.
+func filterFuncSymbols(symbols []*parser.Symbol) []*parser.Symbol {
+	var funcs []*parser.Symbol
+	for _, sym := range symbols {
+		if sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod {
+			funcs = append(funcs, sym)
+		}
+	}
+	return funcs
+}
+
+// shouldSkipSymbol returns true if the symbol should be excluded from dead code analysis.
+func shouldSkipSymbol(sym *parser.Symbol, opts Options) bool {
+	if isEntryPoint(sym.Name) || isTestFunc(sym.Name) {
+		return true
+	}
+	if isHTTPHandler(sym) || isWellKnownInterfaceMethod(sym) {
+		return true
+	}
+	if !opts.IncludeTests && isTestFile(sym.File) {
+		return true
+	}
+	if !opts.IncludeExported && isExported(sym.Name) {
+		return true
+	}
+	return false
+}
+
+// collectDeadSymbols finds all uncalled symbols that are not excluded by filters.
+func collectDeadSymbols(funcSymbols []*parser.Symbol, called map[*parser.Symbol]bool, opts Options) []DeadSymbol {
+	var dead []DeadSymbol
+	for _, sym := range funcSymbols {
+		if called[sym] || shouldSkipSymbol(sym, opts) {
+			continue
+		}
+		exported := isExported(sym.Name)
+		dead = append(dead, DeadSymbol{
+			Name:       sym.Name,
+			Kind:       string(sym.Kind),
+			File:       sym.File,
+			Package:    filepath.Dir(sym.File),
+			StartLine:  int(sym.StartLine),
+			Lines:      lines(sym),
+			Exported:   exported,
+			Confidence: classifyConfidence(sym, exported),
+		})
+	}
+	return dead
 }
 
 // buildCalledSet returns the set of symbols that appear as callees in any edge.

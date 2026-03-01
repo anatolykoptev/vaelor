@@ -16,6 +16,17 @@ const (
 	maxGapSymbols   = 40
 )
 
+// Match priority levels for sorting symbol matches in LLM context.
+// Lower value = higher priority (more interesting for comparison).
+const (
+	priorityModified = 0
+	priorityRenamed  = 1
+	priorityFuzzy    = 2
+	prioritySemantic = 3
+	priorityExact    = 4
+	priorityDefault  = 5
+)
+
 // truncate returns s unchanged when len(s) <= maxLen, otherwise truncates
 // at a valid UTF-8 boundary and appends a marker.
 func truncate(s string, maxLen int) string {
@@ -112,17 +123,17 @@ func writeMetrics(sb *strings.Builder, metricsA, metricsB RepoMetrics) {
 func matchPriority(m *SymbolMatch) int {
 	switch m.MatchType {
 	case MatchModified:
-		return 0
+		return priorityModified
 	case MatchRenamed:
-		return 1
+		return priorityRenamed
 	case MatchFuzzy:
-		return 2
+		return priorityFuzzy
 	case MatchSemantic:
-		return 3
+		return prioritySemantic
 	case MatchExact:
-		return 4
+		return priorityExact
 	default:
-		return 5
+		return priorityDefault
 	}
 }
 

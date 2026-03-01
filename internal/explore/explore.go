@@ -64,6 +64,13 @@ type DeadCodeSummary struct {
 	Samples []string `json:"samples"`
 }
 
+// parseResults holds aggregated parse output from all files.
+type parseResults struct {
+	symbols    []*parser.Symbol
+	calls      []parser.CallSite
+	totalLines int
+}
+
 // Run performs a fast, structured overview of the repository at input.Root.
 func Run(ctx context.Context, input Input) (*Result, error) {
 	var langs []string
@@ -81,12 +88,33 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		return nil, err
 	}
 
-	// Parse all files, collecting symbols and calls.
-	var allSymbols []*parser.Symbol
-	var allCalls []parser.CallSite
-	var totalLines int
+	pr, err := parseAllFiles(ctx, ir.Files)
+	if err != nil {
+		return nil, err
+	}
 
-	for _, f := range ir.Files {
+	cg := callgraph.BuildCallGraph(pr.symbols, pr.calls)
+	callCounts := countIncomingCalls(cg)
+	topSymbols := buildTopSymbols(pr.symbols, callCounts, input.Root)
+	dcSummary := buildDeadCodeSummary(cg)
+	langStats := buildLanguageStats(ir.Files)
+	packages := buildPackageList(ir.Files, input.Root)
+
+	return &Result{
+		FileCount:   len(ir.Files),
+		SymbolCount: len(pr.symbols),
+		TotalLines:  pr.totalLines,
+		Languages:   langStats,
+		TopSymbols:  topSymbols,
+		DeadCode:    dcSummary,
+		Packages:    packages,
+	}, nil
+}
+
+// parseAllFiles parses all ingested files, collecting symbols, calls, and line counts.
+func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, error) {
+	var result parseResults
+	for _, f := range files {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -96,7 +124,7 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 			continue
 		}
 
-		totalLines += countLines(source)
+		result.totalLines += countLines(source)
 
 		opts := parser.ParseOpts{
 			Language:    f.Language,
@@ -107,52 +135,54 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		if parseErr != nil {
 			continue
 		}
-		allSymbols = append(allSymbols, pr.Symbols...)
+		result.symbols = append(result.symbols, pr.Symbols...)
 
 		calls, _ := parser.ExtractCalls(f.Path, source, opts)
-		allCalls = append(allCalls, calls...)
+		result.calls = append(result.calls, calls...)
 	}
+	return &result, nil
+}
 
-	// Build call graph.
-	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
-
-	// Count incoming calls per symbol.
+// countIncomingCalls returns a map of symbol to its incoming call count.
+func countIncomingCalls(cg *callgraph.CallGraph) map[*parser.Symbol]int {
 	callCounts := make(map[*parser.Symbol]int)
 	for _, edge := range cg.Edges {
 		if edge.Callee != nil {
 			callCounts[edge.Callee]++
 		}
 	}
+	return callCounts
+}
 
-	// Top symbols by call count.
-	topSymbols := buildTopSymbols(allSymbols, callCounts, input.Root)
-
-	// Dead code analysis.
+// buildDeadCodeSummary runs dead code analysis and returns a compact summary.
+func buildDeadCodeSummary(cg *callgraph.CallGraph) *DeadCodeSummary {
 	dcResult := deadcode.Analyze(cg, deadcode.Options{})
-	var dcSummary *DeadCodeSummary
-	if dcResult.DeadCount > 0 {
-		samples := make([]string, 0, maxDeadCodeSamples)
-		for i, ds := range dcResult.DeadSymbols {
-			if i >= maxDeadCodeSamples {
-				break
-			}
-			samples = append(samples, ds.Name)
-		}
-		dcSummary = &DeadCodeSummary{
-			Count:   dcResult.DeadCount,
-			Samples: samples,
-		}
+	if dcResult.DeadCount == 0 {
+		return nil
 	}
+	samples := make([]string, 0, maxDeadCodeSamples)
+	for i, ds := range dcResult.DeadSymbols {
+		if i >= maxDeadCodeSamples {
+			break
+		}
+		samples = append(samples, ds.Name)
+	}
+	return &DeadCodeSummary{
+		Count:   dcResult.DeadCount,
+		Samples: samples,
+	}
+}
 
-	// Language stats.
+// buildLanguageStats computes per-language file counts and ratios.
+func buildLanguageStats(files []*ingest.File) []LanguageStat {
 	langFiles := make(map[string]int)
-	for _, f := range ir.Files {
+	for _, f := range files {
 		if f.Language != "" {
 			langFiles[f.Language]++
 		}
 	}
 
-	fileCount := len(ir.Files)
+	fileCount := len(files)
 	langStats := make([]LanguageStat, 0, len(langFiles))
 	for name, count := range langFiles {
 		var ratio float64
@@ -168,19 +198,7 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	sort.Slice(langStats, func(i, j int) bool {
 		return langStats[i].Files > langStats[j].Files
 	})
-
-	// Package list: unique directories relative to root.
-	packages := buildPackageList(ir.Files, input.Root)
-
-	return &Result{
-		FileCount:   fileCount,
-		SymbolCount: len(allSymbols),
-		TotalLines:  totalLines,
-		Languages:   langStats,
-		TopSymbols:  topSymbols,
-		DeadCode:    dcSummary,
-		Packages:    packages,
-	}, nil
+	return langStats
 }
 
 // buildTopSymbols returns the top symbols sorted by call count descending.

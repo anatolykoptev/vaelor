@@ -277,47 +277,15 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports, snapA.Language)
 
 	// Hotspot analysis (non-fatal — skip if git unavailable).
-	var hotspotsA, hotspotsB []HotspotFile
-	churnA, _ := CollectChurn(ctx, input.RootA)
-	churnB, _ := CollectChurn(ctx, input.RootB)
-	if churnA != nil {
-		hotspotsA = ComputeHotspots(churnA, FileComplexityFromSnapshot(snapA))
-	}
-	if churnB != nil {
-		hotspotsB = ComputeHotspots(churnB, FileComplexityFromSnapshot(snapB))
-	}
+	hotspotsA := collectHotspots(ctx, input.RootA, snapA)
+	hotspotsB := collectHotspots(ctx, input.RootB, snapB)
 
 	// Compute type relationship stats.
 	relStatsA := ComputeRelStats(snapA.Rels)
 	relStatsB := ComputeRelStats(snapB.Rels)
 
 	// Count matches and gaps.
-	// SymbolA == nil means the symbol exists only in B (missing from A).
-	// SymbolB == nil means the symbol exists only in A (missing from B).
-	matched, unmatchedA, unmatchedB := 0, 0, 0
-	var breakdown MatchBreakdown
-	for _, m := range matches {
-		switch {
-		case m.SymbolB == nil && m.SymbolA != nil:
-			unmatchedA++
-		case m.SymbolA == nil && m.SymbolB != nil:
-			unmatchedB++
-		case m.SymbolA != nil && m.SymbolB != nil:
-			matched++
-			switch m.MatchType {
-			case MatchExact:
-				breakdown.Exact++
-			case MatchModified:
-				breakdown.Modified++
-			case MatchFuzzy:
-				breakdown.Fuzzy++
-			case MatchRenamed:
-				breakdown.Renamed++
-			case MatchSemantic:
-				breakdown.Semantic++
-			}
-		}
-	}
+	matched, unmatchedA, unmatchedB, breakdown := countMatches(matches)
 
 	diffStats := computeDiffStats(matches)
 
@@ -342,18 +310,63 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	// LLM analysis (optional). Errors are non-fatal — structural results are
 	// always returned even when the LLM is unavailable.
 	if llmClient != nil {
-		compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, input.Query, hotspotsA, hotspotsB, relStatsA, relStatsB)
-		answer, err := llmClient.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
-		if err == nil {
-			result.Analysis = parseAnalysis(answer)
-		} else {
-			result.Analysis = LLMAnalysis{
-				Recommendations: []string{fmt.Sprintf("LLM analysis unavailable: %v", err)},
-			}
-		}
+		result.Analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query, hotspotsA, hotspotsB, relStatsA, relStatsB)
 	}
 
 	return result, nil
+}
+
+// countMatches tallies matched, unmatched-A, unmatched-B counts and a
+// per-type breakdown from the symbol match list.
+func countMatches(matches []SymbolMatch) (matched, unmatchedA, unmatchedB int, breakdown MatchBreakdown) {
+	// SymbolA == nil means the symbol exists only in B (missing from A).
+	// SymbolB == nil means the symbol exists only in A (missing from B).
+	for _, m := range matches {
+		switch {
+		case m.SymbolB == nil && m.SymbolA != nil:
+			unmatchedA++
+		case m.SymbolA == nil && m.SymbolB != nil:
+			unmatchedB++
+		case m.SymbolA != nil && m.SymbolB != nil:
+			matched++
+			switch m.MatchType {
+			case MatchExact:
+				breakdown.Exact++
+			case MatchModified:
+				breakdown.Modified++
+			case MatchFuzzy:
+				breakdown.Fuzzy++
+			case MatchRenamed:
+				breakdown.Renamed++
+			case MatchSemantic:
+				breakdown.Semantic++
+			}
+		}
+	}
+	return matched, unmatchedA, unmatchedB, breakdown
+}
+
+// collectHotspots runs git churn analysis and computes hotspot files for a single repo.
+// Returns nil if git is unavailable or the repo has no churn data.
+func collectHotspots(ctx context.Context, root string, snap *RepoSnapshot) []HotspotFile {
+	churn, _ := CollectChurn(ctx, root)
+	if churn == nil {
+		return nil
+	}
+	return ComputeHotspots(churn, FileComplexityFromSnapshot(snap))
+}
+
+// runLLMAnalysis sends the comparison context to the LLM and parses its response.
+// Returns a fallback analysis with the error message if the LLM call fails.
+func runLLMAnalysis(ctx context.Context, client *llm.Client, matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string, hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats) LLMAnalysis {
+	compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, query, hotspotsA, hotspotsB, relStatsA, relStatsB)
+	answer, err := client.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
+	if err != nil {
+		return LLMAnalysis{
+			Recommendations: []string{fmt.Sprintf("LLM analysis unavailable: %v", err)},
+		}
+	}
+	return parseAnalysis(answer)
 }
 
 // parseAnalysis tries to parse LLM response as JSON LLMAnalysis.

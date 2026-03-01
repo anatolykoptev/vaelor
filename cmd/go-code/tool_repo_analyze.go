@@ -14,10 +14,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Mode constants for repo_analyze.
+// Mode and format constants for repo_analyze.
 const (
-	modeQuick = "quick"
-	modeRaw   = "raw"
+	modeQuick  = "quick"
+	modeRaw    = "raw"
+	formatJSON = "json"
+	formatText = "text"
+	formatXML  = "xml"
 )
 
 // RepoAnalyzeInput is the input schema for the repo_analyze tool.
@@ -74,7 +77,7 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 	if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
 		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
 	}
-	if input.Format != "" && input.Format != "text" && input.Format != "json" && input.Format != "xml" {
+	if input.Format != "" && input.Format != formatText && input.Format != formatJSON && input.Format != formatXML {
 		return errResult(fmt.Sprintf("invalid format %q: use xml, text, or json", input.Format)), nil, nil
 	}
 
@@ -110,20 +113,21 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 func saveOutputFile(content, format, outputDir string) (string, bool) {
 	ext := ".xml"
 	switch format {
-	case "json":
+	case formatJSON:
 		ext = ".json"
-	case "text":
+	case formatText:
 		ext = ".txt"
 	}
 
-	if err := os.MkdirAll(outputDir, 0o755); err != nil { //nolint:mnd
+	if err := os.MkdirAll(outputDir, 0o750); err != nil { //nolint:mnd
 		return "", false
 	}
 
 	filename := fmt.Sprintf("repo_analyze_%d%s", time.Now().UnixMilli(), ext)
 	path := filepath.Join(outputDir, filename)
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:mnd
+	// File must be world-readable so the consuming agent (running as a different user) can access it.
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:mnd,gosec
 		return "", false
 	}
 

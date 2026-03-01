@@ -222,49 +222,43 @@ func SupportedLanguages() []string {
 	}
 }
 
+// extToLanguage maps file extensions to their programming language names.
+var extToLanguage = map[string]string{
+	".go":   "go",
+	".py":   "python",
+	".ts":   "typescript",
+	".tsx":  "typescript",
+	".js":   "javascript",
+	".jsx":  "javascript",
+	".mjs":  "javascript",
+	".rs":   "rust",
+	".java": "java",
+	".c":    "c",
+	".h":    "c",
+	".cpp":  "cpp",
+	".cc":   "cpp",
+	".cxx":  "cpp",
+	".hpp":  "cpp",
+	".rb":   "ruby",
+	".cs":   "csharp",
+	".kt":   "kotlin",
+	".kts":  "kotlin",
+	".php":  "php",
+	".scala": "scala",
+	".sc":   "scala",
+	".lua":  "lua",
+	".pl":   "perl",
+	".pm":   "perl",
+	".swift": "swift",
+	".dart": "dart",
+	".ex":   "elixir",
+	".exs":  "elixir",
+}
+
 // DetectLanguageFromPath returns the language based on file extension.
 // Exported so tests and other packages can use it without parsing a full file.
 func DetectLanguageFromPath(path string) string {
-	switch filepath.Ext(path) {
-	case ".go":
-		return "go"
-	case ".py":
-		return "python"
-	case ".ts", ".tsx":
-		return "typescript"
-	case ".js", ".jsx", ".mjs":
-		return "javascript"
-	case ".rs":
-		return "rust"
-	case ".java":
-		return "java"
-	case ".c", ".h":
-		return "c"
-	case ".cpp", ".cc", ".cxx", ".hpp":
-		return "cpp"
-	case ".rb":
-		return "ruby"
-	case ".cs":
-		return "csharp"
-	case ".kt", ".kts":
-		return "kotlin"
-	case ".php":
-		return "php"
-	case ".scala", ".sc":
-		return "scala"
-	case ".lua":
-		return "lua"
-	case ".pl", ".pm":
-		return "perl"
-	case ".swift":
-		return "swift"
-	case ".dart":
-		return "dart"
-	case ".ex", ".exs":
-		return "elixir"
-	default:
-		return ""
-	}
+	return extToLanguage[filepath.Ext(path)]
 }
 
 // extractDocComment looks at previous sibling nodes for comment blocks that
