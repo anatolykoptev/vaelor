@@ -10,6 +10,8 @@ import (
 	"sort"
 	"sync"
 
+	xxhash "github.com/cespare/xxhash/v2"
+
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -163,6 +165,8 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 
 	uniqueImports := sortedImports(importsSeen)
 
+	computeBodyHashes(allSymbols)
+
 	return &RepoSnapshot{
 		Name:       filepath.Base(root),
 		Root:       root,
@@ -205,4 +209,13 @@ func sortedImports(seen map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// computeBodyHashes sets BodyHash on each symbol that has a non-empty Body.
+func computeBodyHashes(symbols []*parser.Symbol) {
+	for _, sym := range symbols {
+		if sym.Body != "" {
+			sym.BodyHash = xxhash.Sum64String(sym.Body)
+		}
+	}
 }
