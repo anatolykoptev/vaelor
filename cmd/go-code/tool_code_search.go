@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -21,6 +21,25 @@ type CodeSearchInput struct {
 	ContextLines  int   `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
 	MaxResults    int   `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
 	CaseSensitive *bool `json:"case_sensitive,omitempty" jsonschema_description:"Case-sensitive matching (default: true). Set false for case-insensitive."`
+}
+
+type xmlSearchResponse struct {
+	XMLName xml.Name        `xml:"response"`
+	Search  xmlSearch       `xml:"search"`
+}
+
+type xmlSearch struct {
+	Pattern string          `xml:"pattern,attr"`
+	IsRegex bool            `xml:"isRegex,attr"`
+	Matches int             `xml:"matches,attr"`
+	Items   []xmlSearchMatch `xml:"match"`
+}
+
+type xmlSearchMatch struct {
+	File    string   `xml:"file,attr"`
+	Line    int      `xml:"line,attr"`
+	Text    string   `xml:"text"`
+	Context []string `xml:"ctx,omitempty"`
 }
 
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
@@ -95,24 +114,27 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		return errResult(fmt.Sprintf("search: %s", err)), nil, nil
 	}
 
-	type searchOutput struct {
-		Pattern    string                   `json:"pattern"`
-		IsRegex    bool                     `json:"is_regex"`
-		MatchCount int                      `json:"match_count"`
-		Matches    []codesearch.SearchMatch `json:"matches"`
+	resp := xmlSearchResponse{
+		Search: xmlSearch{
+			Pattern: input.Pattern,
+			IsRegex: input.IsRegex,
+			Matches: len(matches),
+			Items:   make([]xmlSearchMatch, len(matches)),
+		},
+	}
+	for i, m := range matches {
+		resp.Search.Items[i] = xmlSearchMatch{
+			File:    m.File,
+			Line:    m.Line,
+			Text:    m.Text,
+			Context: m.Context,
+		}
 	}
 
-	output := searchOutput{
-		Pattern:    input.Pattern,
-		IsRegex:    input.IsRegex,
-		MatchCount: len(matches),
-		Matches:    matches,
-	}
-
-	data, err := json.MarshalIndent(output, "", "  ")
+	data, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 	}
 
-	return largeTextResult(string(data), "code_search", outputDir), nil, nil
+	return largeTextResult(xml.Header+string(data), "code_search", outputDir), nil, nil
 }

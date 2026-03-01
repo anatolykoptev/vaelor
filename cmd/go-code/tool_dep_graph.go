@@ -2,11 +2,22 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type xmlDepGraphResponse struct {
+	XMLName  xml.Name    `xml:"response"`
+	DepGraph xmlDepGraph `xml:"depGraph"`
+}
+
+type xmlDepGraph struct {
+	Format  string `xml:"format,attr,omitempty"`
+	Content string `xml:",chardata"`
+}
 
 // DepGraphInput is the input schema for the dep_graph tool.
 type DepGraphInput struct {
@@ -69,6 +80,16 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil, nil
 		}
 
-		return largeTextResult(graph, "dep_graph", outputDir), nil, nil
+		resp := xmlDepGraphResponse{
+			DepGraph: xmlDepGraph{
+				Format:  input.Format,
+				Content: graph,
+			},
+		}
+		data, err := xml.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
+		}
+		return largeTextResult(xml.Header+string(data), "dep_graph", outputDir), nil, nil
 	})
 }

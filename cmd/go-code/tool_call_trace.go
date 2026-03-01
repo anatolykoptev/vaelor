@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -10,6 +11,58 @@ import (
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type xmlTraceResponse struct {
+	XMLName xml.Name `xml:"response"`
+	Trace   xmlTrace `xml:"trace"`
+}
+
+type xmlTrace struct {
+	Symbol        string         `xml:"symbol,attr"`
+	Direction     string         `xml:"direction,attr"`
+	TotalNodes    int            `xml:"totalNodes,attr"`
+	MaxDepth      int            `xml:"maxDepth,attr"`
+	Resolved      int            `xml:"resolved,attr"`
+	Unresolved    int            `xml:"unresolved,attr"`
+	ResolvedRatio float64        `xml:"resolvedRatio,attr"`
+	Nodes         []xmlTraceNode `xml:"node"`
+	Narrative     string         `xml:"narrative,omitempty"`
+}
+
+type xmlTraceNode struct {
+	Kind      string         `xml:"kind,attr"`
+	Name      string         `xml:"name,attr"`
+	File      string         `xml:"file,attr"`
+	Line      uint32         `xml:"line,attr"`
+	End       uint32         `xml:"end,attr,omitempty"`
+	CallLine  uint32         `xml:"callLine,attr,omitempty"`
+	Cycle     bool           `xml:"cycle,attr,omitempty"`
+	Signature string         `xml:"signature,omitempty"`
+	Children  []xmlTraceNode `xml:"node,omitempty"`
+}
+
+func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
+	result := make([]xmlTraceNode, len(nodes))
+	for i, n := range nodes {
+		xn := xmlTraceNode{
+			CallLine: n.CallLine,
+			Cycle:    n.Cycle,
+		}
+		if n.Symbol != nil {
+			xn.Kind = string(n.Symbol.Kind)
+			xn.Name = n.Symbol.Name
+			xn.File = n.Symbol.File
+			xn.Line = n.Symbol.StartLine
+			xn.End = n.Symbol.EndLine
+			xn.Signature = n.Symbol.Signature
+		}
+		if len(n.Children) > 0 {
+			xn.Children = convertTraceNodes(n.Children)
+		}
+		result[i] = xn
+	}
+	return result
+}
 
 // CallTraceInput is the input schema for the call_trace tool.
 type CallTraceInput struct {
@@ -98,12 +151,26 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 
 	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps)
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	resp := xmlTraceResponse{
+		Trace: xmlTrace{
+			Symbol:        output.Symbol,
+			Direction:     output.Direction,
+			TotalNodes:    output.Stats.TotalNodes,
+			MaxDepth:      output.Stats.MaxDepth,
+			Resolved:      output.Stats.Resolved,
+			Unresolved:    output.Stats.Unresolved,
+			ResolvedRatio: output.Stats.ResolvedRatio,
+			Nodes:         convertTraceNodes(output.CallTree),
+			Narrative:     output.Narrative,
+		},
+	}
+
+	data, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 	}
 
-	return largeTextResult(string(data), "call_trace", outputDir), nil, nil
+	return largeTextResult(xml.Header+string(data), "call_trace", outputDir), nil, nil
 }
 
 func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps) callTraceOutput {

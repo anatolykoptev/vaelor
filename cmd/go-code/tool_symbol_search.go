@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
-	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -29,6 +29,29 @@ type SymbolSearchInput struct {
 
 	// Limit caps the number of results returned.
 	Limit int `json:"limit,omitempty" jsonschema_description:"Maximum number of results to return. Default 100, max 500."`
+}
+
+type xmlSymbolSearchResponse struct {
+	XMLName xml.Name          `xml:"response"`
+	Symbols xmlSymbolResults  `xml:"symbols"`
+}
+
+type xmlSymbolResults struct {
+	Query string              `xml:"query,attr"`
+	Count int                 `xml:"count,attr"`
+	Items []xmlSymSearchItem  `xml:"symbol"`
+}
+
+type xmlSymSearchItem struct {
+	Kind       string `xml:"kind,attr"`
+	Name       string `xml:"name,attr"`
+	File       string `xml:"file,attr"`
+	Line       uint32 `xml:"line,attr"`
+	End        uint32 `xml:"end,attr"`
+	Complexity int    `xml:"complexity,attr,omitempty"`
+	Signature  string `xml:"signature,omitempty"`
+	Doc        string `xml:"doc,omitempty"`
+	Body       string `xml:"body,omitempty"`
 }
 
 // registerSymbolSearch registers the symbol_search MCP tool.
@@ -68,33 +91,38 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("symbol search: %s", err)), nil, nil
 		}
 
-		return largeTextResult(formatSymbolSearchResult(input.Query, symbols), "symbol_search", outputDir), nil, nil
+		if len(symbols) == 0 {
+			return textResult(fmt.Sprintf("No symbols found matching %q.", input.Query)), nil, nil
+		}
+		return largeTextResult(formatSymbolSearchXML(input.Query, symbols), "symbol_search", outputDir), nil, nil
 	})
 }
 
-// formatSymbolSearchResult formats matched symbols as a readable list.
-func formatSymbolSearchResult(query string, symbols []*parser.Symbol) string {
-	if len(symbols) == 0 {
-		return fmt.Sprintf("No symbols found matching %q.\n", query)
+// formatSymbolSearchXML formats matched symbols as XML output.
+func formatSymbolSearchXML(query string, symbols []*parser.Symbol) string {
+	resp := xmlSymbolSearchResponse{
+		Symbols: xmlSymbolResults{
+			Query: query,
+			Count: len(symbols),
+			Items: make([]xmlSymSearchItem, len(symbols)),
+		},
 	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Found %d symbol(s) matching %q:\n\n", len(symbols), query)
-
-	for _, sym := range symbols {
-		fmt.Fprintf(&sb, "[%s] %s\n", sym.Kind, sym.Name)
-		fmt.Fprintf(&sb, "  File: %s (lines %d-%d)\n", sym.File, sym.StartLine, sym.EndLine)
-		if sym.Signature != "" {
-			fmt.Fprintf(&sb, "  Signature: %s\n", sym.Signature)
+	for i, sym := range symbols {
+		resp.Symbols.Items[i] = xmlSymSearchItem{
+			Kind:       string(sym.Kind),
+			Name:       sym.Name,
+			File:       sym.File,
+			Line:       sym.StartLine,
+			End:        sym.EndLine,
+			Complexity: sym.Complexity,
+			Signature:  sym.Signature,
+			Doc:        sym.DocComment,
+			Body:       sym.Body,
 		}
-		if sym.DocComment != "" {
-			fmt.Fprintf(&sb, "  Doc: %s\n", sym.DocComment)
-		}
-		if sym.Body != "" {
-			fmt.Fprintf(&sb, "  Body:\n```\n%s\n```\n", sym.Body)
-		}
-		sb.WriteString("\n")
 	}
-
-	return sb.String()
+	data, err := xml.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("<error>%s</error>", err.Error())
+	}
+	return xml.Header + string(data)
 }

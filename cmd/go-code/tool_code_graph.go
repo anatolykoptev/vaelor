@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
 
@@ -11,6 +11,31 @@ import (
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type xmlGraphResponse struct {
+	XMLName xml.Name      `xml:"response"`
+	Graph   xmlGraphQuery `xml:"graph"`
+}
+
+type xmlGraphQuery struct {
+	Repo      string       `xml:"repo,attr"`
+	Template  string       `xml:"template,attr"`
+	Vertices  int          `xml:"vertices,attr"`
+	Edges     int          `xml:"edges,attr"`
+	Cached    bool         `xml:"cached,attr"`
+	Query     string       `xml:"query"`
+	Cypher    string       `xml:"cypher"`
+	Results   xmlGraphRows `xml:"results"`
+	Narrative string       `xml:"narrative,omitempty"`
+}
+
+type xmlGraphRows struct {
+	Rows []xmlGraphRow `xml:"row"`
+}
+
+type xmlGraphRow struct {
+	Cols []string `xml:"col"`
+}
 
 // CodeGraphInput is the input schema for the code_graph tool.
 type CodeGraphInput struct {
@@ -82,11 +107,38 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			return errResult(fmt.Sprintf("query graph: %s", err)), nil, nil
 		}
 
-		data, err := json.MarshalIndent(result, "", "  ")
+		formatted, err := formatGraphXML(result)
 		if err != nil {
 			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 		}
 
-		return largeTextResult(string(data), "code_graph", outputDir), nil, nil
+		return largeTextResult(formatted, "code_graph", outputDir), nil, nil
 	})
+}
+
+// formatGraphXML converts a QueryResult to XML string.
+func formatGraphXML(result *codegraph.QueryResult) (string, error) {
+	resp := xmlGraphResponse{
+		Graph: xmlGraphQuery{
+			Repo:      result.Repo,
+			Template:  result.Template,
+			Vertices:  result.GraphStats.Vertices,
+			Edges:     result.GraphStats.Edges,
+			Cached:    result.GraphStats.Cached,
+			Query:     result.Query,
+			Cypher:    result.Cypher,
+			Narrative: result.Narrative,
+		},
+	}
+	rows := make([]xmlGraphRow, len(result.Results))
+	for i, r := range result.Results {
+		rows[i] = xmlGraphRow{Cols: r}
+	}
+	resp.Graph.Results = xmlGraphRows{Rows: rows}
+
+	data, err := xml.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return xml.Header + string(data), nil
 }
