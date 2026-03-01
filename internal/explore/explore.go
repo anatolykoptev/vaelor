@@ -1,0 +1,262 @@
+// Package explore provides a fast, structured overview of a repository.
+// No LLM calls — purely static analysis combining file stats, language
+// breakdown, top symbols by call frequency, dead code summary, and packages.
+package explore
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/deadcode"
+	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// maxFileBytes limits the size of files parsed during exploration.
+const maxFileBytes = 512 * 1024
+
+// maxDeadCodeSamples is the maximum number of dead code names to include.
+const maxDeadCodeSamples = 10
+
+// maxTopSymbols is the maximum number of top symbols returned.
+const maxTopSymbols = 20
+
+// Input configures the exploration.
+type Input struct {
+	Root     string
+	Language string
+	Focus    string
+}
+
+// Result is the structured output of an exploration.
+type Result struct {
+	FileCount   int              `json:"file_count"`
+	SymbolCount int              `json:"symbol_count"`
+	TotalLines  int              `json:"total_lines"`
+	Languages   []LanguageStat   `json:"languages"`
+	TopSymbols  []SymbolSummary  `json:"top_symbols"`
+	DeadCode    *DeadCodeSummary `json:"dead_code,omitempty"`
+	Packages    []string         `json:"packages"`
+}
+
+// LanguageStat holds file count and ratio for a detected language.
+type LanguageStat struct {
+	Name  string  `json:"name"`
+	Files int     `json:"files"`
+	Ratio float64 `json:"ratio"`
+}
+
+// SymbolSummary describes a symbol and how often it is called.
+type SymbolSummary struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	File      string `json:"file"`
+	CallCount int    `json:"call_count"`
+}
+
+// DeadCodeSummary is a compact view of dead code findings.
+type DeadCodeSummary struct {
+	Count   int      `json:"count"`
+	Samples []string `json:"samples"`
+}
+
+// Run performs a fast, structured overview of the repository at input.Root.
+func Run(ctx context.Context, input Input) (*Result, error) {
+	var langs []string
+	if input.Language != "" {
+		langs = []string{input.Language}
+	}
+
+	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+		Root:         input.Root,
+		Focus:        input.Focus,
+		Languages:    langs,
+		MaxFileBytes: maxFileBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse all files, collecting symbols and calls.
+	var allSymbols []*parser.Symbol
+	var allCalls []parser.CallSite
+	var totalLines int
+
+	for _, f := range ir.Files {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		source, readErr := os.ReadFile(f.Path)
+		if readErr != nil {
+			continue
+		}
+
+		totalLines += countLines(source)
+
+		opts := parser.ParseOpts{
+			Language:    f.Language,
+			IncludeBody: false,
+		}
+
+		pr, parseErr := parser.ParseFile(f.Path, source, opts)
+		if parseErr != nil {
+			continue
+		}
+		allSymbols = append(allSymbols, pr.Symbols...)
+
+		calls, _ := parser.ExtractCalls(f.Path, source, opts)
+		allCalls = append(allCalls, calls...)
+	}
+
+	// Build call graph.
+	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
+
+	// Count incoming calls per symbol.
+	callCounts := make(map[*parser.Symbol]int)
+	for _, edge := range cg.Edges {
+		if edge.Callee != nil {
+			callCounts[edge.Callee]++
+		}
+	}
+
+	// Top symbols by call count.
+	topSymbols := buildTopSymbols(allSymbols, callCounts, input.Root)
+
+	// Dead code analysis.
+	dcResult := deadcode.Analyze(cg, deadcode.Options{})
+	var dcSummary *DeadCodeSummary
+	if dcResult.DeadCount > 0 {
+		samples := make([]string, 0, maxDeadCodeSamples)
+		for i, ds := range dcResult.DeadSymbols {
+			if i >= maxDeadCodeSamples {
+				break
+			}
+			samples = append(samples, ds.Name)
+		}
+		dcSummary = &DeadCodeSummary{
+			Count:   dcResult.DeadCount,
+			Samples: samples,
+		}
+	}
+
+	// Language stats.
+	langFiles := make(map[string]int)
+	for _, f := range ir.Files {
+		if f.Language != "" {
+			langFiles[f.Language]++
+		}
+	}
+
+	fileCount := len(ir.Files)
+	langStats := make([]LanguageStat, 0, len(langFiles))
+	for name, count := range langFiles {
+		var ratio float64
+		if fileCount > 0 {
+			ratio = float64(count) / float64(fileCount)
+		}
+		langStats = append(langStats, LanguageStat{
+			Name:  name,
+			Files: count,
+			Ratio: ratio,
+		})
+	}
+	sort.Slice(langStats, func(i, j int) bool {
+		return langStats[i].Files > langStats[j].Files
+	})
+
+	// Package list: unique directories relative to root.
+	packages := buildPackageList(ir.Files, input.Root)
+
+	return &Result{
+		FileCount:   fileCount,
+		SymbolCount: len(allSymbols),
+		TotalLines:  totalLines,
+		Languages:   langStats,
+		TopSymbols:  topSymbols,
+		DeadCode:    dcSummary,
+		Packages:    packages,
+	}, nil
+}
+
+// buildTopSymbols returns the top symbols sorted by call count descending.
+func buildTopSymbols(symbols []*parser.Symbol, callCounts map[*parser.Symbol]int, root string) []SymbolSummary {
+	type entry struct {
+		sym   *parser.Symbol
+		count int
+	}
+
+	var entries []entry
+	for _, sym := range symbols {
+		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+			continue
+		}
+		count := callCounts[sym]
+		if count == 0 {
+			continue
+		}
+		entries = append(entries, entry{sym: sym, count: count})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].count > entries[j].count
+	})
+
+	limit := maxTopSymbols
+	if len(entries) < limit {
+		limit = len(entries)
+	}
+
+	result := make([]SymbolSummary, limit)
+	for i := range limit {
+		e := entries[i]
+		file := e.sym.File
+		if rel, err := filepath.Rel(root, file); err == nil {
+			file = rel
+		}
+		result[i] = SymbolSummary{
+			Name:      e.sym.Name,
+			Kind:      string(e.sym.Kind),
+			File:      file,
+			CallCount: e.count,
+		}
+	}
+	return result
+}
+
+// buildPackageList collects unique directory paths relative to root.
+func buildPackageList(files []*ingest.File, root string) []string {
+	seen := make(map[string]struct{})
+	for _, f := range files {
+		dir := filepath.Dir(f.Path)
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			rel = dir
+		}
+		seen[rel] = struct{}{}
+	}
+
+	pkgs := make([]string, 0, len(seen))
+	for p := range seen {
+		pkgs = append(pkgs, p)
+	}
+	sort.Strings(pkgs)
+	return pkgs
+}
+
+// countLines counts newline characters in source, adding 1 for the last line.
+func countLines(source []byte) int {
+	if len(source) == 0 {
+		return 0
+	}
+	n := strings.Count(string(source), "\n")
+	// If the file doesn't end with a newline, count the last line too.
+	if len(source) > 0 && source[len(source)-1] != '\n' {
+		n++
+	}
+	return n
+}
