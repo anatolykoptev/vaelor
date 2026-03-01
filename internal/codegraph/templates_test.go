@@ -39,7 +39,7 @@ func TestTemplateRender(t *testing.T) {
 		{
 			id:     "call_chain",
 			params: map[string]string{"from": "A", "to": "B"},
-			want:   "shortestPath",
+			want:   "CALLS*1..10",
 		},
 		{
 			id:     "most_connected",

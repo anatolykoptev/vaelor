@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/prompts"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // reCodeBlock matches a fenced code block, optionally with a language tag.
@@ -14,7 +15,7 @@ var reCodeBlock = regexp.MustCompile("(?s)```(?:cypher|)\\n(.+?)\\n```")
 
 // llmCompleter is the interface subset of *llm.Client used by GenerateCypher.
 type llmCompleter interface {
-	Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+	Complete(ctx context.Context, systemPrompt, userPrompt string, opts ...llm.ChatOption) (string, error)
 }
 
 // cypherSystemPrompt returns the Cypher generation system prompt with the full
