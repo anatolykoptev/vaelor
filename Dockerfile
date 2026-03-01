@@ -25,7 +25,8 @@ FROM alpine:3.21
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
 # git: shallow cloning of repositories for analysis.
 # tzdata: proper timezone handling in logs.
-RUN apk add --no-cache ca-certificates git tzdata
+RUN apk add --no-cache ca-certificates git tzdata && \
+    git config --global --add safe.directory '*'
 
 WORKDIR /app
 COPY --from=builder /build/go-code .
