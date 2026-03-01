@@ -166,6 +166,20 @@ var templates = map[string]*Template{
 		Cypher:      "MATCH (child:Symbol)-[r:INHERITS|IMPLEMENTS]->(parent:Symbol {name: '{name}'}) RETURN child.name, child.file, type(r) AS relation",
 		Cols:        3,
 	},
+	"type_hierarchy": {
+		ID:          "type_hierarchy",
+		Description: "Show the full type hierarchy (parents and children) for a named type",
+		Params:      []string{"name"},
+		Cypher:      "MATCH (s:Symbol {name: '{name}'}) OPTIONAL MATCH (s)-[:INHERITS|IMPLEMENTS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS|IMPLEMENTS]->(s) RETURN s, parent, child",
+		Cols:        3,
+	},
+	"subtypes": {
+		ID:          "subtypes",
+		Description: "Find all transitive subtypes of the named type (up to 5 levels deep)",
+		Params:      []string{"name"},
+		Cypher:      "MATCH (child:Symbol)-[:INHERITS|IMPLEMENTS*1..5]->(ancestor:Symbol {name: '{name}'}) RETURN child",
+		Cols:        1,
+	},
 }
 
 // GetTemplate returns the template with the given ID, or nil if not found.

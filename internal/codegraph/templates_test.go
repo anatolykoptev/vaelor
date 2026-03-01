@@ -101,6 +101,16 @@ func TestTemplateRender(t *testing.T) {
 			params: map[string]string{"name": "Reader"},
 			want:   "Reader",
 		},
+		{
+			id:     "type_hierarchy",
+			params: map[string]string{"name": "Animal"},
+			want:   "Animal",
+		},
+		{
+			id:     "subtypes",
+			params: map[string]string{"name": "BaseModel"},
+			want:   "BaseModel",
+		},
 	}
 
 	for _, tc := range cases {
@@ -135,7 +145,7 @@ func TestTemplateRenderEscaping(t *testing.T) {
 }
 
 func TestTemplateCount(t *testing.T) {
-	const want = 18
+	const want = 20
 	got := len(templates)
 	if got != want {
 		t.Errorf("expected %d templates, got %d", want, got)
