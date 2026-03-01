@@ -26,7 +26,7 @@ type xmlTrace struct {
 	Unresolved    int            `xml:"unresolved,attr"`
 	ResolvedRatio float64        `xml:"resolvedRatio,attr"`
 	Nodes         []xmlTraceNode `xml:"node"`
-	Narrative     string         `xml:"narrative,omitempty"`
+	Narrative     xmlCDATA       `xml:"narrative,omitempty"`
 }
 
 type xmlTraceNode struct {
@@ -37,7 +37,7 @@ type xmlTraceNode struct {
 	End       uint32         `xml:"end,attr,omitempty"`
 	CallLine  uint32         `xml:"callLine,attr,omitempty"`
 	Cycle     bool           `xml:"cycle,attr,omitempty"`
-	Signature string         `xml:"signature,omitempty"`
+	Signature xmlCDATA       `xml:"signature,omitempty"`
 	Children  []xmlTraceNode `xml:"node,omitempty"`
 }
 
@@ -54,7 +54,9 @@ func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
 			xn.File = n.Symbol.File
 			xn.Line = n.Symbol.StartLine
 			xn.End = n.Symbol.EndLine
-			xn.Signature = n.Symbol.Signature
+			if n.Symbol.Signature != "" {
+				xn.Signature = xmlCDATA{Inner: wrapCDATA(n.Symbol.Signature)}
+			}
 		}
 		if len(n.Children) > 0 {
 			xn.Children = convertTraceNodes(n.Children)
@@ -161,8 +163,10 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 			Unresolved:    output.Stats.Unresolved,
 			ResolvedRatio: output.Stats.ResolvedRatio,
 			Nodes:         convertTraceNodes(output.CallTree),
-			Narrative:     output.Narrative,
 		},
+	}
+	if output.Narrative != "" {
+		resp.Trace.Narrative = xmlCDATA{Inner: wrapCDATA(output.Narrative)}
 	}
 
 	data, err := xml.MarshalIndent(resp, "", "  ")

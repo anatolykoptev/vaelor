@@ -15,8 +15,8 @@ type xmlDepGraphResponse struct {
 }
 
 type xmlDepGraph struct {
-	Format  string `xml:"format,attr,omitempty"`
-	Content string `xml:",chardata"`
+	Format  string   `xml:"format,attr,omitempty"`
+	Content xmlCDATA `xml:"content"`
 }
 
 // DepGraphInput is the input schema for the dep_graph tool.
@@ -83,7 +83,7 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		resp := xmlDepGraphResponse{
 			DepGraph: xmlDepGraph{
 				Format:  input.Format,
-				Content: graph,
+				Content: xmlCDATA{Inner: wrapCDATA(graph)},
 			},
 		}
 		data, err := xml.MarshalIndent(resp, "", "  ")

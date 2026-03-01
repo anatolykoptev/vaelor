@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -12,6 +13,30 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type xmlDeadCodeResponse struct {
+	XMLName  xml.Name    `xml:"response"`
+	DeadCode xmlDeadCode `xml:"deadCode"`
+}
+
+type xmlDeadCode struct {
+	Total     int             `xml:"total,attr"`
+	Dead      int             `xml:"dead,attr"`
+	Ratio     float64         `xml:"ratio,attr"`
+	Symbols   []xmlDeadSymbol `xml:"symbol"`
+	Narrative xmlCDATA        `xml:"narrative,omitempty"`
+}
+
+type xmlDeadSymbol struct {
+	Kind       string `xml:"kind,attr"`
+	Name       string `xml:"name,attr"`
+	File       string `xml:"file,attr"`
+	Package    string `xml:"package,attr"`
+	Line       int    `xml:"line,attr"`
+	Lines      int    `xml:"lines,attr"`
+	Exported   bool   `xml:"exported,attr,omitempty"`
+	Confidence string `xml:"confidence,attr"`
+}
+
 // DeadCodeInput is the input schema for the dead_code tool.
 type DeadCodeInput struct {
 	Repo            string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
@@ -20,7 +45,9 @@ type DeadCodeInput struct {
 	Focus           string `json:"focus,omitempty" jsonschema_description:"Optional focus area for the LLM narrative"`
 }
 
-func registerDeadCode(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "dead_code",
 		Description: "Detect functions and methods with zero incoming calls. " +
@@ -28,11 +55,11 @@ func registerDeadCode(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"to reduce false positives. Shows confidence levels: high (unexported), " +
 			"medium (methods, may satisfy interfaces), low (exported).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeadCodeInput) (*mcp.CallToolResult, any, error) {
-		return handleDeadCode(ctx, input, deps)
+		return handleDeadCode(ctx, input, deps, outputDir)
 	})
 }
 
-func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil, nil
 	}
@@ -56,13 +83,31 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps)
 		IncludeExported: input.IncludeExported,
 	})
 
-	// Build output with optional LLM narrative.
-	type deadCodeOutput struct {
-		*deadcode.Result
-		Narrative string `json:"narrative,omitempty"`
+	// Convert dead symbols to XML structs.
+	symbols := make([]xmlDeadSymbol, len(result.DeadSymbols))
+	for i, s := range result.DeadSymbols {
+		symbols[i] = xmlDeadSymbol{
+			Kind:       s.Kind,
+			Name:       s.Name,
+			File:       s.File,
+			Package:    s.Package,
+			Line:       s.StartLine,
+			Lines:      s.Lines,
+			Exported:   s.Exported,
+			Confidence: s.Confidence,
+		}
 	}
-	output := deadCodeOutput{Result: result}
 
+	resp := xmlDeadCodeResponse{
+		DeadCode: xmlDeadCode{
+			Total:   result.TotalFunctions,
+			Dead:    result.DeadCount,
+			Ratio:   result.DeadRatio,
+			Symbols: symbols,
+		},
+	}
+
+	// LLM narrative (optional, non-fatal).
 	if deps.LLM != nil && result.DeadCount > 0 {
 		resultJSON, _ := json.Marshal(result)
 		prompt := "Repository dead code analysis:\n" + string(resultJSON)
@@ -71,16 +116,14 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps)
 		}
 		narrative, narErr := deps.LLM.Complete(ctx, prompts.SystemPromptDeadCode, prompt)
 		if narErr == nil {
-			output.Narrative = narrative
+			resp.DeadCode.Narrative = xmlCDATA{Inner: wrapCDATA(narrative)}
 		}
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	data, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
+	return largeTextResult(xml.Header+string(data), "dead_code", outputDir), nil, nil
 }
