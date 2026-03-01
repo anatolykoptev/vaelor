@@ -38,20 +38,21 @@ type metricsJSON struct {
 
 // BuildCompareContext assembles structured text context for the LLM (no hotspots).
 func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string) string {
-	return BuildCompareContextV2(matches, metricsA, metricsB, query, nil, nil)
+	return BuildCompareContextV2(matches, metricsA, metricsB, query, nil, nil, nil, nil)
 }
 
-// BuildCompareContextV2 assembles structured text context for the LLM, including hotspot data.
+// BuildCompareContextV2 assembles structured text context for the LLM, including hotspot and type hierarchy data.
 //
 // Sections:
 //  1. ## Query — the user's question
 //  2. ## Metrics — JSON comparison of aggregate quality metrics
 //  3. ## Maintenance Hotspots — high-churn x high-complexity files (if any)
-//  4. ## Matched Symbols (side-by-side) — non-gap pairs up to maxMatchedPairs
-//  5. ## Coverage Gaps — symbols absent from one side, up to maxGapSymbols
+//  4. ## Type Hierarchy — relationship stats (extends/implements/embeds) per repo
+//  5. ## Matched Symbols (side-by-side) — non-gap pairs up to maxMatchedPairs
+//  6. ## Coverage Gaps — symbols absent from one side, up to maxGapSymbols
 //
 // Content is truncated once the cumulative output exceeds maxContextChars.
-func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string, hotspotsA, hotspotsB []HotspotFile) string {
+func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string, hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats) string {
 	var sb strings.Builder
 
 	writeQuery(&sb, query)
@@ -66,6 +67,13 @@ func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics
 
 	if len(hotspotsA) > 0 || len(hotspotsB) > 0 {
 		writeHotspots(&sb, hotspotsA, hotspotsB)
+		if sb.Len() >= maxContextChars {
+			return sb.String()
+		}
+	}
+
+	if relStatsA != nil || relStatsB != nil {
+		writeRelStats(&sb, relStatsA, relStatsB)
 		if sb.Len() >= maxContextChars {
 			return sb.String()
 		}
@@ -231,6 +239,23 @@ func writeHotspots(sb *strings.Builder, hotspotsA, hotspotsB []HotspotFile) {
 		}
 		sb.WriteString("\n")
 	}
+}
+
+func writeRelStats(sb *strings.Builder, statsA, statsB *RelStats) {
+	sb.WriteString("## Type Hierarchy\n\n")
+	if statsA != nil {
+		fmt.Fprintf(sb, "**Repo A**: %d relationships (%d extends, %d implements, %d embeds) across %d types\n",
+			statsA.Total, statsA.Extends, statsA.Implements, statsA.Embeds, statsA.UniqueSubjects)
+	} else {
+		sb.WriteString("**Repo A**: no type relationships detected\n")
+	}
+	if statsB != nil {
+		fmt.Fprintf(sb, "**Repo B**: %d relationships (%d extends, %d implements, %d embeds) across %d types\n",
+			statsB.Total, statsB.Extends, statsB.Implements, statsB.Embeds, statsB.UniqueSubjects)
+	} else {
+		sb.WriteString("**Repo B**: no type relationships detected\n")
+	}
+	sb.WriteString("\n")
 }
 
 func writeGap(sb *strings.Builder, m *SymbolMatch) {

@@ -167,6 +167,22 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 
 	computeBodyHashes(allSymbols)
 
+	// Extract type relationships from parsed files.
+	var allRels []parser.TypeRelationship
+	for _, pr := range parsed {
+		if pr.file == nil || pr.result == nil {
+			continue
+		}
+		source, err := os.ReadFile(pr.file.Path)
+		if err != nil {
+			continue
+		}
+		rels, _ := parser.ExtractRelationships(pr.file.Path, source, parser.ParseOpts{
+			Language: pr.file.Language,
+		})
+		allRels = append(allRels, rels...)
+	}
+
 	return &RepoSnapshot{
 		Name:       filepath.Base(root),
 		Root:       root,
@@ -176,6 +192,7 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 		Files:      files,
 		FileCount:  len(ir.Files),
 		TotalLines: totalLines,
+		Rels:       allRels,
 	}
 }
 
