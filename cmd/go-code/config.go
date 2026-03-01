@@ -44,6 +44,11 @@ type Config struct {
 	// GithubSearchRepos are default repos for quick mode code search.
 	GithubSearchRepos []string
 
+	// OutputDir is the directory for writing large analysis results as files.
+	// When set, results exceeding the inline threshold are saved here and a
+	// summary with the file path is returned instead.
+	OutputDir string
+
 	// DatabaseURL is the PostgreSQL DSN for Apache AGE graph storage.
 	// Empty means code_graph tool is disabled.
 	DatabaseURL string
@@ -90,6 +95,7 @@ func loadConfig() Config {
 		RedisURL:          env.Str("REDIS_URL", ""),
 		LLMFallbackKeys:  env.List("LLM_API_KEY_FALLBACK", ""),
 		GithubSearchRepos: env.List("GITHUB_SEARCH_REPOS", ""),
+		OutputDir:    env.Str("OUTPUT_DIR", ""),
 		PathMappings: parsePathMappings(env.Str("PATH_MAPPINGS", "")),
 		MaxFileBytes: int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
 		MaxRepoBytes:  int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
