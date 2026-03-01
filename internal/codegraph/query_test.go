@@ -41,6 +41,16 @@ func TestCountReturnCols(t *testing.T) {
 			want:   6,
 		},
 		{
+			name:   "multiline_cypher",
+			cypher: "MATCH (s:Symbol)\nWHERE s.kind = 'function'\nRETURN s.name, s.complexity\nORDER BY s.complexity DESC\nLIMIT 10",
+			want:   2,
+		},
+		{
+			name:   "multiline_four_cols",
+			cypher: "MATCH (s:Symbol)\nWHERE s.kind IN ['function', 'method']\nRETURN s.name, s.file, s.complexity, s.lines\nORDER BY s.complexity DESC\nLIMIT 10",
+			want:   4,
+		},
+		{
 			name:   "no_return",
 			cypher: "MATCH (s:Symbol)",
 			want:   1,

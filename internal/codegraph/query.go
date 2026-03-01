@@ -101,6 +101,13 @@ func classifyAndBuildCypher(ctx context.Context, llmClient *llm.Client, query st
 		}
 		cypher = generated
 		cols = countReturnCols(cypher)
+		slog.Info("freeform cypher generated",
+			slog.String("cypher", cypher),
+			slog.Int("cols", cols))
+	} else {
+		slog.Info("template matched",
+			slog.String("template", cls.Template),
+			slog.Int("cols", cols))
 	}
 
 	return cls, cypher, cols, nil
@@ -133,8 +140,9 @@ func execWithRetry(ctx context.Context, store *Store, llmClient *llm.Client, gra
 	return rows, retryCypher, nil
 }
 
-// reReturnClause matches the last RETURN ... clause in a Cypher query.
-var reReturnClause = regexp.MustCompile(`(?i)\bRETURN\b(.+?)(?:\bORDER\b|\bLIMIT\b|\bSKIP\b|\bUNION\b|$)`)
+// reReturnClause matches the RETURN ... clause in a Cypher query.
+// (?s) makes . match newlines since LLM-generated Cypher may span multiple lines.
+var reReturnClause = regexp.MustCompile(`(?is)\bRETURN\b\s*([\s\S]+?)(?:\bORDER\b|\bLIMIT\b|\bSKIP\b|\bUNION\b|\z)`)
 
 // countReturnCols estimates the number of projected columns in a Cypher query
 // by counting comma-separated expressions in the RETURN clause.
