@@ -138,6 +138,20 @@ var templates = map[string]*Template{
 		Cypher:      "MATCH (l:Layer)<-[:BELONGS_TO]-(f:File) OPTIONAL MATCH (f)-[:CONTAINS]->(s:Symbol)-[:HANDLES]->(r:Route) RETURN l.name, l.role, l.language, count(DISTINCT f) AS files, count(DISTINCT r) AS routes",
 		Cols:        5,
 	},
+	"complex_symbols": {
+		ID:          "complex_symbols",
+		Description: "Find functions with highest cyclomatic complexity",
+		Params:      []string{"limit"},
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY s.complexity DESC LIMIT {limit}",
+		Cols:        4,
+	},
+	"hotspots": {
+		ID:          "hotspots",
+		Description: "Find hotspot functions — high complexity combined with high line count",
+		Params:      []string{"limit"},
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL AND s.lines IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY (s.complexity * s.lines) DESC LIMIT {limit}",
+		Cols:        4,
+	},
 }
 
 // GetTemplate returns the template with the given ID, or nil if not found.
