@@ -2,6 +2,7 @@ package codegraph
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +90,21 @@ func TestParseClassification(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestClassify_SchemaAwarePrompt(t *testing.T) {
+	t.Parallel()
+
+	prompt := classifierSystemPrompt()
+	if !strings.Contains(prompt, "INHERITS") {
+		t.Error("classifier prompt should contain INHERITS edge from schema")
+	}
+	if !strings.Contains(prompt, "IMPLEMENTS") {
+		t.Error("classifier prompt should contain IMPLEMENTS edge from schema")
+	}
+	if !strings.Contains(prompt, "Symbol") {
+		t.Error("classifier prompt should contain Symbol vertex from schema")
 	}
 }
 

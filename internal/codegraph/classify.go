@@ -16,10 +16,16 @@ type Classification struct {
 	Params   map[string]string `json:"params"`
 }
 
+// classifierSystemPrompt builds the full system prompt for query classification,
+// injecting the graph schema and the available template list.
+func classifierSystemPrompt() string {
+	return fmt.Sprintf(prompts.SystemPromptClassifyGraphQuery, GraphSchemaText(), TemplateList())
+}
+
 // Classify sends a natural-language query to the LLM and returns a Classification.
 // On JSON parse failure it returns a freeform fallback rather than an error.
 func Classify(ctx context.Context, client llmCompleter, query string) (*Classification, error) {
-	systemPrompt := fmt.Sprintf(prompts.SystemPromptClassifyGraphQuery, TemplateList())
+	systemPrompt := classifierSystemPrompt()
 	raw, err := client.Complete(ctx, systemPrompt, query)
 	if err != nil {
 		return nil, fmt.Errorf("llm classify: %w", err)
