@@ -180,6 +180,13 @@ var templates = map[string]*Template{
 		Cypher:      "MATCH (child:Symbol)-[:INHERITS|IMPLEMENTS*1..5]->(ancestor:Symbol {name: '{name}'}) RETURN child",
 		Cols:        1,
 	},
+	"important_symbols": {
+		ID:          "important_symbols",
+		Description: "Find the most important symbols by PageRank score (most depended-upon)",
+		Params:      []string{"limit"},
+		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.file, s.kind, s.pagerank ORDER BY s.pagerank DESC LIMIT {limit}",
+		Cols:        4,
+	},
 }
 
 // GetTemplate returns the template with the given ID, or nil if not found.

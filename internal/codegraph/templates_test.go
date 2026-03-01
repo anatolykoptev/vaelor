@@ -111,6 +111,11 @@ func TestTemplateRender(t *testing.T) {
 			params: map[string]string{"name": "BaseModel"},
 			want:   "BaseModel",
 		},
+		{
+			id:     "important_symbols",
+			params: map[string]string{"limit": "10"},
+			want:   "10",
+		},
 	}
 
 	for _, tc := range cases {
@@ -145,7 +150,7 @@ func TestTemplateRenderEscaping(t *testing.T) {
 }
 
 func TestTemplateCount(t *testing.T) {
-	const want = 20
+	const want = 21
 	got := len(templates)
 	if got != want {
 		t.Errorf("expected %d templates, got %d", want, got)
