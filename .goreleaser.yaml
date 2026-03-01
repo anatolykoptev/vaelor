@@ -11,6 +11,12 @@ builds:
     env:
       # CGO_ENABLED=1 required for tree-sitter C grammar bindings.
       - CGO_ENABLED=1
+    overrides:
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
     ldflags:
       - -s -w
     goos:
