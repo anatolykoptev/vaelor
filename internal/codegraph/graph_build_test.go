@@ -29,7 +29,7 @@ func TestBuildGraphSymbolComplexityProps(t *testing.T) {
 		},
 	}
 	cg := &callgraph.CallGraph{}
-	vertices, _ := buildGraph(root, files, symbols, cg, nil)
+	vertices, _ := buildGraph(root, files, symbols, cg, nil, nil)
 
 	var fooFound, barFound bool
 	for _, v := range vertices {
@@ -60,5 +60,60 @@ func TestBuildGraphSymbolComplexityProps(t *testing.T) {
 	}
 	if !barFound {
 		t.Error("Bar symbol vertex not found")
+	}
+}
+
+// TestBuildGraphInheritsEdges verifies that buildGraph creates INHERITS edges
+// from type relationships when both subject and target are known symbols.
+func TestBuildGraphInheritsEdges(t *testing.T) {
+	t.Parallel()
+
+	root := "/repo"
+	files := []*ingest.File{
+		{Path: "/repo/main.go", RelPath: "main.go", Language: "go", Size: 100},
+	}
+	symbols := []*parser.Symbol{
+		{Name: "Reader", Kind: parser.KindInterface, File: "/repo/main.go", StartLine: 1, EndLine: 5},
+		{Name: "MyReader", Kind: parser.KindStruct, File: "/repo/main.go", StartLine: 7, EndLine: 15},
+	}
+	rels := []parser.TypeRelationship{
+		{Subject: "MyReader", Target: "Reader", Kind: parser.RelEmbeds, Line: 8, File: "/repo/main.go"},
+	}
+	cg := &callgraph.CallGraph{}
+	_, edges := buildGraph(root, files, symbols, cg, nil, rels)
+
+	found := false
+	for _, e := range edges {
+		if e.EdgeLabel == "INHERITS" && e.FromKey == "MyReader:main.go" && e.ToKey == "Reader:main.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("missing INHERITS edge: MyReader -> Reader")
+	}
+}
+
+// TestBuildGraphInheritsEdgesExternalTarget verifies that INHERITS edges are
+// skipped when the target type is not a known symbol in the repository.
+func TestBuildGraphInheritsEdgesExternalTarget(t *testing.T) {
+	t.Parallel()
+
+	root := "/repo"
+	files := []*ingest.File{
+		{Path: "/repo/main.go", RelPath: "main.go", Language: "go", Size: 100},
+	}
+	symbols := []*parser.Symbol{
+		{Name: "MyReader", Kind: parser.KindStruct, File: "/repo/main.go", StartLine: 7, EndLine: 15},
+	}
+	rels := []parser.TypeRelationship{
+		{Subject: "MyReader", Target: "ExternalInterface", Kind: parser.RelImplements, Line: 8, File: "/repo/main.go"},
+	}
+	cg := &callgraph.CallGraph{}
+	_, edges := buildGraph(root, files, symbols, cg, nil, rels)
+
+	for _, e := range edges {
+		if e.EdgeLabel == "INHERITS" || e.EdgeLabel == "IMPLEMENTS" {
+			t.Errorf("unexpected %s edge: %s -> %s (target should be external)", e.EdgeLabel, e.FromKey, e.ToKey)
+		}
 	}
 }

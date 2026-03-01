@@ -19,7 +19,8 @@ const (
 
 // buildGraph constructs vertices and edges from ingested files and parsed symbols.
 // fileImports maps each file's relative path to the import paths declared in that file.
-func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg *callgraph.CallGraph, fileImports map[string][]string) ([]vertexData, []edgeData) {
+// rels contains type relationships (embeds/extends/implements) extracted by the parser.
+func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg *callgraph.CallGraph, fileImports map[string][]string, rels []parser.TypeRelationship) ([]vertexData, []edgeData) {
 	// Collect unique packages (directories).
 	pkgDirs := make(map[string]struct{})
 	for _, f := range files {
@@ -119,6 +120,10 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 		})
 	}
 
+	// INHERITS / IMPLEMENTS edges (Symbol→Symbol).
+	relEdges := buildRelationshipEdges(root, rels, symbols)
+	edges = append(edges, relEdges...)
+
 	// IMPORTS edges (File→Package) + external Package vertices.
 	impVertices, impEdges := buildImportsGraph(pkgDirs, fileImports)
 	vertices = append(vertices, impVertices...)
@@ -161,6 +166,75 @@ func buildImportsGraph(pkgDirs map[string]struct{}, fileImports map[string][]str
 	}
 
 	return vertices, edges
+}
+
+// buildRelationshipEdges resolves type relationships against the symbol table
+// and creates INHERITS or IMPLEMENTS edges.
+func buildRelationshipEdges(root string, rels []parser.TypeRelationship, symbols []*parser.Symbol) []edgeData {
+	// Build symbol lookup by name.
+	byName := make(map[string][]*parser.Symbol)
+	for _, s := range symbols {
+		byName[s.Name] = append(byName[s.Name], s)
+	}
+
+	var edges []edgeData
+	for _, r := range rels {
+		targets, ok := byName[r.Target]
+		if !ok || len(targets) == 0 {
+			continue // target not in parsed symbols (external type)
+		}
+
+		subjectRelFile := relPath(r.File, root)
+		targetSym := closestByDir(targets, r.File)
+		targetRelFile := relPath(targetSym.File, root)
+
+		edgeLabel := "INHERITS"
+		if r.Kind == parser.RelImplements {
+			edgeLabel = "IMPLEMENTS"
+		}
+
+		edges = append(edges, edgeData{
+			FromLabel: "Symbol",
+			FromKey:   r.Subject + ":" + subjectRelFile,
+			ToLabel:   "Symbol",
+			ToKey:     targetSym.Name + ":" + targetRelFile,
+			EdgeLabel: edgeLabel,
+			Props:     map[string]string{},
+		})
+	}
+
+	return edges
+}
+
+// closestByDir returns the symbol from candidates closest to refFile by directory.
+func closestByDir(candidates []*parser.Symbol, refFile string) *parser.Symbol {
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+	refDir := filepath.Dir(refFile)
+	best := candidates[0]
+	bestScore := 0
+	for _, s := range candidates {
+		score := commonPrefixLen(filepath.Dir(s.File), refDir)
+		if score > bestScore {
+			bestScore = score
+			best = s
+		}
+	}
+	return best
+}
+
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := range n {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
 }
 
 // buildCrossLanguageGraph constructs Layer and Route vertices, plus HANDLES

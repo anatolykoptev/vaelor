@@ -29,7 +29,7 @@ func TestBuildGraphCreatesImportsEdges(t *testing.T) {
 		"internal/util.go": {"fmt", "strings"},
 	}
 
-	_, edges := buildGraph(root, files, symbols, cg, fileImports)
+	_, edges := buildGraph(root, files, symbols, cg, fileImports, nil)
 
 	// Count IMPORTS edges.
 	importsEdgeCount := 0
@@ -81,7 +81,7 @@ func TestBuildGraphCreatesExternalPackageVertices(t *testing.T) {
 		"main.go": {"fmt", "github.com/pkg/errors"},
 	}
 
-	vertices, _ := buildGraph(root, files, symbols, cg, fileImports)
+	vertices, _ := buildGraph(root, files, symbols, cg, fileImports, nil)
 
 	// Collect external Package vertices.
 	externalPkgs := make(map[string]string) // path -> repo
@@ -127,7 +127,7 @@ func TestBuildGraphLocalImportNoExternalVertex(t *testing.T) {
 		"main.go": {"internal"},
 	}
 
-	vertices, edges := buildGraph(root, files, symbols, cg, fileImports)
+	vertices, edges := buildGraph(root, files, symbols, cg, fileImports, nil)
 
 	// Count Package vertices with path="internal".
 	internalPkgCount := 0
@@ -173,7 +173,7 @@ func TestBuildGraphDeduplicatesExternalPackages(t *testing.T) {
 		"b.go": {"fmt"},
 	}
 
-	vertices, edges := buildGraph(root, files, symbols, cg, fileImports)
+	vertices, edges := buildGraph(root, files, symbols, cg, fileImports, nil)
 
 	// Count external Package vertices for "fmt".
 	fmtPkgCount := 0
@@ -212,7 +212,7 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 	cg := &callgraph.CallGraph{}
 
 	// Test with nil map.
-	_, edges := buildGraph(root, files, symbols, cg, nil)
+	_, edges := buildGraph(root, files, symbols, cg, nil, nil)
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" {
 			t.Error("unexpected IMPORTS edge with nil fileImports")
@@ -220,7 +220,7 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 	}
 
 	// Test with empty map.
-	_, edges = buildGraph(root, files, symbols, cg, map[string][]string{})
+	_, edges = buildGraph(root, files, symbols, cg, map[string][]string{}, nil)
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" {
 			t.Error("unexpected IMPORTS edge with empty fileImports")
