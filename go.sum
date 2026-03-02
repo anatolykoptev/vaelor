@@ -1,5 +1,5 @@
-github.com/anatolykoptev/go-kit v0.6.1-0.20260302221736-02a9179e7441 h1:/fH+H27kiQUc5SrOYuuSIEb882v6NvhkexxOspwBQAU=
-github.com/anatolykoptev/go-kit v0.6.1-0.20260302221736-02a9179e7441/go.mod h1:sxZXhRKXffOpIH5oSOCcnRZjiQT0s6te4os6eMUMwqg=
+github.com/anatolykoptev/go-kit v0.6.1-0.20260302231502-b68df5a4fe05 h1:tRjDirr3tzwgQrevMUHXe7LbCGxCPRXnQ3kDPAQ/re4=
+github.com/anatolykoptev/go-kit v0.6.1-0.20260302231502-b68df5a4fe05/go.mod h1:sxZXhRKXffOpIH5oSOCcnRZjiQT0s6te4os6eMUMwqg=
 github.com/anatolykoptev/go-mcpserver v0.5.0 h1:o83YdLmj7y1vXBrP2yruIaKhmaQPo3WMTOhqBRnOdxg=
 github.com/anatolykoptev/go-mcpserver v0.5.0/go.mod h1:dFMAoXyPOJJzUOpKYFdvVNjhm4VdZtKd1Q3NcdTGJUg=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
