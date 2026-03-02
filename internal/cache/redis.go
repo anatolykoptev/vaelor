@@ -64,6 +64,15 @@ func (c *GenericCache[T]) Set(ctx context.Context, key string, val T) {
 	c.c.Set(ctx, key, data)
 }
 
+// SetWithTTL stores a value with a custom TTL for both L1 and L2.
+func (c *GenericCache[T]) SetWithTTL(ctx context.Context, key string, val T, ttl time.Duration) {
+	data, err := json.Marshal(val)
+	if err != nil {
+		return
+	}
+	c.c.SetWithTTL(ctx, key, data, ttl)
+}
+
 // Stats returns cache statistics.
 func (c *GenericCache[T]) Stats() Stats {
 	s := c.c.Stats()

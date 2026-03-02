@@ -1,202 +1,81 @@
 # go-code — Code Intelligence MCP Server
 
-Multi-language code intelligence server powered by tree-sitter AST parsing.
-Provides MCP tools for repository analysis, code comparison, dependency graph
-visualization, and symbol search across any GitHub or local codebase.
+**Module**: `github.com/anatolykoptev/go-code` | **Port**: 8897 | **MCP**: `http://127.0.0.1:8897/mcp`
+**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#
 
-**Supported languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#
+## Package Overview
 
-**Go module**: `github.com/anatolykoptev/go-code`
-**Port**: 8897
-**MCP endpoint**: `http://127.0.0.1:8897/mcp`
-
-## Architecture
-
-```
-cmd/go-code/           — MCP server entry point, HTTP/stdio transport
-  main.go              — Server setup, signal handling, graceful shutdown
-  config.go            — Env var loading with defaults
-  register.go          — Tool registration wiring
-  tool_*.go            — One file per MCP tool (input type + handler)
-
-internal/
-  ingest/              — Repository ingestion (clone, walk, filter)
-    ingest.go          — IngestRepo: walk filesystem, detect languages
-    clone.go           — CloneRepo: shallow git clone with auth
-  parser/              — tree-sitter AST parsing
-    parser.go          — ParseFile: extract symbols from source files
-    handler.go         — LanguageHandler interface + registry
-    handler_go.go      — Go handler
-    handler_python.go  — Python handler
-    handler_typescript.go — TypeScript/JS handler
-    handler_rust.go    — Rust handler
-    handler_java.go    — Java handler
-    handler_c.go       — C handler
-    handler_cpp.go     — C++ handler
-    handler_ruby.go    — Ruby handler
-    handler_csharp.go  — C# handler
-    calls.go           — ExtractCalls: call expression extraction from source
-    queries/           — .scm tree-sitter query files per language
-      go.scm, python.scm, typescript.scm, rust.scm,
-      java.scm, c.scm, cpp.scm, ruby.scm, csharp.scm
-      *_calls.scm      — Call expression queries per language
-  callgraph/           — Call chain tracing
-    graph.go           — BuildCallGraph: name-based resolution (same-file → same-pkg → global)
-    trace.go           — Trace: BFS/DFS with depth limit, cycle detection, bidirectional
-    repo.go            — TraceRepo: orchestrator (ingest → parse → graph → trace)
-  codegraph/           — Apache AGE code knowledge graph
-    store.go           — Store: pgxpool wrapper, ExecCypher/Write, EnsureGraph, HasAGE
-    index.go           — IndexRepo: orchestrator, types, config, cache check, cross-language wiring
-    parse.go           — Parallel file ingestion and tree-sitter parsing
-    graph_build.go     — Vertex/edge construction from parsed symbols + cross-language graph
-    cypher_batch.go    — Cypher generation, formatting, batch/single insertion
-    meta.go            — Graph metadata persistence (code_graph_meta table)
-    templates.go       — 14 Cypher query templates (who_calls, api_routes, cross_calls, etc.)
-    classify.go        — NL→template classification via LLM
-    generate.go        — Freeform Cypher generation via LLM with retry
-    query.go           — QueryGraph: classify→template/freeform→execute→narrative
-  polyglot/            — Polyglot repo detection
-    detect.go          — DetectStructure: manifest scan, directory grouping, layer construction
-    role.go            — ClassifyLayerRole: server/client/worker/library from source patterns
-  routes/              — HTTP route extraction
-    routes.go          — Route type, RouteMatcher interface, NormalizePath, ExtractAll
-    match_go.go        — Go routes (net/http, chi, gin, echo; Go 1.22+ patterns)
-    match_typescript.go — TypeScript/JS routes (Express, Fastify, NestJS, fetch, axios)
-    match_python.go    — Python routes (Flask, FastAPI, requests, httpx)
-    match_java.go      — Java routes (Spring Boot @GetMapping etc.)
-    match_rust.go      — Rust routes (Rocket, Actix-web)
-    match_ruby.go      — Ruby routes (Sinatra, Rails)
-    match_csharp.go    — C# routes (ASP.NET [HttpGet], MapGet)
-  clean/               — Smart code cleaning for LLM context
-    clean.go           — CleanSource: strip comments, collapse blanks, truncate
-  compare/             — Code comparison engine
-    compare.go         — Compare: structural diff of two RepoSnapshot objects
-  analyze/             — Analysis orchestration (MCP tool handlers)
-    analyze.go         — AnalyzeRepo, SearchSymbols, BuildDepGraph
-  github/              — GitHub API client
-    github.go          — FetchRepoMeta, FetchREADME
-    search.go          — SearchCode, SearchIssues, SearchRepos, ExtractOwnerRepo
-  llm/                 — LLM client (CLIProxyAPI)
-    llm.go             — Complete, CompleteRaw: OpenAI-compatible chat completion with retry + fallback
-  retry/               — Generic retry with exponential backoff
-    retry.go           — Do[T], HTTP: retry with jitter and context awareness
-  metrics/             — Atomic operation counters
-    metrics.go         — Incr, Snapshot, TrackOperation: lock-free metrics
-  search/              — SearXNG web search client
-    searxng.go         — Search, FilterByScore, DedupByDomain
-
-deploy/
-  go-code.env          — Environment template (no real secrets)
-```
+| Package | Role |
+|---------|------|
+| `cmd/go-code/` | MCP entry point; `tool_*.go` = one file per tool, `register.go` wires them |
+| `internal/ingest/` | Repo clone + walk; `internal/parser/` = tree-sitter AST → symbols |
+| `internal/analyze/` | Orchestration imported by tool handlers (tools import ONLY this) |
+| `internal/codegraph/` | Apache AGE persistent graph; `internal/callgraph/` = in-memory call tracing |
+| `internal/polyglot/` | Multi-language repo structure detection |
+| `internal/routes/` | HTTP route extraction (7 languages, used for cross-language edges) |
+| `internal/llm/` | CLIProxyAPI client with retry + fallback |
 
 ## MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `repo_analyze` | Analyze a GitHub repo or local path. Supports deep mode (AST + LLM), quick mode (GitHub Code Search), and issue/PR search. |
-| `file_parse` | Parse a single source file with tree-sitter. Returns symbol table (functions, types, methods) or raw AST. |
-| `code_compare` | Compare two repositories structurally: architecture, API design, dependency strategies, code quality. |
-| `dep_graph` | Build and visualize the dependency graph of a repository. Output as Mermaid, Graphviz DOT, or JSON. Optional `cross_language` flag includes Route edges. |
-| `symbol_search` | Search for symbols (functions, types, consts) across a repo by name pattern or wildcard. |
-| `call_trace` | Trace call chains from a function: callees (forward) or callers (reverse) with depth control and LLM narrative. |
-| `code_graph` | Query a persistent code knowledge graph in Apache AGE. Indexes repo as Package/File/Symbol/Layer/Route vertices with CONTAINS/CALLS/HANDLES/FETCHES/BELONGS_TO edges. Cross-language analysis: polyglot detection, HTTP route extraction (7 languages), API boundary linking. 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL cache. Requires DATABASE_URL. |
-| `repo_search` | Discover GitHub repositories. Parallel search (SearXNG + GitHub API), enrichment with metadata + README, LLM-ranked recommendations. |
+| `repo_analyze` | Analyze GitHub repo or local path. Modes: `deep` (AST+LLM), `quick` (GitHub Code Search), `pr`/`issue` |
+| `file_parse` | Parse single file with tree-sitter → symbol table or raw AST |
+| `code_compare` | Structural diff of two repos: architecture, API design, dependencies |
+| `dep_graph` | Dependency graph as Mermaid/DOT/JSON. `cross_language=true` adds Route edges |
+| `symbol_search` | Find functions/types/consts by name pattern or wildcard across a repo |
+| `call_trace` | BFS/DFS call chain from a function; forward (callees) or reverse (callers) with LLM narrative |
+| `code_graph` | Query persistent Apache AGE graph (`gocode` DB). 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL. Requires `DATABASE_URL` |
+| `repo_search` | Discover GitHub repos. Parallel SearXNG + GitHub API, LLM-ranked |
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MCP_PORT` | `8897` | HTTP server port |
-| `LLM_URL` | `http://127.0.0.1:8317/v1` | CLIProxyAPI base URL |
-| `LLM_API_KEY` | (required) | API key for LLM proxy |
-| `LLM_API_KEY_FALLBACK` | (optional) | Comma-separated fallback API keys for 429/5xx |
-| `LLM_MODEL` | `gemini-2.5-flash` | Model name |
-| `GITHUB_TOKEN` | (optional) | GitHub token for private repos and higher rate limits |
-| `GITHUB_SEARCH_REPOS` | (optional) | Default repos for quick mode code search (comma-separated) |
-| `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Directory for temporary clones |
-| `MAX_FILE_KB` | `512` | Max file size to parse (KB) |
-| `MAX_REPO_MB` | `200` | Max repo size to accept (MB) |
-| `SEARXNG_URL` | `http://searxng:8888` | SearXNG instance URL for repo_search |
-| `REDIS_URL` | (optional) | Redis URL for L2 cache (e.g. redis://redis:6379/6) |
-| `DATABASE_URL` | (optional) | PostgreSQL DSN for Apache AGE code graph (e.g. `postgresql://user:pass@host:5432/gocode`) |
-| `GRAPH_TTL_LOCAL` | `3600` | TTL in seconds for local repo graph cache |
-| `GRAPH_TTL_REMOTE` | `86400` | TTL in seconds for remote repo graph cache |
-| `GRAPH_BATCH_SIZE` | `5` | Vertices per Cypher batch (keep small for AGE compatibility) |
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `MCP_PORT` | `8897` | |
+| `LLM_URL` | `http://127.0.0.1:8317/v1` | CLIProxyAPI |
+| `LLM_API_KEY` | required | |
+| `LLM_API_KEY_FALLBACK` | optional | Comma-separated, used on 429/5xx |
+| `LLM_MODEL` | `gemini-2.5-flash` | |
+| `GITHUB_TOKEN` | optional | Higher rate limits + private repos |
+| `GITHUB_SEARCH_REPOS` | optional | Default repos for quick-mode code search |
+| `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp clone location |
+| `MAX_FILE_KB` | `512` | |
+| `MAX_REPO_MB` | `200` | |
+| `SEARXNG_URL` | `http://searxng:8888` | |
+| `REDIS_URL` | optional | L2 cache, DB 6 |
+| `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
+| `GRAPH_TTL_LOCAL` | `3600` | Seconds |
+| `GRAPH_TTL_REMOTE` | `86400` | Seconds |
+| `GRAPH_BATCH_SIZE` | `5` | Keep small — AGE limitation |
 
-## Build & Deploy
+## Build
 
 ```bash
-# Local build (CGO required for tree-sitter)
-make build       # → bin/go-code
-
-# Lint
-make lint        # golangci-lint run ./...
-
-# Tests
-make test        # go test ./...
-
-# Docker deploy (via ~/deploy/example-server/docker-compose.yml)
-make deploy      # docker compose build --no-cache + up -d
+make build   # CGO_ENABLED=1 required (tree-sitter grammars are C)
+make lint
+make test
+make deploy  # docker compose build --no-cache + up -d
 ```
-
-## Adding a New Tool
-
-1. Create `cmd/go-code/tool_<name>.go` with input type and `register<Name>` function
-2. Add `register<Name>(server, cfg)` call to `registerTools()` in `register.go`
-3. Increment `toolCount` constant in `main.go`
-4. Implement backing logic in the appropriate `internal/` package
-5. Update tool count and description in this CLAUDE.md
-
-## Adding a New Language
-
-1. Create `internal/parser/queries/<lang>.scm` with tree-sitter query patterns
-2. Create `internal/parser/handler_<lang>.go` implementing `LanguageHandler` interface
-3. Register the handler in `init()` via `registerHandler("<lang>", ...)`
-4. Add test sample `internal/parser/testdata/sample.<ext>`
-5. Add `TestParse<Lang>File` in `internal/parser/parser_test.go`
-6. Update this CLAUDE.md
-
-The `LanguageHandler` interface requires: `Language()`, `Extensions()`, `Grammar()`, `QuerySource()`, `MapSymbol()`.
-
-## CGO Requirement
-
-tree-sitter grammars are C libraries. This means:
-- Local builds need `CGO_ENABLED=1` and a C compiler (`gcc` or `clang`)
-- Docker builder stage uses `golang:1.24-alpine` with `apk add gcc musl-dev`
-- `.goreleaser.yaml` sets `CGO_ENABLED=1`
-- Cross-compilation requires target C toolchains
 
 ## Conventions
 
-- All internal packages are self-contained with no circular dependencies
-- ingest → parser → clean → analyze → llm (dependency direction)
-- compare, analyze, and callgraph are peers; none imports the others
-- github package has no dependencies on other internal packages
-- Tool handlers in `cmd/go-code/tool_*.go` import `internal/analyze` only
-- Error messages use lowercase, wrap with `fmt.Errorf("context: %w", err)`
-- Context is always the first parameter; never store context in structs
-- HTTP clients always use context via `http.NewRequestWithContext`
+- Dependency direction: `ingest → parser → clean → analyze → llm`
+- `compare`, `analyze`, `callgraph` are peers — none imports the others
+- `github` package has no dependencies on other internal packages
+- Tool handlers (`cmd/go-code/tool_*.go`) import `internal/analyze` only — no direct internal package access
+- Error messages: lowercase, `fmt.Errorf("context: %w", err)`
+- Context always first param; never stored in structs
+- HTTP clients always use `http.NewRequestWithContext`
 
-## Deployment (Docker)
+## Gotchas
 
-The service runs as a Docker container in `~/deploy/example-server/docker-compose.yml`.
+- **Apache AGE**: no `ON CREATE SET` / `ON MATCH SET` — use separate `CREATE` then `SET` statements
+- **AGE batch size**: `GRAPH_BATCH_SIZE=5` — larger batches cause parse errors in AGE Cypher
+- **code_graph DB name**: always `gocode` (not the service name, not configurable at runtime)
+- **Local repo paths**: Docker mounts `/path/to/repos/src:/host-src:ro`; server translates host paths automatically — pass host path to MCP tools
+- **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
 
-```yaml
-go-code:
-  build:
-    context: /path/to/repos/src/go-code
-  ports:
-    - "127.0.0.1:8897:8897"
-  volumes:
-    - /path/to/repos/src:/host-src:ro
-  env_file:
-    - .env
-  restart: unless-stopped
-```
+## Contributing
 
-**Note**: Local paths are mounted at `/host-src/` inside the container. When analyzing local repos via MCP, use the host path — the server translates automatically.
-
-Register as MCP server after deployment:
-```bash
-claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
-```
+See `docs/contributing.md` for: adding a new tool, adding a new language, CGO details.
