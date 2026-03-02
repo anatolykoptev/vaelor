@@ -29,7 +29,7 @@ type xmlHealth struct {
 type CodeHealthInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit analysis to files of this language (e.g. go, python, rust)"`
-	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path filter to limit scope (e.g. internal/auth, pkg/api)"`
+	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth, pkg/api), or space-separated keywords (e.g. 'auth handler')"`
 }
 
 // registerCodeHealth registers the code_health MCP tool.

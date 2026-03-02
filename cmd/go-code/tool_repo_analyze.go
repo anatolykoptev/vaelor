@@ -29,7 +29,7 @@ type RepoAnalyzeInput struct {
 	Repo    string   `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Query   string   `json:"query" jsonschema_description:"What to search for / analyze in the repository"`
 	Ref     string   `json:"ref,omitempty" jsonschema_description:"Branch, tag, or commit SHA (default: HEAD)"`
-	Focus   string   `json:"focus,omitempty" jsonschema_description:"Subdirectory or glob pattern to focus on (e.g. internal/auth or **/*.go)"`
+	Focus   string   `json:"focus,omitempty" jsonschema_description:"Subdirectory path or glob to limit scope (e.g. internal/auth, **/*.go), or space-separated keywords (e.g. 'auth handler')"`
 	Mode    string   `json:"mode,omitempty" jsonschema_description:"quick (GitHub Code Search, no clone) | raw (code fragments without summary). Default: full AST analysis."`
 	Depth   string   `json:"depth,omitempty" jsonschema_description:"Analysis depth: overview (compact) | module (balanced, default) | deep (all files, all symbols)"`
 	Type    string   `json:"type,omitempty" jsonschema_description:"Search type: pr (pull requests) or issue (GitHub issues). Switches to GitHub Issues Search API."`

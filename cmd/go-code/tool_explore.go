@@ -14,7 +14,7 @@ import (
 type ExploreInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit analysis to files of this language (e.g. go, python)"`
-	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory or glob to focus analysis on"`
+	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth), or space-separated keywords to filter by path components (e.g. 'auth middleware')"`
 }
 
 func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {

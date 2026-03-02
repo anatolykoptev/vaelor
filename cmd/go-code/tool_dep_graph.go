@@ -31,7 +31,7 @@ type DepGraphInput struct {
 	Format string `json:"format,omitempty" jsonschema_description:"Output format: json | dot | mermaid | summary (default: mermaid)"`
 
 	// Focus limits the graph to a specific package or module.
-	Focus string `json:"focus,omitempty" jsonschema_description:"Focus on a specific package or module (e.g. internal/auth)"`
+	Focus string `json:"focus,omitempty" jsonschema_description:"Package or subdirectory to focus on (e.g. internal/auth), or space-separated keywords (e.g. 'auth handler')"`
 
 	// MaxDepth limits graph traversal depth from focused node.
 	MaxDepth int `json:"max_depth,omitempty" jsonschema_description:"Max traversal depth from focus node (default: 3, 0=unlimited)"`

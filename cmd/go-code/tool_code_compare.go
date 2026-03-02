@@ -133,7 +133,7 @@ type CodeCompareInput struct {
 	RepoA    string `json:"repo_a" jsonschema_description:"First repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	RepoB    string `json:"repo_b" jsonschema_description:"Second repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Query    string `json:"query,omitempty" jsonschema_description:"What to compare — quality aspects, architectural patterns, specific concerns (default: general comparison)"`
-	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path filter to limit comparison scope (e.g. internal/auth, pkg/api). NOT for topic focus — use query for that."`
+	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit comparison scope (e.g. internal/auth, pkg/api), or space-separated keywords (e.g. 'auth handler'). Use query for topic focus."`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit comparison to files of this language (e.g. go, python, rust)"`
 }
 
