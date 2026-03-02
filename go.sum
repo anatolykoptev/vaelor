@@ -1,9 +1,7 @@
-github.com/anatolykoptev/go-kit v0.6.0 h1:os+fyl8VWZQ4mbyB7qUUL1bEqTPkYb8283XzTi7oGu8=
-github.com/anatolykoptev/go-kit v0.6.0/go.mod h1:sxZXhRKXffOpIH5oSOCcnRZjiQT0s6te4os6eMUMwqg=
-github.com/anatolykoptev/go-mcpserver v0.2.0 h1:56b9JMbz4KQdy25kxE6LnGY4m0arhT/2TC7Pjp461ww=
-github.com/anatolykoptev/go-mcpserver v0.2.0/go.mod h1:QqV2Oz8Bu1HRxTMm6rRVOaHul4YtP7SlIKS8UnqxXB0=
-github.com/anatolykoptev/go-mcpserver v0.3.0 h1:j8zYsyB0iD1AdccV3x1gbxbPPXVlKgYYoP56xDbkMvw=
-github.com/anatolykoptev/go-mcpserver v0.3.0/go.mod h1:dFMAoXyPOJJzUOpKYFdvVNjhm4VdZtKd1Q3NcdTGJUg=
+github.com/anatolykoptev/go-kit v0.6.1-0.20260302221736-02a9179e7441 h1:/fH+H27kiQUc5SrOYuuSIEb882v6NvhkexxOspwBQAU=
+github.com/anatolykoptev/go-kit v0.6.1-0.20260302221736-02a9179e7441/go.mod h1:sxZXhRKXffOpIH5oSOCcnRZjiQT0s6te4os6eMUMwqg=
+github.com/anatolykoptev/go-mcpserver v0.4.0 h1:LkUBnajyTCtNoTapYe7jarVb6AaaBQ9D2MbS6T2o2gM=
+github.com/anatolykoptev/go-mcpserver v0.4.0/go.mod h1:dFMAoXyPOJJzUOpKYFdvVNjhm4VdZtKd1Q3NcdTGJUg=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
