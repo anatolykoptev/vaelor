@@ -27,9 +27,9 @@ const (
 	targetErrorHandlingRatio = 0.6 // 60% error-handling coverage is ideal
 )
 
-// gradeScore computes a quality score in [0, 100] from RepoMetrics.
+// GradeScore computes a quality score in [0, 100] from RepoMetrics.
 // Higher is better.
-func gradeScore(m RepoMetrics) float64 {
+func GradeScore(m RepoMetrics) float64 {
 	if m.Files == 0 {
 		return 0
 	}
@@ -54,7 +54,7 @@ func gradeScore(m RepoMetrics) float64 {
 
 // ComputeGrade returns a letter grade (A-F) for the given metrics.
 func ComputeGrade(m RepoMetrics) string {
-	score := gradeScore(m)
+	score := GradeScore(m)
 	switch {
 	case score >= gradeAThreshold:
 		return "A"

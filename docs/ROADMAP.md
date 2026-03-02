@@ -1,6 +1,6 @@
 # go-code Implementation Roadmap
 
-## Phase 1: Foundation — Parse & Analyze (MVP) ✅
+## v1.0: Foundation — Parse & Analyze (MVP) ✅
 
 **Goal**: Replace `github_repo_analyze` with a better version.
 Single tool (`repo_analyze`) that works better than the current one.
@@ -27,15 +27,15 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Preservation rules: TODO/FIXME/nolint/doc comments kept
 - [x] Blank line collapsing, long line truncation, file-level truncation
 - [x] 14 tests covering all cleaning modes
-- [x] Signatures-only mode (Phase 2.2)
-- [x] Skeleton mode with `...` placeholders (Phase 2.2)
+- [x] Signatures-only mode (v1.3)
+- [x] Skeleton mode with `...` placeholders (v1.3)
 
 ### 1.4 LLM analysis ✅
 - [x] LLM client via CLIProxyAPI (OpenAI-compatible)
 - [x] System prompts for repo analysis, code comparison, dep graph
 - [x] LLM context builder with 150K char budget
 - [x] File prioritization by query relevance + import frequency + symbol count
-- [x] Multi-level analysis: overview → module → deep (Phase 2.3)
+- [x] Multi-level analysis: overview → module → deep (v1.4)
 - [ ] JSON output parsing with fallback (deferred)
 
 ### 1.5 MCP tools ✅
@@ -43,7 +43,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] `file_parse` — tree-sitter AST/symbol extraction for single files
 - [x] `symbol_search` — wildcard pattern matching across repos
 - [x] `dep_graph` — import graph in mermaid/dot/json formats
-- [x] `code_compare` — registered as stub (Phase 3)
+- [x] `code_compare` — registered as stub (v1.5)
 - [x] Support GitHub repos (clone) and local paths
 - [x] Health endpoint (`/health`)
 - [x] Docker build and deploy (docker-compose + MCP registration)
@@ -52,11 +52,11 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 2: Structure — Enhanced Parsing & Cleaning
+## v1.1–v1.4: Structure — Enhanced Parsing & Cleaning ✅
 
 **Goal**: Improve code understanding quality. Additional languages, smarter cleaning modes, caching.
 
-### 2.1 Additional languages ✅
+### v1.1: Additional languages ✅
 
 **Status**: Complete (2026-02-28). 6 new languages added, 12 parser tests passing.
 
@@ -69,30 +69,9 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Total supported languages**: Go, Python, TypeScript/JS, Rust, Java, C, C++, Ruby, C# (9 languages).
 
-### 2.2 Advanced cleaning modes ✅
+### v1.2: Noise reduction & quality fixes ✅
 
-**Status**: Complete (2026-02-28). New `internal/render` package, `mode` parameter on `repo_analyze`.
-
-- [x] Signatures-only mode: extract API surface without bodies
-- [x] Skeleton mode: structure with `// ...` placeholders
-- [x] Focused mode: full bodies for query-relevant symbols, signatures for rest
-- [x] Structural kinds (struct/interface/class/type) always preserve full body
-- [x] Exposed as `mode` parameter on `repo_analyze` MCP tool
-
-### 2.3 Multi-level analysis ✅
-
-**Status**: Complete (2026-02-28). `depth` parameter on `repo_analyze`, three analysis levels.
-
-- [x] Level 1 (overview): file tree + symbol signatures only (50K budget, signatures render mode)
-- [x] Level 2 (module): selected files + dependency graph in Mermaid (150K budget, skeleton render mode)
-- [x] Level 3 (deep): full function bodies for relevant symbols (200K budget, focused render mode)
-- [x] Depth-aware system prompts (`SystemPromptForDepth`)
-- [x] Default render mode inferred from depth (explicit `mode` overrides)
-- [x] Dependency graph section injected between symbol summary and file contents
-
-### 2.3a Noise reduction & quality fixes ✅
-
-**Status**: Complete (2026-02-28). Released as v0.2.0.
+**Status**: Complete (2026-02-28).
 
 - [x] `testdata/` added to default ignore dirs (all tools benefit)
 - [x] `ExcludeTests` option — `symbol_search` and `dep_graph` skip `_test.go` files; `repo_analyze` keeps them for full picture
@@ -103,33 +82,48 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Go parser: skip function-local var/const declarations (only package-level symbols)
 - [x] Go parser: const block signature shows individual spec, not `const (`
 
-### 2.4 Caching & performance ✅
+### v1.3: Advanced cleaning modes ✅
 
-**Status**: Complete (2026-02-28). New `internal/cache` package with LRU caches.
+**Status**: Complete (2026-02-28). New `internal/render` package, `mode` parameter on `repo_analyze`.
 
+- [x] Signatures-only mode: extract API surface without bodies
+- [x] Skeleton mode: structure with `// ...` placeholders
+- [x] Focused mode: full bodies for query-relevant symbols, signatures for rest
+- [x] Structural kinds (struct/interface/class/type) always preserve full body
+- [x] Exposed as `mode` parameter on `repo_analyze` MCP tool
+
+### v1.4: Multi-level analysis + caching ✅
+
+**Status**: Complete (2026-02-28). `depth` parameter on `repo_analyze`, three analysis levels.
+
+- [x] Level 1 (overview): file tree + symbol signatures only (50K budget, signatures render mode)
+- [x] Level 2 (module): selected files + dependency graph in Mermaid (150K budget, skeleton render mode)
+- [x] Level 3 (deep): full function bodies for relevant symbols (200K budget, focused render mode)
+- [x] Depth-aware system prompts (`SystemPromptForDepth`)
+- [x] Default render mode inferred from depth (explicit `mode` overrides)
+- [x] Dependency graph section injected between symbol summary and file contents
 - [x] LLM response cache by FNV-1a hash of (systemPrompt + userPrompt), TTL 1h, LRU eviction (500 entries)
 - [x] Parsed AST cache by (filePath, modTime, size) key, LRU eviction (5000 entries)
 - [x] Configurable via env: `PARSE_CACHE_SIZE`, `LLM_CACHE_SIZE`, `LLM_CACHE_TTL_MIN`
 - [x] 14 unit tests: get/set, TTL expiry, LRU eviction, staleness, concurrent access
-- [ ] Git change frequency for file relevance ranking (deferred — using symbol count proxy)
 
-**Deliverable**: Better analysis quality, more languages, faster repeated queries. ✅ Phase 2 complete.
+**Deliverable**: Better analysis quality, more languages, faster repeated queries. ✅
 
 ---
 
-## Phase 3: Comparison Engine ✅
+## v1.5: Comparison Engine ✅
 
 **Goal**: Compare implementations between repositories to find the better solution.
 
 **Status**: Complete (2026-02-28). `code_compare` tool fully operational.
 
-### 3.1 Structural diff ✅
+### Structural diff ✅
 - [x] Symbol-level matching: exact (name+kind), fuzzy (Levenshtein, threshold 0.7), semantic (LLM classifier)
 - [x] Side-by-side alignment of matched symbols with match score
 - [x] Coverage gap detection (symbols missing from one side)
 - [x] Metrics: avg/max function lines, test ratio, doc ratio, error handling ratio, interfaces, external deps (9 signals)
 
-### 3.2 `code_compare` tool ✅
+### `code_compare` tool ✅
 - [x] Input: 2 repos (GitHub or local) + query + optional focus/language filter
 - [x] Parallel snapshot building (goroutine worker pool)
 - [x] Three-pass symbol matching (exact → fuzzy → semantic)
@@ -137,7 +131,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] JSON output structured for AI consumption (CompareResult)
 - [x] Budget-aware LLM context assembly (180K chars, 3K per snippet, 80 matched pairs, 40 gaps)
 
-### 3.3 Module-level comparison ✅
+### Module-level comparison ✅
 - [x] Focus parameter for subdirectory-level comparison
 - [x] Language filter for cross-language comparison
 - [x] Quality-focused LLM prompt: finds better solution, not just differences
@@ -146,11 +140,9 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 4: Advanced Analysis
+## v1.6: Call Chain Tracing ✅
 
-**Goal**: Deeper understanding of code.
-
-### 4.1 Call chain tracing ✅
+**Goal**: Trace execution paths through codebases.
 
 **Status**: Complete (2026-02-27). `call_trace` MCP tool operational.
 
@@ -162,9 +154,46 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] LLM narrative explanation of execution flow
 - [x] `call_trace` MCP tool with JSON output
 
-### 4.2 Code graph ✅
+**Deliverable**: `call_trace` tool — bidirectional BFS + LLM narrative. ✅
 
-**Status**: Complete (2026-02-28). `code_graph` MCP tool operational with Apache AGE.
+---
+
+## v1.7: go-search Migration ✅
+
+**Goal**: Remove code tools from go-search, point to go-code.
+
+**Status**: Complete (2026-02-28). All code tools migrated to go-code, removed from go-search.
+
+### New infrastructure ✅
+- [x] `internal/retry` — generic exponential backoff with jitter
+- [x] `internal/metrics` — atomic operation counters
+- [x] `internal/cache` — GenericCache[T] with Redis L2 (go-redis/v9)
+- [x] `internal/llm` — retry + fallback API keys + CompleteRaw
+- [x] `internal/github` — SearchCode, SearchIssues, SearchRepos, ExtractOwnerRepo
+- [x] `internal/search` — SearXNG client with FilterByScore, DedupByDomain
+
+### New tool modes ✅
+- [x] `repo_analyze` mode=quick — GitHub Code Search + LLM summary
+- [x] `repo_analyze` type=issue/pr — GitHub Issues/PR search + LLM analysis
+- [x] `repo_search` — parallel SearXNG + GitHub API search, enrichment, LLM recommendations
+
+### go-search cleanup ✅
+- [x] Remove `tool_github_repo_analyze.go` from go-search
+- [x] Remove `tool_github_repo_search.go` from go-search
+- [x] Remove `internal/gitingest/` from go-search
+- [x] Remove code-specific functions from `sources/github.go`
+- [x] Update go-search CLAUDE.md, tool count, metrics
+- [x] Deploy both services, verify health
+
+**Deliverable**: Clean separation. go-search = web search. go-code = code intelligence. ✅
+
+---
+
+## v1.8: Code Graph ✅
+
+**Goal**: Persistent knowledge graph backed by Apache AGE.
+
+**Status**: Complete (2026-02-28). `code_graph` MCP tool operational.
 
 - [x] Store symbols + relationships in Apache AGE (separate `gocode` database)
 - [x] Schema: Package/File/Symbol vertices + CONTAINS/CALLS edges
@@ -174,9 +203,15 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Read-only guard on freeform Cypher (blocks writes)
 - [x] `code_graph` MCP tool with JSON + LLM narrative output
 
-### 4.3 Cross-language analysis ✅
+**Deliverable**: `code_graph` tool — NL→Cypher + LLM narrative. ✅
 
-**Status**: Complete (2026-02-28). Polyglot detection + HTTP route extraction + cross-language graph linking.
+---
+
+## v1.9: Cross-Language Analysis ✅
+
+**Goal**: Polyglot detection + HTTP route extraction + cross-language graph linking.
+
+**Status**: Complete (2026-02-28).
 
 - [x] Polyglot repo detection: manifest scan, directory grouping, layer construction
 - [x] Role classification: server/client/worker/library from source patterns + route fallback
@@ -193,157 +228,119 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [MLSA (arxiv 1808.01213)](https://arxiv.org/abs/1808.01213) — monolingual graphs stitched at FFI boundaries; [rustic-ai/codeprism](https://github.com/rustic-ai/codeprism) — `EdgeKind::RoutesTo` for HTTP API boundaries.
 
-**Deliverable**: Deep analysis capabilities — call chain tracing, code graph, cross-language API boundary linking. ✅
+**Deliverable**: Cross-language API boundary linking via Layer/Route graph. ✅
 
 ---
 
-## Phase 5: go-search Migration ✅
+## v1.10: Analysis Quality + Graph Enrichment + AST Diff ✅
 
-**Goal**: Remove code tools from go-search, point to go-code.
+**Goal**: Smarter ranking, better LLM prompts, structured output, richer graph schema, AST-level diffs.
 
-**Status**: Complete (2026-02-28). All code tools migrated to go-code, removed from go-search.
+**Status**: Complete (2026-02-28). Bundled release — 6+7+8+9 work delivered together.
 
-### 5.1 New infrastructure ✅
-- [x] `internal/retry` — generic exponential backoff with jitter
-- [x] `internal/metrics` — atomic operation counters
-- [x] `internal/cache` — GenericCache[T] with Redis L2 (go-redis/v9)
-- [x] `internal/llm` — retry + fallback API keys + CompleteRaw
-- [x] `internal/github` — SearchCode, SearchIssues, SearchRepos, ExtractOwnerRepo
-- [x] `internal/search` — SearXNG client with FilterByScore, DedupByDomain
+### Analysis quality (6.1–6.9) ✅
+- [x] XML prompt format: `<query>`, `<file-tree>`, `<symbols>`, `<file path="...">`
+- [x] `⋮...` skeleton markers with `│` line prefix
+- [x] BM25F scoring with field weights: symbol names ×5, file path ×3, content ×1
+- [x] Query understanding: camelCase/snake_case splitting, acronym handling
+- [x] PageRank on import graph (damping=0.85, 20 iterations), combined 70% BM25F + 30% PageRank
+- [x] Intent-aware system prompts (5 intents: architecture, debug, navigate, dependency, general)
+- [x] `format=json` structured response envelope for `repo_analyze`
+- [x] Contextual file annotations (`<!-- imported by N files, M symbols, lang -->`)
 
-### 5.2 New tool modes ✅
-- [x] `repo_analyze` mode=quick — GitHub Code Search + LLM summary
-- [x] `repo_analyze` type=issue/pr — GitHub Issues/PR search + LLM analysis
-- [x] `repo_search` — parallel SearXNG + GitHub API search, enrichment, LLM recommendations
+**Where**: `internal/ranking/`, `internal/analyze/context.go`, `internal/render/render.go`, `cmd/go-code/tool_repo_analyze.go`.
 
-### 5.3 go-search cleanup ✅
-- [x] Remove `tool_github_repo_analyze.go` from go-search
-- [x] Remove `tool_github_repo_search.go` from go-search
-- [x] Remove `internal/gitingest/` from go-search
-- [x] Remove code-specific functions from `sources/github.go`
-- [x] Update go-search CLAUDE.md, tool count, metrics
-- [x] Deploy both services, verify health
+### Graph enrichment (7.1–7.4) ✅
+- [x] Schema injection in freeform Cypher prompt
+- [x] IMPORTS edges: File → Package from tree-sitter parsed data
+- [x] Composite quality grade (A-F) in RepoMetrics
+- [x] Hotspot scoring: `percentile(churn) × percentile(complexity)`
+- [x] Import diff with categorization and framework detection
 
-**Deliverable**: Clean separation. go-search = web search. go-code = code intelligence. ✅
+**Where**: `internal/codegraph/`, `internal/compare/`.
 
----
+### AST structural diff (8.1–8.2) ✅
+- [x] `smacker/gum` integration with tree-sitter adapter
+- [x] Function-level AST diff: Insert, Delete, Update, Move operations
+- [x] Edit script wired into `code_compare` output
+- [x] DiffStats aggregation across modified matches
 
-## Phase 6: Analysis Quality ✅
+**Where**: `internal/compare/astconv.go`, `internal/compare/astdiff.go`.
 
-**Goal**: Smarter ranking, better LLM prompts, structured output. Make existing tools produce better results.
+### Impact analysis ✅
+- [x] `impact_analysis` MCP tool — blast radius computation
+- [x] Depth-scored: direct callers (high risk), transitive (medium), downstream (low)
 
-**Status**: Complete (2026-02-28). All 9 subtasks implemented with tests.
+**Where**: `internal/impact/`, `cmd/go-code/tool_impact.go`.
 
-### 6.1 XML prompt format ✅
-- [x] Replace Markdown headings with XML tags: `<query>`, `<file-tree>`, `<symbols>`, `<file path="...">`
-- [x] File blocks use `<file path=%q>` with properly quoted paths
-- [x] Tests verify XML format and absence of old Markdown markers
-
-**Where**: `internal/analyze/context.go` → `buildLLMContext()`, `formatFileBlock()`.
-
-### 6.2 Skeleton markers ✅
-- [x] `⋮...` marker replaces ambiguous `// ...` placeholder
-- [x] `│` prefix on all visible lines in skeleton/signatures/focused modes
-- [x] LLM gets explicit signal that code was intentionally truncated
-- [x] 4 new tests, existing tests updated
-
-**Where**: `internal/render/render.go` → `bodyPlaceholder`, `applyReplacements()`.
-
-### 6.3 BM25F scoring ✅
-- [x] BM25F with field weights: symbol names ×5, file path ×3, content ×1
-- [x] IDF normalization: rare term matches score higher than common ones
-- [x] Lazy document-frequency caching with substring matching
-- [x] 6 unit tests in `internal/ranking/bm25_test.go`
-
-**Where**: `internal/ranking/bm25.go`, `internal/analyze/context.go` → `prioritizeFiles()`.
-
-### 6.4 Query understanding ✅
-- [x] camelCase splitting: `handleUserAuth` → [handle, user, auth, handleuserauth]
-- [x] snake_case splitting: `parse_file_content` → [parse, file, content, parse_file_content]
-- [x] Acronym handling: `LLMClient` → [llm, client]
-- [x] Digit boundaries: `Auth2Factor` → [auth, factor]
-- [x] Keeps original compound term alongside subwords
-- [x] 3 new tests
-
-**Where**: `internal/analyze/context.go` → `extractQueryTerms()`, `splitCamelCase()`, `splitIdentifier()`.
-
-### 6.5 PageRank on import graph ✅
-- [x] Iterative PageRank (damping=0.85, 20 iterations) on file→file import graph
-- [x] Dangling node handling for rank conservation
-- [x] Combined scoring: 70% BM25F + 30% PageRank × 100
-- [x] 6 unit tests (star, chain, cycle, normalization)
-
-**Where**: `internal/ranking/pagerank.go`, `internal/analyze/context.go` → `prioritizeFiles()`.
-**Note**: Current implementation uses file-level import edges. Phase 7.5 upgrades to identifier-level reference edges + personalized PageRank (Aider-style).
-
-### 6.6 Intent-aware system prompts ✅
-- [x] Classify queries into 5 intents: architecture, debug, navigate, dependency, general
-- [x] Keyword-based scoring with deterministic tie-breaking
-- [x] Specialized system prompts per intent (architecture, debug, navigate)
-- [x] Depth overrides still apply (overview/deep modes)
-- [x] 7 test functions
-
-**Where**: `internal/llm/intent.go`, `internal/analyze/analyze.go` → `AnalyzeRepo()`.
-
-### 6.7 + 6.8 Response envelope & structured output ✅
-- [x] `format=json` parameter on `repo_analyze`: structured envelope with `schemaVersion`, `data`, `meta`, `suggestedNextCalls`
-- [x] `format=text` (default) preserves existing human-readable output
-- [x] Format validation rejects unknown values
-- [x] Envelope types: `responseEnvelope`, `envelopeData`, `envelopeMeta`, `suggestedCall`
-
-**Where**: `cmd/go-code/tool_repo_analyze.go`.
-
-### 6.9 Contextual file annotations ✅
-- [x] `<!-- imported by N files, M symbols, lang -->` annotations before each file block
-- [x] Built from import counts and symbol counts — no LLM needed
-- [x] Empty annotations omitted (no noise for files with nothing to say)
-- [x] 2 new tests
-
-**Where**: `internal/analyze/context.go` → `fileAnnotation()`, `appendFileContents()`.
-
-**Deliverable**: Smarter file ranking (BM25F + PageRank), better LLM prompts (XML + intent), actionable output (envelope + structured JSON). ✅ All 6.1-6.9 complete.
+**Deliverable**: Smart ranking (BM25F+PageRank), XML prompts, AST diff, graph enrichment, impact analysis. ✅
 
 ---
 
-## Phase 7: Graph Enrichment
+## v1.11: Type Hierarchy + Dead Code + Incremental Indexing ✅
 
-**Goal**: Richer graph schema + faster re-indexing.
+**Goal**: Richer type system in graph, dead code detection, faster re-indexing.
 
-### 7.1 Schema injection in freeform Cypher
-- [ ] Inject full graph schema (vertex labels, edge types, properties) into `SystemPromptGenerateCypher`
-- [ ] Currently freeform Cypher generation has no schema context → hallucinated property names
-- [ ] Test on 5+ NL queries that previously failed
+**Status**: Complete.
 
-**Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — schema text injected into LLM prompt for Cypher grounding.
+- [x] INHERITS/IMPLEMENTS edges from parser type relationships (Go, Python, TS, Java)
+- [x] Type hierarchy and subtypes Cypher templates
+- [x] PageRank scoring integrated into Symbol vertices
+- [x] Incremental indexing with file mtime tracking
+- [x] `dead_code` MCP tool — detect functions with zero incoming calls
+- [x] Type relationship extraction with Go, Python, TypeScript, Java support
+- [x] Regex-based fallback tokenizer for unsupported languages
+- [x] Complexity and lines metrics on Symbol vertices
 
-### 7.2 IMPORTS edges
-- [ ] Extract import paths from existing tree-sitter parsed data (already in `@import.path` captures)
-- [ ] Add `IMPORTS` edge type: File → Package (or File → File for relative imports)
-- [ ] Add Cypher template: `imports_of` (what does file X import?), `imported_by` (who imports package Y?)
-- [ ] Update graph schema documentation
+**Deliverable**: Type hierarchy, dead code detection, incremental indexing. ✅
 
-**Ref**: [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext), [code-graph-rag](https://github.com/vitali87/code-graph-rag) — both store IMPORTS as first-class edges.
+---
 
-### 7.3 INHERITS / IMPLEMENTS edges
-- [ ] New tree-sitter query captures: `@extends.base`, `@implements.interface` per language
-- [ ] Go: interface satisfaction (type assertion patterns), struct embedding
-- [ ] Python: `class Foo(Bar)`, Java/C#: `extends`/`implements`, TypeScript: `extends`/`implements`
-- [ ] Rust: `impl Trait for Type`
-- [ ] Add `INHERITS` and `IMPLEMENTS` edge types to `buildGraph()`
-- [ ] Cypher templates: `hierarchy` (inheritance tree), `implementors` (who implements interface X?)
+## v1.12: Code Search + Graph Improvements ✅
 
-**Ref**: [rustic-ai/codeprism](https://github.com/rustic-ai/codeprism) — `EdgeKind::Extends`/`Implements`, strongly typed enums.
+**Status**: Complete.
 
-### 7.4 Incremental graph indexing
-- [ ] Store FNV-64a hash per file in `code_graph_files` table (path, hash, indexed_at)
-- [ ] On re-index: hash all files → diff against stored → parse only added/modified
-- [ ] `DETACH DELETE` for removed files (cascade edges)
-- [ ] Symbol-level diff for modified files (delete old symbols, insert new — not full file reindex)
-- [ ] Persist hash state per graph, bump graph version to force rebuild on schema changes
+- [x] `code_search` MCP tool — grep-like search with regex, context lines, file globs
+- [x] Framework-aware heuristics in `dead_code` to reduce false positives
+- [x] Graph schema injection into classifier prompt
+- [x] Example queries and AGE constraints in freeform Cypher prompt
+- [x] Multiline Cypher handling fix in `countReturnCols`
 
-**Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — `FileHashCache` per file, JSON state; [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext) — file watcher + per-file reindex.
+---
 
-### 7.5 Identifier-level reference graph + fusion ranking
+## v1.13: Explore Tool + Graph Fixes ✅
+
+**Status**: Complete.
+
+- [x] `explore` MCP tool — quick repository overview (file tree + key symbols)
+- [x] Cyclomatic complexity added to parser symbol output
+- [x] Fix AGE-incompatible Cypher in dead_code and call_chain templates
+- [x] Improved codegraph classifier accuracy and template quality
+- [x] `case_sensitive` parameter for `code_search`
+
+---
+
+## v1.14: Code Health ✅
+
+**Goal**: Single-repo quality assessment — no LLM, fast static analysis.
+
+**Status**: Complete.
+
+- [x] `code_health` MCP tool — grade (A-F), score (0-100), metrics, hotspots, type relationships
+- [x] Reuses `compare.BuildSnapshot` + `ComputeMetrics` + `ComputeHotspots` + `ComputeRelStats`
+- [x] Exported `GradeScore` for numeric score alongside letter grade
+- [x] Input: `repo` (required), `language` (optional), `focus` (optional)
+- [x] Fix: hotspot path mismatch (absolute vs relative) — now works for both `code_health` and `code_compare`
+
+**Deliverable**: `code_health` tool — fast repo quality assessment. ✅
+
+---
+
+## Future: Identifier-Level Ranking
+
+**Goal**: Precision file ranking via identifier-level reference graph.
+
+### Identifier-level reference graph + fusion ranking
 - [ ] Build identifier-level reference graph: extract all symbol definitions + references via tree-sitter (not just imports)
 - [ ] File→file edges weighted by shared identifier references: `weight = mul / len(definers)` — distribute importance across multiple definition sites
 - [ ] Weight multipliers: identifiers mentioned in query → ×10, long camelCase/snake_case (≥8 chars) → ×10, private (`_` prefix) → ×0
@@ -353,84 +350,17 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [ ] Fusion ranking: combine BM25F + PageRank + exact symbol match + import depth into weighted score (currently only BM25F×0.7 + PageRank×0.3). Normalize each signal to [0,1] before combination.
 - [ ] Fallback tokenizer: when tree-sitter finds definitions but no references for a language → regex-based `Token.Name` extraction (ensures graph edges exist for under-covered grammars)
 
-**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — `RepoMap` uses NetworkX MultiDiGraph with identifier-level edges + personalized PageRank (`alpha=0.85`); pygments fallback for reference extraction. [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `FusionRanker` combines 5 signals (FTS, PPR, Hotspot, Recency, Exact) with normalization; seed expansion via `expandSeedsWithMethods`. Our current Phase 6.5 PageRank uses file-level import edges only.
+**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — `RepoMap` uses NetworkX MultiDiGraph with identifier-level edges + personalized PageRank (`alpha=0.85`); pygments fallback for reference extraction. [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `FusionRanker` combines 5 signals (FTS, PPR, Hotspot, Recency, Exact) with normalization; seed expansion via `expandSeedsWithMethods`. Current PageRank uses file-level import edges only.
 
 **Where**: `internal/ranking/pagerank.go` → personalization vector + seed expansion; `internal/ranking/fusion.go` → new multi-signal combiner; `internal/analyze/context.go` → `buildPageRankGraph()` → identifier-level graph; new `internal/parser/fallback.go` for regex tokenizer.
 
-**Deliverable**: Richer graph queries (imports, inheritance), 10-100x faster re-indexing for local repos. Identifier-level ranking with personalized PageRank for more precise file prioritization.
-
 ---
 
-## Phase 8: AST Structural Diff
-
-**Goal**: True AST-level diff in `code_compare` using GumTree algorithm.
-
-### 8.1 Integrate smacker/gum
-- [ ] `go get github.com/smacker/gum` — same author as `smacker/go-tree-sitter`
-- [ ] Use `gum/tsitter` adapter to convert tree-sitter CST → `gum.Tree`
-- [ ] Verify tree-sitter version pin compatibility (same CGO dependency)
-
-### 8.2 AST diff in code_compare
-- [ ] `internal/compare/ast_diff.go` — function-level AST diff using `gum.Match()` + `gum.Patch()`
-- [ ] Edit script output: Insert, Delete, Update, **Move** operations
-- [ ] Move detection: function moved from file A to file B (not deleted+added)
-- [ ] Integrate into existing `code_compare` output alongside symbol-level analysis
-- [ ] LLM narrative enhanced with edit script data ("function X was moved", "function Y body changed")
-
-### 8.3 Diff visualization
-- [ ] Structured JSON output with edit operations
-- [ ] Summary statistics: N moves, N updates, N deletes, N inserts
-- [ ] Similarity score per matched function pair based on edit distance
-
-**Ref**: [smacker/gum](https://github.com/smacker/gum) — Go GumTree implementation with tree-sitter adapter; [GumTreeDiff/gumtree](https://github.com/GumTreeDiff/gumtree) — academic reference (ICSE 2014); [Wilfred/difftastic](https://github.com/Wilfred/difftastic) — hash-before-compare optimization.
-
-**Deliverable**: `code_compare` produces structural edit scripts with move detection, not just "similar symbols".
-
----
-
-## Phase 9: Code Health & Impact Analysis
-
-**Goal**: New tools for assessing code quality and change risk.
-
-### 9.1 Complexity metrics
-- [ ] Cyclomatic complexity via tree-sitter (count decision nodes: if/for/while/switch/case/&&/||)
-- [ ] Cognitive complexity (nesting depth penalty)
-- [ ] Per-function and per-file aggregation
-- [ ] Expose as optional section in `repo_analyze` and `file_parse` output
-- [ ] Hotspot detection: `percentile(churn) × percentile(complexity)` — product, not sum
-
-**Ref**: [ast-metrics](https://github.com/halleck45/ast-metrics) — Go, tree-sitter metrics with HTML dashboards; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `getFileComplexity`, `getHotspots`; [panbanda/omen](https://github.com/panbanda/omen) — hotspot = churn × complexity percentile product.
-
-### 9.2 Impact analysis / blast radius
-- [ ] New MCP tool: `impact_analysis` or extend `call_trace` with `mode=impact`
-- [ ] Input: symbol name + repo → output: direct/indirect/transitive dependents
-- [ ] Depth-scored: direct callers (high risk), transitive callers (medium), downstream (low)
-- [ ] Confidence score degrades with distance from changed symbol
-- [ ] Blast radius thresholds (from CodeMCP): low (≤2 modules / ≤5 callers), medium (≤5 / ≤20), high (above)
-- [ ] Risk scoring: `visibility × impact_count` — public symbols score higher
-- [ ] Uses existing CALLS edges from `code_graph` + call graph from `call_trace`
-- [ ] LLM narrative: "changing this function affects N direct callers and M transitive dependents"
-
-**Ref**: [Axon](https://github.com/harshkedia177/axon) — blast radius with confidence scores; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `AnalyzeImpact` with SCIP FindReferences + BuildCallGraph, `ClassifyBlastRadius` with module/caller thresholds, telemetry-enhanced risk scoring.
-
-### 9.3 Dead code detection
-- [ ] Multi-pass approach: (1) build call graph, (2) identify entry points, (3) mark unreachable
-- [ ] Entry point heuristics: main(), init(), exported functions, HTTP handlers, test functions
-- [ ] Framework awareness: don't flag handler functions registered via reflect/decorators
-- [ ] Output: list of candidate dead symbols with confidence level
-- [ ] Expose as new MCP tool or mode on `symbol_search`
-
-**Ref**: [Axon](https://github.com/harshkedia177/axon) — multi-pass with framework awareness; [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext) — dead code via graph analysis.
-
-**Deliverable**: Complexity metrics, blast radius tool, dead code candidates.
-
----
-
-## Phase 10: Semantic Code Search
+## Future: Semantic Code Search
 
 **Goal**: Find code by meaning, not just name patterns.
 
-### 10.1 Embedding infrastructure
+### Embedding infrastructure
 - [ ] Embed function bodies during graph indexing via memdb-go `/v1/embeddings` (1024-dim)
 - [ ] Store embeddings in pgvector column on Symbol vertices (or companion table)
 - [ ] Batch embedding: group functions into batches of 32, parallel requests
@@ -438,13 +368,13 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — UniXcoder embeddings + vector DB; [Octocode](https://github.com/Muvon/octocode) — GraphRAG + semantic search.
 
-### 10.2 Semantic search tool
+### Semantic search tool
 - [ ] New MCP tool: `semantic_search` — NL query → embed → cosine similarity → top-K results
 - [ ] Input: query text + repo + optional language/file filter
 - [ ] Output: ranked list of functions with similarity score + source snippet
 - [ ] Hybrid mode: combine embedding similarity with name-pattern matching
 
-### 10.3 Graph-enhanced search
+### Graph-enhanced search
 - [ ] After finding semantically similar functions, expand via graph edges
 - [ ] "Functions similar to X" + "functions that call similar functions" (graph walk)
 - [ ] Re-rank by graph centrality (PageRank or degree)
@@ -455,11 +385,11 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Phase 11: Type-Aware Analysis
+## Future: Type-Aware Analysis
 
 **Goal**: Precision enhancement for Go repos via compiler-level intelligence.
 
-### 11.1 SCIP backend for Go
+### SCIP backend for Go
 - [ ] Optional `scip-go` integration for Go repos
 - [ ] Parse SCIP index → extract precise CALLS/IMPLEMENTS/REFERENCES edges
 - [ ] Merge SCIP data with tree-sitter data (SCIP primary, tree-sitter fallback)
@@ -467,14 +397,13 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Ref**: [sourcegraph/scip](https://github.com/sourcegraph/scip) — Protobuf schema, Go bindings, streaming parser; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — SCIP as primary backend with tree-sitter fallback; [williamfzc/srctx](https://github.com/williamfzc/srctx) — Go tool combining SCIP + tree-sitter.
 
-### 11.2 Go-native call graph enhancement
+### Go-native call graph enhancement
 - [ ] Optional `golang.org/x/tools/go/callgraph/rta` for Go repos
 - [ ] Produces type-aware, compiler-accurate call resolution
 - [ ] Merge with tree-sitter call graph (RTA for Go files, tree-sitter for others)
 - [ ] Resolves interface dispatch, method sets, embedded types
 
-### 11.3 Compound tools + graceful degradation
-- [ ] `explore` — combines `file_parse` + `symbol_search` + `dep_graph` for area overview
+### Compound tools + graceful degradation
 - [ ] `understand` — combines `call_trace` + `code_graph` + complexity for symbol deep-dive
 - [ ] `prepare_change` — combines `impact_analysis` + `dead_code` for pre-change assessment
 - [ ] Ambiguity handling: when symbol name matches multiple, list top matches with disambiguation hints (from CodeMCP `UnderstandAmbiguity`)
@@ -487,64 +416,68 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Dependencies Between Phases
+## Future: Remaining Work
+
+### Cognitive complexity
+- [ ] Nesting depth penalty (partially delivered: cyclomatic complexity done in v1.13)
+
+### AST diff visualization
+- [ ] Structured JSON output with edit operations
+- [ ] Summary statistics: N moves, N updates, N deletes, N inserts
+- [ ] Similarity score per matched function pair based on edit distance
+
+**Ref**: [smacker/gum](https://github.com/smacker/gum) — Go GumTree implementation with tree-sitter adapter; [GumTreeDiff/gumtree](https://github.com/GumTreeDiff/gumtree) — academic reference (ICSE 2014); [Wilfred/difftastic](https://github.com/Wilfred/difftastic) — hash-before-compare optimization.
+
+---
+
+## Dependencies
 
 ```
-Phase 1 (Foundation) ✅ ──→ Phase 2 (Structure) ✅ ──→ Phase 3 (Comparison) ✅
-                              2.1 Languages ✅              │
-                              2.2 Cleaning ✅                ▼
-                              2.3 Analysis ✅   Phase 4 (Advanced) ✅
-                              2.3a Noise ✅       4.1 Call trace ✅
-                              2.4 Caching ✅      4.2 Code graph ✅
-                                                  4.3 Cross-language ✅
-                                                        │
-                                        ┌───────────────┤
-                                        ▼               ▼
-                              Phase 5 (Migration) ✅   Phase 6 (Analysis Quality)
-                                                        6.1-6.2 Prompt format
-                                                        6.3-6.5 Smart ranking
-                                                        6.6 Intent classification
-                                                        6.7-6.8 Output structure
-                                                        6.9 Annotations
+v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comparison) ✅
                                                               │
-                                        ┌─────────────────────┼──────────────────┐
-                                        ▼                     ▼                  ▼
-                              Phase 7 (Graph Enrich)  Phase 8 (AST Diff)  Phase 9 (Health)
-                                7.1 Schema inject       8.1 smacker/gum     9.1 Complexity
-                                7.2 IMPORTS             8.2 Edit scripts    9.2 Blast radius
-                                7.3 INHERITS            8.3 Visualization   9.3 Dead code
-                                7.4 Incremental                                  │
-                                      │                                          ▼
-                                      ▼                               Phase 10 (Semantic)
-                              Phase 11 (Type-Aware)                     10.1 Embeddings
-                                11.1 SCIP                               10.2 Search tool
-                                11.2 Go-native RTA                      10.3 Graph-enhanced
-                                11.3 Compound tools
+                              ┌────────────────────────────────┤
+                              ▼                                ▼
+                    v1.6 (Call Trace) ✅              v1.7 (Migration) ✅
+                    v1.8 (Code Graph) ✅
+                    v1.9 (Cross-Lang) ✅
+                              │
+                              ▼
+                    v1.10 (Quality + Graph + AST Diff) ✅
+                    v1.11 (Type Hierarchy + Dead Code) ✅
+                    v1.12 (Code Search) ✅
+                    v1.13 (Explore) ✅
+                    v1.14 (Code Health) ✅
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+      Identifier Ranking   Semantic Search   Type-Aware Analysis
 ```
 
-**Completed**: Phase 1, 2, 3, 4 (4.1+4.2+4.3), 5, 6.
-**Next**: Phase 7 (graph enrichment — schema injection, IMPORTS, INHERITS, incremental indexing, identifier-level ranking).
-**Independent**: Phases 7, 8, 9 can run in parallel after Phase 6.
-**Depends on 7+9**: Phase 11 builds on enriched graph + impact analysis.
-**Depends on 6**: Phase 10 builds on PageRank from Phase 6.5.
-**Depends on 7.5**: Phase 10.3 graph-enhanced search benefits from identifier-level reference graph.
+**Completed**: v1.0 through v1.14 (13 tools, 9 languages).
+**Next**: Identifier-level ranking (fusion scoring, personalized PageRank).
+**Independent**: Semantic search, type-aware analysis can proceed in parallel.
 
 ## Releases
 
 | Tag | Commit | What |
 |-----|--------|------|
-| v1.0.0 | `c4a5c55` | Phase 1: Foundation — 5 MCP tools, Go/Python/TypeScript parsing |
-| v1.1.0 | `5e75bc5` | Phase 2.1: 6 new languages (Rust, Java, C, C++, Ruby, C#) |
-| v1.2.0 | `cb0fc1f` | Phase 2.3a: Noise reduction, test filtering, symbol limits, dep_graph fixes |
-| v1.3.0 | `24613ba` | Phase 2.2: Render modes (signatures, skeleton, focused) for `repo_analyze` |
+| v1.0.0 | `c4a5c55` | Foundation — 5 MCP tools, Go/Python/TypeScript parsing |
+| v1.1.0 | `5e75bc5` | 6 new languages (Rust, Java, C, C++, Ruby, C#) |
+| v1.2.0 | `cb0fc1f` | Noise reduction, test filtering, symbol limits, dep_graph fixes |
+| v1.3.0 | `24613ba` | Render modes (signatures, skeleton, focused) for `repo_analyze` |
 | v1.3.1 | `72e8617` | Fix render bugs: dangling braces, nested symbols, validation |
-| v1.4.0 | `a99d14d` | Phase 2.3+2.4: Multi-level analysis (depth) + LRU caching |
-| v1.5.0 | `4e471f0` | Phase 3: Comparison Engine — `code_compare` with structural diff + LLM analysis |
+| v1.4.0 | `a99d14d` | Multi-level analysis (depth) + LRU caching |
+| v1.5.0 | `4e471f0` | Comparison Engine — `code_compare` with structural diff + LLM analysis |
 | v1.5.1 | `eb70fe0` | Fix 6 bugs found during practical testing of `code_compare` |
-| v1.6.0 | `36f2144` | Phase 4.1: Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
-| v1.7.0 | `07e8907` | Phase 5: go-search migration — `repo_search`, `repo_analyze` quick/issues modes, retry, Redis L2, metrics |
-| v1.8.0 | `127fd2d` | Phase 4.2: Code graph — `code_graph` with Apache AGE, NL→Cypher templates + LLM freeform, lazy indexing |
-| v1.9.0 | `b06e340` | Phase 4.3: Cross-language analysis — polyglot detection, HTTP route extraction (7 langs), Layer/Route graph, 14 Cypher templates |
+| v1.6.0 | `36f2144` | Call chain tracing — `call_trace` with bidirectional BFS + LLM narrative |
+| v1.7.0 | `07e8907` | go-search migration — `repo_search`, `repo_analyze` quick/issues modes |
+| v1.8.0 | `127fd2d` | Code graph — `code_graph` with Apache AGE, NL→Cypher + LLM freeform |
+| v1.9.0 | `b06e340` | Cross-language analysis — polyglot detection, HTTP route extraction |
+| v1.10.0 | `4d48293` | Analysis quality + graph enrichment + AST diff + impact analysis |
+| v1.11.0 | `c8d7a25` | Type hierarchy + dead code + incremental indexing |
+| v1.12.0 | `13da1d0` | `code_search` tool + graph improvements |
+| v1.13.0 | `8eaf53f` | `explore` tool + codegraph fixes |
+| v1.14.0 | — | `code_health` tool — single-repo quality assessment |
 
 ## Technical Debt Watch
 

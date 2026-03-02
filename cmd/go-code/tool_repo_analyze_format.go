@@ -139,7 +139,7 @@ func limitsForDepth(depth string) depthLimits {
 			includeDoc:     false,
 			includeImports: false,
 			treeLines:      50, //nolint:mnd
-			topSymbols:     50, //nolint:mnd
+			topSymbols:     30, //nolint:mnd
 		}
 	case analyze.DepthDeep:
 		return depthLimits{
@@ -231,7 +231,7 @@ func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string) string {
 		resp.Tree = xmlCDATA{Inner: wrapCDATA(truncateTree(r.FileTree, limits.treeLines))}
 	}
 
-	resp.Symbols = buildTopSymbols(r.Symbols, limits.topSymbols)
+	resp.Symbols = buildTopSymbols(r.Symbols, limits.topSymbols, depth)
 
 	b, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
@@ -241,11 +241,24 @@ func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string) string {
 }
 
 // buildTopSymbols builds the backward-compatible top-level <symbols> section.
-func buildTopSymbols(syms []*parser.Symbol, limit int) xmlSymbols {
+// For overview depth, it filters out unexported symbols and test file symbols
+// to provide a more relevant compact view.
+func buildTopSymbols(syms []*parser.Symbol, limit int, depth string) xmlSymbols {
+	isOverview := depth == analyze.DepthOverview
 	symbols := make([]xmlSymbol, 0, min(len(syms), limit))
 	for _, sym := range syms {
 		if len(symbols) >= limit {
 			break
+		}
+		if isOverview {
+			// Skip unexported symbols (name starts with lowercase).
+			if len(sym.Name) > 0 && sym.Name[0] >= 'a' && sym.Name[0] <= 'z' {
+				continue
+			}
+			// Skip symbols from test files.
+			if strings.HasSuffix(sym.File, "_test.go") {
+				continue
+			}
 		}
 		xs := xmlSymbol{
 			Kind: string(sym.Kind),

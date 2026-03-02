@@ -59,6 +59,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerImpact(server, cfg, deps)
 	registerDeadCode(server, cfg, deps)
 	registerExplore(server, cfg, deps)
+	registerCodeHealth(server, cfg, deps)
 
 	// Code graph (optional — needs DATABASE_URL).
 	var graphStore *codegraph.Store

@@ -10,6 +10,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -159,9 +160,10 @@ func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) str
 }
 
 // handleQuickMode performs a fast GitHub Code Search without cloning the repo.
+// For local paths, it returns a directory tree + README without any AST parsing.
 func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
 	if isLocalPath(input.Repo) {
-		return errResult("quick mode requires a GitHub repo (owner/repo), not a local path. Use deep mode for local paths."), nil, nil
+		return handleLocalQuickMode(ctx, input, deps)
 	}
 	repos := resolveQuickRepos(input)
 	if len(repos) == 0 {
@@ -196,6 +198,56 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 	}
 
 	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n\n%s", input.Query, repoSlug, summary)), nil, nil
+}
+
+// handleLocalQuickMode returns a directory tree + README for a local repository.
+// No LLM, no AST parsing — just a filesystem scan.
+func handleLocalQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+	root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+	}
+	defer cleanup()
+
+	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+		Root:         root,
+		Focus:        input.Focus,
+		MaxFileBytes: 0, // skip file content — only need file list
+	})
+	if err != nil {
+		return errResult(fmt.Sprintf("ingest: %s", err)), nil, nil
+	}
+
+	tree := ingest.RenderTree(ir.Files)
+
+	readme := readREADME(root)
+
+	repoName := filepath.Base(root)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<response><quick repo=%q type=\"local\">", repoName)
+	fmt.Fprintf(&sb, "<tree><![CDATA[%s]]></tree>", strings.ReplaceAll(tree, "]]>", "]]]]><![CDATA[>"))
+	if readme != "" {
+		fmt.Fprintf(&sb, "<readme><![CDATA[%s]]></readme>", strings.ReplaceAll(readme, "]]>", "]]]]><![CDATA[>"))
+	}
+	sb.WriteString("</quick></response>")
+
+	return textResult(sb.String()), nil, nil
+}
+
+// readREADME tries to read README.md from root, returning empty string on failure.
+func readREADME(root string) string {
+	for _, name := range []string{"README.md", "readme.md", "Readme.md"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err == nil {
+			const maxReadmeLen = 8000
+			s := string(data)
+			if len(s) > maxReadmeLen {
+				return s[:maxReadmeLen] + "\n...(truncated)"
+			}
+			return s
+		}
+	}
+	return ""
 }
 
 // handleIssuesMode searches GitHub issues or pull requests via the Issues Search API.

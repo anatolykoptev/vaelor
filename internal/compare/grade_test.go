@@ -71,7 +71,7 @@ func TestComputeGrade(t *testing.T) {
 	}
 }
 
-func TestGradeScore_Range(t *testing.T) {
+func TestGradeScoreRange(t *testing.T) {
 	metrics := RepoMetrics{
 		Files: 100, TotalLines: 10000,
 		AvgFuncLines: 15, MaxFuncLines: 50,
@@ -79,7 +79,7 @@ func TestGradeScore_Range(t *testing.T) {
 		TestRatio: 0.3, DocRatio: 0.6,
 		ErrorHandlingRatio: 0.6, Interfaces: 8, ExternalDeps: 12,
 	}
-	score := gradeScore(metrics)
+	score := GradeScore(metrics)
 	if score < 0 || score > 100 {
 		t.Errorf("gradeScore() = %.1f, want [0, 100]", score)
 	}

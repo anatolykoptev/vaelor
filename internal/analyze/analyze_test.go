@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -472,8 +473,8 @@ func TestIsStdlibImport(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
-			if got := isStdlibImport(tc.path); got != tc.want {
-				t.Errorf("isStdlibImport(%q) = %v, want %v", tc.path, got, tc.want)
+			if got := goutil.IsStdlibImport(tc.path); got != tc.want {
+				t.Errorf("IsStdlibImport(%q) = %v, want %v", tc.path, got, tc.want)
 			}
 		})
 	}
