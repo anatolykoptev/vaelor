@@ -11,6 +11,7 @@ package main
 import (
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -52,9 +53,11 @@ func main() {
 	slog.Info("tools registered", slog.Int("count", toolCount))
 
 	if err := mcpserver.Run(server, mcpserver.Config{
-		Name:    serviceName,
-		Version: version,
-		Port:    cfg.Port,
+		Name:           serviceName,
+		Version:        version,
+		Port:           cfg.Port,
+		SessionTimeout: 10 * time.Minute,
+		MCPLogger:      slog.Default(),
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
