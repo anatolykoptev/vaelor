@@ -391,6 +391,31 @@ func TestMatchGitignore(t *testing.T) {
 	}
 }
 
+// TestMatchGitignoreAnchored verifies leading "/" anchors to root only.
+func TestMatchGitignoreAnchored(t *testing.T) {
+	patterns := []string{"/go-content"}
+
+	cases := []struct {
+		relPath string
+		isDir   bool
+		want    bool
+	}{
+		{"go-content", false, true},         // root-level binary: matched
+		{"go-content", true, true},          // root-level dir: matched
+		{"cmd/go-content", true, false},     // nested dir: NOT matched
+		{"cmd/go-content/main.go", false, false}, // file in nested dir: NOT matched
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.relPath, func(t *testing.T) {
+			got := matchGitignore(tc.relPath, tc.isDir, patterns)
+			if got != tc.want {
+				t.Errorf("matchGitignore(%q, isDir=%v, anchored) = %v, want %v", tc.relPath, tc.isDir, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestIngestRepoExcludeTests verifies that ExcludeTests=true filters out _test.go files.
 func TestIngestRepoExcludeTests(t *testing.T) {
 	root := t.TempDir()
@@ -433,8 +458,8 @@ func TestIngestRepoFocusKeywords(t *testing.T) {
 		t.Fatalf("IngestRepo: %v", err)
 	}
 
-	if len(result.Files) == 0 {
-		t.Fatal("keyword focus returned 0 files, expected internal/auth/middleware.go")
+	if len(result.Files) != 1 {
+		t.Fatalf("keyword focus: expected 1 file, got %d", len(result.Files))
 	}
 
 	for _, f := range result.Files {
