@@ -417,6 +417,34 @@ func TestIngestRepoExcludeTests(t *testing.T) {
 	}
 }
 
+// TestIngestRepoFocusKeywords verifies keyword-based focus (spaces = keywords, not path).
+func TestIngestRepoFocusKeywords(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "cmd", "server", "main.go"), "package main\n")
+	writeFile(t, filepath.Join(root, "internal", "auth", "middleware.go"), "package auth\n")
+	writeFile(t, filepath.Join(root, "internal", "handler", "routes.go"), "package handler\n")
+	writeFile(t, filepath.Join(root, "pkg", "models", "user.go"), "package models\n")
+
+	result, err := IngestRepo(context.Background(), IngestOpts{
+		Root:  root,
+		Focus: "auth middleware",
+	})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+
+	if len(result.Files) == 0 {
+		t.Fatal("keyword focus returned 0 files, expected internal/auth/middleware.go")
+	}
+
+	for _, f := range result.Files {
+		rp := strings.ToLower(f.RelPath)
+		if !strings.Contains(rp, "auth") || !strings.Contains(rp, "middleware") {
+			t.Errorf("keyword focus: unexpected file %q (should contain auth AND middleware)", f.RelPath)
+		}
+	}
+}
+
 // keys returns sorted keys from a string bool map (for diagnostics).
 func keys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
