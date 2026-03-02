@@ -470,6 +470,54 @@ func TestIngestRepoFocusKeywords(t *testing.T) {
 	}
 }
 
+// TestIngestRepoFocusKeywordsNoMatch verifies keyword focus returns 0 when no file matches all keywords.
+func TestIngestRepoFocusKeywordsNoMatch(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "internal", "auth", "login.go"), "package auth\n")
+	writeFile(t, filepath.Join(root, "internal", "handler", "middleware.go"), "package handler\n")
+
+	result, err := IngestRepo(context.Background(), IngestOpts{
+		Root:  root,
+		Focus: "auth middleware",
+	})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+
+	// "auth" is in one path, "middleware" in another — no single file has both.
+	if len(result.Files) != 0 {
+		names := make([]string, len(result.Files))
+		for i, f := range result.Files {
+			names[i] = f.RelPath
+		}
+		t.Errorf("expected 0 files, got %d: %v", len(result.Files), names)
+	}
+}
+
+// TestIngestRepoFocusPathUnchanged verifies path-based focus still works exactly as before.
+func TestIngestRepoFocusPathUnchanged(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "cmd", "main.go"), "package main\n")
+	writeFile(t, filepath.Join(root, "internal", "auth", "handler.go"), "package auth\n")
+
+	// Path focus (no spaces) — existing behavior.
+	result, err := IngestRepo(context.Background(), IngestOpts{
+		Root:  root,
+		Focus: "internal",
+	})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+	if len(result.Files) != 1 {
+		t.Errorf("path focus: expected 1 file, got %d", len(result.Files))
+	}
+	for _, f := range result.Files {
+		if !strings.HasPrefix(f.RelPath, "internal") {
+			t.Errorf("path focus: file %q not under internal/", f.RelPath)
+		}
+	}
+}
+
 // keys returns sorted keys from a string bool map (for diagnostics).
 func keys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
