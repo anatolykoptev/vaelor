@@ -1,17 +1,16 @@
 package compare
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"sync"
 
 	xxhash "github.com/cespare/xxhash/v2"
 
+	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -112,19 +111,10 @@ func parseSnapshotFile(file *ingest.File) snapshotParseResult {
 		IncludeImports: true,
 	})
 	if err != nil {
-		return snapshotParseResult{file: file, lines: countLines(source)}
+		return snapshotParseResult{file: file, lines: goutil.CountLines(source)}
 	}
 
-	return snapshotParseResult{file: file, result: pr, lines: countLines(source)}
-}
-
-// countLines returns the number of lines in source (newline count + 1, or 0
-// when source is empty).
-func countLines(source []byte) int {
-	if len(source) == 0 {
-		return 0
-	}
-	return bytes.Count(source, []byte("\n")) + 1
+	return snapshotParseResult{file: file, result: pr, lines: goutil.CountLines(source)}
 }
 
 // buildSnapshotResult assembles a RepoSnapshot from parse results.
@@ -163,7 +153,7 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 		files = append(files, sf)
 	}
 
-	uniqueImports := sortedImports(importsSeen)
+	uniqueImports := goutil.SortedSetKeys(importsSeen)
 
 	computeBodyHashes(allSymbols)
 
@@ -215,18 +205,6 @@ func snapshotDominantLanguage(files []*ingest.File) string {
 	return best
 }
 
-// sortedImports returns the import map keys as a sorted slice.
-func sortedImports(seen map[string]struct{}) []string {
-	if len(seen) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(seen))
-	for imp := range seen {
-		out = append(out, imp)
-	}
-	sort.Strings(out)
-	return out
-}
 
 // computeBodyHashes sets BodyHash on each symbol that has a non-empty Body.
 func computeBodyHashes(symbols []*parser.Symbol) {

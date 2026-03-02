@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 )
@@ -21,6 +22,7 @@ type SearchInput struct {
 	Pattern       string
 	IsRegex       bool
 	FileGlob      string
+	ExcludeGlob   string
 	Language      string
 	ContextLines  int
 	MaxResults    int
@@ -75,6 +77,10 @@ func Search(ctx context.Context, input SearchInput) ([]SearchMatch, error) {
 			}
 		}
 
+		if input.ExcludeGlob != "" && matchesExclude(f.RelPath, input.ExcludeGlob) {
+			continue
+		}
+
 		fileMatches := searchFile(f.Path, f.RelPath, re, input.ContextLines)
 		for _, m := range fileMatches {
 			matches = append(matches, m)
@@ -96,6 +102,29 @@ func buildPattern(pattern string, isRegex, caseSensitive bool) (*regexp.Regexp, 
 	}
 
 	return regexp.Compile(pattern)
+}
+
+// matchesExclude checks whether relPath matches any comma-separated exclude patterns.
+// Each pattern is checked as filepath.Match against every path component, and as a
+// prefix match (e.g. "docs/*" excludes "docs/plans/foo.md").
+func matchesExclude(relPath, excludeGlob string) bool {
+	for _, raw := range strings.Split(excludeGlob, ",") {
+		pattern := strings.TrimSpace(raw)
+		if pattern == "" {
+			continue
+		}
+		// Direct glob match against full relative path.
+		if matched, _ := filepath.Match(pattern, relPath); matched {
+			return true
+		}
+		// Prefix match: "docs/*" → prefix "docs/".
+		prefix := strings.TrimRight(pattern, "*")
+		prefix = strings.TrimRight(prefix, "/")
+		if prefix != "" && strings.HasPrefix(relPath, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func searchFile(absPath, relPath string, re *regexp.Regexp, contextLines int) []SearchMatch {

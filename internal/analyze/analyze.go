@@ -21,6 +21,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/search"
@@ -265,7 +266,7 @@ func buildAnalysisResult(root string, ir *ingest.IngestResult, results []filePar
 	// Convert importGraph to serializable map[string][]string.
 	igExport := make(map[string][]string, len(cd.ImportGraph))
 	for pkg, deps := range cd.ImportGraph {
-		igExport[pkg] = sortedSetKeys(deps)
+		igExport[pkg] = goutil.SortedSetKeys(deps)
 	}
 
 	return &RepoAnalysisResult{
@@ -528,16 +529,6 @@ func collectTopSymbolsN(results []fileParseResult, limit int) []*parser.Symbol {
 // importGraph maps a package path to the set of packages it imports.
 type importGraph map[string]map[string]struct{}
 
-// isStdlibImport reports whether an import path looks like a Go stdlib package.
-// Stdlib paths have no dots in the first segment (e.g. "fmt", "net/http").
-func isStdlibImport(path string) bool {
-	first := path
-	if i := strings.IndexByte(path, '/'); i >= 0 {
-		first = path[:i]
-	}
-	return !strings.Contains(first, ".")
-}
-
 // buildImportGraph builds a package-level import graph from parse results.
 func buildImportGraph(root string, results []fileParseResult, includeStdlib bool) importGraph {
 	graph := make(importGraph)
@@ -546,24 +537,11 @@ func buildImportGraph(root string, results []fileParseResult, includeStdlib bool
 		if pr.result == nil || len(pr.result.Imports) == 0 {
 			continue
 		}
-		pkg := packageName(root, pr.file.Path)
+		pkg := goutil.PackageDir(root, pr.file.Path)
 		addImports(graph, pkg, pr.result.Imports, includeStdlib)
 	}
 
 	return graph
-}
-
-// packageName derives the package directory name from a file path relative to root.
-func packageName(root, filePath string) string {
-	relPath, err := filepath.Rel(root, filePath)
-	if err != nil {
-		relPath = filePath
-	}
-	pkg := filepath.Dir(relPath)
-	if pkg == "." {
-		pkg = filepath.Base(root)
-	}
-	return pkg
 }
 
 // addImports inserts all valid imports for a package into the graph.
@@ -575,7 +553,7 @@ func addImports(graph importGraph, pkg string, imports []string, includeStdlib b
 		if imp == "" {
 			continue
 		}
-		if !includeStdlib && isStdlibImport(imp) {
+		if !includeStdlib && goutil.IsStdlibImport(imp) {
 			continue
 		}
 		// Skip self-import (e.g. test files importing their own package).
@@ -631,8 +609,10 @@ func renderGraph(graph importGraph, format string) (string, error) {
 		return renderDot(graph), nil
 	case "json":
 		return renderJSON(graph)
+	case "summary":
+		return renderSummary(graph), nil
 	default:
-		return "", fmt.Errorf("unsupported format %q: use mermaid, dot, or json", format)
+		return "", fmt.Errorf("unsupported format %q: use mermaid, dot, json, or summary", format)
 	}
 }
 
@@ -649,7 +629,7 @@ func renderMermaid(graph importGraph) string {
 			fmt.Fprintf(&sb, "    %s\n", safeFrom)
 			continue
 		}
-		sortedDeps := sortedSetKeys(deps)
+		sortedDeps := goutil.SortedSetKeys(deps)
 		for _, dep := range sortedDeps {
 			safeDep := mermaidID(dep)
 			fmt.Fprintf(&sb, "    %s --> %s\n", safeFrom, safeDep)
@@ -667,7 +647,7 @@ func renderDot(graph importGraph) string {
 	pkgs := sortedKeys(graph)
 	for _, pkg := range pkgs {
 		deps := graph[pkg]
-		sortedDeps := sortedSetKeys(deps)
+		sortedDeps := goutil.SortedSetKeys(deps)
 		for _, dep := range sortedDeps {
 			fmt.Fprintf(&sb, "    %q -> %q;\n", pkg, dep)
 		}
@@ -680,7 +660,7 @@ func renderDot(graph importGraph) string {
 func renderJSON(graph importGraph) (string, error) {
 	out := make(map[string][]string, len(graph))
 	for pkg, deps := range graph {
-		out[pkg] = sortedSetKeys(deps)
+		out[pkg] = goutil.SortedSetKeys(deps)
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -707,12 +687,3 @@ func sortedKeys(m importGraph) []string {
 	return keys
 }
 
-// sortedSetKeys returns sorted keys of a set (map[string]struct{}).
-func sortedSetKeys(m map[string]struct{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}

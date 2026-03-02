@@ -2,6 +2,7 @@ package compare
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -92,12 +93,15 @@ func ComputeHotspots(churn map[string]ChurnStats, fileComplexity map[string]floa
 }
 
 // FileComplexityFromSnapshot computes average cyclomatic complexity per file
-// from the snapshot's symbols.
+// from the snapshot's symbols. Keys are relative paths (root prefix stripped)
+// to match git churn output from CollectChurn.
 func FileComplexityFromSnapshot(snap *RepoSnapshot) map[string]float64 {
 	type acc struct {
 		total int
 		count int
 	}
+
+	prefix := snap.Root + "/"
 
 	byFile := make(map[string]*acc)
 	for _, sym := range snap.Symbols {
@@ -107,10 +111,11 @@ func FileComplexityFromSnapshot(snap *RepoSnapshot) map[string]float64 {
 		if sym.File == "" {
 			continue
 		}
-		a, ok := byFile[sym.File]
+		rel := strings.TrimPrefix(sym.File, prefix)
+		a, ok := byFile[rel]
 		if !ok {
 			a = &acc{}
-			byFile[sym.File] = a
+			byFile[rel] = a
 		}
 		a.total += cyclomaticComplexity(sym.Body)
 		a.count++

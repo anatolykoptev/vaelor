@@ -74,6 +74,7 @@ type CallTraceInput struct {
 	Direction string `json:"direction,omitempty" jsonschema_description:"Trace direction: callees (what does X call?) or callers (who calls X?). Default: callees"`
 	Focus     string `json:"focus,omitempty" jsonschema_description:"Subdirectory to limit analysis to"`
 	Language  string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
+	Compact   bool   `json:"compact,omitempty" jsonschema_description:"When true, return only the call tree without LLM narrative (faster, fewer tokens)"`
 }
 
 type callTraceOutput struct {
@@ -151,7 +152,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		return errResult(fmt.Sprintf("symbol %q not found in repository", input.Symbol)), nil, nil
 	}
 
-	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps)
+	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps, input.Compact)
 
 	resp := xmlTraceResponse{
 		Trace: xmlTrace{
@@ -177,7 +178,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	return largeTextResult(xml.Header+string(data), "call_trace", outputDir), nil, nil
 }
 
-func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps) callTraceOutput {
+func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps, compact bool) callTraceOutput {
 	total := result.Resolved + result.Unresolved
 	var ratio float64
 	if total > 0 {
@@ -197,8 +198,8 @@ func buildCallTraceOutput(ctx context.Context, symbol, direction string, result 
 		},
 	}
 
-	// LLM narrative (optional, non-fatal).
-	if deps.LLM != nil && result.TotalNodes > 1 {
+	// LLM narrative (optional, non-fatal). Skipped in compact mode.
+	if !compact && deps.LLM != nil && result.TotalNodes > 1 {
 		treeJSON, _ := json.Marshal(result.Tree)
 		prompt := fmt.Sprintf("Entry function: %s\nDirection: %s\n\nCall tree:\n%s",
 			symbol, direction, string(treeJSON))

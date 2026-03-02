@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/ranking"
 )
@@ -88,7 +89,7 @@ func computeImportedByCounts(root string, results []fileParseResult) map[string]
 	// Collect local package names.
 	localPkgs := make(map[string]struct{})
 	for _, pr := range results {
-		localPkgs[packageName(root, pr.file.Path)] = struct{}{}
+		localPkgs[goutil.PackageDir(root, pr.file.Path)] = struct{}{}
 	}
 
 	// Build reverse index: for each local package, how many packages import it.
@@ -104,7 +105,7 @@ func computeImportedByCounts(root string, results []fileParseResult) map[string]
 	// Map to files: each file gets its package's imported-by count.
 	counts := make(map[string]int)
 	for _, pr := range results {
-		pkg := packageName(root, pr.file.Path)
+		pkg := goutil.PackageDir(root, pr.file.Path)
 		if n := pkgImportedBy[pkg]; n > 0 {
 			counts[pr.file.RelPath] = n
 		}
@@ -195,13 +196,13 @@ func buildPageRankGraph(root string, results []fileParseResult) map[string][]str
 
 	pkgFiles := make(map[string][]string)
 	for _, pr := range results {
-		pkg := packageName(root, pr.file.Path)
+		pkg := goutil.PackageDir(root, pr.file.Path)
 		pkgFiles[pkg] = append(pkgFiles[pkg], pr.file.RelPath)
 	}
 
 	graph := make(map[string][]string)
 	for _, pr := range results {
-		pkg := packageName(root, pr.file.Path)
+		pkg := goutil.PackageDir(root, pr.file.Path)
 		deps, ok := pkgGraph[pkg]
 		if !ok {
 			graph[pr.file.RelPath] = nil

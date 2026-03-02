@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -34,13 +34,16 @@ type Input struct {
 
 // Result is the structured output of an exploration.
 type Result struct {
-	FileCount   int              `json:"file_count"`
-	SymbolCount int              `json:"symbol_count"`
-	TotalLines  int              `json:"total_lines"`
-	Languages   []LanguageStat   `json:"languages"`
-	TopSymbols  []SymbolSummary  `json:"top_symbols"`
-	DeadCode    *DeadCodeSummary `json:"dead_code,omitempty"`
-	Packages    []string         `json:"packages"`
+	ReadmeExcerpt string           `json:"readme_excerpt,omitempty"`
+	FileCount     int              `json:"file_count"`
+	SymbolCount   int              `json:"symbol_count"`
+	TotalLines    int              `json:"total_lines"`
+	Languages     []LanguageStat   `json:"languages"`
+	TopSymbols    []SymbolSummary  `json:"top_symbols"`
+	DeadCode      *DeadCodeSummary `json:"dead_code,omitempty"`
+	Packages      []string         `json:"packages"`
+	DepHighlights *DepHighlights   `json:"dep_highlights,omitempty"`
+	Health        *HealthSummary   `json:"health,omitempty"`
 }
 
 // LanguageStat holds file count and ratio for a detected language.
@@ -69,6 +72,7 @@ type parseResults struct {
 	symbols    []*parser.Symbol
 	calls      []parser.CallSite
 	totalLines int
+	imports    map[string][]string // file path → import paths
 }
 
 // Run performs a fast, structured overview of the repository at input.Root.
@@ -99,21 +103,28 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	dcSummary := buildDeadCodeSummary(cg)
 	langStats := buildLanguageStats(ir.Files)
 	packages := buildPackageList(ir.Files, input.Root)
+	depHL := buildDepHighlights(ir.Files, pr.imports, input.Root)
+
+	readme := readmeExcerpt(input.Root)
+	health := computeHealth(pr.symbols, ir.Files)
 
 	return &Result{
-		FileCount:   len(ir.Files),
-		SymbolCount: len(pr.symbols),
-		TotalLines:  pr.totalLines,
-		Languages:   langStats,
-		TopSymbols:  topSymbols,
-		DeadCode:    dcSummary,
-		Packages:    packages,
+		ReadmeExcerpt: readme,
+		FileCount:     len(ir.Files),
+		SymbolCount:   len(pr.symbols),
+		TotalLines:    pr.totalLines,
+		Languages:     langStats,
+		TopSymbols:    topSymbols,
+		DeadCode:      dcSummary,
+		Packages:      packages,
+		DepHighlights: depHL,
+		Health:        health,
 	}, nil
 }
 
-// parseAllFiles parses all ingested files, collecting symbols, calls, and line counts.
+// parseAllFiles parses all ingested files, collecting symbols, calls, imports, and line counts.
 func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, error) {
-	var result parseResults
+	result := parseResults{imports: make(map[string][]string, len(files))}
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -124,11 +135,12 @@ func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, er
 			continue
 		}
 
-		result.totalLines += countLines(source)
+		result.totalLines += goutil.CountLines(source)
 
 		opts := parser.ParseOpts{
-			Language:    f.Language,
-			IncludeBody: false,
+			Language:       f.Language,
+			IncludeBody:    false,
+			IncludeImports: true,
 		}
 
 		pr, parseErr := parser.ParseFile(f.Path, source, opts)
@@ -136,6 +148,9 @@ func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, er
 			continue
 		}
 		result.symbols = append(result.symbols, pr.Symbols...)
+		if len(pr.Imports) > 0 {
+			result.imports[f.Path] = pr.Imports
+		}
 
 		calls, _ := parser.ExtractCalls(f.Path, source, opts)
 		result.calls = append(result.calls, calls...)
@@ -266,15 +281,3 @@ func buildPackageList(files []*ingest.File, root string) []string {
 	return pkgs
 }
 
-// countLines counts newline characters in source, adding 1 for the last line.
-func countLines(source []byte) int {
-	if len(source) == 0 {
-		return 0
-	}
-	n := strings.Count(string(source), "\n")
-	// If the file doesn't end with a newline, count the last line too.
-	if len(source) > 0 && source[len(source)-1] != '\n' {
-		n++
-	}
-	return n
-}

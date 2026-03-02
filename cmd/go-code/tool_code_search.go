@@ -13,14 +13,15 @@ import (
 // CodeSearchInput is the input schema for the code_search tool.
 type CodeSearchInput struct {
 	Repo         string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
-	Pattern      string `json:"pattern" jsonschema_description:"Search pattern (literal string or regex)"`
+	Pattern      string `json:"pattern,omitempty" jsonschema_description:"Search pattern (literal string or regex). Use pattern or query."`
 	Query        string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
 	IsRegex      bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
 	FileGlob     string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go', '*.py')"`
 	Language     string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python, typescript)"`
 	ContextLines  int   `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
 	MaxResults    int   `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
-	CaseSensitive *bool `json:"case_sensitive,omitempty" jsonschema_description:"Case-sensitive matching (default: true). Set false for case-insensitive."`
+	CaseSensitive *bool  `json:"case_sensitive,omitempty" jsonschema_description:"Case-sensitive matching (default: true). Set false for case-insensitive."`
+	ExcludeGlob   string `json:"exclude_glob,omitempty" jsonschema_description:"Comma-separated glob patterns to exclude files (e.g. 'docs/*,vendor/*'). Matches against relative paths."`
 }
 
 type xmlSearchResponse struct {
@@ -105,6 +106,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		Pattern:       input.Pattern,
 		IsRegex:       input.IsRegex,
 		FileGlob:      input.FileGlob,
+		ExcludeGlob:   input.ExcludeGlob,
 		Language:      input.Language,
 		ContextLines:  contextLines,
 		MaxResults:    maxResults,
