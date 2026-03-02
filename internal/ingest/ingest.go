@@ -171,9 +171,15 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 	}
 
 	if opts.Focus != "" {
-		matched, _ := filepath.Match(opts.Focus, relPath)
-		if !matched && !strings.HasPrefix(relPath, opts.Focus) {
-			return false, nil
+		if isKeywordFocus(opts.Focus) {
+			if !matchKeywords(opts.Focus, relPath) {
+				return false, nil
+			}
+		} else {
+			matched, _ := filepath.Match(opts.Focus, relPath)
+			if !matched && !strings.HasPrefix(relPath, opts.Focus) {
+				return false, nil
+			}
 		}
 	}
 
@@ -184,6 +190,25 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 		Size:     size,
 		ModTime:  modTime,
 	}
+}
+
+// isKeywordFocus returns true when focus looks like a keyword query
+// rather than a path or glob pattern. Heuristic: contains spaces.
+func isKeywordFocus(focus string) bool {
+	return strings.Contains(focus, " ")
+}
+
+// matchKeywords checks whether ALL space-separated keywords appear
+// somewhere in the relPath (case-insensitive). Keywords match against
+// directory names and file name components.
+func matchKeywords(focus, relPath string) bool {
+	lower := strings.ToLower(relPath)
+	for _, kw := range strings.Fields(focus) {
+		if !strings.Contains(lower, strings.ToLower(kw)) {
+			return false
+		}
+	}
+	return true
 }
 
 // containsString reports whether slice contains s (case-sensitive).
