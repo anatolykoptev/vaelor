@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -104,7 +105,7 @@ func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 		}
 
 		result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, summary)
-		deps.ToolCache.Set(ctx, cacheKey, result)
+		deps.ToolCache.SetWithTTL(ctx, cacheKey, result, 24*time.Hour)
 		return textResult(result), nil, nil
 	})
 }
