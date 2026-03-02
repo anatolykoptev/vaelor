@@ -1,7 +1,7 @@
 github.com/anatolykoptev/go-kit v0.5.0 h1:vBBFURfNMpID/R4ZJiqkd8VKCPaDrv0D23TvExPQPVs=
 github.com/anatolykoptev/go-kit v0.5.0/go.mod h1:sxZXhRKXffOpIH5oSOCcnRZjiQT0s6te4os6eMUMwqg=
-github.com/anatolykoptev/go-mcpserver v0.1.0 h1:km9CXoIL0V4IeEfW7sBa0cVRpG8DKEs5d7IEB1qBfh0=
-github.com/anatolykoptev/go-mcpserver v0.1.0/go.mod h1:QqV2Oz8Bu1HRxTMm6rRVOaHul4YtP7SlIKS8UnqxXB0=
+github.com/anatolykoptev/go-mcpserver v0.2.0 h1:56b9JMbz4KQdy25kxE6LnGY4m0arhT/2TC7Pjp461ww=
+github.com/anatolykoptev/go-mcpserver v0.2.0/go.mod h1:QqV2Oz8Bu1HRxTMm6rRVOaHul4YtP7SlIKS8UnqxXB0=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
