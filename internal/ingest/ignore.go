@@ -219,6 +219,19 @@ func matchGitignore(relPath string, isDir bool, patterns []string) bool {
 		}
 		p := strings.TrimSuffix(pattern, "/")
 
+		// Leading "/" means anchored to repo root — match only at top level.
+		anchored := strings.HasPrefix(p, "/")
+		if anchored {
+			p = strings.TrimPrefix(p, "/")
+			if ok, _ := filepath.Match(p, relPath); ok {
+				return true
+			}
+			if isDir && strings.HasPrefix(relPath+"/", p+"/") {
+				return true
+			}
+			continue
+		}
+
 		// Pattern with slash inside → match against full relative path.
 		if strings.ContainsRune(p, '/') {
 			if ok, _ := filepath.Match(p, relPath); ok {
