@@ -34,8 +34,9 @@ type IngestOpts struct {
 	// Root is the repository root directory (must already be on disk).
 	Root string
 
-	// Focus limits ingestion to files matching this glob pattern or subdirectory.
-	// Empty means ingest everything.
+	// Focus limits ingestion to files matching this glob pattern, subdirectory
+	// prefix, or space-separated keywords (matched case-insensitively against
+	// the relative path). Empty means ingest everything.
 	Focus string
 
 	// Languages limits ingestion to files of these languages.
@@ -202,8 +203,12 @@ func isKeywordFocus(focus string) bool {
 // somewhere in the relPath (case-insensitive). Keywords match against
 // directory names and file name components.
 func matchKeywords(focus, relPath string) bool {
+	keywords := strings.Fields(focus)
+	if len(keywords) == 0 {
+		return false
+	}
 	lower := strings.ToLower(relPath)
-	for _, kw := range strings.Fields(focus) {
+	for _, kw := range keywords {
 		if !strings.Contains(lower, strings.ToLower(kw)) {
 			return false
 		}
