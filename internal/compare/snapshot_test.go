@@ -87,6 +87,46 @@ func TestBuildSnapshotWithFocus(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshot_ContentFallback(t *testing.T) {
+	root := findRepoRoot(t)
+
+	// "CompareRepos parser" won't match any file path, but should match
+	// symbol names like CompareRepos, ParseFile, etc. via content fallback.
+	snap, err := compare.BuildSnapshot(context.Background(), root, compare.SnapshotOpts{
+		Focus: "CompareRepos parser",
+	})
+	if err != nil {
+		t.Fatalf("BuildSnapshot content fallback: %v", err)
+	}
+
+	if snap.FileCount == 0 {
+		t.Error("content fallback: FileCount = 0, expected files matching symbol names")
+	}
+
+	if snap.FocusMode != "content" {
+		t.Errorf("FocusMode = %q, want %q", snap.FocusMode, "content")
+	}
+}
+
+func TestBuildSnapshot_PathFocusNoFallback(t *testing.T) {
+	root := findRepoRoot(t)
+
+	snap, err := compare.BuildSnapshot(context.Background(), root, compare.SnapshotOpts{
+		Focus: "internal/parser",
+	})
+	if err != nil {
+		t.Fatalf("BuildSnapshot path focus: %v", err)
+	}
+
+	if snap.FileCount == 0 {
+		t.Error("path focus should match files under internal/parser")
+	}
+
+	if snap.FocusMode != "" {
+		t.Errorf("FocusMode = %q, want empty (path focus should not trigger fallback)", snap.FocusMode)
+	}
+}
+
 func TestBuildSnapshot_BodyHash(t *testing.T) {
 	root := findRepoRoot(t)
 

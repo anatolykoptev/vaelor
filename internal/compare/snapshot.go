@@ -59,9 +59,76 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 		return nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
-	parsed := parseSnapshotFiles(ctx, ir.Files)
+	var focusMode string
 
-	return buildSnapshotResult(root, ir, parsed), nil
+	// Content-based fallback: when focus matches no file paths,
+	// re-ingest all files and filter by symbol names, imports, and calls.
+	if len(ir.Files) == 0 && opts.Focus != "" {
+		ir, focusMode, err = contentFallback(ctx, root, langs, opts.Focus)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	parsed := parseSnapshotFiles(ctx, ir.Files)
+	snap := buildSnapshotResult(root, ir, parsed)
+	snap.FocusMode = focusMode
+
+	return snap, nil
+}
+
+// contentFallback re-ingests the entire repo and filters files by symbol,
+// import, and call-site content matching the focus keywords.
+func contentFallback(ctx context.Context, root string, langs []string, focus string) (*ingest.IngestResult, string, error) {
+	irAll, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+		Root:         root,
+		Languages:    langs,
+		MaxFileBytes: maxFileBytes,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("ingest repo (fallback): %w", err)
+	}
+
+	symbols, imports, calls := parseForContentFilter(ctx, irAll.Files)
+	matched := ingest.ContentFilter(focus, symbols, imports, calls)
+	irAll.Files = ingest.FilterFiles(irAll.Files, matched)
+
+	return irAll, "content", nil
+}
+
+// parseForContentFilter does a lightweight parse to extract symbols, imports,
+// and calls for content-based filtering. Bodies are not needed.
+func parseForContentFilter(ctx context.Context, files []*ingest.File) ([]*parser.Symbol, map[string][]string, []parser.CallSite) {
+	var allSymbols []*parser.Symbol
+	imports := make(map[string][]string, len(files))
+	var allCalls []parser.CallSite
+
+	for _, f := range files {
+		if ctx.Err() != nil {
+			break
+		}
+		source, err := os.ReadFile(f.Path)
+		if err != nil {
+			continue
+		}
+		opts := parser.ParseOpts{
+			Language:       f.Language,
+			IncludeBody:    false,
+			IncludeImports: true,
+		}
+		pr, err := parser.ParseFile(f.Path, source, opts)
+		if err != nil {
+			continue
+		}
+		allSymbols = append(allSymbols, pr.Symbols...)
+		if len(pr.Imports) > 0 {
+			imports[f.Path] = pr.Imports
+		}
+		calls, _ := parser.ExtractCalls(f.Path, source, opts)
+		allCalls = append(allCalls, calls...)
+	}
+
+	return allSymbols, imports, allCalls
 }
 
 // parseSnapshotFiles parses all files concurrently using a CPU-bounded worker pool.
