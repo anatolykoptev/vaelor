@@ -129,6 +129,10 @@ type RepoSnapshot struct {
 	// Root is the absolute local path to the repository.
 	Root string `json:"root"`
 
+	// FocusMode is "content" when the fallback content filter was used
+	// instead of path-based focus. Empty means path-based or no focus.
+	FocusMode string `json:"focusMode,omitempty"`
+
 	// Language is the dominant programming language.
 	Language string `json:"language"`
 
