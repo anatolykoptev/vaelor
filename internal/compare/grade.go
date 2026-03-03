@@ -47,7 +47,7 @@ func GradeScore(m RepoMetrics) float64 {
 	docScore := clamp01(m.DocRatio / targetDocRatio)
 	funcSizeScore := clamp01(1.0 - (m.AvgFuncLines-15.0)/45.0)
 	errorScore := clamp01(m.ErrorHandlingRatio / targetErrorHandlingRatio)
-	nestingScore := clamp01(1.0 - (float64(m.MaxNestingDepth)-3.0)/5.0)
+	nestingScore := clamp01(1.0 - (float64(m.MaxNestingDepth)-2.0)/5.0)
 	fileSizeScore := clamp01(1.0 - m.LargeFileRatio*2.0)
 	duplicationScore := clamp01(1.0 - m.DuplicationRatio*5.0)
 

@@ -32,19 +32,19 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 			maxFuncLines = lines
 		}
 
-		cc := cyclomaticComplexity(sym.Body)
+		cc := cyclomaticComplexity(sym.Body, sym.Language)
 		totalCyclomatic += cc
 		if cc > maxCyclomatic {
 			maxCyclomatic = cc
 		}
 
-		cog := cognitiveComplexity(sym.Body)
+		cog := cognitiveComplexity(sym.Body, sym.Language)
 		totalCognitive += cog
 		if cog > maxCognitive {
 			maxCognitive = cog
 		}
 
-		nd := nestingDepth(sym.Body)
+		nd := nestingDepth(sym.Body, sym.Language)
 		totalNesting += nd
 		if nd > maxNesting {
 			maxNesting = nd

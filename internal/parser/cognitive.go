@@ -37,8 +37,9 @@ func cognitiveComplexityPython(body string) int {
 			score += 1 + nesting
 		}
 
-		score += strings.Count(trimmed, " and ")
-		score += strings.Count(trimmed, " or ")
+		cleaned := stripStringLiterals(trimmed)
+		score += strings.Count(cleaned, " and ")
+		score += strings.Count(cleaned, " or ")
 	}
 
 	return score
