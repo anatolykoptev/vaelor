@@ -34,8 +34,11 @@ type DepGraphInput struct {
 	// Focus limits the graph to a specific package or module.
 	Focus string `json:"focus,omitempty" jsonschema_description:"Package or subdirectory to focus on (e.g. internal/auth), or space-separated keywords (e.g. 'auth handler')"`
 
-	// MaxDepth limits graph traversal depth from focused node.
-	MaxDepth int `json:"max_depth,omitempty" jsonschema_description:"Max traversal depth from focus node (default: 3, 0=unlimited)"`
+	// Depth limits graph traversal depth from focused node.
+	Depth int `json:"depth,omitempty" jsonschema_description:"Max traversal depth from focus node (default: 3, 0=unlimited)"`
+
+	// MaxDepth is a deprecated alias for Depth.
+	MaxDepth int `json:"max_depth,omitempty" jsonschema_description:"Deprecated: use depth instead"`
 
 	// IncludeStdlib includes Go standard library imports in the graph.
 	IncludeStdlib bool `json:"include_stdlib,omitempty" jsonschema_description:"Include standard library imports in graph. Default false (stdlib excluded)."`
@@ -68,12 +71,17 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 		defer cleanup()
 
+		// Support deprecated max_depth alias.
+		if input.MaxDepth > 0 && input.Depth == 0 {
+			input.Depth = input.MaxDepth
+		}
+
 		graph, err := analyze.BuildDepGraph(ctx, analyze.DepGraphInput{
 			Root:          root,
 			Type:          input.Type,
 			Format:        input.Format,
 			Focus:         input.Focus,
-			MaxDepth:      input.MaxDepth,
+			MaxDepth:      input.Depth,
 			IncludeStdlib: input.IncludeStdlib,
 			CrossLanguage: input.CrossLanguage,
 		})
