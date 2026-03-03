@@ -105,6 +105,38 @@ def main():
 	}
 }
 
+func TestExtractCalls_GoFuncRef(t *testing.T) {
+	source := []byte(`package main
+
+import "sync"
+
+func initStealth() {}
+func renderHeading() {}
+
+var once sync.Once
+
+func setup() {
+	Register("heading", renderHeading)
+	once.Do(initStealth)
+}
+`)
+	calls, err := ExtractCalls("main.go", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+
+	for _, want := range []string{"renderHeading", "initStealth"} {
+		if !found[want] {
+			t.Errorf("missing function reference %q in extracted calls", want)
+		}
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {

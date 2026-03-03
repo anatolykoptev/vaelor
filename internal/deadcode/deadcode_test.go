@@ -236,6 +236,48 @@ func TestAnalyze_InterfaceMethodNotDead(t *testing.T) {
 	}
 }
 
+// TestAnalyze_FuncRefNotDead verifies that a function passed as an argument
+// to another function (e.g. Register("name", handler)) is NOT flagged as dead.
+func TestAnalyze_FuncRefNotDead(t *testing.T) {
+	handler := &parser.Symbol{
+		Name: "renderHeading", Kind: parser.KindFunction,
+		File: "/app/render.go", StartLine: 10, EndLine: 20,
+	}
+	initFn := &parser.Symbol{
+		Name: "initStealth", Kind: parser.KindFunction,
+		File: "/app/stealth.go", StartLine: 1, EndLine: 15,
+	}
+	register := &parser.Symbol{
+		Name: "Register", Kind: parser.KindFunction,
+		File: "/app/registry.go", StartLine: 1, EndLine: 5,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/app/main.go", StartLine: 1, EndLine: 10,
+	}
+
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{handler, initFn, register, mainSym},
+		Edges: []callgraph.CallEdge{
+			// main calls Register, passing renderHeading as argument
+			{Caller: mainSym, Callee: register, CalleeName: "Register"},
+			// renderHeading referenced as argument → resolved as call edge
+			{Caller: mainSym, Callee: handler, CalleeName: "renderHeading"},
+			// initStealth referenced as argument → resolved as call edge
+			{Caller: mainSym, Callee: initFn, CalleeName: "initStealth"},
+		},
+	}
+
+	result := Analyze(cg, Options{})
+
+	if result.DeadCount != 0 {
+		t.Errorf("expected 0 dead functions, got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s", d.Name)
+		}
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
