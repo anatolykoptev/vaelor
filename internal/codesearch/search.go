@@ -102,14 +102,29 @@ func Search(ctx context.Context, input SearchInput) ([]SearchMatch, error) {
 }
 
 // rankByMatchDensity re-orders matches so files with more hits appear first.
+// Files with equal counts preserve their original encounter order.
 // Within each file, matches keep their original line order.
 func rankByMatchDensity(matches []SearchMatch) {
 	counts := make(map[string]int, len(matches))
 	for i := range matches {
 		counts[matches[i].File]++
 	}
+
+	// Track first-seen position per file for stable grouping.
+	firstSeen := make(map[string]int, len(counts))
+	for i, m := range matches {
+		if _, ok := firstSeen[m.File]; !ok {
+			firstSeen[m.File] = i
+		}
+	}
+
 	sort.SliceStable(matches, func(i, j int) bool {
-		return counts[matches[i].File] > counts[matches[j].File]
+		ci, cj := counts[matches[i].File], counts[matches[j].File]
+		if ci != cj {
+			return ci > cj
+		}
+		// Equal density: group by file, earlier-seen file first.
+		return firstSeen[matches[i].File] < firstSeen[matches[j].File]
 	})
 }
 
