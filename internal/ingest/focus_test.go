@@ -1,6 +1,8 @@
 package ingest
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -113,5 +115,61 @@ func TestFilterFiles_ByMatchSet(t *testing.T) {
 	}
 	if !paths["/repo/a.go"] || !paths["/repo/c.go"] {
 		t.Errorf("unexpected files: %v", result)
+	}
+}
+
+func TestParseLightweight_ExtractsSymbolsAndCalls(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "main.go"), `package main
+
+import "fmt"
+
+func hello() {
+	fmt.Println("hi")
+}
+
+func add(a, b int) int {
+	return a + b
+}
+`)
+
+	files := []*File{
+		{Path: filepath.Join(dir, "main.go"), RelPath: "main.go", Language: "go"},
+	}
+
+	symbols, imports, calls := ParseLightweight(context.Background(), files)
+
+	if len(symbols) < 2 {
+		t.Errorf("expected >= 2 symbols (hello, add), got %d", len(symbols))
+	}
+	if len(imports) == 0 {
+		t.Error("expected imports map to contain main.go")
+	}
+	if len(calls) == 0 {
+		t.Error("expected at least one call site (fmt.Println)")
+	}
+}
+
+func TestContentFallback_FiltersCorrectly(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "llm.go"), `package main
+
+func NewLLMClient() {}
+`)
+	writeFile(t, filepath.Join(dir, "http.go"), `package main
+
+func HandleHTTP() {}
+`)
+
+	ir, err := ContentFallback(context.Background(), dir, nil, 512*1024, "llm")
+	if err != nil {
+		t.Fatalf("ContentFallback: %v", err)
+	}
+
+	if len(ir.Files) != 1 {
+		t.Fatalf("expected 1 file matching 'llm', got %d", len(ir.Files))
+	}
+	if ir.Files[0].RelPath != "llm.go" {
+		t.Errorf("expected llm.go, got %s", ir.Files[0].RelPath)
 	}
 }

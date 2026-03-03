@@ -98,22 +98,10 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	// Content-based fallback: when focus matches no file paths,
 	// re-ingest all files and filter by symbol names, imports, and calls.
 	if len(ir.Files) == 0 && input.Focus != "" {
-		irAll, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
-			Root:         input.Root,
-			Languages:    langs,
-			MaxFileBytes: maxFileBytes,
-		})
+		ir, err = ingest.ContentFallback(ctx, input.Root, langs, maxFileBytes, input.Focus)
 		if err != nil {
 			return nil, err
 		}
-
-		prAll, err := parseAllFiles(ctx, irAll.Files)
-		if err != nil {
-			return nil, err
-		}
-
-		matched := ingest.ContentFilter(input.Focus, prAll.symbols, prAll.imports, prAll.calls)
-		ir.Files = ingest.FilterFiles(irAll.Files, matched)
 		focusMode = "content"
 	}
 
