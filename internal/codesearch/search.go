@@ -3,9 +3,11 @@ package codesearch
 import (
 	"bufio"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -63,7 +65,8 @@ func Search(ctx context.Context, input SearchInput) ([]SearchMatch, error) {
 		return nil, err
 	}
 
-	var matches []SearchMatch
+	hardcap := input.MaxResults * 5 //nolint:mnd // collect extra for re-ranking
+	var allMatches []SearchMatch
 
 	for _, f := range ir.Files {
 		if ctx.Err() != nil {
@@ -82,15 +85,32 @@ func Search(ctx context.Context, input SearchInput) ([]SearchMatch, error) {
 		}
 
 		fileMatches := searchFile(f.Path, f.RelPath, re, input.ContextLines)
-		for _, m := range fileMatches {
-			matches = append(matches, m)
-			if len(matches) >= input.MaxResults {
-				return matches, nil
-			}
+		allMatches = append(allMatches, fileMatches...)
+		if len(allMatches) >= hardcap {
+			break
 		}
 	}
 
-	return matches, nil
+	// Re-rank: files with more matches first, then truncate.
+	if len(allMatches) > input.MaxResults {
+		rankByMatchDensity(allMatches)
+	}
+	if len(allMatches) > input.MaxResults {
+		allMatches = allMatches[:input.MaxResults]
+	}
+	return allMatches, nil
+}
+
+// rankByMatchDensity re-orders matches so files with more hits appear first.
+// Within each file, matches keep their original line order.
+func rankByMatchDensity(matches []SearchMatch) {
+	counts := make(map[string]int, len(matches))
+	for i := range matches {
+		counts[matches[i].File]++
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		return counts[matches[i].File] > counts[matches[j].File]
+	})
 }
 
 func buildPattern(pattern string, isRegex, caseSensitive bool) (*regexp.Regexp, error) {
@@ -132,7 +152,11 @@ func searchFile(absPath, relPath string, re *regexp.Regexp, contextLines int) []
 	if err != nil {
 		return nil
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			slog.Warn("failed to close file", slog.String("path", absPath), slog.Any("error", err))
+		}
+	}()
 
 	var allLines []string
 	var matchLineNums []int
