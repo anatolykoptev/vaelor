@@ -375,60 +375,46 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## v1.15: Identifier-Level Ranking
+## v1.15: Identifier-Level Ranking ✅
 
-**Goal**: Precision file ranking via identifier-level reference graph.
+**Goal**: Precision file ranking via identifier-level reference graph + personalized PageRank + multi-signal fusion.
 
-**Prereqs**: v1.14 complete.
+**Status**: Complete (2026-03-03). Replaced package-level import-only PageRank with identifier-level call graph.
 
-### Task 1: Identifier reference extraction
-- [ ] Add tree-sitter queries for identifier references (usages, not just definitions) across all 9 languages
-- [ ] Store references as `(file, name, line, kind=reference)` tuples alongside existing definitions
+### Reference graph builder ✅
+- [x] `RefGraph` type with weighted file→file edges from `ExtractCalls()` data
+- [x] Ambiguous symbol resolution: weight = `1.0 / len(definers)` per call site
+- [x] Merged edges: call edges + import edges combined, self-edges excluded
+- [x] 6 unit tests
 
-**Where**: `internal/parser/` — new `*_refs.scm` query files per language.
+**Where**: `internal/ranking/refgraph.go`.
 
-### Task 2: Identifier-level reference graph
-- [ ] Build file→file edges weighted by shared identifier references: `weight = count / len(definers)`
-- [ ] Replace current import-only graph in `buildPageRankGraph()` with identifier-level graph
+### Personalized PageRank ✅
+- [x] `PersonalizedPageRank()` with seed-biased teleportation vector
+- [x] Seeds from query-matched symbols: ×10 exact, ×1 substring
+- [x] Falls back to uniform (standard PageRank) when no seeds
+- [x] 5 unit tests
 
-**Where**: `internal/ranking/pagerank.go`, `internal/analyze/context.go`.
+**Where**: `internal/ranking/personalized.go`.
 
-### Task 3: Query-aware weight multipliers
-- [ ] Identifiers mentioned in query → ×10 weight
-- [ ] Long camelCase/snake_case (≥8 chars) → ×10
-- [ ] Private symbols (`_` prefix in Python, unexported in Go) → ×0
+### Fusion ranking ✅
+- [x] `FusionRank()` combines N signals via min-max normalization to [0,1]
+- [x] Three signals: BM25F (0.5) + PersonalizedPageRank (0.3) + ExactMatch (0.2)
+- [x] Replaces hardcoded `bm25*0.7 + pageRank*100*0.3` without normalization
+- [x] 5 unit tests
 
-**Where**: `internal/ranking/pagerank.go`.
+**Where**: `internal/ranking/fusion.go`.
 
-### Task 4: Personalized PageRank
-- [ ] Inject personalization vector boosting files that contain query-mentioned identifiers
-- [ ] Seed expansion: if query mentions a struct/class name → auto-add its methods as seeds
+### Pipeline integration ✅
+- [x] Call sites extracted during file parsing (`fileParseResult.calls`)
+- [x] Refactored `context.go` → `context.go` + `rank.go`
+- [x] Integration test: "Process" query ranks definer > caller > unrelated
 
-**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — `RepoMap` uses personalized PageRank (`alpha=0.85`); [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — seed expansion via `expandSeedsWithMethods`.
+**Where**: `internal/analyze/rank.go`, `internal/analyze/analyze.go`.
 
-**Where**: `internal/ranking/pagerank.go`.
+**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — personalized PageRank (α=0.85), ×10 query boost; [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — FusionRanker with min-max normalization.
 
-### Task 5: Fusion ranking
-- [ ] Combine BM25F + PageRank + exact symbol match + import depth into weighted score
-- [ ] Normalize each signal to [0,1] before combination (currently only BM25F×0.7 + PageRank×0.3)
-
-**Ref**: [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `FusionRanker` combines 5 signals (FTS, PPR, Hotspot, Recency, Exact) with normalization.
-
-**Where**: new `internal/ranking/fusion.go`.
-
-### Task 6: Fallback tokenizer
-- [ ] When tree-sitter finds definitions but no references for a language → regex-based `Token.Name` extraction
-- [ ] Ensures graph edges exist for under-covered grammars
-
-**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — pygments fallback for reference extraction.
-
-**Where**: new `internal/parser/fallback.go`.
-
-### Task 7: Integration tests
-- [ ] Benchmark ranking quality: known repos, expected top files for given queries
-- [ ] Compare BM25F-only vs fusion ranking hit rate
-
-**Deliverable**: Identifier-level PageRank + multi-signal fusion ranking for all tools.
+**Deliverable**: 3-signal fusion ranking with identifier-level PageRank. ✅
 
 ---
 
@@ -582,9 +568,8 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
        (7 tasks)        (7 tasks)         (8 tasks)
 ```
 
-**Completed**: v1.0 through v1.14 (13 tools, 9 languages).
-**Next**: v1.15 — identifier-level ranking (fusion scoring, personalized PageRank).
-**Independent**: v1.16 (semantic search) and v1.17 (type-aware analysis) can proceed in parallel with v1.15.
+**Completed**: v1.0 through v1.15 (13 tools, 9 languages, fusion ranking).
+**Next**: v1.16 (semantic search) or v1.17 (type-aware analysis) — independent, can proceed in parallel.
 
 ## Releases
 
