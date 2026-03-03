@@ -170,19 +170,6 @@ func buildImportsGraph(pkgDirs map[string]struct{}, fileImports map[string][]str
 
 	for relFile, imports := range fileImports {
 		for _, imp := range imports {
-			if !importedPkgs[imp] {
-				importedPkgs[imp] = true
-				if _, isLocal := pkgDirs[imp]; !isLocal {
-					vertices = append(vertices, vertexData{
-						Label: "Package",
-						Props: map[string]string{
-							"name": filepath.Base(imp),
-							"path": imp,
-							"repo": "external",
-						},
-					})
-				}
-			}
 			edges = append(edges, edgeData{
 				FromLabel: "File",
 				FromKey:   relFile,
@@ -190,6 +177,23 @@ func buildImportsGraph(pkgDirs map[string]struct{}, fileImports map[string][]str
 				ToKey:     imp,
 				EdgeLabel: "IMPORTS",
 				Props:     map[string]string{},
+			})
+
+			if importedPkgs[imp] {
+				continue
+			}
+			importedPkgs[imp] = true
+
+			if _, isLocal := pkgDirs[imp]; isLocal {
+				continue
+			}
+			vertices = append(vertices, vertexData{
+				Label: "Package",
+				Props: map[string]string{
+					"name": filepath.Base(imp),
+					"path": imp,
+					"repo": "external",
+				},
 			})
 		}
 	}

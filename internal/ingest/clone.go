@@ -45,6 +45,9 @@ type CloneResult struct {
 // IsRemote returns true if the input looks like a GitHub slug or URL rather
 // than a local filesystem path.
 func IsRemote(input string) bool {
+	if IsWordPressPlugin(input) {
+		return false
+	}
 	if strings.HasPrefix(input, "/") || strings.HasPrefix(input, "./") || strings.HasPrefix(input, "../") {
 		return false
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -29,6 +30,27 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 	repo = strings.TrimPrefix(repo, "path=")
 	repo = strings.TrimPrefix(repo, "local:")
 
+	// WordPress plugin — download from wordpress.org.
+	if ingest.IsWordPressPlugin(repo) {
+		slug, err := ingest.NormalizeWPSlug(repo)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid wp plugin: %w", err)
+		}
+		result, err := ingest.FetchWPPlugin(ctx, ingest.WPPluginOpts{
+			Slug:    slug,
+			DestDir: deps.WorkspaceDir,
+		})
+		if err != nil {
+			return "", nil, fmt.Errorf("fetch wp plugin: %w", err)
+		}
+		dir := result.LocalPath
+		return dir, func() {
+			if err := ingest.CleanupCloneDir(dir); err != nil {
+				slog.Warn("failed to cleanup wp plugin dir", slog.String("dir", dir), slog.Any("error", err))
+			}
+		}, nil
+	}
+
 	if ingest.IsRemote(repo) {
 		slug, err := ingest.NormalizeSlug(repo)
 		if err != nil {
@@ -44,7 +66,11 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 			return "", nil, fmt.Errorf("clone: %w", err)
 		}
 		dir := result.LocalPath
-		return dir, func() { _ = ingest.CleanupCloneDir(dir) }, nil
+		return dir, func() {
+			if err := ingest.CleanupCloneDir(dir); err != nil {
+				slog.Warn("failed to cleanup clone dir", slog.String("dir", dir), slog.Any("error", err))
+			}
+		}, nil
 	}
 	// Local path — apply path mappings (e.g. /path/to/repos/src → /host-src).
 	repo = rewritePath(repo, deps.PathMappings)

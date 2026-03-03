@@ -15,6 +15,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/search"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -60,14 +61,14 @@ type enrichedRepo struct {
 
 // registerRepoSearch registers the repo_search MCP tool.
 func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "repo_search",
 		Description: "Discover GitHub repositories for a task or technology. " +
 			"Searches web + GitHub API, enriches with metadata (stars, language, topics), " +
 			"fetches READMEs, and returns LLM-summarized recommendations.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoSearchInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoSearchInput) (*mcp.CallToolResult, error) {
 		if input.Query == "" {
-			return errResult("query is required"), nil, nil
+			return errResult("query is required"), nil
 		}
 
 		// Apply language filter to query if provided.
@@ -79,13 +80,13 @@ func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 		// Check cache.
 		cacheKey := cache.Key("repo_search", query, input.Sort)
 		if cached, ok, _ := kitcache.GetJSON[string](deps.ToolCache, ctx, cacheKey); ok {
-			return textResult(cached), nil, nil
+			return textResult(cached), nil
 		}
 
 		// Step 1: Parallel search.
 		repos := parallelRepoSearch(ctx, query, input.Sort, deps)
 		if len(repos) == 0 {
-			return textResult("No repositories found for: " + input.Query), nil, nil
+			return textResult("No repositories found for: " + input.Query), nil
 		}
 
 		// Step 2: Dedup by owner/repo.
@@ -103,12 +104,14 @@ func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 		if err != nil {
 			slog.Warn("repo_search: LLM summarization failed, returning raw data", "err", err)
 			result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, repoText)
-			return textResult(result), nil, nil
+			return textResult(result), nil
 		}
 
 		result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, summary)
-		_ = kitcache.SetJSONWithTTL(deps.ToolCache, ctx, cacheKey, result, 24*time.Hour)
-		return textResult(result), nil, nil
+		if err := kitcache.SetJSONWithTTL(deps.ToolCache, ctx, cacheKey, result, 24*time.Hour); err != nil {
+			slog.Warn("repo_search: failed to cache result", "key", cacheKey, "err", err)
+		}
+		return textResult(result), nil
 	})
 }
 

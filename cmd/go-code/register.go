@@ -80,5 +80,6 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerCodeGraph(server, cfg, deps, graphStore)
 	registerRepoSearch(server, cfg, deps)
 	registerCodeSearch(server, cfg, deps)
+	registerWPPluginSearch(server, cfg, deps)
 }
 

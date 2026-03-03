@@ -219,6 +219,7 @@ func SupportedLanguages() []string {
 		"cpp",
 		"ruby",
 		"csharp",
+		"php",
 	}
 }
 

@@ -56,14 +56,13 @@ func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"Use for finding: TODO comments, error messages, function calls, string literals, " +
 			"API endpoints, configuration patterns, or any text pattern in source code.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeSearchInput) (*mcp.CallToolResult, error) {
-		res, _, err := handleCodeSearch(ctx, input, deps, outputDir)
-		return res, err
+		return handleCodeSearch(ctx, input, deps, outputDir)
 	})
 }
 
-func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
+func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
-		return errResult("repo is required"), nil, nil
+		return errResult("repo is required"), nil
 	}
 	// Allow "query" as alias for "pattern".
 	if input.Pattern == "" && input.Query != "" {
@@ -74,12 +73,12 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		input.FileGlob = input.Path + "/**"
 	}
 	if input.Pattern == "" {
-		return errResult("pattern is required"), nil, nil
+		return errResult("pattern is required"), nil
 	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 	if err != nil {
-		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
 
@@ -120,7 +119,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		CaseSensitive: caseSensitive,
 	})
 	if err != nil {
-		return errResult(fmt.Sprintf("search: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
 
 	resp := xmlSearchResponse{
@@ -143,10 +142,5 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		resp.Search.Items[i] = item
 	}
 
-	data, err := xml.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
-	}
-
-	return largeTextResult(xml.Header+string(data), "code_search", outputDir), nil, nil
+	return xmlMarshalResult(resp, "code_search", outputDir), nil
 }

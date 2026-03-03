@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 
@@ -107,22 +106,21 @@ func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"Returns a call tree with resolved cross-file references and an LLM-generated " +
 			"narrative explanation of the execution flow.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, error) {
-		res, _, err := handleCallTrace(ctx, input, deps, outputDir)
-		return res, err
+		return handleCallTrace(ctx, input, deps, outputDir)
 	})
 }
 
-func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
+func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
-		return errResult("repo is required"), nil, nil
+		return errResult("repo is required"), nil
 	}
 	if input.Symbol == "" {
-		return errResult("symbol is required"), nil, nil
+		return errResult("symbol is required"), nil
 	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 	if err != nil {
-		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
 
@@ -147,11 +145,11 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		},
 	})
 	if err != nil {
-		return errResult(fmt.Sprintf("trace: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("trace: %s", err)), nil
 	}
 
 	if result.Root == nil {
-		return errResult(fmt.Sprintf("symbol %q not found in repository", input.Symbol)), nil, nil
+		return errResult(fmt.Sprintf("symbol %q not found in repository", input.Symbol)), nil
 	}
 
 	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps, input.Compact)
@@ -172,12 +170,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		resp.Trace.Narrative = xmlCDATA{Inner: wrapCDATA(output.Narrative)}
 	}
 
-	data, err := xml.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
-	}
-
-	return largeTextResult(xml.Header+string(data), "call_trace", outputDir), nil, nil
+	return xmlMarshalResult(resp, "call_trace", outputDir), nil
 }
 
 func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps, compact bool) callTraceOutput {
@@ -201,14 +194,9 @@ func buildCallTraceOutput(ctx context.Context, symbol, direction string, result 
 	}
 
 	// LLM narrative (optional, non-fatal). Skipped in compact mode.
-	if !compact && deps.LLM != nil && result.TotalNodes > 1 {
-		treeJSON, _ := json.Marshal(result.Tree)
-		prompt := fmt.Sprintf("Entry function: %s\nDirection: %s\n\nCall tree:\n%s",
-			symbol, direction, string(treeJSON))
-		narrative, narErr := deps.LLM.Complete(ctx, prompts.SystemPromptCallTrace, prompt)
-		if narErr == nil {
-			output.Narrative = narrative
-		}
+	if !compact && result.TotalNodes > 1 {
+		prefix := fmt.Sprintf("Entry function: %s\nDirection: %s\n\nCall tree:\n", symbol, direction)
+		output.Narrative = generateNarrative(ctx, deps.LLM, prompts.SystemPromptCallTrace, result.Tree, prefix)
 	}
 
 	return output

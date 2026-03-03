@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -151,15 +152,15 @@ type CodeCompareInput struct {
 func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "code_compare",
 		Description: "Compare two code repositories to find the better implementation. " +
 			"Analyzes architecture, code quality, patterns, and identifies missing features. " +
 			"Returns XML with quality verdicts, coverage gaps, architecture insights, " +
 			"metrics, and actionable recommendations. Works cross-language.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeCompareInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeCompareInput) (*mcp.CallToolResult, error) {
 		if input.RepoA == "" || input.RepoB == "" {
-			return errResult("repo_a and repo_b are required"), nil, nil
+			return errResult("repo_a and repo_b are required"), nil
 		}
 		if input.Query == "" {
 			input.Query = "Compare architecture, code quality, patterns, and identify missing features"
@@ -167,13 +168,13 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 
 		rootA, cleanupA, err := resolveRoot(ctx, input.RepoA, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo_a: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("resolve repo_a: %s", err)), nil
 		}
 		defer cleanupA()
 
 		rootB, cleanupB, err := resolveRoot(ctx, input.RepoB, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo_b: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("resolve repo_b: %s", err)), nil
 		}
 		defer cleanupB()
 
@@ -187,15 +188,10 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			},
 		}, deps.LLM)
 		if err != nil {
-			return errResult(fmt.Sprintf("compare: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("compare: %s", err)), nil
 		}
 
-		resp := buildCompareXML(result)
-		data, err := xml.MarshalIndent(resp, "", "  ")
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
-		}
-		return largeTextResult(xml.Header+string(data), "code_compare", outputDir), nil, nil
+		return xmlMarshalResult(buildCompareXML(result), "code_compare", outputDir), nil
 	})
 }
 

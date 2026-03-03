@@ -44,7 +44,7 @@ func prioritizeFilesWithScores(
 		Symbols: allSymbols, Calls: allCalls, ImportEdges: importEdges,
 	})
 	seeds := buildSeeds(fileSymbols, queryTerms)
-	prScores := ranking.PersonalizedPageRank(refGraph.ToUnweighted(), seeds, 20, 0.85) //nolint:mnd
+	prScores := ranking.WeightedPersonalizedPageRank(refGraph.Adjacency(), seeds, 20, 0.85) //nolint:mnd
 
 	// Signal 3: Exact symbol name match.
 	exactScores := computeExactMatchScores(fileSymbols, queryTerms)

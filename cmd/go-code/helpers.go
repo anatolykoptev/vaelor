@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -74,6 +78,32 @@ func saveToFile(content, toolName, outputDir string) (string, bool) {
 	}
 
 	return path, true
+}
+
+// xmlMarshalResult marshals v as indented XML and returns it via largeTextResult.
+func xmlMarshalResult(v any, toolName, outputDir string) *mcp.CallToolResult {
+	data, err := xml.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err))
+	}
+	return largeTextResult(xml.Header+string(data), toolName, outputDir)
+}
+
+// generateNarrative produces an LLM narrative from structured data.
+// Returns empty string on nil client or any error (non-fatal).
+func generateNarrative(ctx context.Context, client *llm.Client, systemPrompt string, data any, promptPrefix string) string {
+	if client == nil {
+		return ""
+	}
+	dataJSON, err := json.Marshal(data)
+	if err != nil {
+		return ""
+	}
+	narrative, err := client.Complete(ctx, systemPrompt, promptPrefix+string(dataJSON))
+	if err != nil {
+		return ""
+	}
+	return narrative
 }
 
 // capitalizeFirst returns s with the first Unicode letter uppercased.

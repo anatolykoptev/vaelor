@@ -772,6 +772,82 @@ func TestParseCSharpFile(t *testing.T) {
 	}
 }
 
+func TestParsePHPFile(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sample.php"))
+	if err != nil {
+		t.Fatalf("read testdata/sample.php: %v", err)
+	}
+
+	result, err := parser.ParseFile("testdata/sample.php", source, parser.ParseOpts{
+		IncludeImports: true,
+	})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "php" {
+		t.Errorf("Language = %q, want %q", result.Language, "php")
+	}
+
+	// Verify imports.
+	if len(result.Imports) == 0 {
+		t.Error("expected at least one import (use statement)")
+	}
+
+	// Index symbols by "kind:name" to handle same-name symbols of different kinds.
+	byKindName := make(map[string]*parser.Symbol)
+	for _, sym := range result.Symbols {
+		key := string(sym.Kind) + ":" + sym.Name
+		byKindName[key] = sym
+	}
+
+	// Verify expected symbols are present with correct kinds.
+	type wantSym struct {
+		name string
+		kind parser.NodeKind
+	}
+	wantSymbols := []wantSym{
+		{"MAX_RETRIES", parser.KindConst},
+		{"create_config", parser.KindFunction},
+		{"Handler", parser.KindInterface},
+		{"Loggable", parser.KindType}, // trait
+		{"Config", parser.KindClass},
+		{"__construct", parser.KindMethod},
+		{"address", parser.KindMethod},
+		{"handle", parser.KindMethod},
+		{"log", parser.KindMethod},
+	}
+
+	for _, ws := range wantSymbols {
+		key := string(ws.kind) + ":" + ws.name
+		_, ok := byKindName[key]
+		if !ok {
+			t.Errorf("symbol %q (kind=%s) not found; all symbols: %v", ws.name, ws.kind, symbolNames(result.Symbols))
+		}
+	}
+
+	// Verify signatures are non-empty for functions and methods.
+	for _, key := range []string{"function:create_config", "method:address", "method:__construct"} {
+		sym, ok := byKindName[key]
+		if !ok {
+			continue
+		}
+		if sym.Signature == "" {
+			t.Errorf("symbol %q has empty Signature", sym.Name)
+		}
+	}
+
+	// Verify StartLine/EndLine are set and reasonable (1-based, start <= end).
+	for _, sym := range result.Symbols {
+		if sym.StartLine == 0 {
+			t.Errorf("symbol %q: StartLine is 0 (should be 1-based)", sym.Name)
+		}
+		if sym.EndLine < sym.StartLine {
+			t.Errorf("symbol %q: EndLine %d < StartLine %d", sym.Name, sym.EndLine, sym.StartLine)
+		}
+	}
+}
+
 func TestParseGoFile_NoLocalVars(t *testing.T) {
 	source := []byte(`package example
 

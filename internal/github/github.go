@@ -7,6 +7,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -74,7 +75,7 @@ func NewClient(token string) *Client {
 }
 
 // FetchRepoMeta fetches repository metadata from the GitHub API.
-func (c *Client) FetchRepoMeta(ctx context.Context, slug string) (*RepoMeta, error) {
+func (c *Client) FetchRepoMeta(ctx context.Context, slug string) (_ *RepoMeta, err error) {
 	slug = strings.TrimPrefix(slug, "https://github.com/")
 	slug = strings.TrimSuffix(slug, ".git")
 
@@ -91,7 +92,7 @@ func (c *Client) FetchRepoMeta(ctx context.Context, slug string) (*RepoMeta, err
 	if err != nil {
 		return nil, fmt.Errorf("fetch repo meta: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github api returned %d for %s", resp.StatusCode, slug)
@@ -107,7 +108,7 @@ func (c *Client) FetchRepoMeta(ctx context.Context, slug string) (*RepoMeta, err
 
 // FetchREADME fetches the raw README content for a repository.
 // Returns empty string if no README is found.
-func (c *Client) FetchREADME(ctx context.Context, slug string) (string, error) {
+func (c *Client) FetchREADME(ctx context.Context, slug string) (_ string, err error) {
 	slug = strings.TrimPrefix(slug, "https://github.com/")
 	slug = strings.TrimSuffix(slug, ".git")
 
@@ -129,7 +130,7 @@ func (c *Client) FetchREADME(ctx context.Context, slug string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("fetch readme: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return "", nil

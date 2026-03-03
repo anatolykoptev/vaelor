@@ -8,6 +8,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -49,7 +50,7 @@ type CodeHealthInput struct {
 func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "code_health",
 		Description: "Assess code quality of a single repository. " +
 			"Returns grade (A-F), numeric score (0-100), metrics " +
@@ -57,14 +58,14 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"maintenance hotspots, type relationships, and " +
 			"prioritized recommendations with estimated score impact. " +
 			"No LLM — fast, purely static analysis.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeHealthInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeHealthInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), nil, nil
+			return errResult("repo is required"), nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 		}
 		defer cleanup()
 
@@ -73,7 +74,7 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			Language: input.Language,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("snapshot: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("snapshot: %s", err)), nil
 		}
 
 		metrics := compare.ComputeMetrics(snap)
@@ -96,11 +97,7 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
 
 		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs)
-		data, err := xml.MarshalIndent(resp, "", "  ")
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
-		}
-		return largeTextResult(xml.Header+string(data), "code_health", outputDir), nil, nil
+		return xmlMarshalResult(resp, "code_health", outputDir), nil
 	})
 }
 
