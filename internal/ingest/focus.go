@@ -1,6 +1,9 @@
 package ingest
 
 import (
+	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -50,6 +53,61 @@ func FilterFiles(files []*File, matched map[string]bool) []*File {
 		}
 	}
 	return out
+}
+
+// ParseLightweight parses files to extract symbols, imports, and call sites
+// without reading function bodies. Used for content-based focus filtering.
+func ParseLightweight(ctx context.Context, files []*File) ([]*parser.Symbol, map[string][]string, []parser.CallSite) {
+	var allSymbols []*parser.Symbol
+	imports := make(map[string][]string, len(files))
+	var allCalls []parser.CallSite
+
+	for _, f := range files {
+		if ctx.Err() != nil {
+			break
+		}
+		source, err := os.ReadFile(f.Path)
+		if err != nil {
+			continue
+		}
+		opts := parser.ParseOpts{
+			Language:       f.Language,
+			IncludeBody:    false,
+			IncludeImports: true,
+		}
+		pr, err := parser.ParseFile(f.Path, source, opts)
+		if err != nil {
+			continue
+		}
+		allSymbols = append(allSymbols, pr.Symbols...)
+		if len(pr.Imports) > 0 {
+			imports[f.Path] = pr.Imports
+		}
+		calls, _ := parser.ExtractCalls(f.Path, source, opts)
+		allCalls = append(allCalls, calls...)
+	}
+
+	return allSymbols, imports, allCalls
+}
+
+// ContentFallback re-ingests a repo without focus filtering, then uses
+// ParseLightweight + ContentFilter to find files matching focus keywords
+// by symbol name, import path, or call site content.
+func ContentFallback(ctx context.Context, root string, langs []string, maxFileBytes int64, focus string) (*IngestResult, error) {
+	ir, err := IngestRepo(ctx, IngestOpts{
+		Root:         root,
+		Languages:    langs,
+		MaxFileBytes: maxFileBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ingest repo (fallback): %w", err)
+	}
+
+	symbols, imports, calls := ParseLightweight(ctx, ir.Files)
+	matched := ContentFilter(focus, symbols, imports, calls)
+	ir.Files = FilterFiles(ir.Files, matched)
+
+	return ir, nil
 }
 
 func groupSymbolsByFile(symbols []*parser.Symbol) map[string][]*parser.Symbol {
