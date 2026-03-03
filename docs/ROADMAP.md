@@ -352,6 +352,12 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Content-based focus fallback: when focus matches no file paths, re-ingest and filter by symbol names, imports, and call sites (OR logic)
 - [x] `FocusMode` field in Result (`"content"` when fallback used, empty otherwise)
 
+### Reusable content-focus module ✅
+- [x] Extracted `ingest/focus.go`: `ContentFilter`, `FilterFiles`, `ParseLightweight`, `ContentFallback`
+- [x] Migrated `explore` and `code_compare` to shared module (eliminated 3 duplicate implementations)
+- [x] Content fallback added to `BuildSnapshot` — fixes `code_compare` with semantic focus terms
+- [x] 9 unit tests covering symbol/import/call matching, OR logic, case-insensitivity
+
 ### Tool improvements ✅
 - [x] `call_trace`: compact mode (skip LLM narrative, tree-only output)
 - [x] `code_search`: `exclude_glob` parameter, `query` alias for `pattern`
@@ -369,97 +375,185 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## Future: Identifier-Level Ranking
+## v1.15: Identifier-Level Ranking
 
 **Goal**: Precision file ranking via identifier-level reference graph.
 
-### Identifier-level reference graph + fusion ranking
-- [ ] Build identifier-level reference graph: extract all symbol definitions + references via tree-sitter (not just imports)
-- [ ] File→file edges weighted by shared identifier references: `weight = mul / len(definers)` — distribute importance across multiple definition sites
-- [ ] Weight multipliers: identifiers mentioned in query → ×10, long camelCase/snake_case (≥8 chars) → ×10, private (`_` prefix) → ×0
-- [ ] Personalized PageRank: inject personalization vector boosting files that contain query-mentioned identifiers
-- [ ] Seed expansion: if query mentions a struct/class name → auto-add its methods as seeds (from CodeMCP)
-- [ ] Replace current import-only graph in `buildPageRankGraph()` with identifier-level reference graph
-- [ ] Fusion ranking: combine BM25F + PageRank + exact symbol match + import depth into weighted score (currently only BM25F×0.7 + PageRank×0.3). Normalize each signal to [0,1] before combination.
-- [ ] Fallback tokenizer: when tree-sitter finds definitions but no references for a language → regex-based `Token.Name` extraction (ensures graph edges exist for under-covered grammars)
+**Prereqs**: v1.14 complete.
 
-**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — `RepoMap` uses NetworkX MultiDiGraph with identifier-level edges + personalized PageRank (`alpha=0.85`); pygments fallback for reference extraction. [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `FusionRanker` combines 5 signals (FTS, PPR, Hotspot, Recency, Exact) with normalization; seed expansion via `expandSeedsWithMethods`. Current PageRank uses file-level import edges only.
+### Task 1: Identifier reference extraction
+- [ ] Add tree-sitter queries for identifier references (usages, not just definitions) across all 9 languages
+- [ ] Store references as `(file, name, line, kind=reference)` tuples alongside existing definitions
 
-**Where**: `internal/ranking/pagerank.go` → personalization vector + seed expansion; `internal/ranking/fusion.go` → new multi-signal combiner; `internal/analyze/context.go` → `buildPageRankGraph()` → identifier-level graph; new `internal/parser/fallback.go` for regex tokenizer.
+**Where**: `internal/parser/` — new `*_refs.scm` query files per language.
+
+### Task 2: Identifier-level reference graph
+- [ ] Build file→file edges weighted by shared identifier references: `weight = count / len(definers)`
+- [ ] Replace current import-only graph in `buildPageRankGraph()` with identifier-level graph
+
+**Where**: `internal/ranking/pagerank.go`, `internal/analyze/context.go`.
+
+### Task 3: Query-aware weight multipliers
+- [ ] Identifiers mentioned in query → ×10 weight
+- [ ] Long camelCase/snake_case (≥8 chars) → ×10
+- [ ] Private symbols (`_` prefix in Python, unexported in Go) → ×0
+
+**Where**: `internal/ranking/pagerank.go`.
+
+### Task 4: Personalized PageRank
+- [ ] Inject personalization vector boosting files that contain query-mentioned identifiers
+- [ ] Seed expansion: if query mentions a struct/class name → auto-add its methods as seeds
+
+**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — `RepoMap` uses personalized PageRank (`alpha=0.85`); [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — seed expansion via `expandSeedsWithMethods`.
+
+**Where**: `internal/ranking/pagerank.go`.
+
+### Task 5: Fusion ranking
+- [ ] Combine BM25F + PageRank + exact symbol match + import depth into weighted score
+- [ ] Normalize each signal to [0,1] before combination (currently only BM25F×0.7 + PageRank×0.3)
+
+**Ref**: [SimplyLiz/CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `FusionRanker` combines 5 signals (FTS, PPR, Hotspot, Recency, Exact) with normalization.
+
+**Where**: new `internal/ranking/fusion.go`.
+
+### Task 6: Fallback tokenizer
+- [ ] When tree-sitter finds definitions but no references for a language → regex-based `Token.Name` extraction
+- [ ] Ensures graph edges exist for under-covered grammars
+
+**Ref**: [Aider-AI/aider](https://github.com/Aider-AI/aider) — pygments fallback for reference extraction.
+
+**Where**: new `internal/parser/fallback.go`.
+
+### Task 7: Integration tests
+- [ ] Benchmark ranking quality: known repos, expected top files for given queries
+- [ ] Compare BM25F-only vs fusion ranking hit rate
+
+**Deliverable**: Identifier-level PageRank + multi-signal fusion ranking for all tools.
 
 ---
 
-## Future: Semantic Code Search
+## v1.16: Semantic Code Search
 
 **Goal**: Find code by meaning, not just name patterns.
 
-### Embedding infrastructure
-- [ ] Embed function bodies during graph indexing via memdb-go `/v1/embeddings` (1024-dim)
-- [ ] Store embeddings in pgvector column on Symbol vertices (or companion table)
+**Prereqs**: v1.14 complete. Independent of v1.15.
+
+### Task 1: Embedding client
+- [ ] Client for memdb-go `/v1/embeddings` (multilingual-e5-large, 1024-dim)
 - [ ] Batch embedding: group functions into batches of 32, parallel requests
+
+**Where**: new `internal/embeddings/client.go`.
+
+### Task 2: Embedding storage
+- [ ] pgvector column on Symbol vertices (or companion table `symbol_embeddings`)
+- [ ] Schema migration for gocode database
+
+**Where**: `internal/codegraph/schema.go`, new migration file.
+
+### Task 3: Embedding pipeline
+- [ ] Embed function bodies during graph indexing
 - [ ] Cache embeddings per (file_hash, symbol_name) — skip unchanged functions
+- [ ] Incremental: only embed new/changed symbols
 
 **Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — UniXcoder embeddings + vector DB; [Octocode](https://github.com/Muvon/octocode) — GraphRAG + semantic search.
 
-### Semantic search tool
-- [ ] New MCP tool: `semantic_search` — NL query → embed → cosine similarity → top-K results
+**Where**: `internal/codegraph/index.go`.
+
+### Task 4: `semantic_search` MCP tool
+- [ ] NL query → embed → cosine similarity → top-K results
 - [ ] Input: query text + repo + optional language/file filter
 - [ ] Output: ranked list of functions with similarity score + source snippet
-- [ ] Hybrid mode: combine embedding similarity with name-pattern matching
 
-### Graph-enhanced search
+**Where**: new `cmd/go-code/tool_semantic_search.go`.
+
+### Task 5: Hybrid search mode
+- [ ] Combine embedding similarity with name-pattern matching (from `code_search`)
+- [ ] Weighted merge: semantic score × 0.6 + name match × 0.4
+
+**Where**: `cmd/go-code/tool_semantic_search.go`.
+
+### Task 6: Graph-enhanced expansion
 - [ ] After finding semantically similar functions, expand via graph edges
-- [ ] "Functions similar to X" + "functions that call similar functions" (graph walk)
+- [ ] "Functions similar to X" + "functions that call similar functions" (1-hop walk)
 - [ ] Re-rank by graph centrality (PageRank or degree)
 
-**Ref**: [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) — graph-based navigation achieves 99.4% task completion vs 76.2% baseline; agents need explicit prompting to use graph tools.
+**Ref**: [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) — graph-based navigation achieves 99.4% task completion vs 76.2% baseline.
+
+**Where**: `cmd/go-code/tool_semantic_search.go`, `internal/codegraph/`.
+
+### Task 7: Integration tests
+- [ ] End-to-end: embed a test repo → search → verify relevant results
+- [ ] Benchmark: semantic vs keyword search on known queries
 
 **Deliverable**: NL-powered code search that understands semantics beyond name matching.
 
 ---
 
-## Future: Type-Aware Analysis
+## v1.17: Type-Aware Analysis
 
 **Goal**: Precision enhancement for Go repos via compiler-level intelligence.
 
-### SCIP backend for Go
-- [ ] Optional `scip-go` integration for Go repos
-- [ ] Parse SCIP index → extract precise CALLS/IMPLEMENTS/REFERENCES edges
-- [ ] Merge SCIP data with tree-sitter data (SCIP primary, tree-sitter fallback)
+**Prereqs**: v1.14 complete. Independent of v1.15/v1.16.
+
+### Task 1: SCIP index parser
+- [ ] Parse SCIP index files → extract definitions, references, relationships
+- [ ] Go bindings for SCIP Protobuf schema
+
+**Ref**: [sourcegraph/scip](https://github.com/sourcegraph/scip) — Protobuf schema, Go bindings, streaming parser.
+
+**Where**: new `internal/scip/parser.go`.
+
+### Task 2: SCIP integration for Go
+- [ ] Optional `scip-go` invocation for Go repos
+- [ ] Extract precise CALLS/IMPLEMENTS/REFERENCES edges from SCIP data
 - [ ] Stable symbol IDs from SCIP (survive renames)
 
-**Ref**: [sourcegraph/scip](https://github.com/sourcegraph/scip) — Protobuf schema, Go bindings, streaming parser; [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — SCIP as primary backend with tree-sitter fallback; [williamfzc/srctx](https://github.com/williamfzc/srctx) — Go tool combining SCIP + tree-sitter.
+**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — SCIP as primary backend with tree-sitter fallback; [williamfzc/srctx](https://github.com/williamfzc/srctx) — Go tool combining SCIP + tree-sitter.
 
-### Go-native call graph enhancement
+**Where**: new `internal/scip/go.go`.
+
+### Task 3: SCIP + tree-sitter merge
+- [ ] Merge SCIP data with tree-sitter data (SCIP primary, tree-sitter fallback)
+- [ ] Unified symbol resolution interface
+
+**Where**: `internal/parser/`, `internal/codegraph/`.
+
+### Task 4: Go-native call graph (RTA)
 - [ ] Optional `golang.org/x/tools/go/callgraph/rta` for Go repos
-- [ ] Produces type-aware, compiler-accurate call resolution
-- [ ] Merge with tree-sitter call graph (RTA for Go files, tree-sitter for others)
+- [ ] Type-aware, compiler-accurate call resolution
 - [ ] Resolves interface dispatch, method sets, embedded types
 
-### Compound tools + graceful degradation
-- [ ] `understand` — combines `call_trace` + `code_graph` + complexity for symbol deep-dive
-- [ ] `prepare_change` — combines `impact_analysis` + `dead_code` for pre-change assessment
-- [ ] Ambiguity handling: when symbol name matches multiple, list top matches with disambiguation hints (from CodeMCP `UnderstandAmbiguity`)
-- [ ] Graceful tier degradation (from CodeMCP): each tool has `MinimumBackend` (tree-sitter / SCIP) + `Fallback` flag. Tools still work at lower precision when SCIP unavailable, instead of failing.
-- [ ] Progressive tool disclosure: start with 8 core tools, reveal advanced on request
+**Where**: new `internal/callgraph/rta.go`.
 
-**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `explore`, `understand`, `prepareChange`, `expandToolset`; 3-tier system (Basic/Enhanced/Full) with `tier.Detector` + preset switching; [CodeCompass](https://arxiv.org/abs/2602.20048) — agents don't use tools they don't understand, compound tools improve discoverability.
+### Task 5: RTA + tree-sitter call graph merge
+- [ ] Merge RTA graph with tree-sitter call graph (RTA for Go files, tree-sitter for others)
+
+**Where**: `internal/callgraph/`.
+
+### Task 6: Compound tool — `understand`
+- [ ] Combines `call_trace` + `code_graph` + complexity for symbol deep-dive
+- [ ] Ambiguity handling: when symbol name matches multiple, list top matches with disambiguation hints
+
+**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `explore`, `understand`, `prepareChange`, `expandToolset`.
+
+**Where**: new `cmd/go-code/tool_understand.go`.
+
+### Task 7: Compound tool — `prepare_change`
+- [ ] Combines `impact_analysis` + `dead_code` for pre-change assessment
+- [ ] Output: affected files, risk level, suggested test targets
+
+**Where**: new `cmd/go-code/tool_prepare_change.go`.
+
+### Task 8: Graceful tier degradation
+- [ ] Each tool has `MinimumBackend` (tree-sitter / SCIP) + `Fallback` flag
+- [ ] Tools work at lower precision when SCIP unavailable, instead of failing
+- [ ] Progressive tool disclosure: start with core tools, reveal advanced on request
+
+**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — 3-tier system (Basic/Enhanced/Full) with `tier.Detector`; [CodeCompass](https://arxiv.org/abs/2602.20048) — agents don't use tools they don't understand, compound tools improve discoverability.
+
+**Where**: `cmd/go-code/main.go`, tool registration layer.
 
 **Deliverable**: Compiler-accurate analysis for Go, compound tools for reduced round-trips.
-
----
-
-## Future: Remaining Work
-
-### Cognitive complexity
-- [ ] Nesting depth penalty (partially delivered: cyclomatic complexity done in v1.13)
-
-### AST diff visualization
-- [ ] Structured JSON output with edit operations
-- [ ] Summary statistics: N moves, N updates, N deletes, N inserts
-- [ ] Similarity score per matched function pair based on edit distance
-
-**Ref**: [smacker/gum](https://github.com/smacker/gum) — Go GumTree implementation with tree-sitter adapter; [GumTreeDiff/gumtree](https://github.com/GumTreeDiff/gumtree) — academic reference (ICSE 2014); [Wilfred/difftastic](https://github.com/Wilfred/difftastic) — hash-before-compare optimization.
 
 ---
 
@@ -483,12 +577,14 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
                               │
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
-      Identifier Ranking   Semantic Search   Type-Aware Analysis
+      v1.15 Identifier  v1.16 Semantic    v1.17 Type-Aware
+         Ranking          Search           Analysis
+       (7 tasks)        (7 tasks)         (8 tasks)
 ```
 
 **Completed**: v1.0 through v1.14 (13 tools, 9 languages).
-**Next**: Identifier-level ranking (fusion scoring, personalized PageRank).
-**Independent**: Semantic search, type-aware analysis can proceed in parallel.
+**Next**: v1.15 — identifier-level ranking (fusion scoring, personalized PageRank).
+**Independent**: v1.16 (semantic search) and v1.17 (type-aware analysis) can proceed in parallel with v1.15.
 
 ## Releases
 
@@ -518,6 +614,9 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 - [ ] CGO cross-compilation for ARM64 Docker builds
 - [ ] Memory usage profiling for large repos (10K+ files)
 - [ ] Rate limiting for GitHub API calls
+- [ ] Cognitive complexity: nesting depth penalty (cyclomatic done in v1.13)
+- [ ] AST diff visualization: structured JSON output with edit operations, summary statistics, similarity score
+- [x] Content-focus deduplication: `ingest/focus.go` shared module (3 duplicate implementations eliminated)
 - [x] Cache eviction strategy for long-running server (LRU + TTL via go-kit/cache)
 - [x] MCP boilerplate elimination (migrated to go-mcpserver.Run())
 - [x] MCP SDK v1.4.0 output schema compatibility
