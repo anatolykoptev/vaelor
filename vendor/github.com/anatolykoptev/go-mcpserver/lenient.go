@@ -89,8 +89,7 @@ func coerceStringTypes(m map[string]any, schema *jsonschema.Schema) {
 		if !isStr {
 			continue
 		}
-		typ := propType(prop)
-		switch typ {
+		switch prop.Type {
 		case "boolean":
 			switch strings.ToLower(s) {
 			case strTrue, "1":
@@ -108,20 +107,6 @@ func coerceStringTypes(m map[string]any, schema *jsonschema.Schema) {
 			}
 		}
 	}
-}
-
-// propType returns the effective non-null type for a schema property.
-// Handles both Type ("boolean") and Types (["null", "boolean"]) forms.
-func propType(s *jsonschema.Schema) string {
-	if s.Type != "" {
-		return s.Type
-	}
-	for _, t := range s.Types {
-		if t != "null" {
-			return t
-		}
-	}
-	return ""
 }
 
 func toolError(msg string) *mcp.CallToolResult {

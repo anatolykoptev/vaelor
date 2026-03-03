@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/anatolykoptev/go-kit v0.6.1-0.20260302231502-b68df5a4fe05
-	github.com/anatolykoptev/go-mcpserver v0.6.1-0.20260303015231-43bfa178cbcb
+	github.com/anatolykoptev/go-mcpserver v0.6.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/modelcontextprotocol/go-sdk v1.4.0
