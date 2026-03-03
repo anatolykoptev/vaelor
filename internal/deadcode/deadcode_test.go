@@ -278,6 +278,153 @@ func TestAnalyze_FuncRefNotDead(t *testing.T) {
 	}
 }
 
+// TestAnalyze_HookCallbackNotDead verifies that WordPress hook callbacks are
+// NOT flagged as dead code when their names are passed via HookCallbacks.
+//
+// RED without HookCallbacks: both callbacks would be reported dead (no callers).
+// GREEN with HookCallbacks: callbacks excluded from dead code results.
+func TestAnalyze_HookCallbackNotDead(t *testing.T) {
+	// Simulate a WordPress plugin with hook registrations.
+	// These functions have ZERO direct callers — only reachable via hooks.
+	onInit := &parser.Symbol{
+		Name: "on_init", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/main.php", StartLine: 10, EndLine: 20,
+	}
+	filterTitle := &parser.Symbol{
+		Name: "filter_title", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/main.php", StartLine: 25, EndLine: 35,
+	}
+	reallyDead := &parser.Symbol{
+		Name: "unused_helper", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/helpers.php", StartLine: 1, EndLine: 5,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/main.php", StartLine: 1, EndLine: 8,
+	}
+
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{onInit, filterTitle, reallyDead, mainSym},
+		Edges:   nil, // No direct calls — hooks are the only connection.
+	}
+
+	// GREEN: With HookCallbacks, hook callbacks are excluded.
+	result := Analyze(cg, Options{
+		HookCallbacks: []string{"on_init", "filter_title"},
+	})
+
+	// Only unused_helper should be dead. The two hook callbacks must survive.
+	if result.DeadCount != 1 {
+		t.Errorf("expected 1 dead function (unused_helper), got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s", d.Name)
+		}
+	}
+	if result.DeadCount == 1 && result.DeadSymbols[0].Name != "unused_helper" {
+		t.Errorf("expected dead symbol 'unused_helper', got %q", result.DeadSymbols[0].Name)
+	}
+}
+
+// TestAnalyze_HookCallbackNotDead_RED proves the test above is meaningful:
+// WITHOUT HookCallbacks, the same callbacks ARE reported as dead.
+func TestAnalyze_HookCallbackNotDead_RED(t *testing.T) {
+	onInit := &parser.Symbol{
+		Name: "on_init", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/main.php", StartLine: 10, EndLine: 20,
+	}
+	filterTitle := &parser.Symbol{
+		Name: "filter_title", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/main.php", StartLine: 25, EndLine: 35,
+	}
+	reallyDead := &parser.Symbol{
+		Name: "unused_helper", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/helpers.php", StartLine: 1, EndLine: 5,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/wp-content/plugins/myplugin/main.php", StartLine: 1, EndLine: 8,
+	}
+
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{onInit, filterTitle, reallyDead, mainSym},
+		Edges:   nil,
+	}
+
+	// RED scenario: no HookCallbacks → all 3 non-main functions are dead.
+	result := Analyze(cg, Options{})
+
+	if result.DeadCount != 3 {
+		t.Errorf("RED proof: expected 3 dead (no hook awareness), got %d", result.DeadCount)
+	}
+
+	// Verify the hook callbacks ARE in the dead list.
+	deadNames := make(map[string]bool)
+	for _, d := range result.DeadSymbols {
+		deadNames[d.Name] = true
+	}
+	if !deadNames["on_init"] {
+		t.Error("RED proof: on_init should be dead without HookCallbacks")
+	}
+	if !deadNames["filter_title"] {
+		t.Error("RED proof: filter_title should be dead without HookCallbacks")
+	}
+}
+
+// TestAnalyze_InjectHookEdges_Integration is an end-to-end test proving that
+// InjectHookEdges + deadcode analysis work together: hook callbacks become
+// "called" via synthetic edges and are no longer dead.
+func TestAnalyze_InjectHookEdges_Integration(t *testing.T) {
+	// PHP WordPress plugin symbols.
+	onInit := &parser.Symbol{
+		Name: "on_init", Kind: parser.KindFunction,
+		File: "/plugin/main.php", StartLine: 10, EndLine: 20,
+	}
+	filterContent := &parser.Symbol{
+		Name: "modify_content", Kind: parser.KindFunction,
+		File: "/plugin/main.php", StartLine: 25, EndLine: 40,
+	}
+	genuinelyDead := &parser.Symbol{
+		Name: "old_unused", Kind: parser.KindFunction,
+		File: "/plugin/legacy.php", StartLine: 1, EndLine: 10,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/plugin/main.php", StartLine: 1, EndLine: 8,
+	}
+
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{onInit, filterContent, genuinelyDead, mainSym},
+		Edges:   nil, // Start with no edges.
+	}
+
+	// Before injection: 3 dead functions (everything except main).
+	pre := Analyze(cg, Options{})
+	if pre.DeadCount != 3 {
+		t.Fatalf("pre-injection: expected 3 dead, got %d", pre.DeadCount)
+	}
+
+	// Inject hook edges (simulating what BuildFromRepo does).
+	hookRoutes := []callgraph.HookRoute{
+		{Method: "ACTION", Path: "init", Handler: "on_init", Side: "server"},
+		{Method: "FILTER", Path: "the_content", Handler: "modify_content", Side: "server"},
+		{Method: "ACTION", Path: "init", Side: "client", Line: 3},
+		{Method: "FILTER", Path: "the_content", Side: "client", Line: 5},
+	}
+	callgraph.InjectHookEdges(cg, hookRoutes)
+
+	// After injection: only old_unused should be dead.
+	post := Analyze(cg, Options{})
+	if post.DeadCount != 1 {
+		t.Errorf("post-injection: expected 1 dead (old_unused), got %d", post.DeadCount)
+		for _, d := range post.DeadSymbols {
+			t.Logf("  dead: %s", d.Name)
+		}
+	}
+	if post.DeadCount == 1 && post.DeadSymbols[0].Name != "old_unused" {
+		t.Errorf("expected dead 'old_unused', got %q", post.DeadSymbols[0].Name)
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
