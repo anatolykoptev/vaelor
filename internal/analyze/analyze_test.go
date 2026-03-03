@@ -479,3 +479,71 @@ func TestIsStdlibImport(t *testing.T) {
 		})
 	}
 }
+
+// TestAnalyzeRepo_FusionRanking verifies that fusion ranking (BM25F + PPR + exact match)
+// promotes files containing queried symbols and their callers above unrelated files.
+func TestAnalyzeRepo_FusionRanking(t *testing.T) {
+	root := t.TempDir()
+
+	// core/core.go defines Process — the query target.
+	writeFile(t, filepath.Join(root, "core", "core.go"), `package core
+
+// Process does the main work.
+func Process(data string) string {
+	return data + " processed"
+}
+`)
+	// handler/handler.go calls core.Process — should rank high via call edge + PPR.
+	writeFile(t, filepath.Join(root, "handler", "handler.go"), `package handler
+
+import "example.com/myapp/core"
+
+// Handle calls Process from core.
+func Handle(input string) string {
+	return core.Process(input)
+}
+`)
+	// util/util.go has no reference to Process.
+	writeFile(t, filepath.Join(root, "util", "util.go"), `package util
+
+// Format formats a string.
+func Format(s string) string {
+	return "[" + s + "]"
+}
+`)
+	// go.mod so ingest recognizes it as Go.
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/myapp\n\ngo 1.26\n")
+
+	ctx := context.Background()
+	result, err := AnalyzeRepo(ctx, RepoAnalysisInput{
+		Root:  root,
+		Query: "Process",
+	}, Deps{MaxFileBytes: defaultMaxFileBytes})
+	if err != nil {
+		t.Fatalf("AnalyzeRepo: %v", err)
+	}
+
+	// Build position map: relPath → rank index.
+	pos := make(map[string]int)
+	for i, f := range result.Files {
+		pos[f.RelPath] = i
+	}
+
+	corePos, coreOk := pos["core/core.go"]
+	handlerPos, handlerOk := pos["handler/handler.go"]
+	utilPos, utilOk := pos["util/util.go"]
+
+	if !coreOk || !handlerOk || !utilOk {
+		t.Fatalf("missing files in result: core=%v handler=%v util=%v", coreOk, handlerOk, utilOk)
+	}
+
+	// core/core.go defines Process — must rank first.
+	if corePos > handlerPos {
+		t.Errorf("core/core.go (pos %d) should rank above handler/handler.go (pos %d)", corePos, handlerPos)
+	}
+
+	// handler/handler.go calls Process — must rank above unrelated util.
+	if handlerPos > utilPos {
+		t.Errorf("handler/handler.go (pos %d) should rank above util/util.go (pos %d)", handlerPos, utilPos)
+	}
+}
