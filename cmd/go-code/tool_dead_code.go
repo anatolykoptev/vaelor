@@ -10,6 +10,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
 	"github.com/anatolykoptev/go-code/internal/prompts"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -48,14 +49,15 @@ type DeadCodeInput struct {
 func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "dead_code",
 		Description: "Detect functions and methods with zero incoming calls. " +
 			"Filters out entry points (main, init), test functions, and exported symbols " +
 			"to reduce false positives. Shows confidence levels: high (unexported), " +
 			"medium (methods, may satisfy interfaces), low (exported).",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeadCodeInput) (*mcp.CallToolResult, any, error) {
-		return handleDeadCode(ctx, input, deps, outputDir)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeadCodeInput) (*mcp.CallToolResult, error) {
+		res, _, err := handleDeadCode(ctx, input, deps, outputDir)
+		return res, err
 	})
 }
 

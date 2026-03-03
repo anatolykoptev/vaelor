@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -59,23 +60,23 @@ type xmlSymSearchItem struct {
 func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "symbol_search",
 		Description: "Search for functions, types, methods, constants, or variables across a repository. " +
 			"Uses tree-sitter AST parsing for accurate symbol extraction (no grep heuristics). " +
 			"Supports wildcard patterns (Auth*, *Handler), kind filtering, and language filtering. " +
 			"Optionally returns full source bodies for matched symbols.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), nil, nil
+			return errResult("repo is required"), nil
 		}
 		if input.Query == "" {
-			return errResult("query is required"), nil, nil
+			return errResult("query is required"), nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 		}
 		defer cleanup()
 
@@ -88,13 +89,13 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			Limit:       input.Limit,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("symbol search: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("symbol search: %s", err)), nil
 		}
 
 		if len(symbols) == 0 {
-			return textResult(fmt.Sprintf("No symbols found matching %q.", input.Query)), nil, nil
+			return textResult(fmt.Sprintf("No symbols found matching %q.", input.Query)), nil
 		}
-		return largeTextResult(formatSymbolSearchXML(input.Query, symbols), "symbol_search", outputDir), nil, nil
+		return largeTextResult(formatSymbolSearchXML(input.Query, symbols), "symbol_search", outputDir), nil
 	})
 }
 

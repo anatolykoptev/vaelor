@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codesearch"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -46,15 +47,16 @@ type xmlSearchMatch struct {
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "code_search",
 		Description: "Search for code patterns within a repository. " +
 			"Supports literal strings and regular expressions. " +
 			"Returns matching lines with file paths, line numbers, and surrounding context. " +
 			"Use for finding: TODO comments, error messages, function calls, string literals, " +
 			"API endpoints, configuration patterns, or any text pattern in source code.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeSearchInput) (*mcp.CallToolResult, any, error) {
-		return handleCodeSearch(ctx, input, deps, outputDir)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeSearchInput) (*mcp.CallToolResult, error) {
+		res, _, err := handleCodeSearch(ctx, input, deps, outputDir)
+		return res, err
 	})
 }
 

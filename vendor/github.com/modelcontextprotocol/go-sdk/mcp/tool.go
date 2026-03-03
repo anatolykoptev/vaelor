@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -89,10 +88,6 @@ func applySchema(data json.RawMessage, resolved *jsonschema.Resolved) (json.RawM
 				return nil, fmt.Errorf("unmarshaling arguments: %w", err)
 			}
 		}
-		// Coerce string values to their schema-declared types.
-		// LLMs often send "true"/"false" instead of true/false, or "5" instead of 5.
-		coerceStringTypes(v, resolved.Schema())
-
 		if err := resolved.ApplyDefaults(&v); err != nil {
 			return nil, fmt.Errorf("applying schema defaults:\n%w", err)
 		}
@@ -107,42 +102,6 @@ func applySchema(data json.RawMessage, resolved *jsonschema.Resolved) (json.RawM
 		}
 	}
 	return data, nil
-}
-
-// coerceStringTypes converts string values to their schema-declared types.
-// LLMs frequently produce "true" instead of true, or "5" instead of 5.
-// Only converts when the schema unambiguously declares a non-string type.
-func coerceStringTypes(m map[string]any, schema *jsonschema.Schema) {
-	if schema == nil || schema.Properties == nil {
-		return
-	}
-	for key, prop := range schema.Properties {
-		val, ok := m[key]
-		if !ok {
-			continue
-		}
-		s, isStr := val.(string)
-		if !isStr {
-			continue
-		}
-		switch prop.Type {
-		case "boolean":
-			switch strings.ToLower(s) {
-			case "true", "1":
-				m[key] = true
-			case "false", "0":
-				m[key] = false
-			}
-		case "integer":
-			if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-				m[key] = n
-			}
-		case "number":
-			if f, err := strconv.ParseFloat(s, 64); err == nil {
-				m[key] = f
-			}
-		}
-	}
 }
 
 // validateToolName checks whether name is a valid tool name, reporting a
