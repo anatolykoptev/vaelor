@@ -86,6 +86,33 @@ func TestPHPHookInstanceCallback(t *testing.T) {
 	}
 }
 
+func TestPHPHookArrayCallback(t *testing.T) {
+	t.Parallel()
+
+	source := []byte(`add_action( 'admin_notices', array( $this, 'render_admin_notice' ) );`)
+
+	matcher := &PHPHookMatcher{}
+	routes := matcher.Match(source)
+
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes, want 1", len(routes))
+	}
+
+	r := routes[0]
+	if r.Method != "ACTION" {
+		t.Errorf("Method = %q, want ACTION", r.Method)
+	}
+	if r.Path != "admin_notices" {
+		t.Errorf("Path = %q, want admin_notices", r.Path)
+	}
+	if r.Handler != "render_admin_notice" {
+		t.Errorf("Handler = %q, want render_admin_notice", r.Handler)
+	}
+	if r.Side != "server" {
+		t.Errorf("Side = %q, want server", r.Side)
+	}
+}
+
 func TestPHPHookStaticCallback(t *testing.T) {
 	t.Parallel()
 

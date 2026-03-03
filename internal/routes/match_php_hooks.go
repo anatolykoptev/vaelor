@@ -31,6 +31,12 @@ var (
 		`(add_action|add_filter)\s*\(\s*['"]([^'"]+)['"]\s*,\s*\[\s*\$\w+\s*,\s*['"](\w+)['"]\s*\]`,
 	)
 
+	// add_action('hook_name', array( $this, 'method' )) / add_filter(...)
+	// Traditional PHP array() syntax — very common in WordPress plugins.
+	phpHookArrayCallbackRe = regexp.MustCompile(
+		`(add_action|add_filter)\s*\(\s*['"]([^'"]+)['"]\s*,\s*array\s*\(\s*\$\w+\s*,\s*['"](\w+)['"]\s*\)`,
+	)
+
 	// add_action('hook_name', [ClassName::class, 'method']) / add_filter(...)
 	phpHookStaticCallbackRe = regexp.MustCompile(
 		`(add_action|add_filter)\s*\(\s*['"]([^'"]+)['"]\s*,\s*\[\s*(\w+)::class\s*,\s*['"](\w+)['"]\s*\]`,
@@ -71,6 +77,21 @@ func (m *PHPHookMatcher) Match(source []byte) []Route {
 
 	// Instance callbacks: add_action('hook', [$this, 'method'])
 	for _, match := range phpHookInstanceCallbackRe.FindAllSubmatch(source, -1) {
+		fn := string(match[1])
+		hookName := string(match[2])
+		handler := string(match[3])
+		out = append(out, Route{
+			Method:    hookMethod(fn),
+			Path:      hookName,
+			RawPath:   hookName,
+			Handler:   handler,
+			Framework: "wordpress",
+			Side:      "server",
+		})
+	}
+
+	// Instance callbacks with array() syntax: add_action('hook', array($this, 'method'))
+	for _, match := range phpHookArrayCallbackRe.FindAllSubmatch(source, -1) {
 		fn := string(match[1])
 		hookName := string(match[2])
 		handler := string(match[3])
