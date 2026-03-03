@@ -44,8 +44,7 @@ func (c *Client) doWithRetry(ctx context.Context, baseURL, apiKey string, req *C
 		lastErr = err
 
 		// Only retry on retryable errors.
-		var re *retryableError
-		if !asRetryable(err, &re) {
+		if !asRetryable(err) {
 			return nil, err
 		}
 	}
@@ -76,11 +75,8 @@ func (c *Client) doRequest(ctx context.Context, baseURL, apiKey string, req *Cha
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
-	if isRetryableStatus(resp.StatusCode) {
-		return nil, &retryableError{statusCode: resp.StatusCode, body: string(respBody)}
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("llm: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return nil, newAPIError(resp.StatusCode, string(respBody), isRetryableStatus(resp.StatusCode))
 	}
 
 	var chatResp chatResponse
@@ -99,44 +95,6 @@ func (c *Client) doRequest(ctx context.Context, baseURL, apiKey string, req *Cha
 	}, nil
 }
 
-type retryableError struct {
-	statusCode int
-	body       string
-}
-
-func (e *retryableError) Error() string {
-	return fmt.Sprintf("retryable HTTP %d: %s", e.statusCode, e.body)
-}
-
-func asRetryable(err error, target **retryableError) bool {
-	for err != nil {
-		if re, ok := err.(*retryableError); ok { //nolint:errorlint // intentional direct type assertion for internal error type
-			*target = re
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		if u, ok := err.(unwrapper); ok { //nolint:errorlint // intentional
-			err = u.Unwrap()
-		} else {
-			return false
-		}
-	}
-	return false
-}
-
-func isRetryableStatus(code int) bool {
-	switch code {
-	case http.StatusTooManyRequests,
-		http.StatusInternalServerError,
-		http.StatusBadGateway,
-		http.StatusServiceUnavailable,
-		http.StatusGatewayTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
 func (c *Client) executeInner(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	if len(c.endpoints) > 0 {
 		var lastErr error
@@ -150,8 +108,7 @@ func (c *Client) executeInner(ctx context.Context, req *ChatRequest) (*ChatRespo
 				return result, nil
 			}
 			lastErr = err
-			var re *retryableError
-			if !asRetryable(err, &re) {
+			if !asRetryable(err) {
 				return nil, err
 			}
 		}

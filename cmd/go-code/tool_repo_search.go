@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	kitcache "github.com/anatolykoptev/go-kit/cache"
+
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/github"
@@ -76,7 +78,7 @@ func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 
 		// Check cache.
 		cacheKey := cache.Key("repo_search", query, input.Sort)
-		if cached, ok := deps.ToolCache.Get(ctx, cacheKey); ok {
+		if cached, ok, _ := kitcache.GetJSON[string](deps.ToolCache, ctx, cacheKey); ok {
 			return textResult(cached), nil, nil
 		}
 
@@ -105,7 +107,7 @@ func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 		}
 
 		result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, summary)
-		deps.ToolCache.SetWithTTL(ctx, cacheKey, result, 24*time.Hour)
+		_ = kitcache.SetJSONWithTTL(deps.ToolCache, ctx, cacheKey, result, 24*time.Hour)
 		return textResult(result), nil, nil
 	})
 }

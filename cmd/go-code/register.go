@@ -5,13 +5,15 @@ import (
 	"log/slog"
 	"time"
 
+	kitcache "github.com/anatolykoptev/go-kit/cache"
+	"github.com/anatolykoptev/go-kit/env"
+	"github.com/anatolykoptev/go-kit/llm"
+
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/search"
-	"github.com/anatolykoptev/go-kit/env"
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -26,10 +28,13 @@ func registerTools(server *mcp.Server, cfg Config) {
 	parseCache := cache.NewParseCache(parseCacheSize)
 	llmCache := cache.NewLLMCache(llmCacheSize, time.Duration(llmCacheTTLMin)*time.Minute)
 
-	toolCache := cache.NewGenericCache[string](cache.GenericCacheConfig{
-		MaxSize:  env.Int("TOOL_CACHE_SIZE", 200), //nolint:mnd // default cache size
-		TTL:      time.Hour,
-		RedisURL: cfg.RedisURL,
+	toolCache := kitcache.New(kitcache.Config{
+		L1MaxItems:    env.Int("TOOL_CACHE_SIZE", 200), //nolint:mnd // default cache size
+		L1TTL:         time.Hour,
+		L2TTL:         time.Hour,
+		RedisURL:      cfg.RedisURL,
+		Prefix:        "gc:",
+		JitterPercent: 0.1,
 	})
 
 	const defaultLLMMaxTokens = 16384

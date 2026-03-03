@@ -2,6 +2,7 @@ package llm
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -70,7 +71,11 @@ func structSchema(t reflect.Type) map[string]any {
 				}
 			}
 		}
-		props[name] = typeSchema(f.Type)
+		fieldSchema := typeSchema(f.Type)
+		if jsTag := f.Tag.Get("jsonschema"); jsTag != "" {
+			applyConstraints(fieldSchema, jsTag)
+		}
+		props[name] = fieldSchema
 		if !omit && f.Type.Kind() != reflect.Ptr {
 			required = append(required, name)
 		}
@@ -85,6 +90,32 @@ func structSchema(t reflect.Type) map[string]any {
 		schema["required"] = required
 	}
 	return schema
+}
+
+// applyConstraints merges jsonschema tag constraints into a field schema.
+// Supported keys: description, pattern (string), minimum, maximum, minLength,
+// maxLength, minItems, maxItems (numeric), enum (pipe-separated values).
+func applyConstraints(schema map[string]any, tag string) {
+	for _, part := range strings.Split(tag, ",") {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "description", "pattern":
+			schema[k] = v
+		case "minimum", "maximum",
+			"minLength", "maxLength",
+			"minItems", "maxItems":
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				continue
+			}
+			schema[k] = n
+		case "enum":
+			schema[k] = strings.Split(v, "|")
+		}
+	}
 }
 
 // injectField adds a property to an object schema and prepends it to required.

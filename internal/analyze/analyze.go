@@ -19,13 +19,15 @@ import (
 	"strings"
 	"sync"
 
+	kitcache "github.com/anatolykoptev/go-kit/cache"
+	"github.com/anatolykoptev/go-kit/llm"
+
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/search"
-	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
@@ -67,7 +69,7 @@ type Deps struct {
 	SearXNG *search.SearXNGClient
 
 	// ToolCache is a generic cache for tool results (search, etc.).
-	ToolCache *cache.GenericCache[string]
+	ToolCache *kitcache.Cache
 }
 
 // maxFileBytes returns the effective file size limit.
