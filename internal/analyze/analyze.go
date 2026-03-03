@@ -198,7 +198,8 @@ type DepGraphInput struct {
 type fileParseResult struct {
 	file   *ingest.File
 	result *parser.ParseResult
-	err    error // non-nil if parsing failed
+	calls  []parser.CallSite // call sites extracted for ranking
+	err    error             // non-nil if parsing failed
 }
 
 // AnalyzeRepo ingests and analyzes a repository mechanically.
@@ -435,11 +436,13 @@ func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCa
 		return fileParseResult{file: file, err: fmt.Errorf("parse %s: %w", file.Path, err)}
 	}
 
+	calls, _ := parser.ExtractCalls(file.Path, source, parser.ParseOpts{Language: file.Language})
+
 	if parseCache != nil {
 		parseCache.Put(file.Path, modTime, size, pr)
 	}
 
-	return fileParseResult{file: file, result: pr}
+	return fileParseResult{file: file, result: pr, calls: calls}
 }
 
 // matchAllRe matches any non-empty string, used when the query is empty or "*".
