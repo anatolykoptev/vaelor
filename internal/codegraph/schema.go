@@ -24,8 +24,10 @@ func GraphSchemaText() string {
 	b.WriteString("  - IMPLEMENTS (Symbol->Symbol) — interface implementation (Java/TS)\n")
 	b.WriteString("  - IMPORTS (File->Package; properties: alias)\n")
 	b.WriteString("  - BELONGS_TO (File->Layer)\n")
-	b.WriteString("  - HANDLES (Symbol->Route; properties: line) — server-side handler\n")
-	b.WriteString("  - FETCHES (Symbol->Route; properties: line) — client-side caller\n")
+	b.WriteString("  - HANDLES (Symbol->Route; properties: line) — server-side handler (HTTP or WordPress hook callback)\n")
+	b.WriteString("  - FETCHES (Symbol->Route; properties: line) — client-side caller (HTTP or WordPress hook invocation)\n")
+	b.WriteString("\n")
+	b.WriteString("Route also represents WordPress hooks: Method=ACTION|FILTER, Path=hook_name, framework=wordpress\n")
 	b.WriteString("\n")
 
 	b.WriteString("Symbol kind values: function, method, type, struct, interface, class, const, var, module")

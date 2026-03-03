@@ -124,6 +124,70 @@ func commonPrefixLen(a, b string) int {
 	return n
 }
 
+// InjectHookEdges adds synthetic call edges for WordPress hook connections.
+//
+// For each hook name that has both a registration (add_action/add_filter,
+// Side="server") and an invocation (do_action/apply_filters, Side="client"),
+// it creates a CallEdge from the invoking function to the callback function.
+//
+// hookRoutes must come from routes.ExtractAll("php", ...) and symbols from
+// the same repository's parsed symbol table.
+func InjectHookEdges(cg *CallGraph, hookRoutes []HookRoute) {
+	// Index server-side: hook name -> []callback name
+	callbacks := make(map[string][]string)
+	for _, r := range hookRoutes {
+		if r.Side == "server" && r.Handler != "" {
+			callbacks[r.Path] = append(callbacks[r.Path], r.Handler)
+		}
+	}
+	if len(callbacks) == 0 {
+		return
+	}
+
+	// Index symbols by name for resolution.
+	byName := indexByName(cg.Symbols)
+
+	// For each client-side hook invocation, create edges to all registered callbacks.
+	for _, r := range hookRoutes {
+		if r.Side != "client" {
+			continue
+		}
+		cbs, ok := callbacks[r.Path]
+		if !ok {
+			continue
+		}
+		for _, cbName := range cbs {
+			targets := byName[cbName]
+			if len(targets) == 0 {
+				// Unresolved callback — still record the edge.
+				cg.Edges = append(cg.Edges, CallEdge{
+					CalleeName: cbName,
+					Line:       r.Line,
+				})
+				continue
+			}
+			for _, target := range targets {
+				cg.Edges = append(cg.Edges, CallEdge{
+					Callee:     target,
+					CalleeName: cbName,
+					Line:       r.Line,
+				})
+			}
+		}
+	}
+}
+
+// HookRoute is a minimal representation of a WordPress hook route used by
+// InjectHookEdges. It mirrors the fields needed from routes.Route without
+// importing the routes package (to avoid circular dependencies).
+type HookRoute struct {
+	Method  string // "ACTION" or "FILTER"
+	Path    string // hook name
+	Handler string // callback function name (empty for client-side)
+	Side    string // "server" or "client"
+	Line    uint32
+}
+
 func indexByName(symbols []*parser.Symbol) map[string][]*parser.Symbol {
 	m := make(map[string][]*parser.Symbol)
 	for _, sym := range symbols {

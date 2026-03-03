@@ -83,6 +83,14 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	}
 
 	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
+
+	// Inject WordPress hook edges before building the graph so they appear
+	// as regular CALLS edges in code_graph.
+	hookRoutes := extractHookRoutes(root, allFiles)
+	if len(hookRoutes) > 0 {
+		callgraph.InjectHookEdges(cg, hookRoutes)
+	}
+
 	vertices, edges := buildGraph(root, allFiles, allSymbols, cg, fileImports, allRels)
 
 	if err := insertBatches(ctx, store, gname, cfg.BatchSize, vertices, buildVertexBatch); err != nil {
@@ -316,6 +324,34 @@ func buildFileToLayerMap(root string, allFiles []*ingest.File, layers []polyglot
 		}
 	}
 	return fileToLayer
+}
+
+// extractHookRoutes collects WordPress hook routes from PHP files and converts
+// them to callgraph.HookRoute for injection into the call graph.
+func extractHookRoutes(root string, allFiles []*ingest.File) []callgraph.HookRoute {
+	var out []callgraph.HookRoute
+	for _, f := range allFiles {
+		if f.Language != "php" {
+			continue
+		}
+		src, err := os.ReadFile(f.Path)
+		if err != nil {
+			continue
+		}
+		for _, r := range routes.ExtractAll("php", src) {
+			if r.Framework != "wordpress" {
+				continue
+			}
+			out = append(out, callgraph.HookRoute{
+				Method:  r.Method,
+				Path:    r.Path,
+				Handler: r.Handler,
+				Side:    r.Side,
+				Line:    r.Line,
+			})
+		}
+	}
+	return out
 }
 
 // matchesLayer reports whether a relative file path belongs to the given layer
