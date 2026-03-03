@@ -471,6 +471,42 @@ func TestAnalyze_ServerOnlyHooks(t *testing.T) {
 	}
 }
 
+// TestAnalyze_ConstructorNotDead verifies that language constructors are
+// not flagged as dead code — they're called implicitly by new ClassName().
+func TestAnalyze_ConstructorNotDead(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+	}{
+		{"__construct", "/app/class.php"},
+		{"__init__", "/app/class.py"},
+		{"constructor", "/app/class.ts"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sym := &parser.Symbol{
+				Name: tc.name, Kind: parser.KindMethod,
+				File: tc.file, StartLine: 5, EndLine: 15,
+			}
+			mainSym := &parser.Symbol{
+				Name: "main", Kind: parser.KindFunction,
+				File: tc.file, StartLine: 1, EndLine: 3,
+			}
+			cg := &callgraph.CallGraph{
+				Symbols: []*parser.Symbol{sym, mainSym},
+				Edges:   nil,
+			}
+			result := Analyze(cg, Options{})
+			for _, d := range result.DeadSymbols {
+				if d.Name == tc.name {
+					t.Errorf("%s should not be flagged as dead (implicit constructor)", tc.name)
+				}
+			}
+		})
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
