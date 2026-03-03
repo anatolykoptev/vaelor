@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	kitcache "github.com/anatolykoptev/go-kit/cache"
+
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -236,4 +238,9 @@ func (c *LLMCache) Stats() Stats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return Stats{Hits: c.hits, Misses: c.misses, Entries: c.order.Len()}
+}
+
+// Key generates a deterministic cache key from parts using FNV-128a.
+func Key(parts ...string) string {
+	return kitcache.Key(parts...)
 }

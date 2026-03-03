@@ -110,8 +110,7 @@ func (c *Client) Stream(ctx context.Context, messages []Message, opts ...ChatOpt
 				return sr, nil
 			}
 			lastErr = err
-			var re *retryableError
-			if !asRetryable(err, &re) {
+			if !asRetryable(err) {
 				return nil, err
 			}
 		}
@@ -132,8 +131,7 @@ func (c *Client) Stream(ctx context.Context, messages []Message, opts ...ChatOpt
 			return sr, nil
 		}
 		lastErr = err
-		var re *retryableError
-		if !asRetryable(err, &re) {
+		if !asRetryable(err) {
 			return nil, err
 		}
 	}
@@ -161,10 +159,7 @@ func (c *Client) doStreamRequest(ctx context.Context, baseURL, apiKey string, re
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if isRetryableStatus(resp.StatusCode) {
-			return nil, &retryableError{statusCode: resp.StatusCode, body: string(respBody)}
-		}
-		return nil, fmt.Errorf("llm: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return nil, newAPIError(resp.StatusCode, string(respBody), isRetryableStatus(resp.StatusCode))
 	}
 
 	return &StreamResponse{
