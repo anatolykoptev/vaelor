@@ -80,17 +80,17 @@ func computeLargeFileRatio(files []SnapshotFile) float64 {
 // computeDuplicationRatio returns the fraction of functions with duplicate BodyHash.
 // Uses the existing xxhash-based BodyHash on Symbol.
 func computeDuplicationRatio(symbols []*parser.Symbol) float64 {
-	// Count functions/methods with non-zero BodyHash.
+	// Count only functions/methods with non-zero BodyHash in the denominator.
 	hashCounts := make(map[uint64]int)
 	funcCount := 0
 	for _, sym := range symbols {
 		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
 			continue
 		}
-		funcCount++
 		if sym.BodyHash == 0 {
 			continue
 		}
+		funcCount++
 		hashCounts[sym.BodyHash]++
 	}
 	if funcCount == 0 {

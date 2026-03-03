@@ -117,7 +117,7 @@ func FileComplexityFromSnapshot(snap *RepoSnapshot) map[string]float64 {
 			a = &acc{}
 			byFile[rel] = a
 		}
-		a.total += cyclomaticComplexity(sym.Body)
+		a.total += cyclomaticComplexity(sym.Body, sym.Language)
 		a.count++
 	}
 

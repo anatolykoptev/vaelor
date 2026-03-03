@@ -12,6 +12,12 @@ import (
 	"unicode/utf8"
 )
 
+// StripComments removes all comments from source code for the given language.
+// It delegates to the internal stripComments implementation.
+func StripComments(source, language string) string {
+	return stripComments(source, language)
+}
+
 // CleanOpts controls which cleaning transformations are applied.
 type CleanOpts struct {
 	// StripComments removes inline and block comments.

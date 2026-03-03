@@ -250,6 +250,10 @@ func TestCountFuncParams(t *testing.T) {
 		{"func (r *Recv) Method()", 0},
 		{"def foo(self, x, y)", 2}, // Python: self skipped
 		{"func foo(a, b, c int)", 3},
+		{"func Foo[T any](x T)", 1},                                                     // generics
+		{"func (r *Recv) Foo[T any](x T)", 1},                                            // generic method with receiver
+		{"func Foo(f func(int, int) bool)", 1},                                            // nested func type
+		{"func Map[K comparable, V any](m map[K]V, f func(K, V) bool) []K", 2},           // generics + func param
 		{"", 0},
 	}
 
@@ -285,8 +289,24 @@ func TestComputeDuplicationRatio(t *testing.T) {
 		{Kind: parser.KindFunction, BodyHash: 333},
 	}
 	ratio := computeDuplicationRatio(symbols)
-	// 2 out of 4 functions share hash 111.
+	// 2 out of 4 hashed functions share hash 111 (all have non-zero hash).
 	expected := 2.0 / 4.0
+	if ratio < expected-0.01 || ratio > expected+0.01 {
+		t.Errorf("computeDuplicationRatio() = %f, want %f", ratio, expected)
+	}
+}
+
+func TestComputeDuplicationRatio_BodyHashZero(t *testing.T) {
+	// Functions with BodyHash=0 are excluded from both numerator and denominator.
+	symbols := []*parser.Symbol{
+		{Kind: parser.KindFunction, BodyHash: 0},   // excluded
+		{Kind: parser.KindFunction, BodyHash: 0},   // excluded
+		{Kind: parser.KindFunction, BodyHash: 111},  // duplicate
+		{Kind: parser.KindFunction, BodyHash: 111},  // duplicate
+	}
+	ratio := computeDuplicationRatio(symbols)
+	// Only 2 hashed functions, both duplicates → 2/2 = 1.0
+	expected := 1.0
 	if ratio < expected-0.01 || ratio > expected+0.01 {
 		t.Errorf("computeDuplicationRatio() = %f, want %f", ratio, expected)
 	}

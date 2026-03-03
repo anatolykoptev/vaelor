@@ -116,7 +116,7 @@ func countFuncParams(sig string) int {
 	if inner == "" {
 		return 0
 	}
-	params := strings.Split(inner, ",")
+	params := splitParams(inner)
 	count := 0
 	for _, p := range params {
 		p = strings.TrimSpace(p)
@@ -167,11 +167,34 @@ func findMatchingParen(s string, open int) int {
 
 func isIdent(s string) bool {
 	for _, r := range s {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '*' {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '*' && r != '[' && r != ']' && r != ' ' {
 			return false
 		}
 	}
 	return true
+}
+
+// splitParams splits a parameter list by commas, respecting parentheses depth.
+// Commas inside nested parens (e.g., func(K, V)) are not treated as separators.
+func splitParams(s string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 // computeParamMetrics returns average and max parameter count across functions/methods.

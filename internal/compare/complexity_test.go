@@ -6,9 +6,10 @@ import (
 
 func TestCyclomaticComplexity(t *testing.T) {
 	tests := []struct {
-		name   string
-		body   string
-		expect int
+		name     string
+		body     string
+		language string
+		expect   int
 	}{
 		{
 			name:   "empty body",
@@ -46,15 +47,16 @@ func TestCyclomaticComplexity(t *testing.T) {
 			expect: 4,
 		},
 		{
-			name:   "Python patterns",
-			body:   "def foo():\n    if x:\n        pass\n    elif y:\n        pass\n    for i in range(n):\n        pass\n    while z:\n        pass",
-			expect: 5,
+			name:     "Python patterns",
+			body:     "def foo():\n    if x:\n        pass\n    elif y:\n        pass\n    for i in range(n):\n        pass\n    while z:\n        pass",
+			language: "python",
+			expect:   5,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cyclomaticComplexity(tt.body)
+			got := cyclomaticComplexity(tt.body, tt.language)
 			if got != tt.expect {
 				t.Errorf("cyclomaticComplexity() = %d, want %d", got, tt.expect)
 			}
