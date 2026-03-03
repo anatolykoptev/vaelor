@@ -18,3 +18,11 @@
   arguments: (arguments
     (argument
       (name) @call.function)))
+
+; Constructor calls: new \Namespace\ClassName()
+(object_creation_expression
+  (qualified_name (name) @call.function))
+
+; Constructor calls: new ClassName() (simple name)
+(object_creation_expression
+  (name) @call.function)
