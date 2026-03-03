@@ -188,6 +188,27 @@ var templates = map[string]*Template{
 		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.file, s.kind, s.pagerank ORDER BY s.pagerank DESC LIMIT {limit}",
 		Cols:        4,
 	},
+	"hook_handlers": {
+		ID:          "hook_handlers",
+		Description: "Find all callback functions registered for a WordPress hook",
+		Params:      []string{"name"},
+		Cypher:      "MATCH (s:Symbol)-[:HANDLES]->(r:Route {framework: 'wordpress', path: '{name}'}) RETURN s.name, s.file, s.kind, r.method",
+		Cols:        4,
+	},
+	"hook_fires": {
+		ID:          "hook_fires",
+		Description: "Find all functions that fire (invoke) a WordPress hook",
+		Params:      []string{"name"},
+		Cypher:      "MATCH (s:Symbol)-[:FETCHES]->(r:Route {framework: 'wordpress', path: '{name}'}) RETURN s.name, s.file",
+		Cols:        2,
+	},
+	"all_hooks": {
+		ID:          "all_hooks",
+		Description: "List all WordPress hooks found in the codebase",
+		Params:      []string{},
+		Cypher:      "MATCH (r:Route {framework: 'wordpress'}) RETURN r.method, r.path ORDER BY r.path",
+		Cols:        2,
+	},
 }
 
 // GetTemplate returns the template with the given ID, or nil if not found.

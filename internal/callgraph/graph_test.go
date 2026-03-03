@@ -80,6 +80,84 @@ func TestBuildCallGraph_Unresolved(t *testing.T) {
 	}
 }
 
+func TestInjectHookEdges(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/plugin.php", StartLine: 1, EndLine: 20},
+		{Name: "my_callback", Kind: parser.KindFunction, File: "/src/plugin.php", StartLine: 22, EndLine: 30},
+		{Name: "another_cb", Kind: parser.KindFunction, File: "/src/helpers.php", StartLine: 1, EndLine: 10},
+	}
+	cg := &CallGraph{Symbols: symbols}
+
+	hookRoutes := []HookRoute{
+		{Method: "ACTION", Path: "init", Handler: "my_callback", Side: "server"},
+		{Method: "ACTION", Path: "init", Handler: "another_cb", Side: "server"},
+		{Method: "ACTION", Path: "init", Side: "client", Line: 5},
+	}
+
+	InjectHookEdges(cg, hookRoutes)
+
+	// Should create 2 edges: init -> my_callback, init -> another_cb.
+	if len(cg.Edges) != 2 {
+		t.Fatalf("expected 2 edges, got %d", len(cg.Edges))
+	}
+
+	names := map[string]bool{}
+	for _, e := range cg.Edges {
+		if e.Callee == nil {
+			t.Error("expected resolved callee, got nil")
+			continue
+		}
+		names[e.Callee.Name] = true
+	}
+	if !names["my_callback"] {
+		t.Error("missing edge to my_callback")
+	}
+	if !names["another_cb"] {
+		t.Error("missing edge to another_cb")
+	}
+}
+
+func TestInjectHookEdges_Unresolved(t *testing.T) {
+	cg := &CallGraph{Symbols: []*parser.Symbol{}}
+
+	hookRoutes := []HookRoute{
+		{Method: "ACTION", Path: "init", Handler: "missing_func", Side: "server"},
+		{Method: "ACTION", Path: "init", Side: "client", Line: 10},
+	}
+
+	InjectHookEdges(cg, hookRoutes)
+
+	// Should still create an edge with nil Callee.
+	if len(cg.Edges) != 1 {
+		t.Fatalf("expected 1 unresolved edge, got %d", len(cg.Edges))
+	}
+	if cg.Edges[0].Callee != nil {
+		t.Error("expected nil callee for unresolved hook callback")
+	}
+	if cg.Edges[0].CalleeName != "missing_func" {
+		t.Errorf("CalleeName = %q, want missing_func", cg.Edges[0].CalleeName)
+	}
+}
+
+func TestInjectHookEdges_NoClients(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "my_cb", Kind: parser.KindFunction, File: "/src/p.php", StartLine: 1, EndLine: 5},
+	}
+	cg := &CallGraph{Symbols: symbols}
+
+	// Only server-side registrations, no client-side invocations.
+	hookRoutes := []HookRoute{
+		{Method: "ACTION", Path: "init", Handler: "my_cb", Side: "server"},
+	}
+
+	InjectHookEdges(cg, hookRoutes)
+
+	// No client-side fires → no edges created.
+	if len(cg.Edges) != 0 {
+		t.Fatalf("expected 0 edges (no client fires), got %d", len(cg.Edges))
+	}
+}
+
 func TestBuildCallGraph_FindCaller(t *testing.T) {
 	// outer spans lines 1-20, inner spans lines 5-8.
 	// A call at line 15 is inside outer but outside inner → caller should be outer.

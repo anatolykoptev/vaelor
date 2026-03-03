@@ -21,8 +21,9 @@ const (
 
 // Options configures dead code detection.
 type Options struct {
-	IncludeExported bool // include exported (public) symbols — usually false positives
-	IncludeTests    bool // include test-file symbols
+	IncludeExported bool     // include exported (public) symbols — usually false positives
+	IncludeTests    bool     // include test-file symbols
+	HookCallbacks   []string // function names registered as WordPress hook callbacks
 }
 
 // DeadSymbol is a function/method with zero incoming calls.
@@ -92,7 +93,14 @@ func isWellKnownInterfaceMethod(sym *parser.Symbol) bool {
 func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 	called := buildCalledSet(cg.Edges)
 	funcSymbols := filterFuncSymbols(cg.Symbols)
-	dead := collectDeadSymbols(funcSymbols, called, opts)
+
+	// Build hook callback set for fast lookup.
+	hookSet := make(map[string]bool, len(opts.HookCallbacks))
+	for _, name := range opts.HookCallbacks {
+		hookSet[name] = true
+	}
+
+	dead := collectDeadSymbols(funcSymbols, called, hookSet, opts)
 
 	sort.Slice(dead, func(i, j int) bool {
 		if dead[i].File != dead[j].File {
@@ -145,10 +153,10 @@ func shouldSkipSymbol(sym *parser.Symbol, opts Options) bool {
 }
 
 // collectDeadSymbols finds all uncalled symbols that are not excluded by filters.
-func collectDeadSymbols(funcSymbols []*parser.Symbol, called map[*parser.Symbol]bool, opts Options) []DeadSymbol {
+func collectDeadSymbols(funcSymbols []*parser.Symbol, called map[*parser.Symbol]bool, hookSet map[string]bool, opts Options) []DeadSymbol {
 	var dead []DeadSymbol
 	for _, sym := range funcSymbols {
-		if called[sym] || shouldSkipSymbol(sym, opts) {
+		if called[sym] || hookSet[sym.Name] || shouldSkipSymbol(sym, opts) {
 			continue
 		}
 		exported := isExported(sym.Name)

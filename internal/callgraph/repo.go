@@ -9,6 +9,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/routes"
 )
 
 const maxFileBytes = 512 * 1024
@@ -54,7 +55,15 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 		allCalls = append(allCalls, r.calls...)
 	}
 
-	return BuildCallGraph(allSymbols, allCalls), nil
+	cg := BuildCallGraph(allSymbols, allCalls)
+
+	// Inject WordPress hook edges for PHP files.
+	hookRoutes := extractHookRoutes(ir.Files)
+	if len(hookRoutes) > 0 {
+		InjectHookEdges(cg, hookRoutes)
+	}
+
+	return cg, nil
 }
 
 // TraceRepo ingests a repo, extracts symbols and calls, builds call graph, traces from symbol.
@@ -99,6 +108,33 @@ func parseFilesParallel(ctx context.Context, files []*ingest.File) []parseResult
 
 	wg.Wait()
 	return results
+}
+
+// extractHookRoutes collects WordPress hook routes from PHP files.
+func extractHookRoutes(files []*ingest.File) []HookRoute {
+	var out []HookRoute
+	for _, f := range files {
+		if f.Language != "php" {
+			continue
+		}
+		src, err := os.ReadFile(f.Path)
+		if err != nil {
+			continue
+		}
+		for _, r := range routes.ExtractAll("php", src) {
+			if r.Framework != "wordpress" {
+				continue
+			}
+			out = append(out, HookRoute{
+				Method:  r.Method,
+				Path:    r.Path,
+				Handler: r.Handler,
+				Side:    r.Side,
+				Line:    r.Line,
+			})
+		}
+	}
+	return out
 }
 
 func parseFileForCalls(file *ingest.File) parseResult {
