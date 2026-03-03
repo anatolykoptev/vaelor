@@ -146,15 +146,21 @@ func TestInjectHookEdges_NoClients(t *testing.T) {
 	cg := &CallGraph{Symbols: symbols}
 
 	// Only server-side registrations, no client-side invocations.
+	// This simulates WP core hooks (admin_notices, init, etc.) where
+	// do_action() lives in WordPress core, not in the plugin code.
 	hookRoutes := []HookRoute{
 		{Method: "ACTION", Path: "init", Handler: "my_cb", Side: "server"},
 	}
 
 	InjectHookEdges(cg, hookRoutes)
 
-	// No client-side fires → no edges created.
-	if len(cg.Edges) != 0 {
-		t.Fatalf("expected 0 edges (no client fires), got %d", len(cg.Edges))
+	// Server-only hooks still get edges — add_action registration proves
+	// the callback is alive (WordPress core will invoke it).
+	if len(cg.Edges) != 1 {
+		t.Fatalf("expected 1 edge (server-only hook), got %d", len(cg.Edges))
+	}
+	if cg.Edges[0].Callee == nil || cg.Edges[0].Callee.Name != "my_cb" {
+		t.Errorf("expected edge to my_cb, got %v", cg.Edges[0].Callee)
 	}
 }
 
