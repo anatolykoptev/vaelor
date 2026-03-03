@@ -291,6 +291,8 @@ const defaultSymbolLimit = 100
 const maxSymbolLimit = 500
 
 // SearchSymbols searches for symbols matching the query across the repository.
+// Files are ranked by fusion scoring (BM25F + PageRank + exact match) so that
+// symbols from structurally important files appear first when results are truncated.
 func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symbol, error) {
 	var langs []string
 	if input.Language != "" {
@@ -322,9 +324,22 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 		limit = maxSymbolLimit
 	}
 
-	var matched []*parser.Symbol
+	// Rank files by query relevance for deterministic importance-based ordering.
+	queryTerms := extractQueryTerms(input.Query)
+	rankedFiles, _ := prioritizeFilesWithScores(input.Root, ingestResult.Files, parseResults, queryTerms)
+
+	// Index parse results by file path for ranked iteration.
+	parseByPath := make(map[string]fileParseResult, len(parseResults))
 	for _, pr := range parseResults {
-		if pr.result == nil {
+		if pr.file != nil {
+			parseByPath[pr.file.RelPath] = pr
+		}
+	}
+
+	var matched []*parser.Symbol
+	for _, f := range rankedFiles {
+		pr, ok := parseByPath[f.RelPath]
+		if !ok || pr.result == nil {
 			continue
 		}
 		for _, sym := range pr.result.Symbols {

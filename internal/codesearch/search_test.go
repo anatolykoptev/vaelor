@@ -132,6 +132,39 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 	}
 }
 
+// TestSearch_MatchDensityRanking verifies that files with more matches appear first.
+// Three files: aa.go (1 match), bb.go (5 matches), cc.go (3 matches).
+// With MaxResults=6, results should come from bb.go first (5), then cc.go (1).
+func TestSearch_MatchDensityRanking(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "aa.go", "package main\n// TODO fix\nfunc aa() {}\n")
+	writeFile(t, dir, "bb.go", "package main\n// TODO one\n// TODO two\n// TODO three\n// TODO four\n// TODO five\n")
+	writeFile(t, dir, "cc.go", "package main\n// TODO alpha\n// TODO beta\n// TODO gamma\n")
+
+	results, err := Search(context.Background(), SearchInput{
+		Root:       dir,
+		Pattern:    "TODO",
+		MaxResults: 6,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 6 {
+		t.Fatalf("expected 6 matches, got %d", len(results))
+	}
+
+	// First 5 results must come from bb.go (most matches).
+	for i := 0; i < 5; i++ {
+		if results[i].File != "bb.go" {
+			t.Errorf("result[%d]: expected bb.go, got %s", i, results[i].File)
+		}
+	}
+	// Result 6 must come from cc.go (next highest density).
+	if results[5].File != "cc.go" {
+		t.Errorf("result[5]: expected cc.go, got %s", results[5].File)
+	}
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 

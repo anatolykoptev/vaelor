@@ -480,6 +480,52 @@ func TestIsStdlibImport(t *testing.T) {
 	}
 }
 
+// TestSearchSymbols_RankedOrder verifies that fusion ranking promotes symbols from
+// structurally important files. zz_util/ defines Process (alphabetically last) and
+// aa_main/ calls it — with limit=1 we must get the definition, not the caller.
+func TestSearchSymbols_RankedOrder(t *testing.T) {
+	root := t.TempDir()
+
+	// zz_util is alphabetically last but defines Process — should rank first by exact match.
+	writeFile(t, filepath.Join(root, "zz_util", "util.go"), `package zz_util
+
+// Process does the main work.
+func Process(data string) string {
+	return data + " processed"
+}
+`)
+	// aa_main is alphabetically first and calls Process.
+	writeFile(t, filepath.Join(root, "aa_main", "main.go"), `package aa_main
+
+import "example.com/myapp/zz_util"
+
+// Run calls Process from zz_util.
+func Run(input string) string {
+	return zz_util.Process(input)
+}
+`)
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/myapp\n\ngo 1.26\n")
+
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "Process",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) != 1 {
+		t.Fatalf("expected 1 symbol, got %d", len(symbols))
+	}
+	if symbols[0].Name != "Process" {
+		t.Errorf("expected symbol Process, got %q", symbols[0].Name)
+	}
+	// The result must come from zz_util (definition), not aa_main.
+	if !strings.Contains(symbols[0].File, "zz_util") {
+		t.Errorf("expected symbol from zz_util/, got file %q", symbols[0].File)
+	}
+}
+
 // TestAnalyzeRepo_FusionRanking verifies that fusion ranking (BM25F + PPR + exact match)
 // promotes files containing queried symbols and their callers above unrelated files.
 func TestAnalyzeRepo_FusionRanking(t *testing.T) {
