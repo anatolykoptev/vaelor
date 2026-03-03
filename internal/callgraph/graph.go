@@ -18,8 +18,9 @@ type CallEdge struct {
 
 // CallGraph holds all call relationships for a repository.
 type CallGraph struct {
-	Edges   []CallEdge
-	Symbols []*parser.Symbol
+	Edges         []CallEdge
+	Symbols       []*parser.Symbol
+	HookCallbacks []string // function names registered as hook callbacks
 }
 
 // BuildCallGraph resolves call sites against the symbol table.
@@ -183,6 +184,15 @@ func InjectHookEdges(cg *CallGraph, hookRoutes []HookRoute) {
 			}
 		}
 	}
+
+	// Collect all callback names for dead code safety net.
+	var cbCollected []string
+	for _, r := range hookRoutes {
+		if r.Side == "server" && r.Handler != "" {
+			cbCollected = append(cbCollected, r.Handler)
+		}
+	}
+	cg.HookCallbacks = cbCollected
 
 	// Second pass: inject edges for server-only hooks (no client-side invocation
 	// in the analyzed repo). These are typically WordPress core hooks like
