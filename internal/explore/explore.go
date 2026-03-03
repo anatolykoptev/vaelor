@@ -35,7 +35,7 @@ type Input struct {
 // Result is the structured output of an exploration.
 type Result struct {
 	ReadmeExcerpt string           `json:"readme_excerpt,omitempty"`
-	Hint          string           `json:"hint,omitempty"`
+	FocusMode     string           `json:"focus_mode,omitempty"`
 	FileCount     int              `json:"file_count"`
 	SymbolCount   int              `json:"symbol_count"`
 	TotalLines    int              `json:"total_lines"`
@@ -93,6 +93,30 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		return nil, err
 	}
 
+	var focusMode string
+
+	// Content-based fallback: when keyword focus matches no file paths,
+	// re-ingest all files and filter by symbol names, imports, and calls.
+	if len(ir.Files) == 0 && input.Focus != "" && ingest.IsKeywordFocus(input.Focus) {
+		irAll, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+			Root:         input.Root,
+			Languages:    langs,
+			MaxFileBytes: maxFileBytes,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		prAll, err := parseAllFiles(ctx, irAll.Files)
+		if err != nil {
+			return nil, err
+		}
+
+		matched := contentFilter(input.Focus, prAll.symbols, prAll.imports, prAll.calls)
+		ir.Files = filterFiles(irAll.Files, matched)
+		focusMode = "content"
+	}
+
 	pr, err := parseAllFiles(ctx, ir.Files)
 	if err != nil {
 		return nil, err
@@ -109,17 +133,9 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	readme := readmeExcerpt(input.Root)
 	health := computeHealth(pr.symbols, ir.Files)
 
-	var hint string
-	if len(ir.Files) == 0 && input.Focus != "" {
-		hint = "focus parameter filters by file path, not by topic. " +
-			"With keywords (e.g. 'auth middleware'), ALL words must appear in a single file's path. " +
-			"Try: remove focus to see all files, use a subdirectory path (e.g. 'internal/auth'), " +
-			"or use fewer keywords."
-	}
-
 	return &Result{
 		ReadmeExcerpt: readme,
-		Hint:          hint,
+		FocusMode:     focusMode,
 		FileCount:     len(ir.Files),
 		SymbolCount:   len(pr.symbols),
 		TotalLines:    pr.totalLines,
@@ -289,5 +305,19 @@ func buildPackageList(files []*ingest.File, root string) []string {
 	}
 	sort.Strings(pkgs)
 	return pkgs
+}
+
+// filterFiles returns only files whose absolute path is in the matched set.
+func filterFiles(files []*ingest.File, matched map[string]bool) []*ingest.File {
+	if len(matched) == 0 {
+		return nil
+	}
+	out := make([]*ingest.File, 0, len(matched))
+	for _, f := range files {
+		if matched[f.Path] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
