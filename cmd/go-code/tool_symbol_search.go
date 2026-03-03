@@ -16,8 +16,11 @@ type SymbolSearchInput struct {
 	// Repo is the GitHub repo slug (owner/repo) or local filesystem path.
 	Repo string `json:"repo" jsonschema_description:"GitHub repo slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 
-	// Query is the symbol name or pattern to search for (supports wildcards: Auth*, *Handler).
-	Query string `json:"query" jsonschema_description:"Symbol name or pattern to search (supports wildcards: Auth* or *Handler)"`
+	// Query is the symbol name or pattern to search for.
+	Query string `json:"query,omitempty" jsonschema_description:"Symbol name or pattern to search (supports wildcards: Auth* or *Handler)"`
+
+	// Symbol is an alias for Query — matches call_trace/impact_analysis naming.
+	Symbol string `json:"symbol,omitempty" jsonschema_description:"Alias for query — symbol name or pattern (supports wildcards: Auth* or *Handler)"`
 
 	// Kind filters by symbol kind: function, method, type, struct, interface, const, var.
 	Kind string `json:"kind,omitempty" jsonschema_description:"Filter by kind: function | method | type | struct | interface | const | var (default: all)"`
@@ -67,11 +70,16 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"Supports wildcard patterns (Auth*, *Handler), kind filtering, and language filtering. " +
 			"Optionally returns full source bodies for matched symbols.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, error) {
+		// Allow "symbol" as alias for "query" — matches call_trace/impact_analysis naming.
+		if input.Symbol != "" && input.Query == "" {
+			input.Query = input.Symbol
+		}
+
 		if input.Repo == "" {
 			return errResult("repo is required"), nil
 		}
 		if input.Query == "" {
-			return errResult("query is required"), nil
+			return errResult("query (or symbol) is required"), nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
