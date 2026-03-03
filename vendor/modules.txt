@@ -95,6 +95,7 @@ github.com/smacker/go-tree-sitter/php
 github.com/smacker/go-tree-sitter/python
 github.com/smacker/go-tree-sitter/ruby
 github.com/smacker/go-tree-sitter/rust
+github.com/smacker/go-tree-sitter/typescript/tsx
 github.com/smacker/go-tree-sitter/typescript/typescript
 # github.com/smacker/gum v0.0.0-20191210202023-2be77f0b3794
 ## explicit; go 1.13
