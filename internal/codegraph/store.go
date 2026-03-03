@@ -268,7 +268,9 @@ func (s *Store) DropGraph(ctx context.Context, name, repoKey string) error {
 		return fmt.Errorf("delete meta row: %w", err)
 	}
 
-	_, _ = conn.Exec(ctx, `DELETE FROM code_file_mtimes WHERE repo_key = $1`, repoKey)
+	if _, err := conn.Exec(ctx, `DELETE FROM code_file_mtimes WHERE repo_key = $1`, repoKey); err != nil {
+		slog.Warn("codegraph: delete mtimes on drop", slog.String("repo", repoKey), slog.Any("error", err))
+	}
 
 	return nil
 }

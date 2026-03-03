@@ -2,7 +2,7 @@ package codegraph
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -34,6 +34,6 @@ func storeFileMtimes(ctx context.Context, store *Store, repoKey string, files []
 		mtimes[f.RelPath] = f.ModTime
 	}
 	if err := store.UpsertFileMtimes(ctx, repoKey, mtimes); err != nil {
-		log.Printf("codegraph: store mtimes: %v", err)
+		slog.Warn("codegraph: store mtimes failed", slog.Any("error", err))
 	}
 }
