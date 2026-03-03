@@ -17,12 +17,24 @@ type xmlHealthResponse struct {
 }
 
 type xmlHealth struct {
-	Repo     string         `xml:"repo,attr"`
-	Language string         `xml:"language,attr,omitempty"`
-	Metrics  xmlCompMetrics `xml:"metrics"`
-	Score    float64        `xml:"score,attr"`
-	Hotspots *xmlHotspots   `xml:"hotspots,omitempty"`
-	RelStats *xmlRelStats   `xml:"relStats,omitempty"`
+	Repo            string              `xml:"repo,attr"`
+	Language        string              `xml:"language,attr,omitempty"`
+	Metrics         xmlCompMetrics      `xml:"metrics"`
+	Score           float64             `xml:"score,attr"`
+	Hotspots        *xmlHotspots        `xml:"hotspots,omitempty"`
+	RelStats        *xmlRelStats        `xml:"relStats,omitempty"`
+	Recommendations *xmlRecommendations `xml:"recommendations,omitempty"`
+}
+
+type xmlRecommendations struct {
+	Items []xmlRecommendation `xml:"item"`
+}
+
+type xmlRecommendation struct {
+	Priority  int    `xml:"priority,attr"`
+	Potential string `xml:"potential,attr"`
+	Area      string `xml:"area,attr"`
+	Message   string `xml:",chardata"`
 }
 
 // CodeHealthInput is the input schema for the code_health tool.
@@ -41,7 +53,8 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		Description: "Assess code quality of a single repository. " +
 			"Returns grade (A-F), numeric score (0-100), metrics " +
 			"(complexity, test coverage, docs, error handling), " +
-			"maintenance hotspots, and type relationships. " +
+			"maintenance hotspots, type relationships, and " +
+			"prioritized recommendations with estimated score impact. " +
 			"No LLM — fast, purely static analysis.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeHealthInput) (*mcp.CallToolResult, any, error) {
 		if input.Repo == "" {
@@ -74,7 +87,11 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 
 		relStats := compare.ComputeRelStats(snap.Rels)
 
-		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats)
+		// Recommendations.
+		outliers := compare.CollectOutliers(snap)
+		recs := compare.ComputeRecommendations(metrics, outliers, 5)
+
+		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs)
 		data, err := xml.MarshalIndent(resp, "", "  ")
 		if err != nil {
 			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
@@ -89,6 +106,7 @@ func buildHealthXML(
 	score float64,
 	hotspots []compare.HotspotFile,
 	relStats *compare.RelStats,
+	recs []compare.Recommendation,
 ) xmlHealthResponse {
 	resp := xmlHealthResponse{
 		Health: xmlHealth{
@@ -109,6 +127,22 @@ func buildHealthXML(
 			UniqueSubjects: relStats.UniqueSubjects,
 		}
 	}
+	if len(recs) > 0 {
+		resp.Health.Recommendations = convertRecommendations(recs)
+	}
 
 	return resp
+}
+
+func convertRecommendations(recs []compare.Recommendation) *xmlRecommendations {
+	items := make([]xmlRecommendation, len(recs))
+	for i, r := range recs {
+		items[i] = xmlRecommendation{
+			Priority:  r.Priority,
+			Potential: fmt.Sprintf("+%d", r.Potential),
+			Area:      r.Area,
+			Message:   r.Message,
+		}
+	}
+	return &xmlRecommendations{Items: items}
 }
