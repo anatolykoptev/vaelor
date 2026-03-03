@@ -324,7 +324,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Goal**: Remove LLM dependency from core tools, switch to structured XML output, modernize infrastructure.
 
-**Status**: Complete (2026-03-02). 28 commits since v1.13.0.
+**Status**: Complete (2026-03-02). 33 commits since v1.13.0.
 
 ### repo_analyze V2 ✅
 - [x] Removed LLM dependency — pure mechanical AST data in V2 XML
@@ -349,7 +349,8 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] README excerpt (first meaningful sentences)
 - [x] Dep highlights (lightweight dep overview without LLM)
 - [x] Health score (lightweight quality score from parsed symbols)
-- [x] Hint when focus returns 0 files (explains correct usage)
+- [x] Content-based focus fallback: when focus matches no file paths, re-ingest and filter by symbol names, imports, and call sites (OR logic)
+- [x] `FocusMode` field in Result (`"content"` when fallback used, empty otherwise)
 
 ### Tool improvements ✅
 - [x] `call_trace`: compact mode (skip LLM narrative, tree-only output)
@@ -364,7 +365,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Resolved 28 golangci-lint issues across codebase
 - [x] Anchored gitignore patterns (leading `/`)
 
-**Deliverable**: LLM-free core analysis, XML output, 13 MCP tools fully polished. ✅
+**Deliverable**: LLM-free core analysis, XML output, content-based explore focus, 13 MCP tools fully polished. ✅
 
 ---
 
@@ -485,7 +486,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
       Identifier Ranking   Semantic Search   Type-Aware Analysis
 ```
 
-**Completed**: v1.0 through v1.14 (13 tools, 9 languages, 231 files, 55K lines).
+**Completed**: v1.0 through v1.14 (13 tools, 9 languages).
 **Next**: Identifier-level ranking (fusion scoring, personalized PageRank).
 **Independent**: Semantic search, type-aware analysis can proceed in parallel.
 
@@ -509,7 +510,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 | v1.11.0 | `c8d7a25` | Type hierarchy + dead code + incremental indexing |
 | v1.12.0 | `13da1d0` | `code_search` tool + graph improvements |
 | v1.13.0 | `8eaf53f` | `explore` tool + codegraph fixes |
-| v1.14.0 | `0c741dd` | LLM-free architecture, XML output, `code_health`, tool polish |
+| v1.14.0 | `0af48a3` | LLM-free architecture, XML output, `code_health`, explore content fallback |
 
 ## Technical Debt Watch
 
