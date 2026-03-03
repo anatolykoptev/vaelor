@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -48,7 +49,21 @@ func AddTool[In any](s *mcp.Server, t *mcp.Tool, h func(context.Context, *mcp.Ca
 		coerceStringTypes(m, schema)
 
 		if err := resolved.Validate(&m); err != nil {
-			return toolError(fmt.Sprintf("validating arguments: %v", err)), nil
+			msg := err.Error()
+			// Enhance "unexpected additional properties" with valid property list.
+			if strings.Contains(msg, "unexpected additional properties") {
+				var validProps []string
+				if schema.Properties != nil {
+					for k := range schema.Properties {
+						validProps = append(validProps, k)
+					}
+				}
+				if len(validProps) > 0 {
+					sort.Strings(validProps)
+					msg += fmt.Sprintf(". Valid parameters: %s", strings.Join(validProps, ", "))
+				}
+			}
+			return toolError(fmt.Sprintf("validating arguments: %v", msg)), nil
 		}
 
 		coerced, err := json.Marshal(m)
