@@ -51,7 +51,7 @@ func init() {
 func (h *typescriptHandler) Language() string { return "typescript" }
 
 func (h *typescriptHandler) Extensions() []string {
-	return []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+	return []string{".ts", ".js", ".mjs", ".cjs"}
 }
 
 func (h *typescriptHandler) SitterLanguage() *sitter.Language { return h.lang }

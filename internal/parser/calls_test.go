@@ -220,6 +220,55 @@ class Plugin {
 	}
 }
 
+func TestExtractCalls_JSXAttributeRef(t *testing.T) {
+	source := []byte(`
+import { useState } from 'react';
+
+const handleReplace = (word) => {
+    console.log(word);
+};
+
+const handleCheck = () => {
+    checkText();
+};
+
+const Component = () => {
+    return (
+        <div>
+            <Button onClick={handleCheck} />
+            <Button onClick={() => handleReplace('word')} />
+        </div>
+    );
+};
+
+export default Component;
+`)
+	calls, err := ExtractCalls("component.tsx", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+
+	// handleCheck — JSX attribute reference (not a call expression)
+	if !found["handleCheck"] {
+		t.Error("missing JSX reference to 'handleCheck'")
+	}
+
+	// handleReplace — called inside arrow function in JSX attribute
+	if !found["handleReplace"] {
+		t.Error("missing call to 'handleReplace'")
+	}
+
+	// checkText — regular call inside handleCheck function
+	if !found["checkText"] {
+		t.Error("missing call to 'checkText'")
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {
