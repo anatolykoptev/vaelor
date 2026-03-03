@@ -35,6 +35,7 @@ type Input struct {
 // Result is the structured output of an exploration.
 type Result struct {
 	ReadmeExcerpt string           `json:"readme_excerpt,omitempty"`
+	Hint          string           `json:"hint,omitempty"`
 	FileCount     int              `json:"file_count"`
 	SymbolCount   int              `json:"symbol_count"`
 	TotalLines    int              `json:"total_lines"`
@@ -108,8 +109,17 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	readme := readmeExcerpt(input.Root)
 	health := computeHealth(pr.symbols, ir.Files)
 
+	var hint string
+	if len(ir.Files) == 0 && input.Focus != "" {
+		hint = "focus parameter filters by file path, not by topic. " +
+			"With keywords (e.g. 'auth middleware'), ALL words must appear in a single file's path. " +
+			"Try: remove focus to see all files, use a subdirectory path (e.g. 'internal/auth'), " +
+			"or use fewer keywords."
+	}
+
 	return &Result{
 		ReadmeExcerpt: readme,
+		Hint:          hint,
 		FileCount:     len(ir.Files),
 		SymbolCount:   len(pr.symbols),
 		TotalLines:    pr.totalLines,
