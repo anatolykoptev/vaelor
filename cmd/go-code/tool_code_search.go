@@ -18,6 +18,7 @@ type CodeSearchInput struct {
 	Query        string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
 	IsRegex      bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
 	FileGlob     string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go', '*.py')"`
+	Path         string `json:"path,omitempty" jsonschema_description:"Directory path filter — alias for file_glob (e.g. 'internal/query'). Converted to file_glob automatically."`
 	Language     string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python, typescript)"`
 	ContextLines  int   `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
 	MaxResults    int   `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
@@ -67,6 +68,10 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	// Allow "query" as alias for "pattern".
 	if input.Pattern == "" && input.Query != "" {
 		input.Pattern = input.Query
+	}
+	// Allow "path" as alias for "file_glob" — LLMs often use path instead.
+	if input.Path != "" && input.FileGlob == "" {
+		input.FileGlob = input.Path + "/**"
 	}
 	if input.Pattern == "" {
 		return errResult("pattern is required"), nil, nil
