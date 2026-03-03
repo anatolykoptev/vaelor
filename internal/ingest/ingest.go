@@ -251,6 +251,8 @@ func DetectLanguage(filename string) string {
 		return "ruby"
 	case ".cs":
 		return "csharp"
+	case ".php":
+		return "php"
 	default:
 		return ""
 	}
