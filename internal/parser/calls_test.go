@@ -184,6 +184,42 @@ class Controller {
 	}
 }
 
+func TestExtractCalls_PHPNewExpression(t *testing.T) {
+	source := []byte(`<?php
+class Settings {
+    public function __construct() {}
+    public function register() {}
+}
+
+class Plugin {
+    public function init() {
+        $settings = new Settings();
+        $settings->register();
+        $license = new \GigienaTeksta\License();
+    }
+}
+`)
+	calls, err := ExtractCalls("plugin.php", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+
+	if !found["register"] {
+		t.Error("missing call to 'register'")
+	}
+	if !found["Settings"] {
+		t.Error("missing call to 'Settings' from new expression")
+	}
+	if !found["License"] {
+		t.Error("missing call to 'License' from qualified new expression")
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {
