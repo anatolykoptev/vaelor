@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"time"
@@ -52,12 +53,22 @@ func main() {
 	registerTools(server, cfg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
 
+	hooks := mcpserver.MCPHooks{
+		OnToolCall: func(_ context.Context, name string) {
+			slog.Info("tool_call", slog.String("tool", name))
+		},
+		OnToolResult: func(_ context.Context, name string, dur time.Duration, isErr bool) {
+			slog.Info("tool_result", slog.String("tool", name), slog.Duration("duration", dur), slog.Bool("error", isErr))
+		},
+	}
+
 	if err := mcpserver.Run(server, mcpserver.Config{
-		Name:           serviceName,
-		Version:        version,
-		Port:           cfg.Port,
-		SessionTimeout: 10 * time.Minute,
-		MCPLogger:      slog.Default(),
+		Name:                   serviceName,
+		Version:                version,
+		Port:                   cfg.Port,
+		SessionTimeout:         10 * time.Minute,
+		MCPLogger:              slog.Default(),
+		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware()},
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
