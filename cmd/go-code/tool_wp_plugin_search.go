@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -19,26 +20,26 @@ type WPPluginSearchInput struct {
 
 // registerWPPluginSearch registers the wp_plugin_search MCP tool.
 func registerWPPluginSearch(server *mcp.Server, _ Config, _ analyze.Deps) {
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "wp_plugin_search",
 		Description: "Search the WordPress.org plugin directory. " +
 			"Returns plugin name, slug, version, active installs, rating, and description. " +
 			"Use the slug with any other tool (e.g. explore repo=\"wp:slug\") to analyze the plugin.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input WPPluginSearchInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input WPPluginSearchInput) (*mcp.CallToolResult, error) {
 		if input.Query == "" {
-			return errResult("query is required"), nil, nil
+			return errResult("query is required"), nil
 		}
 
 		result, err := ingest.SearchWPPlugins(ctx, input.Query, input.PerPage, input.Page)
 		if err != nil {
-			return errResult(fmt.Sprintf("search failed: %v", err)), nil, nil
+			return errResult(fmt.Sprintf("search failed: %v", err)), nil
 		}
 
 		if len(result.Plugins) == 0 {
-			return textResult("No plugins found for: " + input.Query), nil, nil
+			return textResult("No plugins found for: " + input.Query), nil
 		}
 
-		return textResult(formatWPSearchResults(input.Query, result)), nil, nil
+		return textResult(formatWPSearchResults(input.Query, result)), nil
 	})
 }
 

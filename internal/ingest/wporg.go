@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -72,11 +73,18 @@ type WPSearchResult struct {
 	DownloadLink     string `json:"download_link"`
 }
 
+// wpSearchInfo holds pagination metadata from the WP search API.
+type wpSearchInfo struct {
+	Page    int `json:"page"`
+	Pages   int `json:"pages"`
+	Results int `json:"results"`
+}
+
 // WPSearchResponse is the top-level response from the query_plugins API.
 type WPSearchResponse struct {
-	Page    int              `json:"page"`
-	Pages   int              `json:"pages"`
-	Results int              `json:"info_results"` // total count
+	Info    wpSearchInfo     `json:"info"`
+	Page    int              `json:"-"`
+	Pages   int              `json:"-"`
 	Plugins []WPSearchResult `json:"plugins"`
 }
 
@@ -94,7 +102,7 @@ func SearchWPPlugins(ctx context.Context, query string, perPage, page int) (*WPS
 	ctx, cancel := context.WithTimeout(ctx, wpMetaTimeout)
 	defer cancel()
 
-	url := fmt.Sprintf(wpSearchURL, query, perPage, page)
+	url := fmt.Sprintf(wpSearchURL, url.QueryEscape(query), perPage, page)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create search request: %w", err)
@@ -114,6 +122,8 @@ func SearchWPPlugins(ctx context.Context, query string, perPage, page int) (*WPS
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode search response: %w", err)
 	}
+	result.Page = result.Info.Page
+	result.Pages = result.Info.Pages
 	return &result, nil
 }
 
