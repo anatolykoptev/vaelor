@@ -4,20 +4,25 @@ import "math"
 
 // Grade thresholds — score out of 100.
 const (
-	gradeAThreshold = 80
-	gradeBThreshold = 60
-	gradeCThreshold = 40
-	gradeDThreshold = 20
+	gradeAPlusThreshold = 90
+	gradeAThreshold     = 80
+	gradeBThreshold     = 70
+	gradeCThreshold     = 60
+	gradeDThreshold     = 50
 )
 
-// Scoring weights — must sum to 1.0.
+// Scoring weights — 10 sub-scores, must sum to 1.0.
 const (
-	weightComplexity    = 0.25
-	weightTestCoverage  = 0.20
-	weightDocCoverage   = 0.15
-	weightFuncSize      = 0.15
-	weightErrorHandling = 0.15
-	weightMaxComplexity = 0.10
+	weightCognitiveComplexity = 0.15
+	weightCyclomaticAvg       = 0.08
+	weightCyclomaticMax       = 0.05
+	weightTestCoverage        = 0.18
+	weightDocCoverage         = 0.10
+	weightFuncSize            = 0.10
+	weightErrorHandling       = 0.10
+	weightNestingDepth        = 0.08
+	weightFileSize            = 0.08
+	weightDuplication         = 0.08
 )
 
 // Target ratios — ideal thresholds for normalization.
@@ -28,34 +33,44 @@ const (
 )
 
 // GradeScore computes a quality score in [0, 100] from RepoMetrics.
-// Higher is better.
+// Higher is better. Uses 10 sub-scores with weights summing to 1.0.
 func GradeScore(m RepoMetrics) float64 {
 	if m.Files == 0 {
 		return 0
 	}
 
 	// Each sub-score is in [0, 1], where 1 = best.
-	complexityScore := clamp01(1.0 - (m.AvgComplexity-3.0)/12.0)
-	maxComplexityScore := clamp01(1.0 - (float64(m.MaxComplexity)-8.0)/17.0)
+	cognitiveScore := clamp01(1.0 - (m.AvgCognitiveComplexity-5.0)/20.0)
+	cyclomaticAvgScore := clamp01(1.0 - (m.AvgComplexity-3.0)/12.0)
+	cyclomaticMaxScore := clamp01(1.0 - (float64(m.MaxComplexity)-8.0)/17.0)
 	testScore := clamp01(m.TestRatio / targetTestRatio)
 	docScore := clamp01(m.DocRatio / targetDocRatio)
 	funcSizeScore := clamp01(1.0 - (m.AvgFuncLines-15.0)/45.0)
 	errorScore := clamp01(m.ErrorHandlingRatio / targetErrorHandlingRatio)
+	nestingScore := clamp01(1.0 - (float64(m.MaxNestingDepth)-3.0)/5.0)
+	fileSizeScore := clamp01(1.0 - m.LargeFileRatio*2.0)
+	duplicationScore := clamp01(1.0 - m.DuplicationRatio*5.0)
 
-	total := complexityScore*weightComplexity +
-		maxComplexityScore*weightMaxComplexity +
+	total := cognitiveScore*weightCognitiveComplexity +
+		cyclomaticAvgScore*weightCyclomaticAvg +
+		cyclomaticMaxScore*weightCyclomaticMax +
 		testScore*weightTestCoverage +
 		docScore*weightDocCoverage +
 		funcSizeScore*weightFuncSize +
-		errorScore*weightErrorHandling
+		errorScore*weightErrorHandling +
+		nestingScore*weightNestingDepth +
+		fileSizeScore*weightFileSize +
+		duplicationScore*weightDuplication
 
 	return math.Round(total * 100)
 }
 
-// ComputeGrade returns a letter grade (A-F) for the given metrics.
+// ComputeGrade returns a letter grade (A+ through F) for the given metrics.
 func ComputeGrade(m RepoMetrics) string {
 	score := GradeScore(m)
 	switch {
+	case score >= gradeAPlusThreshold:
+		return "A+"
 	case score >= gradeAThreshold:
 		return "A"
 	case score >= gradeBThreshold:

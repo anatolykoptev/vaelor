@@ -2,6 +2,8 @@ package compare
 
 import (
 	"strings"
+
+	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 // cyclomaticComplexity estimates McCabe's cyclomatic complexity from a function body string.
@@ -45,4 +47,14 @@ func cyclomaticComplexity(body string) int {
 	cc += strings.Count(cleaned, "||")
 
 	return cc
+}
+
+// cognitiveComplexity wraps parser.CognitiveComplexity for use in metrics computation.
+func cognitiveComplexity(body string) int {
+	return parser.CognitiveComplexity(body)
+}
+
+// nestingDepth wraps parser.NestingDepth for use in metrics computation.
+func nestingDepth(body string) int {
+	return parser.NestingDepth(body)
 }
