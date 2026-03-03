@@ -592,6 +592,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 | v1.12.0 | `13da1d0` | `code_search` tool + graph improvements |
 | v1.13.0 | `8eaf53f` | `explore` tool + codegraph fixes |
 | v1.14.0 | `0af48a3` | LLM-free architecture, XML output, `code_health`, explore content fallback |
+| v1.15.0 | `780139d` | Identifier-level fusion ranking (PPR + BM25F + exact match) |
 
 ## Technical Debt Watch
 
