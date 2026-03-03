@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 
@@ -56,19 +55,18 @@ func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"to reduce false positives. Shows confidence levels: high (unexported), " +
 			"medium (methods, may satisfy interfaces), low (exported).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeadCodeInput) (*mcp.CallToolResult, error) {
-		res, _, err := handleDeadCode(ctx, input, deps, outputDir)
-		return res, err
+		return handleDeadCode(ctx, input, deps, outputDir)
 	})
 }
 
-func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
+func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
-		return errResult("repo is required"), nil, nil
+		return errResult("repo is required"), nil
 	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 	if err != nil {
-		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
 
@@ -78,7 +76,7 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 		Language: input.Language,
 	})
 	if err != nil {
-		return errResult(fmt.Sprintf("build call graph: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
 
 	result := deadcode.Analyze(cg, deadcode.Options{
@@ -110,22 +108,15 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 	}
 
 	// LLM narrative (optional, non-fatal).
-	if deps.LLM != nil && result.DeadCount > 0 {
-		resultJSON, _ := json.Marshal(result)
-		prompt := "Repository dead code analysis:\n" + string(resultJSON)
+	if result.DeadCount > 0 {
+		prefix := "Repository dead code analysis:\n"
 		if input.Focus != "" {
-			prompt = fmt.Sprintf("Focus area: %s\n\n%s", input.Focus, prompt)
+			prefix = fmt.Sprintf("Focus area: %s\n\n%s", input.Focus, prefix)
 		}
-		narrative, narErr := deps.LLM.Complete(ctx, prompts.SystemPromptDeadCode, prompt)
-		if narErr == nil {
-			resp.DeadCode.Narrative = xmlCDATA{Inner: wrapCDATA(narrative)}
+		if n := generateNarrative(ctx, deps.LLM, prompts.SystemPromptDeadCode, result, prefix); n != "" {
+			resp.DeadCode.Narrative = xmlCDATA{Inner: wrapCDATA(n)}
 		}
 	}
 
-	data, err := xml.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
-	}
-
-	return largeTextResult(xml.Header+string(data), "dead_code", outputDir), nil, nil
+	return xmlMarshalResult(resp, "dead_code", outputDir), nil
 }

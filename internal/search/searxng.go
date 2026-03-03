@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -40,7 +41,7 @@ type searxngResult struct {
 }
 
 // Search queries SearXNG and returns results.
-func (c *SearXNGClient) Search(ctx context.Context, query string, opts SearchOpts) ([]Result, error) {
+func (c *SearXNGClient) Search(ctx context.Context, query string, opts SearchOpts) (_ []Result, err error) {
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("format", "json")
@@ -67,7 +68,7 @@ func (c *SearXNGClient) Search(ctx context.Context, query string, opts SearchOpt
 	if err != nil {
 		return nil, fmt.Errorf("search: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("search: unexpected status %d", resp.StatusCode)

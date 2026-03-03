@@ -73,7 +73,7 @@ func ExtractOwnerRepo(rawURL string) (owner, repo string, ok bool) {
 
 // SearchCode searches GitHub's code search API.
 // When repos is non-empty, the search is restricted to those repositories.
-func (c *Client) SearchCode(ctx context.Context, query string, repos []string) ([]CodeResult, error) {
+func (c *Client) SearchCode(ctx context.Context, query string, repos []string) (_ []CodeResult, err error) {
 	var sb strings.Builder
 	sb.WriteString(query)
 	for _, r := range repos {
@@ -100,7 +100,7 @@ func (c *Client) SearchCode(ctx context.Context, query string, repos []string) (
 	if err != nil {
 		return nil, fmt.Errorf("search code: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github search/code returned %d", resp.StatusCode)
@@ -139,7 +139,7 @@ func (c *Client) SearchCode(ctx context.Context, query string, repos []string) (
 }
 
 // SearchIssues searches GitHub issues and pull requests.
-func (c *Client) SearchIssues(ctx context.Context, query string) ([]IssueItem, error) {
+func (c *Client) SearchIssues(ctx context.Context, query string) (_ []IssueItem, err error) {
 	apiURL := fmt.Sprintf("%s/search/issues?q=%s&per_page=%d&sort=updated&order=desc",
 		c.apiBase, url.QueryEscape(query), searchPerPageIssue)
 
@@ -154,7 +154,7 @@ func (c *Client) SearchIssues(ctx context.Context, query string) ([]IssueItem, e
 	if err != nil {
 		return nil, fmt.Errorf("search issues: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode == http.StatusUnprocessableEntity {
 		return nil, errors.New("github issues search failed (repo may not exist or query is invalid)")
@@ -211,7 +211,7 @@ func (c *Client) SearchIssues(ctx context.Context, query string) ([]IssueItem, e
 
 // SearchRepos searches GitHub repositories.
 // sort may be "stars", "forks", "updated", or "" for relevance.
-func (c *Client) SearchRepos(ctx context.Context, query, sort string) ([]RepoSearchResult, error) {
+func (c *Client) SearchRepos(ctx context.Context, query, sort string) (_ []RepoSearchResult, err error) {
 	apiURL := fmt.Sprintf("%s/search/repositories?q=%s&per_page=%d",
 		c.apiBase, url.QueryEscape(query), searchPerPageRepos)
 	if sort != "" {
@@ -229,7 +229,7 @@ func (c *Client) SearchRepos(ctx context.Context, query, sort string) ([]RepoSea
 	if err != nil {
 		return nil, fmt.Errorf("search repos: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github search/repositories returned %d", resp.StatusCode)

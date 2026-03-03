@@ -137,6 +137,53 @@ func setup() {
 	}
 }
 
+func TestExtractCalls_PHP(t *testing.T) {
+	source := []byte(`<?php
+function helper($x) { return $x + 1; }
+
+class Controller {
+    public function index() {
+        helper($this);
+        $this->validate();
+        User::all();
+    }
+    private function validate() {}
+}
+`)
+	calls, err := ExtractCalls("app.php", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+
+	for _, want := range []string{"helper", "validate", "all"} {
+		if !found[want] {
+			t.Errorf("missing call to %q", want)
+		}
+	}
+
+	// Also verify symbol extraction works for PHP
+	result, err := ParseFile("app.php", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	symFound := map[string]bool{}
+	for _, sym := range result.Symbols {
+		symFound[sym.Name] = true
+	}
+
+	for _, want := range []string{"helper", "Controller", "index", "validate"} {
+		if !symFound[want] {
+			t.Errorf("missing symbol %q", want)
+		}
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {

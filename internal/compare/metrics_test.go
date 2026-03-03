@@ -137,6 +137,8 @@ func TestErrorHandlingRatio(t *testing.T) {
 		{"if err check", "if err != nil { return err }", true},
 		{"errors.New", "return errors.New(\"fail\")", true},
 		{"fmt.Errorf", "return fmt.Errorf(\"wrap: %w\", err)", true},
+		{"fmt.Errorf multi-return", `return "", fmt.Errorf("bad: %q", x)`, true},
+		{"filepath.SkipDir", "return filepath.SkipDir", true},
 		{"try-catch", "try { x() } catch (e) { log(e) }", true},
 		{"python except", "except ValueError as e:", true},
 		{"false positive preferred", "preferred := getDefault()", false},
@@ -320,5 +322,140 @@ func TestComputeDuplicationRatio_NoDups(t *testing.T) {
 	ratio := computeDuplicationRatio(symbols)
 	if ratio != 0 {
 		t.Errorf("computeDuplicationRatio() = %f, want 0", ratio)
+	}
+}
+
+func TestReturnsError(t *testing.T) {
+	tests := []struct {
+		sig  string
+		want bool
+	}{
+		{"func Foo() error", true},
+		{"func Foo() (*T, error)", true},
+		{"func (s *Server) Handle() error", true},
+		{"func (s *Server) Handle() (int, error)", true},
+		{"func Foo() int", false},
+		{"func Foo()", false},
+		{"func Foo(err error) int", false}, // error in params, not return
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sig, func(t *testing.T) {
+			got := returnsError(tt.sig)
+			if got != tt.want {
+				t.Errorf("returnsError(%q) = %v, want %v", tt.sig, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNeedsErrorHandling(t *testing.T) {
+	tests := []struct {
+		name string
+		sym  *parser.Symbol
+		want bool
+	}{
+		{
+			"returns error",
+			&parser.Symbol{
+				Kind:      parser.KindFunction,
+				Signature: "func Open() (*File, error)",
+				Body:      "return os.Open(path)",
+			},
+			true,
+		},
+		{
+			"assigns err",
+			&parser.Symbol{
+				Kind:      parser.KindFunction,
+				Signature: "func Process() int",
+				Body:      "data, err := json.Unmarshal(b)",
+			},
+			true,
+		},
+		{
+			"does IO",
+			&parser.Symbol{
+				Kind:      parser.KindFunction,
+				Signature: "func Fetch() string",
+				Body:      "resp := http.Get(url)",
+			},
+			true,
+		},
+		{
+			"pure getter",
+			&parser.Symbol{
+				Kind:      parser.KindFunction,
+				Signature: "func Name() string",
+				Body:      "return s.name",
+			},
+			false,
+		},
+		{
+			"pure computation",
+			&parser.Symbol{
+				Kind:      parser.KindFunction,
+				Signature: "func Add(a, b int) int",
+				Body:      "return a + b",
+			},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := needsErrorHandling(tt.sym)
+			if got != tt.want {
+				t.Errorf("needsErrorHandling(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestComputeErrorHandlingRatio_Filtered(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{
+			// Explicit error handling — counted as eligible + handling.
+			Kind: parser.KindFunction, File: "/repo/server.go",
+			Signature: "func Handle() error",
+			Body:      "if err != nil { return err }",
+			StartLine: 1, EndLine: 5,
+		},
+		{
+			// Returns error, short body, no explicit pattern → propagation.
+			Kind: parser.KindFunction, File: "/repo/server.go",
+			Signature: "func Cleanup() error",
+			Body:      "return os.RemoveAll(path)",
+			StartLine: 10, EndLine: 12,
+		},
+		{
+			// Returns error, LONG body, no explicit pattern → NOT propagation.
+			Kind: parser.KindFunction, File: "/repo/server.go",
+			Signature: "func ProcessLong() error",
+			Body:      "step1()\nstep2()\nstep3()\nstep4()\nstep5()",
+			StartLine: 20, EndLine: 40,
+		},
+		{
+			// Pure getter — excluded from denominator.
+			Kind: parser.KindFunction, File: "/repo/util.go",
+			Signature: "func Name() string",
+			Body:      "return s.name",
+		},
+		{
+			// Test file — excluded entirely.
+			Kind: parser.KindFunction, File: "/repo/server_test.go",
+			Signature: "func TestFoo() error",
+			Body:      "assert.NoError(t, err)",
+		},
+	}
+
+	ratio := computeErrorHandlingRatio(symbols)
+	// Eligible: Handle (explicit), Cleanup (propagation), ProcessLong (no handling)
+	// Excluded: Name (pure), TestFoo (test file)
+	// Handling: Handle + Cleanup = 2/3
+	expected := 2.0 / 3.0
+	if ratio < expected-0.01 || ratio > expected+0.01 {
+		t.Errorf("computeErrorHandlingRatio() = %f, want %f", ratio, expected)
 	}
 }

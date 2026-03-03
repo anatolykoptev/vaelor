@@ -480,6 +480,118 @@ func TestIsStdlibImport(t *testing.T) {
 	}
 }
 
+// TestSearchSymbols_ExactMatchBeatsContains verifies that an exact name match ranks
+// above a "contains" match when both are in the same file and limit truncates.
+func TestSearchSymbols_ExactMatchBeatsContains(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "proc.go"), `package proc
+
+// Process does the main work.
+func Process(data string) string { return data }
+
+// ProcessData wraps Process with extra logic.
+func ProcessData(data string) string { return Process(data) }
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "Process",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) != 1 {
+		t.Fatalf("expected 1 symbol, got %d", len(symbols))
+	}
+	if symbols[0].Name != "Process" {
+		t.Errorf("expected exact match 'Process', got %q", symbols[0].Name)
+	}
+}
+
+// TestSearchSymbols_ExportedBeatsUnexported verifies that an exported symbol ranks
+// above an unexported one with the same name pattern.
+func TestSearchSymbols_ExportedBeatsUnexported(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "handler.go"), `package handler
+
+// handler is unexported.
+func handler() string { return "private" }
+
+// Handler is exported.
+func Handler() string { return "public" }
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "*Handler*",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) != 1 {
+		t.Fatalf("expected 1 symbol, got %d", len(symbols))
+	}
+	if symbols[0].Name != "Handler" {
+		t.Errorf("expected exported 'Handler', got %q", symbols[0].Name)
+	}
+}
+
+// TestSearchSymbols_KindWeight verifies that a struct outranks a function
+// when both match the query prefix and limit truncates.
+func TestSearchSymbols_KindWeight(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "config.go"), `package config
+
+// ConfigHelper creates a default Config.
+func ConfigHelper() *Config { return nil }
+
+// Config holds configuration.
+type Config struct {
+	Name string
+}
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "Config*",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) != 1 {
+		t.Fatalf("expected 1 symbol, got %d", len(symbols))
+	}
+	if symbols[0].Name != "Config" {
+		t.Errorf("expected struct 'Config' (kind weight 25 > 20), got %q", symbols[0].Name)
+	}
+}
+
+// TestSearchSymbols_WildcardSkipsMatchQuality verifies that wildcard queries
+// score symbols by visibility+kind only, without panic.
+func TestSearchSymbols_WildcardSkipsMatchQuality(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "mix.go"), `package mix
+
+type Exported struct{}
+var unexported int
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "*",
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols wildcard: %v", err)
+	}
+	if len(symbols) < 2 {
+		t.Fatalf("expected at least 2 symbols, got %d", len(symbols))
+	}
+	// Exported struct should come first: visibility 30 + kind 25 = 55
+	// vs unexported var: visibility 10 + kind 5 = 15
+	if symbols[0].Name != "Exported" {
+		t.Errorf("expected 'Exported' first (higher visibility+kind), got %q", symbols[0].Name)
+	}
+}
+
 // TestSearchSymbols_RankedOrder verifies that fusion ranking promotes symbols from
 // structurally important files. zz_util/ defines Process (alphabetically last) and
 // aa_main/ calls it — with limit=1 we must get the definition, not the caller.

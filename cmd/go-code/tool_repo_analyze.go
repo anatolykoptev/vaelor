@@ -12,6 +12,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/prompts"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -42,7 +43,7 @@ type RepoAnalyzeInput struct {
 func registerRepoAnalyze(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "repo_analyze",
 		Description: "Analyze a code repository (GitHub or local) using AST parsing. " +
 			"Returns structured mechanical data: symbols with complexity, " +
@@ -50,9 +51,9 @@ func registerRepoAnalyze(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"No LLM involved — all data extracted from tree-sitter ASTs. " +
 			"Use mode=quick for fast GitHub Code Search without cloning. " +
 			"Use type=pr or type=issue to search pull requests and issues.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoAnalyzeInput) (*mcp.CallToolResult, error) {
 		if input.Type != "" && input.Type != "pr" && input.Type != "issue" {
-			return errResult(fmt.Sprintf("invalid type %q: use pr or issue", input.Type)), nil, nil
+			return errResult(fmt.Sprintf("invalid type %q: use pr or issue", input.Type)), nil
 		}
 		if input.Type == "pr" || input.Type == "issue" {
 			return handleIssuesMode(ctx, input, deps)
@@ -65,23 +66,23 @@ func registerRepoAnalyze(server *mcp.Server, cfg Config, deps analyze.Deps) {
 }
 
 // handleDeepMode performs a full clone + AST analysis of a repository.
-func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, any, error) {
+func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
-		return errResult("repo is required"), nil, nil
+		return errResult("repo is required"), nil
 	}
 	if input.Query == "" {
-		return errResult("query is required"), nil, nil
+		return errResult("query is required"), nil
 	}
 	if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
-		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil, nil
+		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil
 	}
 	if input.Format != "" && input.Format != formatText && input.Format != formatJSON && input.Format != formatXML {
-		return errResult(fmt.Sprintf("invalid format %q: use xml, text, or json", input.Format)), nil, nil
+		return errResult(fmt.Sprintf("invalid format %q: use xml, text, or json", input.Format)), nil
 	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 	if err != nil {
-		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
 
@@ -92,18 +93,18 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 		Depth: input.Depth,
 	}, deps)
 	if err != nil {
-		return errResult(fmt.Sprintf("analyze: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("analyze: %s", err)), nil
 	}
 
 	formatted := formatAnalysisResult(result, input.Format, input.Depth)
 
 	if outputDir != "" && len(formatted) > maxInlineCharsDefault {
 		if path, ok := saveAnalysisFile(formatted, input.Format, outputDir); ok {
-			return textResult(buildFileSummary(result, path, len(formatted))), nil, nil
+			return textResult(buildFileSummary(result, path, len(formatted))), nil
 		}
 	}
 
-	return textResult(formatted), nil, nil
+	return textResult(formatted), nil
 }
 
 // saveAnalysisFile writes analysis content to a timestamped file in outputDir
@@ -161,13 +162,13 @@ func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) str
 
 // handleQuickMode performs a fast GitHub Code Search without cloning the repo.
 // For local paths, it returns a directory tree + README without any AST parsing.
-func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
 	if isLocalPath(input.Repo) {
 		return handleLocalQuickMode(ctx, input, deps)
 	}
 	repos := resolveQuickRepos(input)
 	if len(repos) == 0 {
-		return errResult("repo or repos is required for quick mode"), nil, nil
+		return errResult("repo or repos is required for quick mode"), nil
 	}
 
 	repoSlug := strings.Join(repos, ", ")
@@ -175,7 +176,7 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 
 	results, err := deps.GitHub.SearchCode(ctx, codeQuery, repos)
 	if err != nil {
-		return errResult(fmt.Sprintf("code search: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("code search: %s", err)), nil
 	}
 
 	if len(results) == 0 {
@@ -188,24 +189,24 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 	}
 
 	if input.Mode == modeRaw {
-		return textResult(fmt.Sprintf("Found %d code matches in %s:\n\n%s", len(results), repoSlug, sb.String())), nil, nil
+		return textResult(fmt.Sprintf("Found %d code matches in %s:\n\n%s", len(results), repoSlug, sb.String())), nil
 	}
 
 	summary, llmErr := deps.LLM.Complete(ctx, prompts.SystemPromptQuickSearch,
 		fmt.Sprintf("Query: %s\n\nCode search results:\n%s", input.Query, sb.String()))
 	if llmErr != nil {
-		return textResult(fmt.Sprintf("Found %d code matches (LLM unavailable):\n\n%s", len(results), sb.String())), nil, nil
+		return textResult(fmt.Sprintf("Found %d code matches (LLM unavailable):\n\n%s", len(results), sb.String())), nil
 	}
 
-	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n\n%s", input.Query, repoSlug, summary)), nil, nil
+	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n\n%s", input.Query, repoSlug, summary)), nil
 }
 
 // handleLocalQuickMode returns a directory tree + README for a local repository.
 // No LLM, no AST parsing — just a filesystem scan.
-func handleLocalQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleLocalQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
 	root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 	if err != nil {
-		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
 
@@ -215,7 +216,7 @@ func handleLocalQuickMode(ctx context.Context, input RepoAnalyzeInput, deps anal
 		MaxFileBytes: 0, // skip file content — only need file list
 	})
 	if err != nil {
-		return errResult(fmt.Sprintf("ingest: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("ingest: %s", err)), nil
 	}
 
 	tree := ingest.RenderTree(ir.Files)
@@ -231,7 +232,7 @@ func handleLocalQuickMode(ctx context.Context, input RepoAnalyzeInput, deps anal
 	}
 	sb.WriteString("</quick></response>")
 
-	return textResult(sb.String()), nil, nil
+	return textResult(sb.String()), nil
 }
 
 // readREADME tries to read README.md from root, returning empty string on failure.
@@ -251,14 +252,14 @@ func readREADME(root string) string {
 }
 
 // handleIssuesMode searches GitHub issues or pull requests via the Issues Search API.
-func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
 	kind := input.Type
 	if isLocalPath(input.Repo) {
-		return errResult(kind + " search requires a GitHub repo (owner/repo), not a local path"), nil, nil
+		return errResult(kind + " search requires a GitHub repo (owner/repo), not a local path"), nil
 	}
 	repos := resolveQuickRepos(input)
 	if len(repos) == 0 {
-		return errResult(fmt.Sprintf("repo is required for %s search", kind)), nil, nil
+		return errResult(fmt.Sprintf("repo is required for %s search", kind)), nil
 	}
 
 	repoSlug := strings.Join(repos, ", ")
@@ -277,11 +278,11 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 
 	issues, err := deps.GitHub.SearchIssues(ctx, qb.String())
 	if err != nil {
-		return errResult(fmt.Sprintf("issues search: %s", err)), nil, nil
+		return errResult(fmt.Sprintf("issues search: %s", err)), nil
 	}
 
 	if len(issues) == 0 {
-		return textResult(fmt.Sprintf("No %ss found for query: %s", kind, input.Query)), nil, nil
+		return textResult(fmt.Sprintf("No %ss found for query: %s", kind, input.Query)), nil
 	}
 
 	var sb strings.Builder
@@ -307,21 +308,21 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 	}
 
 	if input.Mode == modeRaw {
-		return textResult(fmt.Sprintf("Found %d %ss:\n\n%s", len(issues), kind, sb.String())), nil, nil
+		return textResult(fmt.Sprintf("Found %d %ss:\n\n%s", len(issues), kind, sb.String())), nil
 	}
 
 	summary, llmErr := deps.LLM.Complete(ctx, prompts.SystemPromptIssuesAnalysis,
 		fmt.Sprintf("Query: %s\n\n%s results:\n%s", input.Query, kind, sb.String()))
 	if llmErr != nil {
-		return textResult(fmt.Sprintf("Found %d %ss (LLM unavailable):\n\n%s", len(issues), kind, sb.String())), nil, nil
+		return textResult(fmt.Sprintf("Found %d %ss (LLM unavailable):\n\n%s", len(issues), kind, sb.String())), nil
 	}
 
 	return textResult(fmt.Sprintf("# %s Search: %s\nRepo: %s | Found: %d\n\n%s",
-		capitalizeFirst(kind), input.Query, repoSlug, len(issues), summary)), nil, nil
+		capitalizeFirst(kind), input.Query, repoSlug, len(issues), summary)), nil
 }
 
 // handleQuickFallback fetches repo metadata and README when code search returns nothing.
-func handleQuickFallback(ctx context.Context, input RepoAnalyzeInput, repos []string, repoSlug string, deps analyze.Deps) (*mcp.CallToolResult, any, error) {
+func handleQuickFallback(ctx context.Context, input RepoAnalyzeInput, repos []string, repoSlug string, deps analyze.Deps) (*mcp.CallToolResult, error) {
 	var sb strings.Builder
 	for _, r := range repos {
 		meta, err := deps.GitHub.FetchRepoMeta(ctx, r)
@@ -341,17 +342,17 @@ func handleQuickFallback(ctx context.Context, input RepoAnalyzeInput, repos []st
 	}
 
 	if sb.Len() == 0 {
-		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil, nil
+		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil
 	}
 
 	summary, err := deps.LLM.Complete(ctx, prompts.SystemPromptQuickSearch,
 		fmt.Sprintf("Query: %s\n\nRepository overview:\n%s", input.Query, sb.String()))
 	if err != nil {
-		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil, nil
+		return textResult("No code matches found. Try mode=deep for full repository analysis."), nil
 	}
 
 	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n(No code matches — overview from README)\n\n%s",
-		input.Query, repoSlug, summary)), nil, nil
+		input.Query, repoSlug, summary)), nil
 }
 
 // ---- Input helpers ----

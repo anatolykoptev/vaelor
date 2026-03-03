@@ -95,10 +95,6 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 				Content: xmlCDATA{Inner: wrapCDATA(graph)},
 			},
 		}
-		data, err := xml.MarshalIndent(resp, "", "  ")
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil
-		}
-		return largeTextResult(xml.Header+string(data), "dep_graph", outputDir), nil
+		return xmlMarshalResult(resp, "dep_graph", outputDir), nil
 	})
 }

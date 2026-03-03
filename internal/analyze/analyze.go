@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 	"github.com/anatolykoptev/go-kit/llm"
@@ -326,7 +327,7 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 
 	// Rank files by query relevance for deterministic importance-based ordering.
 	queryTerms := extractQueryTerms(input.Query)
-	rankedFiles, _ := prioritizeFilesWithScores(input.Root, ingestResult.Files, parseResults, queryTerms)
+	rankedFiles, fileScores := prioritizeFilesWithScores(input.Root, ingestResult.Files, parseResults, queryTerms)
 
 	// Index parse results by file path for ranked iteration.
 	parseByPath := make(map[string]fileParseResult, len(parseResults))
@@ -336,21 +337,54 @@ func SearchSymbols(ctx context.Context, input SymbolSearchInput) ([]*parser.Symb
 		}
 	}
 
-	var matched []*parser.Symbol
+	// Collect up to limit*5 matching symbols with per-symbol scores.
+	isWildcard := input.Query == "" || input.Query == "*"
+	hardcap := limit * 5
+	type scoredSymbol struct {
+		sym       *parser.Symbol
+		fileScore float64
+		symScore  float64
+	}
+	candidates := make([]scoredSymbol, 0, hardcap)
 	for _, f := range rankedFiles {
 		pr, ok := parseByPath[f.RelPath]
 		if !ok || pr.result == nil {
 			continue
 		}
+		fs := fileScores[f.RelPath]
 		for _, sym := range pr.result.Symbols {
 			if !matchesSymbol(sym, pattern, input.Kind) {
 				continue
 			}
-			matched = append(matched, sym)
-			if len(matched) >= limit {
-				return matched, nil
+			candidates = append(candidates, scoredSymbol{
+				sym:       sym,
+				fileScore: fs,
+				symScore:  scoreSymbol(sym, input.Query, isWildcard),
+			})
+			if len(candidates) >= hardcap {
+				break
 			}
 		}
+		if len(candidates) >= hardcap {
+			break
+		}
+	}
+
+	// Sort: file score descending, then symbol score descending.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].fileScore != candidates[j].fileScore {
+			return candidates[i].fileScore > candidates[j].fileScore
+		}
+		return candidates[i].symScore > candidates[j].symScore
+	})
+
+	// Truncate and extract symbols.
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	matched := make([]*parser.Symbol, len(candidates))
+	for i, c := range candidates {
+		matched[i] = c.sym
 	}
 	return matched, nil
 }
@@ -480,6 +514,53 @@ func matchesSymbol(sym *parser.Symbol, pattern *regexp.Regexp, kind parser.NodeK
 		return false
 	}
 	return pattern.MatchString(sym.Name)
+}
+
+// scoreSymbol computes a per-symbol relevance score from three cheap signals:
+// match quality (exact > prefix > contains > fuzzy), visibility (exported > unexported),
+// and kind weight (struct/interface > func/type > method > const > other).
+// isWildcard should be true for "*" or "" queries to skip match quality scoring.
+func scoreSymbol(sym *parser.Symbol, query string, isWildcard bool) float64 {
+	var score float64
+
+	// Signal 1: match quality (0-100).
+	if !isWildcard {
+		lowerName := strings.ToLower(sym.Name)
+		lowerQuery := strings.ToLower(query)
+		switch {
+		case lowerName == lowerQuery:
+			score += 100
+		case strings.HasPrefix(lowerName, lowerQuery):
+			score += 50
+		case strings.Contains(lowerName, lowerQuery):
+			score += 25
+		default:
+			score += 10 // fuzzy / regex match
+		}
+	}
+
+	// Signal 2: visibility (10-30).
+	if len(sym.Name) > 0 && unicode.IsUpper(rune(sym.Name[0])) {
+		score += 30
+	} else {
+		score += 10
+	}
+
+	// Signal 3: kind weight (5-25).
+	switch sym.Kind {
+	case parser.KindStruct, parser.KindInterface, parser.KindClass:
+		score += 25
+	case parser.KindFunction, parser.KindType:
+		score += 20
+	case parser.KindMethod:
+		score += 15
+	case parser.KindConst:
+		score += 10
+	default:
+		score += 5
+	}
+
+	return score
 }
 
 // dominantLanguage returns the most common language among the files.

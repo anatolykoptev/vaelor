@@ -32,6 +32,11 @@ func (g *RefGraph) Weight(src, dst string) float64 {
 	return 0
 }
 
+// Adjacency returns the internal weighted adjacency map.
+func (g *RefGraph) Adjacency() map[string]map[string]float64 {
+	return g.edges
+}
+
 // Len returns total directed edge count.
 func (g *RefGraph) Len() int {
 	n := 0
