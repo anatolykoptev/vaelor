@@ -10,12 +10,12 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
-// Grade thresholds (same as compare/grade.go).
+// Grade thresholds — must match compare/grade.go.
 const (
 	gradeAThreshold = 80
-	gradeBThreshold = 60
-	gradeCThreshold = 40
-	gradeDThreshold = 20
+	gradeBThreshold = 70
+	gradeCThreshold = 60
+	gradeDThreshold = 50
 )
 
 // Weights redistributed from compare/grade.go (error handling 15% spread across 5 factors).
