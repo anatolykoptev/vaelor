@@ -526,6 +526,159 @@ func Run(input string) string {
 	}
 }
 
+// TestSearchSymbols_WildcardStillWorks verifies that wildcard "*" queries don't panic
+// or return zero results when ranking gets empty queryTerms (extractQueryTerms("*") → []).
+func TestSearchSymbols_WildcardStillWorks(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pkg", "a.go"), `package pkg
+
+func Alpha() {}
+func Beta() {}
+`)
+	writeFile(t, filepath.Join(root, "pkg", "b.go"), `package pkg
+
+func Gamma() {}
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "*",
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols wildcard: %v", err)
+	}
+	if len(symbols) < 3 {
+		t.Errorf("expected at least 3 symbols for wildcard, got %d", len(symbols))
+	}
+}
+
+// TestSearchSymbols_EmptyQueryNoPanic verifies empty query doesn't panic during ranking.
+func TestSearchSymbols_EmptyQueryNoPanic(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "x.go"), `package x
+
+func Foo() {}
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "",
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols empty query: %v", err)
+	}
+	if len(symbols) == 0 {
+		t.Error("expected symbols for empty query (match-all), got none")
+	}
+}
+
+// TestSearchSymbols_RankedMultipleMatches verifies that when the same symbol name
+// exists in multiple files, the ranked file's symbols come first even with a larger limit.
+func TestSearchSymbols_RankedMultipleMatches(t *testing.T) {
+	root := t.TempDir()
+
+	// 5 files each define "Handler" — only one imports "core" which defines "Handler" too.
+	writeFile(t, filepath.Join(root, "core", "core.go"), `package core
+
+// Handler is the core handler.
+func Handler() string { return "core" }
+`)
+	writeFile(t, filepath.Join(root, "aa", "aa.go"), `package aa
+
+// Handler in aa.
+func Handler() string { return "aa" }
+`)
+	writeFile(t, filepath.Join(root, "bb", "bb.go"), `package bb
+
+import "example.com/test/core"
+
+// Handler in bb calls core.
+func Handler() string { return core.Handler() }
+`)
+	writeFile(t, filepath.Join(root, "cc", "cc.go"), `package cc
+
+// Handler in cc.
+func Handler() string { return "cc" }
+`)
+	writeFile(t, filepath.Join(root, "dd", "dd.go"), `package dd
+
+// Handler in dd.
+func Handler() string { return "dd" }
+`)
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/test\n\ngo 1.26\n")
+
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "Handler",
+		Limit: 3,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) != 3 {
+		t.Fatalf("expected 3 symbols, got %d", len(symbols))
+	}
+
+	// core and bb should be in the top 3 (core defines it, bb references it).
+	files := make(map[string]bool)
+	for _, sym := range symbols {
+		dir := filepath.Dir(sym.File)
+		files[filepath.Base(dir)] = true
+	}
+	if !files["core"] {
+		t.Errorf("core/core.go should be in top 3, got files: %v", files)
+	}
+	if !files["bb"] {
+		t.Errorf("bb/bb.go should be in top 3 (imports core), got files: %v", files)
+	}
+}
+
+// TestSearchSymbols_LimitExceedsTotal verifies that limit > total symbols is safe.
+func TestSearchSymbols_LimitExceedsTotal(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "one.go"), `package one
+
+func Only() {}
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "*",
+		Limit: 500,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	if len(symbols) == 0 {
+		t.Error("expected at least 1 symbol")
+	}
+	if len(symbols) > 10 {
+		t.Errorf("expected few symbols from single file, got %d", len(symbols))
+	}
+}
+
+// TestSearchSymbols_KindFilterWithRanking verifies kind filter still works with ranking.
+func TestSearchSymbols_KindFilterWithRanking(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "types.go"), `package types
+
+type Server struct{}
+func NewServer() *Server { return nil }
+type Client struct{}
+func NewClient() *Client { return nil }
+`)
+	symbols, err := SearchSymbols(context.Background(), SymbolSearchInput{
+		Root:  root,
+		Query: "*",
+		Kind:  parser.KindStruct,
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbols: %v", err)
+	}
+	for _, sym := range symbols {
+		if sym.Kind != parser.KindStruct {
+			t.Errorf("expected only structs with kind filter, got %q (kind=%s)", sym.Name, sym.Kind)
+		}
+	}
+}
+
 // TestAnalyzeRepo_FusionRanking verifies that fusion ranking (BM25F + PPR + exact match)
 // promotes files containing queried symbols and their callers above unrelated files.
 func TestAnalyzeRepo_FusionRanking(t *testing.T) {
