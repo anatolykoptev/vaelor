@@ -95,9 +95,9 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 
 	var focusMode string
 
-	// Content-based fallback: when keyword focus matches no file paths,
+	// Content-based fallback: when focus matches no file paths,
 	// re-ingest all files and filter by symbol names, imports, and calls.
-	if len(ir.Files) == 0 && input.Focus != "" && ingest.IsKeywordFocus(input.Focus) {
+	if len(ir.Files) == 0 && input.Focus != "" {
 		irAll, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 			Root:         input.Root,
 			Languages:    langs,
