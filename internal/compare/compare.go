@@ -165,6 +165,17 @@ type RepoMetrics struct {
 	Interfaces         int     `json:"interfaces"`
 	ExternalDeps       int     `json:"externalDeps"`
 	Grade              string  `json:"grade"`
+
+	// New metrics for smarter scoring.
+	AvgCognitiveComplexity float64 `json:"avgCognitiveComplexity"`
+	MaxCognitiveComplexity int     `json:"maxCognitiveComplexity"`
+	AvgNestingDepth        float64 `json:"avgNestingDepth"`
+	MaxNestingDepth        int     `json:"maxNestingDepth"`
+	LargeFileRatio         float64 `json:"largeFileRatio"`
+	DuplicationRatio       float64 `json:"duplicationRatio"`
+	AvgParamCount          float64 `json:"avgParamCount"`
+	MaxParamCount          int     `json:"maxParamCount"`
+	Score                  float64 `json:"score"`
 }
 
 // QualityAspect describes a qualitative comparison point between two repos.

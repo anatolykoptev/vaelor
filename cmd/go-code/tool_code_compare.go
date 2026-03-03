@@ -47,6 +47,16 @@ type xmlCompMetrics struct {
 	Interfaces         int     `xml:"interfaces,attr"`
 	ExternalDeps       int     `xml:"externalDeps,attr"`
 	Grade              string  `xml:"grade,attr"`
+
+	AvgCognitiveComplexity float64 `xml:"avgCognitiveComplexity,attr"`
+	MaxCognitiveComplexity int     `xml:"maxCognitiveComplexity,attr"`
+	AvgNestingDepth        float64 `xml:"avgNestingDepth,attr"`
+	MaxNestingDepth        int     `xml:"maxNestingDepth,attr"`
+	LargeFileRatio         float64 `xml:"largeFileRatio,attr"`
+	DuplicationRatio       float64 `xml:"duplicationRatio,attr"`
+	AvgParamCount          float64 `xml:"avgParamCount,attr"`
+	MaxParamCount          int     `xml:"maxParamCount,attr"`
+	Score                  float64 `xml:"score,attr"`
 }
 
 type xmlMatchBreak struct {
@@ -267,6 +277,16 @@ func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
 		ErrorHandlingRatio: m.ErrorHandlingRatio,
 		Interfaces: m.Interfaces, ExternalDeps: m.ExternalDeps,
 		Grade: m.Grade,
+
+		AvgCognitiveComplexity: m.AvgCognitiveComplexity,
+		MaxCognitiveComplexity: m.MaxCognitiveComplexity,
+		AvgNestingDepth:        m.AvgNestingDepth,
+		MaxNestingDepth:        m.MaxNestingDepth,
+		LargeFileRatio:         m.LargeFileRatio,
+		DuplicationRatio:       m.DuplicationRatio,
+		AvgParamCount:          m.AvgParamCount,
+		MaxParamCount:          m.MaxParamCount,
+		Score:                  m.Score,
 	}
 }
 

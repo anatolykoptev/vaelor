@@ -11,7 +11,6 @@ func TestComputeMetrics(t *testing.T) {
 		Name:       "testrepo",
 		FileCount:  3,
 		TotalLines: 120,
-		// 4 symbols: 1 interface, 2 functions, 1 method
 		Symbols: []*parser.Symbol{
 			{
 				Name:      "Handler",
@@ -46,7 +45,6 @@ func TestComputeMetrics(t *testing.T) {
 				Signature: "func (h *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) error",
 			},
 		},
-		// 1 external dep (github.com/...), 1 stdlib (strings)
 		Imports: []string{
 			"strings",
 			"github.com/some/lib",
@@ -55,7 +53,6 @@ func TestComputeMetrics(t *testing.T) {
 
 	got := ComputeMetrics(snap)
 
-	// Files and TotalLines are copied from snapshot.
 	if got.Files != 3 {
 		t.Errorf("Files = %d, want 3", got.Files)
 	}
@@ -63,39 +60,41 @@ func TestComputeMetrics(t *testing.T) {
 		t.Errorf("TotalLines = %d, want 120", got.TotalLines)
 	}
 
-	// AvgFuncLines: (20 + 10 + 10) / 3 = 13.333...
 	const expectedAvg = (20.0 + 10.0 + 10.0) / 3.0
 	if got.AvgFuncLines < expectedAvg-0.01 || got.AvgFuncLines > expectedAvg+0.01 {
 		t.Errorf("AvgFuncLines = %.4f, want %.4f", got.AvgFuncLines, expectedAvg)
 	}
 
-	// MaxFuncLines: 20 (NewServer: lines 10–29)
 	if got.MaxFuncLines != 20 {
 		t.Errorf("MaxFuncLines = %d, want 20", got.MaxFuncLines)
 	}
 
-	// TestRatio: 1 test file (server_test.go) / 3 total files
 	const expectedTestRatio = 1.0 / 3.0
 	if got.TestRatio < expectedTestRatio-0.01 || got.TestRatio > expectedTestRatio+0.01 {
 		t.Errorf("TestRatio = %.4f, want %.4f", got.TestRatio, expectedTestRatio)
 	}
 
-	// DocRatio: exported symbols = Handler(interface), NewServer(function), ServeHTTP(method) = 3
-	// with doc comment = NewServer only = 1
-	// internalHelper is not exported
 	const expectedDocRatio = 1.0 / 3.0
 	if got.DocRatio < expectedDocRatio-0.01 || got.DocRatio > expectedDocRatio+0.01 {
 		t.Errorf("DocRatio = %.4f, want %.4f", got.DocRatio, expectedDocRatio)
 	}
 
-	// ExternalDeps: github.com/some/lib = 1 (strings is stdlib)
 	if got.ExternalDeps != 1 {
 		t.Errorf("ExternalDeps = %d, want 1", got.ExternalDeps)
 	}
 
-	// Interfaces: 1 (Handler)
 	if got.Interfaces != 1 {
 		t.Errorf("Interfaces = %d, want 1", got.Interfaces)
+	}
+
+	// Score should be populated.
+	if got.Score == 0 && got.Files > 0 {
+		t.Error("Score = 0 for non-empty repo")
+	}
+
+	// Grade should be populated.
+	if got.Grade == "" {
+		t.Error("Grade is empty")
 	}
 }
 
@@ -117,6 +116,15 @@ func TestComputeMetrics_Empty(t *testing.T) {
 	}
 	if got.ExternalDeps != 0 {
 		t.Errorf("ExternalDeps = %d, want 0", got.ExternalDeps)
+	}
+	if got.AvgCognitiveComplexity != 0 {
+		t.Errorf("AvgCognitiveComplexity = %f, want 0", got.AvgCognitiveComplexity)
+	}
+	if got.LargeFileRatio != 0 {
+		t.Errorf("LargeFileRatio = %f, want 0", got.LargeFileRatio)
+	}
+	if got.DuplicationRatio != 0 {
+		t.Errorf("DuplicationRatio = %f, want 0", got.DuplicationRatio)
 	}
 }
 
@@ -199,6 +207,10 @@ func TestComputeMetrics_Complexity(t *testing.T) {
 	if m.MaxComplexity < 2 {
 		t.Errorf("MaxComplexity = %d, want >= 2", m.MaxComplexity)
 	}
+	// Cognitive complexity should also be computed.
+	if m.AvgCognitiveComplexity < 0 {
+		t.Errorf("AvgCognitiveComplexity = %f, want >= 0", m.AvgCognitiveComplexity)
+	}
 }
 
 func TestIsExternalImport(t *testing.T) {
@@ -223,5 +235,70 @@ func TestIsExternalImport(t *testing.T) {
 				t.Errorf("isExternalImport(%q) = %v, want %v", tt.imp, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCountFuncParams(t *testing.T) {
+	tests := []struct {
+		sig  string
+		want int
+	}{
+		{"func foo()", 0},
+		{"func foo(x int)", 1},
+		{"func foo(x int, y string)", 2},
+		{"func (r *Recv) Method(x int, y string)", 2},
+		{"func (r *Recv) Method()", 0},
+		{"def foo(self, x, y)", 2}, // Python: self skipped
+		{"func foo(a, b, c int)", 3},
+		{"", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sig, func(t *testing.T) {
+			got := countFuncParams(tt.sig)
+			if got != tt.want {
+				t.Errorf("countFuncParams(%q) = %d, want %d", tt.sig, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestComputeLargeFileRatio(t *testing.T) {
+	files := []SnapshotFile{
+		{Lines: 100},
+		{Lines: 200},
+		{Lines: 300}, // > 250
+		{Lines: 500}, // > 250
+	}
+	ratio := computeLargeFileRatio(files)
+	expected := 2.0 / 4.0
+	if ratio < expected-0.01 || ratio > expected+0.01 {
+		t.Errorf("computeLargeFileRatio() = %f, want %f", ratio, expected)
+	}
+}
+
+func TestComputeDuplicationRatio(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Kind: parser.KindFunction, BodyHash: 111},
+		{Kind: parser.KindFunction, BodyHash: 222},
+		{Kind: parser.KindFunction, BodyHash: 111}, // duplicate
+		{Kind: parser.KindFunction, BodyHash: 333},
+	}
+	ratio := computeDuplicationRatio(symbols)
+	// 2 out of 4 functions share hash 111.
+	expected := 2.0 / 4.0
+	if ratio < expected-0.01 || ratio > expected+0.01 {
+		t.Errorf("computeDuplicationRatio() = %f, want %f", ratio, expected)
+	}
+}
+
+func TestComputeDuplicationRatio_NoDups(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Kind: parser.KindFunction, BodyHash: 111},
+		{Kind: parser.KindFunction, BodyHash: 222},
+	}
+	ratio := computeDuplicationRatio(symbols)
+	if ratio != 0 {
+		t.Errorf("computeDuplicationRatio() = %f, want 0", ratio)
 	}
 }
