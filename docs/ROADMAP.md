@@ -320,19 +320,51 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## v1.14: Code Health ✅
+## v1.14: LLM-Free Architecture + Tool Polish ✅
 
-**Goal**: Single-repo quality assessment — no LLM, fast static analysis.
+**Goal**: Remove LLM dependency from core tools, switch to structured XML output, modernize infrastructure.
 
-**Status**: Complete.
+**Status**: Complete (2026-03-02). 28 commits since v1.13.0.
 
+### repo_analyze V2 ✅
+- [x] Removed LLM dependency — pure mechanical AST data in V2 XML
+- [x] XML output format with structured `<response>/<repo>/<packages>/<symbols>` envelope
+- [x] Filter generated code files (`.pb.go`, `.gen.go`, `_generated.go`)
+- [x] Truncate long symbol signatures (>200 chars)
+- [x] Large output saved to file, return summary with path
+- [x] Dep summary section: external deps, fan-in/fan-out, cycles
+
+### XML output for all tools ✅
+- [x] All tools switched from JSON/text to structured XML
+- [x] CDATA sections for source code and tree output
+- [x] `dead_code`, `dep_graph`, `call_trace` converted to XML
+
+### Code Health ✅
 - [x] `code_health` MCP tool — grade (A-F), score (0-100), metrics, hotspots, type relationships
 - [x] Reuses `compare.BuildSnapshot` + `ComputeMetrics` + `ComputeHotspots` + `ComputeRelStats`
 - [x] Exported `GradeScore` for numeric score alongside letter grade
-- [x] Input: `repo` (required), `language` (optional), `focus` (optional)
-- [x] Fix: hotspot path mismatch (absolute vs relative) — now works for both `code_health` and `code_compare`
+- [x] Fix: hotspot path mismatch (absolute vs relative)
 
-**Deliverable**: `code_health` tool — fast repo quality assessment. ✅
+### Explore enhancements ✅
+- [x] README excerpt (first meaningful sentences)
+- [x] Dep highlights (lightweight dep overview without LLM)
+- [x] Health score (lightweight quality score from parsed symbols)
+- [x] Hint when focus returns 0 files (explains correct usage)
+
+### Tool improvements ✅
+- [x] `call_trace`: compact mode (skip LLM narrative, tree-only output)
+- [x] `code_search`: `exclude_glob` parameter, `query` alias for `pattern`
+- [x] Focus keyword fallback — spaces = keywords matched against file path (case-insensitive)
+- [x] Updated all tool descriptions to document keyword focus mode
+
+### Infrastructure ✅
+- [x] Migrated to `go-mcpserver.Run()` — eliminated MCP boilerplate
+- [x] go-mcpserver v0.2.0 → v0.5.0 (SessionTimeout, MCPLogger)
+- [x] go-kit integration: GenericCache → go-kit/cache, per-key TTL, circuit breaker
+- [x] Resolved 28 golangci-lint issues across codebase
+- [x] Anchored gitignore patterns (leading `/`)
+
+**Deliverable**: LLM-free core analysis, XML output, 13 MCP tools fully polished. ✅
 
 ---
 
@@ -446,14 +478,14 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
                     v1.11 (Type Hierarchy + Dead Code) ✅
                     v1.12 (Code Search) ✅
                     v1.13 (Explore) ✅
-                    v1.14 (Code Health) ✅
+                    v1.14 (LLM-Free + Polish) ✅
                               │
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
       Identifier Ranking   Semantic Search   Type-Aware Analysis
 ```
 
-**Completed**: v1.0 through v1.14 (13 tools, 9 languages).
+**Completed**: v1.0 through v1.14 (13 tools, 9 languages, 231 files, 55K lines).
 **Next**: Identifier-level ranking (fusion scoring, personalized PageRank).
 **Independent**: Semantic search, type-aware analysis can proceed in parallel.
 
@@ -477,15 +509,17 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 | v1.11.0 | `c8d7a25` | Type hierarchy + dead code + incremental indexing |
 | v1.12.0 | `13da1d0` | `code_search` tool + graph improvements |
 | v1.13.0 | `8eaf53f` | `explore` tool + codegraph fixes |
-| v1.14.0 | — | `code_health` tool — single-repo quality assessment |
+| v1.14.0 | `0c741dd` | LLM-free architecture, XML output, `code_health`, tool polish |
 
 ## Technical Debt Watch
 
 - [ ] tree-sitter grammar version pinning (test after upgrades)
 - [ ] CGO cross-compilation for ARM64 Docker builds
 - [ ] Memory usage profiling for large repos (10K+ files)
-- [x] Cache eviction strategy for long-running server (LRU + TTL in internal/cache)
 - [ ] Rate limiting for GitHub API calls
-- [x] MCP SDK v1.4.0 output schema compatibility (fixed: Out type must be `any`, not struct — otherwise `structuredContent: {}` overrides `content`)
-- [x] jsonschema tag format (fixed: jsonschema_description instead of jsonschema:"description=")
-- [x] Consistent versioning scheme (re-tagged: v1.0.0 → v1.4.0 in correct order)
+- [x] Cache eviction strategy for long-running server (LRU + TTL via go-kit/cache)
+- [x] MCP boilerplate elimination (migrated to go-mcpserver.Run())
+- [x] MCP SDK v1.4.0 output schema compatibility
+- [x] jsonschema tag format (fixed: jsonschema_description)
+- [x] Consistent versioning scheme (re-tagged: v1.0.0 → v1.4.0)
+- [x] golangci-lint clean (28 issues resolved)
