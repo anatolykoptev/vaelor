@@ -9,6 +9,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/prompts"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -99,14 +100,15 @@ const defaultTraceDepth = 5
 func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "call_trace",
 		Description: "Trace the execution path of a function through a codebase. " +
 			"Shows what happens when a function is called (callees) or who calls it (callers). " +
 			"Returns a call tree with resolved cross-file references and an LLM-generated " +
 			"narrative explanation of the execution flow.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, any, error) {
-		return handleCallTrace(ctx, input, deps, outputDir)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, error) {
+		res, _, err := handleCallTrace(ctx, input, deps, outputDir)
+		return res, err
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -49,21 +50,21 @@ type DepGraphInput struct {
 func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "dep_graph",
 		Description: "Build and visualize the dependency graph of a repository. " +
 			"Parses import/require/use statements across all source files using tree-sitter, " +
 			"then constructs a directed graph of package or module dependencies. " +
 			"Supports output as Mermaid diagrams, Graphviz DOT, or JSON adjacency lists. " +
 			"Can detect cycles, highly-connected nodes (hotspots), and layering violations.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), nil, nil
+			return errResult("repo is required"), nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 		}
 		defer cleanup()
 
@@ -77,7 +78,7 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			CrossLanguage: input.CrossLanguage,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("build dep graph: %s", err)), nil
 		}
 
 		resp := xmlDepGraphResponse{
@@ -88,8 +89,8 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 		data, err := xml.MarshalIndent(resp, "", "  ")
 		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("marshal: %s", err)), nil
 		}
-		return largeTextResult(xml.Header+string(data), "dep_graph", outputDir), nil, nil
+		return largeTextResult(xml.Header+string(data), "dep_graph", outputDir), nil
 	})
 }

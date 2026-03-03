@@ -9,6 +9,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -55,7 +56,7 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 
 	outputDir := cfg.OutputDir
 
-	mcp.AddTool(server, &mcp.Tool{
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "code_graph",
 		Description: "Query a persistent code knowledge graph backed by Apache AGE. " +
 			"Indexes the repository as a property graph with vertices (Package, File, Symbol, Layer, Route) " +
@@ -64,21 +65,21 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			"Ideal for: call chains, type hierarchies, dependency analysis, dead code detection, " +
 			"API route mapping, cross-language connections, and coupling analysis. " +
 			"Results include raw graph rows and an LLM narrative.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeGraphInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeGraphInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
-			return errResult("repo is required"), nil, nil
+			return errResult("repo is required"), nil
 		}
 		if input.Query == "" {
-			return errResult("query is required"), nil, nil
+			return errResult("query is required"), nil
 		}
 
 		if !store.HasAGE(ctx) {
-			return errResult("Apache AGE extension is not available in the configured PostgreSQL instance"), nil, nil
+			return errResult("Apache AGE extension is not available in the configured PostgreSQL instance"), nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 		}
 		defer cleanup()
 
@@ -99,20 +100,20 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			BatchSize: cfg.GraphBatchSize,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("index repo: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("index repo: %s", err)), nil
 		}
 
 		result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta)
 		if err != nil {
-			return errResult(fmt.Sprintf("query graph: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("query graph: %s", err)), nil
 		}
 
 		formatted, err := formatGraphXML(result)
 		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("marshal: %s", err)), nil
 		}
 
-		return largeTextResult(formatted, "code_graph", outputDir), nil, nil
+		return largeTextResult(formatted, "code_graph", outputDir), nil
 	})
 }
 
