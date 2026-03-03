@@ -3,6 +3,7 @@ package codegraph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 	"sync"
@@ -106,8 +107,14 @@ func indexParseFile(f *ingest.File) indexParseResult {
 		return indexParseResult{file: f}
 	}
 
-	calls, _ := parser.ExtractCalls(f.Path, source, opts)
-	rels, _ := parser.ExtractRelationships(f.Path, source, opts)
+	calls, callErr := parser.ExtractCalls(f.Path, source, opts)
+	if callErr != nil {
+		slog.Debug("codegraph: extract calls failed", slog.String("file", f.Path), slog.Any("error", callErr))
+	}
+	rels, relErr := parser.ExtractRelationships(f.Path, source, opts)
+	if relErr != nil {
+		slog.Debug("codegraph: extract relationships failed", slog.String("file", f.Path), slog.Any("error", relErr))
+	}
 
 	return indexParseResult{
 		file:    f,

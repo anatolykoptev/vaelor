@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/compare"
@@ -79,7 +80,10 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		score := compare.GradeScore(metrics)
 
 		// Hotspot analysis (non-fatal).
-		churn, _ := compare.CollectChurn(ctx, root)
+		churn, churnErr := compare.CollectChurn(ctx, root)
+		if churnErr != nil {
+			slog.Debug("code_health: churn collection failed", slog.String("repo", input.Repo), slog.Any("error", churnErr))
+		}
 		var hotspots []compare.HotspotFile
 		if churn != nil {
 			hotspots = compare.ComputeHotspots(churn, compare.FileComplexityFromSnapshot(snap))

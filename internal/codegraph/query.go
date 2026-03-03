@@ -181,7 +181,11 @@ func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResul
 	if llmClient == nil || len(rows) == 0 {
 		return
 	}
-	rawJSON, _ := json.Marshal(rows)
+	rawJSON, err := json.Marshal(rows)
+	if err != nil {
+		slog.Warn("narrative: marshal results failed", slog.Any("error", err))
+		return
+	}
 	prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
 	narrative, err := llmClient.Complete(ctx, prompts.SystemPromptGraphNarrative, prompt)
 	if err == nil {

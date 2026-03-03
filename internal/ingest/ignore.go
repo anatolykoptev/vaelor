@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"bufio"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,7 +188,11 @@ func parseGitignore(root string) []string {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("gitignore: close failed", slog.String("path", path), slog.Any("error", cerr))
+		}
+	}()
 
 	var patterns []string
 	scanner := bufio.NewScanner(f)
@@ -197,6 +202,9 @@ func parseGitignore(root string) []string {
 			continue
 		}
 		patterns = append(patterns, line)
+	}
+	if err := scanner.Err(); err != nil {
+		slog.Debug("gitignore: scanner error", slog.String("path", path), slog.Any("error", err))
 	}
 	return patterns
 }

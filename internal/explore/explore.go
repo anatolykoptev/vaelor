@@ -5,6 +5,7 @@ package explore
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -166,7 +167,10 @@ func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, er
 			result.imports[f.Path] = pr.Imports
 		}
 
-		calls, _ := parser.ExtractCalls(f.Path, source, opts)
+		calls, callErr := parser.ExtractCalls(f.Path, source, opts)
+		if callErr != nil {
+			slog.Debug("explore: extract calls failed", slog.String("file", f.Path), slog.Any("error", callErr))
+		}
 		result.calls = append(result.calls, calls...)
 	}
 	return &result, nil

@@ -3,7 +3,7 @@ package codegraph
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,12 +97,12 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles)
 	if len(crossVertices) > 0 {
 		if err := insertBatches(ctx, store, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
-			log.Printf("codegraph: cross-language vertices: %v", err)
+			slog.Warn("codegraph: cross-language vertices", slog.Any("error", err))
 		}
 	}
 	if len(crossEdges) > 0 {
 		if err := insertEdgeBatches(ctx, store, gname, cfg.BatchSize, crossEdges); err != nil {
-			log.Printf("codegraph: cross-language edges: %v", err)
+			slog.Warn("codegraph: cross-language edges", slog.Any("error", err))
 		}
 	}
 
