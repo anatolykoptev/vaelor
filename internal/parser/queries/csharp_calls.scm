@@ -4,3 +4,9 @@
 (invocation_expression
   function: (member_access_expression
     name: (identifier) @call.method))
+
+; Function references passed as arguments
+(invocation_expression
+  arguments: (argument_list
+    (argument
+      (identifier) @call.function)))
