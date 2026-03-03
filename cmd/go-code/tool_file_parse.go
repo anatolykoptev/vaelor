@@ -4,68 +4,88 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// outputFormatAST is the output_format value that returns the raw syntax tree.
-// The default (empty or any other value) returns the symbols table.
 const outputFormatAST = "ast"
 
 // FileParseInput is the input schema for the file_parse tool.
 type FileParseInput struct {
-	// Path is the absolute or relative path to the source file.
-	Path string `json:"path" jsonschema_description:"Absolute or relative path to the source file"`
+	// Repo is optional: GitHub slug or URL. When set, path is relative to the repo root.
+	Repo string `json:"repo,omitempty" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path. When set, path is relative to repo root."`
 
-	// Language overrides auto-detection (e.g. go, python, typescript, rust, java).
+	// Ref is the branch, tag, or commit SHA (only used with repo).
+	Ref string `json:"ref,omitempty" jsonschema_description:"Branch, tag, or commit SHA (default: HEAD). Only used with repo."`
+
+	// Path is the file path. Absolute for local files, or relative to repo root when repo is set.
+	Path string `json:"path" jsonschema_description:"File path: absolute for local files, or relative to repo root when repo is set"`
+
+	// Language overrides auto-detection.
 	Language string `json:"language,omitempty" jsonschema_description:"Language override (go/python/typescript/rust/java/c/cpp). Auto-detected if omitted."`
 
-	// OutputFormat controls what is returned: ast (raw tree) or symbols (functions/types/vars).
+	// OutputFormat controls what is returned.
 	OutputFormat string `json:"output_format,omitempty" jsonschema_description:"Output format: ast (raw tree) | symbols (functions types vars) (default: symbols)"`
 }
 
-// registerFileParse registers the file_parse MCP tool.
-// Parses a single source file with tree-sitter and extracts the AST or symbol table.
-func registerFileParse(server *mcp.Server, cfg Config) {
+func registerFileParse(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	maxBytes := cfg.MaxFileBytes
-	mcp.AddTool(server, &mcp.Tool{
+
+	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "file_parse",
 		Description: "Parse a single source file using tree-sitter and return its AST or symbol table. " +
 			"Supports Go, Python, TypeScript, JavaScript, Rust, Java, C, C++. " +
+			"Accepts a repo parameter (GitHub slug or URL) to parse files from remote repositories. " +
 			"Use output_format=symbols to get a structured list of functions, types, and variables. " +
 			"Use output_format=ast to get the raw syntax tree for deep analysis.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input FileParseInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input FileParseInput) (*mcp.CallToolResult, error) {
 		if input.Path == "" {
-			return errResult("path is required"), nil, nil
+			return errResult("path is required"), nil
 		}
 
-		input.Path = rewritePath(input.Path, cfg.PathMappings)
-		fi, err := os.Stat(input.Path)
+		var filePath string
+		if input.Repo != "" {
+			// Remote or local repo — resolve root, then join with path.
+			root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
+			if err != nil {
+				return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
+			}
+			defer cleanup()
+			filePath = filepath.Join(root, input.Path)
+		} else {
+			// Local file path — apply path mappings.
+			filePath = rewritePath(input.Path, cfg.PathMappings)
+		}
+
+		fi, err := os.Stat(filePath)
 		if err != nil {
-			return errResult(fmt.Sprintf("stat file: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("stat file: %s", err)), nil
 		}
 		if fi.Size() > maxBytes {
-			return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), nil, nil
+			return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), nil
 		}
 
-		source, err := os.ReadFile(input.Path)
+		source, err := os.ReadFile(filePath)
 		if err != nil {
-			return errResult(fmt.Sprintf("read file: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("read file: %s", err)), nil
 		}
 
 		includeBody := input.OutputFormat == outputFormatAST
-		pr, err := parser.ParseFile(input.Path, source, parser.ParseOpts{
+		pr, err := parser.ParseFile(filePath, source, parser.ParseOpts{
 			Language:       input.Language,
 			IncludeBody:    includeBody,
 			IncludeImports: true,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("parse file: %s", err)), nil, nil
+			return errResult(fmt.Sprintf("parse file: %s", err)), nil
 		}
 
-		return textResult(formatParseResult(pr, input.OutputFormat)), nil, nil
+		return textResult(formatParseResult(pr, input.OutputFormat)), nil
 	})
 }
 
