@@ -112,8 +112,8 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 			return nil, err
 		}
 
-		matched := contentFilter(input.Focus, prAll.symbols, prAll.imports, prAll.calls)
-		ir.Files = filterFiles(irAll.Files, matched)
+		matched := ingest.ContentFilter(input.Focus, prAll.symbols, prAll.imports, prAll.calls)
+		ir.Files = ingest.FilterFiles(irAll.Files, matched)
 		focusMode = "content"
 	}
 
@@ -307,17 +307,4 @@ func buildPackageList(files []*ingest.File, root string) []string {
 	return pkgs
 }
 
-// filterFiles returns only files whose absolute path is in the matched set.
-func filterFiles(files []*ingest.File, matched map[string]bool) []*ingest.File {
-	if len(matched) == 0 {
-		return nil
-	}
-	out := make([]*ingest.File, 0, len(matched))
-	for _, f := range files {
-		if matched[f.Path] {
-			out = append(out, f)
-		}
-	}
-	return out
-}
 
