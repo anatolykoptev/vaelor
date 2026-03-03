@@ -425,6 +425,52 @@ func TestAnalyze_InjectHookEdges_Integration(t *testing.T) {
 	}
 }
 
+// TestAnalyze_ServerOnlyHooks verifies that WordPress hooks registered with
+// add_action/add_filter (server-side only, no do_action in repo) are NOT
+// flagged as dead. This covers WP core hooks like admin_notices, init, etc.
+func TestAnalyze_ServerOnlyHooks(t *testing.T) {
+	enqueueEditor := &parser.Symbol{
+		Name: "enqueue_editor", Kind: parser.KindMethod,
+		File: "/plugin/assets.php", StartLine: 10, EndLine: 30,
+	}
+	renderNotice := &parser.Symbol{
+		Name: "render_admin_notice", Kind: parser.KindMethod,
+		File: "/plugin/license.php", StartLine: 20, EndLine: 40,
+	}
+	genuinelyDead := &parser.Symbol{
+		Name: "old_unused", Kind: parser.KindFunction,
+		File: "/plugin/legacy.php", StartLine: 1, EndLine: 10,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/plugin/main.php", StartLine: 1, EndLine: 8,
+	}
+
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{enqueueEditor, renderNotice, genuinelyDead, mainSym},
+		Edges:   nil,
+	}
+
+	// Inject ONLY server-side hooks (no client-side do_action in repo).
+	hookRoutes := []callgraph.HookRoute{
+		{Method: "ACTION", Path: "enqueue_block_editor_assets", Handler: "enqueue_editor", Side: "server"},
+		{Method: "ACTION", Path: "admin_notices", Handler: "render_admin_notice", Side: "server"},
+	}
+	callgraph.InjectHookEdges(cg, hookRoutes)
+
+	result := Analyze(cg, Options{})
+
+	if result.DeadCount != 1 {
+		t.Errorf("expected 1 dead (old_unused), got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s", d.Name)
+		}
+	}
+	if result.DeadCount == 1 && result.DeadSymbols[0].Name != "old_unused" {
+		t.Errorf("expected dead 'old_unused', got %q", result.DeadSymbols[0].Name)
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}

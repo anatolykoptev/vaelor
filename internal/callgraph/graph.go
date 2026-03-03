@@ -147,6 +147,14 @@ func InjectHookEdges(cg *CallGraph, hookRoutes []HookRoute) {
 	// Index symbols by name for resolution.
 	byName := indexByName(cg.Symbols)
 
+	// Track which hooks have client-side invocations.
+	clientHooks := make(map[string]bool)
+	for _, r := range hookRoutes {
+		if r.Side == "client" {
+			clientHooks[r.Path] = true
+		}
+	}
+
 	// For each client-side hook invocation, create edges to all registered callbacks.
 	for _, r := range hookRoutes {
 		if r.Side != "client" {
@@ -171,6 +179,32 @@ func InjectHookEdges(cg *CallGraph, hookRoutes []HookRoute) {
 					Callee:     target,
 					CalleeName: cbName,
 					Line:       r.Line,
+				})
+			}
+		}
+	}
+
+	// Second pass: inject edges for server-only hooks (no client-side invocation
+	// in the analyzed repo). These are typically WordPress core hooks like
+	// admin_notices, init, enqueue_block_editor_assets, etc. — the do_action()
+	// call lives in WordPress core, not in the plugin code. The add_action()
+	// registration itself proves the callback is alive.
+	for hookName, cbNames := range callbacks {
+		if clientHooks[hookName] {
+			continue // Already handled by client→server matching above.
+		}
+		for _, cbName := range cbNames {
+			targets := byName[cbName]
+			if len(targets) == 0 {
+				cg.Edges = append(cg.Edges, CallEdge{
+					CalleeName: cbName,
+				})
+				continue
+			}
+			for _, target := range targets {
+				cg.Edges = append(cg.Edges, CallEdge{
+					Callee:     target,
+					CalleeName: cbName,
 				})
 			}
 		}
