@@ -71,6 +71,15 @@ var wellKnownInterfaceMethods = map[string]bool{
 	"Swap":          true,
 }
 
+// constructorNames are method names that serve as class constructors in various
+// languages. They are called implicitly by `new ClassName()` and should never
+// be flagged as dead code.
+var constructorNames = map[string]bool{
+	"__construct": true, // PHP
+	"__init__":    true, // Python
+	"constructor": true, // JS/TS class
+}
+
 // isHTTPHandler checks if a symbol's signature indicates it's an HTTP handler.
 func isHTTPHandler(sym *parser.Symbol) bool {
 	sig := sym.Signature
@@ -138,6 +147,9 @@ func filterFuncSymbols(symbols []*parser.Symbol) []*parser.Symbol {
 // shouldSkipSymbol returns true if the symbol should be excluded from dead code analysis.
 func shouldSkipSymbol(sym *parser.Symbol, opts Options) bool {
 	if isEntryPoint(sym.Name) || isTestFunc(sym.Name) {
+		return true
+	}
+	if constructorNames[sym.Name] {
 		return true
 	}
 	if isHTTPHandler(sym) || isWellKnownInterfaceMethod(sym) {
