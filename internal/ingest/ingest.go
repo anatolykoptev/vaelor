@@ -172,7 +172,7 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 	}
 
 	if opts.Focus != "" {
-		if isKeywordFocus(opts.Focus) {
+		if IsKeywordFocus(opts.Focus) {
 			if !matchKeywords(opts.Focus, relPath) {
 				return false, nil
 			}
@@ -193,9 +193,9 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 	}
 }
 
-// isKeywordFocus returns true when focus looks like a keyword query
+// IsKeywordFocus returns true when focus looks like a keyword query
 // rather than a path or glob pattern. Heuristic: contains spaces.
-func isKeywordFocus(focus string) bool {
+func IsKeywordFocus(focus string) bool {
 	return strings.Contains(focus, " ")
 }
 
