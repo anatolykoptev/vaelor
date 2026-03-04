@@ -507,6 +507,136 @@ func TestAnalyze_ConstructorNotDead(t *testing.T) {
 	}
 }
 
+func TestAnalyze_RustTestAttributeNotDead(t *testing.T) {
+	testFn := &parser.Symbol{
+		Name: "test_something", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
+		Attributes: []string{"#[test]"},
+	}
+	asyncTestFn := &parser.Symbol{
+		Name: "test_async_thing", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/lib.rs", StartLine: 25, EndLine: 35,
+		Attributes: []string{"#[tokio::test]"},
+	}
+	reallyDead := &parser.Symbol{
+		Name: "unused_helper", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/lib.rs", StartLine: 40, EndLine: 45,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/main.rs", StartLine: 1, EndLine: 5,
+	}
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{testFn, asyncTestFn, reallyDead, mainSym},
+		Edges:   nil,
+	}
+	result := Analyze(cg, Options{})
+	if result.DeadCount != 1 {
+		t.Errorf("expected 1 dead (unused_helper), got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s", d.Name)
+		}
+	}
+}
+
+func TestAnalyze_RustPubVisibility(t *testing.T) {
+	pubFn := &parser.Symbol{
+		Name: "new", Kind: parser.KindMethod,
+		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
+		IsPublic: true,
+	}
+	privateFn := &parser.Symbol{
+		Name: "helper", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/lib.rs", StartLine: 25, EndLine: 30,
+		IsPublic: false,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/main.rs", StartLine: 1, EndLine: 5,
+	}
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{pubFn, privateFn, mainSym},
+		Edges:   nil,
+	}
+	result := Analyze(cg, Options{})
+	if result.DeadCount != 1 {
+		t.Errorf("expected 1 dead (helper), got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s (exported=%v)", d.Name, d.Exported)
+		}
+	}
+	if result.DeadCount == 1 && result.DeadSymbols[0].Name != "helper" {
+		t.Errorf("expected dead 'helper', got %q", result.DeadSymbols[0].Name)
+	}
+}
+
+func TestAnalyze_RustWellKnownTraitMethods(t *testing.T) {
+	methods := []string{"fmt", "clone", "drop", "default", "from", "into", "next", "eq", "hash", "poll", "serialize", "deserialize"}
+	var symbols []*parser.Symbol
+	for i, name := range methods {
+		symbols = append(symbols, &parser.Symbol{
+			Name: name, Kind: parser.KindMethod,
+			Language: "rust", File: "/src/lib.rs",
+			StartLine: uint32(i*10 + 1), EndLine: uint32(i*10 + 5),
+			Receiver: "SomeTrait for MyType",
+		})
+	}
+	symbols = append(symbols, &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/main.rs", StartLine: 1, EndLine: 5,
+	})
+	cg := &callgraph.CallGraph{Symbols: symbols, Edges: nil}
+	result := Analyze(cg, Options{})
+	if result.DeadCount != 0 {
+		t.Errorf("expected 0 dead (all well-known trait methods), got %d", result.DeadCount)
+		for _, d := range result.DeadSymbols {
+			t.Logf("  dead: %s", d.Name)
+		}
+	}
+}
+
+func TestAnalyze_RustTraitImplMethodConfidence(t *testing.T) {
+	traitMethod := &parser.Symbol{
+		Name: "custom_method", Kind: parser.KindMethod,
+		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
+		Receiver: "MyTrait for MyType",
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/main.rs", StartLine: 1, EndLine: 5,
+	}
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{traitMethod, mainSym},
+		Edges:   nil,
+	}
+	result := Analyze(cg, Options{})
+	if result.DeadCount != 1 {
+		t.Fatalf("expected 1 dead, got %d", result.DeadCount)
+	}
+	if result.DeadSymbols[0].Confidence != ConfidenceMedium {
+		t.Errorf("trait impl method should be medium confidence, got %q", result.DeadSymbols[0].Confidence)
+	}
+}
+
+func TestAnalyze_RustTestFileRs(t *testing.T) {
+	sym := &parser.Symbol{
+		Name: "helper_in_test", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/foo_test.rs", StartLine: 1, EndLine: 10,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/main.rs", StartLine: 1, EndLine: 5,
+	}
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{sym, mainSym},
+		Edges:   nil,
+	}
+	result := Analyze(cg, Options{})
+	if result.DeadCount != 0 {
+		t.Errorf("expected 0 dead (_test.rs skipped), got %d", result.DeadCount)
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
