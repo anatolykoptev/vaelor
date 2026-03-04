@@ -639,7 +639,11 @@ func buildImportGraph(root string, results []fileParseResult, includeStdlib bool
 			continue
 		}
 		pkg := goutil.PackageDir(root, pr.file.Path)
-		addImports(graph, pkg, pr.result.Imports, includeStdlib)
+		if pr.result.Language == "rust" {
+			addRustImports(graph, pkg, pr.result.Imports, includeStdlib)
+		} else {
+			addImports(graph, pkg, pr.result.Imports, includeStdlib)
+		}
 	}
 
 	return graph
