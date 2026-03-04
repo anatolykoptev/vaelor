@@ -70,6 +70,16 @@ type Symbol struct {
 	// BodyHash is a content hash of the normalized symbol body.
 	// Used for fast equality checks in code comparison (0 means not computed).
 	BodyHash uint64
+
+	// Receiver is the type name for methods (e.g. "Config" for impl Config,
+	// "Display for Config" for impl Display for Config). Empty for free functions.
+	Receiver string
+
+	// IsPublic indicates the symbol has public visibility (pub in Rust, uppercase in Go).
+	IsPublic bool
+
+	// Attributes are annotations/decorators (e.g. "#[test]", "#[derive(Clone)]").
+	Attributes []string
 }
 
 // ParseResult contains the symbols extracted from a single source file.
