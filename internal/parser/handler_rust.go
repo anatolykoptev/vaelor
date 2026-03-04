@@ -85,12 +85,14 @@ func (h *rustHandler) mapFunction(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      KindFunction,
-		Language:  "rust",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       KindFunction,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
 	}
 }
 
@@ -100,12 +102,15 @@ func (h *rustHandler) mapMethod(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      KindMethod,
-		Language:  "rust",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       KindMethod,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
+		Receiver:   implReceiver(node, source),
 	}
 }
 
@@ -120,12 +125,14 @@ func (h *rustHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 		kind = KindStruct
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      kind,
-		Language:  "rust",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       kind,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
 	}
 }
 
@@ -135,12 +142,14 @@ func (h *rustHandler) mapInterface(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      KindInterface,
-		Language:  "rust",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       KindInterface,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
 	}
 }
 
@@ -150,12 +159,14 @@ func (h *rustHandler) mapConst(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      KindConst,
-		Language:  "rust",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       KindConst,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
 	}
 }
 
@@ -165,11 +176,13 @@ func (h *rustHandler) mapVar(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      KindVar,
-		Language:  "rust",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       KindVar,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
 	}
 }
