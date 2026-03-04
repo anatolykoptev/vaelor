@@ -149,16 +149,22 @@ func shouldSkipSymbol(sym *parser.Symbol, opts Options) bool {
 	if isEntryPoint(sym.Name) || isTestFunc(sym.Name) {
 		return true
 	}
+	if hasTestAttribute(sym) {
+		return true
+	}
 	if constructorNames[sym.Name] {
 		return true
 	}
 	if isHTTPHandler(sym) || isWellKnownInterfaceMethod(sym) {
 		return true
 	}
+	if isRustWellKnownMethod(sym) {
+		return true
+	}
 	if !opts.IncludeTests && isTestFile(sym.File) {
 		return true
 	}
-	if !opts.IncludeExported && isExported(sym.Name) {
+	if !opts.IncludeExported && isSymbolExported(sym) {
 		return true
 	}
 	return false
@@ -171,7 +177,7 @@ func collectDeadSymbols(funcSymbols []*parser.Symbol, called map[*parser.Symbol]
 		if called[sym] || hookSet[sym.Name] || shouldSkipSymbol(sym, opts) {
 			continue
 		}
-		exported := isExported(sym.Name)
+		exported := isSymbolExported(sym)
 		dead = append(dead, DeadSymbol{
 			Name:       sym.Name,
 			Kind:       string(sym.Kind),
@@ -224,7 +230,7 @@ func isTestFunc(name string) bool {
 func isTestFile(file string) bool {
 	lower := strings.ToLower(file)
 	testSuffixes := []string{
-		"_test.go", "_test.py",
+		"_test.go", "_test.py", "_test.rs",
 		".test.ts", ".test.js",
 		".spec.ts", ".spec.js",
 	}
@@ -252,6 +258,9 @@ func classifyConfidence(sym *parser.Symbol, exported bool) string {
 		return ConfidenceLow
 	}
 	if sym.Kind == parser.KindMethod {
+		return ConfidenceMedium
+	}
+	if sym.Receiver != "" && strings.Contains(sym.Receiver, " for ") {
 		return ConfidenceMedium
 	}
 	return ConfidenceHigh
