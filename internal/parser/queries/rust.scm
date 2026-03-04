@@ -1,5 +1,5 @@
 ; tree-sitter query for Rust symbol extraction.
-; Used by internal/parser to extract functions, types, methods, and imports.
+; Extracts functions, methods (with impl context), types, traits, and imports.
 
 ; Top-level free functions (not inside impl).
 (source_file
@@ -12,7 +12,7 @@
     (function_item
       name: (identifier) @symbol.name) @symbol.function))
 
-; Methods inside impl blocks.
+; Methods inside plain impl blocks: impl Type { fn ... }
 (impl_item
   body: (declaration_list
     (function_item
