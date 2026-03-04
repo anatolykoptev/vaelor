@@ -2,6 +2,7 @@ package explore
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -24,6 +25,15 @@ type DepEntry struct {
 // maxDepEntries is the number of top fan-in/fan-out entries to include.
 const maxDepEntries = 3
 
+// isStdlibImport checks for stdlib imports across languages.
+func isStdlibImport(imp string) bool {
+	if strings.Contains(imp, "::") {
+		root, _, _ := strings.Cut(imp, "::")
+		return root == "std" || root == "core" || root == "alloc"
+	}
+	return goutil.IsStdlibImport(imp)
+}
+
 // buildDepHighlights computes a lightweight dependency overview from parse results.
 func buildDepHighlights(files []*ingest.File, imports map[string][]string, root string) *DepHighlights {
 	// Build package-level import graph: pkg → set of imported paths.
@@ -37,7 +47,7 @@ func buildDepHighlights(files []*ingest.File, imports map[string][]string, root 
 			graph[pkg] = make(depSet)
 		}
 		for _, imp := range fileImports {
-			if imp == "" || goutil.IsStdlibImport(imp) {
+			if imp == "" || isStdlibImport(imp) {
 				continue
 			}
 			graph[pkg][imp] = struct{}{}
