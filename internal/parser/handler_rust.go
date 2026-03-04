@@ -13,11 +13,15 @@ var rustQueryBytes []byte
 //go:embed queries/rust_calls.scm
 var rustCallsQueryBytes []byte
 
+//go:embed queries/rust_rels.scm
+var rustRelsQueryBytes []byte
+
 // rustHandler implements LanguageHandler for Rust source files.
 type rustHandler struct {
 	lang      *sitter.Language
 	query     *sitter.Query
 	callQuery *sitter.Query
+	relsQuery *sitter.Query
 }
 
 // rustLang is the singleton Rust language handler, registered on package init.
@@ -33,9 +37,14 @@ func init() {
 	if err != nil {
 		panic("rust_calls.scm query compile error: " + err.Error())
 	}
+	rq, err := sitter.NewQuery(rustRelsQueryBytes, lang)
+	if err != nil {
+		panic("rust_rels.scm query compile error: " + err.Error())
+	}
 	rustLang.lang = lang
 	rustLang.query = q
 	rustLang.callQuery = cq
+	rustLang.relsQuery = rq
 	registerHandler(rustLang)
 }
 
@@ -48,6 +57,8 @@ func (h *rustHandler) SitterLanguage() *sitter.Language { return h.lang }
 func (h *rustHandler) TagsQuery() *sitter.Query { return h.query }
 
 func (h *rustHandler) CallsQuery() *sitter.Query { return h.callQuery }
+
+func (h *rustHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for Rust.
 func (h *rustHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
