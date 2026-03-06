@@ -78,6 +78,9 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		if input.Repo == "" {
 			return errResult("repo is required"), nil
 		}
+		if input.Query == "" && input.Kind != "" {
+			input.Query = "*"
+		}
 		if input.Query == "" {
 			return errResult("query (or symbol) is required"), nil
 		}
