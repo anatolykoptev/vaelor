@@ -94,6 +94,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 			Store:       es,
 			Pipeline:    embeddings.NewPipeline(ec, es),
 			AnalyzeDeps: deps,
+			Expander:    embeddings.NewExpander(dbPool),
 		}
 	}
 	registerSemanticSearch(server, cfg, semDeps)
