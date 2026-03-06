@@ -92,3 +92,19 @@ func TestFileParseInput_RepoField(t *testing.T) {
 		t.Error("expected path to be set")
 	}
 }
+
+func TestSymbolSearchInput_KindOnlyDefaultsToWildcard(t *testing.T) {
+	input := SymbolSearchInput{
+		Repo: "owner/repo",
+		Kind: "trait",
+	}
+	if input.Symbol != "" && input.Query == "" {
+		input.Query = input.Symbol
+	}
+	if input.Query == "" && input.Kind != "" {
+		input.Query = "*"
+	}
+	if input.Query != "*" {
+		t.Errorf("expected query=* for kind-only search, got %q", input.Query)
+	}
+}
