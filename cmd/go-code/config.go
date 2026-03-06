@@ -68,6 +68,9 @@ type Config struct {
 
 	// EmbedModel is the embedding model name (e.g. multilingual-e5-large).
 	EmbedModel string
+
+	// AutoIndexDirs are directories to scan for repos at startup (comma-separated).
+	AutoIndexDirs []string
 }
 
 const (
@@ -112,6 +115,7 @@ func loadConfig() Config {
 		GraphBatchSize: env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 		EmbedURL:       env.Str("EMBED_URL", ""),
 		EmbedModel:     env.Str("EMBED_MODEL", "jina-code-v2"),
+		AutoIndexDirs:  env.List("AUTO_INDEX_DIRS", ""),
 	}
 }
 
