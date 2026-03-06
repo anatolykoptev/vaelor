@@ -73,8 +73,12 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 	if input.Query == "" {
 		return errResult("query is required"), nil
 	}
-	if input.Depth != "" && !analyze.ValidDepth(input.Depth) {
-		return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil
+	if input.Depth != "" {
+		normalized, ok := analyze.NormalizeDepth(input.Depth)
+		if !ok {
+			return errResult(fmt.Sprintf("invalid depth %q: use overview, module, or deep", input.Depth)), nil
+		}
+		input.Depth = normalized
 	}
 	if input.Format != "" && input.Format != formatText && input.Format != formatJSON && input.Format != formatXML {
 		return errResult(fmt.Sprintf("invalid format %q: use xml, text, or json", input.Format)), nil

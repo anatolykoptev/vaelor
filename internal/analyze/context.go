@@ -16,14 +16,27 @@ const (
 	DepthDeep     = "deep"
 )
 
+// NormalizeDepth maps common LLM aliases to canonical depth values.
+// Returns the canonical value and true, or ("", false) if unrecognized.
+func NormalizeDepth(d string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(d)) {
+	case "", DepthOverview, DepthModule, DepthDeep:
+		return d, true
+	case "shallow", "quick", "brief", "compact", "light", "summary":
+		return DepthOverview, true
+	case "medium", "balanced", "standard", "normal", "default":
+		return DepthModule, true
+	case "full", "detailed", "complete", "all", "thorough", "maximum":
+		return DepthDeep, true
+	default:
+		return "", false
+	}
+}
+
 // ValidDepth reports whether d is a recognized analysis depth.
 func ValidDepth(d string) bool {
-	switch d {
-	case "", DepthOverview, DepthModule, DepthDeep:
-		return true
-	default:
-		return false
-	}
+	_, ok := NormalizeDepth(d)
+	return ok
 }
 
 // ContextData holds mechanically-extracted analysis data: ranking, import graph,
