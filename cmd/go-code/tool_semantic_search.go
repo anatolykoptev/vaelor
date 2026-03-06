@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -77,20 +76,13 @@ func handleSemanticSearch(
 
 	repoKey := codegraph.GraphNameFor(root)
 
-	// Index repo embeddings if pipeline available.
-	if deps.Pipeline != nil {
-		if _, err := deps.Pipeline.IndexRepo(ctx, repoKey, root); err != nil {
-			slog.Warn("semantic_search: index failed", slog.Any("error", err))
-		}
-	}
-
-	// Embed query.
+	// Embed query first (fast, ~1s).
 	vector, err := deps.Client.EmbedQuery(ctx, input.Query)
 	if err != nil {
 		return errResult(fmt.Sprintf("embed query: %s", err)), nil
 	}
 
-	// Search.
+	// Try searching existing embeddings.
 	results, err := deps.Store.Search(ctx, vector, embeddings.SearchOpts{
 		RepoKey:  repoKey,
 		Language: input.Language,
@@ -100,11 +92,24 @@ func handleSemanticSearch(
 		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
 
-	if len(results) == 0 {
-		return textResult(buildNotIndexedResponse(input)), nil
+	if len(results) > 0 {
+		// Found results — trigger background re-index for freshness, return immediately.
+		if deps.Pipeline != nil {
+			deps.Pipeline.IndexRepoAsync(repoKey, root)
+		}
+		return textResult(formatSemanticResults(input, results)), nil
 	}
 
-	return textResult(formatSemanticResults(input, results)), nil
+	// No results — start background indexing if not already running.
+	if deps.Pipeline != nil {
+		if deps.Pipeline.IsIndexing(repoKey) {
+			return textResult(buildIndexingResponse(input)), nil
+		}
+		deps.Pipeline.IndexRepoAsync(repoKey, root)
+		return textResult(buildIndexingResponse(input)), nil
+	}
+
+	return textResult(buildNotIndexedResponse(input)), nil
 }
 
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult) string {
@@ -138,15 +143,27 @@ func buildDisabledResponse(input SemanticSearchInput) string {
 		escapeXML(input.Query), escapeXML(input.Repo))
 }
 
+func buildIndexingResponse(input SemanticSearchInput) string {
+	return fmt.Sprintf(
+		"<response tool=\"semantic_search\">\n"+
+			"  <query>%s</query>\n"+
+			"  <repo>%s</repo>\n"+
+			"  <status>indexing</status>\n"+
+			"  <message>Repository is being indexed in the background. "+
+			"This may take a few minutes for the first run. "+
+			"Please retry in 30-60 seconds.</message>\n"+
+			"</response>",
+		escapeXML(input.Query), escapeXML(input.Repo))
+}
+
 func buildNotIndexedResponse(input SemanticSearchInput) string {
 	return fmt.Sprintf(
 		"<response tool=\"semantic_search\">\n"+
 			"  <query>%s</query>\n"+
 			"  <repo>%s</repo>\n"+
 			"  <status>not_indexed</status>\n"+
-			"  <message>No indexed code found for this repository. "+
-			"Run repo_analyze or code_graph first to index the repository, "+
-			"then retry semantic search.</message>\n"+
+			"  <message>No indexed code found and embedding pipeline is not configured. "+
+			"Ensure EMBED_URL is set and retry.</message>\n"+
 			"</response>",
 		escapeXML(input.Query), escapeXML(input.Repo))
 }
