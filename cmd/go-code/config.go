@@ -61,6 +61,13 @@ type Config struct {
 
 	// GraphBatchSize is the batch size for graph upsert operations.
 	GraphBatchSize int
+
+	// EmbedURL is the base URL for the embedding API (e.g. http://memdb-go:8080).
+	// Empty means semantic search is disabled.
+	EmbedURL string
+
+	// EmbedModel is the embedding model name (e.g. multilingual-e5-large).
+	EmbedModel string
 }
 
 const (
@@ -103,6 +110,8 @@ func loadConfig() Config {
 		GraphTTLLocal:  env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
 		GraphTTLRemote: env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
 		GraphBatchSize: env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
+		EmbedURL:       env.Str("EMBED_URL", ""),
+		EmbedModel:     env.Str("EMBED_MODEL", "multilingual-e5-large"),
 	}
 }
 
