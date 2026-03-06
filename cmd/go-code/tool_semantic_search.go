@@ -57,7 +57,9 @@ func handleSemanticSearch(
 		return errResult("query is required"), nil
 	}
 	if deps.Client == nil || deps.Store == nil {
-		return textResult(buildDisabledResponse(input)), nil
+		return textResult(buildStatusResponse(input, "disabled",
+			"Semantic search is not available: embedding service not configured. "+
+				"Set EMBED_URL and EMBED_MODEL environment variables to enable.")), nil
 	}
 
 	topK := input.TopK
@@ -100,13 +102,21 @@ func handleSemanticSearch(
 	// No results — start background indexing if not already running.
 	if deps.Pipeline != nil {
 		if deps.Pipeline.IsIndexing(repoKey) {
-			return textResult(buildIndexingResponse(input)), nil
+			return textResult(buildStatusResponse(input, "indexing",
+			"Repository is being indexed in the background. "+
+				"This may take a few minutes for the first run. "+
+				"Please retry in 30-60 seconds.")), nil
 		}
 		deps.Pipeline.IndexRepoAsync(repoKey, root)
-		return textResult(buildIndexingResponse(input)), nil
+		return textResult(buildStatusResponse(input, "indexing",
+			"Repository is being indexed in the background. "+
+				"This may take a few minutes for the first run. "+
+				"Please retry in 30-60 seconds.")), nil
 	}
 
-	return textResult(buildNotIndexedResponse(input)), nil
+	return textResult(buildStatusResponse(input, "not_indexed",
+		"No indexed code found and embedding pipeline is not configured. "+
+			"Ensure EMBED_URL is set and retry.")), nil
 }
 
 // handleSemanticHits handles the path where semantic search returned results:
@@ -164,39 +174,13 @@ func formatSemanticResults(input SemanticSearchInput, results []embeddings.Searc
 	return sb.String()
 }
 
-func buildDisabledResponse(input SemanticSearchInput) string {
+func buildStatusResponse(input SemanticSearchInput, status, message string) string {
 	return fmt.Sprintf(
 		"<response tool=\"semantic_search\">\n"+
 			"  <query>%s</query>\n"+
 			"  <repo>%s</repo>\n"+
-			"  <status>disabled</status>\n"+
-			"  <message>Semantic search is not available: embedding service not configured. "+
-			"Set EMBED_URL and EMBED_MODEL environment variables to enable.</message>\n"+
+			"  <status>%s</status>\n"+
+			"  <message>%s</message>\n"+
 			"</response>",
-		escapeXML(input.Query), escapeXML(input.Repo))
-}
-
-func buildIndexingResponse(input SemanticSearchInput) string {
-	return fmt.Sprintf(
-		"<response tool=\"semantic_search\">\n"+
-			"  <query>%s</query>\n"+
-			"  <repo>%s</repo>\n"+
-			"  <status>indexing</status>\n"+
-			"  <message>Repository is being indexed in the background. "+
-			"This may take a few minutes for the first run. "+
-			"Please retry in 30-60 seconds.</message>\n"+
-			"</response>",
-		escapeXML(input.Query), escapeXML(input.Repo))
-}
-
-func buildNotIndexedResponse(input SemanticSearchInput) string {
-	return fmt.Sprintf(
-		"<response tool=\"semantic_search\">\n"+
-			"  <query>%s</query>\n"+
-			"  <repo>%s</repo>\n"+
-			"  <status>not_indexed</status>\n"+
-			"  <message>No indexed code found and embedding pipeline is not configured. "+
-			"Ensure EMBED_URL is set and retry.</message>\n"+
-			"</response>",
-		escapeXML(input.Query), escapeXML(input.Repo))
+		escapeXML(input.Query), escapeXML(input.Repo), status, message)
 }
