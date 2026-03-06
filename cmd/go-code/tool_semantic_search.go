@@ -26,6 +26,7 @@ type SemanticDeps struct {
 	Store       *embeddings.Store
 	Pipeline    *embeddings.Pipeline
 	AnalyzeDeps analyze.Deps
+	Expander    *embeddings.Expander
 }
 
 const (
@@ -93,22 +94,7 @@ func handleSemanticSearch(
 	}
 
 	if len(results) > 0 {
-		// Trigger background re-index for freshness.
-		if deps.Pipeline != nil {
-			deps.Pipeline.IndexRepoAsync(repoKey, root)
-		}
-
-		// Hybrid: run keyword search and merge with RRF.
-		keyHits := runKeywordSearch(ctx, input.Query, root)
-		if len(keyHits) > 0 {
-			matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
-			if matchErr == nil && len(matched) > 0 {
-				hybrid := embeddings.MergeRRF(results, matched, topK)
-				return textResult(formatHybridResults(input, hybrid)), nil
-			}
-		}
-		// Fallback to pure semantic if keyword search fails or returns nothing.
-		return textResult(formatSemanticResults(input, results)), nil
+		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK)
 	}
 
 	// No results — start background indexing if not already running.
@@ -123,6 +109,38 @@ func handleSemanticSearch(
 	return textResult(buildNotIndexedResponse(input)), nil
 }
 
+// handleSemanticHits handles the path where semantic search returned results:
+// graph expansion, hybrid keyword merge via RRF, and final formatting.
+func handleSemanticHits(
+	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
+	repoKey, root string, results []embeddings.SearchResult, topK int,
+) (*mcp.CallToolResult, error) {
+	// Trigger background re-index for freshness.
+	if deps.Pipeline != nil {
+		deps.Pipeline.IndexRepoAsync(repoKey, root)
+	}
+
+	// Graph expansion: add 1-hop CALLS neighbors before hybrid merge
+	// so graph-expanded symbols can participate in RRF naturally.
+	if deps.Expander != nil {
+		const maxGraphExtra = 5
+		extra := deps.Expander.Expand(ctx, repoKey, results, maxGraphExtra)
+		results = append(results, extra...)
+	}
+
+	// Hybrid: run keyword search and merge with RRF.
+	keyHits := runKeywordSearch(ctx, input.Query, root)
+	if len(keyHits) > 0 {
+		matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
+		if matchErr == nil && len(matched) > 0 {
+			hybrid := embeddings.MergeRRF(results, matched, topK)
+			return textResult(formatHybridResults(input, hybrid)), nil
+		}
+	}
+	// Fallback to pure semantic if keyword search fails or returns nothing.
+	return textResult(formatSemanticResults(input, results)), nil
+}
+
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "<response tool=\"semantic_search\">\n")
@@ -130,7 +148,11 @@ func formatSemanticResults(input SemanticSearchInput, results []embeddings.Searc
 	fmt.Fprintf(&sb, "  <repo>%s</repo>\n", escapeXML(input.Repo))
 	fmt.Fprintf(&sb, "  <results count=\"%d\">\n", len(results))
 	for i, r := range results {
-		fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\">\n", i+1, r.Distance)
+		source := r.Source
+		if source == "" {
+			source = "semantic"
+		}
+		fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\">\n", i+1, r.Distance, escapeXML(source))
 		fmt.Fprintf(&sb, "      <file>%s</file>\n", escapeXML(r.FilePath))
 		fmt.Fprintf(&sb, "      <symbol kind=\"%s\">%s</symbol>\n",
 			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))

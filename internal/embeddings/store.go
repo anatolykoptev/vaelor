@@ -58,6 +58,7 @@ type SearchResult struct {
 	Language   string
 	StartLine  int
 	Distance   float32 // cosine distance (lower = more similar)
+	Source     string  // "semantic", "keyword", "hybrid", "graph" — set by caller
 }
 
 // Store manages vector embeddings in PostgreSQL with pgvector.
