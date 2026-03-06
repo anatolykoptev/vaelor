@@ -106,6 +106,15 @@ func generateNarrative(ctx context.Context, client *llm.Client, systemPrompt str
 	return narrative
 }
 
+// escapeXML escapes special XML characters in a string.
+func escapeXML(s string) string {
+	var b strings.Builder
+	if err := xml.EscapeText(&b, []byte(s)); err != nil {
+		return s // fallback to raw string on error
+	}
+	return b.String()
+}
+
 // capitalizeFirst returns s with the first Unicode letter uppercased.
 func capitalizeFirst(s string) string {
 	if s == "" {

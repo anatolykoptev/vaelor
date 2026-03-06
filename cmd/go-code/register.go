@@ -12,6 +12,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/github"
 	"github.com/anatolykoptev/go-code/internal/search"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,20 +67,35 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerExplore(server, cfg, deps)
 	registerCodeHealth(server, cfg, deps)
 
-	// Code graph (optional — needs DATABASE_URL).
+	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
 	var graphStore *codegraph.Store
+	var dbPool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
-		pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+		p, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 		if err != nil {
-			slog.Warn("code_graph: failed to connect to database, tool disabled",
+			slog.Warn("database: failed to connect, code_graph and semantic_search disabled",
 				slog.Any("error", err))
 		} else {
-			graphStore = codegraph.NewStore(pool)
+			dbPool = p
+			graphStore = codegraph.NewStore(dbPool)
 		}
 	}
 	registerCodeGraph(server, cfg, deps, graphStore)
 	registerRepoSearch(server, cfg, deps)
 	registerCodeSearch(server, cfg, deps)
 	registerWPPluginSearch(server, cfg, deps)
+
+	var semDeps SemanticDeps
+	if cfg.EmbedURL != "" && dbPool != nil {
+		ec := embeddings.NewClient(cfg.EmbedURL, cfg.EmbedModel)
+		es := embeddings.NewStore(dbPool)
+		semDeps = SemanticDeps{
+			Client:      ec,
+			Store:       es,
+			Pipeline:    embeddings.NewPipeline(ec, es),
+			AnalyzeDeps: deps,
+		}
+	}
+	registerSemanticSearch(server, cfg, semDeps)
 }
 
