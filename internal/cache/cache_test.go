@@ -262,6 +262,144 @@ func TestLLMCacheConcurrent(t *testing.T) {
 	}
 }
 
+// TestLLMCacheTTLBoundary verifies freshness just before expiry and staleness just after.
+func TestLLMCacheTTLBoundary(t *testing.T) {
+	t.Parallel()
+	const ttl = 20 * time.Millisecond
+	c := NewLLMCache(10, ttl)
+
+	key := PromptHash("boundary", "test")
+	c.Put(key, "value")
+
+	// 5ms before expiry — must be fresh.
+	time.Sleep(ttl - 5*time.Millisecond)
+	if _, ok := c.Get(key); !ok {
+		t.Error("expected cache hit just before TTL expiry")
+	}
+
+	// Re-put to reset, then sleep past TTL.
+	c.Put(key, "value")
+	time.Sleep(ttl + 5*time.Millisecond)
+	if _, ok := c.Get(key); ok {
+		t.Error("expected cache miss just after TTL expiry")
+	}
+}
+
+// TestLLMCacheTTLUpdateResetsExpiry verifies that re-putting a key resets its TTL.
+func TestLLMCacheTTLUpdateResetsExpiry(t *testing.T) {
+	t.Parallel()
+	const ttl = 20 * time.Millisecond
+	c := NewLLMCache(10, ttl)
+
+	key := PromptHash("reset", "expiry")
+	c.Put(key, "v1")
+
+	// Sleep half TTL, then re-put (resets timer).
+	time.Sleep(ttl / 2)
+	c.Put(key, "v2")
+
+	// Sleep another half TTL — total elapsed ~TTL, but timer was reset at half-point.
+	time.Sleep(ttl / 2)
+
+	got, ok := c.Get(key)
+	if !ok {
+		t.Error("expected cache hit: re-put should have reset TTL")
+	}
+	if got != "v2" {
+		t.Errorf("got %q, want %q", got, "v2")
+	}
+}
+
+// TestLLMCacheExpiredEvictsEntry verifies that a TTL miss removes the entry from stats.
+func TestLLMCacheExpiredEvictsEntry(t *testing.T) {
+	t.Parallel()
+	c := NewLLMCache(10, time.Millisecond)
+
+	c.Put(1, "x")
+	if c.Stats().Entries != 1 {
+		t.Fatal("expected 1 entry after Put")
+	}
+
+	time.Sleep(5 * time.Millisecond)
+
+	// Get triggers lazy eviction.
+	_, _ = c.Get(1)
+
+	stats := c.Stats()
+	if stats.Entries != 0 {
+		t.Errorf("expired entry should be removed; got Entries=%d", stats.Entries)
+	}
+}
+
+// TestLLMCacheZeroTTL verifies that TTL=0 falls back to the default (1h), not instant expiry.
+func TestLLMCacheZeroTTL(t *testing.T) {
+	t.Parallel()
+	c := NewLLMCache(10, 0)
+
+	c.Put(1, "hello")
+	got, ok := c.Get(1)
+	if !ok {
+		t.Error("TTL=0 should use default (1h), entry must be fresh immediately after Put")
+	}
+	if got != "hello" {
+		t.Errorf("got %q, want %q", got, "hello")
+	}
+}
+
+// TestLLMCacheNegativeTTL verifies that TTL=-1 falls back to the default (1h).
+func TestLLMCacheNegativeTTL(t *testing.T) {
+	t.Parallel()
+	c := NewLLMCache(10, -1)
+
+	c.Put(1, "hello")
+	got, ok := c.Get(1)
+	if !ok {
+		t.Error("TTL=-1 should use default (1h), entry must be fresh immediately after Put")
+	}
+	if got != "hello" {
+		t.Errorf("got %q, want %q", got, "hello")
+	}
+}
+
+// TestLLMCacheEvictionPrefersStalest fills the cache to capacity, lets half the entries
+// expire, then adds a new entry. Verifies that the LRU entry is evicted (not necessarily
+// the expired one — LLMCache uses LRU order, not staleness order) and the behavior
+// is deterministic.
+func TestLLMCacheEvictionPrefersStalest(t *testing.T) {
+	t.Parallel()
+	const ttl = 30 * time.Millisecond
+	c := NewLLMCache(4, ttl)
+
+	// Fill to capacity: keys 1–4.
+	c.Put(1, "a")
+	c.Put(2, "b")
+	c.Put(3, "c")
+	c.Put(4, "d")
+
+	// Access keys 3 and 4 to make them recent; keys 1 and 2 are now LRU tail.
+	_, _ = c.Get(3)
+	_, _ = c.Get(4)
+
+	// Let all entries age past half-TTL (not yet expired).
+	time.Sleep(ttl / 2)
+
+	// Add a 5th entry — LRU evicts key=1 (oldest in access order).
+	c.Put(5, "e")
+
+	if _, ok := c.Get(1); ok {
+		t.Error("key=1 (LRU) should have been evicted on overflow")
+	}
+	if _, ok := c.Get(5); !ok {
+		t.Error("newly added key=5 should be present")
+	}
+
+	// Verify entries count is still at capacity.
+	stats := c.Stats()
+	if stats.Entries != 4 {
+		t.Errorf("expected 4 entries after eviction, got %d", stats.Entries)
+	}
+}
+
 func TestPromptHash(t *testing.T) {
 	h1 := PromptHash("system", "user")
 	h2 := PromptHash("system", "user")
