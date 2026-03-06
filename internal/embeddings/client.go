@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	maxBatch       = 32
-	maxConcurrent  = 4
-	requestTimeout = 30 * time.Second
+	maxBatch       = 8
+	maxConcurrent  = 2
+	requestTimeout = 120 * time.Second
 	retryBackoff   = time.Second
 )
 

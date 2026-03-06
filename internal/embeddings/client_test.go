@@ -65,10 +65,10 @@ func TestEmbed_BatchSplitting(t *testing.T) {
 		count     int
 		wantCalls int32
 	}{
-		{"33 texts = 2 batches", 33, 2},
-		{"64 texts = 2 batches", 64, 2},
-		{"32 texts = 1 batch", 32, 1},
-		{"65 texts = 3 batches", 65, 3},
+		{"9 texts = 2 batches", 9, 2},
+		{"16 texts = 2 batches", 16, 2},
+		{"8 texts = 1 batch", 8, 1},
+		{"17 texts = 3 batches", 17, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
