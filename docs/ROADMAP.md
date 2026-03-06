@@ -418,7 +418,39 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## v1.16: Semantic Code Search
+## v1.16: Multi-Language Analysis Hardening ✅
+
+**Goal**: Bring Python and C++ analysis to the same quality as Go and Rust.
+
+**Status**: Complete (2026-03-06).
+
+### Python improvements ✅
+- [x] `python.scm`: 5→8 patterns — decorated functions/classes/methods in all combinations
+- [x] Module-level variable extraction, ALL_CAPS → KindConst promotion
+- [x] Decorator extraction → Symbol.Attributes field
+- [x] Visibility detection: `_name` = private, rest = public
+- [x] `python_calls.scm`: decorator references as call sites + super()
+- [x] Dead code: 55 dunder methods excluded + 12 framework decorator patterns (@property, @app.route, @pytest.fixture, etc.)
+- [x] Results on MemDB (518 .py files): dead_code 14.4%→3.12%, 0 false positives
+
+### C++ improvements ✅
+- [x] `cpp.scm`: 37→123 lines — namespace, template class/function, typedef, using alias, global vars, struct methods
+- [x] `cpp_rels.scm`: new — class/struct inheritance (simple + qualified base)
+- [x] `cpp_calls.scm`: qualified calls, template calls, new expressions
+- [x] Visibility detection via access_specifier (public/private/protected)
+- [x] Attribute extraction: virtual, override, static, constexpr, inline, explicit, noexcept, friend
+- [x] Dead code: exclude destructors, operator overloads, virtual/override, friend
+- [x] Import categorization: STL→stdlib, boost/Qt/grpc→thirdparty, local→internal
+- [x] Framework detection: boost, qt, grpc, gtest, opencv, eigen, spdlog, fmt
+
+### Depth alias normalization ✅
+- [x] `NormalizeDepth()`: maps LLM hallucinations (full→deep, shallow→overview) to canonical values
+
+**Deliverable**: Python and C++ now on par with Go/Rust analysis quality. ✅
+
+---
+
+## v1.17: Semantic Code Search (next)
 
 **Goal**: Find code by meaning, not just name patterns.
 
@@ -475,7 +507,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## v1.17: Type-Aware Analysis
+## v1.18: Type-Aware Analysis
 
 **Goal**: Precision enhancement for Go repos via compiler-level intelligence.
 
@@ -563,13 +595,16 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
                               │
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
-      v1.15 Identifier  v1.16 Semantic    v1.17 Type-Aware
-         Ranking          Search           Analysis
-       (7 tasks)        (7 tasks)         (8 tasks)
+      v1.15 Identifier  v1.16 Multi-Lang  v1.17 Semantic
+         Ranking ✅       Hardening ✅       Search
+       (7 tasks)        (Python+C++)      (7 tasks)
+                                               │
+                                          v1.18 Type-Aware
+                                           Analysis (8 tasks)
 ```
 
-**Completed**: v1.0 through v1.15 (13 tools, 9 languages, fusion ranking).
-**Next**: v1.16 (semantic search) or v1.17 (type-aware analysis) — independent, can proceed in parallel.
+**Completed**: v1.0 through v1.16 (13 tools, 9 languages, Python/C++ hardened).
+**Next**: v1.17 (semantic search) or v1.18 (type-aware analysis) — independent, can proceed in parallel.
 
 ## Releases
 
