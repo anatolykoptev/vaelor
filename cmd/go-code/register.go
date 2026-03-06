@@ -56,17 +56,6 @@ func registerTools(server *mcp.Server, cfg Config) {
 		ToolCache:    toolCache,
 	}
 
-	registerRepoAnalyze(server, cfg, deps)
-	registerFileParse(server, cfg, deps)
-	registerCodeCompare(server, cfg, deps)
-	registerDepGraph(server, cfg, deps)
-	registerSymbolSearch(server, cfg, deps)
-	registerCallTrace(server, cfg, deps)
-	registerImpact(server, cfg, deps)
-	registerDeadCode(server, cfg, deps)
-	registerExplore(server, cfg, deps)
-	registerCodeHealth(server, cfg, deps)
-
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
 	var graphStore *codegraph.Store
 	var dbPool *pgxpool.Pool
@@ -80,11 +69,9 @@ func registerTools(server *mcp.Server, cfg Config) {
 			graphStore = codegraph.NewStore(dbPool)
 		}
 	}
-	registerCodeGraph(server, cfg, deps, graphStore)
-	registerRepoSearch(server, cfg, deps)
-	registerCodeSearch(server, cfg, deps)
-	registerWPPluginSearch(server, cfg, deps)
 
+	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
+	// Created early so tools can use semantic fallback.
 	var semDeps SemanticDeps
 	if cfg.EmbedURL != "" && dbPool != nil {
 		ec := embeddings.NewClient(cfg.EmbedURL, cfg.EmbedModel)
@@ -97,7 +84,23 @@ func registerTools(server *mcp.Server, cfg Config) {
 			Expander:    embeddings.NewExpander(dbPool),
 		}
 	}
+
+	registerRepoAnalyze(server, cfg, deps)
+	registerFileParse(server, cfg, deps)
+	registerCodeCompare(server, cfg, deps)
+	registerDepGraph(server, cfg, deps)
+	registerSymbolSearch(server, cfg, deps, &semDeps)
+	registerCallTrace(server, cfg, deps, &semDeps)
+	registerImpact(server, cfg, deps, &semDeps)
+	registerDeadCode(server, cfg, deps)
+	registerExplore(server, cfg, deps)
+	registerCodeHealth(server, cfg, deps)
+	registerCodeGraph(server, cfg, deps, graphStore)
+	registerRepoSearch(server, cfg, deps)
+	registerCodeSearch(server, cfg, deps, &semDeps)
+	registerWPPluginSearch(server, cfg, deps)
 	registerSemanticSearch(server, cfg, semDeps)
+	registerSiteAnalyze(server, cfg)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
