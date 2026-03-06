@@ -93,10 +93,21 @@ func handleSemanticSearch(
 	}
 
 	if len(results) > 0 {
-		// Found results — trigger background re-index for freshness, return immediately.
+		// Trigger background re-index for freshness.
 		if deps.Pipeline != nil {
 			deps.Pipeline.IndexRepoAsync(repoKey, root)
 		}
+
+		// Hybrid: run keyword search and merge with RRF.
+		keyHits := runKeywordSearch(ctx, input.Query, root)
+		if len(keyHits) > 0 {
+			matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
+			if matchErr == nil && len(matched) > 0 {
+				hybrid := embeddings.MergeRRF(results, matched, topK)
+				return textResult(formatHybridResults(input, hybrid)), nil
+			}
+		}
+		// Fallback to pure semantic if keyword search fails or returns nothing.
 		return textResult(formatSemanticResults(input, results)), nil
 	}
 
