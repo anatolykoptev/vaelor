@@ -97,5 +97,10 @@ func registerTools(server *mcp.Server, cfg Config) {
 		}
 	}
 	registerSemanticSearch(server, cfg, semDeps)
+
+	// Auto-index local repos in background.
+	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
+		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor)
+	}
 }
 
