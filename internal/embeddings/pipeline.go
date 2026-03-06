@@ -78,9 +78,15 @@ func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexR
 	}
 
 	var toEmbed []symbolEntry
+	seen := make(map[string]bool) // dedup within batch
 	for i, sym := range symbols {
+		key := files[i].RelPath + ":" + sym.Name
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		h := bodyHash(sym.Body)
-		if prev, ok := existing[sym.Name]; ok && prev == h {
+		if prev, ok := existing[key]; ok && prev == h {
 			result.Skipped++
 			continue
 		}

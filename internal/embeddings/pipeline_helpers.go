@@ -72,7 +72,7 @@ func (s *Store) GetHashes(ctx context.Context, repoKey string) (map[string]uint6
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx,
-		"SELECT symbol_name, body_hash FROM code_embeddings WHERE repo_key=$1", repoKey)
+		"SELECT file_path, symbol_name, body_hash FROM code_embeddings WHERE repo_key=$1", repoKey)
 	if err != nil {
 		return nil, fmt.Errorf("query hashes: %w", err)
 	}
@@ -80,12 +80,12 @@ func (s *Store) GetHashes(ctx context.Context, repoKey string) (map[string]uint6
 
 	result := make(map[string]uint64)
 	for rows.Next() {
-		var name string
+		var file, name string
 		var hash int64
-		if err := rows.Scan(&name, &hash); err != nil {
+		if err := rows.Scan(&file, &name, &hash); err != nil {
 			return nil, fmt.Errorf("scan hash: %w", err)
 		}
-		result[name] = uint64(hash)
+		result[file+":"+name] = uint64(hash)
 	}
 	return result, rows.Err()
 }
