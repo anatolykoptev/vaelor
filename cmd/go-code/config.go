@@ -71,6 +71,10 @@ type Config struct {
 
 	// AutoIndexDirs are directories to scan for repos at startup (comma-separated).
 	AutoIndexDirs []string
+
+	// OxBrowserURL is the base URL for ox-browser HTTP API (e.g. http://ox-browser:8901).
+	// Empty means site_analyze tool is disabled.
+	OxBrowserURL string
 }
 
 const (
@@ -116,6 +120,7 @@ func loadConfig() Config {
 		EmbedURL:       env.Str("EMBED_URL", ""),
 		EmbedModel:     env.Str("EMBED_MODEL", "jina-code-v2"),
 		AutoIndexDirs:  env.List("AUTO_INDEX_DIRS", ""),
+		OxBrowserURL:   env.Str("OX_BROWSER_URL", ""),
 	}
 }
 
