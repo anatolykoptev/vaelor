@@ -27,10 +27,9 @@ func registerSiteAnalyze(server *mcp.Server, cfg Config) {
 
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "site_analyze",
-		Description: "Analyze a website's technology stack and frontend code. " +
-			"Detects CMS, JS frameworks, CSS frameworks, analytics, CDN, and server software. " +
-			"In full mode, downloads JS bundles and extracts source maps for analysis " +
-			"with explore, symbol_search, or dep_graph.",
+		Description: "Analyze a website: technology stack (7000+ techs), SEO/OG tags, " +
+			"performance hints, accessibility audit, content/media analysis, fonts, PWA, API discovery. " +
+			"In full mode, also downloads JS bundles and extracts source maps.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SiteAnalyzeInput) (*mcp.CallToolResult, error) {
 		return handleSiteAnalyze(ctx, input, client, workDir)
 	})
@@ -115,6 +114,12 @@ func formatDetectResponse(resp *webanalyze.AnalyzeResponse) string {
 	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">\n")
 	fmt.Fprintf(&sb, "  <site url=%q status=\"%d\">\n", resp.URL, resp.Status)
 	formatTechnologies(&sb, resp.Technologies)
+	formatSEO(&sb, resp.SEO)
+	formatPerformance(&sb, resp.Performance)
+	formatAccessibility(&sb, resp.Accessibility)
+	formatContent(&sb, resp.Content)
+	formatMedia(&sb, resp.Media)
+	formatExtras(&sb, resp.Fonts, resp.PWA, resp.API)
 	fmt.Fprintf(&sb, "    <meta generator=%q server=%q title=%q/>\n",
 		resp.Meta.Generator, resp.Meta.Server, resp.Meta.Title)
 	fmt.Fprintf(&sb, "    <assets scripts=\"%d\" stylesheets=\"%d\"/>\n",
@@ -131,6 +136,12 @@ func formatFullResponse(
 	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">\n")
 	fmt.Fprintf(&sb, "  <site url=%q status=\"%d\">\n", resp.URL, resp.Status)
 	formatTechnologies(&sb, resp.Technologies)
+	formatSEO(&sb, resp.SEO)
+	formatPerformance(&sb, resp.Performance)
+	formatAccessibility(&sb, resp.Accessibility)
+	formatContent(&sb, resp.Content)
+	formatMedia(&sb, resp.Media)
+	formatExtras(&sb, resp.Fonts, resp.PWA, resp.API)
 	if stats != nil && stats.Files > 0 {
 		fmt.Fprintf(&sb, "    <sources path=%q files=\"%d\">\n", outDir, stats.Files)
 		for ext, count := range stats.Languages {
@@ -147,15 +158,6 @@ func formatFullResponse(
 	}
 	sb.WriteString("  </site>\n</response>")
 	return sb.String()
-}
-
-func formatTechnologies(sb *strings.Builder, techs []webanalyze.Technology) {
-	fmt.Fprintf(sb, "    <technologies count=\"%d\">\n", len(techs))
-	for _, t := range techs {
-		fmt.Fprintf(sb, "      <tech category=%q name=%q confidence=\"%d\"/>\n",
-			t.Category, t.Name, t.Confidence)
-	}
-	sb.WriteString("    </technologies>\n")
 }
 
 func extractDomain(rawURL string) string {

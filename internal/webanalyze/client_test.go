@@ -20,7 +20,7 @@ func TestAnalyze(t *testing.T) {
 			URL:    "https://example.com",
 			Status: 200,
 			Technologies: []Technology{
-				{Name: "React", Category: "JS Framework", Confidence: 100},
+				{Name: "React", Categories: []string{"JavaScript frameworks"}, Confidence: 100},
 			},
 			Assets: Assets{
 				Scripts:     []string{"app.js"},
