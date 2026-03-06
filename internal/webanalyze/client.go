@@ -27,9 +27,10 @@ func NewClient(baseURL string) *Client {
 
 // Technology is a detected web technology.
 type Technology struct {
-	Name       string `json:"name"`
-	Category   string `json:"category"`
-	Confidence int    `json:"confidence"`
+	Name       string   `json:"name"`
+	Categories []string `json:"categories"`
+	Confidence int      `json:"confidence"`
+	Version    *string  `json:"version,omitempty"`
 }
 
 // Meta holds page metadata.
@@ -48,15 +49,23 @@ type Assets struct {
 
 // AnalyzeResponse is the response from ox-browser /analyze.
 type AnalyzeResponse struct {
-	URL          string       `json:"url"`
-	Status       int          `json:"status"`
-	Technologies []Technology `json:"technologies"`
-	Meta         Meta         `json:"meta"`
-	Assets       Assets       `json:"assets"`
-	Method       string       `json:"method"`
-	CFDetected   bool         `json:"cf_detected"`
-	ElapsedMs    int          `json:"elapsed_ms"`
-	Error        string       `json:"error,omitempty"`
+	URL           string              `json:"url"`
+	Status        int                 `json:"status"`
+	Technologies  []Technology        `json:"technologies"`
+	Meta          Meta                `json:"meta"`
+	Assets        Assets              `json:"assets"`
+	SEO           SeoReport           `json:"seo"`
+	Performance   PerformanceReport   `json:"performance"`
+	Accessibility AccessibilityReport `json:"accessibility"`
+	Content       ContentReport       `json:"content"`
+	Media         MediaReport         `json:"media"`
+	Fonts         FontsReport         `json:"fonts"`
+	PWA           PwaReport           `json:"pwa"`
+	API           ApiReport           `json:"api"`
+	Method        string              `json:"method"`
+	CFDetected    bool                `json:"cf_detected"`
+	ElapsedMs     int                 `json:"elapsed_ms"`
+	Error         string              `json:"error,omitempty"`
 }
 
 // FetchResponse is the response from ox-browser /fetch.
