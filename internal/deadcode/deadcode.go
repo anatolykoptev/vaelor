@@ -114,6 +114,9 @@ func shouldSkipSymbol(sym *parser.Symbol, opts Options) bool {
 	if isRustWellKnownMethod(sym) {
 		return true
 	}
+	if isCppImplicitMethod(sym) {
+		return true
+	}
 	if !opts.IncludeTests && isTestFile(sym.File) {
 		return true
 	}

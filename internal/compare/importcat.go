@@ -29,6 +29,8 @@ func CategorizeImport(imp, language string) ImportCategory {
 		return categorizePythonImport(imp)
 	case "javascript", "typescript":
 		return categorizeJSImport(imp)
+	case "cpp", "c":
+		return categorizeCppImport(imp)
 	default:
 		return ImportExternal
 	}
@@ -252,6 +254,20 @@ var frameworkPatterns = map[string][]string{
 		"lodash:lodash",
 		"jest:jest",
 		"mocha:mocha",
+	},
+	"cpp": {
+		"boost:boost",
+		"Qt:qt",
+		"grpc:grpc",
+		"gtest:gtest",
+		"opencv:opencv",
+		"eigen:eigen",
+		"nlohmann:nlohmann-json",
+		"spdlog:spdlog",
+		"fmt:fmt",
+		"absl:abseil",
+		"folly:folly",
+		"Poco:poco",
 	},
 }
 

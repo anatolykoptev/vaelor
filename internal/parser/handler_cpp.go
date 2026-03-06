@@ -15,11 +15,15 @@ var cppQueryBytes []byte
 //go:embed queries/cpp_calls.scm
 var cppCallsQueryBytes []byte
 
+//go:embed queries/cpp_rels.scm
+var cppRelsQueryBytes []byte
+
 // cppHandler implements LanguageHandler for C++ source files.
 type cppHandler struct {
 	lang      *sitter.Language
 	query     *sitter.Query
 	callQuery *sitter.Query
+	relsQuery *sitter.Query
 }
 
 // cppLang is the singleton C++ language handler, registered on package init.
@@ -35,9 +39,14 @@ func init() {
 	if err != nil {
 		panic("cpp_calls.scm query compile error: " + err.Error())
 	}
+	rq, err := sitter.NewQuery(cppRelsQueryBytes, lang)
+	if err != nil {
+		panic("cpp_rels.scm query compile error: " + err.Error())
+	}
 	cppLang.lang = lang
 	cppLang.query = q
 	cppLang.callQuery = cq
+	cppLang.relsQuery = rq
 	registerHandler(cppLang)
 }
 
@@ -51,6 +60,8 @@ func (h *cppHandler) TagsQuery() *sitter.Query { return h.query }
 
 func (h *cppHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
+func (h *cppHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
+
 // MapCapture converts a tree-sitter capture to a Symbol for C++.
 func (h *cppHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
 	switch captureName {
@@ -62,13 +73,16 @@ func (h *cppHandler) MapCapture(captureName string, node *sitter.Node, source []
 		return h.mapClass(node, source)
 	case captureType:
 		return h.mapType(node, source)
+	case captureVar:
+		return h.mapVariable(node, source)
+	case captureConst:
+		return h.mapConst(node, source)
 	}
 	return nil
 }
 
 // mapFunctionOrMethod handles function_definition nodes.
-// Qualified definitions like "Config::Config(...)" are emitted as KindMethod.
-// Simple definitions like "run(...)" are emitted as KindFunction.
+// Qualified names like "Config::Config(...)" are emitted as KindMethod.
 func (h *cppHandler) mapFunctionOrMethod(node *sitter.Node, source []byte) *Symbol {
 	name, isQualified := cppFunctionName(node, source)
 	if name == "" {
@@ -79,12 +93,14 @@ func (h *cppHandler) mapFunctionOrMethod(node *sitter.Node, source []byte) *Symb
 		kind = KindMethod
 	}
 	return &Symbol{
-		Name:      name,
-		Kind:      kind,
-		Language:  "cpp",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       name,
+		Kind:       kind,
+		Language:   "cpp",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   isCppPublic(node, source),
+		Attributes: extractCppAttributes(node, source),
 	}
 }
 
@@ -95,12 +111,14 @@ func (h *cppHandler) mapMethod(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      name,
-		Kind:      KindMethod,
-		Language:  "cpp",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       name,
+		Kind:       KindMethod,
+		Language:   "cpp",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   isCppPublic(node, source),
+		Attributes: extractCppAttributes(node, source),
 	}
 }
 
@@ -111,18 +129,19 @@ func (h *cppHandler) mapClass(node *sitter.Node, source []byte) *Symbol {
 		return nil
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      KindClass,
-		Language:  "cpp",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       KindClass,
+		Language:   "cpp",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   isCppPublic(node, source),
+		Attributes: extractCppAttributes(node, source),
 	}
 }
 
 // mapType maps struct_specifier and enum_specifier captures.
-// struct_specifier → KindStruct, everything else → KindType.
-// Only captures definitions with a body — skips type references like "struct Foo* p".
+// Only definitions with a body — skips type references like "struct Foo* p".
 func (h *cppHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
@@ -137,72 +156,45 @@ func (h *cppHandler) mapType(node *sitter.Node, source []byte) *Symbol {
 		kind = KindStruct
 	}
 	return &Symbol{
-		Name:      nameNode.Content(source),
-		Kind:      kind,
-		Language:  "cpp",
-		StartLine: node.StartPoint().Row + 1,
-		EndLine:   node.EndPoint().Row + 1,
-		Signature: extractSignature(node, source),
+		Name:       nameNode.Content(source),
+		Kind:       kind,
+		Language:   "cpp",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   isCppPublic(node, source),
+		Attributes: extractCppAttributes(node, source),
 	}
 }
 
-// cppFunctionName extracts the function name from a function_definition node.
-// Returns the name and whether it is a qualified name (Class::method).
-func cppFunctionName(node *sitter.Node, source []byte) (string, bool) {
-	decl := node.ChildByFieldName("declarator")
-	if decl == nil {
-		return "", false
-	}
-	return cppNameFromDeclarator(decl, source)
+// mapVariable extracts a variable symbol; const/constexpr promotes to KindConst.
+func (h *cppHandler) mapVariable(node *sitter.Node, source []byte) *Symbol {
+	return h.mapVarOrConst(node, source, false)
 }
 
-// cppNameFromDeclarator recursively walks a declarator chain to extract the name.
-func cppNameFromDeclarator(node *sitter.Node, source []byte) (string, bool) {
-	if node == nil {
-		return "", false
-	}
-	switch node.Type() {
-	case nodeIdentifier:
-		return node.Content(source), false
-	case nodeQualifiedIdentifier:
-		// e.g. "Config::Config" — treat as method.
-		return node.Content(source), true
-	case nodeFunctionDeclarator:
-		inner := node.ChildByFieldName("declarator")
-		return cppNameFromDeclarator(inner, source)
-	case nodePointerDeclarator, nodeReferenceDeclarator:
-		inner := node.ChildByFieldName("declarator")
-		return cppNameFromDeclarator(inner, source)
-	}
-	return "", false
+// mapConst extracts a constant symbol from a declaration node.
+func (h *cppHandler) mapConst(node *sitter.Node, source []byte) *Symbol {
+	return h.mapVarOrConst(node, source, true)
 }
 
-// cppMethodDeclName extracts the method name from a declaration or field_declaration node
-// inside a class body.
-func cppMethodDeclName(node *sitter.Node, source []byte) string {
-	// declaration: declarator = function_declarator → declarator = identifier
-	// field_declaration: declarator = function_declarator → declarator = field_identifier
-	decl := node.ChildByFieldName("declarator")
-	if decl == nil {
-		return ""
+func (h *cppHandler) mapVarOrConst(node *sitter.Node, source []byte, forceConst bool) *Symbol {
+	name := cppVarName(node, source)
+	if name == "" {
+		return nil
 	}
-	return cppMethodInnerName(decl, source)
+	kind := KindVar
+	if forceConst || isCppConst(node, source) {
+		kind = KindConst
+	}
+	return &Symbol{
+		Name:       name,
+		Kind:       kind,
+		Language:   "cpp",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   isCppPublic(node, source),
+		Attributes: extractCppAttributes(node, source),
+	}
 }
 
-// cppMethodInnerName navigates into function_declarator to find the method name.
-func cppMethodInnerName(node *sitter.Node, source []byte) string {
-	if node == nil {
-		return ""
-	}
-	switch node.Type() {
-	case nodeIdentifier, nodeFieldIdentifier:
-		return node.Content(source)
-	case nodeFunctionDeclarator:
-		inner := node.ChildByFieldName("declarator")
-		return cppMethodInnerName(inner, source)
-	case nodePointerDeclarator, nodeReferenceDeclarator:
-		inner := node.ChildByFieldName("declarator")
-		return cppMethodInnerName(inner, source)
-	}
-	return ""
-}
