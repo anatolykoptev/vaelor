@@ -95,7 +95,7 @@ func TestEmbed_BatchSplitting(t *testing.T) {
 	}
 }
 
-func TestPrefix_Passage(t *testing.T) {
+func TestEmbed_NoPrefix(t *testing.T) {
 	var lastInput []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req embeddingReq
@@ -114,12 +114,12 @@ func TestPrefix_Passage(t *testing.T) {
 	c := NewClient(srv.URL, "test-model")
 	c.Embed(context.Background(), []string{"hello", "world"})
 
-	if lastInput[0] != "passage: hello" || lastInput[1] != "passage: world" {
-		t.Fatalf("expected passage prefix, got %v", lastInput)
+	if lastInput[0] != "hello" || lastInput[1] != "world" {
+		t.Fatalf("expected no prefix, got %v", lastInput)
 	}
 }
 
-func TestEmbedQuery_Prefix(t *testing.T) {
+func TestEmbedQuery_NoPrefix(t *testing.T) {
 	var lastInput []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req embeddingReq
@@ -137,8 +137,8 @@ func TestEmbedQuery_Prefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if lastInput[0] != "query: search term" {
-		t.Fatalf("expected query prefix, got %s", lastInput[0])
+	if lastInput[0] != "search term" {
+		t.Fatalf("expected no prefix, got %s", lastInput[0])
 	}
 	if len(vec) != 3 {
 		t.Fatalf("expected 3-dim vector, got %d", len(vec))

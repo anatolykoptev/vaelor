@@ -111,7 +111,7 @@ func loadConfig() Config {
 		GraphTTLRemote: env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
 		GraphBatchSize: env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 		EmbedURL:       env.Str("EMBED_URL", ""),
-		EmbedModel:     env.Str("EMBED_MODEL", "multilingual-e5-large"),
+		EmbedModel:     env.Str("EMBED_MODEL", "jina-code-v2"),
 	}
 }
 
