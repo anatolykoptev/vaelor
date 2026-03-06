@@ -14,7 +14,7 @@ import (
 const (
 	defaultTopK = 20
 	maxTopK     = 100
-	dimSize     = 1024
+	dimSize     = 768
 	batchSize   = 50
 	fieldsPerRec = 8
 )
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS code_embeddings (
     repo_key TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL,
     symbol_kind TEXT NOT NULL, language TEXT NOT NULL DEFAULT '',
     start_line INT NOT NULL DEFAULT 0, body_hash BIGINT NOT NULL DEFAULT 0,
-    embedding vector(1024) NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    embedding vector(768) NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (repo_key, file_path, symbol_name));
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_repo ON code_embeddings (repo_key);
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw ON code_embeddings

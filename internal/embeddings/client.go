@@ -37,21 +37,17 @@ func NewClient(baseURL, model string) *Client {
 	return &Client{url: baseURL + "/v1/embeddings", model: model, http: &http.Client{Timeout: requestTimeout}}
 }
 
-// Embed returns embeddings for texts with "passage: " prefix. Batches automatically.
+// Embed returns embeddings for texts. Batches automatically.
 func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	prefixed := make([]string, len(texts))
-	for i, t := range texts {
-		prefixed[i] = "passage: " + t
-	}
-	return c.embedBatched(ctx, prefixed)
+	return c.embedBatched(ctx, texts)
 }
 
-// EmbedQuery embeds a single search query with "query: " prefix.
+// EmbedQuery embeds a single search query.
 func (c *Client) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	res, err := c.embedBatched(ctx, []string{"query: " + query})
+	res, err := c.embedBatched(ctx, []string{query})
 	if err != nil {
 		return nil, err
 	}
