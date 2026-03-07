@@ -33,7 +33,7 @@
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `MCP_PORT` | `8897` | |
-| `LLM_URL` | `http://127.0.0.1:8317/v1` | CLIProxyAPI |
+| `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | CLIProxyAPI |
 | `LLM_API_KEY` | required | |
 | `LLM_API_KEY_FALLBACK` | optional | Comma-separated, used on 429/5xx |
 | `LLM_MODEL` | `gemini-2.5-flash` | |

@@ -78,7 +78,7 @@ Replace all calls in `loadConfig()` (lines 82-101):
 func loadConfig() Config {
 	return Config{
 		Port:              env.Str("MCP_PORT", defaultPort),
-		LLMURL:            env.Str("LLM_URL", defaultLLMURL),
+		LLMURL:            env.Str("LLM_API_BASE", defaultLLMURL),
 		LLMAPIKey:         env.Str("LLM_API_KEY", ""),
 		LLMModel:          env.Str("LLM_MODEL", defaultLLMModel),
 		GithubToken:       env.Str("GITHUB_TOKEN", ""),
