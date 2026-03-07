@@ -32,7 +32,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 ```bash
 docker build -t go-code .
 docker run -p 8897:8897 \
-  -e LLM_URL=http://host.docker.internal:8317/v1 \
+  -e LLM_API_BASE=http://host.docker.internal:8317/v1 \
   -e LLM_API_KEY=your-key \
   go-code
 ```
@@ -130,7 +130,7 @@ claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_PORT` | `8897` | HTTP server port |
-| `LLM_URL` | `http://127.0.0.1:8317/v1` | OpenAI-compatible LLM endpoint |
+| `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | OpenAI-compatible LLM endpoint |
 | `LLM_API_KEY` | *(required)* | API key for LLM |
 | `LLM_MODEL` | `gemini-2.5-flash` | Model name |
 | `GITHUB_TOKEN` | *(optional)* | GitHub token for higher API rate limits |
