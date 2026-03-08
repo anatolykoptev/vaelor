@@ -33,6 +33,30 @@ const (
 	targetErrorHandlingRatio = 0.6 // 60% error-handling coverage is ideal
 )
 
+// Normalization parameters: target (ideal) and range (spread for 0→1 mapping).
+// Sub-score formula: clamp01(1.0 - (metric - target) / normRange)
+const (
+	targetCognitiveComplexity = 5.0
+	rangeCognitiveComplexity  = 20.0
+
+	targetCyclomaticAvg = 3.0
+	rangeCyclomaticAvg  = 12.0
+
+	targetCyclomaticMax = 8.0
+	rangeCyclomaticMax  = 17.0
+
+	targetFuncSize = 15.0
+	rangeFuncSize  = 45.0
+
+	targetNestingDepth = 2.0
+	rangeNestingDepth  = 5.0
+
+	// Multipliers for ratio-based scores (score = 1 - ratio * multiplier).
+	fileSizeMultiplier    = 2.0
+	duplicationMultiplier = 5.0
+	magicNumberMultiplier = 3.0
+)
+
 // GradeScore computes a quality score in [0, 100] from RepoMetrics.
 // Higher is better. Uses 11 sub-scores with weights summing to 1.0.
 func GradeScore(m RepoMetrics) float64 {
@@ -41,17 +65,17 @@ func GradeScore(m RepoMetrics) float64 {
 	}
 
 	// Each sub-score is in [0, 1], where 1 = best.
-	cognitiveScore := clamp01(1.0 - (m.AvgCognitiveComplexity-5.0)/20.0)
-	cyclomaticAvgScore := clamp01(1.0 - (m.AvgComplexity-3.0)/12.0)
-	cyclomaticMaxScore := clamp01(1.0 - (float64(m.MaxComplexity)-8.0)/17.0)
+	cognitiveScore := clamp01(1.0 - (m.AvgCognitiveComplexity-targetCognitiveComplexity)/rangeCognitiveComplexity)
+	cyclomaticAvgScore := clamp01(1.0 - (m.AvgComplexity-targetCyclomaticAvg)/rangeCyclomaticAvg)
+	cyclomaticMaxScore := clamp01(1.0 - (float64(m.MaxComplexity)-targetCyclomaticMax)/rangeCyclomaticMax)
 	testScore := clamp01(m.TestRatio / targetTestRatio)
 	docScore := clamp01(m.DocRatio / targetDocRatio)
-	funcSizeScore := clamp01(1.0 - (m.AvgFuncLines-15.0)/45.0)
+	funcSizeScore := clamp01(1.0 - (m.AvgFuncLines-targetFuncSize)/rangeFuncSize)
 	errorScore := clamp01(m.ErrorHandlingRatio / targetErrorHandlingRatio)
-	nestingScore := clamp01(1.0 - (float64(m.MaxNestingDepth)-2.0)/5.0)
-	fileSizeScore := clamp01(1.0 - m.LargeFileRatio*2.0)
-	duplicationScore := clamp01(1.0 - m.DuplicationRatio*5.0)
-	magicScore := clamp01(1.0 - m.MagicNumberRatio*3.0)
+	nestingScore := clamp01(1.0 - (float64(m.MaxNestingDepth)-targetNestingDepth)/rangeNestingDepth)
+	fileSizeScore := clamp01(1.0 - m.LargeFileRatio*fileSizeMultiplier)
+	duplicationScore := clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier)
+	magicScore := clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier)
 
 	total := cognitiveScore*weightCognitiveComplexity +
 		cyclomaticAvgScore*weightCyclomaticAvg +

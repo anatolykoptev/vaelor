@@ -130,6 +130,20 @@ type depthLimits struct {
 	topSymbols     int  // top-level <symbols> count
 }
 
+// Depth-level limits for XML output.
+const (
+	overviewTreeLines  = 50
+	overviewTopSymbols = 30
+
+	deepTreeLines  = 200
+	deepTopSymbols = 200
+
+	moduleMaxFiles       = 30
+	moduleMaxSymsPerFile = 20
+	moduleTreeLines      = 100
+	moduleTopSymbols     = 100
+)
+
 func limitsForDepth(depth string) depthLimits {
 	switch depth {
 	case analyze.DepthOverview:
@@ -138,8 +152,8 @@ func limitsForDepth(depth string) depthLimits {
 			maxSymsPerFile: 0,
 			includeDoc:     false,
 			includeImports: false,
-			treeLines:      50, //nolint:mnd
-			topSymbols:     30, //nolint:mnd
+			treeLines:      overviewTreeLines,
+			topSymbols:     overviewTopSymbols,
 		}
 	case analyze.DepthDeep:
 		return depthLimits{
@@ -147,17 +161,17 @@ func limitsForDepth(depth string) depthLimits {
 			maxSymsPerFile: 0, // 0 = all
 			includeDoc:     true,
 			includeImports: true,
-			treeLines:      200, //nolint:mnd
-			topSymbols:     200, //nolint:mnd
+			treeLines:      deepTreeLines,
+			topSymbols:     deepTopSymbols,
 		}
 	default: // "" or "module"
 		return depthLimits{
-			maxFiles:       30,  //nolint:mnd
-			maxSymsPerFile: 20,  //nolint:mnd
+			maxFiles:       moduleMaxFiles,
+			maxSymsPerFile: moduleMaxSymsPerFile,
 			includeDoc:     false,
 			includeImports: true,
-			treeLines:      100, //nolint:mnd
-			topSymbols:     100, //nolint:mnd
+			treeLines:      moduleTreeLines,
+			topSymbols:     moduleTopSymbols,
 		}
 	}
 }
@@ -453,7 +467,9 @@ func truncateTree(tree string, maxLines int) string {
 	return strings.Join(truncated, "\n") + fmt.Sprintf("\n... (%d more)", remaining)
 }
 
+const roundPrecision = 100 // 10^N for N decimal places
+
 // roundScore rounds a float to 2 decimal places.
 func roundScore(f float64) float64 {
-	return math.Round(f*100) / 100 //nolint:mnd
+	return math.Round(f*roundPrecision) / roundPrecision
 }
