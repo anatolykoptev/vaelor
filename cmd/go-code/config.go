@@ -32,9 +32,6 @@ type Config struct {
 	// PathMappings translates external paths to container-internal paths.
 	PathMappings []analyze.PathMapping
 
-	// SearxngURL is the SearXNG instance URL for repo_search.
-	SearxngURL string
-
 	// RedisURL is the optional Redis URL for L2 cache (e.g. redis://redis:6379/6).
 	RedisURL string
 
@@ -76,6 +73,10 @@ type Config struct {
 	// Empty means site_analyze tool is disabled.
 	OxBrowserURL string
 
+	// GoSearchURL is the go-search MCP endpoint for web search (e.g. http://go-search:8890/mcp).
+	// Empty means web search is disabled in repo_search.
+	GoSearchURL string
+
 	// GitLabToken is the optional GitLab API token (PRIVATE-TOKEN).
 	GitLabToken string
 
@@ -112,7 +113,6 @@ func loadConfig() Config {
 		LLMModel:     env.Str("LLM_MODEL", defaultLLMModel),
 		GithubToken:  env.Str("GITHUB_TOKEN", ""),
 		WorkspaceDir: env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
-		SearxngURL:        env.Str("SEARXNG_URL", "http://searxng:8888"),
 		RedisURL:          env.Str("REDIS_URL", ""),
 		LLMFallbackKeys:  env.List("LLM_API_KEY_FALLBACK", ""),
 		GithubSearchRepos: env.List("GITHUB_SEARCH_REPOS", ""),
@@ -128,6 +128,7 @@ func loadConfig() Config {
 		EmbedModel:     env.Str("EMBED_MODEL", "jina-code-v2"),
 		AutoIndexDirs:  env.List("AUTO_INDEX_DIRS", ""),
 		OxBrowserURL:   env.Str("OX_BROWSER_URL", ""),
+		GoSearchURL:    env.Str("GO_SEARCH_URL", ""),
 		GitLabToken:    env.Str("GITLAB_TOKEN", ""),
 		GitLabURL:      env.Str("GITLAB_URL", ""),
 	}

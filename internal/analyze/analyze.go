@@ -25,10 +25,10 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/go-code/internal/websearch"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/search"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
@@ -66,8 +66,8 @@ type Deps struct {
 	// Forges is the multi-forge registry for search operations.
 	Forges *forge.Registry
 
-	// SearXNG is the SearXNG client for web/repo search.
-	SearXNG *search.SearXNGClient
+	// WebSearch is the go-search client for web-based repo discovery. Optional.
+	WebSearch *websearch.Client
 
 	// ToolCache is a generic cache for tool results (search, etc.).
 	ToolCache *kitcache.Cache

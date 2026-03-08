@@ -14,7 +14,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/search"
+	"github.com/anatolykoptev/go-code/internal/websearch"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -120,9 +120,8 @@ func parallelRepoSearch(ctx context.Context, query, sort string, deps analyze.De
 	type searchFunc func() []repoHit
 
 	searches := []searchFunc{
-		func() []repoHit { return searxngRepoHits(ctx, query, "", deps.SearXNG) },
 		func() []repoHit { return forgeAPIRepoHits(ctx, query, sort, deps.Forges) },
-		func() []repoHit { return searxngRepoHits(ctx, query+" site:github.com", "", deps.SearXNG) },
+		func() []repoHit { return webSearchRepoHits(ctx, query, deps.WebSearch) },
 	}
 
 	var mu sync.Mutex
@@ -143,27 +142,6 @@ func parallelRepoSearch(ctx context.Context, query, sort string, deps analyze.De
 	wg.Wait()
 
 	return all
-}
-
-// searxngRepoHits runs a SearXNG search and extracts GitHub repo hits.
-func searxngRepoHits(ctx context.Context, query string, _ string, client *search.SearXNGClient) []repoHit {
-	if client == nil {
-		return nil
-	}
-	results, err := client.Search(ctx, query, search.SearchOpts{})
-	if err != nil {
-		slog.Warn("repo_search: SearXNG search failed", "query", query, "err", err)
-		return nil
-	}
-	hits := make([]repoHit, 0, len(results))
-	for _, r := range results {
-		owner, repo, ok := forge.ExtractOwnerRepo(r.URL)
-		if !ok {
-			continue
-		}
-		hits = append(hits, repoHit{Owner: owner, Repo: repo, URL: r.URL})
-	}
-	return hits
 }
 
 // forgeAPIRepoHits calls SearchRepos on all configured forges and aggregates hits.
@@ -195,6 +173,27 @@ func forgeAPIRepoHits(ctx context.Context, query, sort string, reg *forge.Regist
 			}
 			hits = append(hits, repoHit{Owner: owner, Repo: repo, URL: r.HTMLURL})
 		}
+	}
+	return hits
+}
+
+// webSearchRepoHits queries go-search smart_search (depth=fast) and extracts repo URLs.
+func webSearchRepoHits(ctx context.Context, query string, client *websearch.Client) []repoHit {
+	if client == nil {
+		return nil
+	}
+	results, err := client.Search(ctx, query+" github repository")
+	if err != nil {
+		slog.Warn("repo_search: web search failed", "query", query, "err", err)
+		return nil
+	}
+	hits := make([]repoHit, 0, len(results))
+	for _, r := range results {
+		owner, repo, ok := forge.ExtractOwnerRepo(r.URL)
+		if !ok {
+			continue
+		}
+		hits = append(hits, repoHit{Owner: owner, Repo: repo, URL: r.URL})
 	}
 	return hits
 }

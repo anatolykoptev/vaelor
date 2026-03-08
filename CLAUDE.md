@@ -13,20 +13,22 @@
 | `internal/codegraph/` | Apache AGE persistent graph; `internal/callgraph/` = in-memory call tracing |
 | `internal/polyglot/` | Multi-language repo structure detection |
 | `internal/routes/` | HTTP route extraction (7 languages, used for cross-language edges) |
+| `internal/forge/` | Multi-forge abstraction: `Forge` interface, GitHub + GitLab implementations, URL detection, registry |
+| `internal/websearch/` | HTTP client for go-search MCP (smart_search depth=fast), used by repo_search |
 | `internal/llm/` | CLIProxyAPI client with retry + fallback |
 
 ## MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `repo_analyze` | Analyze GitHub repo or local path. Modes: `deep` (AST+LLM), `quick` (GitHub Code Search), `pr`/`issue` |
+| `repo_analyze` | Analyze GitHub/GitLab repo or local path. Modes: `deep` (AST+LLM), `quick` (Code Search), `pr`/`issue` |
 | `file_parse` | Parse single file with tree-sitter → symbol table or raw AST |
 | `code_compare` | Structural diff of two repos: architecture, API design, dependencies |
 | `dep_graph` | Dependency graph as Mermaid/DOT/JSON. `cross_language=true` adds Route edges |
 | `symbol_search` | Find functions/types/consts by name pattern or wildcard across a repo |
 | `call_trace` | BFS/DFS call chain from a function; forward (callees) or reverse (callers) with LLM narrative |
 | `code_graph` | Query persistent Apache AGE graph (`gocode` DB). 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL. Requires `DATABASE_URL` |
-| `repo_search` | Discover GitHub repos. Parallel SearXNG + GitHub API, LLM-ranked |
+| `repo_search` | Discover repos across forges. Parallel web search (go-search) + GitHub/GitLab API, LLM-ranked |
 
 ## Environment Variables
 
@@ -42,12 +44,14 @@
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp clone location |
 | `MAX_FILE_KB` | `512` | |
 | `MAX_REPO_MB` | `200` | |
-| `SEARXNG_URL` | `http://searxng:8888` | |
 | `REDIS_URL` | optional | L2 cache, DB 6 |
 | `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
 | `GRAPH_TTL_LOCAL` | `3600` | Seconds |
 | `GRAPH_TTL_REMOTE` | `86400` | Seconds |
 | `GRAPH_BATCH_SIZE` | `5` | Keep small — AGE limitation |
+| `GITLAB_TOKEN` | optional | GitLab API token (`PRIVATE-TOKEN` header) |
+| `GITLAB_URL` | optional | Self-hosted GitLab base URL (default: `https://gitlab.com`) |
+| `GO_SEARCH_URL` | optional | go-search MCP endpoint for web search (e.g. `http://go-search:8890/mcp`) |
 
 ## Build
 
@@ -62,7 +66,7 @@ make deploy  # docker compose build --no-cache + up -d
 
 - Dependency direction: `ingest → parser → clean → analyze → llm`
 - `compare`, `analyze`, `callgraph` are peers — none imports the others
-- `github` package has no dependencies on other internal packages
+- `forge` package has no dependencies on other internal packages
 - Tool handlers (`cmd/go-code/tool_*.go`) import `internal/analyze` only — no direct internal package access
 - Error messages: lowercase, `fmt.Errorf("context: %w", err)`
 - Context always first param; never stored in structs
