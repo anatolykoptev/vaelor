@@ -43,7 +43,7 @@ type xmlRecommendation struct {
 type CodeHealthInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit analysis to files of this language (e.g. go, python, rust)"`
-	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth, pkg/api), or space-separated keywords (e.g. 'auth handler')"`
+	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth, pkg/api), space-separated keywords (e.g. 'auth handler'), or 'magic_numbers' for detailed magic number report"`
 }
 
 // registerCodeHealth registers the code_health MCP tool.
@@ -69,12 +69,26 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 		defer cleanup()
 
+		// Determine snapshot focus — magic_numbers is a special mode, not a path filter.
+		snapshotFocus := input.Focus
+		isMagicMode := input.Focus == "magic_numbers"
+		if isMagicMode {
+			snapshotFocus = ""
+		}
+
 		snap, err := compare.BuildSnapshot(ctx, root, compare.SnapshotOpts{
-			Focus:    input.Focus,
+			Focus:    snapshotFocus,
 			Language: input.Language,
 		})
 		if err != nil {
 			return errResult(fmt.Sprintf("snapshot: %s", err)), nil
+		}
+
+		// Magic numbers focused report.
+		if isMagicMode {
+			entries := compare.CollectMagicNumbers(snap)
+			resp := buildMagicNumbersXML(snap.Name, snap.Language, entries)
+			return xmlMarshalResult(resp, "code_health", outputDir), nil
 		}
 
 		metrics := compare.ComputeMetrics(snap)
@@ -133,6 +147,39 @@ func buildHealthXML(
 	}
 
 	return resp
+}
+
+// xmlMagicNumbersResponse is the XML envelope for focus=magic_numbers.
+type xmlMagicNumbersResponse struct {
+	XMLName xml.Name         `xml:"response"`
+	Report  xmlMagicReport   `xml:"magic_numbers"`
+}
+
+type xmlMagicReport struct {
+	Repo     string           `xml:"repo,attr"`
+	Language string           `xml:"language,attr,omitempty"`
+	Total    int              `xml:"total,attr"`
+	Items    []xmlMagicEntry  `xml:"function"`
+}
+
+type xmlMagicEntry struct {
+	Name  string `xml:"name,attr"`
+	File  string `xml:"file,attr"`
+	Line  int    `xml:"line,attr"`
+	Count int    `xml:"count,attr"`
+}
+
+func buildMagicNumbersXML(name, language string, entries []compare.MagicNumberEntry) xmlMagicNumbersResponse {
+	items := make([]xmlMagicEntry, len(entries))
+	for i, e := range entries {
+		items[i] = xmlMagicEntry{Name: e.Name, File: e.File, Line: e.Line, Count: e.Count}
+	}
+	return xmlMagicNumbersResponse{
+		Report: xmlMagicReport{
+			Repo: name, Language: language,
+			Total: len(entries), Items: items,
+		},
+	}
 }
 
 func convertRecommendations(recs []compare.Recommendation) *xmlRecommendations {
