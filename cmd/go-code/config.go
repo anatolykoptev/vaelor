@@ -75,6 +75,13 @@ type Config struct {
 	// OxBrowserURL is the base URL for ox-browser HTTP API (e.g. http://ox-browser:8901).
 	// Empty means site_analyze tool is disabled.
 	OxBrowserURL string
+
+	// GitLabToken is the optional GitLab API token (PRIVATE-TOKEN).
+	GitLabToken string
+
+	// GitLabURL is the GitLab API base URL (default: https://gitlab.com).
+	// Set for self-hosted GitLab instances.
+	GitLabURL string
 }
 
 const (
@@ -121,6 +128,8 @@ func loadConfig() Config {
 		EmbedModel:     env.Str("EMBED_MODEL", "jina-code-v2"),
 		AutoIndexDirs:  env.List("AUTO_INDEX_DIRS", ""),
 		OxBrowserURL:   env.Str("OX_BROWSER_URL", ""),
+		GitLabToken:    env.Str("GITLAB_TOKEN", ""),
+		GitLabURL:      env.Str("GITLAB_URL", ""),
 	}
 }
 
