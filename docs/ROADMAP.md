@@ -454,7 +454,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Goal**: Find code by meaning, not just name patterns.
 
-**Status**: Complete (2026-03-06). Jina Code V2 embeddings + pgvector search operational.
+**Status**: Complete (2026-03-06). Jina Code V2 embeddings + pgvector search + hybrid RRF + graph expansion + auto-indexing.
 
 ### Embedding model ✅
 - [x] **Jina Code V2** (jina-embeddings-v2-base-code): 768-dim, 161M params, optimized for 30 programming languages
@@ -483,21 +483,50 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Where**: `internal/embeddings/indexer.go`.
 
-### `code_search` semantic mode ✅
+### `semantic_search` tool ✅
 - [x] NL query → embed → cosine similarity → top-K results
 - [x] Input: query text + repo + optional language filter + top_k
-- [x] Output: ranked list of functions with similarity score + source snippet + file path
+- [x] Output: ranked list of functions with similarity score + file path + symbol name
 
-**Where**: `cmd/go-code/tool_code_search.go`, `internal/embeddings/`.
+**Where**: `cmd/go-code/tool_semantic_search.go`, `internal/embeddings/`.
 
-### Future enhancements (deferred to v1.19+)
-- [ ] Hybrid search: combine embedding similarity with name-pattern matching (weighted merge)
-- [ ] Graph-enhanced expansion: 1-hop walk from semantically similar functions, re-rank by PageRank
+### Hybrid search (RRF) ✅
+- [x] Reciprocal Rank Fusion merging semantic + keyword results (k=60)
+- [x] Keyword search via `codesearch.Search` (literal, case-insensitive)
+- [x] `MatchKeywordHits`: maps file:line keyword hits to nearest indexed symbol in pgvector
+- [x] Items found by both methods get boosted RRF scores
+- [x] 5 unit tests covering merge, empty inputs, topK clamping
+
+**Where**: `internal/embeddings/rrf.go`, `internal/embeddings/store_keyword.go`, `cmd/go-code/tool_semantic_search_hybrid.go`.
+
+### Graph expansion ✅
+- [x] `Expander`: queries Apache AGE for 1-hop CALLS neighbors (forward + reverse)
+- [x] Dedup against existing results, max 5 extra graph-sourced results
+- [x] Graph-expanded symbols participate in RRF merge naturally
+- [x] Graceful degradation: returns nil if graph missing or AGE unavailable
+- [x] Inline name filter (AGE does not support parameterized arrays)
+
+**Where**: `internal/embeddings/expand.go`.
+
+### Auto-indexing ✅
+- [x] `AutoIndex`: scans `AUTO_INDEX_DIRS` for git repos at startup
+- [x] Sequential indexing (one repo at a time) to avoid overwhelming embedding API
+- [x] Runs in background goroutine, does not block server startup
+- [x] Skips already-indexed repos via content hash (instant skip)
+
+**Where**: `internal/embeddings/autoindex.go`, `cmd/go-code/register.go`.
+
+### Hard red TTL tests ✅
+- [x] 8 codegraph meta tests: sub-second boundaries, just-expired, far future, max/overflow TTL, config defaults
+- [x] 6 cache tests: TTL boundary, update resets expiry, expired eviction, zero/negative TTL, stalest-first eviction
+
+**Where**: `internal/codegraph/meta_test.go`, `internal/cache/cache_test.go`.
+
 - [ ] Benchmark: semantic vs keyword search on known queries
 
 **Ref**: [code-graph-rag](https://github.com/vitali87/code-graph-rag) — UniXcoder embeddings + vector DB; [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) — graph-based navigation achieves 99.4% task completion vs 76.2% baseline.
 
-**Deliverable**: NL-powered code search that understands semantics beyond name matching. ✅
+**Deliverable**: NL-powered code search with hybrid RRF merge, graph expansion, and auto-indexing. ✅
 
 ---
 
@@ -589,15 +618,15 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
                               │
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
-      v1.15 Identifier  v1.16 Multi-Lang  v1.17 Semantic
-         Ranking ✅       Hardening ✅       Search ✅
-       (7 tasks)        (Python+C++)     (Jina Code V2)
+      v1.15 Identifier  v1.16 Multi-Lang  v1.17 Semantic Search ✅
+         Ranking ✅       Hardening ✅     (Jina V2 + Hybrid RRF
+       (7 tasks)        (Python+C++)      + Graph Expand + Auto-Index)
                                                │
                                           v1.18 Type-Aware
                                            Analysis (8 tasks)
 ```
 
-**Completed**: v1.0 through v1.17 (13 tools, 9 languages, semantic code search with Jina Code V2 768-dim embeddings).
+**Completed**: v1.0 through v1.17 (14 tools, 9 languages, semantic search with hybrid RRF + graph expansion + auto-indexing).
 **Next**: v1.18 (type-aware analysis via SCIP).
 
 ## Releases
