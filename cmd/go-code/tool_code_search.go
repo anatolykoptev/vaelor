@@ -45,7 +45,7 @@ type xmlSearchMatch struct {
 	Context []xmlCDATA `xml:"ctx,omitempty"`
 }
 
-func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
+func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -54,24 +54,18 @@ func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"Supports literal strings and regular expressions. " +
 			"Returns matching lines with file paths, line numbers, and surrounding context. " +
 			"Use for finding: TODO comments, error messages, function calls, string literals, " +
-			"API endpoints, configuration patterns, or any text pattern in source code.",
+			"API endpoints, configuration patterns, or any text pattern in source code. " +
+			"Falls back to semantic search when no matches found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeSearchInput) (*mcp.CallToolResult, error) {
-		return handleCodeSearch(ctx, input, deps, outputDir)
+		return handleCodeSearch(ctx, input, deps, sem, outputDir)
 	})
 }
 
-func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
+func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.Deps, sem *SemanticDeps, outputDir string) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
-	// Allow "query" as alias for "pattern".
-	if input.Pattern == "" && input.Query != "" {
-		input.Pattern = input.Query
-	}
-	// Allow "path" as alias for "file_glob" — LLMs often use path instead.
-	if input.Path != "" && input.FileGlob == "" {
-		input.FileGlob = input.Path + "/**"
-	}
+	normalizeCodeSearchInput(&input)
 	if input.Pattern == "" {
 		return errResult("pattern is required"), nil
 	}
@@ -82,22 +76,55 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	}
 	defer cleanup()
 
-	contextLines := input.ContextLines
-	if contextLines <= 0 {
-		contextLines = 2
+	searchInput := buildCodeSearchInput(input, root)
+	matches, err := codesearch.Search(ctx, searchInput)
+	if err != nil {
+		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
 
-	const maxContextLines = 10
+	// Semantic fallback when grep finds nothing.
+	if len(matches) == 0 {
+		if suggestions := semanticSuggest(ctx, sem, root, input.Pattern, input.Language); suggestions != "" {
+			return textResult(fmt.Sprintf("<response tool=\"code_search\">\n"+
+				"  <search pattern=\"%s\" matches=\"0\"/>\n"+
+				"%s\n</response>", escapeXML(input.Pattern), suggestions)), nil
+		}
+	}
+
+	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
+}
+
+// normalizeCodeSearchInput resolves aliases and sets defaults.
+func normalizeCodeSearchInput(input *CodeSearchInput) {
+	if input.Pattern == "" && input.Query != "" {
+		input.Pattern = input.Query
+	}
+	if input.Path != "" && input.FileGlob == "" {
+		input.FileGlob = input.Path + "/**"
+	}
+}
+
+const (
+	defaultContextLines = 2
+	maxContextLines     = 10
+	defaultMaxResults   = 50
+	maxResultsCap       = 200
+)
+
+// buildCodeSearchInput converts MCP input to internal codesearch.SearchInput.
+func buildCodeSearchInput(input CodeSearchInput, root string) codesearch.SearchInput {
+	contextLines := input.ContextLines
+	if contextLines <= 0 {
+		contextLines = defaultContextLines
+	}
 	if contextLines > maxContextLines {
 		contextLines = maxContextLines
 	}
 
 	maxResults := input.MaxResults
 	if maxResults <= 0 {
-		maxResults = 50
+		maxResults = defaultMaxResults
 	}
-
-	const maxResultsCap = 200
 	if maxResults > maxResultsCap {
 		maxResults = maxResultsCap
 	}
@@ -107,7 +134,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		caseSensitive = *input.CaseSensitive
 	}
 
-	matches, err := codesearch.Search(ctx, codesearch.SearchInput{
+	return codesearch.SearchInput{
 		Root:          root,
 		Pattern:       input.Pattern,
 		IsRegex:       input.IsRegex,
@@ -117,11 +144,11 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		ContextLines:  contextLines,
 		MaxResults:    maxResults,
 		CaseSensitive: caseSensitive,
-	})
-	if err != nil {
-		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
+}
 
+// formatCodeSearchXML builds the XML response for code_search results.
+func formatCodeSearchXML(input CodeSearchInput, matches []codesearch.SearchMatch) xmlSearchResponse {
 	resp := xmlSearchResponse{
 		Search: xmlSearch{
 			Pattern: input.Pattern,
@@ -141,6 +168,5 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		}
 		resp.Search.Items[i] = item
 	}
-
-	return xmlMarshalResult(resp, "code_search", outputDir), nil
+	return resp
 }

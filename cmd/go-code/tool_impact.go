@@ -27,19 +27,20 @@ const (
 	maxImpactDepth     = 10
 )
 
-func registerImpact(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerImpact(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "impact_analysis",
 		Description: "Analyze the blast radius of changing a function or method. " +
 			"Shows direct callers, transitive callers, affected packages, " +
 			"and risk classification (low/medium/high). " +
-			"Useful before refactoring to understand what might break.",
+			"Useful before refactoring to understand what might break. " +
+			"Suggests semantically similar symbols when the target is not found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ImpactInput) (*mcp.CallToolResult, error) {
-		return handleImpact(ctx, input, deps)
+		return handleImpact(ctx, input, deps, sem)
 	})
 }
 
-func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
+func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem *SemanticDeps) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -71,6 +72,15 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps) (*m
 	}
 
 	result := impact.Analyze(cg, input.Symbol, impact.Options{MaxDepth: depth})
+
+	if !result.Found {
+		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
+		if suggestions := semanticSuggest(ctx, sem, root, input.Symbol, input.Language); suggestions != "" {
+			return textResult(fmt.Sprintf("<response tool=\"impact_analysis\">\n"+
+				"  <error>%s</error>\n%s\n</response>", escapeXML(msg), suggestions)), nil
+		}
+		return errResult(msg), nil
+	}
 
 	// Build output with optional narrative.
 	type impactOutput struct {
