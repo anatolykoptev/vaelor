@@ -90,6 +90,7 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 	// --- file-level metrics ---
 	largeFileRatio := computeLargeFileRatio(snap.Files)
 	duplicationRatio := computeDuplicationRatio(snap.Symbols)
+	magicNumberRatio := computeMagicNumberRatio(snap.Symbols)
 
 	// --- param metrics ---
 	avgParams, maxParams := computeParamMetrics(snap.Symbols)
@@ -113,6 +114,7 @@ func ComputeMetrics(snap *RepoSnapshot) RepoMetrics {
 		MaxNestingDepth:        maxNesting,
 		LargeFileRatio:         largeFileRatio,
 		DuplicationRatio:       duplicationRatio,
+		MagicNumberRatio:       magicNumberRatio,
 		AvgParamCount:          avgParams,
 		MaxParamCount:          maxParams,
 	}

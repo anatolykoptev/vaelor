@@ -16,10 +16,11 @@ type OutlierFunc struct {
 
 // Outliers holds the worst-offending function for each key metric.
 type Outliers struct {
-	MaxCyclomatic OutlierFunc
-	MaxCognitive  OutlierFunc
-	MaxFuncLines  OutlierFunc
-	MaxNesting    OutlierFunc
+	MaxCyclomatic    OutlierFunc
+	MaxCognitive     OutlierFunc
+	MaxFuncLines     OutlierFunc
+	MaxNesting       OutlierFunc
+	MaxMagicNumbers  OutlierFunc
 }
 
 // CollectOutliers iterates snapshot symbols and records which function
@@ -55,6 +56,11 @@ func CollectOutliers(snap *RepoSnapshot) Outliers {
 		nd := nestingDepth(sym.Body, sym.Language)
 		if nd > out.MaxNesting.Value {
 			out.MaxNesting = OutlierFunc{Name: sym.Name, File: rel, Line: line, Value: nd}
+		}
+
+		mn := countMagicNumbers(sym.Body, sym.Language)
+		if mn > out.MaxMagicNumbers.Value {
+			out.MaxMagicNumbers = OutlierFunc{Name: sym.Name, File: rel, Line: line, Value: mn}
 		}
 	}
 
