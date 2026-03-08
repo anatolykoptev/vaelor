@@ -39,6 +39,7 @@ func computeSubScores(m RepoMetrics) []subScore {
 		{"nesting_depth", clamp01(1.0 - (float64(m.MaxNestingDepth)-2.0)/5.0), weightNestingDepth, 0},
 		{"file_size", clamp01(1.0 - m.LargeFileRatio*2.0), weightFileSize, 0},
 		{"duplication", clamp01(1.0 - m.DuplicationRatio*5.0), weightDuplication, 0},
+		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*3.0), weightMagicNumbers, 0},
 	}
 }
 
@@ -131,6 +132,9 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 		return fmt.Sprintf("Split large files (%.0f%% exceed threshold, target: 0%%)", m.LargeFileRatio*100)
 	case "duplication":
 		return fmt.Sprintf("Reduce code duplication (ratio: %.0f%%, target: 0%%)", m.DuplicationRatio*100)
+	case "magic_numbers":
+		msg := fmt.Sprintf("Extract magic numbers into named constants (%.0f%% of functions affected)", m.MagicNumberRatio*100)
+		return appendOutlier(msg, out.MaxMagicNumbers)
 	default:
 		return fmt.Sprintf("Improve %s (score: %.0f%%)", s.Name, s.Score*100)
 	}

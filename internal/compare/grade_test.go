@@ -66,6 +66,7 @@ func TestComputeGrade(t *testing.T) {
 				AvgComplexity: 10.0, MaxComplexity: 20,
 				TestRatio: 0.05, DocRatio: 0.1,
 				ErrorHandlingRatio: 0.2, Interfaces: 0, ExternalDeps: 30,
+				MagicNumberRatio: 0.5,
 			},
 			expect: "D",
 		},

@@ -177,6 +177,7 @@ type RepoMetrics struct {
 	MaxNestingDepth        int     `json:"maxNestingDepth"`
 	LargeFileRatio         float64 `json:"largeFileRatio"`
 	DuplicationRatio       float64 `json:"duplicationRatio"`
+	MagicNumberRatio       float64 `json:"magicNumberRatio"`
 	AvgParamCount          float64 `json:"avgParamCount"`
 	MaxParamCount          int     `json:"maxParamCount"`
 	Score                  float64 `json:"score"`

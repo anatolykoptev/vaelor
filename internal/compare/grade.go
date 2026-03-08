@@ -11,18 +11,19 @@ const (
 	gradeDThreshold     = 50
 )
 
-// Scoring weights — 10 sub-scores, must sum to 1.0.
+// Scoring weights — 11 sub-scores, must sum to 1.0.
 const (
-	weightCognitiveComplexity = 0.15
-	weightCyclomaticAvg       = 0.08
+	weightCognitiveComplexity = 0.13
+	weightCyclomaticAvg       = 0.07
 	weightCyclomaticMax       = 0.05
-	weightTestCoverage        = 0.18
-	weightDocCoverage         = 0.10
-	weightFuncSize            = 0.10
-	weightErrorHandling       = 0.10
+	weightTestCoverage        = 0.16
+	weightDocCoverage         = 0.09
+	weightFuncSize            = 0.09
+	weightErrorHandling       = 0.09
 	weightNestingDepth        = 0.08
 	weightFileSize            = 0.08
 	weightDuplication         = 0.08
+	weightMagicNumbers        = 0.08
 )
 
 // Target ratios — ideal thresholds for normalization.
@@ -50,6 +51,7 @@ func GradeScore(m RepoMetrics) float64 {
 	nestingScore := clamp01(1.0 - (float64(m.MaxNestingDepth)-2.0)/5.0)
 	fileSizeScore := clamp01(1.0 - m.LargeFileRatio*2.0)
 	duplicationScore := clamp01(1.0 - m.DuplicationRatio*5.0)
+	magicScore := clamp01(1.0 - m.MagicNumberRatio*3.0)
 
 	total := cognitiveScore*weightCognitiveComplexity +
 		cyclomaticAvgScore*weightCyclomaticAvg +
@@ -60,7 +62,8 @@ func GradeScore(m RepoMetrics) float64 {
 		errorScore*weightErrorHandling +
 		nestingScore*weightNestingDepth +
 		fileSizeScore*weightFileSize +
-		duplicationScore*weightDuplication
+		duplicationScore*weightDuplication +
+		magicScore*weightMagicNumbers
 
 	return math.Round(total * 100)
 }
