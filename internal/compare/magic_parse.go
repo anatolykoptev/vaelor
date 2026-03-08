@@ -103,6 +103,29 @@ func extractDecimalAndExponent(runes []rune, i *int, n int, buf *strings.Builder
 	}
 }
 
+// normalizeFloat strips trailing ".0…" from float tokens so that
+// 1.0, 2.00, 0.0 etc. map to their integer equivalents for whitelist lookup.
+// This follows SonarQube's BigDecimal.compareTo approach.
+func normalizeFloat(token string) string {
+	neg := ""
+	s := token
+	if len(s) > 0 && s[0] == '-' {
+		neg = "-"
+		s = s[1:]
+	}
+	idx := strings.IndexByte(s, '.')
+	if idx < 0 {
+		return token
+	}
+	frac := s[idx+1:]
+	for _, c := range frac {
+		if c != '0' {
+			return token // non-zero fractional part — keep as-is
+		}
+	}
+	return neg + s[:idx]
+}
+
 func isDigit(r rune) bool {
 	return r >= '0' && r <= '9'
 }

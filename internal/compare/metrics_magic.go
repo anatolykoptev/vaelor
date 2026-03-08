@@ -8,9 +8,9 @@ import (
 )
 
 // countMagicNumbers counts hardcoded numeric literals in a function body.
-// Allowed values (0, 1, -1, 2) and small array indices [0], [1], [2] are
-// excluded. Const declarations (single-line and multi-line blocks) are
-// skipped entirely.
+// Allowed values {0, 1, 2, -1} and their float equivalents (0.0, 1.0, 2.0, -1.0)
+// are excluded via SonarQube-style float normalization. SQL-style positional
+// parameters ($1, $2) and const declarations are skipped entirely.
 func countMagicNumbers(body, language string) int {
 	if body == "" {
 		return 0
@@ -52,29 +52,20 @@ func countMagicInLine(line string) int {
 	n := len(runes)
 
 	for i := 0; i < n; {
-		// Check for negative number: '-' followed by digit, not part of identifier.
 		if runes[i] == '-' && i+1 < n && isDigit(runes[i+1]) {
-			// Ensure '-' is not preceded by an identifier char.
-			if i > 0 && isIdentChar(runes[i-1]) {
-				i++
+			if c, adv := checkNegativeNumber(runes, i, n); adv > 0 {
+				count += c
+				i += adv
 				continue
 			}
-			i++ // skip '-'
-			token := extractNumber(runes, &i)
-			full := "-" + token
-			if isMagic(full) {
-				count++
-			}
-			continue
 		}
 
 		if isDigit(runes[i]) {
-			// Ensure not part of an identifier (e.g., var1, x2).
-			if i > 0 && isIdentChar(runes[i-1]) {
+			// Skip digits attached to identifiers (var1) or SQL params ($1).
+			if i > 0 && (isIdentChar(runes[i-1]) || runes[i-1] == '$') {
 				i++
 				continue
 			}
-
 			token := extractNumber(runes, &i)
 			if isMagic(token) {
 				count++
@@ -88,10 +79,27 @@ func countMagicInLine(line string) int {
 	return count
 }
 
+// checkNegativeNumber handles '-' followed by digit. Returns (magic count, advance).
+// Returns (0, 0) if '-' is preceded by an identifier char (e.g., x-1).
+func checkNegativeNumber(runes []rune, i, n int) (int, int) {
+	if i > 0 && isIdentChar(runes[i-1]) {
+		return 0, 0
+	}
+	pos := i + 1 // skip '-'
+	token := extractNumber(runes, &pos)
+	count := 0
+	if isMagic("-" + token) {
+		count = 1
+	}
+	return count, pos - i
+}
+
 // isMagic returns true if the numeric token is a magic number.
-// Allowed set: 0, 1, -1, 2 — these are never considered magic.
+// Uses SonarQube-style float normalization: 1.0 → 1, 0.0 → 0.
+// Allowed set after normalization: {-1, 0, 1, 2}.
 func isMagic(token string) bool {
-	switch token {
+	normalized := normalizeFloat(token)
+	switch normalized {
 	case "0", "1", "2", "-1":
 		return false
 	}
