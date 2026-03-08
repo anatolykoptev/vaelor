@@ -55,6 +55,7 @@ type xmlCompMetrics struct {
 	MaxNestingDepth        int     `xml:"maxNestingDepth,attr"`
 	LargeFileRatio         float64 `xml:"largeFileRatio,attr"`
 	DuplicationRatio       float64 `xml:"duplicationRatio,attr"`
+	MagicNumberRatio       float64 `xml:"magicNumberRatio,attr"`
 	AvgParamCount          float64 `xml:"avgParamCount,attr"`
 	MaxParamCount          int     `xml:"maxParamCount,attr"`
 	Score                  float64 `xml:"score,attr"`
@@ -280,6 +281,7 @@ func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
 		MaxNestingDepth:        m.MaxNestingDepth,
 		LargeFileRatio:         m.LargeFileRatio,
 		DuplicationRatio:       m.DuplicationRatio,
+		MagicNumberRatio:       m.MagicNumberRatio,
 		AvgParamCount:          m.AvgParamCount,
 		MaxParamCount:          m.MaxParamCount,
 		Score:                  m.Score,
