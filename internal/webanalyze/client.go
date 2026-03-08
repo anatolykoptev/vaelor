@@ -1,15 +1,21 @@
 package webanalyze
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
 const clientTimeout = 30 * time.Second
+
+// crawlTimeout is longer because crawls can take minutes for large sites.
+const crawlTimeout = 10 * time.Minute
 
 // Client calls ox-browser HTTP API.
 type Client struct {
@@ -117,4 +123,79 @@ func (c *Client) Fetch(ctx context.Context, url string) (*FetchResponse, error) 
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return &result, nil
+}
+
+// CrawlInput holds parameters for the crawl request.
+type CrawlInput struct {
+	URL             string `json:"url"`
+	MaxDepth        int    `json:"max_depth"`
+	MaxPages        int    `json:"max_pages"`
+	Scope           string `json:"scope,omitempty"`
+	IncludeMarkdown bool   `json:"include_markdown"`
+}
+
+// Crawl calls POST /crawl on ox-browser and consumes the SSE stream.
+func (c *Client) Crawl(ctx context.Context, input CrawlInput) (*CrawlResponse, error) {
+	body, _ := json.Marshal(input)
+	ctx, cancel := context.WithTimeout(ctx, crawlTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/crawl", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	// Use a client without the default Timeout — SSE streams are long-lived.
+	// Context timeout handles cancellation; Transport is shared via DefaultTransport.
+	sseClient := &http.Client{}
+	resp, err := sseClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("crawl request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Drain body so the TCP connection can be reused.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, fmt.Errorf("crawl: status %d", resp.StatusCode)
+	}
+
+	return parseSSECrawl(resp.Body)
+}
+
+// parseSSECrawl reads an SSE stream and collects pages + summary.
+func parseSSECrawl(r io.Reader) (*CrawlResponse, error) {
+	scanner := bufio.NewScanner(r)
+	result := &CrawlResponse{}
+
+	var eventType string
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "event:") {
+			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			switch eventType {
+			case "page":
+				var page CrawlPage
+				if err := json.Unmarshal([]byte(data), &page); err == nil {
+					result.Pages = append(result.Pages, page)
+				}
+			case "done":
+				var summary CrawlSummary
+				if err := json.Unmarshal([]byte(data), &summary); err == nil {
+					result.Summary = summary
+				}
+			}
+			eventType = ""
+			continue
+		}
+	}
+	return result, scanner.Err()
 }

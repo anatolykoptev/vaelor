@@ -160,3 +160,29 @@ type ApiEndpoint struct {
 	Method string `json:"method"`
 	Source string `json:"source"`
 }
+
+// CrawlPage is a single page result from the crawler SSE stream.
+type CrawlPage struct {
+	URL           string  `json:"url"`
+	Status        uint16  `json:"status"`
+	Depth         uint32  `json:"depth"`
+	Title         string  `json:"title"`
+	Markdown      string  `json:"markdown"`
+	ContentLength int     `json:"content_length"`
+	LinksFound    int     `json:"links_found"`
+	ElapsedMs     uint64  `json:"elapsed_ms"`
+	Error         *string `json:"error,omitempty"`
+}
+
+// CrawlSummary is the final SSE event from the crawler.
+type CrawlSummary struct {
+	PagesCrawled int    `json:"pages_crawled"`
+	Errors       int    `json:"errors"`
+	ElapsedMs    uint64 `json:"elapsed_ms"`
+}
+
+// CrawlResponse aggregates all pages and the summary from a crawl.
+type CrawlResponse struct {
+	Pages   []CrawlPage  `json:"pages"`
+	Summary CrawlSummary `json:"summary"`
+}
