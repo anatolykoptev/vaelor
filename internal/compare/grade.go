@@ -34,7 +34,7 @@ const (
 )
 
 // GradeScore computes a quality score in [0, 100] from RepoMetrics.
-// Higher is better. Uses 10 sub-scores with weights summing to 1.0.
+// Higher is better. Uses 11 sub-scores with weights summing to 1.0.
 func GradeScore(m RepoMetrics) float64 {
 	if m.Files == 0 {
 		return 0
