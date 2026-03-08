@@ -6,6 +6,11 @@ import (
 	"sort"
 )
 
+const (
+	minScoreGap  = 0.01 // minimum gap to consider for improvement recommendations
+	percentScale = 100  // multiplier to convert [0,1] scores to percentage points
+)
+
 // Recommendation is a single actionable improvement suggestion.
 type Recommendation struct {
 	Priority  int
@@ -29,17 +34,17 @@ func computeSubScores(m RepoMetrics) []subScore {
 		return nil
 	}
 	return []subScore{
-		{"cognitive_complexity", clamp01(1.0 - (m.AvgCognitiveComplexity-5.0)/20.0), weightCognitiveComplexity, 0},
-		{"cyclomatic_avg", clamp01(1.0 - (m.AvgComplexity-3.0)/12.0), weightCyclomaticAvg, 0},
-		{"cyclomatic_max", clamp01(1.0 - (float64(m.MaxComplexity)-8.0)/17.0), weightCyclomaticMax, 0},
+		{"cognitive_complexity", clamp01(1.0 - (m.AvgCognitiveComplexity-targetCognitiveComplexity)/rangeCognitiveComplexity), weightCognitiveComplexity, 0},
+		{"cyclomatic_avg", clamp01(1.0 - (m.AvgComplexity-targetCyclomaticAvg)/rangeCyclomaticAvg), weightCyclomaticAvg, 0},
+		{"cyclomatic_max", clamp01(1.0 - (float64(m.MaxComplexity)-targetCyclomaticMax)/rangeCyclomaticMax), weightCyclomaticMax, 0},
 		{"test_coverage", clamp01(m.TestRatio / targetTestRatio), weightTestCoverage, 0},
 		{"doc_coverage", clamp01(m.DocRatio / targetDocRatio), weightDocCoverage, 0},
-		{"func_size", clamp01(1.0 - (m.AvgFuncLines-15.0)/45.0), weightFuncSize, 0},
+		{"func_size", clamp01(1.0 - (m.AvgFuncLines-targetFuncSize)/rangeFuncSize), weightFuncSize, 0},
 		{"error_handling", clamp01(m.ErrorHandlingRatio / targetErrorHandlingRatio), weightErrorHandling, 0},
-		{"nesting_depth", clamp01(1.0 - (float64(m.MaxNestingDepth)-2.0)/5.0), weightNestingDepth, 0},
-		{"file_size", clamp01(1.0 - m.LargeFileRatio*2.0), weightFileSize, 0},
-		{"duplication", clamp01(1.0 - m.DuplicationRatio*5.0), weightDuplication, 0},
-		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*3.0), weightMagicNumbers, 0},
+		{"nesting_depth", clamp01(1.0 - (float64(m.MaxNestingDepth)-targetNestingDepth)/rangeNestingDepth), weightNestingDepth, 0},
+		{"file_size", clamp01(1.0 - m.LargeFileRatio*fileSizeMultiplier), weightFileSize, 0},
+		{"duplication", clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier), weightDuplication, 0},
+		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier), weightMagicNumbers, 0},
 	}
 }
 
@@ -54,7 +59,7 @@ func SubScoreSum(m RepoMetrics) float64 {
 	for _, s := range ss {
 		total += s.Score * s.Weight
 	}
-	return math.Round(total * 100)
+	return math.Round(total * percentScale)
 }
 
 // ComputeRecommendations identifies the weakest scoring areas and returns
@@ -73,9 +78,9 @@ func ComputeRecommendations(m RepoMetrics, out Outliers, maxItems int) []Recomme
 	}
 	var candidates []candidate
 	for i := range ss {
-		ss[i].Points = ss[i].Score * ss[i].Weight * 100
+		ss[i].Points = ss[i].Score * ss[i].Weight * percentScale
 		gap := 1.0 - ss[i].Score
-		if gap < 0.01 {
+		if gap < minScoreGap {
 			continue
 		}
 		pot := gap * ss[i].Weight * 100
@@ -114,19 +119,19 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 		return fmt.Sprintf("Improve error handling coverage (current: %.0f%%, target: %.0f%%)",
 			m.ErrorHandlingRatio*100, targetErrorHandlingRatio*100)
 	case "cognitive_complexity":
-		msg := fmt.Sprintf("Reduce avg cognitive complexity (current: %.1f, target: ≤5)", m.AvgCognitiveComplexity)
+		msg := fmt.Sprintf("Reduce avg cognitive complexity (current: %.1f, target: ≤%.0f)", m.AvgCognitiveComplexity, targetCognitiveComplexity)
 		return appendOutlier(msg, out.MaxCognitive)
 	case "cyclomatic_avg":
-		msg := fmt.Sprintf("Reduce avg cyclomatic complexity (current: %.1f, target: ≤3)", m.AvgComplexity)
+		msg := fmt.Sprintf("Reduce avg cyclomatic complexity (current: %.1f, target: ≤%.0f)", m.AvgComplexity, targetCyclomaticAvg)
 		return appendOutlier(msg, out.MaxCyclomatic)
 	case "cyclomatic_max":
-		msg := fmt.Sprintf("Refactor most complex function (cyclomatic: %d, target: ≤8)", m.MaxComplexity)
+		msg := fmt.Sprintf("Refactor most complex function (cyclomatic: %d, target: ≤%.0f)", m.MaxComplexity, targetCyclomaticMax)
 		return appendOutlier(msg, out.MaxCyclomatic)
 	case "func_size":
-		msg := fmt.Sprintf("Reduce avg function size (current: %.0f lines, target: ≤15)", m.AvgFuncLines)
+		msg := fmt.Sprintf("Reduce avg function size (current: %.0f lines, target: ≤%.0f)", m.AvgFuncLines, targetFuncSize)
 		return appendOutlier(msg, out.MaxFuncLines)
 	case "nesting_depth":
-		msg := fmt.Sprintf("Reduce max nesting depth (current: %d, target: ≤2)", m.MaxNestingDepth)
+		msg := fmt.Sprintf("Reduce max nesting depth (current: %d, target: ≤%.0f)", m.MaxNestingDepth, targetNestingDepth)
 		return appendOutlier(msg, out.MaxNesting)
 	case "file_size":
 		return fmt.Sprintf("Split large files (%.0f%% exceed threshold, target: 0%%)", m.LargeFileRatio*100)

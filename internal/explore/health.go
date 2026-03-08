@@ -20,11 +20,23 @@ const (
 
 // Weights redistributed from compare/grade.go (error handling 15% spread across 5 factors).
 const (
-	healthWeightComplexity    = 0.28 // was 0.25
-	healthWeightMaxComplexity = 0.12 // was 0.10
-	healthWeightTestCoverage  = 0.23 // was 0.20
-	healthWeightDocCoverage   = 0.18 // was 0.15
-	healthWeightFuncSize      = 0.19 // was 0.15
+	healthWeightComplexity    = 0.28
+	healthWeightMaxComplexity = 0.12
+	healthWeightTestCoverage  = 0.23
+	healthWeightDocCoverage   = 0.18
+	healthWeightFuncSize      = 0.19
+)
+
+// Normalization targets and ranges — subset of compare/grade.go constants.
+const (
+	healthTargetCyclomaticAvg = 3.0
+	healthRangeCyclomaticAvg  = 12.0
+	healthTargetCyclomaticMax = 8.0
+	healthRangeCyclomaticMax  = 17.0
+	healthTargetTestRatio     = 0.3
+	healthTargetDocRatio      = 0.6
+	healthTargetFuncSize      = 15.0
+	healthRangeFuncSize       = 45.0
 )
 
 // HealthSummary is a lightweight code quality score for explore results.
@@ -92,11 +104,11 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 	}
 
 	// Sub-scores in [0, 1] — same formulas as compare/grade.go.
-	complexityScore := healthClamp01(1.0 - (avgComplexity-3.0)/12.0)
-	maxComplexityScore := healthClamp01(1.0 - (float64(maxComplexity)-8.0)/17.0)
-	testScore := healthClamp01(testRatio / 0.3)
-	docScore := healthClamp01(docRatio / 0.6)
-	funcSizeScore := healthClamp01(1.0 - (avgFuncLines-15.0)/45.0)
+	complexityScore := healthClamp01(1.0 - (avgComplexity-healthTargetCyclomaticAvg)/healthRangeCyclomaticAvg)
+	maxComplexityScore := healthClamp01(1.0 - (float64(maxComplexity)-healthTargetCyclomaticMax)/healthRangeCyclomaticMax)
+	testScore := healthClamp01(testRatio / healthTargetTestRatio)
+	docScore := healthClamp01(docRatio / healthTargetDocRatio)
+	funcSizeScore := healthClamp01(1.0 - (avgFuncLines-healthTargetFuncSize)/healthRangeFuncSize)
 
 	total := complexityScore*healthWeightComplexity +
 		maxComplexityScore*healthWeightMaxComplexity +

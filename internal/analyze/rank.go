@@ -15,6 +15,9 @@ const (
 	weightBM25  = 0.5
 	weightPR    = 0.3
 	weightExact = 0.2
+
+	pagerankIters   = 20
+	pagerankDamping = 0.85
 )
 
 // prioritizeFilesWithScores orders files by multi-signal fusion ranking:
@@ -44,7 +47,7 @@ func prioritizeFilesWithScores(
 		Symbols: allSymbols, Calls: allCalls, ImportEdges: importEdges,
 	})
 	seeds := buildSeeds(fileSymbols, queryTerms)
-	prScores := ranking.WeightedPersonalizedPageRank(refGraph.Adjacency(), seeds, 20, 0.85) //nolint:mnd
+	prScores := ranking.WeightedPersonalizedPageRank(refGraph.Adjacency(), seeds, pagerankIters, pagerankDamping)
 
 	// Signal 3: Exact symbol name match.
 	exactScores := computeExactMatchScores(fileSymbols, queryTerms)

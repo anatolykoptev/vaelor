@@ -516,6 +516,26 @@ func matchesSymbol(sym *parser.Symbol, pattern *regexp.Regexp, kind parser.NodeK
 	return pattern.MatchString(sym.Name)
 }
 
+// Symbol scoring constants.
+const (
+	// Match quality weights (Signal 1).
+	matchExact   = 100
+	matchPrefix  = 50
+	matchContain = 25
+	matchFuzzy   = 10
+
+	// Visibility weights (Signal 2).
+	visExported   = 30
+	visUnexported = 10
+
+	// Kind weights (Signal 3).
+	kindStructWeight = 25
+	kindFuncWeight   = 20
+	kindMethodWeight = 15
+	kindConstWeight  = 10
+	kindOtherWeight  = 5
+)
+
 // scoreSymbol computes a per-symbol relevance score from three cheap signals:
 // match quality (exact > prefix > contains > fuzzy), visibility (exported > unexported),
 // and kind weight (struct/interface > func/type > method > const > other).
@@ -529,35 +549,35 @@ func scoreSymbol(sym *parser.Symbol, query string, isWildcard bool) float64 {
 		lowerQuery := strings.ToLower(query)
 		switch {
 		case lowerName == lowerQuery:
-			score += 100
+			score += matchExact
 		case strings.HasPrefix(lowerName, lowerQuery):
-			score += 50
+			score += matchPrefix
 		case strings.Contains(lowerName, lowerQuery):
-			score += 25
+			score += matchContain
 		default:
-			score += 10 // fuzzy / regex match
+			score += matchFuzzy
 		}
 	}
 
 	// Signal 2: visibility (10-30).
 	if len(sym.Name) > 0 && unicode.IsUpper(rune(sym.Name[0])) {
-		score += 30
+		score += visExported
 	} else {
-		score += 10
+		score += visUnexported
 	}
 
 	// Signal 3: kind weight (5-25).
 	switch sym.Kind {
 	case parser.KindStruct, parser.KindInterface, parser.KindClass:
-		score += 25
+		score += kindStructWeight
 	case parser.KindFunction, parser.KindType:
-		score += 20
+		score += kindFuncWeight
 	case parser.KindMethod:
-		score += 15
+		score += kindMethodWeight
 	case parser.KindConst:
-		score += 10
+		score += kindConstWeight
 	default:
-		score += 5
+		score += kindOtherWeight
 	}
 
 	return score
