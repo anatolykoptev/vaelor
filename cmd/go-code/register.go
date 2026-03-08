@@ -13,7 +13,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/search"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -51,7 +51,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 		PathMappings: cfg.PathMappings,
 		ParseCache:   parseCache,
 		LLMCache:     llmCache,
-		GitHub:       github.NewClient(cfg.GithubToken),
+		Forges:       buildForgeRegistry(cfg),
 		SearXNG:      search.NewSearXNGClient(cfg.SearxngURL),
 		ToolCache:    toolCache,
 	}
@@ -101,10 +101,21 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerWPPluginSearch(server, cfg, deps)
 	registerSemanticSearch(server, cfg, semDeps)
 	registerSiteAnalyze(server, cfg)
+	registerSiteCrawl(server, cfg)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
 		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor)
 	}
+}
+
+// buildForgeRegistry creates a forge registry from config.
+func buildForgeRegistry(cfg Config) *forge.Registry {
+	reg := forge.NewRegistry()
+	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken))
+	if cfg.GitLabToken != "" || cfg.GitLabURL != "" {
+		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
+	}
+	return reg
 }
 

@@ -24,7 +24,7 @@ import (
 	"github.com/anatolykoptev/go-kit/llm"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -63,8 +63,8 @@ type Deps struct {
 	// LLMCache caches LLM responses. Optional.
 	LLMCache *cache.LLMCache
 
-	// GitHub is the GitHub API client for search operations.
-	GitHub *github.Client
+	// Forges is the multi-forge registry for search operations.
+	Forges *forge.Registry
 
 	// SearXNG is the SearXNG client for web/repo search.
 	SearXNG *search.SearXNGClient
