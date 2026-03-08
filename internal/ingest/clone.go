@@ -18,7 +18,7 @@ const dirPerm = 0o750
 
 // CloneOpts controls how a repository is cloned.
 type CloneOpts struct {
-	// Slug is the GitHub owner/repo slug or full HTTPS URL.
+	// Slug is the owner/repo slug used for directory naming.
 	Slug string
 
 	// Ref is the branch, tag, or commit SHA to check out.
@@ -30,7 +30,13 @@ type CloneOpts struct {
 	DestDir string
 
 	// GithubToken is used for authenticated clones (private repos, higher rate limits).
+	// Ignored when CloneURL is set (the URL already encodes credentials).
 	GithubToken string
+
+	// CloneURL is a pre-built HTTPS clone URL. When non-empty, it is used
+	// directly and the GitHub-specific URL building logic is skipped.
+	// Slug is still required for directory naming.
+	CloneURL string
 }
 
 // CloneResult contains the result of a successful clone.
@@ -87,9 +93,12 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 		return nil, fmt.Errorf("create dest dir: %w", err)
 	}
 
-	cloneURL := fmt.Sprintf("https://github.com/%s.git", slug)
-	if opts.GithubToken != "" {
-		cloneURL = fmt.Sprintf("https://%s@github.com/%s.git", opts.GithubToken, slug)
+	cloneURL := opts.CloneURL
+	if cloneURL == "" {
+		cloneURL = fmt.Sprintf("https://github.com/%s.git", slug)
+		if opts.GithubToken != "" {
+			cloneURL = fmt.Sprintf("https://%s@github.com/%s.git", opts.GithubToken, slug)
+		}
 	}
 
 	args := []string{"clone", "--depth=1", "--single-branch"}
