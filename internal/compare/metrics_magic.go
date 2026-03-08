@@ -98,6 +98,51 @@ func isMagic(token string) bool {
 	return true
 }
 
+// MagicNumberEntry describes a single function containing magic numbers.
+type MagicNumberEntry struct {
+	Name     string
+	File     string
+	Line     int
+	Count    int
+	Language string
+}
+
+// CollectMagicNumbers returns all functions/methods that contain magic numbers.
+// Test files are excluded. Results are sorted by count descending.
+func CollectMagicNumbers(snap *RepoSnapshot) []MagicNumberEntry {
+	prefix := snap.Root + "/"
+	var entries []MagicNumberEntry
+
+	for _, sym := range snap.Symbols {
+		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+			continue
+		}
+		if isTestFile(sym.File) {
+			continue
+		}
+		n := countMagicNumbers(sym.Body, sym.Language)
+		if n == 0 {
+			continue
+		}
+		entries = append(entries, MagicNumberEntry{
+			Name:     sym.Name,
+			File:     strings.TrimPrefix(sym.File, prefix),
+			Line:     int(sym.StartLine),
+			Count:    n,
+			Language: sym.Language,
+		})
+	}
+
+	// Sort by count descending.
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j].Count > entries[j-1].Count; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
+	}
+
+	return entries
+}
+
 // computeMagicNumberRatio returns the ratio of functions/methods containing
 // at least one magic number. Test files are excluded.
 func computeMagicNumberRatio(symbols []*parser.Symbol) float64 {
