@@ -8,6 +8,72 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// funcComplexityResult holds aggregated function-level complexity metrics.
+type funcComplexityResult struct {
+	avgFuncLines  float64
+	maxFuncLines  int
+	avgCyclomatic float64
+	maxCyclomatic int
+	avgCognitive  float64
+	maxCognitive  int
+	avgNesting    float64
+	maxNesting    int
+}
+
+// computeFuncComplexity iterates function/method symbols and computes
+// complexity metrics (cyclomatic, cognitive, nesting, size).
+func computeFuncComplexity(symbols []*parser.Symbol) funcComplexityResult {
+	var (
+		totalFuncLines, totalCyclomatic, totalCognitive, totalNesting int
+		maxFuncLines, maxCyclomatic, maxCognitive, maxNesting         int
+		funcCount                                                     int
+	)
+
+	for _, sym := range symbols {
+		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+			continue
+		}
+		funcCount++
+
+		lines := funcLines(sym)
+		totalFuncLines += lines
+		if lines > maxFuncLines {
+			maxFuncLines = lines
+		}
+
+		cc := cyclomaticComplexity(sym.Body, sym.Language)
+		totalCyclomatic += cc
+		if cc > maxCyclomatic {
+			maxCyclomatic = cc
+		}
+
+		cog := cognitiveComplexity(sym.Body, sym.Language)
+		totalCognitive += cog
+		if cog > maxCognitive {
+			maxCognitive = cog
+		}
+
+		nd := nestingDepth(sym.Body, sym.Language)
+		totalNesting += nd
+		if nd > maxNesting {
+			maxNesting = nd
+		}
+	}
+
+	var r funcComplexityResult
+	r.maxFuncLines = maxFuncLines
+	r.maxCyclomatic = maxCyclomatic
+	r.maxCognitive = maxCognitive
+	r.maxNesting = maxNesting
+	if funcCount > 0 {
+		r.avgFuncLines = float64(totalFuncLines) / float64(funcCount)
+		r.avgCyclomatic = float64(totalCyclomatic) / float64(funcCount)
+		r.avgCognitive = float64(totalCognitive) / float64(funcCount)
+		r.avgNesting = float64(totalNesting) / float64(funcCount)
+	}
+	return r
+}
+
 // isExported reports whether a symbol name is exported (starts with an uppercase letter).
 func isExported(name string) bool {
 	if name == "" {

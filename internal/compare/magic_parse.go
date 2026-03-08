@@ -39,56 +39,68 @@ func stripStringLiterals(s string) string {
 // extractNumber reads a numeric token starting at runes[*pos] (which is a digit).
 // Advances *pos past the number. Handles hex (0x), octal (0o), binary (0b), float.
 func extractNumber(runes []rune, pos *int) string {
-	var buf strings.Builder
 	i := *pos
 	n := len(runes)
 
 	// Check for 0x, 0o, 0b prefixes.
 	if i < n && runes[i] == '0' && i+1 < n {
-		next := unicode.ToLower(runes[i+1])
-		if next == 'x' || next == 'o' || next == 'b' {
-			buf.WriteRune(runes[i])
-			buf.WriteRune(runes[i+1])
-			i += 2
-			for i < n && isHexDigitOrUnderscore(runes[i]) {
-				buf.WriteRune(runes[i])
-				i++
-			}
+		if tok, ok := extractPrefixedNumber(runes, &i, n); ok {
 			*pos = i
-			return buf.String()
+			return tok
 		}
 	}
 
+	var buf strings.Builder
 	// Regular integer or float.
 	for i < n && isDigit(runes[i]) {
 		buf.WriteRune(runes[i])
 		i++
 	}
-	// Check for decimal point (float).
-	if i < n && runes[i] == '.' && i+1 < n && isDigit(runes[i+1]) {
-		buf.WriteRune('.')
-		i++
-		for i < n && isDigit(runes[i]) {
-			buf.WriteRune(runes[i])
-			i++
-		}
-	}
-	// Skip exponent (e.g., 1e10).
-	if i < n && (runes[i] == 'e' || runes[i] == 'E') {
-		buf.WriteRune(runes[i])
-		i++
-		if i < n && (runes[i] == '+' || runes[i] == '-') {
-			buf.WriteRune(runes[i])
-			i++
-		}
-		for i < n && isDigit(runes[i]) {
-			buf.WriteRune(runes[i])
-			i++
-		}
-	}
+	extractDecimalAndExponent(runes, &i, n, &buf)
 
 	*pos = i
 	return buf.String()
+}
+
+// extractPrefixedNumber handles 0x, 0o, 0b prefixed numbers.
+func extractPrefixedNumber(runes []rune, i *int, n int) (string, bool) {
+	next := unicode.ToLower(runes[*i+1])
+	if next != 'x' && next != 'o' && next != 'b' {
+		return "", false
+	}
+	var buf strings.Builder
+	buf.WriteRune(runes[*i])
+	buf.WriteRune(runes[*i+1])
+	*i += 2
+	for *i < n && isHexDigitOrUnderscore(runes[*i]) {
+		buf.WriteRune(runes[*i])
+		*i++
+	}
+	return buf.String(), true
+}
+
+// extractDecimalAndExponent appends fractional part and/or exponent if present.
+func extractDecimalAndExponent(runes []rune, i *int, n int, buf *strings.Builder) {
+	if *i < n && runes[*i] == '.' && *i+1 < n && isDigit(runes[*i+1]) {
+		buf.WriteRune('.')
+		*i++
+		for *i < n && isDigit(runes[*i]) {
+			buf.WriteRune(runes[*i])
+			*i++
+		}
+	}
+	if *i < n && (runes[*i] == 'e' || runes[*i] == 'E') {
+		buf.WriteRune(runes[*i])
+		*i++
+		if *i < n && (runes[*i] == '+' || runes[*i] == '-') {
+			buf.WriteRune(runes[*i])
+			*i++
+		}
+		for *i < n && isDigit(runes[*i]) {
+			buf.WriteRune(runes[*i])
+			*i++
+		}
+	}
 }
 
 func isDigit(r rune) bool {
