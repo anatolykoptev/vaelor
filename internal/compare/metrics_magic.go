@@ -10,18 +10,26 @@ import (
 // countMagicNumbers counts hardcoded numeric literals in a function body.
 // Allowed values {0, 1, 2, -1} and their float equivalents (0.0, 1.0, 2.0, -1.0)
 // are excluded via SonarQube-style float normalization. SQL-style positional
-// parameters ($1, $2) and const declarations are skipped entirely.
+// parameters ($1, $2), single-digit array indices ([3]..[9]), nolint:mnd
+// directives, and const declarations are skipped entirely.
 func countMagicNumbers(body, language string) int {
 	if body == "" {
 		return 0
 	}
+
+	// Pre-scan original body for nolint:mnd directives (before comment stripping).
+	nolintSet := findNolintLines(body)
 
 	stripped := clean.StripComments(body, language)
 	count := 0
 	inConstBlock := false
 
 	lines := strings.Split(stripped, "\n")
-	for _, line := range lines {
+	for lineIdx, line := range lines {
+		if nolintSet[lineIdx] {
+			continue
+		}
+
 		trimmed := strings.TrimSpace(line)
 
 		// Track multi-line const blocks: const ( ... )
@@ -45,6 +53,17 @@ func countMagicNumbers(body, language string) int {
 	return count
 }
 
+// findNolintLines returns a set of line indices that contain //nolint:mnd.
+func findNolintLines(body string) map[int]bool {
+	result := make(map[int]bool)
+	for i, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, "nolint:mnd") {
+			result[i] = true
+		}
+	}
+	return result
+}
+
 // countMagicInLine scans a single line for numeric literals and counts magic ones.
 func countMagicInLine(line string) int {
 	count := 0
@@ -61,8 +80,7 @@ func countMagicInLine(line string) int {
 		}
 
 		if isDigit(runes[i]) {
-			// Skip digits attached to identifiers (var1) or SQL params ($1).
-			if i > 0 && (isIdentChar(runes[i-1]) || runes[i-1] == '$') {
+			if shouldSkipDigit(runes, i, n) {
 				i++
 				continue
 			}
@@ -92,6 +110,17 @@ func checkNegativeNumber(runes []rune, i, n int) (int, int) {
 		count = 1
 	}
 	return count, pos - i
+}
+
+// shouldSkipDigit returns true if the digit at runes[i] should not be treated
+// as a standalone numeric literal: identifiers (var1), SQL params ($1), or
+// single-digit array indices ([3]).
+func shouldSkipDigit(runes []rune, i, n int) bool {
+	if i == 0 {
+		return false
+	}
+	prev := runes[i-1]
+	return isIdentChar(prev) || prev == '$' || (prev == '[' && isSingleDigitIndex(runes, i, n))
 }
 
 // isMagic returns true if the numeric token is a magic number.

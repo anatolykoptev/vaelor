@@ -128,6 +128,33 @@ func TestCountMagicNumbers(t *testing.T) {
 			want: 0,
 		},
 		{
+			name: "nolint:mnd skips line",
+			body: "func Foo() {\n\tx := 42 //nolint:mnd\n\ty := 100\n}",
+			language: "go",
+			want:     1, // only 100 is magic, 42 skipped by nolint
+		},
+		{
+			name: "nolint:mnd with reason",
+			body: "func Foo() {\n\tx := 42 //nolint:mnd // default timeout\n}",
+			language: "go",
+			want:     0,
+		},
+		{
+			name: "single digit array indices not magic",
+			body: `func Foo() {
+				a := m[3]
+				b := m[4]
+				c := arr[5]
+				d := data[9]
+			}`,
+			want: 0,
+		},
+		{
+			name: "multi digit array index is magic",
+			body: `func Foo() { x := arr[42] }`,
+			want: 1,
+		},
+		{
 			name: "empty body",
 			body: "",
 			want: 0,

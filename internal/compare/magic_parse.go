@@ -126,6 +126,12 @@ func normalizeFloat(token string) string {
 	return neg + s[:idx]
 }
 
+// isSingleDigitIndex checks if runes[pos] is a single digit followed by ']'.
+// Used to skip common array/slice/regex-submatch indices like m[3], arr[9].
+func isSingleDigitIndex(runes []rune, pos, n int) bool {
+	return pos+1 < n && !isDigit(runes[pos+1]) && runes[pos+1] == ']'
+}
+
 func isDigit(r rune) bool {
 	return r >= '0' && r <= '9'
 }
