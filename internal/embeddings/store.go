@@ -108,8 +108,14 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 			b.WriteByte(',')
 		}
 		off := i * fieldsPerRec
-		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,NOW())",
-			off+1, off+2, off+3, off+4, off+5, off+6, off+7, off+8)
+		b.WriteByte('(')
+		for j := 1; j <= fieldsPerRec; j++ {
+			if j > 1 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, "$%d", off+j)
+		}
+		b.WriteString(",NOW())")
 		args = append(args, r.RepoKey, r.FilePath, r.SymbolName, r.SymbolKind,
 			r.Language, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding))
 	}

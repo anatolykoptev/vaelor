@@ -27,6 +27,8 @@ const (
 	healthWeightFuncSize      = 0.19
 )
 
+const healthPercentScale = 100 // multiplier to convert [0,1] scores to percentage points
+
 // Normalization targets and ranges — subset of compare/grade.go constants.
 const (
 	healthTargetCyclomaticAvg = 3.0
@@ -116,7 +118,7 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 		docScore*healthWeightDocCoverage +
 		funcSizeScore*healthWeightFuncSize
 
-	score := int(math.Round(total * 100))
+	score := int(math.Round(total * healthPercentScale))
 
 	var grade string
 	switch {
