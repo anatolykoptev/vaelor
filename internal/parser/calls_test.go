@@ -269,6 +269,68 @@ export default Component;
 	}
 }
 
+func TestExtractCalls_GoStructLiteralFuncRef(t *testing.T) {
+	source := []byte(`package main
+
+type CrossDeps struct {
+	FetchViewsFn      func()
+	FetchPlacePostsFn func()
+}
+
+func exportFetchViews()      {}
+func exportFetchPlacePosts() {}
+
+func setup() {
+	Register(CrossDeps{
+		FetchViewsFn:      exportFetchViews,
+		FetchPlacePostsFn: exportFetchPlacePosts,
+	})
+}
+`)
+	calls, err := ExtractCalls("main.go", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+
+	for _, want := range []string{"exportFetchViews", "exportFetchPlacePosts"} {
+		if !found[want] {
+			t.Errorf("missing struct literal function reference %q in extracted calls", want)
+		}
+	}
+}
+
+func TestExtractCalls_GoStructLiteralQualifiedRef(t *testing.T) {
+	source := []byte(`package main
+
+type Deps struct {
+	Handler func()
+}
+
+func setup() {
+	d := Deps{Handler: pkg.MyHandler}
+	_ = d
+}
+`)
+	calls, err := ExtractCalls("main.go", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+
+	if !found["MyHandler"] {
+		t.Error("missing qualified struct literal reference 'MyHandler'")
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {
