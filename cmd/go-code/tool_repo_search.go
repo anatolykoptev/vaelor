@@ -13,7 +13,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/search"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -121,7 +121,7 @@ func parallelRepoSearch(ctx context.Context, query, sort string, deps analyze.De
 
 	searches := []searchFunc{
 		func() []repoHit { return searxngRepoHits(ctx, query, "", deps.SearXNG) },
-		func() []repoHit { return githubAPIRepoHits(ctx, query, sort, deps.GitHub) },
+		func() []repoHit { return forgeAPIRepoHits(ctx, query, sort, deps.Forges) },
 		func() []repoHit { return searxngRepoHits(ctx, query+" site:github.com", "", deps.SearXNG) },
 	}
 
@@ -157,7 +157,7 @@ func searxngRepoHits(ctx context.Context, query string, _ string, client *search
 	}
 	hits := make([]repoHit, 0, len(results))
 	for _, r := range results {
-		owner, repo, ok := github.ExtractOwnerRepo(r.URL)
+		owner, repo, ok := forge.ExtractOwnerRepo(r.URL)
 		if !ok {
 			continue
 		}
@@ -166,29 +166,35 @@ func searxngRepoHits(ctx context.Context, query string, _ string, client *search
 	return hits
 }
 
-// githubAPIRepoHits calls the GitHub Search Repos API and extracts hits.
-func githubAPIRepoHits(ctx context.Context, query, sort string, client *github.Client) []repoHit {
-	if client == nil {
+// forgeAPIRepoHits calls SearchRepos on all configured forges and aggregates hits.
+func forgeAPIRepoHits(ctx context.Context, query, sort string, reg *forge.Registry) []repoHit {
+	if reg == nil {
 		return nil
 	}
-	results, err := client.SearchRepos(ctx, query, sort)
-	if err != nil {
-		slog.Warn("repo_search: GitHub API search failed", "query", query, "err", err)
-		return nil
-	}
-	hits := make([]repoHit, 0, len(results))
-	for _, r := range results {
-		owner, repo, ok := github.ExtractOwnerRepo(r.HTMLURL)
-		if !ok {
-			// Fall back to FullName parsing.
-			parts := strings.SplitN(r.FullName, "/", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			hits = append(hits, repoHit{Owner: parts[0], Repo: parts[1], URL: r.HTMLURL})
+	var hits []repoHit
+	for _, kind := range []forge.ForgeKind{forge.GitHub, forge.GitLab} {
+		f := reg.Get(kind)
+		if f == nil {
 			continue
 		}
-		hits = append(hits, repoHit{Owner: owner, Repo: repo, URL: r.HTMLURL})
+		results, err := f.SearchRepos(ctx, query, sort)
+		if err != nil {
+			slog.Warn("repo_search: forge API search failed", "forge", kind, "query", query, "err", err)
+			continue
+		}
+		for _, r := range results {
+			owner, repo, ok := forge.ExtractOwnerRepo(r.HTMLURL)
+			if !ok {
+				// Fall back to FullName parsing.
+				parts := strings.SplitN(r.FullName, "/", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				hits = append(hits, repoHit{Owner: parts[0], Repo: parts[1], URL: r.HTMLURL})
+				continue
+			}
+			hits = append(hits, repoHit{Owner: owner, Repo: repo, URL: r.HTMLURL})
+		}
 	}
 	return hits
 }
@@ -246,7 +252,12 @@ func enrichSingleRepo(ctx context.Context, hit repoHit, deps analyze.Deps) enric
 	slug := hit.Owner + "/" + hit.Repo
 	out := enrichedRepo{Owner: hit.Owner, Repo: hit.Repo}
 
-	if deps.GitHub == nil {
+	// Detect the forge from the hit URL; fall back to GitHub.
+	f := deps.Forges.ForURL(hit.URL)
+	if f == nil {
+		f = deps.Forges.Get(forge.GitHub)
+	}
+	if f == nil {
 		return out
 	}
 
@@ -255,7 +266,7 @@ func enrichSingleRepo(ctx context.Context, hit repoHit, deps analyze.Deps) enric
 
 	go func() {
 		defer wg.Done()
-		meta, err := deps.GitHub.FetchRepoMeta(ctx, slug)
+		meta, err := f.FetchRepoMeta(ctx, slug)
 		if err != nil {
 			slog.Debug("repo_search: failed to fetch repo meta", "slug", slug, "err", err)
 			return
@@ -267,7 +278,7 @@ func enrichSingleRepo(ctx context.Context, hit repoHit, deps analyze.Deps) enric
 
 	go func() {
 		defer wg.Done()
-		readme, err := deps.GitHub.FetchREADME(ctx, slug)
+		readme, err := f.FetchREADME(ctx, slug)
 		if err != nil {
 			slog.Debug("repo_search: failed to fetch README", "slug", slug, "err", err)
 			return

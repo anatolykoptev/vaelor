@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 )
 
@@ -51,16 +52,19 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 		}, nil
 	}
 
-	if ingest.IsRemote(repo) {
-		slug, err := ingest.NormalizeSlug(repo)
-		if err != nil {
-			return "", nil, fmt.Errorf("invalid repo: %w", err)
+	if forge.IsRemote(repo) {
+		slug, ok := forge.ExtractSlug(repo)
+		if !ok {
+			return "", nil, fmt.Errorf("invalid repo: cannot extract slug from %q", repo)
 		}
+		kind := forge.DetectForge(repo)
+		cloneURL := forge.CloneURL(kind, slug, "", deps.GithubToken)
 		result, err := ingest.CloneRepo(ctx, ingest.CloneOpts{
 			Slug:        slug,
 			Ref:         ref,
 			DestDir:     deps.WorkspaceDir,
 			GithubToken: deps.GithubToken,
+			CloneURL:    cloneURL,
 		})
 		if err != nil {
 			return "", nil, fmt.Errorf("clone: %w", err)

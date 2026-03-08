@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/github"
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -178,7 +178,15 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 	repoSlug := strings.Join(repos, ", ")
 	codeQuery := sanitizeCodeSearchQuery(input.Query)
 
-	results, err := deps.GitHub.SearchCode(ctx, codeQuery, repos)
+	f := deps.Forges.ForURL(input.Repo)
+	if f == nil {
+		f = deps.Forges.Get(forge.GitHub)
+	}
+	if f == nil {
+		return errResult("no forge configured for code search"), nil
+	}
+
+	results, err := f.SearchCode(ctx, codeQuery, repos)
 	if err != nil {
 		return errResult(fmt.Sprintf("code search: %s", err)), nil
 	}
@@ -280,7 +288,15 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 		qb.WriteString(input.Query)
 	}
 
-	issues, err := deps.GitHub.SearchIssues(ctx, qb.String())
+	fi := deps.Forges.ForURL(input.Repo)
+	if fi == nil {
+		fi = deps.Forges.Get(forge.GitHub)
+	}
+	if fi == nil {
+		return errResult("no forge configured for issues search"), nil
+	}
+
+	issues, err := fi.SearchIssues(ctx, qb.String())
 	if err != nil {
 		return errResult(fmt.Sprintf("issues search: %s", err)), nil
 	}
@@ -327,15 +343,23 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 
 // handleQuickFallback fetches repo metadata and README when code search returns nothing.
 func handleQuickFallback(ctx context.Context, input RepoAnalyzeInput, repos []string, repoSlug string, deps analyze.Deps) (*mcp.CallToolResult, error) {
+	fb := deps.Forges.ForURL(input.Repo)
+	if fb == nil {
+		fb = deps.Forges.Get(forge.GitHub)
+	}
+
 	var sb strings.Builder
 	for _, r := range repos {
-		meta, err := deps.GitHub.FetchRepoMeta(ctx, r)
+		if fb == nil {
+			continue
+		}
+		meta, err := fb.FetchRepoMeta(ctx, r)
 		if err != nil {
 			continue
 		}
 		fmt.Fprintf(&sb, "Repository: %s\nDescription: %s\nLanguage: %s\nStars: %d\n\n",
 			meta.FullName, meta.Description, meta.Language, meta.Stars)
-		readme, err := deps.GitHub.FetchREADME(ctx, r)
+		readme, err := fb.FetchREADME(ctx, r)
 		if err == nil && readme != "" {
 			const maxReadmeLen = 8000
 			if len(readme) > maxReadmeLen {
@@ -375,7 +399,7 @@ func resolveQuickRepos(input RepoAnalyzeInput) []string {
 		return nil
 	}
 	if strings.HasPrefix(input.Repo, "http") {
-		owner, repo, ok := github.ExtractOwnerRepo(input.Repo)
+		owner, repo, ok := forge.ExtractOwnerRepo(input.Repo)
 		if ok {
 			return []string{owner + "/" + repo}
 		}
