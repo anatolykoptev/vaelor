@@ -14,7 +14,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/search"
+	"github.com/anatolykoptev/go-code/internal/websearch"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -51,9 +51,9 @@ func registerTools(server *mcp.Server, cfg Config) {
 		PathMappings: cfg.PathMappings,
 		ParseCache:   parseCache,
 		LLMCache:     llmCache,
-		Forges:       buildForgeRegistry(cfg),
-		SearXNG:      search.NewSearXNGClient(cfg.SearxngURL),
-		ToolCache:    toolCache,
+		Forges:    buildForgeRegistry(cfg),
+		WebSearch: buildWebSearchClient(cfg),
+		ToolCache: toolCache,
 	}
 
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
@@ -107,6 +107,14 @@ func registerTools(server *mcp.Server, cfg Config) {
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
 		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor)
 	}
+}
+
+// buildWebSearchClient creates a go-search client if configured.
+func buildWebSearchClient(cfg Config) *websearch.Client {
+	if cfg.GoSearchURL == "" {
+		return nil
+	}
+	return websearch.NewClient(cfg.GoSearchURL)
 }
 
 // buildForgeRegistry creates a forge registry from config.

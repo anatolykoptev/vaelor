@@ -1,7 +1,7 @@
 // Package forge defines the Forge interface and shared types for source-code
 // hosting integrations (GitHub, GitLab, …).
 //
-// Concrete implementations live in sub-packages such as internal/github.
+// Concrete implementations: GitHubForge (github.go) and GitLabForge (gitlab.go).
 package forge
 
 import "context"
