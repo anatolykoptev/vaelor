@@ -24,26 +24,25 @@ import (
 func registerTools(server *mcp.Server, cfg Config) {
 	parseCacheSize := env.Int("PARSE_CACHE_SIZE", cache.DefaultParseCacheSize)
 	llmCacheSize := env.Int("LLM_CACHE_SIZE", cache.DefaultLLMCacheSize)
-	llmCacheTTLMin := env.Int("LLM_CACHE_TTL_MIN", 60) //nolint:mnd // default TTL in minutes
+	llmCacheTTLMin := env.Int("LLM_CACHE_TTL_MIN", defaultLLMCacheTTL)
 
 	parseCache := cache.NewParseCache(parseCacheSize)
 	llmCache := cache.NewLLMCache(llmCacheSize, time.Duration(llmCacheTTLMin)*time.Minute)
 
+	toolCacheTTL := time.Duration(env.Int("TOOL_CACHE_TTL_MIN", defaultToolCacheTTL)) * time.Minute
 	toolCache := kitcache.New(kitcache.Config{
-		L1MaxItems:    env.Int("TOOL_CACHE_SIZE", 200), //nolint:mnd // default cache size
-		L1TTL:         time.Hour,
-		L2TTL:         time.Hour,
+		L1MaxItems:    env.Int("TOOL_CACHE_SIZE", defaultToolCacheSize),
+		L1TTL:         toolCacheTTL,
+		L2TTL:         toolCacheTTL,
 		RedisURL:      cfg.RedisURL,
 		Prefix:        "gc:",
 		JitterPercent: 0.1,
 	})
 
-	const defaultLLMMaxTokens = 16384
-
 	deps := analyze.Deps{
 		LLM: llm.NewClient(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel,
 			llm.WithFallbackKeys(cfg.LLMFallbackKeys),
-			llm.WithMaxTokens(defaultLLMMaxTokens),
+			llm.WithMaxTokens(cfg.LLMMaxTokens),
 		),
 		MaxFileBytes: cfg.MaxFileBytes,
 		GithubToken:  cfg.GithubToken,

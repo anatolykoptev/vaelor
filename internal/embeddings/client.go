@@ -13,16 +13,18 @@ import (
 )
 
 const (
-	maxBatch       = 8
-	maxConcurrent  = 2
-	requestTimeout = 120 * time.Second
-	retryBackoff   = time.Second
+	DefaultMaxBatch      = 8
+	DefaultMaxConcurrent = 2
+	DefaultTimeout       = 120 * time.Second
+	retryBackoff         = time.Second
 )
 
 // Client calls an OpenAI-compatible embeddings API.
 type Client struct {
-	url, model string
-	http       *http.Client
+	url, model   string
+	http         *http.Client
+	maxBatch     int
+	maxConcurrent int
 }
 type embeddingReq struct {
 	Input []string `json:"input"`
@@ -32,9 +34,37 @@ type embeddingResp struct {
 	Data []struct{ Embedding []float32 `json:"embedding"` } `json:"data"`
 }
 
+// ClientOption configures the embedding client.
+type ClientOption func(*Client)
+
+// WithMaxBatch sets the maximum texts per API request.
+func WithMaxBatch(n int) ClientOption {
+	return func(c *Client) { if n > 0 { c.maxBatch = n } }
+}
+
+// WithMaxConcurrent sets the maximum concurrent API requests.
+func WithMaxConcurrent(n int) ClientOption {
+	return func(c *Client) { if n > 0 { c.maxConcurrent = n } }
+}
+
+// WithTimeout sets the HTTP request timeout.
+func WithTimeout(d time.Duration) ClientOption {
+	return func(c *Client) { if d > 0 { c.http.Timeout = d } }
+}
+
 // NewClient creates an embeddings client.
-func NewClient(baseURL, model string) *Client {
-	return &Client{url: baseURL + "/v1/embeddings", model: model, http: &http.Client{Timeout: requestTimeout}}
+func NewClient(baseURL, model string, opts ...ClientOption) *Client {
+	c := &Client{
+		url:           baseURL + "/v1/embeddings",
+		model:         model,
+		http:          &http.Client{Timeout: DefaultTimeout},
+		maxBatch:      DefaultMaxBatch,
+		maxConcurrent: DefaultMaxConcurrent,
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // Embed returns embeddings for texts. Batches automatically.
@@ -54,12 +84,12 @@ func (c *Client) EmbedQuery(ctx context.Context, query string) ([]float32, error
 	return res[0], nil
 }
 func (c *Client) embedBatched(ctx context.Context, texts []string) ([][]float32, error) {
-	n := (len(texts) + maxBatch - 1) / maxBatch
+	n := (len(texts) + c.maxBatch - 1) / c.maxBatch
 	results, errs := make([][]float32, len(texts)), make([]error, n)
-	sem := make(chan struct{}, maxConcurrent)
+	sem := make(chan struct{}, c.maxConcurrent)
 	var wg sync.WaitGroup
 	for i := range n {
-		s, e := i*maxBatch, min(i*maxBatch+maxBatch, len(texts))
+		s, e := i*c.maxBatch, min(i*c.maxBatch+c.maxBatch, len(texts))
 		wg.Add(1)
 		go func(idx, s, e int) {
 			defer wg.Done()

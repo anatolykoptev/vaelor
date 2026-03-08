@@ -13,9 +13,10 @@ type Config struct {
 	Port string
 
 	// LLM (CLIProxyAPI) config.
-	LLMURL    string
-	LLMAPIKey string
-	LLMModel  string
+	LLMURL       string
+	LLMAPIKey    string
+	LLMModel     string
+	LLMMaxTokens int
 
 	// GitHub API token for cloning private repos and higher rate limits.
 	GithubToken string
@@ -88,7 +89,9 @@ type Config struct {
 const (
 	defaultLLMURL       = "http://127.0.0.1:8317/v1"
 	defaultLLMModel     = "gemini-2.5-flash"
+	defaultLLMMaxTokens = 16384
 	defaultWorkspaceDir = "/tmp/go-code-workspace"
+	defaultEmbedModel   = "jina-code-v2"
 
 	// 512 KB per file.
 	defaultMaxFileBytesKB = 512
@@ -102,6 +105,11 @@ const (
 	defaultGraphTTLLocal  = 3600  // 1 hour
 	defaultGraphTTLRemote = 86400 // 24 hours
 	defaultGraphBatchSize = 5
+
+	// Cache defaults.
+	defaultToolCacheSize = 200
+	defaultToolCacheTTL  = 60 // minutes
+	defaultLLMCacheTTL   = 60 // minutes
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -111,6 +119,7 @@ func loadConfig() Config {
 		LLMURL:       env.Str("LLM_API_BASE", defaultLLMURL),
 		LLMAPIKey:    env.Str("LLM_API_KEY", ""),
 		LLMModel:     env.Str("LLM_MODEL", defaultLLMModel),
+		LLMMaxTokens: env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
 		GithubToken:  env.Str("GITHUB_TOKEN", ""),
 		WorkspaceDir: env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
 		RedisURL:          env.Str("REDIS_URL", ""),
@@ -125,7 +134,7 @@ func loadConfig() Config {
 		GraphTTLRemote: env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
 		GraphBatchSize: env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 		EmbedURL:       env.Str("EMBED_URL", ""),
-		EmbedModel:     env.Str("EMBED_MODEL", "jina-code-v2"),
+		EmbedModel:     env.Str("EMBED_MODEL", defaultEmbedModel),
 		AutoIndexDirs:  env.List("AUTO_INDEX_DIRS", ""),
 		OxBrowserURL:   env.Str("OX_BROWSER_URL", ""),
 		GoSearchURL:    env.Str("GO_SEARCH_URL", ""),
