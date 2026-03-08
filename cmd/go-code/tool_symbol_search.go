@@ -60,7 +60,7 @@ type xmlSymSearchItem struct {
 
 // registerSymbolSearch registers the symbol_search MCP tool.
 // Searches for symbols across a repository's AST index.
-func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
+func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -68,7 +68,8 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		Description: "Search for functions, types, methods, constants, or variables across a repository. " +
 			"Uses tree-sitter AST parsing for accurate symbol extraction (no grep heuristics). " +
 			"Supports wildcard patterns (Auth*, *Handler), kind filtering, and language filtering. " +
-			"Optionally returns full source bodies for matched symbols.",
+			"Optionally returns full source bodies for matched symbols. " +
+			"Falls back to semantic search when no AST matches found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, error) {
 		// Allow "symbol" as alias for "query" — matches call_trace/impact_analysis naming.
 		if input.Symbol != "" && input.Query == "" {
@@ -104,6 +105,11 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 
 		if len(symbols) == 0 {
+			if suggestions := semanticSuggest(ctx, sem, root, input.Query, input.Language); suggestions != "" {
+				return textResult(fmt.Sprintf("<response tool=\"symbol_search\">\n"+
+					"  <symbols query=\"%s\" count=\"0\"/>\n"+
+					"%s\n</response>", escapeXML(input.Query), suggestions)), nil
+			}
 			return textResult(fmt.Sprintf("No symbols found matching %q.", input.Query)), nil
 		}
 		return largeTextResult(formatSymbolSearchXML(input.Query, symbols), "symbol_search", outputDir), nil

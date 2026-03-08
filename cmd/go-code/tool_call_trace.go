@@ -96,7 +96,7 @@ type traceStats struct {
 const defaultTraceDepth = 5
 
 // registerCallTrace registers the call_trace MCP tool.
-func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps) {
+func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -104,13 +104,14 @@ func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		Description: "Trace the execution path of a function through a codebase. " +
 			"Shows what happens when a function is called (callees) or who calls it (callers). " +
 			"Returns a call tree with resolved cross-file references and an LLM-generated " +
-			"narrative explanation of the execution flow.",
+			"narrative explanation of the execution flow. " +
+			"Suggests semantically similar symbols when the target is not found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, error) {
-		return handleCallTrace(ctx, input, deps, outputDir)
+		return handleCallTrace(ctx, input, deps, sem, outputDir)
 	})
 }
 
-func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
+func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, sem *SemanticDeps, outputDir string) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -149,7 +150,12 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	}
 
 	if result.Root == nil {
-		return errResult(fmt.Sprintf("symbol %q not found in repository", input.Symbol)), nil
+		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
+		if suggestions := semanticSuggest(ctx, sem, root, input.Symbol, input.Language); suggestions != "" {
+			return textResult(fmt.Sprintf("<response tool=\"call_trace\">\n"+
+				"  <error>%s</error>\n%s\n</response>", escapeXML(msg), suggestions)), nil
+		}
+		return errResult(msg), nil
 	}
 
 	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps, input.Compact)
