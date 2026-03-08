@@ -94,7 +94,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerImpact(server, cfg, deps, &semDeps)
 	registerDeadCode(server, cfg, deps)
 	registerExplore(server, cfg, deps)
-	registerCodeHealth(server, cfg, deps)
+	registerCodeHealth(server, cfg, deps, &semDeps)
 	registerCodeGraph(server, cfg, deps, graphStore)
 	registerRepoSearch(server, cfg, deps)
 	registerCodeSearch(server, cfg, deps, &semDeps)

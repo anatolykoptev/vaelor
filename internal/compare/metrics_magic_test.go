@@ -369,3 +369,26 @@ func TestMagicNumbersRecommendation(t *testing.T) {
 		t.Error("expected recommendation for magic_numbers area")
 	}
 }
+
+func TestSemanticDupRecommendation(t *testing.T) {
+	m := RepoMetrics{
+		Files: 50, TotalLines: 5000,
+		AvgFuncLines: 10, MaxFuncLines: 30,
+		AvgComplexity: 2.0, MaxComplexity: 5,
+		TestRatio: 0.35, DocRatio: 0.8,
+		ErrorHandlingRatio: 0.7,
+		SemanticDupRatio: 0.5,
+	}
+	recs := ComputeRecommendations(m, Outliers{}, 0)
+
+	found := false
+	for _, r := range recs {
+		if r.Area == "semantic_duplication" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected recommendation for semantic_duplication area")
+	}
+}

@@ -59,6 +59,7 @@ type xmlCompMetrics struct {
 	AvgParamCount          float64 `xml:"avgParamCount,attr"`
 	MaxParamCount          int     `xml:"maxParamCount,attr"`
 	Score                  float64 `xml:"score,attr"`
+	SemanticDupRatio       float64 `xml:"semanticDupRatio,attr,omitempty"`
 }
 
 type xmlMatchBreak struct {
@@ -285,6 +286,7 @@ func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
 		AvgParamCount:          m.AvgParamCount,
 		MaxParamCount:          m.MaxParamCount,
 		Score:                  m.Score,
+		SemanticDupRatio:       m.SemanticDupRatio,
 	}
 }
 
