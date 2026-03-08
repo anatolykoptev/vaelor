@@ -14,7 +14,7 @@ type Recommendation struct {
 	Message   string
 }
 
-// subScore tracks one of the 10 scoring dimensions.
+// subScore tracks one of the 11 scoring dimensions.
 type subScore struct {
 	Name   string
 	Score  float64 // [0, 1]
@@ -22,7 +22,7 @@ type subScore struct {
 	Points float64 // score * weight * 100
 }
 
-// computeSubScores replicates the 10 sub-score formulas from GradeScore
+// computeSubScores replicates the 11 sub-score formulas from GradeScore
 // (same package, same constants). Tests guard against drift.
 func computeSubScores(m RepoMetrics) []subScore {
 	if m.Files == 0 {
