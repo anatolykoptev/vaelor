@@ -29,6 +29,49 @@ func TestCountMagicNumbers(t *testing.T) {
 			want: 0,
 		},
 		{
+			name: "float identity 1.0 not magic",
+			body: `func Foo() {
+				score := clamp01(1.0 - ratio)
+				x := 1.0 / nf
+			}`,
+			want: 0,
+		},
+		{
+			name: "float zero 0.0 not magic",
+			body: `func Foo() { total := 0.0 }`,
+			want: 0,
+		},
+		{
+			name: "negative float -1.0 not magic",
+			body: `func Foo() { x := -1.0 }`,
+			want: 0,
+		},
+		{
+			name: "float 2.0 not magic (normalizes to 2)",
+			body: `func Foo() { x := 2.0 }`,
+			want: 0,
+		},
+		{
+			name: "float 1.00 not magic (trailing zeros)",
+			body: `func Foo() { x := 1.00 }`,
+			want: 0,
+		},
+		{
+			name: "float 0.5 is magic",
+			body: `func Foo() { x := 0.5 }`,
+			want: 1,
+		},
+		{
+			name: "float 3.14 is magic",
+			body: `func Foo() { x := 3.14 }`,
+			want: 1,
+		},
+		{
+			name: "dollar-prefixed digits skipped",
+			body: `func Foo() { x := $3 + $8 }`,
+			want: 0, // $-prefixed digits are SQL-style positional params
+		},
+		{
 			name: "single magic number",
 			body: `func Foo() { timeout := 30 }`,
 			want: 1,
@@ -43,7 +86,7 @@ func TestCountMagicNumbers(t *testing.T) {
 			want: 3,
 		},
 		{
-			name: "float magic number",
+			name: "float magic number 3.14",
 			body: `func Foo() { ratio := 3.14 }`,
 			want: 1,
 		},
