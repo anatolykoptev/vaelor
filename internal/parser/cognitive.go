@@ -2,6 +2,8 @@ package parser
 
 import "strings"
 
+const pythonIndentSize = 4 // standard Python indentation width
+
 // cognitiveComplexityPython computes cognitive complexity using indent-based nesting.
 // The def line is skipped; base indent is set from the first body line.
 func cognitiveComplexityPython(body string) int {
@@ -26,7 +28,7 @@ func cognitiveComplexityPython(body string) int {
 		if baseIndent < 0 {
 			baseIndent = indent
 		}
-		nesting := (indent - baseIndent) / 4
+		nesting := (indent - baseIndent) / pythonIndentSize
 		if nesting < 0 {
 			nesting = 0
 		}
@@ -65,7 +67,7 @@ func nestingDepthPython(body string) int {
 		if baseIndent < 0 {
 			baseIndent = indent
 		}
-		depth := (indent - baseIndent) / 4
+		depth := (indent - baseIndent) / pythonIndentSize
 		if depth > maxDepth {
 			maxDepth = depth
 		}
@@ -97,7 +99,7 @@ func countLeadingSpaces(s string) int {
 		if ch == ' ' {
 			n++
 		} else if ch == '\t' {
-			n += 4
+			n += pythonIndentSize
 		} else {
 			break
 		}

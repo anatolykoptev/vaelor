@@ -83,7 +83,7 @@ func ComputeRecommendations(m RepoMetrics, out Outliers, maxItems int) []Recomme
 		if gap < minScoreGap {
 			continue
 		}
-		pot := gap * ss[i].Weight * 100
+		pot := gap * ss[i].Weight * percentScale
 		candidates = append(candidates, candidate{sub: ss[i], potential: pot})
 	}
 
@@ -111,13 +111,13 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 	switch s.Name {
 	case "test_coverage":
 		return fmt.Sprintf("Add more test files (current: %.0f%%, target: %.0f%%)",
-			m.TestRatio*100, targetTestRatio*100)
+			m.TestRatio*percentScale, targetTestRatio*percentScale)
 	case "doc_coverage":
 		return fmt.Sprintf("Add doc comments to exported symbols (current: %.0f%%, target: %.0f%%)",
-			m.DocRatio*100, targetDocRatio*100)
+			m.DocRatio*percentScale, targetDocRatio*percentScale)
 	case "error_handling":
 		return fmt.Sprintf("Improve error handling coverage (current: %.0f%%, target: %.0f%%)",
-			m.ErrorHandlingRatio*100, targetErrorHandlingRatio*100)
+			m.ErrorHandlingRatio*percentScale, targetErrorHandlingRatio*percentScale)
 	case "cognitive_complexity":
 		msg := fmt.Sprintf("Reduce avg cognitive complexity (current: %.1f, target: ≤%.0f)", m.AvgCognitiveComplexity, targetCognitiveComplexity)
 		return appendOutlier(msg, out.MaxCognitive)
@@ -134,14 +134,14 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 		msg := fmt.Sprintf("Reduce max nesting depth (current: %d, target: ≤%.0f)", m.MaxNestingDepth, targetNestingDepth)
 		return appendOutlier(msg, out.MaxNesting)
 	case "file_size":
-		return fmt.Sprintf("Split large files (%.0f%% exceed threshold, target: 0%%)", m.LargeFileRatio*100)
+		return fmt.Sprintf("Split large files (%.0f%% exceed threshold, target: 0%%)", m.LargeFileRatio*percentScale)
 	case "duplication":
-		return fmt.Sprintf("Reduce code duplication (ratio: %.0f%%, target: 0%%)", m.DuplicationRatio*100)
+		return fmt.Sprintf("Reduce code duplication (ratio: %.0f%%, target: 0%%)", m.DuplicationRatio*percentScale)
 	case "magic_numbers":
-		msg := fmt.Sprintf("Extract magic numbers into named constants (%.0f%% of functions affected)", m.MagicNumberRatio*100)
+		msg := fmt.Sprintf("Extract magic numbers into named constants (%.0f%% of functions affected)", m.MagicNumberRatio*percentScale)
 		return appendOutlier(msg, out.MaxMagicNumbers)
 	default:
-		return fmt.Sprintf("Improve %s (score: %.0f%%)", s.Name, s.Score*100)
+		return fmt.Sprintf("Improve %s (score: %.0f%%)", s.Name, s.Score*percentScale)
 	}
 }
 

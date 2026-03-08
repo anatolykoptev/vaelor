@@ -89,7 +89,7 @@ func GradeScore(m RepoMetrics) float64 {
 		duplicationScore*weightDuplication +
 		magicScore*weightMagicNumbers
 
-	return math.Round(total * 100)
+	return math.Round(total * percentScale)
 }
 
 // ComputeGrade returns a letter grade (A+ through F) for the given metrics.
