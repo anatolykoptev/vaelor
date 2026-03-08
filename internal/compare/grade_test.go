@@ -162,3 +162,22 @@ func TestNewMetricsAffectScore(t *testing.T) {
 		t.Errorf("high duplication: score=%.0f >= base=%.0f", dupScore, baseScore)
 	}
 }
+
+func TestSemanticDupAffectsScore(t *testing.T) {
+	base := RepoMetrics{
+		Files: 50, TotalLines: 5000,
+		AvgFuncLines: 15, MaxFuncLines: 50,
+		AvgComplexity: 4.0, MaxComplexity: 10,
+		TestRatio: 0.3, DocRatio: 0.6,
+		ErrorHandlingRatio: 0.6,
+	}
+	baseScore := GradeScore(base)
+
+	withSemDup := base
+	withSemDup.SemanticDupRatio = 0.4
+	semScore := GradeScore(withSemDup)
+
+	if semScore >= baseScore {
+		t.Errorf("semantic dup ratio 0.4: score=%.0f >= base=%.0f", semScore, baseScore)
+	}
+}

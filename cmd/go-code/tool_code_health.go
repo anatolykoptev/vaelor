@@ -7,7 +7,9 @@ import (
 	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/semhealth"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -47,7 +49,7 @@ type CodeHealthInput struct {
 }
 
 // registerCodeHealth registers the code_health MCP tool.
-func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
+func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -69,10 +71,10 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 		defer cleanup()
 
-		// Determine snapshot focus — magic_numbers is a special mode, not a path filter.
+		// Determine snapshot focus — magic_numbers and semantic_duplicates are special modes, not path filters.
 		snapshotFocus := input.Focus
 		isMagicMode := input.Focus == "magic_numbers"
-		if isMagicMode {
+		if isMagicMode || input.Focus == "semantic_duplicates" {
 			snapshotFocus = ""
 		}
 
@@ -91,8 +93,36 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			return xmlMarshalResult(resp, "code_health", outputDir), nil
 		}
 
+		// Semantic duplicates focused report.
+		if input.Focus == "semantic_duplicates" {
+			if semDeps == nil || semDeps.Store == nil {
+				return errResult("semantic search not configured: set EMBED_URL and DATABASE_URL"), nil
+			}
+			repoKey := codegraph.GraphNameFor(root)
+			funcCount := countFuncs(snap.Symbols)
+			sem := semhealth.Analyze(ctx, semDeps.Store, repoKey, funcCount)
+			var groups []semhealth.DupGroup
+			if sem != nil {
+				groups = sem.DupGroups
+			}
+			resp := buildSemanticDupXML(snap.Name, snap.Language, groups)
+			return xmlMarshalResult(resp, "code_health", outputDir), nil
+		}
+
 		metrics := compare.ComputeMetrics(snap)
 		score := compare.GradeScore(metrics)
+
+		// Semantic duplication analysis (optional, non-fatal).
+		if semDeps != nil && semDeps.Store != nil {
+			repoKey := codegraph.GraphNameFor(root)
+			funcCount := countFuncs(snap.Symbols)
+			if sem := semhealth.Analyze(ctx, semDeps.Store, repoKey, funcCount); sem != nil && sem.SemanticDupRatio > 0 {
+				metrics.SemanticDupRatio = sem.SemanticDupRatio
+				score = compare.GradeScore(metrics)
+				metrics.Score = score
+				metrics.Grade = compare.ComputeGrade(metrics)
+			}
+		}
 
 		// Hotspot analysis (non-fatal).
 		churn, churnErr := compare.CollectChurn(ctx, root)
@@ -147,50 +177,4 @@ func buildHealthXML(
 	}
 
 	return resp
-}
-
-// xmlMagicNumbersResponse is the XML envelope for focus=magic_numbers.
-type xmlMagicNumbersResponse struct {
-	XMLName xml.Name         `xml:"response"`
-	Report  xmlMagicReport   `xml:"magic_numbers"`
-}
-
-type xmlMagicReport struct {
-	Repo     string           `xml:"repo,attr"`
-	Language string           `xml:"language,attr,omitempty"`
-	Total    int              `xml:"total,attr"`
-	Items    []xmlMagicEntry  `xml:"function"`
-}
-
-type xmlMagicEntry struct {
-	Name  string `xml:"name,attr"`
-	File  string `xml:"file,attr"`
-	Line  int    `xml:"line,attr"`
-	Count int    `xml:"count,attr"`
-}
-
-func buildMagicNumbersXML(name, language string, entries []compare.MagicNumberEntry) xmlMagicNumbersResponse {
-	items := make([]xmlMagicEntry, len(entries))
-	for i, e := range entries {
-		items[i] = xmlMagicEntry{Name: e.Name, File: e.File, Line: e.Line, Count: e.Count}
-	}
-	return xmlMagicNumbersResponse{
-		Report: xmlMagicReport{
-			Repo: name, Language: language,
-			Total: len(entries), Items: items,
-		},
-	}
-}
-
-func convertRecommendations(recs []compare.Recommendation) *xmlRecommendations {
-	items := make([]xmlRecommendation, len(recs))
-	for i, r := range recs {
-		items[i] = xmlRecommendation{
-			Priority:  r.Priority,
-			Potential: fmt.Sprintf("+%d", r.Potential),
-			Area:      r.Area,
-			Message:   r.Message,
-		}
-	}
-	return &xmlRecommendations{Items: items}
 }
