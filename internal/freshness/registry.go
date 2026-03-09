@@ -30,13 +30,14 @@ type MultiRegistry struct {
 func NewMultiRegistry(client *http.Client) *MultiRegistry {
 	return &MultiRegistry{
 		registries: map[string]Registry{
-			"go":     &GoRegistry{BaseURL: DefaultGoProxyURL, Client: client},
-			"npm":    &NpmRegistry{BaseURL: DefaultNpmURL, Client: client},
-			"python": &PyPIRegistry{BaseURL: DefaultPyPIURL, Client: client},
-			"rust":   &CratesRegistry{BaseURL: DefaultCratesURL, Client: client},
-			"java":   &MavenRegistry{BaseURL: DefaultMavenURL, Client: client},
-			"ruby":   &RubyGemsRegistry{BaseURL: DefaultRubyGemsURL, Client: client},
-			"csharp": &NuGetRegistry{BaseURL: DefaultNuGetURL, Client: client},
+			"go":         &GoRegistry{BaseURL: DefaultGoProxyURL, Client: client},
+			"npm":        &NpmRegistry{BaseURL: DefaultNpmURL, Client: client},
+			"typescript": &NpmRegistry{BaseURL: DefaultNpmURL, Client: client},
+			"python":     &PyPIRegistry{BaseURL: DefaultPyPIURL, Client: client},
+			"rust":       &CratesRegistry{BaseURL: DefaultCratesURL, Client: client},
+			"java":       &MavenRegistry{BaseURL: DefaultMavenURL, Client: client},
+			"ruby":       &RubyGemsRegistry{BaseURL: DefaultRubyGemsURL, Client: client},
+			"csharp":     &NuGetRegistry{BaseURL: DefaultNuGetURL, Client: client},
 		},
 	}
 }

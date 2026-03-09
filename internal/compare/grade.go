@@ -11,21 +11,22 @@ const (
 	gradeDThreshold     = 50
 )
 
-// Scoring weights — 13 sub-scores, must sum to 1.0.
+// Scoring weights — 14 sub-scores, must sum to 1.0.
 const (
-	weightCognitiveComplexity = 0.13
+	weightCognitiveComplexity = 0.12
 	weightCyclomaticAvg       = 0.07
 	weightCyclomaticMax       = 0.05
-	weightTestCoverage        = 0.13
+	weightTestCoverage        = 0.12
 	weightDocCoverage         = 0.09
-	weightFuncSize            = 0.09
-	weightErrorHandling       = 0.09
-	weightNestingDepth        = 0.08
-	weightFileSize            = 0.08
+	weightFuncSize            = 0.08
+	weightErrorHandling       = 0.08
+	weightNestingDepth        = 0.07
+	weightFileSize            = 0.07
 	weightDuplication         = 0.05
 	weightMagicNumbers        = 0.06
 	weightSemanticDup         = 0.02
 	weightDepFreshness        = 0.06
+	weightVulnSecurity        = 0.06
 )
 
 // Target ratios — ideal thresholds for normalization.
@@ -61,10 +62,13 @@ const (
 
 	// Target for dependency freshness ratio.
 	targetDepFreshness = 0.8
+
+	// Target for vulnerability security ratio.
+	targetVulnSecurity = 1.0
 )
 
 // GradeScore computes a quality score in [0, 100] from RepoMetrics.
-// Higher is better. Uses 12 sub-scores with weights summing to 1.0.
+// Higher is better. Uses 14 sub-scores with weights summing to 1.0.
 func GradeScore(m RepoMetrics) float64 {
 	if m.Files == 0 {
 		return 0
@@ -84,6 +88,7 @@ func GradeScore(m RepoMetrics) float64 {
 	magicScore := clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier)
 	semanticDupScore := clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier)
 	freshnessScore := clamp01(m.DepFreshnessRatio / targetDepFreshness)
+	vulnScore := clamp01(m.VulnSecurityRatio / targetVulnSecurity)
 
 	total := cognitiveScore*weightCognitiveComplexity +
 		cyclomaticAvgScore*weightCyclomaticAvg +
@@ -97,7 +102,8 @@ func GradeScore(m RepoMetrics) float64 {
 		duplicationScore*weightDuplication +
 		magicScore*weightMagicNumbers +
 		semanticDupScore*weightSemanticDup +
-		freshnessScore*weightDepFreshness
+		freshnessScore*weightDepFreshness +
+		vulnScore*weightVulnSecurity
 
 	return math.Round(total * percentScale)
 }

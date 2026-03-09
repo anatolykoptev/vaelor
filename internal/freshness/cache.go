@@ -61,14 +61,16 @@ func (c *CachedRegistry) Latest(ctx context.Context, name string) (string, error
 // NewMultiRegistryWithCache creates a MultiRegistry, optionally wrapping
 // each language registry with cache. Pass nil cache to skip caching.
 func NewMultiRegistryWithCache(client *http.Client, cache Cache) *MultiRegistry {
+	npmReg := &NpmRegistry{BaseURL: DefaultNpmURL, Client: client}
 	regs := map[string]Registry{
-		"go":     &GoRegistry{BaseURL: DefaultGoProxyURL, Client: client},
-		"npm":    &NpmRegistry{BaseURL: DefaultNpmURL, Client: client},
-		"python": &PyPIRegistry{BaseURL: DefaultPyPIURL, Client: client},
-		"rust":   &CratesRegistry{BaseURL: DefaultCratesURL, Client: client},
-		"java":   &MavenRegistry{BaseURL: DefaultMavenURL, Client: client},
-		"ruby":   &RubyGemsRegistry{BaseURL: DefaultRubyGemsURL, Client: client},
-		"csharp": &NuGetRegistry{BaseURL: DefaultNuGetURL, Client: client},
+		"go":         &GoRegistry{BaseURL: DefaultGoProxyURL, Client: client},
+		"npm":        npmReg,
+		"typescript": npmReg,
+		"python":     &PyPIRegistry{BaseURL: DefaultPyPIURL, Client: client},
+		"rust":       &CratesRegistry{BaseURL: DefaultCratesURL, Client: client},
+		"java":       &MavenRegistry{BaseURL: DefaultMavenURL, Client: client},
+		"ruby":       &RubyGemsRegistry{BaseURL: DefaultRubyGemsURL, Client: client},
+		"csharp":     &NuGetRegistry{BaseURL: DefaultNuGetURL, Client: client},
 	}
 
 	if cache != nil {

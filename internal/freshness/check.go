@@ -23,6 +23,14 @@ const (
 	verUnknown = "unknown"
 )
 
+// Severity level constants for vulnerability classification.
+const (
+	sevCritical = "CRITICAL"
+	sevHigh     = "HIGH"
+	sevMedium   = "MEDIUM"
+	sevLow      = "LOW"
+)
+
 // depResult holds the outcome of a single dependency lookup.
 type depResult struct {
 	outdated *OutdatedDep
