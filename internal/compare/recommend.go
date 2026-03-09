@@ -46,6 +46,7 @@ func computeSubScores(m RepoMetrics) []subScore {
 		{"duplication", clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier), weightDuplication, 0},
 		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier), weightMagicNumbers, 0},
 		{"semantic_duplication", clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier), weightSemanticDup, 0},
+		{"dep_freshness", clamp01(m.DepFreshnessRatio / targetDepFreshness), weightDepFreshness, 0},
 	}
 }
 
@@ -143,6 +144,9 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 		return appendOutlier(msg, out.MaxMagicNumbers)
 	case "semantic_duplication":
 		return fmt.Sprintf("Reduce semantic duplication — %.0f%% of functions are semantically similar to others. Extract shared logic into reusable helpers", m.SemanticDupRatio*percentScale)
+	case "dep_freshness":
+		return fmt.Sprintf("Update outdated dependencies (%.0f%% current, target: %.0f%%)",
+			m.DepFreshnessRatio*percentScale, targetDepFreshness*percentScale)
 	default:
 		return fmt.Sprintf("Improve %s (score: %.0f%%)", s.Name, s.Score*percentScale)
 	}

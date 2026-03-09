@@ -11,12 +11,12 @@ const (
 	gradeDThreshold     = 50
 )
 
-// Scoring weights — 12 sub-scores, must sum to 1.0.
+// Scoring weights — 13 sub-scores, must sum to 1.0.
 const (
 	weightCognitiveComplexity = 0.13
 	weightCyclomaticAvg       = 0.07
 	weightCyclomaticMax       = 0.05
-	weightTestCoverage        = 0.16
+	weightTestCoverage        = 0.13
 	weightDocCoverage         = 0.09
 	weightFuncSize            = 0.09
 	weightErrorHandling       = 0.09
@@ -24,7 +24,8 @@ const (
 	weightFileSize            = 0.08
 	weightDuplication         = 0.05
 	weightMagicNumbers        = 0.06
-	weightSemanticDup         = 0.05
+	weightSemanticDup         = 0.02
+	weightDepFreshness        = 0.06
 )
 
 // Target ratios — ideal thresholds for normalization.
@@ -57,6 +58,9 @@ const (
 	duplicationMultiplier = 5.0
 	magicNumberMultiplier    = 3.0
 	semanticDupMultiplier    = 4.0
+
+	// Target for dependency freshness ratio.
+	targetDepFreshness = 0.8
 )
 
 // GradeScore computes a quality score in [0, 100] from RepoMetrics.
@@ -79,6 +83,7 @@ func GradeScore(m RepoMetrics) float64 {
 	duplicationScore := clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier)
 	magicScore := clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier)
 	semanticDupScore := clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier)
+	freshnessScore := clamp01(m.DepFreshnessRatio / targetDepFreshness)
 
 	total := cognitiveScore*weightCognitiveComplexity +
 		cyclomaticAvgScore*weightCyclomaticAvg +
@@ -91,7 +96,8 @@ func GradeScore(m RepoMetrics) float64 {
 		fileSizeScore*weightFileSize +
 		duplicationScore*weightDuplication +
 		magicScore*weightMagicNumbers +
-		semanticDupScore*weightSemanticDup
+		semanticDupScore*weightSemanticDup +
+		freshnessScore*weightDepFreshness
 
 	return math.Round(total * percentScale)
 }
