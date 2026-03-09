@@ -166,7 +166,7 @@ func (p *Pipeline) embedAndUpsert(
 ) (int, error) {
 	texts := make([]string, len(chunk))
 	for i, e := range chunk {
-		texts[i] = buildEmbedText(e.sym)
+		texts[i] = buildEmbedText(e.sym, e.file.RelPath)
 	}
 
 	vectors, err := p.client.Embed(ctx, texts)

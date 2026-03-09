@@ -8,9 +8,13 @@
 | Package | Role |
 |---------|------|
 | `cmd/go-code/` | MCP entry point; `tool_*.go` = one file per tool, `register.go` wires them |
-| `internal/ingest/` | Repo clone + walk; `internal/parser/` = tree-sitter AST → symbols |
+| `internal/ingest/` | Repo clone (`--filter=blob:none` partial clone) + walk |
+| `internal/parser/` | tree-sitter AST → symbols (9 languages) |
 | `internal/analyze/` | Orchestration imported by tool handlers (tools import ONLY this) |
 | `internal/codegraph/` | Apache AGE persistent graph; `internal/callgraph/` = in-memory call tracing |
+| `internal/embeddings/` | Semantic search: pgvector store, embed pipeline, hybrid RRF, graph expansion |
+| `internal/codesearch/` | Grep-like code search with path filter support |
+| `internal/freshness/` | Dependency freshness + CVE/vulnerability checking via OSV.dev API |
 | `internal/polyglot/` | Multi-language repo structure detection |
 | `internal/routes/` | HTTP route extraction (7 languages, used for cross-language edges) |
 | `internal/forge/` | Multi-forge abstraction: `Forge` interface, GitHub + GitLab implementations, URL detection, registry |
@@ -29,6 +33,14 @@
 | `call_trace` | BFS/DFS call chain from a function; forward (callees) or reverse (callers) with LLM narrative |
 | `code_graph` | Query persistent Apache AGE graph (`gocode` DB). 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL. Requires `DATABASE_URL` |
 | `repo_search` | Discover repos across forges. Parallel web search (go-search) + GitHub/GitLab API, LLM-ranked |
+| `code_search` | Grep-like search with regex, path filter (`file_glob`), context lines |
+| `dead_code` | Find unused exported functions/types |
+| `explore` | Quick overview: stats, README, deps, health |
+| `code_health` | Quality grade (A-F), 14 sub-scores incl. CVE/vulnerability checking via OSV.dev |
+| `impact_analysis` | Blast radius of changing a function |
+| `semantic_search` | Vector similarity search via pgvector + hybrid RRF + graph expansion |
+| `site_analyze` | Web site tech analysis |
+| `site_crawl` | BFS web crawler |
 
 ## Environment Variables
 
@@ -52,6 +64,11 @@
 | `GITLAB_TOKEN` | optional | GitLab API token (`PRIVATE-TOKEN` header) |
 | `GITLAB_URL` | optional | Self-hosted GitLab base URL (default: `https://gitlab.com`) |
 | `GO_SEARCH_URL` | optional | go-search MCP endpoint for web search (e.g. `http://go-search:8890/mcp`) |
+| `EMBED_URL` | optional | Embedding server (e.g. `http://embed-jina:8083`) — enables semantic_search |
+| `EMBED_MODEL` | `jina-code-v2` | Model name for OpenAI-compatible embed API |
+| `AUTO_INDEX_DIRS` | optional | Comma-separated dirs to auto-index for semantic search (e.g. `/host/src`) |
+| `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/path/to/repos:/host`) |
+| `OUTPUT_DIR` | optional | Output dir for generated files (e.g. `/tmp/go-code-output`) |
 
 ## Build
 
@@ -77,7 +94,9 @@ make deploy  # docker compose build --no-cache + up -d
 - **Apache AGE**: no `ON CREATE SET` / `ON MATCH SET` — use separate `CREATE` then `SET` statements
 - **AGE batch size**: `GRAPH_BATCH_SIZE=5` — larger batches cause parse errors in AGE Cypher
 - **code_graph DB name**: always `gocode` (not the service name, not configurable at runtime)
-- **Local repo paths**: Docker mounts `/path/to/repos/src:/host-src:ro`; server translates host paths automatically — pass host path to MCP tools
+- **Local repo paths**: Docker mounts `/path/to/repos:/host:ro`; `PATH_MAPPINGS=/path/to/repos:/host` translates paths automatically
+- **Partial clone**: `--filter=blob:none` reduces memory for large repos (no blob download during clone)
+- **Semantic search stack**: embed-jina (jina-code-v2, 768 dim) → pgvector (HNSW cosine) → hybrid RRF (semantic + keyword) → graph expansion (1-hop AGE)
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
 
 ## Contributing

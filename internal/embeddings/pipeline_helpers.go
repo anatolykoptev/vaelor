@@ -6,6 +6,8 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -25,6 +27,9 @@ func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*inge
 	var files []*ingest.File
 
 	for _, f := range ir.Files {
+		if isTestFile(f.RelPath) {
+			continue
+		}
 		source, err := os.ReadFile(f.Path)
 		if err != nil {
 			slog.Debug("embeddings: read failed", slog.String("file", f.Path), slog.Any("error", err))
@@ -50,13 +55,48 @@ func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*inge
 	return symbols, files, nil
 }
 
-// buildEmbedText formats a symbol for embedding, truncated to maxEmbedText chars.
-func buildEmbedText(sym *parser.Symbol) string {
-	text := fmt.Sprintf("%s %s %s: %s\n%s", sym.Language, sym.Kind, sym.Name, sym.Signature, sym.Body)
-	if len(text) > maxEmbedText {
-		return text[:maxEmbedText]
+// isTestFile returns true for test/spec files that should be excluded from indexing.
+func isTestFile(relPath string) bool {
+	base := filepath.Base(relPath)
+	// Go
+	if strings.HasSuffix(base, "_test.go") {
+		return true
 	}
-	return text
+	// Python
+	if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") {
+		return true
+	}
+	// JS/TS
+	for _, suffix := range []string{".test.js", ".test.ts", ".test.tsx", ".spec.js", ".spec.ts", ".spec.tsx"} {
+		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	// Rust
+	if base == "tests.rs" || strings.Contains(relPath, "/tests/") {
+		return true
+	}
+	return false
+}
+
+// buildEmbedText formats a symbol for embedding with file path context.
+// Truncates at line boundary within maxEmbedText chars.
+func buildEmbedText(sym *parser.Symbol, filePath string) string {
+	header := fmt.Sprintf("%s %s %s %s: %s\n", filePath, sym.Language, sym.Kind, sym.Name, sym.Signature)
+	remaining := maxEmbedText - len(header)
+	if remaining <= 0 {
+		return header[:maxEmbedText]
+	}
+	body := sym.Body
+	if len(body) > remaining {
+		cut := strings.LastIndex(body[:remaining], "\n")
+		if cut > 0 {
+			body = body[:cut+1]
+		} else {
+			body = body[:remaining]
+		}
+	}
+	return header + body
 }
 
 // bodyHash computes an FNV-64a hash of the symbol body for change detection.
