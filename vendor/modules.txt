@@ -9,6 +9,8 @@ github.com/anatolykoptev/go-mcpserver
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
+# github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+## explicit
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
@@ -38,6 +40,10 @@ github.com/jackc/pgx/v5/pgxpool
 ## explicit; go 1.19
 github.com/jackc/puddle/v2
 github.com/jackc/puddle/v2/internal/genstack
+# github.com/jmoiron/sqlx v1.4.0
+## explicit; go 1.10
+# github.com/klauspost/cpuid/v2 v2.3.0
+## explicit; go 1.22
 # github.com/modelcontextprotocol/go-sdk v1.4.0
 ## explicit; go 1.24.0
 github.com/modelcontextprotocol/go-sdk/auth
@@ -52,6 +58,8 @@ github.com/modelcontextprotocol/go-sdk/oauthex
 # github.com/pgvector/pgvector-go v0.3.0
 ## explicit; go 1.23.0
 github.com/pgvector/pgvector-go
+# github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
+## explicit
 # github.com/redis/go-redis/v9 v9.18.0
 ## explicit; go 1.21
 github.com/redis/go-redis/v9
@@ -70,8 +78,8 @@ github.com/redis/go-redis/v9/internal/routing
 github.com/redis/go-redis/v9/internal/util
 github.com/redis/go-redis/v9/maintnotifications
 github.com/redis/go-redis/v9/push
-# github.com/segmentio/asm v1.1.3
-## explicit; go 1.17
+# github.com/segmentio/asm v1.2.1
+## explicit; go 1.18
 github.com/segmentio/asm/ascii
 github.com/segmentio/asm/base64
 github.com/segmentio/asm/cpu
@@ -86,6 +94,8 @@ github.com/segmentio/asm/keyset
 github.com/segmentio/encoding/ascii
 github.com/segmentio/encoding/iso8601
 github.com/segmentio/encoding/json
+# github.com/sergi/go-diff v1.4.0
+## explicit; go 1.13
 # github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 ## explicit; go 1.20
 github.com/smacker/go-tree-sitter
@@ -112,17 +122,20 @@ github.com/yosida95/uritemplate/v3
 # go.uber.org/atomic v1.11.0
 ## explicit; go 1.18
 go.uber.org/atomic
-# golang.org/x/oauth2 v0.34.0
+# golang.org/x/crypto v0.48.0
 ## explicit; go 1.24.0
+# golang.org/x/oauth2 v0.36.0
+## explicit; go 1.25.0
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
-# golang.org/x/sync v0.17.0
-## explicit; go 1.24.0
+# golang.org/x/sync v0.20.0
+## explicit; go 1.25.0
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.40.0
-## explicit; go 1.24.0
+# golang.org/x/sys v0.42.0
+## explicit; go 1.25.0
 golang.org/x/sys/cpu
-# golang.org/x/text v0.29.0
+golang.org/x/sys/windows
+# golang.org/x/text v0.34.0
 ## explicit; go 1.24.0
 golang.org/x/text/cases
 golang.org/x/text/internal
@@ -137,3 +150,5 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
+# golang.org/x/tools v0.42.0
+## explicit; go 1.24.0
