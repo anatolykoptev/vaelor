@@ -102,15 +102,16 @@ func handleSemanticSearch(
 	// No results — start background indexing if not already running.
 	if deps.Pipeline != nil {
 		if deps.Pipeline.IsIndexing(repoKey) {
-			return textResult(buildStatusResponse(input, "indexing",
-			"Repository is being indexed in the background. "+
-				"This may take a few minutes for the first run. "+
-				"Please retry in 30-60 seconds.")), nil
+			done, total, _ := deps.Pipeline.IndexProgress(repoKey)
+			msg := "Repository is being indexed in the background. Please retry in 30-60 seconds."
+			if total > 0 {
+				msg = fmt.Sprintf("Indexing in progress: %d/%d symbols embedded. Please retry in 30-60 seconds.", done, total)
+			}
+			return textResult(buildStatusResponse(input, "indexing", msg)), nil
 		}
 		deps.Pipeline.IndexRepoAsync(repoKey, root)
 		return textResult(buildStatusResponse(input, "indexing",
-			"Repository is being indexed in the background. "+
-				"This may take a few minutes for the first run. "+
+			"Repository indexing started in the background. "+
 				"Please retry in 30-60 seconds.")), nil
 	}
 
