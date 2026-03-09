@@ -6,9 +6,38 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/freshness"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/semhealth"
 )
+
+// xmlHealthResponse is the top-level XML envelope for code_health output.
+type xmlHealthResponse struct {
+	XMLName xml.Name  `xml:"response"`
+	Health  xmlHealth `xml:"health"`
+}
+
+type xmlHealth struct {
+	Repo            string              `xml:"repo,attr"`
+	Language        string              `xml:"language,attr,omitempty"`
+	Metrics         xmlCompMetrics      `xml:"metrics"`
+	Score           float64             `xml:"score,attr"`
+	DepFreshness    *xmlDepFreshness    `xml:"depFreshness,omitempty"`
+	Hotspots        *xmlHotspots        `xml:"hotspots,omitempty"`
+	RelStats        *xmlRelStats        `xml:"relStats,omitempty"`
+	Recommendations *xmlRecommendations `xml:"recommendations,omitempty"`
+}
+
+type xmlRecommendations struct {
+	Items []xmlRecommendation `xml:"item"`
+}
+
+type xmlRecommendation struct {
+	Priority  int    `xml:"priority,attr"`
+	Potential string `xml:"potential,attr"`
+	Area      string `xml:"area,attr"`
+	Message   string `xml:",chardata"`
+}
 
 // xmlMagicNumbersResponse is the XML envelope for focus=magic_numbers.
 type xmlMagicNumbersResponse struct {
@@ -122,4 +151,37 @@ func isTestFilePath(path string) bool {
 		strings.HasSuffix(lower, ".spec.js") ||
 		strings.Contains(lower, "/test/") ||
 		strings.Contains(lower, "/tests/")
+}
+
+// xmlDepFreshness represents dependency freshness in XML output.
+type xmlDepFreshness struct {
+	Total    int              `xml:"total,attr"`
+	Current  int              `xml:"current,attr"`
+	Ratio    string           `xml:"ratio,attr"`
+	Outdated []xmlOutdatedDep `xml:"dep,omitempty"`
+}
+
+// xmlOutdatedDep represents a single outdated dependency in XML output.
+type xmlOutdatedDep struct {
+	Name    string `xml:"name,attr"`
+	Current string `xml:"current,attr"`
+	Latest  string `xml:"latest,attr"`
+	Kind    string `xml:"kind,attr"`
+}
+
+func convertDepFreshness(fr *freshness.FreshnessResult) *xmlDepFreshness {
+	xf := &xmlDepFreshness{
+		Total:   fr.Total,
+		Current: fr.UpToDate,
+		Ratio:   fmt.Sprintf("%.2f", fr.Ratio),
+	}
+	for _, od := range fr.Outdated {
+		xf.Outdated = append(xf.Outdated, xmlOutdatedDep{
+			Name:    od.Name,
+			Current: od.Current,
+			Latest:  od.Latest,
+			Kind:    od.Kind,
+		})
+	}
+	return xf
 }

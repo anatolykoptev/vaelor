@@ -2,44 +2,19 @@ package main
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/freshness"
 	"github.com/anatolykoptev/go-code/internal/semhealth"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-// xmlHealthResponse is the top-level XML envelope for code_health output.
-type xmlHealthResponse struct {
-	XMLName xml.Name  `xml:"response"`
-	Health  xmlHealth `xml:"health"`
-}
-
-type xmlHealth struct {
-	Repo            string              `xml:"repo,attr"`
-	Language        string              `xml:"language,attr,omitempty"`
-	Metrics         xmlCompMetrics      `xml:"metrics"`
-	Score           float64             `xml:"score,attr"`
-	Hotspots        *xmlHotspots        `xml:"hotspots,omitempty"`
-	RelStats        *xmlRelStats        `xml:"relStats,omitempty"`
-	Recommendations *xmlRecommendations `xml:"recommendations,omitempty"`
-}
-
-type xmlRecommendations struct {
-	Items []xmlRecommendation `xml:"item"`
-}
-
-type xmlRecommendation struct {
-	Priority  int    `xml:"priority,attr"`
-	Potential string `xml:"potential,attr"`
-	Area      string `xml:"area,attr"`
-	Message   string `xml:",chardata"`
-}
 
 // CodeHealthInput is the input schema for the code_health tool.
 type CodeHealthInput struct {
@@ -124,6 +99,23 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 			}
 		}
 
+		// Dependency freshness (optional, non-fatal).
+		var fr *freshness.FreshnessResult
+		manifests := freshness.DiscoverManifests(root)
+		if len(manifests) > 0 {
+			allDeps := freshness.CollectDeps(manifests)
+			if len(allDeps) > 0 {
+				freshnessTimeout := 30 * time.Second
+				client := &http.Client{Timeout: freshnessTimeout}
+				reg := freshness.NewMultiRegistryWithCache(client, nil)
+				fr = freshness.CheckFreshness(ctx, allDeps, reg)
+				metrics.DepFreshnessRatio = fr.Ratio
+				score = compare.GradeScore(metrics)
+				metrics.Score = score
+				metrics.Grade = compare.ComputeGrade(metrics)
+			}
+		}
+
 		// Hotspot analysis (non-fatal).
 		churn, churnErr := compare.CollectChurn(ctx, root)
 		if churnErr != nil {
@@ -140,7 +132,7 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		outliers := compare.CollectOutliers(snap)
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
 
-		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs)
+		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr)
 		return xmlMarshalResult(resp, "code_health", outputDir), nil
 	})
 }
@@ -152,6 +144,7 @@ func buildHealthXML(
 	hotspots []compare.HotspotFile,
 	relStats *compare.RelStats,
 	recs []compare.Recommendation,
+	fr *freshness.FreshnessResult,
 ) xmlHealthResponse {
 	resp := xmlHealthResponse{
 		Health: xmlHealth{
@@ -174,6 +167,9 @@ func buildHealthXML(
 	}
 	if len(recs) > 0 {
 		resp.Health.Recommendations = convertRecommendations(recs)
+	}
+	if fr != nil && fr.Total > 0 {
+		resp.Health.DepFreshness = convertDepFreshness(fr)
 	}
 
 	return resp
