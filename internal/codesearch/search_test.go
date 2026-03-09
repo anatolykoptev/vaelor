@@ -402,6 +402,58 @@ func TestSearch_RankByMatchDensity_Unit(t *testing.T) {
 	}
 }
 
+func TestMatchesFileGlob(t *testing.T) {
+	tests := []struct {
+		relPath string
+		glob    string
+		want    bool
+	}{
+		// Extension glob matches basename.
+		{"pkg/engine/errors.go", "*.go", true},
+		{"pkg/engine/errors.go", "*.py", false},
+		// Directory prefix with /**.
+		{"pkg/engine/errors.go", "pkg/engine/**", true},
+		{"pkg/engine/sub/deep.go", "pkg/engine/**", true},
+		{"pkg/other/file.go", "pkg/engine/**", false},
+		// Exact file match.
+		{"main.go", "main.go", true},
+		{"main.go", "other.go", false},
+		// Nested directory prefix.
+		{"internal/auth/handler.go", "internal/auth/**", true},
+		{"internal/auth/middleware/check.go", "internal/auth/**", true},
+		{"internal/other/file.go", "internal/auth/**", false},
+	}
+
+	for _, tt := range tests {
+		got := matchesFileGlob(tt.relPath, tt.glob)
+		if got != tt.want {
+			t.Errorf("matchesFileGlob(%q, %q) = %v, want %v", tt.relPath, tt.glob, got, tt.want)
+		}
+	}
+}
+
+func TestSearch_PathFilter(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pkg/engine/deploy.go", "package engine\n// MARKER in engine\n")
+	writeFile(t, dir, "pkg/other/util.go", "package other\n// MARKER in other\n")
+	writeFile(t, dir, "cmd/main.go", "package main\n// MARKER in main\n")
+
+	results, err := Search(context.Background(), SearchInput{
+		Root:     dir,
+		Pattern:  "MARKER",
+		FileGlob: "pkg/engine/**",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 match (only pkg/engine), got %d", len(results))
+	}
+	if results[0].File != "pkg/engine/deploy.go" {
+		t.Errorf("expected pkg/engine/deploy.go, got %s", results[0].File)
+	}
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 

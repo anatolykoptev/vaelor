@@ -73,11 +73,8 @@ func Search(ctx context.Context, input SearchInput) ([]SearchMatch, error) {
 			break
 		}
 
-		if input.FileGlob != "" {
-			matched, _ := filepath.Match(input.FileGlob, filepath.Base(f.Path))
-			if !matched {
-				continue
-			}
+		if input.FileGlob != "" && !matchesFileGlob(f.RelPath, input.FileGlob) {
+			continue
 		}
 
 		if input.ExcludeGlob != "" && matchesExclude(f.RelPath, input.ExcludeGlob) {
@@ -137,6 +134,28 @@ func buildPattern(pattern string, isRegex, caseSensitive bool) (*regexp.Regexp, 
 	}
 
 	return regexp.Compile(pattern)
+}
+
+// matchesFileGlob checks whether a relative path matches the file glob filter.
+// Supports: extension globs ("*.go" matches basename), directory prefixes
+// ("pkg/engine/**" matches anything under pkg/engine/), and full-path globs.
+func matchesFileGlob(relPath, glob string) bool {
+	// Try matching against full relative path first.
+	if matched, _ := filepath.Match(glob, relPath); matched {
+		return true
+	}
+	// Try matching against basename (e.g. "*.go").
+	if matched, _ := filepath.Match(glob, filepath.Base(relPath)); matched {
+		return true
+	}
+	// Directory prefix: "pkg/engine/**" → check if relPath starts with "pkg/engine/".
+	if strings.HasSuffix(glob, "/**") {
+		prefix := strings.TrimSuffix(glob, "/**")
+		if strings.HasPrefix(relPath, prefix+"/") || relPath == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 // matchesExclude checks whether relPath matches any comma-separated exclude patterns.
