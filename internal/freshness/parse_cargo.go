@@ -10,10 +10,8 @@ const langRust = "rust"
 // Similar to polyglot.ParseCargoToml but includes version information.
 func ParseCargoTomlFreshness(data []byte) ManifestInfo {
 	info := ManifestInfo{Language: langRust}
-	lines := strings.Split(string(data), "\n")
-
 	var section string
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
@@ -84,19 +82,16 @@ func parseCargoDepLine(key, val, line string) Dependency {
 // extractCargoInlineVersion extracts version from inline table syntax.
 func extractCargoInlineVersion(line string) string {
 	// Look inside the braces for the version key.
-	braceIdx := strings.Index(line, "{")
-	if braceIdx < 0 {
+	_, inner, found := strings.Cut(line, "{")
+	if !found {
 		return ""
 	}
-	inner := line[braceIdx:]
 
 	const versionKey = "version"
-	idx := strings.Index(inner, versionKey)
-	if idx < 0 {
+	_, rest, found := strings.Cut(inner, versionKey)
+	if !found {
 		return ""
 	}
-
-	rest := inner[idx+len(versionKey):]
 	// Skip whitespace and '='.
 	rest = strings.TrimSpace(rest)
 	rest = strings.TrimPrefix(rest, "=")

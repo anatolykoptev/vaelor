@@ -10,9 +10,7 @@ const langRuby = "ruby"
 // Uses line-based parsing for gem declarations.
 func ParseGemfile(data []byte) ManifestInfo {
 	info := ManifestInfo{Language: langRuby}
-	lines := strings.Split(string(data), "\n")
-
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue

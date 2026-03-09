@@ -19,6 +19,9 @@ func TestDependencyFields(t *testing.T) {
 
 func TestManifestInfoDefaults(t *testing.T) {
 	m := ManifestInfo{Language: "python"}
+	if m.Language != "python" {
+		t.Errorf("Language = %q, want %q", m.Language, "python")
+	}
 	if m.RuntimeVersion != "" {
 		t.Errorf("RuntimeVersion = %q, want empty", m.RuntimeVersion)
 	}
@@ -34,9 +37,9 @@ func TestFreshnessResultZeroValue(t *testing.T) {
 	}
 }
 
-func TestOutdatedDepKind(t *testing.T) {
+func TestOutdatedDepFields(t *testing.T) {
 	o := OutdatedDep{Name: "pkg", Current: "1.0", Latest: "2.0", Kind: "major"}
-	if o.Kind != "major" {
-		t.Errorf("Kind = %q, want %q", o.Kind, "major")
+	if o.Name != "pkg" || o.Current != "1.0" || o.Latest != "2.0" || o.Kind != "major" {
+		t.Errorf("unexpected fields: %+v", o)
 	}
 }
