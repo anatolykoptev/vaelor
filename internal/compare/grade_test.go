@@ -20,7 +20,8 @@ func TestWeightsSumToOne(t *testing.T) {
 		weightDuplication +
 		weightMagicNumbers +
 		weightSemanticDup +
-		weightDepFreshness
+		weightDepFreshness +
+		weightVulnSecurity
 
 	if math.Abs(sum-1.0) > weightEpsilon {
 		t.Fatalf("weights sum to %.10f, want 1.0", sum)
@@ -50,6 +51,7 @@ func TestGradeScore_PerfectMetrics(t *testing.T) {
 		MagicNumberRatio:       0,
 		SemanticDupRatio:       0,
 		DepFreshnessRatio:      targetDepFreshness,
+		VulnSecurityRatio:      targetVulnSecurity,
 	}
 	score := GradeScore(m)
 	if score != 100 {

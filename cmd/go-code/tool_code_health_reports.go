@@ -23,6 +23,7 @@ type xmlHealth struct {
 	Metrics         xmlCompMetrics      `xml:"metrics"`
 	Score           float64             `xml:"score,attr"`
 	DepFreshness    *xmlDepFreshness    `xml:"depFreshness,omitempty"`
+	Vulnerabilities *xmlVulnerabilities `xml:"vulnerabilities,omitempty"`
 	Hotspots        *xmlHotspots        `xml:"hotspots,omitempty"`
 	RelStats        *xmlRelStats        `xml:"relStats,omitempty"`
 	Recommendations *xmlRecommendations `xml:"recommendations,omitempty"`
@@ -155,10 +156,11 @@ func isTestFilePath(path string) bool {
 
 // xmlDepFreshness represents dependency freshness in XML output.
 type xmlDepFreshness struct {
-	Total    int              `xml:"total,attr"`
-	Current  int              `xml:"current,attr"`
-	Ratio    string           `xml:"ratio,attr"`
-	Outdated []xmlOutdatedDep `xml:"dep,omitempty"`
+	Total         int              `xml:"total,attr"`
+	Current       int              `xml:"current,attr"`
+	Ratio         string           `xml:"ratio,attr"`
+	RuntimeStatus string           `xml:"runtimeStatus,attr,omitempty"`
+	Outdated      []xmlOutdatedDep `xml:"dep,omitempty"`
 }
 
 // xmlOutdatedDep represents a single outdated dependency in XML output.
@@ -169,11 +171,53 @@ type xmlOutdatedDep struct {
 	Kind    string `xml:"kind,attr"`
 }
 
+type xmlVulnerabilities struct {
+	Total      int          `xml:"total,attr"`
+	Vulnerable int          `xml:"vulnerable,attr"`
+	Critical   int          `xml:"critical,attr,omitempty"`
+	High       int          `xml:"high,attr,omitempty"`
+	Medium     int          `xml:"medium,attr,omitempty"`
+	Low        int          `xml:"low,attr,omitempty"`
+	Ratio      string       `xml:"ratio,attr"`
+	Vulns      []xmlVulnDep `xml:"vuln,omitempty"`
+}
+
+type xmlVulnDep struct {
+	Name     string `xml:"name,attr"`
+	Version  string `xml:"version,attr"`
+	ID       string `xml:"id,attr"`
+	Severity string `xml:"severity,attr"`
+	Summary  string `xml:"summary,attr"`
+}
+
+func convertVulnerabilities(vr *freshness.VulnResult) *xmlVulnerabilities {
+	xv := &xmlVulnerabilities{
+		Total:      vr.Total,
+		Vulnerable: vr.Vulnerable,
+		Critical:   vr.Critical,
+		High:       vr.High,
+		Medium:     vr.Medium,
+		Low:        vr.Low,
+		Ratio:      fmt.Sprintf("%.2f", vr.Ratio),
+	}
+	for _, v := range vr.Vulns {
+		xv.Vulns = append(xv.Vulns, xmlVulnDep{
+			Name:     v.Name,
+			Version:  v.Version,
+			ID:       v.ID,
+			Severity: v.Severity,
+			Summary:  v.Summary,
+		})
+	}
+	return xv
+}
+
 func convertDepFreshness(fr *freshness.FreshnessResult) *xmlDepFreshness {
 	xf := &xmlDepFreshness{
-		Total:   fr.Total,
-		Current: fr.UpToDate,
-		Ratio:   fmt.Sprintf("%.2f", fr.Ratio),
+		Total:         fr.Total,
+		Current:       fr.UpToDate,
+		Ratio:         fmt.Sprintf("%.2f", fr.Ratio),
+		RuntimeStatus: fr.RuntimeStatus,
 	}
 	for _, od := range fr.Outdated {
 		xf.Outdated = append(xf.Outdated, xmlOutdatedDep{

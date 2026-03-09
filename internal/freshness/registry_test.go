@@ -134,7 +134,7 @@ func TestNuGetRegistry_Latest(t *testing.T) {
 func TestMultiRegistry_ForLanguage(t *testing.T) {
 	mr := NewMultiRegistry(http.DefaultClient)
 
-	languages := []string{"go", "npm", "python", "rust", "java", "ruby", "csharp"}
+	languages := []string{"go", "npm", "typescript", "python", "rust", "java", "ruby", "csharp"}
 	for _, lang := range languages {
 		if mr.ForLanguage(lang) == nil {
 			t.Errorf("ForLanguage(%q) returned nil", lang)

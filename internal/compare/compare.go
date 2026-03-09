@@ -183,6 +183,7 @@ type RepoMetrics struct {
 	Score                  float64 `json:"score"`
 	SemanticDupRatio       float64 `json:"semanticDupRatio,omitempty"`  // fraction of functions in semantic dup groups
 	DepFreshnessRatio      float64 `json:"depFreshnessRatio,omitempty"` // fraction of deps that are up-to-date
+	VulnSecurityRatio      float64 `json:"vulnSecurityRatio,omitempty"` // fraction of deps with no known vulns
 }
 
 // QualityAspect describes a qualitative comparison point between two repos.

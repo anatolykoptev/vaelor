@@ -31,10 +31,11 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		Name: "code_health",
 		Description: "Assess code quality of a single repository. " +
 			"Returns grade (A-F), numeric score (0-100), metrics " +
-			"(complexity, test coverage, docs, error handling), " +
-			"maintenance hotspots, type relationships, and " +
-			"prioritized recommendations with estimated score impact. " +
-			"No LLM — fast, purely static analysis.",
+			"(complexity, test coverage, docs, error handling, " +
+			"dependency freshness, vulnerability security via OSV), " +
+			"maintenance hotspots, type relationships, and prioritized " +
+			"recommendations with estimated score impact. No LLM — " +
+			"fast, static analysis with registry version and CVE checks.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeHealthInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
 			return errResult("repo is required"), nil
@@ -99,21 +100,42 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 			}
 		}
 
-		// Dependency freshness (optional, non-fatal).
+		// Dependency freshness and vulnerability checks (optional, non-fatal).
 		var fr *freshness.FreshnessResult
+		var vr *freshness.VulnResult
 		manifests := freshness.DiscoverManifests(root)
 		if len(manifests) > 0 {
+			freshnessTimeout := 30 * time.Second
+			client := &http.Client{Timeout: freshnessTimeout}
 			allDeps := freshness.CollectDeps(manifests)
+
 			if len(allDeps) > 0 {
-				freshnessTimeout := 30 * time.Second
-				client := &http.Client{Timeout: freshnessTimeout}
+				// Freshness check.
 				reg := freshness.NewMultiRegistryWithCache(client, nil)
 				fr = freshness.CheckFreshness(ctx, allDeps, reg)
 				metrics.DepFreshnessRatio = fr.Ratio
-				score = compare.GradeScore(metrics)
-				metrics.Score = score
-				metrics.Grade = compare.ComputeGrade(metrics)
+
+				// Vulnerability check.
+				vr = freshness.CheckVulnerabilities(ctx, allDeps, client, freshness.DefaultOSVURL)
+				metrics.VulnSecurityRatio = vr.Ratio
 			}
+
+			// Go runtime version check.
+			for _, m := range manifests {
+				if m.Language == "go" && m.RuntimeVersion != "" {
+					status := freshness.CheckGoRuntime(ctx, client, m.RuntimeVersion)
+					if fr == nil {
+						fr = &freshness.FreshnessResult{Ratio: 1.0}
+					}
+					fr.RuntimeStatus = status
+					break
+				}
+			}
+
+			// Recompute score after freshness/vuln updates.
+			score = compare.GradeScore(metrics)
+			metrics.Score = score
+			metrics.Grade = compare.ComputeGrade(metrics)
 		}
 
 		// Hotspot analysis (non-fatal).
@@ -132,7 +154,7 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		outliers := compare.CollectOutliers(snap)
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
 
-		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr)
+		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr, vr)
 		return xmlMarshalResult(resp, "code_health", outputDir), nil
 	})
 }
@@ -145,6 +167,7 @@ func buildHealthXML(
 	relStats *compare.RelStats,
 	recs []compare.Recommendation,
 	fr *freshness.FreshnessResult,
+	vr *freshness.VulnResult,
 ) xmlHealthResponse {
 	resp := xmlHealthResponse{
 		Health: xmlHealth{
@@ -170,6 +193,9 @@ func buildHealthXML(
 	}
 	if fr != nil && fr.Total > 0 {
 		resp.Health.DepFreshness = convertDepFreshness(fr)
+	}
+	if vr != nil && vr.Total > 0 {
+		resp.Health.Vulnerabilities = convertVulnerabilities(vr)
 	}
 
 	return resp

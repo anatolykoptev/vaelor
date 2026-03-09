@@ -19,7 +19,7 @@ type Recommendation struct {
 	Message   string
 }
 
-// subScore tracks one of the 12 scoring dimensions.
+// subScore tracks one of the 14 scoring dimensions.
 type subScore struct {
 	Name   string
 	Score  float64 // [0, 1]
@@ -27,7 +27,7 @@ type subScore struct {
 	Points float64 // score * weight * 100
 }
 
-// computeSubScores replicates the 12 sub-score formulas from GradeScore
+// computeSubScores replicates the 14 sub-score formulas from GradeScore
 // (same package, same constants). Tests guard against drift.
 func computeSubScores(m RepoMetrics) []subScore {
 	if m.Files == 0 {
@@ -47,6 +47,7 @@ func computeSubScores(m RepoMetrics) []subScore {
 		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier), weightMagicNumbers, 0},
 		{"semantic_duplication", clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier), weightSemanticDup, 0},
 		{"dep_freshness", clamp01(m.DepFreshnessRatio / targetDepFreshness), weightDepFreshness, 0},
+		{"vuln_security", clamp01(m.VulnSecurityRatio / targetVulnSecurity), weightVulnSecurity, 0},
 	}
 }
 
@@ -147,6 +148,9 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 	case "dep_freshness":
 		return fmt.Sprintf("Update outdated dependencies (%.0f%% current, target: %.0f%%)",
 			m.DepFreshnessRatio*percentScale, targetDepFreshness*percentScale)
+	case "vuln_security":
+		return fmt.Sprintf("Fix vulnerable dependencies (%d%% safe, target: 100%%)",
+			int(m.VulnSecurityRatio*percentScale))
 	default:
 		return fmt.Sprintf("Improve %s (score: %.0f%%)", s.Name, s.Score*percentScale)
 	}
