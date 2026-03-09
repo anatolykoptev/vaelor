@@ -99,10 +99,10 @@ func buildEmbedText(sym *parser.Symbol, filePath string) string {
 	return header + body
 }
 
-// bodyHash computes an FNV-64a hash of the symbol body for change detection.
-func bodyHash(body string) uint64 {
+// textHash computes an FNV-64a hash of the embed text for change detection.
+func textHash(text string) uint64 {
 	h := fnv.New64a()
-	h.Write([]byte(body))
+	h.Write([]byte(text))
 	return h.Sum64()
 }
 
