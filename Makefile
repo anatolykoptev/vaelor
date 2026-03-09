@@ -5,13 +5,13 @@ COMPOSE = cd $(HOME)/deploy/krolik-server && docker compose
 .PHONY: build lint test run deploy clean vendor
 
 build:
-	CGO_ENABLED=1 go build -o $(BINARY) ./cmd/go-code
+	GOWORK=off CGO_ENABLED=1 go build -o $(BINARY) ./cmd/go-code
 
 lint:
-	golangci-lint run ./...
+	GOWORK=off golangci-lint run ./...
 
 test:
-	go test ./...
+	GOWORK=off go test ./...
 
 run: build
 	./$(BINARY)
@@ -22,7 +22,7 @@ deploy:
 	@echo "Deployed and restarted $(SERVICE)"
 
 vendor:
-	go mod vendor
+	GOWORK=off go mod vendor
 	@# go mod vendor drops C headers needed by tree-sitter CGO; restore them.
 	git checkout -- vendor/github.com/smacker/go-tree-sitter/php/tree_sitter/
 
