@@ -101,7 +101,7 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 		}
 	}
 
-	args := []string{"clone", "--depth=1", "--single-branch"}
+	args := []string{"clone", "--depth=1", "--single-branch", "--filter=blob:none"}
 	if opts.Ref != "" {
 		args = append(args, "--branch", opts.Ref)
 	}
