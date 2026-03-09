@@ -16,8 +16,9 @@ import (
 type SemanticSearchInput struct {
 	Repo     string `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path to search in"`
 	Query    string `json:"query" jsonschema_description:"Natural language description of what you're looking for (e.g. 'function that validates JWT tokens', 'error handling for database connections')"`
-	Language string `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript)"`
-	TopK     int    `json:"top_k,omitempty" jsonschema_description:"Number of results (default 10, max 50)"`
+	Language    string  `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript)"`
+	TopK        int     `json:"top_k,omitempty" jsonschema_description:"Number of results (default 10, max 50)"`
+	MaxDistance float32 `json:"max_distance,omitempty" jsonschema_description:"Maximum cosine distance (0.0-1.0, default 0.75). Lower = stricter matching"`
 }
 
 // SemanticDeps holds dependencies for semantic search.
@@ -70,6 +71,11 @@ func handleSemanticSearch(
 		topK = maxSemanticTopK
 	}
 
+	maxDist := input.MaxDistance
+	if maxDist <= 0 {
+		maxDist = 0.75
+	}
+
 	// Resolve repo root.
 	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps.AnalyzeDeps)
 	if err != nil {
@@ -87,16 +93,17 @@ func handleSemanticSearch(
 
 	// Try searching existing embeddings.
 	results, err := deps.Store.Search(ctx, vector, embeddings.SearchOpts{
-		RepoKey:  repoKey,
-		Language: input.Language,
-		TopK:     topK,
+		RepoKey:     repoKey,
+		Language:    input.Language,
+		TopK:        topK,
+		MaxDistance:  maxDist,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
 
 	if len(results) > 0 {
-		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK)
+		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist)
 	}
 
 	// No results — start background indexing if not already running.
@@ -124,7 +131,7 @@ func handleSemanticSearch(
 // graph expansion, hybrid keyword merge via RRF, and final formatting.
 func handleSemanticHits(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
-	repoKey, root string, results []embeddings.SearchResult, topK int,
+	repoKey, root string, results []embeddings.SearchResult, topK int, maxDist float32,
 ) (*mcp.CallToolResult, error) {
 	// Trigger background re-index for freshness.
 	if deps.Pipeline != nil {
@@ -148,8 +155,15 @@ func handleSemanticHits(
 			return textResult(formatHybridResults(input, hybrid)), nil
 		}
 	}
-	// Fallback to pure semantic if keyword search fails or returns nothing.
-	return textResult(formatSemanticResults(input, results)), nil
+	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
+	filtered := make([]embeddings.SearchResult, 0, len(results))
+	for _, r := range results {
+		if maxDist > 0 && r.Distance >= maxDist {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	return textResult(formatSemanticResults(input, filtered)), nil
 }
 
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult) string {

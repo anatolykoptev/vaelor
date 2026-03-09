@@ -44,9 +44,10 @@ type EmbeddingRecord struct {
 
 // SearchOpts controls search filtering and result count.
 type SearchOpts struct {
-	RepoKey  string // optional filter
-	Language string // optional filter
-	TopK     int    // default 20, max 100
+	RepoKey     string  // optional filter
+	Language    string  // optional filter
+	TopK        int     // default 20, max 100
+	MaxDistance float32 // 0 = no filter; cosine distance threshold (0.0-1.0)
 }
 
 // SearchResult is a single semantic search hit.
@@ -145,6 +146,10 @@ func (s *Store) Search(ctx context.Context, query []float32, opts SearchOpts) ([
 	if opts.Language != "" {
 		where = append(where, fmt.Sprintf("language=$%d", len(args)+1))
 		args = append(args, opts.Language)
+	}
+	if opts.MaxDistance > 0 {
+		where = append(where, fmt.Sprintf("embedding <=> $1 < $%d", len(args)+1))
+		args = append(args, opts.MaxDistance)
 	}
 	q := `SELECT repo_key,file_path,symbol_name,symbol_kind,language,start_line,
 		embedding <=> $1 AS distance FROM code_embeddings`
