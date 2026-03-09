@@ -181,7 +181,8 @@ type RepoMetrics struct {
 	AvgParamCount          float64 `json:"avgParamCount"`
 	MaxParamCount          int     `json:"maxParamCount"`
 	Score                  float64 `json:"score"`
-	SemanticDupRatio       float64 `json:"semanticDupRatio,omitempty"` // fraction of functions in semantic dup groups
+	SemanticDupRatio       float64 `json:"semanticDupRatio,omitempty"`  // fraction of functions in semantic dup groups
+	DepFreshnessRatio      float64 `json:"depFreshnessRatio,omitempty"` // fraction of deps that are up-to-date
 }
 
 // QualityAspect describes a qualitative comparison point between two repos.

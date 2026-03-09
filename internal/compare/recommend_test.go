@@ -83,6 +83,7 @@ func TestComputeRecommendations_PerfectMetrics(t *testing.T) {
 		AvgFuncLines: 10, AvgComplexity: 2, MaxComplexity: 5,
 		TestRatio: 0.35, DocRatio: 0.7, ErrorHandlingRatio: 0.7,
 		AvgCognitiveComplexity: 3, MaxNestingDepth: 1,
+		DepFreshnessRatio: 1.0,
 	}
 	recs := ComputeRecommendations(m, Outliers{}, 0)
 	if len(recs) != 0 {
