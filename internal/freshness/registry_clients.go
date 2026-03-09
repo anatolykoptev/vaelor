@@ -152,7 +152,7 @@ func registryGet(ctx context.Context, client *http.Client, url string, dest any)
 		return fmt.Errorf("creating request: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL constructed from trusted registry base + package name
 	if err != nil {
 		return fmt.Errorf("fetching %s: %w", url, err)
 	}

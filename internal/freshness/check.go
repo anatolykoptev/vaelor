@@ -12,6 +12,15 @@ import (
 const (
 	maxConcurrency   = 10
 	perLookupTimeout = 3 * time.Second
+	semverParts      = 3
+)
+
+// Version comparison result constants.
+const (
+	verCurrent = "current"
+	verMinor   = "minor"
+	verMajor   = "major"
+	verUnknown = "unknown"
 )
 
 // depResult holds the outcome of a single dependency lookup.
@@ -61,12 +70,12 @@ func lookupDep(ctx context.Context, dep Dependency, reg Registry) depResult {
 	}
 
 	kind := compareSemver(dep.Version, latest)
-	if kind == "unknown" {
+	if kind == verUnknown {
 		return depResult{}
 	}
 
 	res := depResult{kind: kind}
-	if kind == "minor" || kind == "major" {
+	if kind == verMinor || kind == verMajor {
 		res.outdated = &OutdatedDep{
 			Name:    dep.Name,
 			Current: dep.Version,
@@ -82,16 +91,16 @@ func aggregateResults(results []depResult) *FreshnessResult {
 	var fr FreshnessResult
 	for _, r := range results {
 		switch r.kind {
-		case "current":
+		case verCurrent:
 			fr.Total++
 			fr.UpToDate++
-		case "minor":
+		case verMinor:
 			fr.Total++
 			fr.MinorOutdated++
 			if r.outdated != nil {
 				fr.Outdated = append(fr.Outdated, *r.outdated)
 			}
-		case "major":
+		case verMajor:
 			fr.Total++
 			fr.MajorOutdated++
 			if r.outdated != nil {
@@ -117,16 +126,16 @@ func compareSemver(current, latest string) string {
 	curParts := parseSemver(current)
 	latParts := parseSemver(latest)
 	if curParts == nil || latParts == nil {
-		return "unknown"
+		return verUnknown
 	}
 
 	if curParts[0] != latParts[0] {
-		return "major"
+		return verMajor
 	}
 	if curParts[1] != latParts[1] || curParts[2] != latParts[2] {
-		return "minor"
+		return verMinor
 	}
-	return "current"
+	return verCurrent
 }
 
 // parseSemver extracts [major, minor, patch] from a version string.
@@ -138,10 +147,10 @@ func parseSemver(version string) []int {
 		return nil
 	}
 
-	parts := [3]int{}
+	parts := [semverParts]int{}
 	idx := 0
 	for seg := range strings.SplitSeq(v, ".") {
-		if idx >= 3 {
+		if idx >= semverParts {
 			break
 		}
 		n, err := strconv.Atoi(seg)

@@ -22,7 +22,7 @@ func TestRegistry_NotFound(t *testing.T) {
 
 func TestRegistry_BadJSON(t *testing.T) {
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{not json`))
+		_, _ = w.Write([]byte(`{not json`))
 	})
 	defer srv.Close()
 
@@ -36,7 +36,7 @@ func TestRegistry_BadJSON(t *testing.T) {
 func TestRegistry_Timeout(t *testing.T) {
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(100 * time.Millisecond)
-		w.Write([]byte(`{"version":"1.0.0"}`))
+		_, _ = w.Write([]byte(`{"version":"1.0.0"}`))
 	})
 	defer srv.Close()
 
@@ -52,7 +52,7 @@ func TestRegistry_Timeout(t *testing.T) {
 
 func TestNuGetRegistry_EmptyVersions(t *testing.T) {
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"versions":[]}`))
+		_, _ = w.Write([]byte(`{"versions":[]}`))
 	})
 	defer srv.Close()
 

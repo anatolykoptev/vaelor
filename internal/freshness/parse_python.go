@@ -8,12 +8,10 @@ import (
 // Uses line-based parsing to avoid adding a TOML library dependency.
 func ParsePyProject(data []byte) ManifestInfo {
 	info := ManifestInfo{Language: "python"}
-	lines := strings.Split(string(data), "\n")
-
 	var section string
 	inDepsArray := false
 
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
@@ -63,25 +61,27 @@ func parsePyProjectLine(line string, info *ManifestInfo, inDepsArray *bool) {
 		return
 	}
 
-	if *inDepsArray {
-		if strings.Contains(line, "]") {
-			// Parse any remaining deps before closing bracket.
-			before := strings.TrimSuffix(line, "]")
-			before = strings.TrimSpace(before)
-			if before != "" {
-				dep := parsePythonRequirement(strings.Trim(before, `"', `))
-				if dep.Name != "" {
-					info.Dependencies = append(info.Dependencies, dep)
-				}
-			}
-			*inDepsArray = false
-			return
-		}
-		cleaned := strings.Trim(line, `"', `)
-		dep := parsePythonRequirement(cleaned)
-		if dep.Name != "" {
-			info.Dependencies = append(info.Dependencies, dep)
-		}
+	if !*inDepsArray {
+		return
+	}
+
+	if strings.Contains(line, "]") {
+		before := strings.TrimSpace(strings.TrimSuffix(line, "]"))
+		addPyDep(strings.Trim(before, `"', `), info)
+		*inDepsArray = false
+		return
+	}
+	addPyDep(strings.Trim(line, `"', `), info)
+}
+
+// addPyDep parses and appends a Python dependency if valid.
+func addPyDep(s string, info *ManifestInfo) {
+	if s == "" {
+		return
+	}
+	dep := parsePythonRequirement(s)
+	if dep.Name != "" {
+		info.Dependencies = append(info.Dependencies, dep)
 	}
 }
 
@@ -91,7 +91,7 @@ func parsePyDepsArray(s string, info *ManifestInfo) {
 	s = strings.TrimPrefix(s, "[")
 	s = strings.TrimSuffix(s, "]")
 
-	for _, item := range strings.Split(s, ",") {
+	for item := range strings.SplitSeq(s, ",") {
 		cleaned := strings.Trim(strings.TrimSpace(item), `"'`)
 		if cleaned == "" {
 			continue
@@ -105,22 +105,17 @@ func parsePyDepsArray(s string, info *ManifestInfo) {
 
 // splitTOMLKV splits a TOML key = "value" line.
 func splitTOMLKV(line string) (string, string) {
-	parts := strings.SplitN(line, "=", 2)
-	if len(parts) != 2 {
+	key, val, ok := strings.Cut(line, "=")
+	if !ok {
 		return "", ""
 	}
-	key := strings.TrimSpace(parts[0])
-	val := strings.TrimSpace(parts[1])
-	val = strings.Trim(val, `"'`)
-	return key, val
+	return strings.TrimSpace(key), strings.Trim(strings.TrimSpace(val), `"'`)
 }
 
 // ParseRequirementsTxt extracts dependencies from requirements.txt content.
 func ParseRequirementsTxt(data []byte) ManifestInfo {
 	info := ManifestInfo{Language: "python"}
-	lines := strings.Split(string(data), "\n")
-
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue

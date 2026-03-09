@@ -17,7 +17,7 @@ func TestGoRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"Version":"v0.21.0"}`))
+		_, _ = w.Write([]byte(`{"Version":"v0.21.0"}`))
 	})
 	defer srv.Close()
 
@@ -33,7 +33,7 @@ func TestNpmRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"version":"4.18.2"}`))
+		_, _ = w.Write([]byte(`{"version":"4.18.2"}`))
 	})
 	defer srv.Close()
 
@@ -49,7 +49,7 @@ func TestPyPIRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"info":{"version":"2.31.0"}}`))
+		_, _ = w.Write([]byte(`{"info":{"version":"2.31.0"}}`))
 	})
 	defer srv.Close()
 
@@ -65,7 +65,7 @@ func TestCratesRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"crate":{"max_stable_version":"1.0.197"}}`))
+		_, _ = w.Write([]byte(`{"crate":{"max_stable_version":"1.0.197"}}`))
 	})
 	defer srv.Close()
 
@@ -81,7 +81,7 @@ func TestMavenRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"response":{"docs":[{"latestVersion":"6.1.4"}]}}`))
+		_, _ = w.Write([]byte(`{"response":{"docs":[{"latestVersion":"6.1.4"}]}}`))
 	})
 	defer srv.Close()
 
@@ -105,7 +105,7 @@ func TestRubyGemsRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"version":"7.1.3"}`))
+		_, _ = w.Write([]byte(`{"version":"7.1.3"}`))
 	})
 	defer srv.Close()
 
@@ -121,7 +121,7 @@ func TestNuGetRegistry_Latest(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"versions":["12.0.0","13.0.1","13.0.3"]}`))
+		_, _ = w.Write([]byte(`{"versions":["12.0.0","13.0.1","13.0.3"]}`))
 	})
 	defer srv.Close()
 
