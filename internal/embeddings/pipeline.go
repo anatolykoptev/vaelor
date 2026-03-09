@@ -118,12 +118,13 @@ func (p *Pipeline) indexRepo(
 			continue
 		}
 		seen[key] = true
-		h := bodyHash(sym.Body)
+		embedText := buildEmbedText(sym, files[i].RelPath)
+		h := textHash(embedText)
 		if prev, ok := existing[key]; ok && prev == h {
 			result.Skipped++
 			continue
 		}
-		toEmbed = append(toEmbed, symbolEntry{sym: sym, file: files[i], hash: h})
+		toEmbed = append(toEmbed, symbolEntry{sym: sym, file: files[i], hash: h, embedText: embedText})
 	}
 
 	if prog != nil {
@@ -166,7 +167,7 @@ func (p *Pipeline) embedAndUpsert(
 ) (int, error) {
 	texts := make([]string, len(chunk))
 	for i, e := range chunk {
-		texts[i] = buildEmbedText(e.sym, e.file.RelPath)
+		texts[i] = e.embedText
 	}
 
 	vectors, err := p.client.Embed(ctx, texts)
@@ -195,9 +196,10 @@ func (p *Pipeline) embedAndUpsert(
 	return len(chunk), nil
 }
 
-// symbolEntry pairs a symbol with its source file and precomputed hash.
+// symbolEntry pairs a symbol with its source file, precomputed hash, and embed text.
 type symbolEntry struct {
-	sym  *parser.Symbol
-	file *ingest.File
-	hash uint64
+	sym       *parser.Symbol
+	file      *ingest.File
+	hash      uint64
+	embedText string
 }
