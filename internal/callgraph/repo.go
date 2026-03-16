@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/anatolykoptev/go-code/internal/goanalysis"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/routes"
@@ -56,6 +57,15 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	}
 
 	cg := BuildCallGraph(allSymbols, allCalls)
+	cg.Tier = "basic"
+
+	// Attempt go/types resolution for Go modules — purely additive.
+	if goanalysis.HasGoModule(input.Root) {
+		if typedCG := tryGoTypesResolution(ctx, input.Root, allSymbols); typedCG != nil {
+			cg = MergeCallGraphs(cg, typedCG)
+			cg.Tier = "enhanced"
+		}
+	}
 
 	// Inject WordPress hook edges for PHP files.
 	hookRoutes := extractHookRoutes(ir.Files)
@@ -135,6 +145,20 @@ func extractHookRoutes(files []*ingest.File) []HookRoute {
 		}
 	}
 	return out
+}
+
+// tryGoTypesResolution attempts to load Go packages and resolve typed call edges.
+// Returns nil on any failure — callers fall back to tree-sitter-only graph.
+func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {
+	lr, err := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{})
+	if err != nil {
+		return nil
+	}
+	typedEdges := goanalysis.Resolve(lr.Packages)
+	if len(typedEdges) == 0 {
+		return nil
+	}
+	return ConvertToCallGraph(typedEdges, tsSymbols)
 }
 
 func parseFileForCalls(file *ingest.File) parseResult {
