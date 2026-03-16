@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -101,5 +102,82 @@ func TestTraceRepo_SymbolNotFound(t *testing.T) {
 	}
 	if result.Root != nil {
 		t.Errorf("root should be nil for nonexistent symbol")
+	}
+}
+
+func TestBuildFromRepo_GoTypesEnhanced(t *testing.T) {
+	dir := t.TempDir()
+
+	gomod := "module example.com/enhanced\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Interface + implementation — go/types resolves the dispatch.
+	src := `package main
+
+type Greeter interface {
+	Greet() string
+}
+
+type Hello struct{}
+
+func (h Hello) Greet() string { return "hello" }
+
+func useGreeter(g Greeter) string {
+	return g.Greet()
+}
+
+func main() {
+	h := Hello{}
+	useGreeter(h)
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
+	if err != nil {
+		t.Fatalf("BuildFromRepo: %v", err)
+	}
+
+	if cg.Tier != "enhanced" {
+		t.Errorf("expected tier 'enhanced', got %q", cg.Tier)
+	}
+	if len(cg.Edges) == 0 {
+		t.Fatal("expected edges from go/types resolution")
+	}
+
+	// Verify main -> useGreeter edge exists.
+	hasMainToUse := slices.ContainsFunc(cg.Edges, func(e CallEdge) bool {
+		return e.Caller != nil && e.Caller.Name == "main" && e.CalleeName == "useGreeter"
+	})
+	if !hasMainToUse {
+		t.Error("expected main->useGreeter edge")
+	}
+}
+
+func TestBuildFromRepo_FallbackToTreeSitter(t *testing.T) {
+	dir := t.TempDir()
+
+	// Python file only — no go.mod, so no go/types resolution.
+	src := `def helper():
+    pass
+
+def main():
+    helper()
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
+	if err != nil {
+		t.Fatalf("BuildFromRepo: %v", err)
+	}
+
+	if cg.Tier != "basic" {
+		t.Errorf("expected tier 'basic', got %q", cg.Tier)
 	}
 }

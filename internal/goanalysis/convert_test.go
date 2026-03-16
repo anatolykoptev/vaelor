@@ -44,7 +44,7 @@ func main() {
 		{Name: "helper", Kind: parser.KindFunction, File: mainFile, StartLine: 3, EndLine: 3},
 	}
 
-	cg := goanalysis.ConvertToCallGraph(typedEdges, tsSymbols)
+	cg := callgraph.ConvertToCallGraph(typedEdges, tsSymbols)
 
 	if cg == nil {
 		t.Fatal("expected non-nil CallGraph")
@@ -66,7 +66,7 @@ func TestConvertToCallGraph_EmptyEdges(t *testing.T) {
 	syms := []*parser.Symbol{
 		{Name: "Foo", Kind: parser.KindFunction, File: "/a/foo.go"},
 	}
-	cg := goanalysis.ConvertToCallGraph(nil, syms)
+	cg := callgraph.ConvertToCallGraph(nil, syms)
 	if cg == nil {
 		t.Fatal("expected non-nil CallGraph for empty edges")
 	}
@@ -102,7 +102,7 @@ func TestMergeCallGraphs(t *testing.T) {
 		Symbols: []*parser.Symbol{symA, symB, symC},
 	}
 
-	merged := goanalysis.MergeCallGraphs(tsGraph, typedGraph)
+	merged := callgraph.MergeCallGraphs(tsGraph, typedGraph)
 
 	if merged == nil {
 		t.Fatal("expected non-nil merged graph")
@@ -151,13 +151,13 @@ func TestMergeCallGraphs(t *testing.T) {
 func TestMergeCallGraphs_NilHandling(t *testing.T) {
 	cg := &callgraph.CallGraph{Edges: []callgraph.CallEdge{{CalleeName: "Foo"}}}
 
-	if got := goanalysis.MergeCallGraphs(nil, cg); got != cg {
+	if got := callgraph.MergeCallGraphs(nil, cg); got != cg {
 		t.Error("MergeCallGraphs(nil, cg) should return cg")
 	}
-	if got := goanalysis.MergeCallGraphs(cg, nil); got != cg {
+	if got := callgraph.MergeCallGraphs(cg, nil); got != cg {
 		t.Error("MergeCallGraphs(cg, nil) should return cg")
 	}
-	if got := goanalysis.MergeCallGraphs(nil, nil); got != nil {
+	if got := callgraph.MergeCallGraphs(nil, nil); got != nil {
 		t.Error("MergeCallGraphs(nil, nil) should return nil")
 	}
 }
