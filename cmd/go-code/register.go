@@ -102,6 +102,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerSiteAnalyze(server, cfg)
 	registerSiteCrawl(server, cfg)
 	registerUnderstand(server, cfg, deps, &semDeps)
+	registerPrepareChange(server, cfg, deps, &semDeps)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
