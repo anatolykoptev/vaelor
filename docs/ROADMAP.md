@@ -530,71 +530,35 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
-## v1.18: Type-Aware Analysis
+## v1.18: Type-Aware Analysis ✅
 
 **Goal**: Precision enhancement for Go repos via compiler-level intelligence.
 
-**Prereqs**: v1.14 complete. Independent of v1.15/v1.16.
+**Status**: Complete (2026-03-16). go/types integration + compound tools + 3-tier degradation.
 
-### Task 1: SCIP index parser
-- [ ] Parse SCIP index files → extract definitions, references, relationships
-- [ ] Go bindings for SCIP Protobuf schema
+**Approach changed from SCIP to go/types**: Research showed go/types (direct `go/packages.Load`) is simpler, has no external dependencies, and provides equivalent precision for Go repos. SCIP can be added later as an optional backend.
 
-**Ref**: [sourcegraph/scip](https://github.com/sourcegraph/scip) — Protobuf schema, Go bindings, streaming parser.
+### Go type-aware resolution ✅
+- [x] `internal/goanalysis/loader.go` — `go/packages.Load` wrapper with timeout, go.mod validation
+- [x] `internal/goanalysis/resolver.go` — `go/types`-based call resolver with interface dispatch via `types.Implements`
+- [x] `internal/callgraph/convert.go` — TypedEdge→CallEdge bridge + MergeCallGraphs
+- [x] `internal/callgraph/repo.go` — `BuildFromRepo` enhanced: auto-detects Go modules, attempts go/types resolution, falls back to tree-sitter silently
 
-**Where**: new `internal/scip/parser.go`.
+### 3-tier degradation system ✅
+- [x] `internal/tier/tier.go` — Basic (tree-sitter) / Enhanced (go/types) / Full (go/types+VTA)
+- [x] `DegradationWarning` with `CapabilityPct` and fix instructions
+- [x] `Provenance` metadata tracking which backends contributed
+- [x] Tier propagated to `call_trace`, `impact_analysis`, `dead_code` XML/JSON output
 
-### Task 2: SCIP integration for Go
-- [ ] Optional `scip-go` invocation for Go repos
-- [ ] Extract precise CALLS/IMPLEMENTS/REFERENCES edges from SCIP data
-- [ ] Stable symbol IDs from SCIP (survive renames)
+### Compound tools ✅
+- [x] `understand` MCP tool — symbol deep-dive aggregating callees + callers + complexity
+- [x] `prepare_change` MCP tool — pre-change risk assessment aggregating impact + dead code
+- [x] Ambiguity handling: returns disambiguation hints when multiple symbols match
+- [x] Semantic suggest fallback when symbol not found
 
-**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — SCIP as primary backend with tree-sitter fallback; [williamfzc/srctx](https://github.com/williamfzc/srctx) — Go tool combining SCIP + tree-sitter.
+**Ref**: [CodeMCP/CKB](https://github.com/SimplyLiz/CodeMCP) — 3-tier system, compound tools; [golang.org/x/tools/go/callgraph](https://pkg.go.dev/golang.org/x/tools/go/callgraph) — VTA algorithm.
 
-**Where**: new `internal/scip/go.go`.
-
-### Task 3: SCIP + tree-sitter merge
-- [ ] Merge SCIP data with tree-sitter data (SCIP primary, tree-sitter fallback)
-- [ ] Unified symbol resolution interface
-
-**Where**: `internal/parser/`, `internal/codegraph/`.
-
-### Task 4: Go-native call graph (RTA)
-- [ ] Optional `golang.org/x/tools/go/callgraph/rta` for Go repos
-- [ ] Type-aware, compiler-accurate call resolution
-- [ ] Resolves interface dispatch, method sets, embedded types
-
-**Where**: new `internal/callgraph/rta.go`.
-
-### Task 5: RTA + tree-sitter call graph merge
-- [ ] Merge RTA graph with tree-sitter call graph (RTA for Go files, tree-sitter for others)
-
-**Where**: `internal/callgraph/`.
-
-### Task 6: Compound tool — `understand`
-- [ ] Combines `call_trace` + `code_graph` + complexity for symbol deep-dive
-- [ ] Ambiguity handling: when symbol name matches multiple, list top matches with disambiguation hints
-
-**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — `explore`, `understand`, `prepareChange`, `expandToolset`.
-
-**Where**: new `cmd/go-code/tool_understand.go`.
-
-### Task 7: Compound tool — `prepare_change`
-- [ ] Combines `impact_analysis` + `dead_code` for pre-change assessment
-- [ ] Output: affected files, risk level, suggested test targets
-
-**Where**: new `cmd/go-code/tool_prepare_change.go`.
-
-### Task 8: Graceful tier degradation
-- [ ] Each tool has `MinimumBackend` (tree-sitter / SCIP) + `Fallback` flag
-- [ ] Tools work at lower precision when SCIP unavailable, instead of failing
-- [ ] Progressive tool disclosure: start with core tools, reveal advanced on request
-
-**Ref**: [CodeMCP](https://github.com/SimplyLiz/CodeMCP) — 3-tier system (Basic/Enhanced/Full) with `tier.Detector`; [CodeCompass](https://arxiv.org/abs/2602.20048) — agents don't use tools they don't understand, compound tools improve discoverability.
-
-**Where**: `cmd/go-code/main.go`, tool registration layer.
-
-**Deliverable**: Compiler-accurate analysis for Go, compound tools for reduced round-trips.
+**Deliverable**: Type-aware Go analysis, 2 compound tools, 3-tier degradation. 18 MCP tools total. ✅
 
 ---
 
@@ -622,12 +586,12 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
          Ranking ✅       Hardening ✅     (Jina V2 + Hybrid RRF
        (7 tasks)        (Python+C++)      + Graph Expand + Auto-Index)
                                                │
-                                          v1.18 Type-Aware
-                                           Analysis (8 tasks)
+                                          v1.18 Type-Aware ✅
+                                           Analysis (go/types
+                                           + compound tools)
 ```
 
-**Completed**: v1.0 through v1.17 (14 tools, 9 languages, semantic search with hybrid RRF + graph expansion + auto-indexing).
-**Next**: v1.18 (type-aware analysis via SCIP).
+**Completed**: v1.0 through v1.18 (18 tools, 9 languages, type-aware Go analysis, compound tools, 3-tier degradation).
 
 ## Releases
 

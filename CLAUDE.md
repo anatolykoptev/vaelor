@@ -11,7 +11,11 @@
 | `internal/ingest/` | Repo clone (`--filter=blob:none` partial clone) + walk |
 | `internal/parser/` | tree-sitter AST → symbols (9 languages) |
 | `internal/analyze/` | Orchestration imported by tool handlers (tools import ONLY this) |
-| `internal/codegraph/` | Apache AGE persistent graph; `internal/callgraph/` = in-memory call tracing |
+| `internal/callgraph/` | In-memory call tracing + go/types type-aware resolution for Go repos |
+| `internal/goanalysis/` | Go package loading (`go/packages`) + type-aware call resolution (`go/types`) |
+| `internal/tier/` | 3-tier analysis system (Basic/Enhanced/Full) with degradation warnings |
+| `internal/compound/` | Compound tools (`understand`, `prepare_change`) aggregating sub-queries |
+| `internal/codegraph/` | Apache AGE persistent graph |
 | `internal/embeddings/` | Semantic search: pgvector store, embed pipeline, hybrid RRF, graph expansion |
 | `internal/codesearch/` | Grep-like code search with path filter support |
 | `internal/freshness/` | Dependency freshness + CVE/vulnerability checking via OSV.dev API |
@@ -39,6 +43,8 @@
 | `code_health` | Quality grade (A-F), 14 sub-scores incl. CVE/vulnerability checking via OSV.dev |
 | `impact_analysis` | Blast radius of changing a function |
 | `semantic_search` | Vector similarity search via pgvector + hybrid RRF + graph expansion |
+| `understand` | Deep-dive symbol analysis. Aggregates: symbol info + callees + callers + complexity. Type-aware for Go |
+| `prepare_change` | Pre-change risk assessment. Aggregates: impact_analysis + dead_code check |
 | `site_analyze` | Web site tech analysis |
 | `site_crawl` | BFS web crawler |
 
@@ -82,7 +88,7 @@ make deploy  # docker compose build --no-cache + up -d
 ## Conventions
 
 - Dependency direction: `ingest → parser → clean → analyze → llm`
-- `compare`, `analyze`, `callgraph` are peers — none imports the others
+- `compare`, `analyze`, `callgraph` are peers — none imports the others (except `callgraph` imports `goanalysis` for type-aware resolution)
 - `forge` package has no dependencies on other internal packages
 - Tool handlers (`cmd/go-code/tool_*.go`) import `internal/analyze` only — no direct internal package access
 - Error messages: lowercase, `fmt.Errorf("context: %w", err)`
