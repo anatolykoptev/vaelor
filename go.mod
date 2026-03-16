@@ -11,6 +11,8 @@ require (
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/smacker/gum v0.0.0-20191210202023-2be77f0b3794
+	github.com/stretchr/testify v1.11.1
+	golang.org/x/tools v0.42.0
 )
 
 require (
@@ -31,9 +33,10 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
