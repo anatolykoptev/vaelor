@@ -22,6 +22,7 @@ type xmlDeadCode struct {
 	Total     int             `xml:"total,attr"`
 	Dead      int             `xml:"dead,attr"`
 	Ratio     float64         `xml:"ratio,attr"`
+	Tier      string          `xml:"tier,attr,omitempty"`
 	Symbols   []xmlDeadSymbol `xml:"symbol"`
 	Narrative xmlCDATA        `xml:"narrative,omitempty"`
 }
@@ -104,6 +105,7 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 			Total:   result.TotalFunctions,
 			Dead:    result.DeadCount,
 			Ratio:   result.DeadRatio,
+			Tier:    cg.Tier,
 			Symbols: symbols,
 		},
 	}

@@ -84,6 +84,7 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 	}
 
 	result := Trace(g, input.Symbol, input.Opts)
+	result.Tier = g.Tier
 
 	return &result, nil
 }
