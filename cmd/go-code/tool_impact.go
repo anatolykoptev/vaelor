@@ -85,9 +85,10 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	// Build output with optional narrative.
 	type impactOutput struct {
 		*impact.Result
+		Tier      string `json:"tier,omitempty"`
 		Narrative string `json:"narrative,omitempty"`
 	}
-	output := impactOutput{Result: result}
+	output := impactOutput{Result: result, Tier: cg.Tier}
 
 	if result.TotalAffected > 0 {
 		prefix := fmt.Sprintf("Changed symbol: %s\n\nImpact analysis:\n", input.Symbol)

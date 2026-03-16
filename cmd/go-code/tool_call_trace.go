@@ -25,6 +25,7 @@ type xmlTrace struct {
 	Resolved      int            `xml:"resolved,attr"`
 	Unresolved    int            `xml:"unresolved,attr"`
 	ResolvedRatio float64        `xml:"resolvedRatio,attr"`
+	Tier          string         `xml:"tier,attr,omitempty"`
 	Nodes         []xmlTraceNode `xml:"node"`
 	Narrative     xmlCDATA       `xml:"narrative,omitempty"`
 }
@@ -82,6 +83,7 @@ type callTraceOutput struct {
 	Direction string                    `json:"direction"`
 	CallTree  []callgraph.CallChainNode `json:"call_tree"`
 	Stats     traceStats                `json:"stats"`
+	Tier      string                    `json:"tier,omitempty"`
 	Narrative string                    `json:"narrative,omitempty"`
 }
 
@@ -169,6 +171,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 			Resolved:      output.Stats.Resolved,
 			Unresolved:    output.Stats.Unresolved,
 			ResolvedRatio: output.Stats.ResolvedRatio,
+			Tier:          output.Tier,
 			Nodes:         convertTraceNodes(output.CallTree),
 		},
 	}
@@ -197,6 +200,7 @@ func buildCallTraceOutput(ctx context.Context, symbol, direction string, result 
 			Unresolved:    result.Unresolved,
 			ResolvedRatio: ratio,
 		},
+		Tier: result.Tier,
 	}
 
 	// LLM narrative (optional, non-fatal). Skipped in compact mode.
