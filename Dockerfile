@@ -14,6 +14,9 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Install scip-go for SCIP indexing of Go repos.
+RUN go install github.com/sourcegraph/scip-go/cmd/scip-go@latest
+
 # Copy source and build with version from git tag.
 COPY . .
 RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
@@ -25,11 +28,17 @@ FROM alpine:3.21
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
 # git: shallow cloning of repositories for analysis.
 # tzdata: proper timezone handling in logs.
-RUN apk add --no-cache ca-certificates git tzdata && \
+# nodejs/npm: SCIP indexers for TypeScript and Python.
+RUN apk add --no-cache ca-certificates git tzdata nodejs npm && \
     git config --global --add safe.directory '*'
+
+# SCIP indexers for multi-language type-aware analysis.
+RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
+    npm cache clean --force
 
 WORKDIR /app
 COPY --from=builder /build/go-code .
+COPY --from=builder /go/bin/scip-go /usr/local/bin/scip-go
 
 EXPOSE 8897
 
