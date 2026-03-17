@@ -67,6 +67,14 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 		}
 	}
 
+	// Attempt SCIP resolution for non-Go languages (or when go/types failed).
+	if cg.Tier == "basic" {
+		if scipCG := trySCIPResolution(ctx, input.Root, ir.Files, allSymbols); scipCG != nil {
+			cg = MergeCallGraphs(cg, scipCG)
+			cg.Tier = "enhanced"
+		}
+	}
+
 	// Inject WordPress hook edges for PHP files.
 	hookRoutes := extractHookRoutes(ir.Files)
 	if len(hookRoutes) > 0 {
