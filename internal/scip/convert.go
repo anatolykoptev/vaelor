@@ -171,8 +171,10 @@ func isDefinition(occ *sciplib.Occurrence) bool {
 }
 
 // isFuncOcc reports whether an occurrence refers to a callable symbol.
+// First checks Kind from SymbolInformation; falls back to symbol string heuristic
+// when Kind is UnspecifiedKind (scip-typescript doesn't emit Kind).
 func isFuncOcc(occ *sciplib.Occurrence, symLookup map[string]*sciplib.SymbolInformation) bool {
-	if si, ok := symLookup[occ.Symbol]; ok {
+	if si, ok := symLookup[occ.Symbol]; ok && si.Kind != sciplib.SymbolInformation_UnspecifiedKind {
 		return isFuncKind(si.Kind)
 	}
 	return isFuncSymbol(occ.Symbol)

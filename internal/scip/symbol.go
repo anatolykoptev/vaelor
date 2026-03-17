@@ -52,16 +52,47 @@ func nameFromDisplayOrSymbol(displayName, sym string) string {
 
 // parseSymbolName extracts the last meaningful name segment from a SCIP symbol string.
 // SCIP global symbol format: "<scheme> <manager> <package> <descriptor>..."
-// We take the last whitespace-delimited token and strip descriptor suffixes.
+// Descriptors are separated by /  #  .  ()  — we want the name part.
+// Examples:
+//   "scip-typescript npm pkg 1.0.0 `main.ts`/run()." → "run"
+//   "scip-typescript npm pkg 1.0.0 `main.ts`/Greeter#greet()." → "greet"
+//   "scip-typescript npm pkg 1.0.0 `main.ts`/Greeter#greet().(name)" → "greet"
 func parseSymbolName(sym string) string {
 	parts := strings.Fields(sym)
 	if len(parts) == 0 {
 		return sym
 	}
-	last := parts[len(parts)-1]
-	// Strip trailing descriptor punctuation: "().", "()", "#", "."
-	last = strings.TrimRight(last, ".#()")
-	return last
+	// Join descriptors (everything after scheme+manager+package)
+	desc := parts[len(parts)-1]
+
+	// Remove parameter descriptors "(paramName)" at the end
+	for strings.HasSuffix(desc, ")") {
+		idx := strings.LastIndex(desc, "(")
+		if idx <= 0 {
+			break
+		}
+		desc = desc[:idx]
+	}
+
+	// Strip trailing punctuation
+	desc = strings.TrimRight(desc, ".#/")
+
+	// Take last segment after any separator
+	for _, sep := range []string{"/", "#"} {
+		if idx := strings.LastIndex(desc, sep); idx >= 0 {
+			desc = desc[idx+1:]
+		}
+	}
+
+	// Strip backticks from file descriptors
+	desc = strings.Trim(desc, "`")
+
+	// Final cleanup
+	desc = strings.TrimRight(desc, ".#()")
+	if desc == "" {
+		return parts[len(parts)-1]
+	}
+	return desc
 }
 
 // pkgFromSymbol extracts the package path from a SCIP symbol string.
