@@ -38,6 +38,7 @@ func (t Tier) String() string {
 // Backends describes which analysis backends are available.
 type Backends struct {
 	GoTypes bool
+	SCIP    bool
 	VTA     bool
 	Graph   bool
 	LLM     bool
@@ -73,8 +74,9 @@ func NewDetector(b Backends) *Detector {
 }
 
 func (d *Detector) detect() {
+	hasTypeAnalysis := d.backends.GoTypes || d.backends.SCIP
 	switch {
-	case !d.backends.GoTypes:
+	case !hasTypeAnalysis:
 		d.tier = Basic
 		d.warnings = []DegradationWarning{
 			{
@@ -118,6 +120,9 @@ func (d *Detector) ProvenanceFor(used ...string) Provenance {
 	active = append(active, "tree-sitter")
 	if d.backends.GoTypes {
 		active = append(active, "go/types")
+	}
+	if d.backends.SCIP {
+		active = append(active, "scip")
 	}
 	if d.backends.VTA {
 		active = append(active, "vta")
