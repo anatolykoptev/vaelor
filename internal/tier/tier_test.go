@@ -50,6 +50,34 @@ func TestDegradationWarnings(t *testing.T) {
 	}
 }
 
+func TestDetectSCIPEnhanced(t *testing.T) {
+	d := tier.NewDetector(tier.Backends{SCIP: true})
+	if got := d.Current(); got != tier.Enhanced {
+		t.Fatalf("expected Enhanced tier with SCIP only, got %v", got)
+	}
+}
+
+func TestDetectSCIPAndGoTypesEnhanced(t *testing.T) {
+	d := tier.NewDetector(tier.Backends{GoTypes: true, SCIP: true})
+	if got := d.Current(); got != tier.Enhanced {
+		t.Fatalf("expected Enhanced tier with both backends, got %v", got)
+	}
+}
+
+func TestProvenanceIncludesSCIP(t *testing.T) {
+	d := tier.NewDetector(tier.Backends{SCIP: true})
+	p := d.ProvenanceFor()
+	found := false
+	for _, b := range p.Backends {
+		if b == "scip" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'scip' in backends, got %v", p.Backends)
+	}
+}
+
 func TestTierString(t *testing.T) {
 	cases := []struct {
 		tier tier.Tier
