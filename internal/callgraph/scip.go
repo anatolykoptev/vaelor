@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"context"
+	"log/slog"
 	"os"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -21,34 +22,43 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 
 	cfg, ok := gocodescip.DetectIndexer(lang)
 	if !ok {
+		slog.Debug("scip: no indexer for language", "lang", lang)
 		return nil
 	}
 
 	if !gocodescip.IndexerAvailable(cfg.Name) {
+		slog.Debug("scip: indexer not in PATH", "indexer", cfg.Name)
 		return nil
 	}
 
-	// Guard: skip very large repos (>2000 source files) to avoid OOM.
-	if countSourceFiles(files) > maxSCIPSourceFiles {
+	srcFiles := countSourceFiles(files)
+	if srcFiles > maxSCIPSourceFiles {
+		slog.Debug("scip: repo too large, skipping", "files", srcFiles, "max", maxSCIPSourceFiles)
 		return nil
 	}
+
+	slog.Info("scip: indexing", "lang", lang, "indexer", cfg.Name, "root", root, "files", srcFiles)
 
 	indexPath, err := gocodescip.RunIndexerSafe(ctx, cfg, root)
 	if err != nil {
+		slog.Warn("scip: indexer failed", "indexer", cfg.Name, "err", err)
 		return nil
 	}
 	defer os.Remove(indexPath)
 
 	idx, err := gocodescip.ReadIndex(indexPath)
 	if err != nil {
+		slog.Warn("scip: read index failed", "err", err)
 		return nil
 	}
 
 	typedEdges := gocodescip.ConvertToEdges(idx)
 	if len(typedEdges) == 0 {
+		slog.Debug("scip: no typed edges extracted", "documents", idx.DocumentCount())
 		return nil
 	}
 
+	slog.Info("scip: enhanced", "lang", lang, "edges", len(typedEdges), "documents", idx.DocumentCount())
 	return ConvertToCallGraph(typedEdges, tsSymbols)
 }
 
