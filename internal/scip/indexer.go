@@ -23,10 +23,10 @@ func RunIndexer(ctx context.Context, cfg IndexerConfig, dir string) (string, err
 	//nolint:gosec // cfg.Name and cfg.Args are from a controlled registry, not user input.
 	cmd := exec.CommandContext(ctx, binPath, cfg.Args...)
 	cmd.Dir = dir
-	// Discard stdout and stderr — leave them as nil (default).
 
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("scip indexer %q failed: %w", cfg.Name, err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("scip indexer %q failed: %w (output: %s)", cfg.Name, err, string(output))
 	}
 
 	return filepath.Join(dir, "index.scip"), nil

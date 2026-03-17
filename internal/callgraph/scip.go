@@ -53,8 +53,8 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 	}
 
 	typedEdges := gocodescip.ConvertToEdges(idx)
+	slog.Info("scip: conversion done", "documents", idx.DocumentCount(), "edges", len(typedEdges))
 	if len(typedEdges) == 0 {
-		slog.Debug("scip: no typed edges extracted", "documents", idx.DocumentCount())
 		return nil
 	}
 
