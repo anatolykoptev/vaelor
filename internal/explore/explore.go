@@ -46,6 +46,8 @@ type Result struct {
 	Packages      []string         `json:"packages"`
 	DepHighlights *DepHighlights   `json:"dep_highlights,omitempty"`
 	Health        *HealthSummary   `json:"health,omitempty"`
+	Tier          string           `json:"tier,omitempty"`
+	Backend       string           `json:"backend,omitempty"`
 }
 
 // LanguageStat holds file count and ratio for a detected language.
@@ -111,9 +113,18 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		return nil, err
 	}
 
-	cg := callgraph.BuildCallGraph(pr.symbols, pr.calls)
+	cg, cgErr := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
+		Root:     input.Root,
+		Language: input.Language,
+		Focus:    input.Focus,
+	})
+	if cgErr != nil {
+		slog.Debug("explore: BuildFromRepo failed, falling back", "err", cgErr)
+		cg = callgraph.BuildCallGraph(pr.symbols, pr.calls)
+	}
+
 	callCounts := countIncomingCalls(cg)
-	topSymbols := buildTopSymbols(pr.symbols, callCounts, input.Root)
+	topSymbols := buildTopSymbols(cg.Symbols, callCounts, input.Root)
 	dcSummary := buildDeadCodeSummary(cg)
 	langStats := buildLanguageStats(ir.Files)
 	packages := buildPackageList(ir.Files, input.Root)
@@ -122,7 +133,7 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	readme := readmeExcerpt(input.Root)
 	health := computeHealth(pr.symbols, ir.Files)
 
-	return &Result{
+	result := &Result{
 		ReadmeExcerpt: readme,
 		FocusMode:     focusMode,
 		FileCount:     len(ir.Files),
@@ -134,7 +145,10 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		Packages:      packages,
 		DepHighlights: depHL,
 		Health:        health,
-	}, nil
+	}
+	result.Tier = cg.Tier
+	result.Backend = cg.Backend
+	return result, nil
 }
 
 // parseAllFiles parses all ingested files, collecting symbols, calls, imports, and line counts.
