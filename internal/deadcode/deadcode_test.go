@@ -659,6 +659,30 @@ func TestAnalyze_IsInterfaceEdgeExcludesMethod(t *testing.T) {
 	}
 }
 
+// TestAnalyze_CrossTypeInterfaceFiltering verifies that when interface method "Greet"
+// is dispatched on one type, ALL implementors' Greet methods are excluded from dead code.
+func TestAnalyze_CrossTypeInterfaceFiltering(t *testing.T) {
+	iface := &parser.Symbol{Name: "Greeter", Kind: parser.KindInterface, File: "a.go", StartLine: 1, EndLine: 3}
+	eng := &parser.Symbol{Name: "Greet", Kind: parser.KindMethod, Receiver: "EnglishGreeter", File: "b.go", StartLine: 1, EndLine: 3}
+	spa := &parser.Symbol{Name: "Greet", Kind: parser.KindMethod, Receiver: "SpanishGreeter", File: "c.go", StartLine: 1, EndLine: 3}
+	main := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "main.go", StartLine: 1, EndLine: 5}
+	symbols := []*parser.Symbol{iface, eng, spa, main}
+	edges := []callgraph.CallEdge{
+		{Caller: main, CalleeName: "Greet", Receiver: "Greeter", Line: 3, IsInterface: true},
+	}
+	rels := []parser.TypeRelationship{
+		{Subject: "EnglishGreeter", Target: "Greeter", Kind: parser.RelImplements},
+		{Subject: "SpanishGreeter", Target: "Greeter", Kind: parser.RelImplements},
+	}
+	cg := &callgraph.CallGraph{Symbols: symbols, Edges: edges, TypeRels: rels}
+	result := Analyze(cg, Options{IncludeExported: true, Relationships: rels})
+	for _, ds := range result.DeadSymbols {
+		if ds.Name == "Greet" {
+			t.Errorf("Greet on %s should not be dead — interface method on implementor", ds.File)
+		}
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
