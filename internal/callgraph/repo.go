@@ -62,12 +62,14 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	cg := BuildCallGraph(allSymbols, allCalls)
 	cg.TypeRels = allRels
 	cg.Tier = "basic"
+	cg.Backend = "tree-sitter"
 
 	// Attempt go/types resolution for Go modules — purely additive.
 	if goanalysis.HasGoModule(input.Root) {
 		if typedCG := tryGoTypesResolution(ctx, input.Root, allSymbols); typedCG != nil {
 			cg = MergeCallGraphs(cg, typedCG)
 			cg.Tier = "enhanced"
+			cg.Backend = "tree-sitter+go/types"
 		}
 	}
 
@@ -76,6 +78,7 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 		if scipCG := trySCIPResolution(ctx, input.Root, ir.Files, allSymbols); scipCG != nil {
 			cg = MergeCallGraphs(cg, scipCG)
 			cg.Tier = "enhanced"
+			cg.Backend = "tree-sitter+scip"
 		}
 	}
 
