@@ -9,6 +9,15 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// interfaceInfo tracks which types implement interfaces and which method names
+// belong to interfaces, used to filter out interface method implementations.
+type interfaceInfo struct {
+	// implementors maps type name → true for types that implement any interface.
+	implementors map[string]bool
+	// interfaceMethodNames maps method name → true for methods declared on interfaces.
+	interfaceMethodNames map[string]bool
+}
+
 // Confidence levels for dead code classification.
 const (
 	ConfidenceHigh   = "high"
@@ -21,6 +30,7 @@ type Options struct {
 	IncludeExported bool     // include exported (public) symbols — usually false positives
 	IncludeTests    bool     // include test-file symbols
 	HookCallbacks   []string // function names registered as WordPress hook callbacks
+	Relationships   []parser.TypeRelationship // type relationships for interface-aware filtering
 }
 
 // DeadSymbol is a function/method with zero incoming calls.
@@ -56,7 +66,8 @@ func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 		hookSet[name] = true
 	}
 
-	dead := collectDeadSymbols(funcSymbols, called, hookSet, opts)
+	ifaceInfo := buildInterfaceInfo(cg.Symbols, opts.Relationships)
+	dead := collectDeadSymbols(funcSymbols, called, hookSet, ifaceInfo, opts)
 
 	sort.Slice(dead, func(i, j int) bool {
 		if dead[i].File != dead[j].File {
@@ -131,11 +142,15 @@ func collectDeadSymbols(
 	funcSymbols []*parser.Symbol,
 	called map[*parser.Symbol]bool,
 	hookSet map[string]bool,
+	ifaceInfo *interfaceInfo,
 	opts Options,
 ) []DeadSymbol {
 	var dead []DeadSymbol
 	for _, sym := range funcSymbols {
 		if called[sym] || hookSet[sym.Name] || shouldSkipSymbol(sym, opts) {
+			continue
+		}
+		if isInterfaceImpl(sym, ifaceInfo) {
 			continue
 		}
 		exported := isSymbolExported(sym)
@@ -151,6 +166,57 @@ func collectDeadSymbols(
 		})
 	}
 	return dead
+}
+
+// buildInterfaceInfo extracts interface method names and implementing types
+// from parsed symbols and type relationships.
+func buildInterfaceInfo(symbols []*parser.Symbol, rels []parser.TypeRelationship) *interfaceInfo {
+	info := &interfaceInfo{
+		implementors:         make(map[string]bool),
+		interfaceMethodNames: make(map[string]bool),
+	}
+
+	// Collect interface/trait method names from interface symbols.
+	// Interface symbols have Kind=KindInterface; their methods are separate
+	// symbols with the same Receiver.
+	ifaceTypes := make(map[string]bool)
+	for _, sym := range symbols {
+		if sym.Kind == parser.KindInterface {
+			ifaceTypes[sym.Name] = true
+		}
+	}
+	// Methods whose Receiver is an interface type are interface method signatures.
+	for _, sym := range symbols {
+		if sym.Kind == parser.KindMethod && ifaceTypes[sym.Receiver] {
+			info.interfaceMethodNames[sym.Name] = true
+		}
+	}
+
+	// From relationships: types that implement/extend interfaces.
+	for _, rel := range rels {
+		if rel.Kind == parser.RelImplements || rel.Kind == parser.RelExtends {
+			info.implementors[rel.Subject] = true
+		}
+		// Also: Go embedded interfaces (rel.Kind == RelEmbeds where target is interface)
+		if rel.Kind == parser.RelEmbeds && ifaceTypes[rel.Target] {
+			info.implementors[rel.Subject] = true
+		}
+	}
+
+	return info
+}
+
+// isInterfaceImpl returns true if a method is likely implementing an interface.
+// A method matches if: (a) its receiver type implements an interface AND
+// (b) the method name matches a known interface method name.
+func isInterfaceImpl(sym *parser.Symbol, info *interfaceInfo) bool {
+	if info == nil || sym.Kind != parser.KindMethod {
+		return false
+	}
+	if sym.Receiver == "" {
+		return false
+	}
+	return info.implementors[sym.Receiver] && info.interfaceMethodNames[sym.Name]
 }
 
 // buildCalledSet returns the set of symbols that appear as callees in any edge.

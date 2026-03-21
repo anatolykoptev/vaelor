@@ -54,8 +54,9 @@ func PrepareChange(cg *callgraph.CallGraph, symbolName string, opts PrepareChang
 
 	// Run dead code analysis with exported symbols included so we can check our target.
 	dcResult := deadcode.Analyze(cg, deadcode.Options{
-		IncludeExported:  true,
-		HookCallbacks:    cg.HookCallbacks,
+		IncludeExported: true,
+		HookCallbacks:   cg.HookCallbacks,
+		Relationships:   cg.TypeRels,
 	})
 	result.DeadCode = dcResult
 

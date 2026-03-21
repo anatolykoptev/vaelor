@@ -20,8 +20,9 @@ type CallEdge struct {
 type CallGraph struct {
 	Edges         []CallEdge
 	Symbols       []*parser.Symbol
-	HookCallbacks []string // function names registered as hook callbacks
-	Tier          string   // "basic" (tree-sitter), "enhanced" (go/types merged), "full" (future)
+	TypeRels      []parser.TypeRelationship // interface/extends/embeds relationships
+	HookCallbacks []string                  // function names registered as hook callbacks
+	Tier          string                    // "basic" (tree-sitter), "enhanced" (go/types merged), "full" (future)
 }
 
 // BuildCallGraph resolves call sites against the symbol table.
