@@ -27,6 +27,7 @@ type TraceRepoInput struct {
 type parseResult struct {
 	symbols []*parser.Symbol
 	calls   []parser.CallSite
+	rels    []parser.TypeRelationship
 }
 
 // BuildFromRepo ingests a repo, parses files, and returns the call graph
@@ -51,12 +52,15 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 
 	var allSymbols []*parser.Symbol
 	var allCalls []parser.CallSite
+	var allRels []parser.TypeRelationship
 	for _, r := range results {
 		allSymbols = append(allSymbols, r.symbols...)
 		allCalls = append(allCalls, r.calls...)
+		allRels = append(allRels, r.rels...)
 	}
 
 	cg := BuildCallGraph(allSymbols, allCalls)
+	cg.TypeRels = allRels
 	cg.Tier = "basic"
 
 	// Attempt go/types resolution for Go modules — purely additive.
@@ -188,6 +192,7 @@ func parseFileForCalls(file *ingest.File) parseResult {
 	}
 
 	calls, _ := parser.ExtractCalls(file.Path, source, opts)
+	rels, _ := parser.ExtractRelationships(file.Path, source, opts)
 
-	return parseResult{symbols: pr.Symbols, calls: calls}
+	return parseResult{symbols: pr.Symbols, calls: calls, rels: rels}
 }

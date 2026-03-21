@@ -189,7 +189,9 @@ func countIncomingCalls(cg *callgraph.CallGraph) map[*parser.Symbol]int {
 
 // buildDeadCodeSummary runs dead code analysis and returns a compact summary.
 func buildDeadCodeSummary(cg *callgraph.CallGraph) *DeadCodeSummary {
-	dcResult := deadcode.Analyze(cg, deadcode.Options{})
+	dcResult := deadcode.Analyze(cg, deadcode.Options{
+		Relationships: cg.TypeRels,
+	})
 	if dcResult.DeadCount == 0 {
 		return nil
 	}
