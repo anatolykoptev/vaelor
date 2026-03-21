@@ -3,7 +3,6 @@ package scip
 import (
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,11 +33,13 @@ func (c *Cache) Get(key string) (string, bool) {
 // Put copies the index file at indexPath into the cache under key.
 func (c *Cache) Put(key, indexPath string) error {
 	dst := c.entryPath(key)
-	if err := copyFile(indexPath, dst); err != nil {
+	if err := copyFilePath(indexPath, dst); err != nil {
 		return fmt.Errorf("scip cache put %q: %w", key, err)
 	}
 	return nil
 }
+
+const cacheKeyLen = 16 // hex chars of SHA256 for cache key
 
 // CacheKey computes a 16-hex-char key from the mtimes of source files in dir.
 // Hidden files and the .git directory are skipped for speed.
@@ -90,7 +91,7 @@ func CacheKey(dir string) string {
 	for _, e := range entries {
 		fmt.Fprintf(h, "%s:%d\n", e.rel, e.mtime)
 	}
-	return fmt.Sprintf("%x", h.Sum(nil))[:16]
+	return fmt.Sprintf("%x", h.Sum(nil))[:cacheKeyLen]
 }
 
 // entryPath returns the filesystem path for a cache entry.
@@ -98,22 +99,3 @@ func (c *Cache) entryPath(key string) string {
 	return filepath.Join(c.dir, key+".scip")
 }
 
-// copyFile copies the file at src to dst, creating dst if needed.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("open src: %w", err)
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("create dst: %w", err)
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy: %w", err)
-	}
-	return out.Close()
-}

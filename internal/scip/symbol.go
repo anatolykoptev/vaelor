@@ -41,15 +41,6 @@ func isFuncSymbol(sym string) bool {
 	return strings.HasSuffix(sym, "().") || strings.HasSuffix(sym, "()")
 }
 
-// nameFromDisplayOrSymbol extracts a human-readable name.
-// It prefers displayName; if empty it parses the last segment of the SCIP symbol string.
-func nameFromDisplayOrSymbol(displayName, sym string) string {
-	if displayName != "" {
-		return displayName
-	}
-	return parseSymbolName(sym)
-}
-
 // parseSymbolName extracts the last meaningful name segment from a SCIP symbol string.
 // SCIP global symbol format: "<scheme> <manager> <package> <descriptor>..."
 // Descriptors are separated by /  #  .  ()  — we want the name part.
@@ -95,25 +86,16 @@ func parseSymbolName(sym string) string {
 	return desc
 }
 
+// scipSymbolPkgIndex is the 0-based field index of the package in a SCIP symbol string.
+// Format: "<scheme> <manager> <package> <version> <descriptor>..."
+const scipSymbolPkgIndex = 2
+
 // pkgFromSymbol extracts the package path from a SCIP symbol string.
-// Format: "<scheme> <manager> <package> ..."  — 3rd field (index 2).
 func pkgFromSymbol(sym string) string {
 	parts := strings.Fields(sym)
-	if len(parts) < 3 {
+	if len(parts) <= scipSymbolPkgIndex {
 		return ""
 	}
-	return parts[2]
+	return parts[scipSymbolPkgIndex]
 }
 
-// buildSymbolLookup builds a map from symbol string to SymbolInformation
-// for the symbols declared in a document.
-func buildSymbolLookup(doc interface{ GetSymbols() []*sciplib.SymbolInformation }) map[string]*sciplib.SymbolInformation {
-	syms := doc.GetSymbols()
-	m := make(map[string]*sciplib.SymbolInformation, len(syms))
-	for _, si := range syms {
-		if si != nil {
-			m[si.Symbol] = si
-		}
-	}
-	return m
-}

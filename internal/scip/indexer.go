@@ -54,45 +54,51 @@ var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, "vendor": true,
 }
 
+// IndexResult holds the path to the generated index and an optional cleanup function.
+type IndexResult struct {
+	IndexPath string        // path to the index.scip file
+	Cleanup   func()        // removes temp dir if one was created; nil if dir was writable
+}
+
 // RunIndexerSafe runs the indexer in dir, copying to a temp dir first if dir
-// is read-only. The caller must remove the temp dir when no longer needed;
-// the returned path lives inside the temp dir (or directly in dir if writable).
-func RunIndexerSafe(ctx context.Context, cfg IndexerConfig, dir string) (string, error) {
+// is read-only. Caller MUST call result.Cleanup() when done with the index.
+func RunIndexerSafe(ctx context.Context, cfg IndexerConfig, dir string) (*IndexResult, error) {
 	workDir := dir
+	var cleanup func()
+
 	if isReadOnly(dir) {
 		tmp, err := os.MkdirTemp("", "go-code-scip-*")
 		if err != nil {
-			return "", fmt.Errorf("scip: create temp dir: %w", err)
+			return nil, fmt.Errorf("scip: create temp dir: %w", err)
 		}
+		cleanup = func() { os.RemoveAll(tmp) }
 		if err := copyForIndexing(dir, tmp); err != nil {
-			return "", fmt.Errorf("scip: copy sources to temp: %w", err)
+			cleanup()
+			return nil, fmt.Errorf("scip: copy sources to temp: %w", err)
 		}
 		workDir = tmp
 	}
-	return RunIndexer(ctx, cfg, workDir)
+
+	indexPath, err := RunIndexer(ctx, cfg, workDir)
+	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, err
+	}
+	return &IndexResult{IndexPath: indexPath, Cleanup: cleanup}, nil
 }
 
-// isReadOnly reports whether dir is read-only by attempting to create a probe file.
+// isReadOnly reports whether dir is read-only by attempting to create a temp file.
 func isReadOnly(dir string) bool {
-	probe := filepath.Join(dir, ".scip-probe-"+randomSuffix())
 	f, err := os.CreateTemp(dir, ".scip-probe-")
 	if err != nil {
 		return true
 	}
+	name := f.Name()
 	f.Close()
-	_ = os.Remove(probe)
-	_ = os.Remove(f.Name())
+	os.Remove(name)
 	return false
-}
-
-// randomSuffix returns a short pseudo-random string for probe file names.
-func randomSuffix() string {
-	b := make([]byte, 4)
-	//nolint:gosec // non-crypto, just a probe file name
-	for i := range b {
-		b[i] = 'a' + byte(os.Getpid()>>uint(i*4)&0xf)
-	}
-	return string(b)
 }
 
 // copyForIndexing recursively copies source files from src to dst up to maxDepth=10.

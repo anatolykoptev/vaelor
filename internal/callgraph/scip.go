@@ -3,7 +3,6 @@ package callgraph
 import (
 	"context"
 	"log/slog"
-	"os"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -39,14 +38,16 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 
 	slog.Info("scip: indexing", "lang", lang, "indexer", cfg.Name, "root", root, "files", srcFiles)
 
-	indexPath, err := gocodescip.RunIndexerSafe(ctx, cfg, root)
+	result, err := gocodescip.RunIndexerSafe(ctx, cfg, root)
 	if err != nil {
 		slog.Warn("scip: indexer failed", "indexer", cfg.Name, "err", err)
 		return nil
 	}
-	defer os.Remove(indexPath)
+	if result.Cleanup != nil {
+		defer result.Cleanup()
+	}
 
-	idx, err := gocodescip.ReadIndex(indexPath)
+	idx, err := gocodescip.ReadIndex(result.IndexPath)
 	if err != nil {
 		slog.Warn("scip: read index failed", "err", err)
 		return nil
