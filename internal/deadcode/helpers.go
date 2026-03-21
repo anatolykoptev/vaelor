@@ -18,19 +18,26 @@ var httpHandlerPatterns = []string{
 	"chi.Router",
 }
 
-// wellKnownInterfaceMethods are method names commonly required by interfaces.
+// wellKnownInterfaceMethods are method names commonly required by interfaces
+// across Go stdlib, popular frameworks, and common design patterns.
 var wellKnownInterfaceMethods = map[string]bool{
-	"ServeHTTP":     true,
-	"String":        true,
-	"Error":         true,
-	"MarshalJSON":   true,
-	"UnmarshalJSON": true,
-	"Close":         true,
-	"Read":          true,
-	"Write":         true,
-	"Len":           true,
-	"Less":          true,
-	"Swap":          true,
+	// Go stdlib interfaces (io, fmt, sort, encoding, net/http)
+	"ServeHTTP": true, "String": true, "Error": true,
+	"MarshalJSON": true, "UnmarshalJSON": true, "MarshalXML": true, "UnmarshalXML": true,
+	"MarshalText": true, "UnmarshalText": true, "MarshalBinary": true, "UnmarshalBinary": true,
+	"Close": true, "Read": true, "Write": true,
+	"Len": true, "Less": true, "Swap": true,
+	"Value": true, "Scan": true, // database/sql
+
+	// Common plugin/handler interface patterns
+	"Language": true, "Extensions": true, "SitterLanguage": true,
+	"TagsQuery": true, "CallsQuery": true, "RelationshipsQuery": true,
+	"MapCapture": true, "Match": true,
+	"Kind": true, "Name": true, "Type": true,
+
+	// Forge/registry interface patterns
+	"FetchREADME": true, "SearchCode": true, "SearchIssues": true,
+	"SearchRepos": true, "Latest": true,
 }
 
 // constructorNames are method names that serve as class constructors in various
