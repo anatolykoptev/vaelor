@@ -14,15 +14,19 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Install scip-go for SCIP indexing of Go repos.
-RUN go install github.com/sourcegraph/scip-go/cmd/scip-go@latest
-
 # Copy source and build with version from git tag.
 COPY . .
 RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
     CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o go-code ./cmd/go-code
 
-# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+# ── Stage 2: SCIP indexer binaries ───────────────────────────────────────────
+FROM golang:1.26-alpine AS scip-builder
+
+# Build scip-go from source (separate stage for layer caching — only rebuilds
+# when scip-go releases a new version, not on every code change).
+RUN go install github.com/sourcegraph/scip-go/cmd/scip-go@latest
+
+# ── Stage 3: Runtime ─────────────────────────────────────────────────────────
 FROM alpine:3.21
 
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
@@ -38,7 +42,7 @@ RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
 
 WORKDIR /app
 COPY --from=builder /build/go-code .
-COPY --from=builder /go/bin/scip-go /usr/local/bin/scip-go
+COPY --from=scip-builder /go/bin/scip-go /usr/local/bin/scip-go
 
 EXPOSE 8897
 
