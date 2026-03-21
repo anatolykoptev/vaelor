@@ -7,6 +7,13 @@ import (
 	sciplib "github.com/sourcegraph/scip/bindings/go/scip"
 )
 
+// scipLineToOneBased converts a SCIP 0-indexed line to 1-indexed.
+const scipLineOffset uint32 = 1
+
+// minEnclosingRangeLen is the minimum length of an EnclosingRange to extract end line.
+// SCIP enclosing ranges: [startLine, startChar, endLine, endChar].
+const minEnclosingRangeLen = 4
+
 // ConvertToEdges converts a SCIP Index into a slice of TypedEdge call edges.
 // It performs two passes:
 //  1. Build a definition map (symbol → defInfo) and per-file function ranges.
@@ -16,8 +23,14 @@ func ConvertToEdges(idx *Index) []goanalysis.TypedEdge {
 		return nil
 	}
 
-	defMap := buildDefMap(idx.Documents)
-	funcRanges := buildFuncRanges(idx.Documents, defMap)
+	// Pre-build symbol tables once per document to avoid repeated O(n) construction.
+	symTables := make([]map[string]*sciplib.SymbolInformation, len(idx.Documents))
+	for i, doc := range idx.Documents {
+		symTables[i] = doc.SymbolTable()
+	}
+
+	defMap := buildDefMap(idx.Documents, symTables)
+	funcRanges := buildFuncRanges(idx.Documents, symTables, defMap)
 
 	var edges []goanalysis.TypedEdge
 	for _, doc := range idx.Documents {
@@ -27,10 +40,10 @@ func ConvertToEdges(idx *Index) []goanalysis.TypedEdge {
 }
 
 // buildDefMap constructs a symbol→defInfo map from all definition occurrences.
-func buildDefMap(docs []*sciplib.Document) map[string]defInfo {
+func buildDefMap(docs []*sciplib.Document, symTables []map[string]*sciplib.SymbolInformation) map[string]defInfo {
 	dm := make(map[string]defInfo)
-	for _, doc := range docs {
-		symLookup := doc.SymbolTable()
+	for i, doc := range docs {
+		symLookup := symTables[i]
 		for _, occ := range doc.Occurrences {
 			if !isDefinition(occ) {
 				continue
@@ -41,7 +54,7 @@ func buildDefMap(docs []*sciplib.Document) map[string]defInfo {
 			if len(occ.Range) == 0 {
 				continue
 			}
-			line := uint32(occ.Range[0]) + 1 //nolint:gosec // SCIP lines ≥ 0
+			line := uint32(occ.Range[0]) + scipLineOffset //nolint:gosec // SCIP lines ≥ 0
 			name := parseSymbolName(occ.Symbol)
 			if si, ok := symLookup[occ.Symbol]; ok && si.DisplayName != "" {
 				name = si.DisplayName
@@ -60,10 +73,10 @@ func buildDefMap(docs []*sciplib.Document) map[string]defInfo {
 // buildFuncRanges builds a map of file → sorted []funcRange using definition occurrences.
 // It prefers EnclosingRange when present; otherwise uses sorted start lines with
 // a fallback end-line = next function's start - 1.
-func buildFuncRanges(docs []*sciplib.Document, defMap map[string]defInfo) map[string][]funcRange {
+func buildFuncRanges(docs []*sciplib.Document, symTables []map[string]*sciplib.SymbolInformation, defMap map[string]defInfo) map[string][]funcRange {
 	result := make(map[string][]funcRange)
-	for _, doc := range docs {
-		symLookup := doc.SymbolTable()
+	for i, doc := range docs {
+		symLookup := symTables[i]
 		var funcs []funcRange
 		for _, occ := range doc.Occurrences {
 			if !isDefinition(occ) {
@@ -82,8 +95,8 @@ func buildFuncRanges(docs []*sciplib.Document, defMap map[string]defInfo) map[st
 				Name:      defMap[occ.Symbol].Name,
 				StartLine: uint32(occ.Range[0]) + 1, //nolint:gosec
 			}
-			if len(occ.EnclosingRange) >= 4 { //nolint:mnd
-				fr.EndLine = uint32(occ.EnclosingRange[2]) + 1 //nolint:gosec
+			if len(occ.EnclosingRange) >= minEnclosingRangeLen {
+				fr.EndLine = uint32(occ.EnclosingRange[2]) + scipLineOffset //nolint:gosec
 			}
 			funcs = append(funcs, fr)
 		}
@@ -121,7 +134,7 @@ func extractDocEdges(doc *sciplib.Document, defMap map[string]defInfo, funcRange
 			continue
 		}
 
-		callLine := uint32(occ.Range[0]) + 1 //nolint:gosec
+		callLine := uint32(occ.Range[0]) + scipLineOffset //nolint:gosec
 		caller := enclosingFuncRange(ranges, callLine)
 		if caller == nil {
 			continue
@@ -137,11 +150,10 @@ func extractDocEdges(doc *sciplib.Document, defMap map[string]defInfo, funcRange
 			calleePkg = callee.Pkg
 		}
 
-		callerDef := defMap[callerSymbol(doc, caller.Name)]
 		edges = append(edges, goanalysis.TypedEdge{
 			CallerName: caller.Name,
 			CallerFile: doc.RelativePath,
-			CallerLine: callerDefLine(callerDef, caller.StartLine),
+			CallerLine: caller.StartLine,
 			CalleeName: calleeName,
 			CalleeFile: calleeFile,
 			CalleePkg:  calleePkg,
@@ -152,15 +164,30 @@ func extractDocEdges(doc *sciplib.Document, defMap map[string]defInfo, funcRange
 }
 
 // enclosingFuncRange returns the funcRange that contains the given line, or nil.
+// Uses binary search since ranges are sorted by StartLine.
 func enclosingFuncRange(ranges []funcRange, line uint32) *funcRange {
-	for i := range ranges {
-		fr := &ranges[i]
-		if line < fr.StartLine {
-			continue
+	n := len(ranges)
+	if n == 0 {
+		return nil
+	}
+	// Find the last function whose StartLine <= line.
+	lo, hi := 0, n-1
+	idx := -1
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		if ranges[mid].StartLine <= line {
+			idx = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
 		}
-		if fr.EndLine == 0 || line <= fr.EndLine {
-			return fr
-		}
+	}
+	if idx < 0 {
+		return nil
+	}
+	fr := &ranges[idx]
+	if fr.EndLine == 0 || line <= fr.EndLine {
+		return fr
 	}
 	return nil
 }
@@ -180,17 +207,3 @@ func isFuncOcc(occ *sciplib.Occurrence, symLookup map[string]*sciplib.SymbolInfo
 	return isFuncSymbol(occ.Symbol)
 }
 
-// callerSymbol is a no-op placeholder — we use Name directly since we don't
-// store a reverse name→symbol map. CallerLine is read from the funcRange.
-func callerSymbol(_ *sciplib.Document, _ string) string {
-	return "" // we can't reverse-lookup caller symbol by name cheaply
-}
-
-// callerDefLine returns the definition line for the caller.
-// Falls back to the funcRange StartLine when not found in defMap.
-func callerDefLine(d defInfo, startLine uint32) uint32 {
-	if d.Line != 0 {
-		return d.Line
-	}
-	return startLine
-}
