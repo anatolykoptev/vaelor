@@ -17,11 +17,12 @@ func ConvertToCallGraph(typedEdges []goanalysis.TypedEdge, tsSymbols []*parser.S
 		caller := resolveSymbol(te.CallerName, te.CallerFile, byNameFile, byName)
 		callee := resolveSymbol(te.CalleeName, te.CalleeFile, byNameFile, byName)
 		edges = append(edges, CallEdge{
-			Caller:     caller,
-			Callee:     callee,
-			CalleeName: te.CalleeName,
-			Receiver:   te.ReceiverType,
-			Line:       te.Line,
+			Caller:      caller,
+			Callee:      callee,
+			CalleeName:  te.CalleeName,
+			Receiver:    te.ReceiverType,
+			Line:        te.Line,
+			IsInterface: te.IsInterface,
 		})
 	}
 

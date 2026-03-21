@@ -9,11 +9,12 @@ import (
 
 // CallEdge is a resolved (or unresolved) call from one function to another.
 type CallEdge struct {
-	Caller     *parser.Symbol // function containing the call
-	Callee     *parser.Symbol // target function (nil if unresolved)
-	CalleeName string         // original name from source
-	Receiver   string         // qualifier if method call
-	Line       uint32         // 1-based call site line
+	Caller      *parser.Symbol // function containing the call
+	Callee      *parser.Symbol // target function (nil if unresolved)
+	CalleeName  string         // original name from source
+	Receiver    string         // qualifier if method call
+	Line        uint32         // 1-based call site line
+	IsInterface bool           // true when resolved via interface dispatch (go/types or SCIP)
 }
 
 // CallGraph holds all call relationships for a repository.
@@ -23,6 +24,7 @@ type CallGraph struct {
 	TypeRels      []parser.TypeRelationship // interface/extends/embeds relationships
 	HookCallbacks []string                  // function names registered as hook callbacks
 	Tier          string                    // "basic" (tree-sitter), "enhanced" (go/types merged), "full" (future)
+	Backend       string                    // resolution backend: "tree-sitter", "tree-sitter+go/types", "tree-sitter+scip"
 }
 
 // BuildCallGraph resolves call sites against the symbol table.

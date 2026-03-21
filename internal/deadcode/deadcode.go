@@ -66,7 +66,7 @@ func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 		hookSet[name] = true
 	}
 
-	ifaceInfo := buildInterfaceInfo(cg.Symbols, opts.Relationships)
+	ifaceInfo := buildInterfaceInfo(cg.Symbols, opts.Relationships, cg.Edges)
 	dead := collectDeadSymbols(funcSymbols, called, hookSet, ifaceInfo, opts)
 
 	sort.Slice(dead, func(i, j int) bool {
@@ -169,11 +169,21 @@ func collectDeadSymbols(
 }
 
 // buildInterfaceInfo extracts interface method names and implementing types
-// from parsed symbols and type relationships.
-func buildInterfaceInfo(symbols []*parser.Symbol, rels []parser.TypeRelationship) *interfaceInfo {
+// from parsed symbols, type relationships, and proven interface dispatch edges.
+func buildInterfaceInfo(symbols []*parser.Symbol, rels []parser.TypeRelationship, edges []callgraph.CallEdge) *interfaceInfo {
 	info := &interfaceInfo{
 		implementors:         make(map[string]bool),
 		interfaceMethodNames: make(map[string]bool),
+	}
+
+	// Source 1: proven interface dispatches from go/types or SCIP.
+	for _, e := range edges {
+		if e.IsInterface && e.CalleeName != "" {
+			info.interfaceMethodNames[e.CalleeName] = true
+			if e.Receiver != "" {
+				info.implementors[e.Receiver] = true
+			}
+		}
 	}
 
 	// Collect interface/trait method names from interface symbols.

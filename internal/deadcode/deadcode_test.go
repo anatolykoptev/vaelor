@@ -637,6 +637,28 @@ func TestAnalyze_RustTestFileRs(t *testing.T) {
 	}
 }
 
+// TestAnalyze_IsInterfaceEdgeExcludesMethod verifies that a method called via
+// interface dispatch (IsInterface=true edge) is not flagged as dead code.
+func TestAnalyze_IsInterfaceEdgeExcludesMethod(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "main.go", StartLine: 1, EndLine: 5},
+		{Name: "Greet", Kind: parser.KindMethod, Receiver: "EnglishGreeter", File: "greet.go", StartLine: 1, EndLine: 3},
+	}
+	edges := []callgraph.CallEdge{
+		{Caller: symbols[0], CalleeName: "Greet", Receiver: "Greeter", Line: 3, IsInterface: true},
+	}
+	rels := []parser.TypeRelationship{
+		{Subject: "EnglishGreeter", Target: "Greeter", Kind: parser.RelImplements},
+	}
+	cg := &callgraph.CallGraph{Symbols: symbols, Edges: edges, TypeRels: rels}
+	result := Analyze(cg, Options{IncludeExported: true, Relationships: rels})
+	for _, ds := range result.DeadSymbols {
+		if ds.Name == "Greet" {
+			t.Errorf("Greet should not be dead — called via interface dispatch")
+		}
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
