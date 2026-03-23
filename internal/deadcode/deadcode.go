@@ -2,10 +2,12 @@
 package deadcode
 
 import (
+	"context"
 	"path/filepath"
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -27,10 +29,19 @@ const (
 
 // Options configures dead code detection.
 type Options struct {
-	IncludeExported bool     // include exported (public) symbols — usually false positives
-	IncludeTests    bool     // include test-file symbols
-	HookCallbacks   []string // function names registered as WordPress hook callbacks
+	IncludeExported bool                      // include exported (public) symbols — usually false positives
+	IncludeTests    bool                      // include test-file symbols
+	HookCallbacks   []string                  // function names registered as WordPress hook callbacks
 	Relationships   []parser.TypeRelationship // type relationships for interface-aware filtering
+	// OxCodes is an optional ox-codes client. When set, a second pass searches
+	// for string references to apparent dead symbols, reducing false positives
+	// caused by callbacks, reflection, and config-driven dispatch.
+	OxCodes  *oxcodes.Client
+	Root     string // repo root path (required for ox-codes queries)
+	Language string // primary language (for scoped search)
+	// Ctx is used for cancellation when OxCodes is set. A nil Ctx means
+	// context.Background() is used.
+	Ctx context.Context //nolint:containedctx
 }
 
 // DeadSymbol is a function/method with zero incoming calls.
@@ -68,6 +79,17 @@ func Analyze(cg *callgraph.CallGraph, opts Options) *Result {
 
 	ifaceInfo := buildInterfaceInfo(cg.Symbols, opts.Relationships, cg.Edges)
 	dead := collectDeadSymbols(funcSymbols, called, hookSet, ifaceInfo, opts)
+
+	// Second pass: check if "dead" symbols have string references via ox-codes.
+	// This catches callbacks, reflection, and config-driven dispatch that the
+	// tree-sitter call graph cannot see.
+	if opts.OxCodes != nil && opts.Root != "" {
+		ctx := opts.Ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dead = filterByStringRefs(ctx, opts.OxCodes, opts.Root, opts.Language, dead)
+	}
 
 	sort.Slice(dead, func(i, j int) bool {
 		if dead[i].File != dead[j].File {
