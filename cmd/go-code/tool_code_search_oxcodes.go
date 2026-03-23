@@ -25,6 +25,7 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 		IsRegex:       input.IsRegex,
 		MaxResults:    maxResults,
 		CaseSensitive: caseSensitive,
+		ExcludeGlob:   input.ExcludeGlob,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("scoped search: %s", err)), nil
@@ -39,10 +40,11 @@ func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root str
 	maxResults := clampMaxResults(input.MaxResults)
 
 	result, err := client.SearchStructural(ctx, oxcodes.StructuralSearchInput{
-		Root:       root,
-		Pattern:    input.Pattern,
-		Language:   input.Language,
-		MaxResults: maxResults,
+		Root:        root,
+		Pattern:     input.Pattern,
+		Language:    input.Language,
+		MaxResults:  maxResults,
+		ExcludeGlob: input.ExcludeGlob,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("structural search: %s", err)), nil
