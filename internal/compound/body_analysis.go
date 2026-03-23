@@ -29,7 +29,11 @@ func AnalyzeBody(ctx context.Context, client *oxcodes.Client, root string, sym *
 	}
 
 	analysis := &BodyAnalysis{}
-	fileGlob := sym.File // restrict search to this file only
+	// sym.File may be absolute (/host/src/repo/file.go) — strip root prefix for file_glob.
+	fileGlob := strings.TrimPrefix(sym.File, root+"/")
+	if fileGlob == sym.File {
+		fileGlob = strings.TrimPrefix(sym.File, root)
+	}
 
 	// Search for error exits: panic, return err, return nil/err, return fmt.Errorf
 	errResult, err := client.Search(ctx, oxcodes.SearchInput{
