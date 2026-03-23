@@ -84,6 +84,10 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 		IncludeExported: input.IncludeExported,
 		HookCallbacks:   cg.HookCallbacks,
 		Relationships:   cg.TypeRels,
+		OxCodes:         deps.OxCodes,
+		Root:            root,
+		Language:        input.Language,
+		Ctx:             ctx,
 	})
 
 	// Convert dead symbols to XML structs.

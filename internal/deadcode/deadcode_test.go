@@ -683,6 +683,38 @@ func TestAnalyze_CrossTypeInterfaceFiltering(t *testing.T) {
 	}
 }
 
+// TestAnalyze_WithNilOxCodes verifies that existing behavior is unchanged when
+// OxCodes is nil — no second pass is attempted and the full dead list is returned.
+func TestAnalyze_WithNilOxCodes(t *testing.T) {
+	helper := &parser.Symbol{
+		Name: "helperFn", Kind: parser.KindFunction,
+		File: "/src/util.go", StartLine: 1, EndLine: 5,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		File: "/src/main.go", StartLine: 1, EndLine: 10,
+	}
+
+	cg := &callgraph.CallGraph{
+		Symbols: []*parser.Symbol{helper, mainSym},
+		Edges:   nil,
+	}
+
+	// OxCodes is nil — must behave exactly like Options{}.
+	result := Analyze(cg, Options{
+		OxCodes:  nil,
+		Root:     "/src",
+		Language: "go",
+	})
+
+	if result.DeadCount != 1 {
+		t.Fatalf("expected 1 dead symbol with nil OxCodes, got %d", result.DeadCount)
+	}
+	if result.DeadSymbols[0].Name != "helperFn" {
+		t.Errorf("expected dead symbol 'helperFn', got %q", result.DeadSymbols[0].Name)
+	}
+}
+
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
