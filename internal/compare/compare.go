@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
@@ -246,14 +247,17 @@ type CompareResult struct {
 	HotspotsB     []HotspotFile  `json:"hotspots_b,omitempty"`
 	RelStatsA     *RelStats      `json:"rel_stats_a,omitempty"`
 	RelStatsB     *RelStats      `json:"rel_stats_b,omitempty"`
+	QualityA      *QualityIndicators `json:"quality_a,omitempty"`
+	QualityB      *QualityIndicators `json:"quality_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
 type CompareInput struct {
-	RootA string
-	RootB string
-	Query string
-	Opts  SnapshotOpts
+	RootA   string
+	RootB   string
+	Query   string
+	Opts    SnapshotOpts
+	OxCodes *oxcodes.Client
 }
 
 // CompareRepos orchestrates a full comparison between two repositories.
@@ -308,6 +312,22 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 
 	diffStats := computeDiffStats(matches)
 
+	// Gather quality indicators via ox-codes (non-fatal, parallel).
+	var qualityA, qualityB *QualityIndicators
+	if input.OxCodes != nil {
+		var qwg sync.WaitGroup
+		qwg.Add(2)
+		go func() {
+			defer qwg.Done()
+			qualityA = GatherQualityIndicators(ctx, input.OxCodes, input.RootA, snapA.Language)
+		}()
+		go func() {
+			defer qwg.Done()
+			qualityB = GatherQualityIndicators(ctx, input.OxCodes, input.RootB, snapB.Language)
+		}()
+		qwg.Wait()
+	}
+
 	result := &CompareResult{
 		RepoA:          snapA.Name,
 		RepoB:          snapB.Name,
@@ -324,6 +344,8 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		HotspotsB:     hotspotsB,
 		RelStatsA:     relStatsA,
 		RelStatsB:     relStatsB,
+		QualityA:      qualityA,
+		QualityB:      qualityB,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are

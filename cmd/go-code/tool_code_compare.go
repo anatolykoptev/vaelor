@@ -17,22 +17,31 @@ type xmlCompareResponse struct {
 }
 
 type xmlCompare struct {
-	RepoA          string         `xml:"repoA,attr"`
-	RepoB          string         `xml:"repoB,attr"`
-	Query          string         `xml:"query,attr"`
-	MatchedSymbols int            `xml:"matchedSymbols,attr"`
-	UnmatchedA     int            `xml:"unmatchedA,attr"`
-	UnmatchedB     int            `xml:"unmatchedB,attr"`
-	MetricsA       xmlCompMetrics `xml:"metricsA"`
-	MetricsB       xmlCompMetrics `xml:"metricsB"`
-	MatchBreakdown xmlMatchBreak  `xml:"matchBreakdown"`
-	ImportDiff     xmlImportDiff  `xml:"importDiff"`
-	DiffStats      *xmlDiffStats  `xml:"diffStats,omitempty"`
-	Analysis       xmlAnalysis    `xml:"analysis"`
-	HotspotsA      *xmlHotspots   `xml:"hotspotsA,omitempty"`
-	HotspotsB      *xmlHotspots   `xml:"hotspotsB,omitempty"`
-	RelStatsA      *xmlRelStats   `xml:"relStatsA,omitempty"`
-	RelStatsB      *xmlRelStats   `xml:"relStatsB,omitempty"`
+	RepoA          string              `xml:"repoA,attr"`
+	RepoB          string              `xml:"repoB,attr"`
+	Query          string              `xml:"query,attr"`
+	MatchedSymbols int                 `xml:"matchedSymbols,attr"`
+	UnmatchedA     int                 `xml:"unmatchedA,attr"`
+	UnmatchedB     int                 `xml:"unmatchedB,attr"`
+	MetricsA       xmlCompMetrics      `xml:"metricsA"`
+	MetricsB       xmlCompMetrics      `xml:"metricsB"`
+	MatchBreakdown xmlMatchBreak       `xml:"matchBreakdown"`
+	ImportDiff     xmlImportDiff       `xml:"importDiff"`
+	DiffStats      *xmlDiffStats       `xml:"diffStats,omitempty"`
+	Analysis       xmlAnalysis         `xml:"analysis"`
+	HotspotsA      *xmlHotspots        `xml:"hotspotsA,omitempty"`
+	HotspotsB      *xmlHotspots        `xml:"hotspotsB,omitempty"`
+	RelStatsA      *xmlRelStats        `xml:"relStatsA,omitempty"`
+	RelStatsB      *xmlRelStats        `xml:"relStatsB,omitempty"`
+	QualityA       *xmlQualityIndicators `xml:"qualityA,omitempty"`
+	QualityB       *xmlQualityIndicators `xml:"qualityB,omitempty"`
+}
+
+type xmlQualityIndicators struct {
+	TodoCount     int `xml:"todoCount,attr"`
+	ErrorPatterns int `xml:"errorPatterns,attr"`
+	PanicCount    int `xml:"panicCount,attr"`
+	MagicNumbers  int `xml:"magicNumbers,attr"`
 }
 
 type xmlCompMetrics struct {
@@ -181,9 +190,10 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		defer cleanupB()
 
 		result, err := compare.CompareRepos(ctx, compare.CompareInput{
-			RootA: rootA,
-			RootB: rootB,
-			Query: input.Query,
+			RootA:   rootA,
+			RootB:   rootB,
+			Query:   input.Query,
+			OxCodes: deps.OxCodes,
 			Opts: compare.SnapshotOpts{
 				Focus:    input.Focus,
 				Language: input.Language,
@@ -260,6 +270,18 @@ func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 			Total: r.RelStatsB.Total, Extends: r.RelStatsB.Extends,
 			Implements: r.RelStatsB.Implements, Embeds: r.RelStatsB.Embeds,
 			UniqueSubjects: r.RelStatsB.UniqueSubjects,
+		}
+	}
+	if r.QualityA != nil {
+		resp.Compare.QualityA = &xmlQualityIndicators{
+			TodoCount: r.QualityA.TodoCount, ErrorPatterns: r.QualityA.ErrorPatterns,
+			PanicCount: r.QualityA.PanicCount, MagicNumbers: r.QualityA.MagicNumbers,
+		}
+	}
+	if r.QualityB != nil {
+		resp.Compare.QualityB = &xmlQualityIndicators{
+			TodoCount: r.QualityB.TodoCount, ErrorPatterns: r.QualityB.ErrorPatterns,
+			PanicCount: r.QualityB.PanicCount, MagicNumbers: r.QualityB.MagicNumbers,
 		}
 	}
 
