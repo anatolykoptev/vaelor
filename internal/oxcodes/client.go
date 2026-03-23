@@ -49,14 +49,16 @@ type ScopedSearchInput struct {
 	IsRegex       bool   `json:"is_regex"`
 	MaxResults    int    `json:"max_results"`
 	CaseSensitive bool   `json:"case_sensitive"`
+	ExcludeGlob   string `json:"exclude_glob,omitempty"`
 }
 
 // StructuralSearchInput mirrors ox-codes /search/structural request.
 type StructuralSearchInput struct {
-	Root       string `json:"root"`
-	Pattern    string `json:"pattern"`
-	Language   string `json:"language"`
-	MaxResults int    `json:"max_results"`
+	Root        string `json:"root"`
+	Pattern     string `json:"pattern"`
+	Language    string `json:"language"`
+	MaxResults  int    `json:"max_results"`
+	ExcludeGlob string `json:"exclude_glob,omitempty"`
 }
 
 // SearchResponse mirrors ox-codes response.
