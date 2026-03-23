@@ -2,10 +2,12 @@
 package impact
 
 import (
+	"context"
 	"path/filepath"
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -20,6 +22,9 @@ const (
 // Options configures the impact analysis.
 type Options struct {
 	MaxDepth int
+	OxCodes  *oxcodes.Client // optional: enables hidden caller search
+	Root     string          // required when OxCodes is set
+	Language string          // optional: limit search to this language
 }
 
 // AffectedSymbol represents a caller that would be affected by a change.
@@ -37,6 +42,7 @@ type Result struct {
 	Found             bool             `json:"found"`
 	DirectCallers     []AffectedSymbol `json:"direct_callers"`
 	TransitiveCallers []AffectedSymbol `json:"transitive_callers"`
+	HiddenCallers     []HiddenCaller   `json:"hidden_callers,omitempty"`
 	TotalAffected     int              `json:"total_affected"`
 	AffectedPackages  []string         `json:"affected_packages"`
 	BlastRadius       string           `json:"blast_radius"` // none, low, medium, high
@@ -52,7 +58,8 @@ const (
 
 // Analyze computes blast radius for changing the named symbol.
 // Uses reverse BFS from the target to find all callers.
-func Analyze(cg *callgraph.CallGraph, symbolName string, opts Options) *Result {
+// When opts.OxCodes is set, also searches for hidden callers via string references.
+func Analyze(ctx context.Context, cg *callgraph.CallGraph, symbolName string, opts Options) *Result {
 	if opts.MaxDepth <= 0 {
 		opts.MaxDepth = defaultMaxDepth
 	}
@@ -70,6 +77,12 @@ func Analyze(cg *callgraph.CallGraph, symbolName string, opts Options) *Result {
 	pkgSet := traverseCallers(target, callerIndex, opts.MaxDepth, result)
 
 	result.TotalAffected = len(result.DirectCallers) + len(result.TransitiveCallers)
+
+	if opts.OxCodes != nil && opts.Root != "" {
+		result.HiddenCallers = FindHiddenCallers(ctx, opts.OxCodes, opts.Root, symbolName, opts.Language)
+		result.TotalAffected += len(result.HiddenCallers)
+	}
+
 	for pkg := range pkgSet {
 		result.AffectedPackages = append(result.AffectedPackages, pkg)
 	}

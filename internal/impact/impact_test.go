@@ -1,6 +1,7 @@
 package impact
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -22,7 +23,7 @@ func TestAnalyze_DirectCallers(t *testing.T) {
 		},
 	}
 
-	result := Analyze(cg, "C", Options{MaxDepth: 5})
+	result := Analyze(context.Background(), cg, "C", Options{MaxDepth: 5})
 
 	if !result.Found {
 		t.Fatal("expected symbol to be found")
@@ -52,7 +53,7 @@ func TestAnalyze_NotFound(t *testing.T) {
 		},
 	}
 
-	result := Analyze(cg, "NonExistent", Options{MaxDepth: 5})
+	result := Analyze(context.Background(), cg, "NonExistent", Options{MaxDepth: 5})
 
 	if result.Found {
 		t.Error("expected Found=false for non-existent symbol")
@@ -109,7 +110,7 @@ func TestAnalyze_ConfidenceDegrades(t *testing.T) {
 		},
 	}
 
-	result := Analyze(cg, "target", Options{MaxDepth: 10})
+	result := Analyze(context.Background(), cg, "target", Options{MaxDepth: 10})
 
 	if !result.Found {
 		t.Fatal("expected symbol to be found")
@@ -157,7 +158,7 @@ func TestAnalyze_MaxDepthLimits(t *testing.T) {
 	}
 
 	// MaxDepth=1 should only find direct caller C.
-	result := Analyze(cg, "target", Options{MaxDepth: 1})
+	result := Analyze(context.Background(), cg, "target", Options{MaxDepth: 1})
 
 	if result.TotalAffected != 1 {
 		t.Errorf("expected 1 affected with MaxDepth=1, got %d", result.TotalAffected)
@@ -186,7 +187,7 @@ func TestAnalyze_MultipleDirectCallers(t *testing.T) {
 		},
 	}
 
-	result := Analyze(cg, "target", Options{MaxDepth: 5})
+	result := Analyze(context.Background(), cg, "target", Options{MaxDepth: 5})
 
 	if result.TotalAffected != 3 {
 		t.Errorf("expected 3 total affected, got %d", result.TotalAffected)

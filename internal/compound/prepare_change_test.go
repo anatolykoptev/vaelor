@@ -1,6 +1,7 @@
 package compound_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -22,7 +23,7 @@ func TestPrepareChange_Basic(t *testing.T) {
 		Tier: "basic",
 	}
 
-	result := compound.PrepareChange(cg, "ProcessOrder", compound.PrepareChangeOpts{})
+	result := compound.PrepareChange(context.Background(), cg, "ProcessOrder", compound.PrepareChangeOpts{})
 
 	if !result.Found {
 		t.Fatal("expected found=true for existing symbol")
@@ -53,7 +54,7 @@ func TestPrepareChange_NotFound(t *testing.T) {
 		Tier:    "basic",
 	}
 
-	result := compound.PrepareChange(cg, "missingSymbol", compound.PrepareChangeOpts{})
+	result := compound.PrepareChange(context.Background(), cg, "missingSymbol", compound.PrepareChangeOpts{})
 
 	if result.Found {
 		t.Error("expected found=false for missing symbol")
@@ -83,7 +84,7 @@ func TestPrepareChange_IsDead(t *testing.T) {
 		Tier:    "basic",
 	}
 
-	result := compound.PrepareChange(cg, "orphanHelper", compound.PrepareChangeOpts{})
+	result := compound.PrepareChange(context.Background(), cg, "orphanHelper", compound.PrepareChangeOpts{})
 
 	if !result.Found {
 		t.Fatal("expected found=true for existing symbol")
