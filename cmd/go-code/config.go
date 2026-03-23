@@ -84,11 +84,15 @@ type Config struct {
 	// GitLabURL is the GitLab API base URL (default: https://gitlab.com).
 	// Set for self-hosted GitLab instances.
 	GitLabURL string
+
+	// OxCodesURL is the base URL for the ox-codes search service (e.g. http://ox-codes:8902).
+	// When set, code_search uses ox-codes with fallback to Go codesearch.
+	OxCodesURL string
 }
 
 const (
 	defaultLLMURL       = "http://127.0.0.1:8317/v1"
-	defaultLLMModel     = "gemini-2.5-flash"
+	defaultLLMModel     = "gemini-3.1-flash-lite-preview"
 	defaultLLMMaxTokens = 16384
 	defaultWorkspaceDir = "/tmp/go-code-workspace"
 	defaultEmbedModel   = "jina-code-v2"
@@ -140,6 +144,7 @@ func loadConfig() Config {
 		GoSearchURL:    env.Str("GO_SEARCH_URL", ""),
 		GitLabToken:    env.Str("GITLAB_TOKEN", ""),
 		GitLabURL:      env.Str("GITLAB_URL", ""),
+		OxCodesURL:     env.Str("OX_CODES_URL", ""),
 	}
 }
 

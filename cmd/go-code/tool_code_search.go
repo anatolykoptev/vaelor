@@ -4,37 +4,41 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codesearch"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // CodeSearchInput is the input schema for the code_search tool.
 type CodeSearchInput struct {
-	Repo         string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
-	Pattern      string `json:"pattern,omitempty" jsonschema_description:"Search pattern (literal string or regex). Use pattern or query."`
-	Query        string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
-	IsRegex      bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
-	FileGlob     string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go', '*.py')"`
-	Path         string `json:"path,omitempty" jsonschema_description:"Directory path filter — alias for file_glob (e.g. 'internal/query'). Converted to file_glob automatically."`
-	Language     string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python, typescript)"`
-	ContextLines  int   `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
-	MaxResults    int   `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
+	Repo          string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
+	Pattern       string `json:"pattern,omitempty" jsonschema_description:"Search pattern (literal string or regex). Use pattern or query."`
+	Query         string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
+	IsRegex       bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
+	FileGlob      string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go', '*.py')"`
+	Path          string `json:"path,omitempty" jsonschema_description:"Directory path filter — alias for file_glob (e.g. 'internal/query'). Converted to file_glob automatically."`
+	Language      string `json:"language,omitempty" jsonschema_description:"Limit search to files of this language (e.g. go, python, typescript)"`
+	ContextLines  int    `json:"context_lines,omitempty" jsonschema_description:"Number of context lines before/after each match (default: 2)"`
+	MaxResults    int    `json:"max_results,omitempty" jsonschema_description:"Maximum number of matches to return (default: 50, max: 200)"`
 	CaseSensitive *bool  `json:"case_sensitive,omitempty" jsonschema_description:"Case-sensitive matching (default: true). Set false for case-insensitive."`
 	ExcludeGlob   string `json:"exclude_glob,omitempty" jsonschema_description:"Comma-separated glob patterns to exclude files (e.g. 'docs/*,vendor/*'). Matches against relative paths."`
+	Scope         string `json:"scope,omitempty" jsonschema_description:"AST scope filter: function_bodies, comments, strings, type_definitions, imports. Requires language."`
+	Structural    bool   `json:"structural,omitempty" jsonschema_description:"Treat pattern as structural AST pattern with $WILDCARDS (e.g. 'if $ERR != nil { return $ERR }'). Requires language."`
 }
 
 type xmlSearchResponse struct {
-	XMLName xml.Name        `xml:"response"`
-	Search  xmlSearch       `xml:"search"`
+	XMLName xml.Name         `xml:"response"`
+	Search  xmlSearch        `xml:"search"`
 }
 
 type xmlSearch struct {
-	Pattern string          `xml:"pattern,attr"`
-	IsRegex bool            `xml:"isRegex,attr"`
-	Matches int             `xml:"matches,attr"`
+	Pattern string           `xml:"pattern,attr"`
+	IsRegex bool             `xml:"isRegex,attr"`
+	Matches int              `xml:"matches,attr"`
 	Items   []xmlSearchMatch `xml:"match"`
 }
 
@@ -76,8 +80,15 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	}
 	defer cleanup()
 
-	searchInput := buildCodeSearchInput(input, root)
-	matches, err := codesearch.Search(ctx, searchInput)
+	// Route to ox-codes for scoped or structural search (no Go fallback for new features).
+	if input.Scope != "" && deps.OxCodes != nil {
+		return handleScopedSearch(ctx, input, root, deps.OxCodes, outputDir)
+	}
+	if input.Structural && deps.OxCodes != nil {
+		return handleStructuralSearch(ctx, input, root, deps.OxCodes, outputDir)
+	}
+
+	matches, err := grepSearch(ctx, input, root, deps.OxCodes)
 	if err != nil {
 		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
@@ -92,6 +103,31 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	}
 
 	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
+}
+
+// grepSearch runs grep via ox-codes with fallback to Go codesearch.
+func grepSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client) ([]codesearch.SearchMatch, error) {
+	searchInput := buildCodeSearchInput(input, root)
+
+	if client != nil {
+		oxResult, err := client.Search(ctx, oxcodes.SearchInput{
+			Root:          searchInput.Root,
+			Pattern:       searchInput.Pattern,
+			IsRegex:       searchInput.IsRegex,
+			FileGlob:      searchInput.FileGlob,
+			ExcludeGlob:   searchInput.ExcludeGlob,
+			ContextLines:  searchInput.ContextLines,
+			MaxResults:    searchInput.MaxResults,
+			CaseSensitive: searchInput.CaseSensitive,
+			Language:      searchInput.Language,
+		})
+		if err == nil {
+			return convertOxMatches(oxResult.Matches), nil
+		}
+		slog.Warn("ox-codes search failed, falling back to Go codesearch", "err", err)
+	}
+
+	return codesearch.Search(ctx, searchInput)
 }
 
 // normalizeCodeSearchInput resolves aliases and sets defaults.
