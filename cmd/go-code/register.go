@@ -14,6 +14,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -53,6 +54,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 		Forges:    buildForgeRegistry(cfg),
 		WebSearch: buildWebSearchClient(cfg),
 		ToolCache: toolCache,
+		OxCodes:   buildOxCodesClient(cfg),
 	}
 
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
@@ -116,6 +118,14 @@ func buildWebSearchClient(cfg Config) *websearch.Client {
 		return nil
 	}
 	return websearch.NewClient(cfg.GoSearchURL)
+}
+
+// buildOxCodesClient creates an ox-codes client if configured.
+func buildOxCodesClient(cfg Config) *oxcodes.Client {
+	if cfg.OxCodesURL == "" {
+		return nil
+	}
+	return oxcodes.NewClient(cfg.OxCodesURL)
 }
 
 // buildForgeRegistry creates a forge registry from config.

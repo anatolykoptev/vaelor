@@ -25,10 +25,11 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/websearch"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/websearch"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
@@ -71,6 +72,10 @@ type Deps struct {
 
 	// ToolCache is a generic cache for tool results (search, etc.).
 	ToolCache *kitcache.Cache
+
+	// OxCodes is the optional ox-codes search backend client.
+	// When set, code_search uses ox-codes for grep, scoped, and structural search.
+	OxCodes *oxcodes.Client
 }
 
 // maxFileBytes returns the effective file size limit.
