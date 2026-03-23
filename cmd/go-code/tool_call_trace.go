@@ -160,6 +160,11 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		return errResult(msg), nil
 	}
 
+	// Speculative resolution: enrich unresolved call sites via ox-codes text search.
+	if deps.OxCodes != nil && result.Unresolved > 0 {
+		callgraph.ResolveSpeculative(ctx, deps.OxCodes, root, input.Language, result.Tree)
+	}
+
 	output := buildCallTraceOutput(ctx, input.Symbol, direction, result, deps, input.Compact)
 
 	resp := xmlTraceResponse{

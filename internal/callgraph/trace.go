@@ -13,12 +13,21 @@ type TraceOpts struct {
 	MaxDepth  int    // default 5, max 10
 }
 
+// SpeculativeCall represents a candidate callee found via text search.
+type SpeculativeCall struct {
+	Name       string  `json:"name"`
+	File       string  `json:"file"`
+	Line       int     `json:"line"`
+	Confidence float64 `json:"confidence"` // 0.0-1.0
+}
+
 // CallChainNode is a single node in the call chain tree.
 type CallChainNode struct {
-	Symbol   *parser.Symbol  `json:"symbol"`
-	Children []CallChainNode `json:"children,omitempty"`
-	CallLine uint32          `json:"callLine,omitempty"`
-	Cycle    bool            `json:"cycle,omitempty"`
+	Symbol      *parser.Symbol   `json:"symbol"`
+	Children    []CallChainNode  `json:"children,omitempty"`
+	CallLine    uint32           `json:"callLine,omitempty"`
+	Cycle       bool             `json:"cycle,omitempty"`
+	Speculative []SpeculativeCall `json:"speculative,omitempty"` // candidates for unresolved calls
 }
 
 // TraceResult holds the complete call chain traversal output.
