@@ -71,7 +71,12 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
 
-	result := impact.Analyze(cg, input.Symbol, impact.Options{MaxDepth: depth})
+	result := impact.Analyze(ctx, cg, input.Symbol, impact.Options{
+		MaxDepth: depth,
+		OxCodes:  deps.OxCodes,
+		Root:     root,
+		Language: input.Language,
+	})
 
 	if !result.Found {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)

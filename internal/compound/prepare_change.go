@@ -1,6 +1,8 @@
 package compound
 
 import (
+	"context"
+
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
 	"github.com/anatolykoptev/go-code/internal/impact"
@@ -24,10 +26,10 @@ type PrepareChangeResult struct {
 
 // PrepareChange runs pre-change risk assessment for a named symbol.
 // It aggregates impact analysis (blast radius) and dead code detection.
-func PrepareChange(cg *callgraph.CallGraph, symbolName string, opts PrepareChangeOpts) *PrepareChangeResult {
+func PrepareChange(ctx context.Context, cg *callgraph.CallGraph, symbolName string, opts PrepareChangeOpts) *PrepareChangeResult {
 	result := &PrepareChangeResult{Tier: cg.Tier}
 
-	impactResult := impact.Analyze(cg, symbolName, impact.Options{MaxDepth: opts.MaxDepth})
+	impactResult := impact.Analyze(ctx, cg, symbolName, impact.Options{MaxDepth: opts.MaxDepth})
 	result.Impact = impactResult
 	result.Found = impactResult.Found
 

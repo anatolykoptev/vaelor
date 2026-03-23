@@ -63,7 +63,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
 
-	result := compound.PrepareChange(cg, input.Symbol, compound.PrepareChangeOpts{
+	result := compound.PrepareChange(ctx, cg, input.Symbol, compound.PrepareChangeOpts{
 		MaxDepth: depth,
 	})
 
