@@ -1,6 +1,7 @@
 package compound_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -32,7 +33,7 @@ func TestUnderstand_Basic(t *testing.T) {
 		Tier: "basic",
 	}
 
-	result := compound.Understand(caller, cg, compound.UnderstandOpts{})
+	result := compound.Understand(context.Background(), caller, cg, compound.UnderstandOpts{})
 
 	if result.Symbol.Name != "HandleRequest" {
 		t.Errorf("expected symbol name HandleRequest, got %s", result.Symbol.Name)
@@ -91,7 +92,7 @@ func TestUnderstand_WithCallers(t *testing.T) {
 		Tier: "enhanced",
 	}
 
-	result := compound.Understand(target, cg, compound.UnderstandOpts{
+	result := compound.Understand(context.Background(), target, cg, compound.UnderstandOpts{
 		IncludeCallers: true,
 	})
 

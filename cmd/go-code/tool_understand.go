@@ -72,8 +72,10 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		return understandAmbiguousResult(input.Symbol, matches)
 	}
 
-	result := compound.Understand(matches[0], cg, compound.UnderstandOpts{
+	result := compound.Understand(ctx, matches[0], cg, compound.UnderstandOpts{
 		IncludeCallers: input.IncludeCallers,
+		OxCodes:        deps.OxCodes,
+		Root:           root,
 	})
 
 	data, err := json.MarshalIndent(result, "", "  ")

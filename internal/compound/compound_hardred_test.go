@@ -47,7 +47,7 @@ func TestUnderstand_NilCallGraph(t *testing.T) {
 		File: "a.go", StartLine: 1, EndLine: 5,
 	}
 	cg := &callgraph.CallGraph{Tier: "basic"}
-	result := Understand(sym, cg, UnderstandOpts{})
+	result := Understand(context.Background(), sym, cg, UnderstandOpts{})
 	if result.Symbol.Name != "Foo" {
 		t.Errorf("expected Foo, got %s", result.Symbol.Name)
 	}
@@ -78,7 +78,7 @@ func TestUnderstand_MaxCalleesRespected(t *testing.T) {
 		Tier:    "basic",
 	}
 
-	result := Understand(sym, cg, UnderstandOpts{MaxCallees: 5})
+	result := Understand(context.Background(), sym, cg, UnderstandOpts{MaxCallees: 5})
 	if len(result.Callees) > 5 {
 		t.Errorf("expected <=5 callees, got %d", len(result.Callees))
 	}
@@ -108,7 +108,7 @@ func TestUnderstand_MaxCallersRespected(t *testing.T) {
 		Tier:    "enhanced",
 	}
 
-	result := Understand(sym, cg, UnderstandOpts{IncludeCallers: true, MaxCallers: 3})
+	result := Understand(context.Background(), sym, cg, UnderstandOpts{IncludeCallers: true, MaxCallers: 3})
 	if len(result.Callers) > 3 {
 		t.Errorf("expected <=3 callers, got %d", len(result.Callers))
 	}
@@ -133,7 +133,7 @@ func TestUnderstand_CallersDeduplicated(t *testing.T) {
 		Tier: "basic",
 	}
 
-	result := Understand(sym, cg, UnderstandOpts{IncludeCallers: true})
+	result := Understand(context.Background(), sym, cg, UnderstandOpts{IncludeCallers: true})
 	if len(result.Callers) != 1 {
 		t.Errorf("expected 1 deduplicated caller, got %d", len(result.Callers))
 	}

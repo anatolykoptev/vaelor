@@ -3,7 +3,10 @@
 package compound
 
 import (
+	"context"
+
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -17,15 +20,22 @@ type UnderstandOpts struct {
 	IncludeCallers bool
 	MaxCallees     int // default 20
 	MaxCallers     int // default 20
+
+	// OxCodes enables body analysis via ox-codes scoped search. Optional.
+	OxCodes *oxcodes.Client
+
+	// Root is the repository root path, required when OxCodes is set.
+	Root string
 }
 
 // UnderstandResult is the output of the understand compound tool.
 type UnderstandResult struct {
-	Symbol   SymbolInfo `json:"symbol"`
-	Callees  []CallRef  `json:"callees,omitempty"`
-	Callers  []CallRef  `json:"callers,omitempty"`
-	Tier     string     `json:"tier"`
-	Warnings []string   `json:"warnings,omitempty"`
+	Symbol   SymbolInfo    `json:"symbol"`
+	Callees  []CallRef     `json:"callees,omitempty"`
+	Callers  []CallRef     `json:"callers,omitempty"`
+	Tier     string        `json:"tier"`
+	Warnings []string      `json:"warnings,omitempty"`
+	Body     *BodyAnalysis `json:"body_analysis,omitempty"`
 }
 
 // SymbolInfo is a summary of a symbol for compound tool output.
@@ -69,7 +79,7 @@ func FindSymbol(symbols []*parser.Symbol, name string) []*parser.Symbol {
 }
 
 // Understand performs a deep-dive analysis of a single symbol.
-func Understand(sym *parser.Symbol, cg *callgraph.CallGraph, opts UnderstandOpts) *UnderstandResult {
+func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph, opts UnderstandOpts) *UnderstandResult {
 	maxCallees := opts.MaxCallees
 	if maxCallees <= 0 {
 		maxCallees = defaultMaxCallees
@@ -123,6 +133,9 @@ func Understand(sym *parser.Symbol, cg *callgraph.CallGraph, opts UnderstandOpts
 	}
 
 	if !opts.IncludeCallers {
+		if opts.OxCodes != nil {
+			result.Body = AnalyzeBody(ctx, opts.OxCodes, opts.Root, sym)
+		}
 		return result
 	}
 
@@ -151,6 +164,10 @@ func Understand(sym *parser.Symbol, cg *callgraph.CallGraph, opts UnderstandOpts
 			Line:     edge.Line,
 			Receiver: edge.Caller.Receiver,
 		})
+	}
+
+	if opts.OxCodes != nil {
+		result.Body = AnalyzeBody(ctx, opts.OxCodes, opts.Root, sym)
 	}
 
 	return result
