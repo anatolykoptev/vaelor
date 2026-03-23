@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/explore"
 	"github.com/anatolykoptev/go-code/internal/freshness"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/semhealth"
@@ -27,6 +28,25 @@ type xmlHealth struct {
 	Hotspots        *xmlHotspots        `xml:"hotspots,omitempty"`
 	RelStats        *xmlRelStats        `xml:"relStats,omitempty"`
 	Recommendations *xmlRecommendations `xml:"recommendations,omitempty"`
+	OxChecks        *xmlOxCodesChecks   `xml:"oxChecks,omitempty"`
+}
+
+// xmlOxCodesChecks holds additional quality indicators from ox-codes scoped search.
+type xmlOxCodesChecks struct {
+	TodoCount       int `xml:"todoCount,attr"`
+	UnhandledErrors int `xml:"unhandledErrors,attr"`
+	MagicNumbers    int `xml:"magicNumbers,attr"`
+}
+
+func convertOxCodesChecks(c *explore.OxCodesHealthChecks) *xmlOxCodesChecks {
+	if c == nil {
+		return nil
+	}
+	return &xmlOxCodesChecks{
+		TodoCount:       c.TodoCount,
+		UnhandledErrors: c.UnhandledErrors,
+		MagicNumbers:    c.MagicNumbers,
+	}
 }
 
 type xmlRecommendations struct {

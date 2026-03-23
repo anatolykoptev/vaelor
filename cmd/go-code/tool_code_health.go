@@ -10,6 +10,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/explore"
 	"github.com/anatolykoptev/go-code/internal/freshness"
 	"github.com/anatolykoptev/go-code/internal/semhealth"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -154,7 +155,10 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		outliers := compare.CollectOutliers(snap)
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
 
-		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr, vr)
+		// Ox-codes quality checks (informational, non-fatal, do not affect grade).
+		oxChecks := explore.RunOxCodesHealthChecks(ctx, deps.OxCodes, root, input.Language)
+
+		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr, vr, oxChecks)
 		return xmlMarshalResult(resp, "code_health", outputDir), nil
 	})
 }
@@ -168,6 +172,7 @@ func buildHealthXML(
 	recs []compare.Recommendation,
 	fr *freshness.FreshnessResult,
 	vr *freshness.VulnResult,
+	oxChecks *explore.OxCodesHealthChecks,
 ) xmlHealthResponse {
 	resp := xmlHealthResponse{
 		Health: xmlHealth{
@@ -196,6 +201,9 @@ func buildHealthXML(
 	}
 	if vr != nil && vr.Total > 0 {
 		resp.Health.Vulnerabilities = convertVulnerabilities(vr)
+	}
+	if oxChecks != nil {
+		resp.Health.OxChecks = convertOxCodesChecks(oxChecks)
 	}
 
 	return resp
