@@ -1,6 +1,7 @@
 package compound
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -151,7 +152,7 @@ func TestPrepareChange_DeadExportedSymbol(t *testing.T) {
 		Tier:    "basic",
 	}
 
-	result := PrepareChange(cg, "ExportedFunc", PrepareChangeOpts{})
+	result := PrepareChange(context.Background(), cg,"ExportedFunc", PrepareChangeOpts{})
 	if !result.Found {
 		t.Fatal("expected symbol found")
 	}
@@ -173,7 +174,7 @@ func TestPrepareChange_ZeroDepthDefault(t *testing.T) {
 		Tier:    "enhanced",
 	}
 
-	result := PrepareChange(cg, "foo", PrepareChangeOpts{MaxDepth: 0})
+	result := PrepareChange(context.Background(), cg,"foo", PrepareChangeOpts{MaxDepth: 0})
 	if !result.Found {
 		t.Fatal("expected symbol found")
 	}
@@ -200,7 +201,7 @@ func TestPrepareChange_SymbolInfoPopulated(t *testing.T) {
 		Tier:    "enhanced",
 	}
 
-	result := PrepareChange(cg, "Process", PrepareChangeOpts{})
+	result := PrepareChange(context.Background(), cg,"Process", PrepareChangeOpts{})
 	if result.Symbol.Name != "Process" {
 		t.Errorf("expected Process, got %s", result.Symbol.Name)
 	}
