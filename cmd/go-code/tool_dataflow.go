@@ -29,13 +29,14 @@ type xmlDataflowResponse struct {
 }
 
 type xmlDataflow struct {
-	Repo          string         `xml:"repo,attr"`
-	Language      string         `xml:"language,attr,omitempty"`
-	Focus         string         `xml:"focus,attr"`
-	FilesAnalyzed int            `xml:"filesAnalyzed,attr"`
-	DurationMS    int64          `xml:"durationMs,attr"`
-	Quality       *xmlDfQuality  `xml:"quality,omitempty"`
-	Security      *xmlDfSecurity `xml:"security,omitempty"`
+	Repo          string          `xml:"repo,attr"`
+	Language      string          `xml:"language,attr,omitempty"`
+	Focus         string          `xml:"focus,attr"`
+	FilesAnalyzed int             `xml:"filesAnalyzed,attr"`
+	DurationMS    int64           `xml:"durationMs,attr"`
+	Quality       *xmlDfQuality   `xml:"quality,omitempty"`
+	DeadFunctions *xmlDfDeadFuncs `xml:"deadFunctions,omitempty"`
+	Security      *xmlDfSecurity  `xml:"security,omitempty"`
 }
 
 type xmlDfQuality struct {
@@ -73,10 +74,11 @@ func registerDataflow(server *mcp.Server, cfg Config, deps analyze.Deps) {
 
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "dataflow_analyze",
-		Description: "Analyze code for data-flow issues: dead stores, unused variables, " +
-			"and security vulnerabilities (SQL injection, command injection). " +
-			"Uses ox-codes data-flow engine with IL, CFG, and taint analysis. " +
-			"Requires ox-codes backend.",
+		Description: "Unified code quality and security analysis. " +
+			"Quality: dead stores, unused variables (data-flow), dead functions (callgraph). " +
+			"Security: SQL injection, command injection (taint tracking). " +
+			"Combines variable-level (IL/CFG) and function-level (callgraph) dead code detection. " +
+			"Use instead of separate dead_code + manual review. Requires ox-codes backend.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DataflowInput) (*mcp.CallToolResult, error) {
 		return handleDataflow(ctx, input, deps, outputDir)
 	})
@@ -126,6 +128,14 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 		}
 	}
 
+	// Dead function analysis (callgraph-based).
+	if focus == "all" || focus == "quality" {
+		if dfResult := runDeadFunctionAnalysis(ctx, root, input.Language, deps); dfResult != nil {
+			resp.Dataflow.DeadFunctions = dfResult.xmlDfDeadFuncs
+			totalDuration += dfResult.durationMS
+		}
+	}
+
 	// Security analysis (taint tracking).
 	if focus == "all" || focus == "security" {
 		sResp, err := runSecurityAnalysis(ctx, deps.OxCodes, root, input)
@@ -142,7 +152,7 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 
 	resp.Dataflow.DurationMS = totalDuration
 
-	if resp.Dataflow.Quality == nil && resp.Dataflow.Security == nil {
+	if resp.Dataflow.Quality == nil && resp.Dataflow.DeadFunctions == nil && resp.Dataflow.Security == nil {
 		return errResult("dataflow analysis failed: no results from ox-codes"), nil
 	}
 
@@ -181,43 +191,6 @@ func runQualityAnalysis(ctx context.Context, client *oxcodes.Client, root string
 
 	return &qualityResult{
 		xmlDfQuality:  &xmlDfQuality{Count: result.TotalFindings, Findings: findings},
-		filesAnalyzed: result.FilesAnalyzed,
-		durationMS:    result.DurationMS,
-	}, nil
-}
-
-type securityResult struct {
-	*xmlDfSecurity
-	filesAnalyzed int
-	durationMS    int64
-}
-
-func runSecurityAnalysis(ctx context.Context, client *oxcodes.Client, root string, input DataflowInput) (*securityResult, error) {
-	result, err := client.DataflowTaint(ctx, oxcodes.TaintInput{
-		Root:        root,
-		Language:    input.Language,
-		MaxResults:  dataflowMaxResults,
-		FileGlob:    input.FileGlob,
-		ExcludeGlob: input.ExcludeGlob,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("security: %w", err)
-	}
-
-	findings := make([]xmlSecurityFinding, len(result.Findings))
-	for i, f := range result.Findings {
-		findings[i] = xmlSecurityFinding{
-			RuleID:   f.RuleID,
-			Severity: f.Severity,
-			File:     f.File,
-			Line:     f.Sink.Span.StartLine,
-			CWE:      f.Sink.CWE,
-			Message:  f.Message,
-		}
-	}
-
-	return &securityResult{
-		xmlDfSecurity: &xmlDfSecurity{Count: result.TotalFindings, Findings: findings},
 		filesAnalyzed: result.FilesAnalyzed,
 		durationMS:    result.DurationMS,
 	}, nil
