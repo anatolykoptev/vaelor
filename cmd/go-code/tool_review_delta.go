@@ -12,15 +12,18 @@ import (
 )
 
 type ReviewDeltaInput struct {
-	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full URL, or absolute local host path"`
-	Base     string `json:"base,omitempty" jsonschema_description:"Base ref to diff against (commit SHA, branch, tag, HEAD~N). Default: HEAD~1"`
-	Depth    int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
-	Language string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
+	Repo            string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full URL, or absolute local host path"`
+	Base            string `json:"base,omitempty" jsonschema_description:"Base ref to diff against (commit SHA, branch, tag, HEAD~N). Default: HEAD~1"`
+	Depth           int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
+	Language        string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
+	ExcludeSnippets bool   `json:"exclude_snippets,omitempty" jsonschema_description:"Set true to omit source code snippets (included by default)"`
 }
 
 const (
-	defaultReviewDepth = 2
-	maxReviewDepth     = 5
+	defaultReviewDepth   = 2
+	maxReviewDepth       = 5
+	maxReviewOutputChars = 40_000 // ~10K tokens; drop snippets then impacted if exceeded
+	maxReviewImpacted    = 50     // max impacted symbols after truncation
 )
 
 func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps) {
@@ -44,6 +47,7 @@ type xmlDeltaResponse struct {
 	ChangedSymbols  []xmlChangedSymbol `xml:"changed_symbols>symbol"`
 	ImpactedSymbols []xmlImpacted      `xml:"impacted_symbols>symbol"`
 	Untested        []string           `xml:"untested>symbol,omitempty"`
+	Snippets        []xmlSnippet       `xml:"snippets>snippet,omitempty"`
 	Risk            xmlRisk            `xml:"risk"`
 }
 
@@ -75,6 +79,14 @@ type xmlRisk struct {
 	Suggestions []string `xml:"suggestion,omitempty"`
 }
 
+type xmlSnippet struct {
+	File   string   `xml:"file,attr"`
+	Symbol string   `xml:"symbol,attr"`
+	Start  int      `xml:"start,attr"`
+	End    int      `xml:"end,attr"`
+	Code   xmlCDATA `xml:"code"`
+}
+
 func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
@@ -95,11 +107,12 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 	}
 
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
-		Root:     root,
-		Base:     input.Base,
-		Depth:    depth,
-		Language: input.Language,
-		OxCodes:  deps.OxCodes,
+		Root:            root,
+		Base:            input.Base,
+		Depth:           depth,
+		Language:        input.Language,
+		IncludeSnippets: !input.ExcludeSnippets,
+		OxCodes:         deps.OxCodes,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("delta review: %s", err)), nil
@@ -111,7 +124,21 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
 
-	return textResult(string(data)), nil
+	out := string(data)
+	// Token-aware truncation: if output exceeds limit, drop snippets first,
+	// then truncate impacted symbols to keep risk guidance visible.
+	if len(out) > maxReviewOutputChars {
+		resp.Snippets = nil
+		data, _ = xml.MarshalIndent(resp, "", "  ")
+		out = string(data)
+	}
+	if len(out) > maxReviewOutputChars && len(resp.ImpactedSymbols) > maxReviewImpacted {
+		resp.ImpactedSymbols = resp.ImpactedSymbols[:maxReviewImpacted]
+		data, _ = xml.MarshalIndent(resp, "", "  ")
+		out = string(data)
+	}
+
+	return textResult(out), nil
 }
 
 func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
@@ -135,6 +162,13 @@ func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
 		resp.ImpactedSymbols = append(resp.ImpactedSymbols, xmlImpacted{
 			Name: is.Name, File: is.File, Distance: is.Distance,
 			ChangedBy: is.ChangedBy, Confidence: is.Confidence,
+		})
+	}
+	for _, s := range r.Snippets {
+		resp.Snippets = append(resp.Snippets, xmlSnippet{
+			File: s.File, Symbol: s.Symbol,
+			Start: s.StartLine, End: s.EndLine,
+			Code: xmlCDATA{Inner: wrapCDATA(s.Code)},
 		})
 	}
 	resp.Untested = r.UntestedSymbols
