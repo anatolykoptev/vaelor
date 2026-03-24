@@ -14,11 +14,12 @@ import (
 
 // DeltaInput configures a delta review.
 type DeltaInput struct {
-	Root     string // repo root (absolute path)
-	Base     string // base ref (default "HEAD~1")
-	Depth    int    // impact traversal depth (default 2)
-	Language string // optional language filter
-	OxCodes  *oxcodes.Client
+	Root            string // repo root (absolute path)
+	Base            string // base ref (default "HEAD~1")
+	Depth           int    // impact traversal depth (default 2)
+	Language        string // optional language filter
+	IncludeSnippets bool   // include source code snippets around changed symbols
+	OxCodes         *oxcodes.Client
 }
 
 // DeltaResult is the output of a delta review.
@@ -27,6 +28,7 @@ type DeltaResult struct {
 	ChangedSymbols  []ChangedSymbol  `json:"changed_symbols"`
 	ImpactedSymbols []ImpactedSymbol `json:"impacted_symbols"`
 	UntestedSymbols []string         `json:"untested_symbols,omitempty"`
+	Snippets        []Snippet        `json:"snippets,omitempty"`
 	Risk            RiskGuidance     `json:"risk"`
 	Tier            string           `json:"tier"`
 }
@@ -117,7 +119,13 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 		}
 	}
 
-	// Step 7: Risk guidance.
+	// Step 7: Source snippets (optional).
+	var snippets []Snippet
+	if input.IncludeSnippets && len(changed) > 0 {
+		snippets = ExtractSnippets(changed, input.Root)
+	}
+
+	// Step 8: Risk guidance.
 	risk := GenerateRiskGuidance(RiskInput{
 		ChangedSymbols:  changed,
 		ImpactResults:   impactResults,
@@ -129,6 +137,7 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 		ChangedSymbols:  changed,
 		ImpactedSymbols: allImpacted,
 		UntestedSymbols: untestedSymbols,
+		Snippets:        snippets,
 		Risk:            risk,
 		Tier:            cg.Tier,
 	}, nil
