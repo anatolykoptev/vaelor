@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -89,18 +90,7 @@ func isTestFunc(name string) bool {
 
 // isTestFile returns true if the file path ends with _test.go or similar test patterns.
 func isTestFile(file string) bool {
-	lower := strings.ToLower(file)
-	testSuffixes := []string{
-		"_test.go", "_test.py", "_test.rs",
-		".test.ts", ".test.js",
-		".spec.ts", ".spec.js",
-	}
-	for _, suf := range testSuffixes {
-		if strings.HasSuffix(lower, suf) {
-			return true
-		}
-	}
-	return strings.Contains(lower, "/test/") || strings.Contains(lower, "/tests/")
+	return langutil.IsTestFile(file)
 }
 
 // isExported returns true if the name starts with an uppercase letter (Go convention).

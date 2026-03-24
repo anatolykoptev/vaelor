@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/xml"
 	"fmt"
-	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/explore"
 	"github.com/anatolykoptev/go-code/internal/freshness"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/semhealth"
 )
@@ -163,15 +163,7 @@ func countFuncs(symbols []*parser.Symbol) int {
 
 // isTestFilePath checks if a file path looks like a test file.
 func isTestFilePath(path string) bool {
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, "_test.go") ||
-		strings.HasSuffix(lower, "_test.py") ||
-		strings.HasSuffix(lower, ".test.ts") ||
-		strings.HasSuffix(lower, ".test.js") ||
-		strings.HasSuffix(lower, ".spec.ts") ||
-		strings.HasSuffix(lower, ".spec.js") ||
-		strings.Contains(lower, "/test/") ||
-		strings.Contains(lower, "/tests/")
+	return langutil.IsTestFile(path)
 }
 
 // xmlDepFreshness represents dependency freshness in XML output.

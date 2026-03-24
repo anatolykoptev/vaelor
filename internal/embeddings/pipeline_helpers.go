@@ -6,10 +6,10 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -57,26 +57,7 @@ func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*inge
 
 // isTestFile returns true for test/spec files that should be excluded from indexing.
 func isTestFile(relPath string) bool {
-	base := filepath.Base(relPath)
-	// Go
-	if strings.HasSuffix(base, "_test.go") {
-		return true
-	}
-	// Python
-	if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") {
-		return true
-	}
-	// JS/TS
-	for _, suffix := range []string{".test.js", ".test.ts", ".test.tsx", ".spec.js", ".spec.ts", ".spec.tsx"} {
-		if strings.HasSuffix(base, suffix) {
-			return true
-		}
-	}
-	// Rust
-	if base == "tests.rs" || strings.Contains(relPath, "/tests/") {
-		return true
-	}
-	return false
+	return langutil.IsTestFile(relPath)
 }
 
 // buildEmbedText formats a symbol for embedding with file path context.

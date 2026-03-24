@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -139,12 +140,5 @@ func guessSourceFile(testFile, lang string) string {
 }
 
 func relPathOrSelf(path, root string) string {
-	if root == "" {
-		return path
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return path
-	}
-	return rel
+	return langutil.RelPath(path, root)
 }

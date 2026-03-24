@@ -3,11 +3,11 @@ package review
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/impact"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -178,23 +178,12 @@ func enrichTestedSetViaOxCodes(ctx context.Context, oc *oxcodes.Client, root str
 			continue
 		}
 		for _, m := range resp.Matches {
-			if isTestFile(m.File) {
+			if langutil.IsTestFile(m.File) {
 				testedSet[cs.Symbol.Name] = true
 				break
 			}
 		}
 	}
-}
-
-func isTestFile(path string) bool {
-	base := filepath.Base(path)
-	return strings.HasSuffix(base, "_test.go") ||
-		strings.HasPrefix(base, "test_") ||
-		strings.HasSuffix(base, "_test.py") ||
-		strings.HasSuffix(base, ".test.ts") ||
-		strings.HasSuffix(base, ".test.js") ||
-		strings.HasSuffix(base, ".spec.ts") ||
-		strings.HasSuffix(base, ".spec.js")
 }
 
 func dedup(items []ImpactedSymbol) []ImpactedSymbol {
