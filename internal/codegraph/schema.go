@@ -26,6 +26,7 @@ func GraphSchemaText() string {
 	b.WriteString("  - BELONGS_TO (File->Layer)\n")
 	b.WriteString("  - HANDLES (Symbol->Route; properties: line) — server-side handler (HTTP or WordPress hook callback)\n")
 	b.WriteString("  - FETCHES (Symbol->Route; properties: line) — client-side caller (HTTP or WordPress hook invocation)\n")
+	b.WriteString("  - TESTED_BY (Symbol->Symbol) — test function covers production symbol\n")
 	b.WriteString("\n")
 	b.WriteString("Route also represents WordPress hooks: Method=ACTION|FILTER, Path=hook_name, framework=wordpress\n")
 	b.WriteString("\n")
