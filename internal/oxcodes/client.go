@@ -38,6 +38,8 @@ type SearchInput struct {
 	MaxResults    int    `json:"max_results"`
 	CaseSensitive bool   `json:"case_sensitive"`
 	Language      string `json:"language,omitempty"`
+	Expand        string `json:"expand,omitempty"`
+	MaxTokens     int    `json:"max_tokens,omitempty"`
 }
 
 // ScopedSearchInput mirrors ox-codes /search/scoped request.
@@ -50,6 +52,8 @@ type ScopedSearchInput struct {
 	MaxResults    int    `json:"max_results"`
 	CaseSensitive bool   `json:"case_sensitive"`
 	ExcludeGlob   string `json:"exclude_glob,omitempty"`
+	Expand        string `json:"expand,omitempty"`
+	MaxTokens     int    `json:"max_tokens,omitempty"`
 }
 
 // StructuralSearchInput mirrors ox-codes /search/structural request.
@@ -58,6 +62,19 @@ type StructuralSearchInput struct {
 	Pattern     string `json:"pattern"`
 	Language    string `json:"language"`
 	MaxResults  int    `json:"max_results"`
+	ExcludeGlob string `json:"exclude_glob,omitempty"`
+	Expand      string `json:"expand,omitempty"`
+	MaxTokens   int    `json:"max_tokens,omitempty"`
+}
+
+// RewriteInput mirrors ox-codes /rewrite request.
+type RewriteInput struct {
+	Root        string `json:"root"`
+	Pattern     string `json:"pattern"`
+	Rewrite     string `json:"rewrite"`
+	Language    string `json:"language"`
+	MaxResults  int    `json:"max_results"`
+	FileGlob    string `json:"file_glob,omitempty"`
 	ExcludeGlob string `json:"exclude_glob,omitempty"`
 }
 
@@ -69,12 +86,37 @@ type SearchResponse struct {
 	DurationMS   int64         `json:"duration_ms"`
 }
 
+// ExpandedBlock holds the expanded AST context for a match.
+type ExpandedBlock struct {
+	SymbolName string `json:"symbol_name"`
+	SymbolKind string `json:"symbol_kind"`
+	LineStart  int    `json:"line_start"`
+	LineEnd    int    `json:"line_end"`
+	Body       string `json:"body"`
+}
+
 // SearchMatch mirrors ox-codes match.
 type SearchMatch struct {
-	File    string   `json:"file"`
-	Line    int      `json:"line"`
-	Text    string   `json:"text"`
-	Context []string `json:"context,omitempty"`
+	File     string         `json:"file"`
+	Line     int            `json:"line"`
+	Text     string         `json:"text"`
+	Context  []string       `json:"context,omitempty"`
+	Expanded *ExpandedBlock `json:"expanded,omitempty"`
+}
+
+// RewriteResponse mirrors ox-codes /rewrite response.
+type RewriteResponse struct {
+	Files        []RewriteFileResult `json:"files"`
+	TotalMatches int                 `json:"total_matches"`
+	TotalFiles   int                 `json:"total_files"`
+	DurationMS   int64               `json:"duration_ms"`
+}
+
+// RewriteFileResult holds the per-file rewrite result.
+type RewriteFileResult struct {
+	File    string `json:"file"`
+	Matches int    `json:"matches"`
+	Diff    string `json:"diff"`
 }
 
 // Search calls POST /search.
@@ -92,21 +134,38 @@ func (c *Client) SearchStructural(ctx context.Context, input StructuralSearchInp
 	return c.post(ctx, "/search/structural", input)
 }
 
+// Rewrite calls POST /rewrite.
+func (c *Client) Rewrite(ctx context.Context, input RewriteInput) (*RewriteResponse, error) {
+	var result RewriteResponse
+	if err := c.doPost(ctx, "/rewrite", input, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) post(ctx context.Context, path string, body any) (*SearchResponse, error) {
+	var result SearchResponse
+	if err := c.doPost(ctx, path, body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) doPost(ctx context.Context, path string, body any, result any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("oxcodes: marshal: %w", err)
+		return fmt.Errorf("oxcodes: marshal: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("oxcodes: build request: %w", err)
+		return fmt.Errorf("oxcodes: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("oxcodes: request: %w", err)
+		return fmt.Errorf("oxcodes: request: %w", err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -115,12 +174,8 @@ func (c *Client) post(ctx context.Context, path string, body any) (*SearchRespon
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("oxcodes: status %d: %s", resp.StatusCode, string(errBody))
+		return fmt.Errorf("oxcodes: status %d: %s", resp.StatusCode, string(errBody))
 	}
 
-	var result SearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("oxcodes: decode: %w", err)
-	}
-	return &result, nil
+	return json.NewDecoder(resp.Body).Decode(result)
 }

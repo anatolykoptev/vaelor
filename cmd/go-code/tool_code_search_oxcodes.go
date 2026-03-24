@@ -26,11 +26,16 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 		MaxResults:    maxResults,
 		CaseSensitive: caseSensitive,
 		ExcludeGlob:   input.ExcludeGlob,
+		Expand:        input.Expand,
+		MaxTokens:     input.MaxTokens,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("scoped search: %s", err)), nil
 	}
 
+	if input.Expand != "" {
+		return xmlMarshalResult(formatExpandedSearchXML(input, result.Matches), "code_search", outputDir), nil
+	}
 	matches := convertOxMatches(result.Matches)
 	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
 }
@@ -45,11 +50,16 @@ func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root str
 		Language:    input.Language,
 		MaxResults:  maxResults,
 		ExcludeGlob: input.ExcludeGlob,
+		Expand:      input.Expand,
+		MaxTokens:   input.MaxTokens,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("structural search: %s", err)), nil
 	}
 
+	if input.Expand != "" {
+		return xmlMarshalResult(formatExpandedSearchXML(input, result.Matches), "code_search", outputDir), nil
+	}
 	matches := convertOxMatches(result.Matches)
 	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
 }
@@ -66,6 +76,39 @@ func convertOxMatches(oxMatches []oxcodes.SearchMatch) []codesearch.SearchMatch 
 		}
 	}
 	return matches
+}
+
+// formatExpandedSearchXML builds the XML response for expanded search results.
+func formatExpandedSearchXML(input CodeSearchInput, matches []oxcodes.SearchMatch) xmlSearchResponse {
+	resp := xmlSearchResponse{
+		Search: xmlSearch{
+			Pattern: input.Pattern,
+			IsRegex: input.IsRegex,
+			Matches: len(matches),
+			Items:   make([]xmlSearchMatch, len(matches)),
+		},
+	}
+	for i, m := range matches {
+		item := xmlSearchMatch{
+			File: m.File,
+			Line: m.Line,
+			Text: xmlCDATA{Inner: wrapCDATA(m.Text)},
+		}
+		for _, c := range m.Context {
+			item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+		}
+		if m.Expanded != nil {
+			item.Expanded = &xmlExpandedBlock{
+				SymbolName: m.Expanded.SymbolName,
+				SymbolKind: m.Expanded.SymbolKind,
+				LineStart:  m.Expanded.LineStart,
+				LineEnd:    m.Expanded.LineEnd,
+				Body:       xmlCDATA{Inner: wrapCDATA(m.Expanded.Body)},
+			}
+		}
+		resp.Search.Items[i] = item
+	}
+	return resp
 }
 
 // clampMaxResults applies defaults and caps to max_results.

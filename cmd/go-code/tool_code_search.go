@@ -28,11 +28,13 @@ type CodeSearchInput struct {
 	ExcludeGlob   string `json:"exclude_glob,omitempty" jsonschema_description:"Comma-separated glob patterns to exclude files (e.g. 'docs/*,vendor/*'). Matches against relative paths."`
 	Scope         string `json:"scope,omitempty" jsonschema_description:"AST scope filter: function_bodies, comments, strings, type_definitions, imports. Requires language."`
 	Structural    bool   `json:"structural,omitempty" jsonschema_description:"Treat pattern as structural AST pattern with $WILDCARDS (e.g. 'if $ERR != nil { return $ERR }'). Requires language."`
+	Expand        string `json:"expand,omitempty" jsonschema_description:"Expand matches to enclosing AST symbol: 'function' (enclosing function/method) or 'block' (function/struct/class/impl). Returns full symbol body."`
+	MaxTokens     int    `json:"max_tokens,omitempty" jsonschema_description:"Maximum token budget for expanded bodies. Matches exceeding this are skipped. Estimate: 1 token ≈ 4 chars."`
 }
 
 type xmlSearchResponse struct {
-	XMLName xml.Name         `xml:"response"`
-	Search  xmlSearch        `xml:"search"`
+	XMLName xml.Name  `xml:"response"`
+	Search  xmlSearch `xml:"search"`
 }
 
 type xmlSearch struct {
@@ -43,10 +45,19 @@ type xmlSearch struct {
 }
 
 type xmlSearchMatch struct {
-	File    string     `xml:"file,attr"`
-	Line    int        `xml:"line,attr"`
-	Text    xmlCDATA   `xml:"text"`
-	Context []xmlCDATA `xml:"ctx,omitempty"`
+	File     string            `xml:"file,attr"`
+	Line     int               `xml:"line,attr"`
+	Text     xmlCDATA          `xml:"text"`
+	Context  []xmlCDATA        `xml:"ctx,omitempty"`
+	Expanded *xmlExpandedBlock `xml:"expanded,omitempty"`
+}
+
+type xmlExpandedBlock struct {
+	SymbolName string   `xml:"symbol,attr"`
+	SymbolKind string   `xml:"kind,attr"`
+	LineStart  int      `xml:"lineStart,attr"`
+	LineEnd    int      `xml:"lineEnd,attr"`
+	Body       xmlCDATA `xml:"body"`
 }
 
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
@@ -86,6 +97,15 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	}
 	if input.Structural && deps.OxCodes != nil {
 		return handleStructuralSearch(ctx, input, root, deps.OxCodes, outputDir)
+	}
+
+	// When expand is requested, use ox-codes directly and return expanded format.
+	if input.Expand != "" && deps.OxCodes != nil {
+		oxMatches, err := grepSearchOx(ctx, input, root, deps.OxCodes)
+		if err != nil {
+			return errResult(fmt.Sprintf("search: %s", err)), nil
+		}
+		return xmlMarshalResult(formatExpandedSearchXML(input, oxMatches), "code_search", outputDir), nil
 	}
 
 	matches, err := grepSearch(ctx, input, root, deps.OxCodes)
@@ -128,6 +148,28 @@ func grepSearch(ctx context.Context, input CodeSearchInput, root string, client 
 	}
 
 	return codesearch.Search(ctx, searchInput)
+}
+
+// grepSearchOx runs grep via ox-codes with expand support, returning raw ox matches.
+func grepSearchOx(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client) ([]oxcodes.SearchMatch, error) {
+	searchInput := buildCodeSearchInput(input, root)
+	oxResult, err := client.Search(ctx, oxcodes.SearchInput{
+		Root:          searchInput.Root,
+		Pattern:       searchInput.Pattern,
+		IsRegex:       searchInput.IsRegex,
+		FileGlob:      searchInput.FileGlob,
+		ExcludeGlob:   searchInput.ExcludeGlob,
+		ContextLines:  searchInput.ContextLines,
+		MaxResults:    searchInput.MaxResults,
+		CaseSensitive: searchInput.CaseSensitive,
+		Language:      searchInput.Language,
+		Expand:        input.Expand,
+		MaxTokens:     input.MaxTokens,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return oxResult.Matches, nil
 }
 
 // normalizeCodeSearchInput resolves aliases and sets defaults.
