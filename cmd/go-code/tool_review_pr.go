@@ -1,0 +1,95 @@
+package main
+
+import (
+	"context"
+	"encoding/xml"
+	"fmt"
+	"strings"
+
+	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/review"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+type ReviewPRInput struct {
+	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo) or full URL"`
+	PR       int    `json:"pr" jsonschema_description:"Pull request number"`
+	Depth    int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
+	Language string `json:"language,omitempty" jsonschema_description:"Limit to files of this language"`
+}
+
+func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps) {
+	mcpserver.AddTool(server, &mcp.Tool{
+		Name: "review_pr",
+		Description: "Review a pull request: fetches PR metadata and diff, " +
+			"then runs differential impact analysis on all changes. " +
+			"Returns changed symbols, blast radius, untested code, and risk guidance.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ReviewPRInput) (*mcp.CallToolResult, error) {
+		return handleReviewPR(ctx, input, deps)
+	})
+}
+
+func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
+	if input.Repo == "" {
+		return errResult("repo is required"), nil
+	}
+	if input.PR <= 0 {
+		return errResult("pr number is required"), nil
+	}
+
+	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
+	}
+	defer cleanup()
+
+	base, err := fetchPRBase(ctx, root, input.PR)
+	if err != nil {
+		base = "origin/main"
+	}
+
+	depth := input.Depth
+	if depth <= 0 {
+		depth = defaultReviewDepth
+	}
+	if depth > maxReviewDepth {
+		depth = maxReviewDepth
+	}
+
+	result, err := review.DeltaReview(ctx, review.DeltaInput{
+		Root:     root,
+		Base:     base,
+		Depth:    depth,
+		Language: input.Language,
+		OxCodes:  deps.OxCodes,
+	})
+	if err != nil {
+		return errResult(fmt.Sprintf("review: %s", err)), nil
+	}
+
+	resp := buildDeltaXML(result)
+	resp.Tool = "review_pr"
+	data, err := xml.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err)), nil
+	}
+
+	return textResult(string(data)), nil
+}
+
+func fetchPRBase(ctx context.Context, root string, prNumber int) (string, error) {
+	ref := fmt.Sprintf("pull/%d/head", prNumber)
+	_, err := review.GitExec(ctx, root, "fetch", "origin", ref)
+	if err != nil {
+		return "", fmt.Errorf("fetch PR ref: %w", err)
+	}
+	out, err := review.GitExec(ctx, root, "merge-base", "FETCH_HEAD", "origin/main")
+	if err != nil {
+		out, err = review.GitExec(ctx, root, "merge-base", "FETCH_HEAD", "origin/master")
+		if err != nil {
+			return "", fmt.Errorf("merge-base: %w", err)
+		}
+	}
+	return strings.TrimSpace(out), nil
+}
