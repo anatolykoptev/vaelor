@@ -51,10 +51,10 @@ func registerTools(server *mcp.Server, cfg Config) {
 		PathMappings: cfg.PathMappings,
 		ParseCache:   parseCache,
 		LLMCache:     llmCache,
-		Forges:    buildForgeRegistry(cfg),
-		WebSearch: buildWebSearchClient(cfg),
-		ToolCache: toolCache,
-		OxCodes:   buildOxCodesClient(cfg),
+		Forges:       buildForgeRegistry(cfg),
+		WebSearch:    buildWebSearchClient(cfg),
+		ToolCache:    toolCache,
+		OxCodes:      buildOxCodesClient(cfg),
 	}
 
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
@@ -105,6 +105,8 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerSiteCrawl(server, cfg)
 	registerUnderstand(server, cfg, deps, &semDeps)
 	registerPrepareChange(server, cfg, deps, &semDeps)
+	registerReviewDelta(server, cfg, deps)
+	registerReviewPR(server, cfg, deps)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
@@ -137,4 +139,3 @@ func buildForgeRegistry(cfg Config) *forge.Registry {
 	}
 	return reg
 }
-
