@@ -1,0 +1,123 @@
+package main
+
+import (
+	"context"
+	"encoding/xml"
+	"fmt"
+
+	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// RewriteInput is the input schema for the rewrite tool.
+type RewriteInput struct {
+	Repo        string `json:"repo" jsonschema_description:"Repository: GitHub slug, URL, or absolute local path"`
+	Pattern     string `json:"pattern" jsonschema_description:"Structural AST pattern with $WILDCARDS (e.g. 'if $ERR != nil { return $ERR }')"`
+	Rewrite     string `json:"rewrite" jsonschema_description:"Replacement template using same $WILDCARDS (e.g. 'if $ERR != nil { return fmt.Errorf(\"%w\", $ERR) }')"`
+	Language    string `json:"language" jsonschema_description:"Target language (go, rust, python, typescript, java, etc.)"`
+	MaxResults  int    `json:"max_results,omitempty" jsonschema_description:"Max matches (default: 50)"`
+	FileGlob    string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go')"`
+	ExcludeGlob string `json:"exclude_glob,omitempty" jsonschema_description:"Exclude glob filter (e.g. 'vendor/*,testdata/*')"`
+}
+
+type xmlRewriteResponse struct {
+	XMLName xml.Name          `xml:"response"`
+	Rewrite xmlRewriteSummary `xml:"rewrite"`
+}
+
+type xmlRewriteSummary struct {
+	Pattern      string           `xml:"pattern,attr"`
+	Replacement  string           `xml:"replacement,attr"`
+	TotalMatches int              `xml:"matches,attr"`
+	TotalFiles   int              `xml:"files,attr"`
+	DurationMS   int64            `xml:"duration_ms,attr"`
+	Files        []xmlRewriteFile `xml:"file"`
+}
+
+type xmlRewriteFile struct {
+	Path    string   `xml:"path,attr"`
+	Matches int      `xml:"matches,attr"`
+	Diff    xmlCDATA `xml:"diff"`
+}
+
+func registerRewrite(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	outputDir := cfg.OutputDir
+
+	mcpserver.AddTool(server, &mcp.Tool{
+		Name: "rewrite",
+		Description: "Structural search-and-replace using AST patterns with $WILDCARDS. " +
+			"Finds code matching the pattern and generates unified diffs showing the transformation. " +
+			"Useful for codebase-wide refactoring: wrapping errors, updating API calls, " +
+			"migrating patterns, or enforcing coding conventions. " +
+			"Requires ox-codes backend and a language specification.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RewriteInput) (*mcp.CallToolResult, error) {
+		return handleRewrite(ctx, input, deps, outputDir)
+	})
+}
+
+func handleRewrite(ctx context.Context, input RewriteInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
+	if deps.OxCodes == nil {
+		return errResult("rewrite requires ox-codes backend (OX_CODES_URL not configured)"), nil
+	}
+	if input.Repo == "" {
+		return errResult("repo is required"), nil
+	}
+	if input.Pattern == "" {
+		return errResult("pattern is required"), nil
+	}
+	if input.Rewrite == "" {
+		return errResult("rewrite is required"), nil
+	}
+	if input.Language == "" {
+		return errResult("language is required"), nil
+	}
+
+	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
+	}
+	defer cleanup()
+
+	maxResults := input.MaxResults
+	if maxResults <= 0 {
+		maxResults = defaultMaxResults
+	}
+
+	result, err := deps.OxCodes.Rewrite(ctx, oxcodes.RewriteInput{
+		Root:        root,
+		Pattern:     input.Pattern,
+		Rewrite:     input.Rewrite,
+		Language:    input.Language,
+		MaxResults:  maxResults,
+		FileGlob:    input.FileGlob,
+		ExcludeGlob: input.ExcludeGlob,
+	})
+	if err != nil {
+		return errResult(fmt.Sprintf("rewrite: %s", err)), nil
+	}
+
+	return xmlMarshalResult(formatRewriteXML(input, result), "rewrite", outputDir), nil
+}
+
+func formatRewriteXML(input RewriteInput, result *oxcodes.RewriteResponse) xmlRewriteResponse {
+	files := make([]xmlRewriteFile, len(result.Files))
+	for i, f := range result.Files {
+		files[i] = xmlRewriteFile{
+			Path:    f.File,
+			Matches: f.Matches,
+			Diff:    xmlCDATA{Inner: wrapCDATA(f.Diff)},
+		}
+	}
+	return xmlRewriteResponse{
+		Rewrite: xmlRewriteSummary{
+			Pattern:      input.Pattern,
+			Replacement:  input.Rewrite,
+			TotalMatches: result.TotalMatches,
+			TotalFiles:   result.TotalFiles,
+			DurationMS:   result.DurationMS,
+			Files:        files,
+		},
+	}
+}
