@@ -104,6 +104,10 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	relEdges := buildRelationshipEdges(root, rels, symbols)
 	edges = append(edges, relEdges...)
 
+	// TESTED_BY edges (test Symbol → tested Symbol).
+	testedByEdges := ExtractTestedByEdges(root, symbols)
+	edges = append(edges, testedByEdges...)
+
 	// IMPORTS edges (File→Package) + external Package vertices.
 	impVertices, impEdges := buildImportsGraph(pkgDirs, fileImports)
 	vertices = append(vertices, impVertices...)
