@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/polyglot"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
@@ -174,16 +174,8 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname string) (*Grap
 }
 
 // relPath returns the path of abs relative to root.
-// If abs does not have root as prefix, it returns abs unchanged.
 func relPath(abs, root string) string {
-	if root == "" {
-		return abs
-	}
-	rel, err := filepath.Rel(root, abs)
-	if err != nil {
-		return abs
-	}
-	return rel
+	return langutil.RelPath(abs, root)
 }
 
 // maxRoleSampleBytes limits how much source code is read per file for role

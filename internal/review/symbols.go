@@ -1,9 +1,7 @@
 package review
 
 import (
-	"path/filepath"
-	"strings"
-
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -68,9 +66,5 @@ func overlaps(sym *parser.Symbol, ranges []LineRange) bool {
 }
 
 func relPath(absPath, root string) string {
-	rel, err := filepath.Rel(root, absPath)
-	if err != nil {
-		return strings.TrimPrefix(absPath, root+"/")
-	}
-	return rel
+	return langutil.RelPath(absPath, root)
 }

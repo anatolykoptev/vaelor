@@ -3,23 +3,13 @@ package compare
 import (
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 // isTestFile reports whether a file path looks like a test file.
 func isTestFile(path string) bool {
-	lower := strings.ToLower(path)
-	testSuffixes := []string{
-		"_test.go", "_test.py",
-		".test.ts", ".test.js",
-		".spec.ts", ".spec.js",
-	}
-	for _, suf := range testSuffixes {
-		if strings.HasSuffix(lower, suf) {
-			return true
-		}
-	}
-	return strings.Contains(lower, "/test/") || strings.Contains(lower, "/tests/")
+	return langutil.IsTestFile(path)
 }
 
 // isExternalImport reports whether an import path refers to an external module
@@ -32,7 +22,20 @@ func isExternalImport(importPath string) bool {
 	return strings.ContainsRune(first, '.')
 }
 
+// hasTestAttribute reports whether a symbol has a test-related attribute
+// (e.g. Rust's #[test] or #[cfg(test)]).
+func hasTestAttribute(sym *parser.Symbol) bool {
+	for _, attr := range sym.Attributes {
+		if strings.Contains(attr, "test") {
+			return true
+		}
+	}
+	return false
+}
+
 // collectTestFilePaths returns the set of unique test-file paths found in snap.Symbols.
+// Detects test files by filename pattern (Go, Python, JS/TS) and by symbol attributes
+// (Rust's #[test] and #[cfg(test)] inline test modules).
 func collectTestFilePaths(snap *RepoSnapshot) map[string]struct{} {
 	seen := make(map[string]struct{})
 	for _, sym := range snap.Symbols {
@@ -42,7 +45,7 @@ func collectTestFilePaths(snap *RepoSnapshot) map[string]struct{} {
 		if _, ok := seen[sym.File]; ok {
 			continue
 		}
-		if isTestFile(sym.File) {
+		if isTestFile(sym.File) || hasTestAttribute(sym) {
 			seen[sym.File] = struct{}{}
 		}
 	}
