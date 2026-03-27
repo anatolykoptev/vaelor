@@ -77,6 +77,11 @@ func parseManifestFile(path, root string, parser func([]byte) ManifestInfo) *Man
 
 	info := parser(data)
 
+	// For Cargo.toml, enrich dependency versions from Cargo.lock if present.
+	if filepath.Base(path) == "Cargo.toml" {
+		enrichFromCargoLock(path, info.Dependencies)
+	}
+
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		rel = path
@@ -84,6 +89,19 @@ func parseManifestFile(path, root string, parser func([]byte) ManifestInfo) *Man
 	info.ManifestPath = rel
 
 	return &info
+}
+
+// enrichFromCargoLock reads Cargo.lock from the same directory as Cargo.toml
+// and overwrites dependency versions with the resolved (exact) versions.
+func enrichFromCargoLock(cargoTomlPath string, deps []Dependency) {
+	lockPath := filepath.Join(filepath.Dir(cargoTomlPath), "Cargo.lock")
+	lockData, err := os.ReadFile(lockPath)
+	if err != nil {
+		// Cargo.lock may not exist (library crates often omit it); that's fine.
+		return
+	}
+	resolved := ParseCargoLock(lockData)
+	EnrichWithCargoLock(deps, resolved)
 }
 
 // CollectDeps flattens all dependencies from multiple manifests into a single slice.
