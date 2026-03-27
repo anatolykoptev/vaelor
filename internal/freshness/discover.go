@@ -92,17 +92,35 @@ func parseManifestFile(path, root string, parser func([]byte) ManifestInfo) *Man
 	return &info
 }
 
-// enrichFromCargoLock reads Cargo.lock from the same directory as Cargo.toml
-// and overwrites dependency versions with the resolved (exact) versions.
+// enrichFromCargoLock finds Cargo.lock by walking up from Cargo.toml directory
+// (Cargo workspaces place Cargo.lock at the workspace root, not next to members).
 func enrichFromCargoLock(cargoTomlPath string, deps []Dependency) {
-	lockPath := filepath.Join(filepath.Dir(cargoTomlPath), "Cargo.lock")
+	lockPath := findCargoLock(filepath.Dir(cargoTomlPath))
+	if lockPath == "" {
+		return
+	}
 	lockData, err := os.ReadFile(lockPath)
 	if err != nil {
-		// Cargo.lock may not exist (library crates often omit it); that's fine.
 		return
 	}
 	resolved := ParseCargoLock(lockData)
 	EnrichWithCargoLock(deps, resolved)
+}
+
+// findCargoLock walks up from dir looking for Cargo.lock (max 5 levels).
+func findCargoLock(dir string) string {
+	for range 5 {
+		p := filepath.Join(dir, "Cargo.lock")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // CollectDeps flattens all dependencies from multiple manifests into a single slice.
