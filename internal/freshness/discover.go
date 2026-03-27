@@ -12,6 +12,7 @@ var skipDirs = map[string]bool{
 	"node_modules": true,
 	".git":         true,
 	"testdata":     true,
+	"target":       true,
 }
 
 // manifestParsers maps manifest filenames to their parsers.
