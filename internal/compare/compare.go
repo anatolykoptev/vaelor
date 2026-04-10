@@ -241,28 +241,30 @@ type MatchBreakdown struct {
 
 // CompareResult contains the full structured output of a code comparison.
 type CompareResult struct {
-	RepoA          string             `json:"repo_a"`
-	RepoB          string             `json:"repo_b"`
-	Query          string             `json:"query"`
-	MetricsA       RepoMetrics        `json:"metrics_a"`
-	MetricsB       RepoMetrics        `json:"metrics_b"`
-	Analysis       LLMAnalysis        `json:"analysis"`
-	MatchedSymbols int                `json:"matched_symbols"`
-	UnmatchedA     int                `json:"unmatched_a"`
-	UnmatchedB     int                `json:"unmatched_b"`
-	MatchBreakdown MatchBreakdown     `json:"match_breakdown"`
-	ImportDiff     ImportDiff         `json:"import_diff"`
-	DiffStats      *DiffStats         `json:"diff_stats,omitempty"`
-	HotspotsA      []HotspotFile      `json:"hotspots_a,omitempty"`
-	HotspotsB      []HotspotFile      `json:"hotspots_b,omitempty"`
-	RelStatsA      *RelStats          `json:"rel_stats_a,omitempty"`
-	RelStatsB      *RelStats          `json:"rel_stats_b,omitempty"`
-	QualityA       *QualityIndicators `json:"quality_a,omitempty"`
-	QualityB       *QualityIndicators `json:"quality_b,omitempty"`
-	FreshnessA     *FreshnessStats    `json:"freshness_a,omitempty"`
-	FreshnessB     *FreshnessStats    `json:"freshness_b,omitempty"`
-	DataflowA      *DataflowStats     `json:"dataflow_a,omitempty"`
-	DataflowB      *DataflowStats     `json:"dataflow_b,omitempty"`
+	RepoA           string             `json:"repo_a"`
+	RepoB           string             `json:"repo_b"`
+	Query           string             `json:"query"`
+	MetricsA        RepoMetrics        `json:"metrics_a"`
+	MetricsB        RepoMetrics        `json:"metrics_b"`
+	Analysis        LLMAnalysis        `json:"analysis"`
+	MatchedSymbols  int                `json:"matched_symbols"`
+	UnmatchedA      int                `json:"unmatched_a"`
+	UnmatchedB      int                `json:"unmatched_b"`
+	MatchBreakdown  MatchBreakdown     `json:"match_breakdown"`
+	ImportDiff      ImportDiff         `json:"import_diff"`
+	DiffStats       *DiffStats         `json:"diff_stats,omitempty"`
+	HotspotsA       []HotspotFile      `json:"hotspots_a,omitempty"`
+	HotspotsB       []HotspotFile      `json:"hotspots_b,omitempty"`
+	RelStatsA       *RelStats          `json:"rel_stats_a,omitempty"`
+	RelStatsB       *RelStats          `json:"rel_stats_b,omitempty"`
+	QualityA        *QualityIndicators `json:"quality_a,omitempty"`
+	QualityB        *QualityIndicators `json:"quality_b,omitempty"`
+	FreshnessA      *FreshnessStats    `json:"freshness_a,omitempty"`
+	FreshnessB      *FreshnessStats    `json:"freshness_b,omitempty"`
+	DataflowA       *DataflowStats     `json:"dataflow_a,omitempty"`
+	DataflowB       *DataflowStats     `json:"dataflow_b,omitempty"`
+	APIDiffResult   *APIDiff           `json:"api_diff,omitempty"`
+	RouteDiffResult *RouteDiff         `json:"route_diff,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -393,28 +395,48 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		dwg.Wait()
 	}
 
+	// API surface diff.
+	apiSurfA := ExtractAPISurface(snapA.Symbols, snapA.Language)
+	apiSurfB := ExtractAPISurface(snapB.Symbols, snapB.Language)
+	var apiDiff *APIDiff
+	if len(apiSurfA) > 0 || len(apiSurfB) > 0 {
+		d := ComputeAPIDiff(apiSurfA, apiSurfB)
+		apiDiff = &d
+	}
+
+	// Route comparison (non-fatal).
+	routesA := ExtractRoutes(ctx, input.RootA, snapA)
+	routesB := ExtractRoutes(ctx, input.RootB, snapB)
+	var routeDiff *RouteDiff
+	if len(routesA) > 0 || len(routesB) > 0 {
+		d := ComputeRouteDiff(routesA, routesB)
+		routeDiff = &d
+	}
+
 	result := &CompareResult{
-		RepoA:          snapA.Name,
-		RepoB:          snapB.Name,
-		Query:          input.Query,
-		MetricsA:       metricsA,
-		MetricsB:       metricsB,
-		MatchedSymbols: matched,
-		UnmatchedA:     unmatchedA,
-		UnmatchedB:     unmatchedB,
-		MatchBreakdown: breakdown,
-		ImportDiff:     importDiff,
-		DiffStats:      diffStats,
-		HotspotsA:      hotspotsA,
-		HotspotsB:      hotspotsB,
-		RelStatsA:      relStatsA,
-		RelStatsB:      relStatsB,
-		QualityA:       qualityA,
-		QualityB:       qualityB,
-		FreshnessA:     freshnessA,
-		FreshnessB:     freshnessB,
-		DataflowA:      dataflowA,
-		DataflowB:      dataflowB,
+		RepoA:           snapA.Name,
+		RepoB:           snapB.Name,
+		Query:           input.Query,
+		MetricsA:        metricsA,
+		MetricsB:        metricsB,
+		MatchedSymbols:  matched,
+		UnmatchedA:      unmatchedA,
+		UnmatchedB:      unmatchedB,
+		MatchBreakdown:  breakdown,
+		ImportDiff:      importDiff,
+		DiffStats:       diffStats,
+		HotspotsA:       hotspotsA,
+		HotspotsB:       hotspotsB,
+		RelStatsA:       relStatsA,
+		RelStatsB:       relStatsB,
+		QualityA:        qualityA,
+		QualityB:        qualityB,
+		FreshnessA:      freshnessA,
+		FreshnessB:      freshnessB,
+		DataflowA:       dataflowA,
+		DataflowB:       dataflowB,
+		APIDiffResult:   apiDiff,
+		RouteDiffResult: routeDiff,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are
