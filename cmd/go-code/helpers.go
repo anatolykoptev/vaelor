@@ -80,6 +80,26 @@ func saveToFile(content, toolName, outputDir string) (string, bool) {
 	return path, true
 }
 
+// xmlMarshalFileResult marshals v as indented XML and always saves to file.
+// Falls back to inline when outputDir is empty.
+func xmlMarshalFileResult(v any, toolName, outputDir string) *mcp.CallToolResult {
+	data, err := xml.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err))
+	}
+	text := xml.Header + string(data)
+	if outputDir == "" {
+		return textResult(text)
+	}
+	path, ok := saveToFile(text, toolName, outputDir)
+	if !ok {
+		return textResult(text)
+	}
+	summary := fmt.Sprintf("%s: output %d chars saved to: %s\n\nUse Read tool to access the file.",
+		toolName, len(text), path)
+	return textResult(summary)
+}
+
 // xmlMarshalResult marshals v as indented XML and returns it via largeTextResult.
 func xmlMarshalResult(v any, toolName, outputDir string) *mcp.CallToolResult {
 	data, err := xml.MarshalIndent(v, "", "  ")

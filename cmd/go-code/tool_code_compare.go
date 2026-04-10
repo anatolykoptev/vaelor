@@ -263,7 +263,7 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("compare: %s", err)), nil
 		}
 
-		return xmlMarshalResult(buildCompareXML(result), "code_compare", outputDir), nil
+		return xmlMarshalFileResult(buildCompareXML(result), "code_compare", outputDir), nil
 	})
 }
 
