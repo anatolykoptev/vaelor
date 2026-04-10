@@ -152,6 +152,12 @@ func findFuzzy(target *parser.Symbol, candidates []*parser.Symbol, used []bool) 
 		if used[i] || c.Kind != target.Kind {
 			continue
 		}
+		// Pre-filter: skip if token overlap is too low.
+		if target.Body != "" && c.Body != "" {
+			if tokenOverlap(target.Body, c.Body) < overlapSkipThreshold {
+				continue
+			}
+		}
 		score := nameSimilarity(target.Name, c.Name)
 		if score >= fuzzyThreshold && score > bestScore {
 			bestScore = score
