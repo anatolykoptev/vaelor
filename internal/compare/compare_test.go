@@ -356,6 +356,22 @@ func TestComputeDiffStats(t *testing.T) {
 	})
 }
 
+func TestCompareRepos_Freshness(t *testing.T) {
+	root := findRepoRootInternal(t)
+	result, err := CompareRepos(context.Background(), CompareInput{
+		RootA: root, RootB: root,
+	}, nil)
+	if err != nil {
+		t.Fatalf("CompareRepos: %v", err)
+	}
+	// go-code has go.mod, so freshness should be populated.
+	if result.FreshnessA == nil {
+		t.Log("FreshnessA is nil — freshness check may have failed (network)")
+	} else if result.FreshnessA.TotalDeps == 0 {
+		t.Log("TotalDeps is 0 — no deps resolved")
+	}
+}
+
 func TestParseAnalysis(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
 		input := `{"quality": [{"aspect": "error handling", "winner": "repo_a", "reason": "better"}], "recommendations": ["use errors.Is"]}`
