@@ -92,9 +92,13 @@ func apiKey(s APISymbol) string {
 	return s.Name + "\x00" + s.Kind
 }
 
+// maxAPIDiffItems limits the number of symbols in onlyA/onlyB/changed lists
+// to keep XML output reasonable.
+const maxAPIDiffItems = 50
+
 // ComputeAPIDiff compares two API surfaces and returns a structured diff.
 // Symbols are matched by (name, kind) key. Matched symbols with different
-// signatures are counted as changed.
+// signatures are counted as changed. Lists are truncated to maxAPIDiffItems.
 func ComputeAPIDiff(a, b []APISymbol) APIDiff {
 	indexA := make(map[string]APISymbol, len(a))
 	for _, sym := range a {
@@ -132,6 +136,17 @@ func ComputeAPIDiff(a, b []APISymbol) APIDiff {
 			diff.OnlyB = append(diff.OnlyB, symB)
 			diff.OnlyBCount++
 		}
+	}
+
+	// Truncate detail lists to keep output size reasonable.
+	if len(diff.OnlyA) > maxAPIDiffItems {
+		diff.OnlyA = diff.OnlyA[:maxAPIDiffItems]
+	}
+	if len(diff.OnlyB) > maxAPIDiffItems {
+		diff.OnlyB = diff.OnlyB[:maxAPIDiffItems]
+	}
+	if len(diff.Changed) > maxAPIDiffItems {
+		diff.Changed = diff.Changed[:maxAPIDiffItems]
 	}
 
 	return diff

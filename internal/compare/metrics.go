@@ -38,7 +38,7 @@ func collectFreshness(ctx context.Context, root string) (*FreshnessStats, float6
 		return nil, 0, 0
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	stats := &FreshnessStats{}
 
 	reg := freshness.NewMultiRegistry(client)
