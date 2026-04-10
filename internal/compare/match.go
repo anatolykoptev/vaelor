@@ -77,8 +77,12 @@ func matchExact(a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol,
 		if idx >= 0 {
 			usedB[idx] = true
 			mt := MatchExact
-			if symA.BodyHash != 0 && b[idx].BodyHash != 0 && symA.BodyHash != b[idx].BodyHash {
-				mt = MatchModified
+			if symA.BodyHash != 0 && b[idx].BodyHash != 0 {
+				if symA.BodyHash != b[idx].BodyHash {
+					mt = MatchModified
+				} else if symA.File != b[idx].File {
+					mt = MatchMoved
+				}
 			}
 			matches = append(matches, SymbolMatch{
 				SymbolA:   symA,

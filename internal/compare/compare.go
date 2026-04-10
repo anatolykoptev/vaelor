@@ -12,12 +12,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
 )
+
+// qualityTimeout limits how long ox-codes quality checks can run.
+// Quality indicators are informational — they must never block core comparison.
+const qualityTimeout = 10 * time.Second
 
 // MatchType describes how two symbols were matched.
 type MatchType string
@@ -37,6 +42,10 @@ const (
 
 	// MatchSemantic means the symbols serve the same purpose (LLM-determined).
 	MatchSemantic MatchType = "semantic"
+
+	// MatchMoved means the symbol has the same name, kind, and body but resides
+	// in a different file or package. Indicates code reorganization without logic change.
+	MatchMoved MatchType = "moved"
 
 	// MatchGap means the symbol has no counterpart in the other repository.
 	MatchGap MatchType = "gap"
@@ -216,7 +225,7 @@ type ArchitectureInsight struct {
 type LLMAnalysis struct {
 	Quality         []QualityAspect       `json:"quality"`
 	Gaps            []CoverageGap         `json:"gaps"`
-	Architecture    []ArchitectureInsight  `json:"architecture"`
+	Architecture    []ArchitectureInsight `json:"architecture"`
 	Recommendations []string              `json:"recommendations"`
 }
 
@@ -227,28 +236,29 @@ type MatchBreakdown struct {
 	Fuzzy    int `json:"fuzzy"`
 	Renamed  int `json:"renamed"`
 	Semantic int `json:"semantic"`
+	Moved    int `json:"moved"`
 }
 
 // CompareResult contains the full structured output of a code comparison.
 type CompareResult struct {
-	RepoA          string      `json:"repo_a"`
-	RepoB          string      `json:"repo_b"`
-	Query          string      `json:"query"`
-	MetricsA       RepoMetrics `json:"metrics_a"`
-	MetricsB       RepoMetrics `json:"metrics_b"`
-	Analysis       LLMAnalysis `json:"analysis"`
-	MatchedSymbols int            `json:"matched_symbols"`
-	UnmatchedA     int            `json:"unmatched_a"`
-	UnmatchedB     int            `json:"unmatched_b"`
-	MatchBreakdown MatchBreakdown `json:"match_breakdown"`
-	ImportDiff     ImportDiff     `json:"import_diff"`
-	DiffStats      *DiffStats     `json:"diff_stats,omitempty"`
-	HotspotsA     []HotspotFile  `json:"hotspots_a,omitempty"`
-	HotspotsB     []HotspotFile  `json:"hotspots_b,omitempty"`
-	RelStatsA     *RelStats      `json:"rel_stats_a,omitempty"`
-	RelStatsB     *RelStats      `json:"rel_stats_b,omitempty"`
-	QualityA      *QualityIndicators `json:"quality_a,omitempty"`
-	QualityB      *QualityIndicators `json:"quality_b,omitempty"`
+	RepoA          string             `json:"repo_a"`
+	RepoB          string             `json:"repo_b"`
+	Query          string             `json:"query"`
+	MetricsA       RepoMetrics        `json:"metrics_a"`
+	MetricsB       RepoMetrics        `json:"metrics_b"`
+	Analysis       LLMAnalysis        `json:"analysis"`
+	MatchedSymbols int                `json:"matched_symbols"`
+	UnmatchedA     int                `json:"unmatched_a"`
+	UnmatchedB     int                `json:"unmatched_b"`
+	MatchBreakdown MatchBreakdown     `json:"match_breakdown"`
+	ImportDiff     ImportDiff         `json:"import_diff"`
+	DiffStats      *DiffStats         `json:"diff_stats,omitempty"`
+	HotspotsA      []HotspotFile      `json:"hotspots_a,omitempty"`
+	HotspotsB      []HotspotFile      `json:"hotspots_b,omitempty"`
+	RelStatsA      *RelStats          `json:"rel_stats_a,omitempty"`
+	RelStatsB      *RelStats          `json:"rel_stats_b,omitempty"`
+	QualityA       *QualityIndicators `json:"quality_a,omitempty"`
+	QualityB       *QualityIndicators `json:"quality_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -312,18 +322,21 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 
 	diffStats := computeDiffStats(matches)
 
-	// Gather quality indicators via ox-codes (non-fatal, parallel).
+	// Gather quality indicators via ox-codes (non-fatal, parallel, short timeout).
 	var qualityA, qualityB *QualityIndicators
 	if input.OxCodes != nil {
+		qctx, qcancel := context.WithTimeout(ctx, qualityTimeout)
+		defer qcancel()
+
 		var qwg sync.WaitGroup
 		qwg.Add(2)
 		go func() {
 			defer qwg.Done()
-			qualityA = GatherQualityIndicators(ctx, input.OxCodes, input.RootA, snapA.Language)
+			qualityA = GatherQualityIndicators(qctx, input.OxCodes, input.RootA, snapA.Language)
 		}()
 		go func() {
 			defer qwg.Done()
-			qualityB = GatherQualityIndicators(ctx, input.OxCodes, input.RootB, snapB.Language)
+			qualityB = GatherQualityIndicators(qctx, input.OxCodes, input.RootB, snapB.Language)
 		}()
 		qwg.Wait()
 	}
@@ -340,12 +353,12 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		MatchBreakdown: breakdown,
 		ImportDiff:     importDiff,
 		DiffStats:      diffStats,
-		HotspotsA:     hotspotsA,
-		HotspotsB:     hotspotsB,
-		RelStatsA:     relStatsA,
-		RelStatsB:     relStatsB,
-		QualityA:      qualityA,
-		QualityB:      qualityB,
+		HotspotsA:      hotspotsA,
+		HotspotsB:      hotspotsB,
+		RelStatsA:      relStatsA,
+		RelStatsB:      relStatsB,
+		QualityA:       qualityA,
+		QualityB:       qualityB,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are
@@ -381,6 +394,8 @@ func countMatches(matches []SymbolMatch) (matched, unmatchedA, unmatchedB int, b
 				breakdown.Renamed++
 			case MatchSemantic:
 				breakdown.Semantic++
+			case MatchMoved:
+				breakdown.Moved++
 			}
 		}
 	}
