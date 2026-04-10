@@ -17,7 +17,7 @@ type QualityIndicators struct {
 
 // GatherQualityIndicators runs ox-codes scoped searches to assess code quality.
 func GatherQualityIndicators(ctx context.Context, client *oxcodes.Client, root, language string) *QualityIndicators {
-	if client == nil {
+	if client == nil || language == "" {
 		return nil
 	}
 

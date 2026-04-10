@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -106,6 +109,14 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	}
 	defer cleanup()
 
+	// Auto-detect language from repo when not specified.
+	if input.Language == "" {
+		input.Language = detectDominantLanguage(root)
+		if input.Language != "" {
+			slog.Debug("dataflow: auto-detected language", "lang", input.Language)
+		}
+	}
+
 	resp := xmlDataflowResponse{
 		Dataflow: xmlDataflow{
 			Repo:     input.Repo,
@@ -194,4 +205,29 @@ func runQualityAnalysis(ctx context.Context, client *oxcodes.Client, root string
 		filesAnalyzed: result.FilesAnalyzed,
 		durationMS:    result.DurationMS,
 	}, nil
+}
+
+// detectDominantLanguage walks root and returns the most common programming language
+// detected from file extensions. Returns "" if the root cannot be walked or no
+// recognised source files are found.
+func detectDominantLanguage(root string) string {
+	counts := make(map[string]int)
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if lang := ingest.DetectLanguage(path); lang != "" {
+			counts[lang]++
+		}
+		return nil
+	})
+	best := ""
+	bestCount := 0
+	for lang, count := range counts {
+		if count > bestCount {
+			bestCount = count
+			best = lang
+		}
+	}
+	return best
 }
