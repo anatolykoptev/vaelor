@@ -17,24 +17,30 @@ type xmlCompareResponse struct {
 }
 
 type xmlCompare struct {
-	RepoA          string              `xml:"repoA,attr"`
-	RepoB          string              `xml:"repoB,attr"`
-	Query          string              `xml:"query,attr"`
-	MatchedSymbols int                 `xml:"matchedSymbols,attr"`
-	UnmatchedA     int                 `xml:"unmatchedA,attr"`
-	UnmatchedB     int                 `xml:"unmatchedB,attr"`
-	MetricsA       xmlCompMetrics      `xml:"metricsA"`
-	MetricsB       xmlCompMetrics      `xml:"metricsB"`
-	MatchBreakdown xmlMatchBreak       `xml:"matchBreakdown"`
-	ImportDiff     xmlImportDiff       `xml:"importDiff"`
-	DiffStats      *xmlDiffStats       `xml:"diffStats,omitempty"`
-	Analysis       xmlAnalysis         `xml:"analysis"`
-	HotspotsA      *xmlHotspots        `xml:"hotspotsA,omitempty"`
-	HotspotsB      *xmlHotspots        `xml:"hotspotsB,omitempty"`
-	RelStatsA      *xmlRelStats        `xml:"relStatsA,omitempty"`
-	RelStatsB      *xmlRelStats        `xml:"relStatsB,omitempty"`
+	RepoA          string                `xml:"repoA,attr"`
+	RepoB          string                `xml:"repoB,attr"`
+	Query          string                `xml:"query,attr"`
+	MatchedSymbols int                   `xml:"matchedSymbols,attr"`
+	UnmatchedA     int                   `xml:"unmatchedA,attr"`
+	UnmatchedB     int                   `xml:"unmatchedB,attr"`
+	MetricsA       xmlCompMetrics        `xml:"metricsA"`
+	MetricsB       xmlCompMetrics        `xml:"metricsB"`
+	MatchBreakdown xmlMatchBreak         `xml:"matchBreakdown"`
+	ImportDiff     xmlImportDiff         `xml:"importDiff"`
+	DiffStats      *xmlDiffStats         `xml:"diffStats,omitempty"`
+	Analysis       xmlAnalysis           `xml:"analysis"`
+	HotspotsA      *xmlHotspots          `xml:"hotspotsA,omitempty"`
+	HotspotsB      *xmlHotspots          `xml:"hotspotsB,omitempty"`
+	RelStatsA      *xmlRelStats          `xml:"relStatsA,omitempty"`
+	RelStatsB      *xmlRelStats          `xml:"relStatsB,omitempty"`
 	QualityA       *xmlQualityIndicators `xml:"qualityA,omitempty"`
 	QualityB       *xmlQualityIndicators `xml:"qualityB,omitempty"`
+	FreshnessA     *xmlFreshness         `xml:"freshnessA,omitempty"`
+	FreshnessB     *xmlFreshness         `xml:"freshnessB,omitempty"`
+	DataflowA      *xmlCompareDataflow   `xml:"dataflowA,omitempty"`
+	DataflowB      *xmlCompareDataflow   `xml:"dataflowB,omitempty"`
+	APIDiff        *xmlAPIDiff           `xml:"apiDiff,omitempty"`
+	RouteDiff      *xmlRouteDiff         `xml:"routeDiff,omitempty"`
 }
 
 type xmlQualityIndicators struct {
@@ -77,6 +83,60 @@ type xmlMatchBreak struct {
 	Fuzzy    int `xml:"fuzzy,attr"`
 	Renamed  int `xml:"renamed,attr"`
 	Semantic int `xml:"semantic,attr"`
+	Moved    int `xml:"moved,attr"`
+}
+
+type xmlFreshness struct {
+	DepRatio   float64 `xml:"depRatio,attr"`
+	VulnRatio  float64 `xml:"vulnRatio,attr"`
+	TotalDeps  int     `xml:"totalDeps,attr"`
+	Outdated   int     `xml:"outdated,attr"`
+	Vulnerable int     `xml:"vulnerable,attr"`
+}
+
+type xmlCompareDataflow struct {
+	DeadStores    int `xml:"deadStores,attr"`
+	UnusedVars    int `xml:"unusedVars,attr"`
+	TotalFindings int `xml:"totalFindings,attr"`
+	FilesAnalyzed int `xml:"filesAnalyzed,attr"`
+}
+
+type xmlAPIDiff struct {
+	Common     int            `xml:"common,attr"`
+	OnlyACount int            `xml:"onlyACount,attr"`
+	OnlyBCount int            `xml:"onlyBCount,attr"`
+	ChangedSig int            `xml:"changedSig,attr"`
+	OnlyA      []xmlAPISymbol `xml:"onlyA>sym,omitempty"`
+	OnlyB      []xmlAPISymbol `xml:"onlyB>sym,omitempty"`
+	Changed    []xmlAPIDelta  `xml:"changed>delta,omitempty"`
+}
+
+type xmlAPISymbol struct {
+	Name      string `xml:"name,attr"`
+	Kind      string `xml:"kind,attr"`
+	Signature string `xml:"sig,attr"`
+	Package   string `xml:"pkg,attr"`
+}
+
+type xmlAPIDelta struct {
+	Name string `xml:"name,attr"`
+	Kind string `xml:"kind,attr"`
+	SigA string `xml:"sigA,attr"`
+	SigB string `xml:"sigB,attr"`
+}
+
+type xmlRouteDiff struct {
+	Common     int        `xml:"common,attr"`
+	OnlyACount int        `xml:"onlyACount,attr"`
+	OnlyBCount int        `xml:"onlyBCount,attr"`
+	OnlyA      []xmlRoute `xml:"onlyA>route,omitempty"`
+	OnlyB      []xmlRoute `xml:"onlyB>route,omitempty"`
+}
+
+type xmlRoute struct {
+	Method  string `xml:"method,attr"`
+	Path    string `xml:"path,attr"`
+	Handler string `xml:"handler,attr"`
 }
 
 type xmlImportDiff struct {
@@ -224,6 +284,7 @@ func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 				Fuzzy:    r.MatchBreakdown.Fuzzy,
 				Renamed:  r.MatchBreakdown.Renamed,
 				Semantic: r.MatchBreakdown.Semantic,
+				Moved:    r.MatchBreakdown.Moved,
 			},
 			ImportDiff: xmlImportDiff{
 				CommonCount: r.ImportDiff.CommonCount,
@@ -284,8 +345,68 @@ func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 			PanicCount: r.QualityB.PanicCount, MagicNumbers: r.QualityB.MagicNumbers,
 		}
 	}
+	if r.FreshnessA != nil {
+		resp.Compare.FreshnessA = &xmlFreshness{
+			DepRatio: r.FreshnessA.DepFreshnessRatio, VulnRatio: r.FreshnessA.VulnSecurityRatio,
+			TotalDeps: r.FreshnessA.TotalDeps, Outdated: r.FreshnessA.OutdatedDeps, Vulnerable: r.FreshnessA.VulnDeps,
+		}
+	}
+	if r.FreshnessB != nil {
+		resp.Compare.FreshnessB = &xmlFreshness{
+			DepRatio: r.FreshnessB.DepFreshnessRatio, VulnRatio: r.FreshnessB.VulnSecurityRatio,
+			TotalDeps: r.FreshnessB.TotalDeps, Outdated: r.FreshnessB.OutdatedDeps, Vulnerable: r.FreshnessB.VulnDeps,
+		}
+	}
+	if r.DataflowA != nil {
+		resp.Compare.DataflowA = &xmlCompareDataflow{
+			DeadStores: r.DataflowA.DeadStores, UnusedVars: r.DataflowA.UnusedVars,
+			TotalFindings: r.DataflowA.TotalFindings, FilesAnalyzed: r.DataflowA.FilesAnalyzed,
+		}
+	}
+	if r.DataflowB != nil {
+		resp.Compare.DataflowB = &xmlCompareDataflow{
+			DeadStores: r.DataflowB.DeadStores, UnusedVars: r.DataflowB.UnusedVars,
+			TotalFindings: r.DataflowB.TotalFindings, FilesAnalyzed: r.DataflowB.FilesAnalyzed,
+		}
+	}
+	if r.APIDiffResult != nil {
+		resp.Compare.APIDiff = convertAPIDiff(r.APIDiffResult)
+	}
+	if r.RouteDiffResult != nil {
+		resp.Compare.RouteDiff = convertRouteDiff(r.RouteDiffResult)
+	}
 
 	return resp
+}
+
+func convertAPIDiff(d *compare.APIDiff) *xmlAPIDiff {
+	x := &xmlAPIDiff{
+		Common: d.Common, OnlyACount: d.OnlyACount,
+		OnlyBCount: d.OnlyBCount, ChangedSig: d.ChangedSig,
+	}
+	for _, s := range d.OnlyA {
+		x.OnlyA = append(x.OnlyA, xmlAPISymbol{Name: s.Name, Kind: s.Kind, Signature: s.Signature, Package: s.Package})
+	}
+	for _, s := range d.OnlyB {
+		x.OnlyB = append(x.OnlyB, xmlAPISymbol{Name: s.Name, Kind: s.Kind, Signature: s.Signature, Package: s.Package})
+	}
+	for _, c := range d.Changed {
+		x.Changed = append(x.Changed, xmlAPIDelta{Name: c.Name, Kind: c.Kind, SigA: c.SigA, SigB: c.SigB})
+	}
+	return x
+}
+
+func convertRouteDiff(d *compare.RouteDiff) *xmlRouteDiff {
+	x := &xmlRouteDiff{
+		Common: d.Common, OnlyACount: d.OnlyACount, OnlyBCount: d.OnlyBCount,
+	}
+	for _, r := range d.OnlyA {
+		x.OnlyA = append(x.OnlyA, xmlRoute{Method: r.Method, Path: r.Path, Handler: r.Handler})
+	}
+	for _, r := range d.OnlyB {
+		x.OnlyB = append(x.OnlyB, xmlRoute{Method: r.Method, Path: r.Path, Handler: r.Handler})
+	}
+	return x
 }
 
 func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
@@ -295,7 +416,7 @@ func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
 		AvgComplexity: m.AvgComplexity, MaxComplexity: m.MaxComplexity,
 		TestRatio: m.TestRatio, DocRatio: m.DocRatio,
 		ErrorHandlingRatio: m.ErrorHandlingRatio,
-		Interfaces: m.Interfaces, ExternalDeps: m.ExternalDeps,
+		Interfaces:         m.Interfaces, ExternalDeps: m.ExternalDeps,
 		Grade: m.Grade,
 
 		AvgCognitiveComplexity: m.AvgCognitiveComplexity,
