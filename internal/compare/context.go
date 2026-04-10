@@ -10,10 +10,10 @@ import (
 
 // Budget constants for LLM context size limits.
 const (
-	maxContextChars = 180_000
-	maxSnippetChars = 3_000
-	maxMatchedPairs = 80
-	maxGapSymbols   = 40
+	maxContextChars = 80_000
+	maxSnippetChars = 1_500
+	maxMatchedPairs = 40
+	maxGapSymbols   = 20
 )
 
 // Match priority levels for sorting symbol matches in LLM context.
