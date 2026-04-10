@@ -3,6 +3,7 @@ package compare
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 )
@@ -16,46 +17,94 @@ type QualityIndicators struct {
 }
 
 // GatherQualityIndicators runs ox-codes scoped searches to assess code quality.
+// All searches run in parallel for speed.
 func GatherQualityIndicators(ctx context.Context, client *oxcodes.Client, root, language string) *QualityIndicators {
 	if client == nil || language == "" {
 		return nil
 	}
 
 	qi := &QualityIndicators{}
+	var wg sync.WaitGroup
+
+	wg.Add(4)
 
 	// TODO/FIXME count
-	if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
-		Root: root, Pattern: "TODO|FIXME", Scope: "comments",
-		Language: language, IsRegex: true, MaxResults: 200, CaseSensitive: false,
-	}); err == nil {
-		qi.TodoCount = result.TotalMatches
-	} else {
-		slog.Warn("compare: ox-codes TODO check failed", "err", err)
-	}
+	go func() {
+		defer wg.Done()
+		if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
+			Root: root, Pattern: "TODO|FIXME", Scope: "comments",
+			Language: language, IsRegex: true, MaxResults: 200, CaseSensitive: false,
+		}); err == nil {
+			qi.TodoCount = result.TotalMatches
+		} else {
+			slog.Warn("compare: ox-codes TODO check failed", "err", err)
+		}
+	}()
 
 	// Unhandled errors
-	if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
-		Root: root, Pattern: `_ =`, Scope: "function_bodies",
-		Language: language, MaxResults: 200, CaseSensitive: true,
-	}); err == nil {
-		qi.ErrorPatterns = result.TotalMatches
-	}
+	go func() {
+		defer wg.Done()
+		if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
+			Root: root, Pattern: `_ =`, Scope: "function_bodies",
+			Language: language, MaxResults: 200, CaseSensitive: true,
+		}); err == nil {
+			qi.ErrorPatterns = result.TotalMatches
+		}
+	}()
 
 	// Panic calls
-	if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
-		Root: root, Pattern: `panic(`, Scope: "function_bodies",
-		Language: language, MaxResults: 200, CaseSensitive: true,
-	}); err == nil {
-		qi.PanicCount = result.TotalMatches
-	}
+	go func() {
+		defer wg.Done()
+		if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
+			Root: root, Pattern: `panic(`, Scope: "function_bodies",
+			Language: language, MaxResults: 200, CaseSensitive: true,
+		}); err == nil {
+			qi.PanicCount = result.TotalMatches
+		}
+	}()
 
 	// Magic numbers
-	if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
-		Root: root, Pattern: `\b[2-9]\d{2,}\b`, Scope: "function_bodies",
-		Language: language, IsRegex: true, MaxResults: 200, CaseSensitive: true,
-	}); err == nil {
-		qi.MagicNumbers = result.TotalMatches
+	go func() {
+		defer wg.Done()
+		if result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
+			Root: root, Pattern: `\b[2-9]\d{2,}\b`, Scope: "function_bodies",
+			Language: language, IsRegex: true, MaxResults: 200, CaseSensitive: true,
+		}); err == nil {
+			qi.MagicNumbers = result.TotalMatches
+		}
+	}()
+
+	wg.Wait()
+	return qi
+}
+
+// GatherDataflow runs ox-codes dataflow analysis on a repo.
+func GatherDataflow(ctx context.Context, client *oxcodes.Client, root, language string) *DataflowStats {
+	if client == nil || language == "" {
+		return nil
 	}
 
-	return qi
+	result, err := client.DataflowAnalyze(ctx, oxcodes.DataflowInput{
+		Root:       root,
+		Language:   language,
+		MaxResults: 500,
+	})
+	if err != nil {
+		slog.Warn("compare: ox-codes dataflow failed", "err", err)
+		return nil
+	}
+
+	stats := &DataflowStats{
+		TotalFindings: result.TotalFindings,
+		FilesAnalyzed: result.FilesAnalyzed,
+	}
+	for _, f := range result.Findings {
+		switch f.Kind {
+		case "dead_store":
+			stats.DeadStores++
+		case "unused_variable":
+			stats.UnusedVars++
+		}
+	}
+	return stats
 }
