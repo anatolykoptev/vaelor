@@ -209,6 +209,26 @@ func TestBuildCompareContext_IncludesDiffSummary(t *testing.T) {
 	}
 }
 
+func TestMatchPriorityWeighted(t *testing.T) {
+	hotspotFiles := map[string]bool{"critical.go": true}
+
+	normal := &SymbolMatch{
+		MatchType: MatchModified,
+		SymbolA:   makeSymbol("normal", "function", "normal.go", ""),
+	}
+	hotspot := &SymbolMatch{
+		MatchType: MatchModified,
+		SymbolA:   makeSymbol("critical", "function", "critical.go", ""),
+	}
+
+	pNormal := matchPriorityWeighted(normal, hotspotFiles)
+	pHotspot := matchPriorityWeighted(hotspot, hotspotFiles)
+
+	if pHotspot >= pNormal {
+		t.Errorf("hotspot should have lower (better) priority: hotspot=%d normal=%d", pHotspot, pNormal)
+	}
+}
+
 func TestBuildCompareContextBudget(t *testing.T) {
 	// Each symbol body is ~20K chars — well above maxSnippetChars (3000).
 	largeBody := strings.Repeat("x", 20_000)

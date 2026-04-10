@@ -90,7 +90,15 @@ func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics
 		}
 	}
 
-	writeMatchedPairs(&sb, matches)
+	hsFiles := make(map[string]bool)
+	for _, h := range hotspotsA {
+		hsFiles[h.File] = true
+	}
+	for _, h := range hotspotsB {
+		hsFiles[h.File] = true
+	}
+
+	writeMatchedPairs(&sb, matches, hsFiles)
 	if sb.Len() >= maxContextChars {
 		return sb.String()
 	}
@@ -118,6 +126,19 @@ func writeMetrics(sb *strings.Builder, metricsA, metricsB RepoMetrics) {
 	sb.WriteString("\n\n")
 }
 
+// hotspotBoost is subtracted from priority for symbols in hotspot files.
+const hotspotBoost = 10
+
+// matchPriorityWeighted returns priority adjusted by hotspot membership.
+// Lower = higher priority.
+func matchPriorityWeighted(m *SymbolMatch, hotspotFiles map[string]bool) int {
+	p := matchPriority(m)
+	if m.SymbolA != nil && hotspotFiles[m.SymbolA.File] {
+		p -= hotspotBoost
+	}
+	return p
+}
+
 // matchPriority returns a sort key for symbol matches. Lower = higher priority.
 // Modified/renamed/fuzzy matches are more interesting than identical exact matches.
 func matchPriority(m *SymbolMatch) int {
@@ -137,8 +158,13 @@ func matchPriority(m *SymbolMatch) int {
 	}
 }
 
-func writeMatchedPairs(sb *strings.Builder, matches []SymbolMatch) {
+func writeMatchedPairs(sb *strings.Builder, matches []SymbolMatch, hotspotFiles ...map[string]bool) {
 	sb.WriteString("## Matched Symbols (side-by-side)\n\n")
+
+	var hsFiles map[string]bool
+	if len(hotspotFiles) > 0 {
+		hsFiles = hotspotFiles[0]
+	}
 
 	type indexedMatch struct {
 		idx      int
@@ -147,7 +173,11 @@ func writeMatchedPairs(sb *strings.Builder, matches []SymbolMatch) {
 	var pairs []indexedMatch
 	for i := range matches {
 		if !matches[i].IsGap() {
-			pairs = append(pairs, indexedMatch{idx: i, priority: matchPriority(&matches[i])})
+			p := matchPriority(&matches[i])
+			if hsFiles != nil {
+				p = matchPriorityWeighted(&matches[i], hsFiles)
+			}
+			pairs = append(pairs, indexedMatch{idx: i, priority: p})
 		}
 	}
 	sort.Slice(pairs, func(i, j int) bool {
@@ -168,8 +198,13 @@ func writeMatchedPairs(sb *strings.Builder, matches []SymbolMatch) {
 }
 
 func writePair(sb *strings.Builder, m *SymbolMatch) {
-	fmt.Fprintf(sb, "### %s `%s` (match: %s, score: %.2f, category: %s)\n\n",
+	label := fmt.Sprintf("### %s `%s` (match: %s, score: %.2f, category: %s)",
 		m.SymbolA.Kind, m.SymbolA.Name, m.MatchType, m.Score, m.Category)
+	if m.Diff != nil && m.Diff.TotalChanges > 0 {
+		label += fmt.Sprintf(" [+%d -%d ~%d]", m.Diff.Inserts, m.Diff.Deletes, m.Diff.Updates)
+	}
+	sb.WriteString(label)
+	sb.WriteString("\n\n")
 
 	sb.WriteString("**Repo A** (`")
 	sb.WriteString(m.SymbolA.File)
