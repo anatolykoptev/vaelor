@@ -261,6 +261,8 @@ type CompareResult struct {
 	QualityB       *QualityIndicators `json:"quality_b,omitempty"`
 	FreshnessA     *FreshnessStats    `json:"freshness_a,omitempty"`
 	FreshnessB     *FreshnessStats    `json:"freshness_b,omitempty"`
+	DataflowA      *DataflowStats     `json:"dataflow_a,omitempty"`
+	DataflowB      *DataflowStats     `json:"dataflow_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -372,6 +374,25 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		fwg.Wait()
 	}
 
+	// Dataflow analysis (non-fatal, parallel, short timeout).
+	var dataflowA, dataflowB *DataflowStats
+	if input.OxCodes != nil {
+		dctx, dcancel := context.WithTimeout(ctx, qualityTimeout)
+		defer dcancel()
+
+		var dwg sync.WaitGroup
+		dwg.Add(2)
+		go func() {
+			defer dwg.Done()
+			dataflowA = GatherDataflow(dctx, input.OxCodes, input.RootA, snapA.Language)
+		}()
+		go func() {
+			defer dwg.Done()
+			dataflowB = GatherDataflow(dctx, input.OxCodes, input.RootB, snapB.Language)
+		}()
+		dwg.Wait()
+	}
+
 	result := &CompareResult{
 		RepoA:          snapA.Name,
 		RepoB:          snapB.Name,
@@ -392,6 +413,8 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		QualityB:       qualityB,
 		FreshnessA:     freshnessA,
 		FreshnessB:     freshnessB,
+		DataflowA:      dataflowA,
+		DataflowB:      dataflowB,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are

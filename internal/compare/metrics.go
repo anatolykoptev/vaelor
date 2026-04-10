@@ -17,6 +17,14 @@ type FreshnessStats struct {
 	VulnDeps          int     `json:"vulnDeps"`
 }
 
+// DataflowStats holds dead code and data flow findings from ox-codes.
+type DataflowStats struct {
+	DeadStores    int `json:"deadStores"`
+	UnusedVars    int `json:"unusedVars"`
+	TotalFindings int `json:"totalFindings"`
+	FilesAnalyzed int `json:"filesAnalyzed"`
+}
+
 // collectFreshness checks dependency freshness and vulnerabilities for a repo.
 // Returns nil if no manifests found. depRatio and vulnRatio contain the ratios.
 func collectFreshness(ctx context.Context, root string) (*FreshnessStats, float64, float64) {
