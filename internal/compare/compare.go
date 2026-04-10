@@ -259,6 +259,8 @@ type CompareResult struct {
 	RelStatsB      *RelStats          `json:"rel_stats_b,omitempty"`
 	QualityA       *QualityIndicators `json:"quality_a,omitempty"`
 	QualityB       *QualityIndicators `json:"quality_b,omitempty"`
+	FreshnessA     *FreshnessStats    `json:"freshness_a,omitempty"`
+	FreshnessB     *FreshnessStats    `json:"freshness_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -341,6 +343,35 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		qwg.Wait()
 	}
 
+	// Dependency freshness & CVE checks (non-fatal, parallel, short timeout).
+	var freshnessA, freshnessB *FreshnessStats
+	{
+		fctx, fcancel := context.WithTimeout(ctx, qualityTimeout)
+		defer fcancel()
+
+		var fwg sync.WaitGroup
+		fwg.Add(2)
+		go func() {
+			defer fwg.Done()
+			fs, depRatio, vulnRatio := collectFreshness(fctx, input.RootA)
+			freshnessA = fs
+			if fs != nil {
+				metricsA.DepFreshnessRatio = depRatio
+				metricsA.VulnSecurityRatio = vulnRatio
+			}
+		}()
+		go func() {
+			defer fwg.Done()
+			fs, depRatio, vulnRatio := collectFreshness(fctx, input.RootB)
+			freshnessB = fs
+			if fs != nil {
+				metricsB.DepFreshnessRatio = depRatio
+				metricsB.VulnSecurityRatio = vulnRatio
+			}
+		}()
+		fwg.Wait()
+	}
+
 	result := &CompareResult{
 		RepoA:          snapA.Name,
 		RepoB:          snapB.Name,
@@ -359,6 +390,8 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		RelStatsB:      relStatsB,
 		QualityA:       qualityA,
 		QualityB:       qualityB,
+		FreshnessA:     freshnessA,
+		FreshnessB:     freshnessB,
 	}
 
 	// LLM analysis (optional). Errors are non-fatal — structural results are
