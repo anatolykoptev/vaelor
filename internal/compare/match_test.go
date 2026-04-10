@@ -233,6 +233,46 @@ func TestMatchSignature_DifferentSignature_NoMatch(t *testing.T) {
 	}
 }
 
+// TestMatchSymbols_Moved verifies that a symbol with the same name, kind, and
+// body hash but different file path is classified as MatchMoved.
+func TestMatchSymbols_Moved(t *testing.T) {
+	a := []*parser.Symbol{
+		{Name: "HandleAuth", Kind: "function", File: "pkg/auth/handler.go",
+			Signature: "func HandleAuth()", BodyHash: 12345},
+	}
+	b := []*parser.Symbol{
+		{Name: "HandleAuth", Kind: "function", File: "internal/auth/handler.go",
+			Signature: "func HandleAuth()", BodyHash: 12345},
+	}
+	matches := MatchSymbols(a, b, nil)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	if matches[0].MatchType != MatchMoved {
+		t.Errorf("expected MatchMoved, got %s", matches[0].MatchType)
+	}
+}
+
+// TestMatchSymbols_NotMovedWhenSameFile verifies that a symbol with the same
+// name, kind, body hash, and file path is classified as MatchExact (not MatchMoved).
+func TestMatchSymbols_NotMovedWhenSameFile(t *testing.T) {
+	a := []*parser.Symbol{
+		{Name: "HandleAuth", Kind: "function", File: "pkg/auth/handler.go",
+			Signature: "func HandleAuth()", BodyHash: 12345},
+	}
+	b := []*parser.Symbol{
+		{Name: "HandleAuth", Kind: "function", File: "pkg/auth/handler.go",
+			Signature: "func HandleAuth()", BodyHash: 12345},
+	}
+	matches := MatchSymbols(a, b, nil)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	if matches[0].MatchType != MatchExact {
+		t.Errorf("expected MatchExact, got %s", matches[0].MatchType)
+	}
+}
+
 type fakeClassifier struct {
 	called bool
 	result []SymbolMatch
