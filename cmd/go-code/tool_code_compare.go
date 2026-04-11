@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -41,6 +42,19 @@ type xmlCompare struct {
 	DataflowB      *xmlCompareDataflow   `xml:"dataflowB,omitempty"`
 	APIDiff        *xmlAPIDiff           `xml:"apiDiff,omitempty"`
 	RouteDiff      *xmlRouteDiff         `xml:"routeDiff,omitempty"`
+	CouplingA      *xmlCoupling          `xml:"couplingA,omitempty"`
+	CouplingB      *xmlCoupling          `xml:"couplingB,omitempty"`
+}
+
+type xmlCoupling struct {
+	Pairs []xmlCoupledPair `xml:"pair"`
+}
+
+type xmlCoupledPair struct {
+	FileA     string  `xml:"fileA,attr"`
+	FileB     string  `xml:"fileB,attr"`
+	CoChanges int     `xml:"coChanges,attr"`
+	Ratio     float64 `xml:"ratio,attr"`
 }
 
 type xmlQualityIndicators struct {
@@ -227,7 +241,7 @@ type CodeCompareInput struct {
 }
 
 // registerCodeCompare registers the code_compare MCP tool.
-func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
+func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -256,11 +270,17 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 		defer cleanupB()
 
+		var embedClient *embeddings.Client
+		if semDeps != nil {
+			embedClient = semDeps.Client
+		}
+
 		result, err := compare.CompareRepos(ctx, compare.CompareInput{
-			RootA:   rootA,
-			RootB:   rootB,
-			Query:   input.Query,
-			OxCodes: deps.OxCodes,
+			RootA:       rootA,
+			RootB:       rootB,
+			Query:       input.Query,
+			OxCodes:     deps.OxCodes,
+			EmbedClient: embedClient,
 			Opts: compare.SnapshotOpts{
 				Focus:    input.Focus,
 				Language: input.Language,
@@ -382,8 +402,22 @@ func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 	if r.RouteDiffResult != nil {
 		resp.Compare.RouteDiff = convertRouteDiff(r.RouteDiffResult)
 	}
+	if len(r.CouplingA) > 0 {
+		resp.Compare.CouplingA = convertCoupling(r.CouplingA)
+	}
+	if len(r.CouplingB) > 0 {
+		resp.Compare.CouplingB = convertCoupling(r.CouplingB)
+	}
 
 	return resp
+}
+
+func convertCoupling(pairs []compare.CoupledPair) *xmlCoupling {
+	items := make([]xmlCoupledPair, len(pairs))
+	for i, p := range pairs {
+		items[i] = xmlCoupledPair{FileA: p.FileA, FileB: p.FileB, CoChanges: p.CoChanges, Ratio: p.Ratio}
+	}
+	return &xmlCoupling{Pairs: items}
 }
 
 func convertAPIDiff(d *compare.APIDiff) *xmlAPIDiff {
