@@ -38,6 +38,7 @@ func pruneToTokenBudget(
 	seedScores map[string]float64,
 	fileSymbols map[string][]*parser.Symbol,
 	maxTokens int,
+	includeBody bool,
 ) (kept []scoredFile, pruned int) {
 	if maxTokens <= 0 {
 		maxTokens = DefaultMaxTokens
@@ -68,7 +69,7 @@ func pruneToTokenBudget(
 	// Greedy selection within token budget.
 	remaining := maxTokens
 	for _, c := range candidates {
-		cost := estimateTokens(c)
+		cost := estimateTokens(c, includeBody)
 		if remaining-cost < 0 && len(kept) > 0 {
 			pruned++
 			continue
@@ -80,11 +81,13 @@ func pruneToTokenBudget(
 }
 
 // estimateTokens approximates the token cost of including a file in the map.
-func estimateTokens(sf scoredFile) int {
+// When includeBody is false, body content is excluded from the estimate to match
+// what RenderMap actually emits (bodies are only rendered when IncludeBody=true).
+func estimateTokens(sf scoredFile, includeBody bool) int {
 	chars := mapOverheadCharsPerFile
 	for _, sym := range sf.symbols {
 		chars += len(sym.Name) + 30 // name + signature overhead
-		if sym.Body != "" {
+		if includeBody && sym.Body != "" {
 			chars += len(sym.Body)
 		}
 	}
