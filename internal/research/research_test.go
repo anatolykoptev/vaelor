@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -304,5 +305,71 @@ func mustWriteFile(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// fakeEmbedStore returns canned SearchResult slices for tests.
+type fakeEmbedStore struct {
+	results []embeddings.SearchResult
+}
+
+func (f *fakeEmbedStore) Search(_ context.Context, _ []float32, _ embeddings.SearchOpts) ([]embeddings.SearchResult, error) {
+	return f.results, nil
+}
+
+// fakeEmbedClient returns a constant vector (content is irrelevant — fakeEmbedStore ignores it).
+type fakeEmbedClient struct{}
+
+func (fakeEmbedClient) EmbedQuery(_ context.Context, _ string) ([]float32, error) {
+	return []float32{1, 0, 0}, nil
+}
+
+func TestRunPropagatesSemanticSymbols(t *testing.T) {
+	tmp := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmp, "foo.go"),
+		"package foo\n"+
+			"// RetryWithBackoff retries with exponential delay.\n"+
+			"func RetryWithBackoff() {}\n"+
+			"\n"+
+			"// RetryOnce runs once.\n"+
+			"func RetryOnce() {}\n",
+	)
+
+	store := &fakeEmbedStore{results: []embeddings.SearchResult{
+		{FilePath: "foo.go", SymbolName: "RetryWithBackoff", SymbolKind: "function", StartLine: 2, Distance: 0.05},
+		{FilePath: "foo.go", SymbolName: "RetryOnce", SymbolKind: "function", StartLine: 5, Distance: 0.10},
+	}}
+
+	res, err := Run(context.Background(), Input{
+		Root:  tmp,
+		Query: "retry",
+	}, Deps{
+		EmbedClient: fakeEmbedClient{},
+		EmbedStore:  store,
+		RepoKey:     "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := map[string]string{}
+	for _, s := range res.Seeds {
+		if s.File == "foo.go" {
+			names[s.Name] = s.Source
+		}
+	}
+
+	if _, ok := names["RetryWithBackoff"]; !ok {
+		t.Errorf("RetryWithBackoff must be in seeds, got %+v", res.Seeds)
+	}
+	if _, ok := names["RetryOnce"]; !ok {
+		t.Errorf("RetryOnce must be in seeds, got %+v", res.Seeds)
+	}
+
+	// Both should have Source in {"semantic", "hybrid"} — semantic hits must carry provenance.
+	for name, source := range names {
+		if source != "semantic" && source != "hybrid" {
+			t.Errorf("symbol %q Source must be semantic or hybrid, got %q", name, source)
+		}
 	}
 }
