@@ -49,7 +49,9 @@ type xmlDeltaResponse struct {
 	Untested        []string           `xml:"untested>symbol,omitempty"`
 	Snippets        []xmlSnippet       `xml:"snippets>snippet,omitempty"`
 	Risk            xmlRisk            `xml:"risk"`
-	Verdict         *xmlVerdict        `xml:"verdict,omitempty"`
+	// Verdict is populated only by review_pr (via deriveVerdict); review_delta
+	// leaves it nil so omitempty suppresses the element for that tool.
+	Verdict *xmlVerdict `xml:"verdict,omitempty"`
 }
 
 type xmlChangedFile struct {
