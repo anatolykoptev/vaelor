@@ -28,11 +28,16 @@ func prioritizeFilesWithScores(
 	results []fileParseResult, queryTerms []string,
 ) ([]*ingest.File, map[string]float64) {
 	fileSymbols := buildFileSymbolMap(results)
+	fileDocs := buildFileDocMap(results)
 
 	// Signal 1: BM25F text relevance.
 	docs := make([]ranking.Document, len(files))
 	for i, f := range files {
-		docs[i] = ranking.Document{Path: f.RelPath, Symbols: fileSymbols[f.RelPath]}
+		docs[i] = ranking.Document{
+			Path:    f.RelPath,
+			Symbols: fileSymbols[f.RelPath],
+			Docs:    fileDocs[f.RelPath],
+		}
 	}
 	scorer := ranking.NewBM25F(docs)
 	bm25Scores := make(map[string]float64, len(files))
@@ -155,6 +160,25 @@ func buildFileSymbolMap(results []fileParseResult) map[string][]string {
 			names = append(names, sym.Name)
 		}
 		m[pr.file.RelPath] = names
+	}
+	return m
+}
+
+// buildFileDocMap extracts doc-comment strings per file from parse results.
+// Only non-empty doc-comments are included to keep the index compact.
+func buildFileDocMap(results []fileParseResult) map[string][]string {
+	m := make(map[string][]string)
+	for _, pr := range results {
+		if pr.result == nil {
+			continue
+		}
+		docs := make([]string, 0, len(pr.result.Symbols))
+		for _, sym := range pr.result.Symbols {
+			if sym.DocComment != "" {
+				docs = append(docs, sym.DocComment)
+			}
+		}
+		m[pr.file.RelPath] = docs
 	}
 	return m
 }
