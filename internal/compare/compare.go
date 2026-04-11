@@ -433,7 +433,8 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	if llmClient != nil {
 		analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
 			hotspotsA, hotspotsB, relStatsA, relStatsB,
-			freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff)
+			freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff,
+			nil, nil)
 	}
 
 	result := &CompareResult{
@@ -516,10 +517,12 @@ func runLLMAnalysis(ctx context.Context, client *llm.Client, matches []SymbolMat
 	metricsA, metricsB RepoMetrics, query string,
 	hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats,
 	freshnessA, freshnessB *FreshnessStats, dataflowA, dataflowB *DataflowStats,
-	apiDiff *APIDiff, routeDiff *RouteDiff) LLMAnalysis {
+	apiDiff *APIDiff, routeDiff *RouteDiff,
+	archA, archB *ArchMetrics) LLMAnalysis {
 	compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, query,
 		hotspotsA, hotspotsB, relStatsA, relStatsB,
-		freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff)
+		freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff,
+		archA, archB)
 	answer, err := client.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
 	if err != nil {
 		return LLMAnalysis{
