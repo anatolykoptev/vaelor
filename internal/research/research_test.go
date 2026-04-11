@@ -1,8 +1,10 @@
 package research
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,7 +89,7 @@ func TestPruneToTokenBudget(t *testing.T) {
 		"low.go":  0.0,
 	}
 
-	kept, pruned := pruneToTokenBudget(expanded, seedScores, nil, 10000)
+	kept, pruned := pruneToTokenBudget(expanded, seedScores, nil, 10000, false)
 	require.NotEmpty(t, kept)
 	_ = pruned
 
@@ -106,7 +108,7 @@ func TestPruneToTokenBudget_budget(t *testing.T) {
 		scores[p] = 1.0
 	}
 
-	kept, pruned := pruneToTokenBudget(expanded, scores, nil, 50) // tiny budget
+	kept, pruned := pruneToTokenBudget(expanded, scores, nil, 50, false) // tiny budget
 	assert.True(t, len(kept) < 100, "should prune many files")
 	assert.True(t, pruned > 0, "should report pruned count")
 }
@@ -151,4 +153,27 @@ func TestFilterSymbolsByQuery(t *testing.T) {
 func TestFilterSymbolsByQuery_noTerms(t *testing.T) {
 	syms := makeSymbols("A", "B", "C")
 	assert.Equal(t, syms, filterSymbolsByQuery(syms, nil))
+}
+
+func TestEstimateTokensRespectsIncludeBody(t *testing.T) {
+	syms := []*parser.Symbol{{
+		Name:      "Foo",
+		Kind:      parser.KindFunction,
+		Signature: "func Foo(x int) error",
+		Body:      strings.Repeat("body line\n", 50), // ~500 chars
+	}}
+	sf := scoredFile{
+		expand:  expandResult{relPath: "foo.go"},
+		symbols: syms,
+	}
+
+	withBody := estimateTokens(sf, true)
+	withoutBody := estimateTokens(sf, false)
+
+	if withBody <= withoutBody {
+		t.Errorf("withBody (%d) must exceed withoutBody (%d)", withBody, withoutBody)
+	}
+	if withoutBody >= withBody/2 {
+		t.Errorf("withoutBody=%d should be much smaller than withBody=%d", withoutBody, withBody)
+	}
 }

@@ -94,7 +94,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}
 
 	// --- Step 7: token-budget pruning ---
-	kept, pruned := pruneToTokenBudget(expanded, seedScores, filteredSymbols, input.MaxTokens)
+	kept, pruned := pruneToTokenBudget(expanded, seedScores, filteredSymbols, input.MaxTokens, input.IncludeBody)
 
 	// --- Step 8: render map ---
 	codeMap := RenderMap(kept, input.IncludeBody)
