@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
@@ -66,12 +67,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 		semSeeds, semMode := runSemanticSeeds(ctx, input, deps)
 		if len(semSeeds) > 0 {
 			mode = semMode
-			// RRF-merge semantic scores with BM25 scores.
-			for relPath, semScore := range semSeeds {
-				bm25 := seedScores[relPath]
-				// Simple RRF: 1/(60+rank). We have scores not ranks, so we combine directly.
-				seedScores[relPath] = rrfCombine(bm25, semScore)
-			}
+			seedScores = fuseScores(seedScores, semSeeds)
 		}
 	}
 
@@ -138,18 +134,33 @@ func runSemanticSeeds(ctx context.Context, input Input, deps Deps) (map[string]f
 	return scores, "full"
 }
 
-// rrfCombine fuses two scores using a simplified RRF formula.
-func rrfCombine(bm25, semantic float64) float64 {
+// fuseScores combines two score maps using Reciprocal Rank Fusion
+// (Cormack et al. 2009, https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf).
+// Each input list is sorted by score descending and converted to 1-based ranks;
+// the final score is Σ 1/(k + rank_i) with k=60. Accepts nil for either input.
+func fuseScores(a, b map[string]float64) map[string]float64 {
 	const k = 60.0
-	// Treat scores as inverse ranks: score → 1/(k + 1/score) for non-zero scores.
-	var s float64
-	if bm25 > 0 {
-		s += 1.0 / (k + 1.0/bm25)
+
+	type pair struct {
+		path  string
+		score float64
 	}
-	if semantic > 0 {
-		s += 1.0 / (k + 1.0/semantic)
+	rankList := func(m map[string]float64) []pair {
+		out := make([]pair, 0, len(m))
+		for p, s := range m {
+			out = append(out, pair{p, s})
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].score > out[j].score })
+		return out
 	}
-	return s
+
+	merged := make(map[string]float64, len(a)+len(b))
+	for _, lst := range [][]pair{rankList(a), rankList(b)} {
+		for i, p := range lst {
+			merged[p.path] += 1.0 / (k + float64(i+1))
+		}
+	}
+	return merged
 }
 
 // estimateMapTokens estimates the token count of the rendered map string.
