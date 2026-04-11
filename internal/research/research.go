@@ -52,9 +52,9 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 		return nil, fmt.Errorf("analyze: %w", err)
 	}
 
-	// --- Step 2: collect seed scores from BM25F ---
-	seedScores := make(map[string]float64, len(data.BM25Scores))
-	for relPath, score := range data.BM25Scores {
+	// --- Step 2: collect seed scores from fused ranking ---
+	seedScores := make(map[string]float64, len(data.FusedScores))
+	for relPath, score := range data.FusedScores {
 		if score > 0 {
 			seedScores[relPath] = score
 		}

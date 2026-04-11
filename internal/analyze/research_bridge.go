@@ -28,8 +28,10 @@ type ResearchData struct {
 	// PkgFiles maps package dir → relPaths of files in that package.
 	PkgFiles map[string][]string
 
-	// BM25Scores maps relPath → BM25F score for the query.
-	BM25Scores map[string]float64
+	// FusedScores maps relPath → multi-signal fused score
+	// (BM25F 0.5 + Personalized PageRank 0.3 + exact-match 0.2)
+	// produced by prioritizeFilesWithScores. NOT raw BM25.
+	FusedScores map[string]float64
 
 	// QueryTerms are the extracted terms used for BM25F matching.
 	QueryTerms []string
@@ -85,9 +87,9 @@ func AnalyzeForResearch(ctx context.Context, root, query, language string, deps 
 		}
 	}
 
-	// BM25F scores.
+	// Fused scores (BM25F + Personalized PageRank + exact-match).
 	queryTerms := extractQueryTerms(query)
-	_, bm25Scores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
+	_, fusedScores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
 
 	return &ResearchData{
 		Root:        root,
@@ -95,7 +97,7 @@ func AnalyzeForResearch(ctx context.Context, root, query, language string, deps 
 		FileSymbols: fileSymbols,
 		FileImports: fileImports,
 		PkgFiles:    pkgFiles,
-		BM25Scores:  bm25Scores,
+		FusedScores: fusedScores,
 		QueryTerms:  queryTerms,
 	}, nil
 }
