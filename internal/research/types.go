@@ -5,7 +5,24 @@
 // Pipeline: seeds(BM25F+embed+RRF) → DAG expand → prune → Aider-style map
 package research
 
-import "github.com/anatolykoptev/go-code/internal/parser"
+import (
+	"context"
+
+	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// EmbedClient is the minimal interface the research package needs from an
+// embedding provider. Satisfied by *embeddings.Client (structural typing).
+type EmbedClient interface {
+	EmbedQuery(ctx context.Context, query string) ([]float32, error)
+}
+
+// EmbedStore is the minimal interface the research package needs from a
+// vector store. Satisfied by *embeddings.Store.
+type EmbedStore interface {
+	Search(ctx context.Context, vec []float32, opts embeddings.SearchOpts) ([]embeddings.SearchResult, error)
+}
 
 // Input holds parameters for a code-research request.
 type Input struct {

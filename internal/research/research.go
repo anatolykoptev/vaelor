@@ -17,10 +17,10 @@ type Deps struct {
 	AnalyzeDeps analyze.Deps
 
 	// EmbedClient enables semantic search signal. Optional.
-	EmbedClient *embeddings.Client
+	EmbedClient EmbedClient
 
 	// EmbedStore provides vector similarity search. Optional.
-	EmbedStore *embeddings.Store
+	EmbedStore EmbedStore
 
 	// RepoKey is the embedding store key for this repository. Required when
 	// EmbedClient/EmbedStore are set.
@@ -63,11 +63,22 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	mode := "keyword-only"
 
 	// --- Step 3: semantic search (optional) + RRF fusion ---
+	var semanticHits []embeddings.SearchResult
 	if deps.EmbedClient != nil && deps.EmbedStore != nil && deps.RepoKey != "" {
-		semSeeds, semMode := runSemanticSeeds(ctx, input, deps)
-		if len(semSeeds) > 0 {
+		hits, semMode := runSemanticSeeds(ctx, input, deps)
+		if len(hits) > 0 {
 			mode = semMode
-			seedScores = fuseScores(seedScores, semSeeds)
+			semanticHits = hits
+
+			// Build per-file rank for fusion (highest 1-distance score wins per file).
+			semFileScores := make(map[string]float64, len(hits))
+			for _, r := range hits {
+				s := 1.0 - float64(r.Distance)
+				if s > semFileScores[r.FilePath] {
+					semFileScores[r.FilePath] = s
+				}
+			}
+			seedScores = fuseScores(seedScores, semFileScores)
 		}
 	}
 
@@ -97,7 +108,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	estimatedTokens := estimateMapTokens(codeMap)
 
 	// --- Build result ---
-	seeds := buildSeedList(seedFiles, seedScores, data.FileSymbols, data.QueryTerms)
+	seeds := buildSeedList(seedFiles, seedScores, data.FileSymbols, data.QueryTerms, semanticHits)
 	graph := buildLinkedFiles(kept, data.FileSymbols, data.QueryTerms)
 
 	return &Result{
@@ -110,8 +121,8 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}, nil
 }
 
-// runSemanticSeeds queries the embed store and returns relPath → cosine score.
-func runSemanticSeeds(ctx context.Context, input Input, deps Deps) (map[string]float64, string) {
+// runSemanticSeeds queries the embed store and returns the raw hits.
+func runSemanticSeeds(ctx context.Context, input Input, deps Deps) ([]embeddings.SearchResult, string) {
 	vec, err := deps.EmbedClient.EmbedQuery(ctx, input.Query)
 	if err != nil {
 		return nil, "keyword-only"
@@ -126,12 +137,7 @@ func runSemanticSeeds(ctx context.Context, input Input, deps Deps) (map[string]f
 		return nil, "keyword-only"
 	}
 
-	scores := make(map[string]float64, len(results))
-	for _, r := range results {
-		// Convert distance (lower=better) to score (higher=better).
-		scores[r.FilePath] = 1.0 - float64(r.Distance)
-	}
-	return scores, "full"
+	return results, "full"
 }
 
 // fuseScores combines two score maps using Reciprocal Rank Fusion
@@ -169,30 +175,61 @@ func estimateMapTokens(m string) int {
 }
 
 // buildSeedList converts seed file map into ordered SeedSymbol slice.
+// semanticHits are emitted first (one per hit, preserving SymbolName/Kind/StartLine);
+// keyword matches that overlap with a semantic hit on (file, name) are upgraded to "hybrid".
 func buildSeedList(
 	seedFiles map[string]bool,
 	seedScores map[string]float64,
 	fileSymbols map[string][]*parser.Symbol,
 	queryTerms []string,
+	semanticHits []embeddings.SearchResult,
 ) []SeedSymbol {
 	var seeds []SeedSymbol
+
+	// 1) Semantic-derived seeds — one entry per hit, preserves StartLine.
+	type semKey struct {
+		file string
+		name string
+	}
+	semSeen := make(map[semKey]int) // maps key → index in seeds slice
+	for _, h := range semanticHits {
+		seeds = append(seeds, SeedSymbol{
+			File:   h.FilePath,
+			Name:   h.SymbolName,
+			Kind:   h.SymbolKind,
+			Line:   int(h.StartLine),
+			Score:  1.0 - float64(h.Distance),
+			Source: "semantic",
+		})
+		semSeen[semKey{h.FilePath, h.SymbolName}] = len(seeds) - 1
+	}
+
+	// 2) Keyword/fused-derived seeds. If the same (file, name) already exists
+	//    from a semantic hit, upgrade it to "hybrid" instead of duplicating.
 	for relPath := range seedFiles {
 		score := seedScores[relPath]
 		syms := filterSymbolsByQuery(fileSymbols[relPath], queryTerms)
 		if len(syms) == 0 {
-			seeds = append(seeds, SeedSymbol{
-				File:  relPath,
-				Score: score,
-			})
+			// file-level seed with no resolved symbol
+			key := semKey{relPath, ""}
+			if _, already := semSeen[key]; !already {
+				seeds = append(seeds, SeedSymbol{File: relPath, Score: score, Source: "keyword"})
+			}
 			continue
 		}
 		for _, sym := range syms {
+			key := semKey{relPath, sym.Name}
+			if idx, already := semSeen[key]; already {
+				seeds[idx].Source = "hybrid"
+				continue
+			}
 			seeds = append(seeds, SeedSymbol{
-				File:  relPath,
-				Name:  sym.Name,
-				Kind:  string(sym.Kind),
-				Line:  int(sym.StartLine),
-				Score: score,
+				File:   relPath,
+				Name:   sym.Name,
+				Kind:   string(sym.Kind),
+				Line:   int(sym.StartLine),
+				Score:  score,
+				Source: "keyword",
 			})
 		}
 	}
