@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -156,16 +157,7 @@ func buildHandler(server *mcp.Server, cfg Config, logger *slog.Logger) http.Hand
 		})
 
 		if cfg.BearerAuth != nil {
-			metaPath := cfg.BearerAuth.ResourceMetadataPath
-			if metaPath == "" && cfg.BearerAuth.Metadata != nil {
-				metaPath = "/.well-known/oauth-protected-resource"
-			}
-			authMW := auth.RequireBearerToken(cfg.BearerAuth.Verifier,
-				&auth.RequireBearerTokenOptions{
-					ResourceMetadataURL: metaPath,
-					Scopes:              cfg.BearerAuth.Scopes,
-				})
-			mcpHandler = authMW(mcpHandler)
+			mcpHandler = applyBearerAuth(mcpHandler, cfg.BearerAuth)
 		}
 
 		mux.Handle("/mcp", mcpHandler)
@@ -194,4 +186,39 @@ func buildHandler(server *mcp.Server, cfg Config, logger *slog.Logger) http.Hand
 	}
 
 	return Chain(mux, buildMiddleware(cfg, logger)...)
+}
+
+// applyBearerAuth wraps handler with bearer token verification.
+// When LoopbackBypass is set, requests from 127.0.0.1/::1 skip auth.
+func applyBearerAuth(handler http.Handler, cfg *BearerAuth) http.Handler {
+	metaPath := cfg.ResourceMetadataPath
+	if metaPath == "" && cfg.Metadata != nil {
+		metaPath = "/.well-known/oauth-protected-resource"
+	}
+	authMW := auth.RequireBearerToken(cfg.Verifier,
+		&auth.RequireBearerTokenOptions{
+			ResourceMetadataURL: metaPath,
+			Scopes:              cfg.Scopes,
+		})
+	authed := authMW(handler)
+	if !cfg.LoopbackBypass {
+		return authed
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isLoopback(r) {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		authed.ServeHTTP(w, r)
+	})
+}
+
+// isLoopback returns true if the request originates from localhost.
+func isLoopback(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

@@ -3,7 +3,7 @@
 github.com/anatolykoptev/go-kit/cache
 github.com/anatolykoptev/go-kit/env
 github.com/anatolykoptev/go-kit/llm
-# github.com/anatolykoptev/go-mcpserver v0.6.0
+# github.com/anatolykoptev/go-mcpserver v0.9.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
 # github.com/cespare/xxhash/v2 v2.3.0
@@ -45,7 +45,7 @@ github.com/jackc/puddle/v2/internal/genstack
 ## explicit; go 1.10
 # github.com/klauspost/cpuid/v2 v2.3.0
 ## explicit; go 1.22
-# github.com/modelcontextprotocol/go-sdk v1.4.1
+# github.com/modelcontextprotocol/go-sdk v1.5.0
 ## explicit; go 1.25.0
 github.com/modelcontextprotocol/go-sdk/auth
 github.com/modelcontextprotocol/go-sdk/internal/json
