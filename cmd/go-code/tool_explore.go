@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/explore"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -46,7 +48,33 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 			return errResult(fmt.Sprintf("explore: %s", err)), nil
 		}
 
-		data, err := json.MarshalIndent(result, "", "  ")
+		type exploreFreshnessSummary struct {
+			DepFreshnessRatio float64 `json:"dep_freshness_ratio"`
+			VulnDeps          int     `json:"vuln_deps"`
+			TotalDeps         int     `json:"total_deps"`
+		}
+		type exploreOutput struct {
+			*explore.Result
+			Freshness *exploreFreshnessSummary `json:"freshness,omitempty"`
+		}
+
+		var fresh *compare.FreshnessStats
+		{
+			fctx, fcancel := context.WithTimeout(ctx, 5*time.Second)
+			defer fcancel()
+			fresh, _, _ = compare.CollectFreshness(fctx, root)
+		}
+
+		output := exploreOutput{Result: result}
+		if fresh != nil {
+			output.Freshness = &exploreFreshnessSummary{
+				DepFreshnessRatio: fresh.DepFreshnessRatio,
+				VulnDeps:          fresh.VulnDeps,
+				TotalDeps:         fresh.TotalDeps,
+			}
+		}
+
+		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			return errResult(fmt.Sprintf("marshal: %s", err)), nil
 		}
