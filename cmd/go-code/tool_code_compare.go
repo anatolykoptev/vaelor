@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -44,6 +45,9 @@ type xmlCompare struct {
 	RouteDiff      *xmlRouteDiff         `xml:"routeDiff,omitempty"`
 	CouplingA      *xmlCoupling          `xml:"couplingA,omitempty"`
 	CouplingB      *xmlCoupling          `xml:"couplingB,omitempty"`
+	ArchMetricsA   *xmlArchMetrics       `xml:"archMetricsA,omitempty"`
+	ArchMetricsB   *xmlArchMetrics       `xml:"archMetricsB,omitempty"`
+	CrossLang      *xmlCrossLang         `xml:"crossLang,omitempty"`
 }
 
 type xmlCoupling struct {
@@ -231,6 +235,38 @@ type xmlRelStats struct {
 	UniqueSubjects int `xml:"uniqueSubjects,attr"`
 }
 
+type xmlArchMetrics struct {
+	PackageCount      int          `xml:"packages,attr"`
+	CrossPkgCallRatio float64      `xml:"crossPkgCalls,attr"`
+	MaxCallDepth      int          `xml:"maxCallDepth,attr"`
+	InterfaceRatio    float64      `xml:"interfaceRatio,attr"`
+	GodPackages       []xmlGodPkg  `xml:"godPkg,omitempty"`
+	CircularDeps      []xmlCircDep `xml:"circularDep,omitempty"`
+}
+
+type xmlGodPkg struct {
+	Name      string `xml:"name,attr"`
+	Importers int    `xml:"importers,attr"`
+}
+
+type xmlCircDep struct {
+	A string `xml:"a,attr"`
+	B string `xml:"b,attr"`
+}
+
+type xmlCrossLang struct {
+	LangA   string          `xml:"langA,attr"`
+	LangB   string          `xml:"langB,attr"`
+	Matches int             `xml:"matches,attr"`
+	Top     []xmlCrossMatch `xml:"match,omitempty"`
+}
+
+type xmlCrossMatch struct {
+	NameA string  `xml:"nameA,attr"`
+	NameB string  `xml:"nameB,attr"`
+	Sim   float64 `xml:"sim,attr"`
+}
+
 // CodeCompareInput is the input schema for the code_compare tool.
 type CodeCompareInput struct {
 	RepoA    string `json:"repo_a" jsonschema_description:"First repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
@@ -241,7 +277,7 @@ type CodeCompareInput struct {
 }
 
 // registerCodeCompare registers the code_compare MCP tool.
-func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps) {
+func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps, graphStore *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -281,6 +317,7 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semD
 			Query:       input.Query,
 			OxCodes:     deps.OxCodes,
 			EmbedClient: embedClient,
+			GraphStore:  graphStore,
 			Opts: compare.SnapshotOpts{
 				Focus:    input.Focus,
 				Language: input.Language,
@@ -408,6 +445,15 @@ func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 	if len(r.CouplingB) > 0 {
 		resp.Compare.CouplingB = convertCoupling(r.CouplingB)
 	}
+	if r.ArchMetricsA != nil {
+		resp.Compare.ArchMetricsA = convertArchMetrics(r.ArchMetricsA)
+	}
+	if r.ArchMetricsB != nil {
+		resp.Compare.ArchMetricsB = convertArchMetrics(r.ArchMetricsB)
+	}
+	if r.CrossLangReport != nil {
+		resp.Compare.CrossLang = convertCrossLang(r.CrossLangReport)
+	}
 
 	return resp
 }
@@ -513,4 +559,28 @@ func convertHotspots(hh []compare.HotspotFile) *xmlHotspots {
 		}
 	}
 	return &xmlHotspots{Items: items}
+}
+
+func convertArchMetrics(m *compare.ArchMetrics) *xmlArchMetrics {
+	x := &xmlArchMetrics{
+		PackageCount:      m.PackageCount,
+		CrossPkgCallRatio: m.CrossPkgCallRatio,
+		MaxCallDepth:      m.MaxCallDepth,
+		InterfaceRatio:    m.InterfaceRatio,
+	}
+	for _, gp := range m.GodPackages {
+		x.GodPackages = append(x.GodPackages, xmlGodPkg{Name: gp.Name, Importers: gp.Importers})
+	}
+	for _, cd := range m.CircularDeps {
+		x.CircularDeps = append(x.CircularDeps, xmlCircDep{A: cd.PackageA, B: cd.PackageB})
+	}
+	return x
+}
+
+func convertCrossLang(r *compare.CrossLangReport) *xmlCrossLang {
+	x := &xmlCrossLang{LangA: r.LanguageA, LangB: r.LanguageB, Matches: r.SemanticMatches}
+	for _, m := range r.TopMatches {
+		x.Top = append(x.Top, xmlCrossMatch{NameA: m.NameA, NameB: m.NameB, Sim: m.Similarity})
+	}
+	return x
 }
