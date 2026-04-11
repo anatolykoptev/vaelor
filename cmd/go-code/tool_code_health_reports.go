@@ -29,6 +29,7 @@ type xmlHealth struct {
 	RelStats        *xmlRelStats        `xml:"relStats,omitempty"`
 	Recommendations *xmlRecommendations `xml:"recommendations,omitempty"`
 	OxChecks        *xmlOxCodesChecks   `xml:"oxChecks,omitempty"`
+	ArchMetrics     *xmlArchMetrics     `xml:"archMetrics,omitempty"`
 }
 
 // xmlOxCodesChecks holds additional quality indicators from ox-codes scoped search.
