@@ -25,6 +25,7 @@ type CodeResearchInput struct {
 	FileGlob         string `json:"file_glob,omitempty" jsonschema_description:"Restrict analysis to files matching this glob (e.g. 'internal/**', 'pkg/foo/*.go'). Optional."`
 	IncludeTests     bool   `json:"include_tests,omitempty" jsonschema_description:"Include *_test.go / test files in retrieval (default false). Useful for 'how is X tested' queries."`
 	IncludeCallGraph bool   `json:"include_call_graph,omitempty" jsonschema_description:"Expand retrieval via call-graph edges (callers + callees) in addition to imports. Slower but higher precision for 'what calls X' queries."`
+	Compact          bool   `json:"compact,omitempty" jsonschema_description:"If true, return only the stats header and rendered map (skip <seeds>/<graph>). ~20% token savings."`
 }
 
 // registerCodeResearch registers the code_research MCP tool.
@@ -104,41 +105,43 @@ func formatResearchResult(input CodeResearchInput, r *research.Result) string {
 	fmt.Fprintf(&sb, "  <stats seeds=\"%d\" graph_files=\"%d\" pruned=\"%d\" estimated_tokens=\"%d\"/>\n",
 		len(r.Seeds), len(r.Graph), r.PrunedFiles, r.EstimatedTokens)
 
-	// Seeds section.
-	if len(r.Seeds) > 0 {
-		fmt.Fprintf(&sb, "  <seeds>\n")
-		seen := make(map[string]bool)
-		for _, s := range r.Seeds {
-			if seen[s.File] {
-				continue
-			}
-			seen[s.File] = true
-			fmt.Fprintf(&sb, "    <file path=%q score=\"%.4f\">\n", s.File, s.Score)
-			// Emit distinct symbols for this file.
-			for _, s2 := range r.Seeds {
-				if s2.File == s.File && s2.Name != "" {
-					fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
-						escapeXML(s2.Kind), s2.Line, escapeXML(s2.Name))
+	if !input.Compact {
+		// Seeds section.
+		if len(r.Seeds) > 0 {
+			fmt.Fprintf(&sb, "  <seeds>\n")
+			seen := make(map[string]bool)
+			for _, s := range r.Seeds {
+				if seen[s.File] {
+					continue
 				}
+				seen[s.File] = true
+				fmt.Fprintf(&sb, "    <file path=%q score=\"%.4f\">\n", s.File, s.Score)
+				// Emit distinct symbols for this file.
+				for _, s2 := range r.Seeds {
+					if s2.File == s.File && s2.Name != "" {
+						fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
+							escapeXML(s2.Kind), s2.Line, escapeXML(s2.Name))
+					}
+				}
+				fmt.Fprintf(&sb, "    </file>\n")
 			}
-			fmt.Fprintf(&sb, "    </file>\n")
+			fmt.Fprintf(&sb, "  </seeds>\n")
 		}
-		fmt.Fprintf(&sb, "  </seeds>\n")
-	}
 
-	// Graph section.
-	if len(r.Graph) > 0 {
-		fmt.Fprintf(&sb, "  <graph>\n")
-		for _, lf := range r.Graph {
-			fmt.Fprintf(&sb, "    <file path=%q distance=\"%d\" why=%q score=\"%.4f\">\n",
-				lf.RelPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
-			for _, sym := range lf.Symbols {
-				fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
-					escapeXML(string(sym.Kind)), sym.StartLine, escapeXML(sym.Name))
+		// Graph section.
+		if len(r.Graph) > 0 {
+			fmt.Fprintf(&sb, "  <graph>\n")
+			for _, lf := range r.Graph {
+				fmt.Fprintf(&sb, "    <file path=%q distance=\"%d\" why=%q score=\"%.4f\">\n",
+					lf.RelPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
+				for _, sym := range lf.Symbols {
+					fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
+						escapeXML(string(sym.Kind)), sym.StartLine, escapeXML(sym.Name))
+				}
+				fmt.Fprintf(&sb, "    </file>\n")
 			}
-			fmt.Fprintf(&sb, "    </file>\n")
+			fmt.Fprintf(&sb, "  </graph>\n")
 		}
-		fmt.Fprintf(&sb, "  </graph>\n")
 	}
 
 	// Compact map — the primary LLM-consumable output.
