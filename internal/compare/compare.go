@@ -336,9 +336,9 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 
 	diffStats := computeDiffStats(matches)
 
-	// --- Parallel enrichment: LLM + quality + freshness + dataflow ---
-	// All are non-fatal and independent. Running them concurrently cuts
-	// total time from sequential (enrichment + LLM) to max(enrichment, LLM).
+	// --- Parallel enrichment: quality + freshness + dataflow ---
+	// All are non-fatal and independent. LLM runs AFTER enrichment so it has
+	// freshness, dataflow, API surface, and route data in its context.
 	var (
 		qualityA, qualityB     *QualityIndicators
 		freshnessA, freshnessB *FreshnessStats
@@ -346,65 +346,46 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		analysis               LLMAnalysis
 	)
 	{
-		var pwg sync.WaitGroup
+		ectx, ecancel := context.WithTimeout(ctx, qualityTimeout)
+		defer ecancel()
 
-		// LLM analysis (runs in parallel with enrichment).
-		if llmClient != nil {
-			pwg.Add(1)
+		var ewg sync.WaitGroup
+
+		if input.OxCodes != nil {
+			ewg.Add(4)
 			go func() {
-				defer pwg.Done()
-				analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query, hotspotsA, hotspotsB, relStatsA, relStatsB)
+				defer ewg.Done()
+				qualityA = GatherQualityIndicators(ectx, input.OxCodes, input.RootA, snapA.Language)
 			}()
+			go func() {
+				defer ewg.Done()
+				qualityB = GatherQualityIndicators(ectx, input.OxCodes, input.RootB, snapB.Language)
+			}()
+			go func() { defer ewg.Done(); dataflowA = GatherDataflow(ectx, input.OxCodes, input.RootA, snapA.Language) }()
+			go func() { defer ewg.Done(); dataflowB = GatherDataflow(ectx, input.OxCodes, input.RootB, snapB.Language) }()
 		}
 
-		// Enrichment group (quality + freshness + dataflow) — shared timeout.
-		pwg.Add(1)
+		ewg.Add(2)
 		go func() {
-			defer pwg.Done()
-
-			ectx, ecancel := context.WithTimeout(ctx, qualityTimeout)
-			defer ecancel()
-
-			var ewg sync.WaitGroup
-
-			if input.OxCodes != nil {
-				ewg.Add(4)
-				go func() {
-					defer ewg.Done()
-					qualityA = GatherQualityIndicators(ectx, input.OxCodes, input.RootA, snapA.Language)
-				}()
-				go func() {
-					defer ewg.Done()
-					qualityB = GatherQualityIndicators(ectx, input.OxCodes, input.RootB, snapB.Language)
-				}()
-				go func() { defer ewg.Done(); dataflowA = GatherDataflow(ectx, input.OxCodes, input.RootA, snapA.Language) }()
-				go func() { defer ewg.Done(); dataflowB = GatherDataflow(ectx, input.OxCodes, input.RootB, snapB.Language) }()
+			defer ewg.Done()
+			fs, depRatio, vulnRatio := collectFreshness(ectx, input.RootA)
+			freshnessA = fs
+			if fs != nil {
+				metricsA.DepFreshnessRatio = depRatio
+				metricsA.VulnSecurityRatio = vulnRatio
 			}
-
-			ewg.Add(2)
-			go func() {
-				defer ewg.Done()
-				fs, depRatio, vulnRatio := collectFreshness(ectx, input.RootA)
-				freshnessA = fs
-				if fs != nil {
-					metricsA.DepFreshnessRatio = depRatio
-					metricsA.VulnSecurityRatio = vulnRatio
-				}
-			}()
-			go func() {
-				defer ewg.Done()
-				fs, depRatio, vulnRatio := collectFreshness(ectx, input.RootB)
-				freshnessB = fs
-				if fs != nil {
-					metricsB.DepFreshnessRatio = depRatio
-					metricsB.VulnSecurityRatio = vulnRatio
-				}
-			}()
-
-			ewg.Wait()
+		}()
+		go func() {
+			defer ewg.Done()
+			fs, depRatio, vulnRatio := collectFreshness(ectx, input.RootB)
+			freshnessB = fs
+			if fs != nil {
+				metricsB.DepFreshnessRatio = depRatio
+				metricsB.VulnSecurityRatio = vulnRatio
+			}
 		}()
 
-		pwg.Wait()
+		ewg.Wait()
 	}
 
 	// API surface diff (fast, no I/O).
@@ -423,6 +404,14 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	if len(routesA) > 0 || len(routesB) > 0 {
 		d := ComputeRouteDiff(routesA, routesB)
 		routeDiff = &d
+	}
+
+	// LLM analysis runs after all enrichment so it has full context:
+	// freshness, dataflow, API surface, and routes.
+	if llmClient != nil {
+		analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
+			hotspotsA, hotspotsB, relStatsA, relStatsB,
+			freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff)
 	}
 
 	result := &CompareResult{
@@ -499,8 +488,14 @@ func collectHotspots(ctx context.Context, root string, snap *RepoSnapshot) []Hot
 
 // runLLMAnalysis sends the comparison context to the LLM and parses its response.
 // Returns a fallback analysis with the error message if the LLM call fails.
-func runLLMAnalysis(ctx context.Context, client *llm.Client, matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string, hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats) LLMAnalysis {
-	compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, query, hotspotsA, hotspotsB, relStatsA, relStatsB)
+func runLLMAnalysis(ctx context.Context, client *llm.Client, matches []SymbolMatch,
+	metricsA, metricsB RepoMetrics, query string,
+	hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats,
+	freshnessA, freshnessB *FreshnessStats, dataflowA, dataflowB *DataflowStats,
+	apiDiff *APIDiff, routeDiff *RouteDiff) LLMAnalysis {
+	compareCtx := BuildCompareContextV2(matches, metricsA, metricsB, query,
+		hotspotsA, hotspotsB, relStatsA, relStatsB,
+		freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff)
 	answer, err := client.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
 	if err != nil {
 		return LLMAnalysis{
