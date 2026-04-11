@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
@@ -69,16 +70,47 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 
 		// Stage 2: core metrics + semantic dup enrichment.
 		metrics := compare.ComputeMetrics(sr.snap)
-		gatherHealthSemanticDup(ctx, semDeps, root, sr.snap, &metrics)
 
-		// Stage 3: freshness + vulnerability.
-		fr := gatherHealthFreshness(ctx, root, &metrics)
+		// Stage 3-6: Run independent analyses in parallel.
+		var wg sync.WaitGroup
+		var fr healthFreshnessResult
+		var hotspots []compare.HotspotFile
+		var archMetrics *compare.ArchMetrics
 
-		// Stage 4: hotspots.
-		hotspots := gatherHealthHotspots(ctx, root, input.Repo, sr.snap)
+		// Semantic duplication (optional, may be fast if no store).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			gatherHealthSemanticDup(ctx, semDeps, root, sr.snap, &metrics)
+		}()
 
+		// Freshness + vulnerability (HTTP calls).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fr = gatherHealthFreshness(ctx, root, &metrics)
+		}()
+
+		// Hotspots (git churn).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			hotspots = gatherHealthHotspots(ctx, root, input.Repo, sr.snap)
+		}()
+
+		// Architecture metrics (graph DB query).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			archMetrics = gatherHealthArchMetrics(ctx, graphStore, root)
+		}()
+
+		// Relationship stats and outliers (CPU-bound, parallel with above).
 		relStats := compare.ComputeRelStats(sr.snap.Rels)
 		outliers := compare.CollectOutliers(sr.snap)
+
+		// Wait for all parallel stages.
+		wg.Wait()
 
 		if input.Format == "sarif" {
 			sarifReport := compare.BuildSARIF(sr.snap.Name, metrics, nil, nil, hotspots, outliers)
@@ -91,9 +123,6 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
 		oxChecks := explore.RunOxCodesHealthChecks(ctx, deps.OxCodes, root, input.Language)
-
-		// Stage 5: architecture graph (separate timeout).
-		archMetrics := gatherHealthArchMetrics(ctx, graphStore, root)
 
 		resp := buildHealthXML(sr.snap.Name, sr.snap.Language, metrics, metrics.Score, hotspots, relStats, recs, fr.fr, fr.vr, oxChecks, archMetrics)
 		return xmlMarshalResult(resp, "code_health", outputDir), nil
