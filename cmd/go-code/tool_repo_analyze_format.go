@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -44,14 +45,16 @@ type suggestedCall struct {
 
 // xmlResponse is the top-level XML envelope for repo_analyze output (schema v2.0).
 type xmlResponse struct {
-	XMLName       xml.Name    `xml:"response"`
-	SchemaVersion string      `xml:"schemaVersion,attr"`
-	Repo          xmlRepo     `xml:"repo"`
-	Packages      xmlPackages `xml:"packages"`
-	Imports       *xmlImports `xml:"imports,omitempty"`
-	Files         *xmlFiles   `xml:"files,omitempty"`
-	Tree          xmlCDATA    `xml:"tree,omitempty"`
-	Symbols       xmlSymbols  `xml:"symbols"`
+	XMLName       xml.Name             `xml:"response"`
+	SchemaVersion string               `xml:"schemaVersion,attr"`
+	Repo          xmlRepo              `xml:"repo"`
+	Packages      xmlPackages          `xml:"packages"`
+	Imports       *xmlImports          `xml:"imports,omitempty"`
+	Files         *xmlFiles            `xml:"files,omitempty"`
+	Tree          xmlCDATA             `xml:"tree,omitempty"`
+	Symbols       xmlSymbols           `xml:"symbols"`
+	APISurface    *xmlAPISummary       `xml:"apiSurface,omitempty"`
+	Freshness     *xmlFreshnessSummary `xml:"freshness,omitempty"`
 }
 
 type xmlRepo struct {
@@ -118,6 +121,42 @@ type xmlSymbols struct {
 	Items []xmlSymbol `xml:"symbol"`
 }
 
+// xmlAPISummary summarises the public/exported API surface of the repo.
+type xmlAPISummary struct {
+	ExportedCount int `xml:"exported,attr"`
+}
+
+// xmlFreshnessSummary summarises dependency freshness and vulnerability data.
+type xmlFreshnessSummary struct {
+	FreshRatio float64 `xml:"freshRatio,attr"`
+	VulnCount  int     `xml:"vulnCount,attr"`
+	TotalDeps  int     `xml:"totalDeps,attr"`
+}
+
+// repoAnalysisExtras holds optional enrichment data computed only in deep mode.
+type repoAnalysisExtras struct {
+	APISurfaceSize int
+	FreshnessStats *compare.FreshnessStats
+}
+
+// applyExtras populates APISurface and Freshness fields on resp from extras.
+func applyExtras(resp *xmlResponse, extras *repoAnalysisExtras) {
+	if extras == nil {
+		return
+	}
+	if extras.APISurfaceSize > 0 {
+		resp.APISurface = &xmlAPISummary{ExportedCount: extras.APISurfaceSize}
+	}
+	if extras.FreshnessStats != nil {
+		fs := extras.FreshnessStats
+		resp.Freshness = &xmlFreshnessSummary{
+			FreshRatio: fs.DepFreshnessRatio,
+			VulnCount:  fs.VulnDeps,
+			TotalDeps:  fs.TotalDeps,
+		}
+	}
+}
+
 // ---- Depth limits ----
 
 // depthLimits controls how much data each depth level includes in XML output.
@@ -179,15 +218,15 @@ func limitsForDepth(depth string) depthLimits {
 // ---- Format dispatching ----
 
 // formatAnalysisResult dispatches to xml, text, or JSON formatting based on format.
-// Defaults to XML when format is empty.
-func formatAnalysisResult(r *analyze.RepoAnalysisResult, format, depth string) string {
+// Defaults to XML when format is empty. extras is optional deep-mode enrichment.
+func formatAnalysisResult(r *analyze.RepoAnalysisResult, format, depth string, extras *repoAnalysisExtras) string {
 	switch format {
 	case formatJSON:
 		return formatAnalysisJSON(r)
 	case formatText:
 		return formatAnalysisText(r)
 	default:
-		return formatAnalysisXML(r, depth)
+		return formatAnalysisXML(r, depth, extras)
 	}
 }
 
@@ -217,7 +256,8 @@ func formatAnalysisJSON(r *analyze.RepoAnalysisResult) string {
 // ---- XML formatting ----
 
 // formatAnalysisXML formats a RepoAnalysisResult as structured XML (schema v2.0).
-func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string) string {
+// extras is optional deep-mode enrichment (API surface size, freshness stats).
+func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string, extras *repoAnalysisExtras) string {
 	limits := limitsForDepth(depth)
 
 	resp := xmlResponse{
@@ -246,6 +286,8 @@ func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string) string {
 	}
 
 	resp.Symbols = buildTopSymbols(r.Symbols, limits.topSymbols, depth)
+
+	applyExtras(&resp, extras)
 
 	b, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
