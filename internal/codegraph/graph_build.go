@@ -8,8 +8,6 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/polyglot"
-	"github.com/anatolykoptev/go-code/internal/routes"
 )
 
 // Route side constants.
@@ -274,66 +272,3 @@ func commonPrefixLen(a, b string) int {
 	return n
 }
 
-// buildCrossLanguageGraph constructs Layer and Route vertices, plus HANDLES
-// and FETCHES edges connecting symbols to routes.
-func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string) ([]vertexData, []edgeData) {
-	var vertices []vertexData
-	var edges []edgeData
-
-	// Layer vertices.
-	for _, l := range layers {
-		vertices = append(vertices, vertexData{
-			Label: "Layer",
-			Props: map[string]string{
-				"name":     l.Name,
-				"role":     l.Role,
-				"language": l.Language,
-				"root_dir": l.RootDir,
-			},
-		})
-	}
-
-	// Route vertices — deduplicated by Method+":"+Path.
-	routeSeen := make(map[string]bool)
-	for _, r := range routeList {
-		key := r.Method + ":" + r.Path
-		if routeSeen[key] {
-			continue
-		}
-		routeSeen[key] = true
-		vertices = append(vertices, vertexData{
-			Label: "Route",
-			Props: map[string]string{
-				"method":    r.Method,
-				"path":      r.Path,
-				"framework": r.Framework,
-			},
-		})
-	}
-
-	// HANDLES / FETCHES edges (Symbol → Route).
-	// Match Symbol by name only — the handler may be defined in a different
-	// file from the route registration.
-	for _, r := range routeList {
-		if r.Handler == "" {
-			continue
-		}
-		routeKey := r.Method + ":" + r.Path
-		edgeLabel := "HANDLES"
-		if r.Side == sideClient {
-			edgeLabel = "FETCHES"
-		}
-		edges = append(edges, edgeData{
-			FromLabel: "Symbol",
-			FromKey:   r.Handler,
-			ToLabel:   "Route",
-			ToKey:     routeKey,
-			EdgeLabel: edgeLabel,
-			Props: map[string]string{
-				"line": strconv.Itoa(int(r.Line)),
-			},
-		})
-	}
-
-	return vertices, edges
-}
