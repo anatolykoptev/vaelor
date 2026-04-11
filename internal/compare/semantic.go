@@ -2,7 +2,9 @@ package compare
 
 import (
 	"context"
+	"log/slog"
 	"math"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -12,7 +14,11 @@ import (
 const semanticMatchThreshold = 0.75
 
 // maxSemanticCandidates limits how many unmatched symbols we embed (cost control).
-const maxSemanticCandidates = 50
+const maxSemanticCandidates = 30
+
+// semanticTimeout bounds how long embedding-based matching can run.
+// Must be short enough to fit within compareTimeout alongside other work.
+const semanticTimeout = 15 * time.Second
 
 // EmbeddingClassifier implements LLMClassifier using vector similarity.
 type EmbeddingClassifier struct {
@@ -27,6 +33,10 @@ func NewEmbeddingClassifier(ctx context.Context, client *embeddings.Client) *Emb
 
 // ClassifySymbols finds semantic matches between unmatched symbols using embeddings.
 func (c *EmbeddingClassifier) ClassifySymbols(a, b []*parser.Symbol) ([]SymbolMatch, error) {
+	// Bound semantic matching — embedding calls must not block the whole compare.
+	ctx, cancel := context.WithTimeout(c.ctx, semanticTimeout)
+	defer cancel()
+
 	// 1. Filter to functions/methods with bodies (nothing to embed for types/interfaces).
 	candA := filterEmbeddable(a, maxSemanticCandidates)
 	candB := filterEmbeddable(b, maxSemanticCandidates)
@@ -45,12 +55,14 @@ func (c *EmbeddingClassifier) ClassifySymbols(a, b []*parser.Symbol) ([]SymbolMa
 	}
 
 	// 3. Embed both sets.
-	vecsA, err := c.client.Embed(c.ctx, textsA)
+	vecsA, err := c.client.Embed(ctx, textsA)
 	if err != nil {
+		slog.Warn("semantic: embed A failed", "err", err)
 		return nil, err
 	}
-	vecsB, err := c.client.Embed(c.ctx, textsB)
+	vecsB, err := c.client.Embed(ctx, textsB)
 	if err != nil {
+		slog.Warn("semantic: embed B failed", "err", err)
 		return nil, err
 	}
 
