@@ -1,0 +1,154 @@
+package research
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestExpandFromSeeds_downward verifies that files imported by seeds are found.
+func TestExpandFromSeeds_downward(t *testing.T) {
+	// seed: a.go imports b.go, b.go imports c.go
+	importGraph := map[string][]string{
+		"a.go": {"b.go"},
+		"b.go": {"c.go"},
+	}
+	seeds := map[string]bool{"a.go": true}
+
+	results := expandFromSeeds(seeds, importGraph, 2)
+
+	byPath := make(map[string]expandResult)
+	for _, r := range results {
+		byPath[r.relPath] = r
+	}
+
+	assert.Equal(t, 0, byPath["a.go"].distance, "seed should be distance 0")
+	assert.Equal(t, 1, byPath["b.go"].distance, "b.go is 1 hop from seed")
+	assert.Equal(t, 2, byPath["c.go"].distance, "c.go is 2 hops from seed")
+}
+
+// TestExpandFromSeeds_upward verifies importers of seeds are found.
+func TestExpandFromSeeds_upward(t *testing.T) {
+	// x.go imports seed, y.go imports seed
+	importGraph := map[string][]string{
+		"x.go": {"seed.go"},
+		"y.go": {"seed.go"},
+	}
+	seeds := map[string]bool{"seed.go": true}
+
+	results := expandFromSeeds(seeds, importGraph, 1)
+
+	byPath := make(map[string]expandResult)
+	for _, r := range results {
+		byPath[r.relPath] = r
+	}
+
+	assert.Equal(t, 0, byPath["seed.go"].distance)
+	assert.Equal(t, 1, byPath["x.go"].distance, "x.go imports seed, should be found")
+	assert.Equal(t, 1, byPath["y.go"].distance, "y.go imports seed, should be found")
+}
+
+// TestExpandFromSeeds_maxHops limits traversal depth.
+func TestExpandFromSeeds_maxHops(t *testing.T) {
+	// chain: seed → a → b → c → d
+	importGraph := map[string][]string{
+		"seed.go": {"a.go"},
+		"a.go":    {"b.go"},
+		"b.go":    {"c.go"},
+		"c.go":    {"d.go"},
+	}
+	seeds := map[string]bool{"seed.go": true}
+
+	results := expandFromSeeds(seeds, importGraph, 2)
+
+	byPath := make(map[string]expandResult)
+	for _, r := range results {
+		byPath[r.relPath] = r
+	}
+
+	assert.Contains(t, byPath, "seed.go")
+	assert.Contains(t, byPath, "a.go")
+	assert.Contains(t, byPath, "b.go")
+	assert.NotContains(t, byPath, "c.go", "3 hops away, beyond maxHops=2")
+	assert.NotContains(t, byPath, "d.go", "4 hops away")
+}
+
+// TestPruneToTokenBudget verifies files are selected within budget.
+func TestPruneToTokenBudget(t *testing.T) {
+	expanded := []expandResult{
+		{relPath: "high.go", distance: 0, whyLinked: "seed"},
+		{relPath: "mid.go", distance: 1, whyLinked: "imports seed"},
+		{relPath: "low.go", distance: 2, whyLinked: "imports mid"},
+	}
+	seedScores := map[string]float64{
+		"high.go": 1.0,
+		"mid.go":  0.0,
+		"low.go":  0.0,
+	}
+
+	kept, pruned := pruneToTokenBudget(expanded, seedScores, nil, 10000)
+	require.NotEmpty(t, kept)
+	_ = pruned
+
+	// high.go should be first (highest score)
+	assert.Equal(t, "high.go", kept[0].expand.relPath)
+}
+
+// TestPruneToTokenBudget_budget enforces token limit.
+func TestPruneToTokenBudget_budget(t *testing.T) {
+	// 100 files, tiny budget — should keep only a few
+	expanded := make([]expandResult, 100)
+	scores := make(map[string]float64, 100)
+	for i := range expanded {
+		p := "file_" + string(rune('a'+i%26))
+		expanded[i] = expandResult{relPath: p, distance: 0, whyLinked: "seed"}
+		scores[p] = 1.0
+	}
+
+	kept, pruned := pruneToTokenBudget(expanded, scores, nil, 50) // tiny budget
+	assert.True(t, len(kept) < 100, "should prune many files")
+	assert.True(t, pruned > 0, "should report pruned count")
+}
+
+// TestRenderMap_empty returns empty string for no files.
+func TestRenderMap_empty(t *testing.T) {
+	assert.Equal(t, "", RenderMap(nil, false))
+	assert.Equal(t, "", RenderMap([]scoredFile{}, false))
+}
+
+// TestRenderMap_basic produces path + annotation line.
+func TestRenderMap_basic(t *testing.T) {
+	files := []scoredFile{
+		{
+			expand: expandResult{relPath: "internal/foo/bar.go", distance: 0, whyLinked: "seed"},
+		},
+		{
+			expand: expandResult{relPath: "internal/baz/qux.go", distance: 1, whyLinked: "imports seed"},
+		},
+	}
+	out := RenderMap(files, false)
+	assert.Contains(t, out, "internal/foo/bar.go")
+	assert.Contains(t, out, "[seed]")
+	assert.Contains(t, out, "internal/baz/qux.go")
+	assert.Contains(t, out, "distance=1")
+}
+
+// TestFilterSymbolsByQuery matches on name substring.
+func TestFilterSymbolsByQuery(t *testing.T) {
+	syms := makeSymbols("RunDAG", "detectCycle", "helper", "dagColor")
+	terms := []string{"dag"}
+
+	matched := filterSymbolsByQuery(syms, terms)
+	names := symbolNames(matched)
+
+	assert.Contains(t, names, "RunDAG")
+	assert.Contains(t, names, "dagColor")
+	assert.NotContains(t, names, "helper")
+}
+
+// TestFilterSymbolsByQuery_noTerms returns all symbols when no terms given.
+func TestFilterSymbolsByQuery_noTerms(t *testing.T) {
+	syms := makeSymbols("A", "B", "C")
+	assert.Equal(t, syms, filterSymbolsByQuery(syms, nil))
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -108,6 +109,13 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 			testFiles++
 		}
 	}
+
+	// Invariants: counters must be non-negative; divisions guarded below.
+	goutil.Assertf(funcCount >= 0, "funcCount must be >= 0, got %d", funcCount)
+	goutil.Assertf(testFiles >= 0 && testFiles <= len(files),
+		"testFiles %d out of range [0, %d]", testFiles, len(files))
+	goutil.Assertf(documentedCount >= 0 && documentedCount <= exportedCount,
+		"documentedCount %d > exportedCount %d", documentedCount, exportedCount)
 
 	var avgComplexity, avgFuncLines, testRatio, docRatio float64
 	if funcCount > 0 {
