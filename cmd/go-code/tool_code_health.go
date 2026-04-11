@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ type CodeHealthInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit analysis to files of this language (e.g. go, python, rust)"`
 	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth, pkg/api), space-separated keywords (e.g. 'auth handler'), or 'magic_numbers' for detailed magic number report"`
+	Format   string `json:"format,omitempty" jsonschema_description:"Output format: 'xml' (default) or 'sarif' (SARIF v2.1.0 JSON for GitHub Code Scanning)"`
 }
 
 // registerCodeHealth registers the code_health MCP tool.
@@ -153,6 +155,17 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 
 		// Recommendations.
 		outliers := compare.CollectOutliers(snap)
+
+		// SARIF output for GitHub Code Scanning.
+		if input.Format == "sarif" {
+			sarifReport := compare.BuildSARIF(snap.Name, metrics, nil, nil, hotspots, outliers)
+			data, err := json.MarshalIndent(sarifReport, "", "  ")
+			if err != nil {
+				return errResult(fmt.Sprintf("sarif marshal: %s", err)), nil
+			}
+			return largeTextResult(string(data), "code_health", outputDir), nil
+		}
+
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
 
 		// Ox-codes quality checks (informational, non-fatal, do not affect grade).
