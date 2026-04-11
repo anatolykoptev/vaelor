@@ -13,7 +13,7 @@ require (
 	github.com/smacker/gum v0.0.0-20191210202023-2be77f0b3794
 	github.com/sourcegraph/scip/bindings/go/scip v0.0.0-20260226120010-b469379fcb42
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/tools v0.42.0
+	golang.org/x/tools v0.44.0
 )
 
 require (
@@ -34,12 +34,12 @@ require (
 	github.com/sourcegraph/beaut v0.0.0-20240611013027-627e4c25335a // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/mod v0.33.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
