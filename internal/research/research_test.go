@@ -177,3 +177,51 @@ func TestEstimateTokensRespectsIncludeBody(t *testing.T) {
 		t.Errorf("withoutBody=%d should be much smaller than withBody=%d", withoutBody, withBody)
 	}
 }
+
+func TestRRFFusionIsRankBased(t *testing.T) {
+	// foo.go is rank 1 in both input lists → must come out on top
+	// after rank-based RRF, regardless of absolute score magnitudes.
+	fused := map[string]float64{
+		"foo.go": 0.9, // BM25 rank 1
+		"bar.go": 0.5, // rank 2
+		"baz.go": 0.1, // rank 3
+	}
+	semantic := map[string]float64{
+		"foo.go": 0.95, // semantic rank 1
+		"qux.go": 0.6,  // rank 2
+	}
+
+	merged := fuseScores(fused, semantic)
+
+	// foo.go: 1/(60+1) + 1/(60+1) ≈ 0.0328 — must be highest.
+	// bar.go: 1/(60+2) ≈ 0.0161 — only in BM25 list at rank 2.
+	// qux.go: 1/(60+2) ≈ 0.0161 — only in semantic list at rank 2.
+	if merged["foo.go"] <= merged["bar.go"] {
+		t.Errorf("foo.go (rank 1 in both) must beat bar.go, got foo=%f bar=%f",
+			merged["foo.go"], merged["bar.go"])
+	}
+	if merged["foo.go"] <= merged["qux.go"] {
+		t.Errorf("foo.go must beat qux.go, got foo=%f qux=%f",
+			merged["foo.go"], merged["qux.go"])
+	}
+	// bar and qux are both at rank 2 in their own list → approximately equal.
+	diff := merged["bar.go"] - merged["qux.go"]
+	if diff < -0.0001 || diff > 0.0001 {
+		t.Errorf("bar.go and qux.go should score approximately equal, got bar=%f qux=%f",
+			merged["bar.go"], merged["qux.go"])
+	}
+}
+
+func TestFuseScoresIgnoresAbsoluteMagnitudes(t *testing.T) {
+	// Prove the fusion is rank-based, not score-based, by using wildly
+	// different score magnitudes that share the same rank ordering.
+	smallScores := map[string]float64{"a": 0.001, "b": 0.0005}
+	largeScores := map[string]float64{"a": 1000, "b": 500}
+
+	small := fuseScores(smallScores, nil)
+	large := fuseScores(largeScores, nil)
+
+	if small["a"] != large["a"] || small["b"] != large["b"] {
+		t.Errorf("rank-based RRF must ignore magnitudes: small=%v large=%v", small, large)
+	}
+}
