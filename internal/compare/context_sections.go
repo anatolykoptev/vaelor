@@ -75,3 +75,38 @@ func writeRoutesDiff(sb *strings.Builder, diff *RouteDiff) {
 		sb.WriteString("\n")
 	}
 }
+
+func writeArchMetrics(sb *strings.Builder, a, b *ArchMetrics) {
+	if a == nil && b == nil {
+		return
+	}
+	sb.WriteString("## Architecture Analysis\n\n")
+	if a != nil {
+		writeOneArchMetrics(sb, "Repo A", a)
+	}
+	if b != nil {
+		writeOneArchMetrics(sb, "Repo B", b)
+	}
+	sb.WriteString("\n")
+}
+
+func writeOneArchMetrics(sb *strings.Builder, label string, m *ArchMetrics) {
+	fmt.Fprintf(sb, "**%s**: %d packages, %.0f%% cross-package calls, max call depth %d, %.0f%% types behind interfaces\n",
+		label, m.PackageCount, m.CrossPkgCallRatio*100, m.MaxCallDepth, m.InterfaceRatio*100)
+	if len(m.GodPackages) > 0 {
+		sb.WriteString("  God packages: ")
+		for i, gp := range m.GodPackages {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			fmt.Fprintf(sb, "%s (%d importers)", gp.Name, gp.Importers)
+		}
+		sb.WriteString("\n")
+	}
+	if len(m.CircularDeps) > 0 {
+		fmt.Fprintf(sb, "  Circular dependencies: %d\n", len(m.CircularDeps))
+		for _, cd := range m.CircularDeps {
+			fmt.Fprintf(sb, "    %s <-> %s\n", cd.PackageA, cd.PackageB)
+		}
+	}
+}
