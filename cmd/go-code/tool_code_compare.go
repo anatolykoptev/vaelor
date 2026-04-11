@@ -240,6 +240,8 @@ type xmlArchMetrics struct {
 	CrossPkgCallRatio float64      `xml:"crossPkgCalls,attr"`
 	MaxCallDepth      int          `xml:"maxCallDepth,attr"`
 	InterfaceRatio    float64      `xml:"interfaceRatio,attr"`
+	NotIndexed        bool         `xml:"notIndexed,attr,omitempty"`
+	Hint              string       `xml:"hint,attr,omitempty"`
 	GodPackages       []xmlGodPkg  `xml:"godPkg,omitempty"`
 	CircularDeps      []xmlCircDep `xml:"circularDep,omitempty"`
 }
@@ -567,6 +569,8 @@ func convertArchMetrics(m *compare.ArchMetrics) *xmlArchMetrics {
 		CrossPkgCallRatio: m.CrossPkgCallRatio,
 		MaxCallDepth:      m.MaxCallDepth,
 		InterfaceRatio:    m.InterfaceRatio,
+		NotIndexed:        m.NotIndexed,
+		Hint:              m.Hint,
 	}
 	for _, gp := range m.GodPackages {
 		x.GodPackages = append(x.GodPackages, xmlGodPkg{Name: gp.Name, Importers: gp.Importers})
