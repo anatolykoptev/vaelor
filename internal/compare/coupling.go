@@ -31,7 +31,7 @@ type CoupledPair struct {
 func CollectCoupling(ctx context.Context, root string, minCoChanges int) []CoupledPair {
 	//nolint:gosec // root is a trusted local path from resolveRoot
 	cmd := exec.CommandContext(ctx, "git", "-C", root,
-		"log", "--name-only", "--format=|", "--since=1 year", "--", "*.go")
+		"log", "--name-only", "--format=%x00", "--since=1 year", "--", "*.go")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -87,21 +87,22 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 }
 
 // parseCommits splits git log output into per-commit file lists.
-// The "|" separator is emitted by --format="|".
+// The null byte separator is emitted by --format=%x00.
 func parseCommits(output string) [][]string {
 	var commits [][]string
 	var current []string
 
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "|" {
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, "\x00") {
+			// Null byte marks commit boundary.
 			if len(current) > 0 {
 				commits = append(commits, current)
 				current = nil
 			}
-			continue
-		}
-		if line == "" {
 			continue
 		}
 		current = append(current, line)
