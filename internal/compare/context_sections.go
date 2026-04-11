@@ -91,6 +91,10 @@ func writeArchMetrics(sb *strings.Builder, a, b *ArchMetrics) {
 }
 
 func writeOneArchMetrics(sb *strings.Builder, label string, m *ArchMetrics) {
+	if m.NotIndexed {
+		fmt.Fprintf(sb, "**%s**: architecture metrics unavailable (code graph not indexed)\n", label)
+		return
+	}
 	fmt.Fprintf(sb, "**%s**: %d packages, %.0f%% cross-package calls, max call depth %d, %.0f%% types behind interfaces\n",
 		label, m.PackageCount, m.CrossPkgCallRatio*100, m.MaxCallDepth, m.InterfaceRatio*100)
 	if len(m.GodPackages) > 0 {

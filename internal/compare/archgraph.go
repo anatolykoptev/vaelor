@@ -18,6 +18,11 @@ type ArchMetrics struct {
 	InterfaceRatio    float64       `json:"interfaceRatio"`
 	GodPackages       []GodPackage  `json:"godPackages,omitempty"`
 	CircularDeps      []CircularDep `json:"circularDeps,omitempty"`
+	// NotIndexed is set when the code graph has no packages for this repo,
+	// meaning code_graph tool was never called with this repo path. Call
+	// code_graph with the same repo first to populate the graph.
+	NotIndexed bool   `json:"notIndexed,omitempty"`
+	Hint       string `json:"hint,omitempty"`
 }
 
 // GodPackage represents a package with many importers (high coupling).
@@ -44,10 +49,20 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 	graph := codegraph.GraphNameFor(root)
 	m := &ArchMetrics{}
 
+	// Package count doubles as an indexed-graph probe (fastest query).
+	m.PackageCount = queryPackageCount(ctx, store, graph)
+	if m.PackageCount == 0 {
+		// Graph is empty — set the hint and skip expensive queries.
+		m.NotIndexed = true
+		m.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
+			"Call the `code_graph` tool with the same repo path first to populate the graph, " +
+			"then re-run code_compare."
+		return m
+	}
+
 	// Serial execution — pgxpool has only ~4 connections by default.
 	// Two repos run in parallel (called from enrich.go), so 2 concurrent
 	// queries is safe. More concurrency exhausts the pool.
-	m.PackageCount = queryPackageCount(ctx, store, graph)
 	m.CrossPkgCallRatio = queryCrossPkgRatio(ctx, store, graph)
 	m.InterfaceRatio = queryInterfaceRatio(ctx, store, graph)
 	m.GodPackages = queryGodPackages(ctx, store, graph)
