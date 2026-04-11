@@ -427,3 +427,22 @@ func TestRunPropagatesSemanticSymbols(t *testing.T) {
 		}
 	}
 }
+
+func TestSemanticTopKScales(t *testing.T) {
+	cases := []struct {
+		maxTokens, want int
+	}{
+		{1000, 10},   // 1000/400 = 2.5 → floor 10
+		{4000, 10},   // 4000/400 = 10 → exactly floor
+		{8000, 20},   // 8000/400 = 20
+		{20000, 50},  // 20000/400 = 50
+		{60000, 100}, // ceiling
+		{0, 20},      // default: DefaultMaxTokens=8000 → 20
+	}
+	for _, c := range cases {
+		got := semanticTopK(c.maxTokens)
+		if got != c.want {
+			t.Errorf("semanticTopK(%d) = %d, want %d", c.maxTokens, got, c.want)
+		}
+	}
+}
