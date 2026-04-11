@@ -128,3 +128,35 @@ func TestBM25F_IDF_CommonTermLowerScore(t *testing.T) {
 		t.Errorf("rare term 'auth' (%f) should score higher than common term 'main' (%f)", authScore, mainScore)
 	}
 }
+
+func TestBM25FMatchesDocComment(t *testing.T) {
+	docs := []Document{
+		{Path: "a.go", Symbols: []string{"Foo"}, Docs: []string{"retries the request with exponential backoff"}},
+		{Path: "b.go", Symbols: []string{"Bar"}, Docs: []string{"unrelated helper"}},
+	}
+	scorer := NewBM25F(docs)
+
+	a := scorer.ScoreTerms([]string{"retry", "backoff"}, docs[0])
+	b := scorer.ScoreTerms([]string{"retry", "backoff"}, docs[1])
+
+	if a <= b {
+		t.Errorf("doc-comment match must score higher: a=%f b=%f", a, b)
+	}
+}
+
+func TestBM25FDocWeightLowerThanSymbol(t *testing.T) {
+	// A symbol-name match should out-rank a doc-comment-only match
+	// because symbols carry stronger signal (WeightSymbol=5.0 > WeightDoc=2.0).
+	docs := []Document{
+		{Path: "a.go", Symbols: []string{"Retry"}, Docs: []string{"unrelated"}},
+		{Path: "b.go", Symbols: []string{"Helper"}, Docs: []string{"retry logic here"}},
+	}
+	scorer := NewBM25F(docs)
+
+	a := scorer.ScoreTerms([]string{"retry"}, docs[0])
+	b := scorer.ScoreTerms([]string{"retry"}, docs[1])
+
+	if a <= b {
+		t.Errorf("symbol match (a=%f) must out-rank doc-only match (b=%f)", a, b)
+	}
+}
