@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -101,11 +102,13 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 
 	// --- Step 5b: call-graph BFS expansion (optional) ---
 	if input.IncludeCallGraph && deps.BuildCallGraph != nil {
-		if cg, err := deps.BuildCallGraph(ctx, input.Root); err == nil && cg != nil {
+		cg, cgErr := deps.BuildCallGraph(ctx, input.Root)
+		if cgErr != nil {
+			log.Printf("research: call-graph build failed (non-fatal): %v", cgErr)
+		} else if cg != nil {
 			cgExpanded := expandFromCallGraph(seedFiles, cg, input.ExpandHops)
 			expanded = mergeExpandResults(expanded, cgExpanded)
 		}
-		// Non-fatal: import-DAG expansion is already in `expanded`.
 	}
 
 	// --- Step 6: filter symbols per file by query terms ---

@@ -33,11 +33,14 @@ func registerCodeResearch(server *mcp.Server, _ Config, deps analyze.Deps, semDe
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "code_research",
 		Description: "Deep code research for large repositories. " +
-			"Combines keyword (BM25F), semantic (embeddings), and import-graph DAG expansion " +
+			"Combines keyword (BM25F with doc-comment indexing), semantic (embeddings), " +
+			"import-graph DAG expansion, and optional call-graph BFS (callers+callees) " +
 			"to find relevant code and produce a compact, LLM-ready map. " +
+			"Features: file_glob scoping, include_tests/include_call_graph opt-ins, " +
+			"compact output mode. " +
 			"Better than repo_analyze for targeted questions: 'how does X work?', " +
 			"'find the implementation of Y', 'what calls Z'. " +
-			"Returns seed symbols (direct matches) + linked files (import-graph neighbours) " +
+			"Returns seed symbols (direct matches) + linked files (import/call-graph neighbours) " +
 			"+ Aider-style compact map within a token budget.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeResearchInput) (*mcp.CallToolResult, error) {
 		return handleCodeResearch(ctx, input, deps, semDeps)
@@ -119,8 +122,8 @@ func formatResearchResult(input CodeResearchInput, r *research.Result) string {
 				// Emit distinct symbols for this file.
 				for _, s2 := range r.Seeds {
 					if s2.File == s.File && s2.Name != "" {
-						fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
-							escapeXML(s2.Kind), s2.Line, escapeXML(s2.Name))
+						fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\" source=%q>%s</symbol>\n",
+							escapeXML(s2.Kind), s2.Line, escapeXML(s2.Source), escapeXML(s2.Name))
 					}
 				}
 				fmt.Fprintf(&sb, "    </file>\n")
