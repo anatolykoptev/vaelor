@@ -2,8 +2,10 @@ package compare
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 )
@@ -42,12 +44,16 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 	graph := codegraph.GraphNameFor(root)
 	m := &ArchMetrics{}
 
+	// Serial execution — pgxpool has only ~4 connections by default.
+	// Two repos run in parallel (called from enrich.go), so 2 concurrent
+	// queries is safe. More concurrency exhausts the pool.
 	m.PackageCount = queryPackageCount(ctx, store, graph)
 	m.CrossPkgCallRatio = queryCrossPkgRatio(ctx, store, graph)
-	m.MaxCallDepth = queryMaxCallDepth(ctx, store, graph)
 	m.InterfaceRatio = queryInterfaceRatio(ctx, store, graph)
 	m.GodPackages = queryGodPackages(ctx, store, graph)
 	m.CircularDeps = queryCircularDeps(ctx, store, graph)
+	// MaxCallDepth is expensive (variable-length path probing) — run last.
+	m.MaxCallDepth = queryMaxCallDepth(ctx, store, graph)
 
 	return m
 }
@@ -67,70 +73,93 @@ func queryPackageCount(ctx context.Context, store *codegraph.Store, graph string
 }
 
 func queryCrossPkgRatio(ctx context.Context, store *codegraph.Store, graph string) float64 {
-	// Count calls where caller and callee are in different files (proxy for cross-package).
-	rows, err := store.ExecCypher(ctx, graph,
-		`MATCH (a:Symbol)-[:CALLS]->(b:Symbol)
-         WHERE a.file IS NOT NULL AND b.file IS NOT NULL
-         RETURN count(CASE WHEN a.file <> b.file THEN 1 END), count(*)`, 2)
-	if err != nil {
-		slog.Debug("archgraph: cross-pkg ratio query failed", "err", err)
+	// AGE limitation: no CASE inside count(). Use two separate queries.
+	// Total CALLS edges:
+	totalRows, err := store.ExecCypher(ctx, graph,
+		`MATCH (a:Symbol)-[:CALLS]->(b:Symbol) RETURN count(*)`, 1)
+	if err != nil || len(totalRows) == 0 {
 		return 0
 	}
-	if len(rows) == 0 {
-		return 0
-	}
-	cross, _ := strconv.Atoi(rows[0][0])
-	total, _ := strconv.Atoi(rows[0][1])
+	total, _ := strconv.Atoi(totalRows[0][0])
 	if total == 0 {
 		return 0
 	}
+
+	// Cross-file CALLS edges (proxy for cross-package):
+	crossRows, err := store.ExecCypher(ctx, graph,
+		`MATCH (a:Symbol)-[:CALLS]->(b:Symbol) WHERE a.file <> b.file RETURN count(*)`, 1)
+	if err != nil || len(crossRows) == 0 {
+		return 0
+	}
+	cross, _ := strconv.Atoi(crossRows[0][0])
 	return float64(cross) / float64(total)
 }
 
+// maxProbedCallDepth is the deepest call chain length we probe.
+const maxProbedCallDepth = 10
+
 func queryMaxCallDepth(ctx context.Context, store *codegraph.Store, graph string) int {
-	// Bounded variable-length path prevents combinatorial explosion.
-	rows, err := store.ExecCypher(ctx, graph,
-		`MATCH p=(a:Symbol)-[:CALLS*1..10]->(b:Symbol)
-         WHERE NOT (b)-[:CALLS]->()
-         RETURN max(length(p))`, 1)
-	if err != nil {
-		slog.Debug("archgraph: max call depth query failed", "err", err)
-		return 0
+	// AGE limitation: max(length(p)) doesn't work in aggregate.
+	// Strategy: binary search for deepest non-empty path length.
+	// Fixed-length paths (*N..N) work reliably in AGE.
+	// Worst case: log2(10) ≈ 4 queries instead of linear 10.
+	lo, hi, best := 1, maxProbedCallDepth, 0
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		cypher := fmt.Sprintf(
+			`MATCH (a:Symbol)-[:CALLS*%d..%d]->(b:Symbol) RETURN count(*)`, mid, mid)
+		rows, err := store.ExecCypher(ctx, graph, cypher, 1)
+		if err != nil || len(rows) == 0 {
+			// Query failed — try shallower to avoid timeout.
+			hi = mid - 1
+			continue
+		}
+		n, _ := strconv.Atoi(rows[0][0])
+		if n > 0 {
+			best = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
 	}
-	if len(rows) == 0 {
-		return 0
-	}
-	n, _ := strconv.Atoi(rows[0][0])
-	return n
+	return best
 }
 
 func queryInterfaceRatio(ctx context.Context, store *codegraph.Store, graph string) float64 {
-	// Ratio of types that implement interfaces vs total types.
-	rows, err := store.ExecCypher(ctx, graph,
-		`MATCH (s:Symbol) WHERE s.kind = 'type' OR s.kind = 'interface'
-         RETURN count(CASE WHEN (s)-[:IMPLEMENTS]->() THEN 1 END), count(s)`, 2)
-	if err != nil {
-		slog.Debug("archgraph: interface ratio query failed", "err", err)
+	// IMPLEMENTS edges don't exist in this graph. Use abstraction proxy:
+	// ratio of interface symbols to (struct + interface) symbols.
+	// Higher ratio = more abstracted code.
+	ifaceRows, err := store.ExecCypher(ctx, graph,
+		`MATCH (s:Symbol) WHERE s.kind = 'interface' RETURN count(s)`, 1)
+	if err != nil || len(ifaceRows) == 0 {
 		return 0
 	}
-	if len(rows) == 0 {
+	ifaces, _ := strconv.Atoi(ifaceRows[0][0])
+
+	structRows, err := store.ExecCypher(ctx, graph,
+		`MATCH (s:Symbol) WHERE s.kind = 'struct' RETURN count(s)`, 1)
+	if err != nil || len(structRows) == 0 {
 		return 0
 	}
-	impl, _ := strconv.Atoi(rows[0][0])
-	total, _ := strconv.Atoi(rows[0][1])
+	structs, _ := strconv.Atoi(structRows[0][0])
+
+	total := ifaces + structs
 	if total == 0 {
 		return 0
 	}
-	return float64(impl) / float64(total)
+	return float64(ifaces) / float64(total)
 }
 
 func queryGodPackages(ctx context.Context, store *codegraph.Store, graph string) []GodPackage {
+	// IMPORTS edges go File→Package, not Package→Package.
+	// Derive package-level importers via: Package-[:CONTAINS]->File-[:IMPORTS]->Package.
+	// Use DISTINCT p1 to count unique importing packages.
 	rows, err := store.ExecCypher(ctx, graph,
-		`MATCH (a:Package)-[:IMPORTS]->(b:Package)
-         WITH b.name AS pkg, count(a) AS importers
-         WHERE importers >= 5
-         RETURN pkg, importers
-         ORDER BY importers DESC`, 2)
+		`MATCH (p1:Package)-[:CONTAINS]->(f:File)-[:IMPORTS]->(p2:Package)
+		 WHERE p1.name <> p2.name
+		 RETURN p2.name, count(DISTINCT p1) AS importers
+		 ORDER BY importers DESC
+		 LIMIT 50`, 2)
 	if err != nil {
 		slog.Debug("archgraph: god packages query failed", "err", err)
 		return nil
@@ -141,27 +170,60 @@ func queryGodPackages(ctx context.Context, store *codegraph.Store, graph string)
 			continue
 		}
 		n, _ := strconv.Atoi(row[1])
-		result = append(result, GodPackage{Name: row[0], Importers: n})
+		if n < godPackageThreshold {
+			continue
+		}
+		// Strip quotes from AGE string format.
+		name := strings.Trim(row[0], `"`)
+		result = append(result, GodPackage{Name: name, Importers: n})
 	}
 	return result
 }
 
 func queryCircularDeps(ctx context.Context, store *codegraph.Store, graph string) []CircularDep {
-	// id(a) < id(b) deduplicates — each pair appears once.
+	// AGE limitation: id(a) < id(b) doesn't work for deduplication.
+	// Strategy: fetch all package-level imports, build adjacency in Go, find 2-cycles.
 	rows, err := store.ExecCypher(ctx, graph,
-		`MATCH (a:Package)-[:IMPORTS]->(b:Package)-[:IMPORTS]->(a)
-         WHERE id(a) < id(b)
-         RETURN a.name, b.name`, 2)
+		`MATCH (p1:Package)-[:CONTAINS]->(f:File)-[:IMPORTS]->(p2:Package)
+		 WHERE p1.name <> p2.name
+		 RETURN DISTINCT p1.name, p2.name`, 2)
 	if err != nil {
-		slog.Debug("archgraph: circular deps query failed", "err", err)
+		slog.Debug("archgraph: package imports query failed", "err", err)
 		return nil
 	}
-	var result []CircularDep
+
+	// Build adjacency: A imports B.
+	imports := make(map[string]map[string]bool)
 	for _, row := range rows {
 		if len(row) < 2 {
 			continue
 		}
-		result = append(result, CircularDep{PackageA: row[0], PackageB: row[1]})
+		a := strings.Trim(row[0], `"`)
+		b := strings.Trim(row[1], `"`)
+		if imports[a] == nil {
+			imports[a] = make(map[string]bool)
+		}
+		imports[a][b] = true
+	}
+
+	// Find 2-cycles (A→B and B→A). Deduplicate by alphabetical ordering.
+	seen := make(map[string]bool)
+	var result []CircularDep
+	for a, deps := range imports {
+		for b := range deps {
+			if imports[b] != nil && imports[b][a] {
+				// Canonical key: lexicographically smaller first.
+				key := a + "|" + b
+				if a > b {
+					key = b + "|" + a
+				}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				result = append(result, CircularDep{PackageA: a, PackageB: b})
+			}
+		}
 	}
 	return result
 }
