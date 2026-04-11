@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/prompts"
@@ -100,7 +101,22 @@ func handleDeepMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.De
 		return errResult(fmt.Sprintf("analyze: %s", err)), nil
 	}
 
-	formatted := formatAnalysisResult(result, input.Format, input.Depth)
+	var extras *repoAnalysisExtras
+	if input.Depth == analyze.DepthDeep {
+		apiSurface := compare.ExtractAPISurface(result.Symbols, result.Language)
+		var freshnessStats *compare.FreshnessStats
+		{
+			fctx, fcancel := context.WithTimeout(ctx, 10*time.Second)
+			defer fcancel()
+			freshnessStats, _, _ = compare.CollectFreshness(fctx, root)
+		}
+		extras = &repoAnalysisExtras{
+			APISurfaceSize: len(apiSurface),
+			FreshnessStats: freshnessStats,
+		}
+	}
+
+	formatted := formatAnalysisResult(result, input.Format, input.Depth, extras)
 
 	if outputDir != "" && len(formatted) > maxInlineCharsDefault {
 		if path, ok := saveAnalysisFile(formatted, input.Format, outputDir); ok {
