@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/impact"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -87,13 +90,51 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		return errResult(msg), nil
 	}
 
+	// Compute git-churn hotspots and annotate callers whose files are among the
+	// top-10 hotspots. Non-fatal: if churn data or snapshot is unavailable we
+	// skip annotation entirely.
+	var hotspotSet map[string]bool
+	hctx, hcancel := context.WithTimeout(ctx, 15*time.Second)
+	defer hcancel()
+	churn, _ := compare.CollectChurn(hctx, root)
+	if len(churn) > 0 {
+		snap, snapErr := compare.BuildSnapshot(hctx, root, compare.SnapshotOpts{Language: input.Language})
+		var fc map[string]float64
+		if snapErr == nil && snap != nil {
+			fc = compare.FileComplexityFromSnapshot(snap)
+		}
+		hotspots := compare.ComputeHotspots(churn, fc)
+		hotspotSet = topHotspotSet(hotspots, 10)
+	}
+
+	// Reorder direct and transitive callers so hotspot-file callers come first,
+	// preserving relative order within each group (stable partition).
+	if hotspotSet != nil {
+		result.DirectCallers = partitionByHotspot(result.DirectCallers, root, hotspotSet)
+		result.TransitiveCallers = partitionByHotspot(result.TransitiveCallers, root, hotspotSet)
+	}
+
+	// Collect deduplicated hotspot caller names (Name field) in reordered order.
+	var hotspotCallers []string
+	if hotspotSet != nil {
+		seen := make(map[string]bool)
+		for _, caller := range append(result.DirectCallers, result.TransitiveCallers...) {
+			rel := gitRelPath(root, caller.File)
+			if hotspotSet[rel] && !seen[caller.Name] {
+				seen[caller.Name] = true
+				hotspotCallers = append(hotspotCallers, caller.Name)
+			}
+		}
+	}
+
 	// Build output with optional narrative.
 	type impactOutput struct {
 		*impact.Result
-		Tier      string `json:"tier,omitempty"`
-		Narrative string `json:"narrative,omitempty"`
+		Tier           string   `json:"tier,omitempty"`
+		Narrative      string   `json:"narrative,omitempty"`
+		HotspotCallers []string `json:"hotspot_callers,omitempty"` // caller symbol names whose file is a top hotspot
 	}
-	output := impactOutput{Result: result, Tier: cg.Tier}
+	output := impactOutput{Result: result, Tier: cg.Tier, HotspotCallers: hotspotCallers}
 
 	if result.TotalAffected > 0 {
 		prefix := fmt.Sprintf("Changed symbol: %s\n\nImpact analysis:\n", input.Symbol)
@@ -106,4 +147,48 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	}
 
 	return textResult(string(data)), nil
+}
+
+// topHotspotSet returns a set of the top-N hotspot file paths.
+func topHotspotSet(hotspots []compare.HotspotFile, n int) map[string]bool {
+	if len(hotspots) == 0 {
+		return nil
+	}
+	if n > len(hotspots) {
+		n = len(hotspots)
+	}
+	set := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		set[hotspots[i].File] = true
+	}
+	return set
+}
+
+// gitRelPath normalises an absolute file path to a git-relative path.
+// If filepath.Rel fails or the path is already relative, the original is returned.
+func gitRelPath(root, path string) string {
+	if rel, err := filepath.Rel(root, path); err == nil {
+		return rel
+	}
+	return path
+}
+
+// partitionByHotspot performs a stable partition of callers, placing those
+// whose file is in hotspotSet first while preserving relative order within
+// each group.
+func partitionByHotspot(callers []impact.AffectedSymbol, root string, hotspotSet map[string]bool) []impact.AffectedSymbol {
+	if len(callers) == 0 {
+		return callers
+	}
+	hot := callers[:0:0]
+	cold := callers[:0:0]
+	for _, c := range callers {
+		rel := gitRelPath(root, c.File)
+		if hotspotSet[rel] {
+			hot = append(hot, c)
+		} else {
+			cold = append(cold, c)
+		}
+	}
+	return append(hot, cold...)
 }
