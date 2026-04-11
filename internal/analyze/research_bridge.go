@@ -1,0 +1,116 @@
+package analyze
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/anatolykoptev/go-code/internal/goutil"
+	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// ResearchData is the raw analysis output consumed by the research package.
+// All fields use exported types so the research package can use them directly.
+type ResearchData struct {
+	// Root is the resolved repository root path.
+	Root string
+
+	// Files is the full list of ingested files.
+	Files []*ingest.File
+
+	// FileSymbols maps relPath → symbols for each file.
+	FileSymbols map[string][]*parser.Symbol
+
+	// FileImports maps relPath → relPaths of local files it imports.
+	// Built from the package-level import graph lifted to file level.
+	FileImports map[string][]string
+
+	// PkgFiles maps package dir → relPaths of files in that package.
+	PkgFiles map[string][]string
+
+	// BM25Scores maps relPath → BM25F score for the query.
+	BM25Scores map[string]float64
+
+	// QueryTerms are the extracted terms used for BM25F matching.
+	QueryTerms []string
+}
+
+// AnalyzeForResearch ingests and parses a repository, returning the raw data
+// needed by the research pipeline (symbols, import graph, BM25 scores).
+// It is analogous to AnalyzeRepo but returns structured data instead of a
+// rendered result, so the research package can apply its own ranking/pruning.
+func AnalyzeForResearch(ctx context.Context, root, query, language string, deps Deps) (*ResearchData, error) {
+	var langs []string
+	if language != "" {
+		langs = []string{language}
+	}
+
+	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+		Root:         root,
+		Languages:    langs,
+		MaxFileBytes: deps.maxFileBytes(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ingest: %w", err)
+	}
+
+	parseResults := parseFilesParallel(ctx, ir.Files, false, deps.ParseCache)
+
+	// Package-level import graph (local packages only).
+	pkgGraph := buildImportGraph(root, parseResults, false)
+
+	// Map package dir → file relPaths.
+	pkgFiles := make(map[string][]string, len(parseResults))
+	for _, pr := range parseResults {
+		pkg := goutil.PackageDir(root, pr.file.Path)
+		pkgFiles[pkg] = append(pkgFiles[pkg], pr.file.RelPath)
+	}
+
+	// Lift package graph to file-level graph.
+	fileImports := make(map[string][]string, len(parseResults))
+	for pkg, imports := range pkgGraph {
+		for _, srcRelPath := range pkgFiles[pkg] {
+			for dep := range imports {
+				dstFiles := resolveToFiles(dep, pkgFiles)
+				fileImports[srcRelPath] = append(fileImports[srcRelPath], dstFiles...)
+			}
+		}
+	}
+
+	// File → symbols map.
+	fileSymbols := make(map[string][]*parser.Symbol, len(parseResults))
+	for _, pr := range parseResults {
+		if pr.result != nil {
+			fileSymbols[pr.file.RelPath] = pr.result.Symbols
+		}
+	}
+
+	// BM25F scores.
+	queryTerms := extractQueryTerms(query)
+	_, bm25Scores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
+
+	return &ResearchData{
+		Root:        root,
+		Files:       ir.Files,
+		FileSymbols: fileSymbols,
+		FileImports: fileImports,
+		PkgFiles:    pkgFiles,
+		BM25Scores:  bm25Scores,
+		QueryTerms:  queryTerms,
+	}, nil
+}
+
+// resolveToFiles resolves an import path to local file relPaths using suffix matching.
+func resolveToFiles(importPath string, pkgFiles map[string][]string) []string {
+	if files, ok := pkgFiles[importPath]; ok {
+		return files
+	}
+	for localPkg, files := range pkgFiles {
+		if len(importPath) > len(localPkg) &&
+			importPath[len(importPath)-len(localPkg)-1] == '/' &&
+			importPath[len(importPath)-len(localPkg):] == localPkg {
+			return files
+		}
+	}
+	return nil
+}

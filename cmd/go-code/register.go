@@ -101,6 +101,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerCodeSearch(server, cfg, deps, &semDeps)
 	registerWPPluginSearch(server, cfg, deps)
 	registerSemanticSearch(server, cfg, semDeps)
+	registerCodeResearch(server, cfg, deps, &semDeps)
 	registerSiteAnalyze(server, cfg)
 	registerSiteCrawl(server, cfg)
 	registerUnderstand(server, cfg, deps, &semDeps)
