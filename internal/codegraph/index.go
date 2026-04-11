@@ -70,6 +70,11 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	if cached, err := checkCache(ctx, store, repoKey, gname); err != nil {
 		return nil, err
 	} else if cached != nil {
+		// Ensure indexes exist even on cache hit — safe to run (IF NOT EXISTS).
+		// Handles existing graphs that were built before indexes were introduced.
+		if ierr := store.EnsureIndexes(ctx, gname); ierr != nil {
+			slog.Warn("codegraph: ensure indexes on cache hit", slog.Any("error", ierr))
+		}
 		return cached, nil
 	}
 
@@ -112,6 +117,12 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		if err := insertEdgeBatches(ctx, store, gname, cfg.BatchSize, crossEdges); err != nil {
 			slog.Warn("codegraph: cross-language edges", slog.Any("error", err))
 		}
+	}
+
+	// Create Postgres indexes on AGE vertex tables for fast WHERE filtering.
+	// Non-fatal: index failures log but don't block graph availability.
+	if err := store.EnsureIndexes(ctx, gname); err != nil {
+		slog.Warn("codegraph: ensure indexes", slog.Any("error", err))
 	}
 
 	ttl := cfg.TTLLocal
