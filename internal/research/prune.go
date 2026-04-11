@@ -161,9 +161,11 @@ func filterSymbolsByQuery(symbols []*parser.Symbol, queryTerms []string) []*pars
 
 	var matched []*parser.Symbol
 	for _, sym := range symbols {
-		lower := strings.ToLower(sym.Name)
+		nameLower := strings.ToLower(sym.Name)
+		docLower := strings.ToLower(sym.DocComment)
 		for _, term := range queryTerms {
-			if strings.Contains(lower, strings.ToLower(term)) {
+			t := strings.ToLower(term)
+			if strings.Contains(nameLower, t) || (docLower != "" && strings.Contains(docLower, t)) {
 				matched = append(matched, sym)
 				break
 			}
