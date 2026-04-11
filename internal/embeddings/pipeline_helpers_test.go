@@ -126,3 +126,38 @@ func TestBuildEmbedText_ShortBody(t *testing.T) {
 	assert.Contains(t, text, "return 1")
 	assert.Less(t, len(text), maxEmbedText)
 }
+
+func TestBuildEmbedTextIncludesDocComment(t *testing.T) {
+	sym := &parser.Symbol{
+		Name:       "Retry",
+		Kind:       parser.KindFunction,
+		Signature:  "func Retry(fn func() error) error",
+		DocComment: "Retry executes fn with exponential backoff up to 3 attempts.",
+		Body:       "for i := 0; i < 3; i++ { _ = fn() }",
+		Language:   "go",
+	}
+	text := buildEmbedText(sym, "foo/bar.go")
+	if !strings.Contains(text, "exponential backoff") {
+		t.Errorf("buildEmbedText must include DocComment, got:\n%s", text)
+	}
+	// Sanity: body and signature still present.
+	if !strings.Contains(text, "Retry") || !strings.Contains(text, "for i :=") {
+		t.Errorf("buildEmbedText must still include name/body, got:\n%s", text)
+	}
+}
+
+func TestBuildEmbedTextOmitsEmptyDocComment(t *testing.T) {
+	sym := &parser.Symbol{
+		Name:      "Foo",
+		Kind:      parser.KindFunction,
+		Signature: "func Foo() {}",
+		Body:      "{}",
+		Language:  "go",
+		// DocComment is empty
+	}
+	text := buildEmbedText(sym, "foo.go")
+	// Must not produce double newlines or placeholder text for missing doc.
+	if strings.Contains(text, "\n\n\n") {
+		t.Errorf("empty DocComment must not produce empty lines, got:\n%s", text)
+	}
+}
