@@ -171,29 +171,29 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 func collectQualitySignals(ctx context.Context, root, language string, oxCodes *oxcodes.Client) *xmlQualitySignals {
 	out := &xmlQualitySignals{}
 
-	// Freshness — 10s timeout, non-fatal.
-	{
-		fctx, fcancel := context.WithTimeout(ctx, 10*time.Second)
-		defer fcancel()
-		if fresh, _, _ := compare.CollectFreshness(fctx, root); fresh != nil {
-			out.Freshness = &xmlFreshnessSignal{
-				FreshRatio: fresh.DepFreshnessRatio,
-				VulnCount:  fresh.VulnDeps,
-				TotalDeps:  fresh.TotalDeps,
-			}
+	// Freshness — 10s timeout, non-fatal. Cancel explicitly so the timeout
+	// goroutine releases before the dataflow call starts (defer would only
+	// fire at function return, leaving both timers alive at once).
+	fctx, fcancel := context.WithTimeout(ctx, 10*time.Second)
+	if fresh, _, _ := compare.CollectFreshness(fctx, root); fresh != nil {
+		out.Freshness = &xmlFreshnessSignal{
+			FreshRatio: fresh.DepFreshnessRatio,
+			VulnCount:  fresh.VulnDeps,
+			TotalDeps:  fresh.TotalDeps,
 		}
 	}
+	fcancel()
 
 	// Dataflow — 10s timeout, requires ox-codes + language.
 	if oxCodes != nil && language != "" {
 		dctx, dcancel := context.WithTimeout(ctx, 10*time.Second)
-		defer dcancel()
 		if df := compare.GatherDataflow(dctx, oxCodes, root, language); df != nil {
 			out.Dataflow = &xmlDataflowSignal{
 				DeadStores: df.DeadStores,
 				UnusedVars: df.UnusedVars,
 			}
 		}
+		dcancel()
 	}
 
 	if out.Freshness == nil && out.Dataflow == nil {
