@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/anatolykoptev/go-code/internal/codesearch"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -41,7 +42,7 @@ type ResearchData struct {
 // needed by the research pipeline (symbols, import graph, BM25 scores).
 // It is analogous to AnalyzeRepo but returns structured data instead of a
 // rendered result, so the research package can apply its own ranking/pruning.
-func AnalyzeForResearch(ctx context.Context, root, query, language string, deps Deps) (*ResearchData, error) {
+func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob string, deps Deps) (*ResearchData, error) {
 	var langs []string
 	if language != "" {
 		langs = []string{language}
@@ -54,6 +55,16 @@ func AnalyzeForResearch(ctx context.Context, root, query, language string, deps 
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ingest: %w", err)
+	}
+
+	if fileGlob != "" {
+		filtered := ir.Files[:0]
+		for _, f := range ir.Files {
+			if codesearch.MatchFileGlob(f.RelPath, fileGlob) {
+				filtered = append(filtered, f)
+			}
+		}
+		ir.Files = filtered
 	}
 
 	parseResults := parseFilesParallel(ctx, ir.Files, false, deps.ParseCache)

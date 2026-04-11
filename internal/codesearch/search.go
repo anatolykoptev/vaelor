@@ -158,6 +158,10 @@ func matchesFileGlob(relPath, glob string) bool {
 	return false
 }
 
+// MatchFileGlob is the exported wrapper for the package's glob matcher.
+// Supports "*.go", "pkg/foo/**", and full-path globs.
+func MatchFileGlob(path, glob string) bool { return matchesFileGlob(path, glob) }
+
 // matchesExclude checks whether relPath matches any comma-separated exclude patterns.
 // Each pattern is checked as filepath.Match against every path component, and as a
 // prefix match (e.g. "docs/*" excludes "docs/plans/foo.md").
