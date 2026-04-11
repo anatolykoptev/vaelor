@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/compound"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -76,9 +79,43 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 		return errResult(msg), nil
 	}
 
-	data, err := json.MarshalIndent(result, "", "  ")
+	// Collect git-coupled files that frequently change together with the target.
+	var relatedFiles []string
+	targetFile := result.Symbol.File
+	if rel, err := filepath.Rel(root, targetFile); err == nil {
+		targetFile = rel
+	}
+	cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
+	defer ccancel()
+	pairs := compare.CollectCoupling(cctx, root, 3)
+	seen := make(map[string]bool)
+	for _, p := range pairs {
+		var other string
+		switch {
+		case p.FileA == targetFile:
+			other = p.FileB
+		case p.FileB == targetFile:
+			other = p.FileA
+		}
+		if other != "" && !seen[other] {
+			seen[other] = true
+			relatedFiles = append(relatedFiles, other)
+		}
+	}
+
+	response := prepareChangeResponse{
+		PrepareChangeResult: result,
+		RelatedFiles:        relatedFiles,
+	}
+	data, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
 	return textResult(string(data)), nil
+}
+
+// prepareChangeResponse wraps PrepareChangeResult with additional git coupling data.
+type prepareChangeResponse struct {
+	*compound.PrepareChangeResult
+	RelatedFiles []string `json:"related_files,omitempty"`
 }
