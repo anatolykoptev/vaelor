@@ -225,12 +225,20 @@ type ArchitectureInsight struct {
 	Benefit string `json:"benefit"`
 }
 
+// VerdictResult is the structured "can replace?" assessment.
+type VerdictResult struct {
+	CanReplace string   `json:"canReplace"` // "yes", "partial", "no"
+	Reason     string   `json:"reason"`
+	Blockers   []string `json:"blockers,omitempty"`
+}
+
 // LLMAnalysis holds the structured output from LLM-powered comparison.
 type LLMAnalysis struct {
 	Quality         []QualityAspect       `json:"quality"`
 	Gaps            []CoverageGap         `json:"gaps"`
 	Architecture    []ArchitectureInsight `json:"architecture"`
 	Recommendations []string              `json:"recommendations"`
+	Verdict         VerdictResult         `json:"verdict"`
 }
 
 // MatchBreakdown counts matches by type for structured reporting.
