@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/review"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -49,6 +52,7 @@ type xmlDeltaResponse struct {
 	Untested        []string           `xml:"untested>symbol,omitempty"`
 	Snippets        []xmlSnippet       `xml:"snippets>snippet,omitempty"`
 	Risk            xmlRisk            `xml:"risk"`
+	Quality         *xmlQualitySignals `xml:"quality,omitempty"`
 	// Verdict is populated only by review_pr (via deriveVerdict); review_delta
 	// leaves it nil so omitempty suppresses the element for that tool.
 	Verdict *xmlVerdict `xml:"verdict,omitempty"`
@@ -80,6 +84,25 @@ type xmlRisk struct {
 	Score       float64  `xml:"score,attr"`
 	Flags       []string `xml:"flag,omitempty"`
 	Suggestions []string `xml:"suggestion,omitempty"`
+}
+
+// xmlQualitySignals captures current-HEAD quality indicators reported alongside
+// a delta review. These are NOT delta-vs-base — they reflect the post-change state,
+// so reviewers can spot regressions at a glance.
+type xmlQualitySignals struct {
+	Freshness *xmlFreshnessSignal `xml:"freshness,omitempty"`
+	Dataflow  *xmlDataflowSignal  `xml:"dataflow,omitempty"`
+}
+
+type xmlFreshnessSignal struct {
+	FreshRatio float64 `xml:"freshRatio,attr"`
+	VulnCount  int     `xml:"vulnCount,attr"`
+	TotalDeps  int     `xml:"totalDeps,attr"`
+}
+
+type xmlDataflowSignal struct {
+	DeadStores int `xml:"deadStores,attr"`
+	UnusedVars int `xml:"unusedVars,attr"`
 }
 
 type xmlSnippet struct {
@@ -122,6 +145,7 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 	}
 
 	resp := buildDeltaXML(result)
+	resp.Quality = collectQualitySignals(ctx, root, input.Language, deps.OxCodes)
 	data, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
@@ -142,6 +166,40 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 	}
 
 	return textResult(out), nil
+}
+
+func collectQualitySignals(ctx context.Context, root, language string, oxCodes *oxcodes.Client) *xmlQualitySignals {
+	out := &xmlQualitySignals{}
+
+	// Freshness — 10s timeout, non-fatal.
+	{
+		fctx, fcancel := context.WithTimeout(ctx, 10*time.Second)
+		defer fcancel()
+		if fresh, _, _ := compare.CollectFreshness(fctx, root); fresh != nil {
+			out.Freshness = &xmlFreshnessSignal{
+				FreshRatio: fresh.DepFreshnessRatio,
+				VulnCount:  fresh.VulnDeps,
+				TotalDeps:  fresh.TotalDeps,
+			}
+		}
+	}
+
+	// Dataflow — 10s timeout, requires ox-codes + language.
+	if oxCodes != nil && language != "" {
+		dctx, dcancel := context.WithTimeout(ctx, 10*time.Second)
+		defer dcancel()
+		if df := compare.GatherDataflow(dctx, oxCodes, root, language); df != nil {
+			out.Dataflow = &xmlDataflowSignal{
+				DeadStores: df.DeadStores,
+				UnusedVars: df.UnusedVars,
+			}
+		}
+	}
+
+	if out.Freshness == nil && out.Dataflow == nil {
+		return nil
+	}
+	return out
 }
 
 func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
