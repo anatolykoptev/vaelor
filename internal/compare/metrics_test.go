@@ -172,6 +172,8 @@ func TestIsTestFile(t *testing.T) {
 		{"/repo/tests/integration.go", true},
 		{"/repo/server.go", false},
 		{"/repo/testing_utils.go", false},
+		{"/repo/src/lib.rs", false},     // Rust: no filename-based test pattern
+		{"/repo/src/math.rs", false},    // Rust: tests are inline, not by filename
 	}
 
 	for _, tt := range tests {
@@ -181,6 +183,62 @@ func TestIsTestFile(t *testing.T) {
 				t.Errorf("isTestFile(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHasTestAttribute(t *testing.T) {
+	tests := []struct {
+		name  string
+		attrs []string
+		want  bool
+	}{
+		{"rust #[test]", []string{"#[test]"}, true},
+		{"rust #[cfg(test)]", []string{"#[cfg(test)]"}, true},
+		{"derive + test", []string{"#[derive(Clone)]", "#[test]"}, true},
+		{"no test attrs", []string{"#[derive(Debug)]", "#[inline]"}, false},
+		{"empty attrs", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sym := &parser.Symbol{Attributes: tt.attrs}
+			got := hasTestAttribute(sym)
+			if got != tt.want {
+				t.Errorf("hasTestAttribute() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCollectTestFilePaths_RustAttributes(t *testing.T) {
+	snap := &RepoSnapshot{
+		FileCount: 3,
+		Symbols: []*parser.Symbol{
+			{
+				Name: "test_addition",
+				Kind: parser.KindFunction,
+				File: "/repo/src/math.rs",
+				Attributes: []string{"#[test]"},
+			},
+			{
+				Name: "add",
+				Kind: parser.KindFunction,
+				File: "/repo/src/math.rs",
+			},
+			{
+				Name: "helper",
+				Kind: parser.KindFunction,
+				File: "/repo/src/lib.rs",
+			},
+		},
+	}
+
+	got := collectTestFilePaths(snap)
+	if _, ok := got["/repo/src/math.rs"]; !ok {
+		t.Error("expected /repo/src/math.rs to be detected as test file via #[test] attribute")
+	}
+	if _, ok := got["/repo/src/lib.rs"]; ok {
+		t.Error("expected /repo/src/lib.rs NOT to be detected as test file")
 	}
 }
 

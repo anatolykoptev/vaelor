@@ -119,7 +119,7 @@ func TestBuildCompareContext_IncludesHotspots(t *testing.T) {
 		{File: "warm.go", Score: 0.70, Churn: 30, Complexity: 8.0, Risk: "high"},
 	}
 
-	ctx := BuildCompareContextV2(matches, RepoMetrics{}, RepoMetrics{}, "test", hotspotsA, hotspotsB, nil, nil)
+	ctx := BuildCompareContextV2(matches, RepoMetrics{}, RepoMetrics{}, "test", hotspotsA, hotspotsB, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	if !strings.Contains(ctx, "Hotspots") {
 		t.Error("context should contain Hotspots section")
@@ -199,7 +199,7 @@ func TestBuildCompareContext_IncludesDiffSummary(t *testing.T) {
 		},
 	}
 
-	ctx := BuildCompareContextV2(matches, RepoMetrics{}, RepoMetrics{}, "test", nil, nil, nil, nil)
+	ctx := BuildCompareContextV2(matches, RepoMetrics{}, RepoMetrics{}, "test", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	if !strings.Contains(ctx, "Structural changes") {
 		t.Error("context should contain 'Structural changes' section")

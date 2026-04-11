@@ -17,11 +17,13 @@ func Foo() int {
 }
 `)
 	parser := sitter.NewParser()
+	defer parser.Close()
 	parser.SetLanguage(golang.GetLanguage())
 	tree, err := parser.ParseCtx(context.Background(), nil, source)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
+	defer tree.Close()
 
 	gt := ToGumTree(tree.RootNode(), source)
 	if gt == nil {
@@ -52,16 +54,19 @@ func Hello(name string, greeting string) string {
 }
 `)
 	parser := sitter.NewParser()
+	defer parser.Close()
 	parser.SetLanguage(golang.GetLanguage())
 
 	treeA, err := parser.ParseCtx(context.Background(), nil, srcA)
 	if err != nil {
 		t.Fatalf("parse srcA: %v", err)
 	}
+	defer treeA.Close()
 	treeB, err := parser.ParseCtx(context.Background(), nil, srcB)
 	if err != nil {
 		t.Fatalf("parse srcB: %v", err)
 	}
+	defer treeB.Close()
 
 	gtA := ToGumTree(treeA.RootNode(), srcA)
 	gtB := ToGumTree(treeB.RootNode(), srcB)
