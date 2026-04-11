@@ -56,7 +56,7 @@ func queryPackageCount(ctx context.Context, store *codegraph.Store, graph string
 	rows, err := store.ExecCypher(ctx, graph,
 		`MATCH (p:Package) RETURN count(p)`, 1)
 	if err != nil {
-		slog.Debug("archgraph: package count query failed", "err", err)
+		slog.Warn("archgraph: package count query failed", "graph", graph, "err", err)
 		return 0
 	}
 	if len(rows) == 0 {

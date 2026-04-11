@@ -413,20 +413,26 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		go func() { defer ewg.Done(); couplingA = CollectCoupling(ectx, input.RootA, defaultMinCoChanges) }()
 		go func() { defer ewg.Done(); couplingB = CollectCoupling(ectx, input.RootB, defaultMinCoChanges) }()
 
-		// Architecture graph (when codegraph available).
-		if input.GraphStore != nil {
-			ewg.Add(2)
-			go func() {
-				defer ewg.Done()
-				archMetricsA = CollectArchMetrics(ectx, input.GraphStore, input.RootA)
-			}()
-			go func() {
-				defer ewg.Done()
-				archMetricsB = CollectArchMetrics(ectx, input.GraphStore, input.RootB)
-			}()
-		}
-
 		ewg.Wait()
+	}
+
+	// Architecture graph (separate timeout — needs DB pool which enrichment may saturate).
+	// Larger timeout: 6 queries × 2 repos = 12 sequential DB connection acquisitions.
+	if input.GraphStore != nil {
+		gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
+		defer gcancel()
+
+		var gwg sync.WaitGroup
+		gwg.Add(2)
+		go func() {
+			defer gwg.Done()
+			archMetricsA = CollectArchMetrics(gctx, input.GraphStore, input.RootA)
+		}()
+		go func() {
+			defer gwg.Done()
+			archMetricsB = CollectArchMetrics(gctx, input.GraphStore, input.RootB)
+		}()
+		gwg.Wait()
 	}
 
 	// API surface diff (fast, no I/O).
