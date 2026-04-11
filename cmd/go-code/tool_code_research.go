@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/research"
@@ -15,14 +16,15 @@ import (
 
 // CodeResearchInput is the input schema for the code_research tool.
 type CodeResearchInput struct {
-	Repo         string `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path"`
-	Query        string `json:"query" jsonschema_description:"Natural language query describing what you're looking for (e.g. 'DAG parallel executor implementation', 'how retry logic works')"`
-	Language     string `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript). Optional."`
-	MaxTokens    int    `json:"max_tokens,omitempty" jsonschema_description:"Token budget for the output map (default 8000). Higher = more context, more tokens."`
-	ExpandHops   int    `json:"expand_hops,omitempty" jsonschema_description:"Import-graph expansion hops from seed files (default 2). Higher = wider context."`
-	IncludeBody  bool   `json:"include_body,omitempty" jsonschema_description:"Include full function bodies in the output (default false). Significantly increases token usage."`
-	FileGlob     string `json:"file_glob,omitempty" jsonschema_description:"Restrict analysis to files matching this glob (e.g. 'internal/**', 'pkg/foo/*.go'). Optional."`
-	IncludeTests bool   `json:"include_tests,omitempty" jsonschema_description:"Include *_test.go / test files in retrieval (default false). Useful for 'how is X tested' queries."`
+	Repo             string `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path"`
+	Query            string `json:"query" jsonschema_description:"Natural language query describing what you're looking for (e.g. 'DAG parallel executor implementation', 'how retry logic works')"`
+	Language         string `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript). Optional."`
+	MaxTokens        int    `json:"max_tokens,omitempty" jsonschema_description:"Token budget for the output map (default 8000). Higher = more context, more tokens."`
+	ExpandHops       int    `json:"expand_hops,omitempty" jsonschema_description:"Import-graph expansion hops from seed files (default 2). Higher = wider context."`
+	IncludeBody      bool   `json:"include_body,omitempty" jsonschema_description:"Include full function bodies in the output (default false). Significantly increases token usage."`
+	FileGlob         string `json:"file_glob,omitempty" jsonschema_description:"Restrict analysis to files matching this glob (e.g. 'internal/**', 'pkg/foo/*.go'). Optional."`
+	IncludeTests     bool   `json:"include_tests,omitempty" jsonschema_description:"Include *_test.go / test files in retrieval (default false). Useful for 'how is X tested' queries."`
+	IncludeCallGraph bool   `json:"include_call_graph,omitempty" jsonschema_description:"Expand retrieval via call-graph edges (callers + callees) in addition to imports. Slower but higher precision for 'what calls X' queries."`
 }
 
 // registerCodeResearch registers the code_research MCP tool.
@@ -60,6 +62,9 @@ func handleCodeResearch(
 
 	resDeps := research.Deps{
 		AnalyzeDeps: analyzeDeps,
+		BuildCallGraph: func(ctx context.Context, root string) (*callgraph.CallGraph, error) {
+			return callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{Root: root})
+		},
 	}
 	if semDeps != nil && semDeps.Client != nil && semDeps.Store != nil {
 		resDeps.EmbedClient = semDeps.Client
@@ -72,14 +77,15 @@ func handleCodeResearch(
 	}
 
 	result, err := research.Run(ctx, research.Input{
-		Root:         root,
-		Query:        input.Query,
-		Language:     input.Language,
-		MaxTokens:    input.MaxTokens,
-		ExpandHops:   input.ExpandHops,
-		IncludeBody:  input.IncludeBody,
-		FileGlob:     input.FileGlob,
-		IncludeTests: input.IncludeTests,
+		Root:             root,
+		Query:            input.Query,
+		Language:         input.Language,
+		MaxTokens:        input.MaxTokens,
+		ExpandHops:       input.ExpandHops,
+		IncludeBody:      input.IncludeBody,
+		FileGlob:         input.FileGlob,
+		IncludeTests:     input.IncludeTests,
+		IncludeCallGraph: input.IncludeCallGraph,
 	}, resDeps)
 	if err != nil {
 		return errResult(fmt.Sprintf("code_research: %s", err)), nil

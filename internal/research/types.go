@@ -54,6 +54,12 @@ type Input struct {
 	// Default false — test files are usually noise for "how does X work"
 	// queries. Set true to include them.
 	IncludeTests bool
+
+	// IncludeCallGraph enables a second BFS expansion pass using call edges
+	// (callers + callees) in addition to import-DAG edges. Slower but higher
+	// precision for "what calls X" queries. Results are merged with the import
+	// expansion, keeping the shorter distance when both reach the same file.
+	IncludeCallGraph bool
 }
 
 // DefaultMaxTokens is the default token budget (~8k tokens ≈ comfortable context).
