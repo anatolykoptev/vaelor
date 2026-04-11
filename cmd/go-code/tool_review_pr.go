@@ -70,12 +70,44 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 
 	resp := buildDeltaXML(result)
 	resp.Tool = "review_pr"
+	resp.Verdict = deriveVerdict(result)
 	data, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
 
 	return textResult(string(data)), nil
+}
+
+func deriveVerdict(r *review.DeltaResult) *xmlVerdict {
+	if r == nil {
+		return nil
+	}
+	level := r.Risk.RiskLevel
+	switch level {
+	case "low":
+		return &xmlVerdict{
+			CanReplace: "yes",
+			Reason:     "low risk",
+		}
+	case "medium":
+		reason := "medium risk"
+		if len(r.Risk.Flags) > 0 {
+			reason = r.Risk.Flags[0]
+		}
+		return &xmlVerdict{
+			CanReplace: "partial",
+			Reason:     reason,
+		}
+	case "high":
+		return &xmlVerdict{
+			CanReplace: "no",
+			Reason:     "high risk",
+			Blockers:   r.Risk.Flags,
+		}
+	default:
+		return nil
+	}
 }
 
 func fetchPRBase(ctx context.Context, root string, prNumber int) (string, error) {

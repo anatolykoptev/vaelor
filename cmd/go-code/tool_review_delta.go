@@ -49,6 +49,7 @@ type xmlDeltaResponse struct {
 	Untested        []string           `xml:"untested>symbol,omitempty"`
 	Snippets        []xmlSnippet       `xml:"snippets>snippet,omitempty"`
 	Risk            xmlRisk            `xml:"risk"`
+	Verdict         *xmlVerdict        `xml:"verdict,omitempty"`
 }
 
 type xmlChangedFile struct {
