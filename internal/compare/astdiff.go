@@ -66,6 +66,7 @@ func ComputeASTDiff(bodyA, bodyB, language string) *DiffSummary {
 	srcB := []byte(bodyB)
 
 	parser := sitter.NewParser()
+	defer parser.Close()
 	parser.SetLanguage(lang)
 
 	ctx := context.Background()
@@ -74,10 +75,12 @@ func ComputeASTDiff(bodyA, bodyB, language string) *DiffSummary {
 	if err != nil || treeA == nil {
 		return nil
 	}
+	defer treeA.Close()
 	treeB, err := parser.ParseCtx(ctx, nil, srcB)
 	if err != nil || treeB == nil {
 		return nil
 	}
+	defer treeB.Close()
 
 	gtA := ToGumTree(treeA.RootNode(), srcA)
 	gtB := ToGumTree(treeB.RootNode(), srcB)
