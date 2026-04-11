@@ -513,3 +513,30 @@ func TestSemanticTopKScales(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterSymbolsByQueryMatchesDocComment(t *testing.T) {
+	syms := []*parser.Symbol{
+		{Name: "Backoff", Kind: parser.KindFunction, DocComment: "implements exponential retry backoff"},
+		{Name: "Encode", Kind: parser.KindFunction, DocComment: "URL encoding helper"},
+	}
+	// Query term "retry" only matches the doc-comment of Backoff — not its name.
+	matched := filterSymbolsByQuery(syms, []string{"retry"})
+	if len(matched) != 1 {
+		t.Fatalf("expected exactly 1 match, got %d: %+v", len(matched), matched)
+	}
+	if matched[0].Name != "Backoff" {
+		t.Errorf("expected Backoff, got %s", matched[0].Name)
+	}
+}
+
+func TestFilterSymbolsByQueryStillMatchesName(t *testing.T) {
+	// Regression: name matching must still work when doc is empty or non-matching.
+	syms := []*parser.Symbol{
+		{Name: "RetryWithBackoff", Kind: parser.KindFunction},
+		{Name: "Helper", Kind: parser.KindFunction, DocComment: "unrelated"},
+	}
+	matched := filterSymbolsByQuery(syms, []string{"retry"})
+	if len(matched) != 1 || matched[0].Name != "RetryWithBackoff" {
+		t.Errorf("expected RetryWithBackoff, got %+v", matched)
+	}
+}
