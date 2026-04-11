@@ -9,10 +9,10 @@ import (
 )
 
 // semanticMatchThreshold is the minimum cosine similarity for a semantic match.
-const semanticMatchThreshold = 0.82
+const semanticMatchThreshold = 0.75
 
 // maxSemanticCandidates limits how many unmatched symbols we embed (cost control).
-const maxSemanticCandidates = 100
+const maxSemanticCandidates = 50
 
 // EmbeddingClassifier implements LLMClassifier using vector similarity.
 type EmbeddingClassifier struct {
