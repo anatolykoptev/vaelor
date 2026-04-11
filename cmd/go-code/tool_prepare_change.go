@@ -26,6 +26,11 @@ type PrepareChangeInput struct {
 
 const maxPrepareChangeDepth = 10
 
+// couplingMinCoChanges is the minimum number of shared git commits required
+// to consider two files "coupled" — matches compare.defaultMinCoChanges so
+// the signal is comparable across tools.
+const couplingMinCoChanges = 3
+
 func registerPrepareChange(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "prepare_change",
@@ -87,7 +92,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 	}
 	cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
 	defer ccancel()
-	pairs := compare.CollectCoupling(cctx, root, 3)
+	pairs := compare.CollectCoupling(cctx, root, couplingMinCoChanges)
 	seen := make(map[string]bool)
 	for _, p := range pairs {
 		var other string
