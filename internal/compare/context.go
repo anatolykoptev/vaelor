@@ -49,7 +49,7 @@ type metricsJSON struct {
 
 // BuildCompareContext assembles structured text context for the LLM (no hotspots).
 func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string) string {
-	return BuildCompareContextV2(matches, metricsA, metricsB, query, nil, nil, nil, nil)
+	return BuildCompareContextV2(matches, metricsA, metricsB, query, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // BuildCompareContextV2 assembles structured text context for the LLM, including hotspot and type hierarchy data.
@@ -63,7 +63,10 @@ func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, 
 //  6. ## Coverage Gaps — symbols absent from one side, up to maxGapSymbols
 //
 // Content is truncated once the cumulative output exceeds maxContextChars.
-func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string, hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats) string {
+func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string,
+	hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats,
+	freshnessA, freshnessB *FreshnessStats, dataflowA, dataflowB *DataflowStats,
+	apiDiff *APIDiff, routeDiff *RouteDiff) string {
 	var sb strings.Builder
 
 	writeQuery(&sb, query)
@@ -88,6 +91,26 @@ func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics
 		if sb.Len() >= maxContextChars {
 			return sb.String()
 		}
+	}
+
+	writeFreshness(&sb, freshnessA, freshnessB)
+	if sb.Len() >= maxContextChars {
+		return sb.String()
+	}
+
+	writeDataflow(&sb, dataflowA, dataflowB)
+	if sb.Len() >= maxContextChars {
+		return sb.String()
+	}
+
+	writeAPISurface(&sb, apiDiff)
+	if sb.Len() >= maxContextChars {
+		return sb.String()
+	}
+
+	writeRoutesDiff(&sb, routeDiff)
+	if sb.Len() >= maxContextChars {
+		return sb.String()
 	}
 
 	hsFiles := make(map[string]bool)
