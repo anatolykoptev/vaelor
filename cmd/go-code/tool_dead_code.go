@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -19,12 +21,14 @@ type xmlDeadCodeResponse struct {
 }
 
 type xmlDeadCode struct {
-	Total     int             `xml:"total,attr"`
-	Dead      int             `xml:"dead,attr"`
-	Ratio     float64         `xml:"ratio,attr"`
-	Tier      string          `xml:"tier,attr,omitempty"`
-	Symbols   []xmlDeadSymbol `xml:"symbol"`
-	Narrative xmlCDATA        `xml:"narrative,omitempty"`
+	Total      int             `xml:"total,attr"`
+	Dead       int             `xml:"dead,attr"`
+	Ratio      float64         `xml:"ratio,attr"`
+	Tier       string          `xml:"tier,attr,omitempty"`
+	DeadStores int             `xml:"dataflowDeadStores,attr,omitempty"`
+	UnusedVars int             `xml:"dataflowUnusedVars,attr,omitempty"`
+	Symbols    []xmlDeadSymbol `xml:"symbol"`
+	Narrative  xmlCDATA        `xml:"narrative,omitempty"`
 }
 
 type xmlDeadSymbol struct {
@@ -105,6 +109,14 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 		}
 	}
 
+	// Dataflow analysis via ox-codes (non-fatal, 10s timeout, language-gated).
+	var dfStats *compare.DataflowStats
+	if deps.OxCodes != nil && input.Language != "" {
+		dctx, dcancel := context.WithTimeout(ctx, 10*time.Second)
+		defer dcancel()
+		dfStats = compare.GatherDataflow(dctx, deps.OxCodes, root, input.Language)
+	}
+
 	resp := xmlDeadCodeResponse{
 		DeadCode: xmlDeadCode{
 			Total:   result.TotalFunctions,
@@ -113,6 +125,10 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 			Tier:    cg.Tier,
 			Symbols: symbols,
 		},
+	}
+	if dfStats != nil {
+		resp.DeadCode.DeadStores = dfStats.DeadStores
+		resp.DeadCode.UnusedVars = dfStats.UnusedVars
 	}
 
 	// LLM narrative (optional, non-fatal).
