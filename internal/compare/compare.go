@@ -27,7 +27,7 @@ const qualityTimeout = 7 * time.Second
 
 // compareTimeout is the hard deadline for the entire CompareRepos operation.
 // Ensures the tool always returns before the MCP client timeout (~60s).
-const compareTimeout = 50 * time.Second
+const compareTimeout = 90 * time.Second
 
 // MatchType describes how two symbols were matched.
 type MatchType string
@@ -278,6 +278,8 @@ type CompareResult struct {
 	DataflowB       *DataflowStats     `json:"dataflow_b,omitempty"`
 	APIDiffResult   *APIDiff           `json:"api_diff,omitempty"`
 	RouteDiffResult *RouteDiff         `json:"route_diff,omitempty"`
+	CouplingA       []CoupledPair      `json:"coupling_a,omitempty"`
+	CouplingB       []CoupledPair      `json:"coupling_b,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -357,6 +359,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		qualityA, qualityB     *QualityIndicators
 		freshnessA, freshnessB *FreshnessStats
 		dataflowA, dataflowB   *DataflowStats
+		couplingA, couplingB   []CoupledPair
 		analysis               LLMAnalysis
 	)
 	{
@@ -398,6 +401,11 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 				metricsB.VulnSecurityRatio = vulnRatio
 			}
 		}()
+
+		// Git change coupling.
+		ewg.Add(2)
+		go func() { defer ewg.Done(); couplingA = CollectCoupling(ectx, input.RootA, defaultMinCoChanges) }()
+		go func() { defer ewg.Done(); couplingB = CollectCoupling(ectx, input.RootB, defaultMinCoChanges) }()
 
 		ewg.Wait()
 	}
@@ -453,6 +461,8 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		DataflowB:       dataflowB,
 		APIDiffResult:   apiDiff,
 		RouteDiffResult: routeDiff,
+		CouplingA:       couplingA,
+		CouplingB:       couplingB,
 	}
 
 	return result, nil
