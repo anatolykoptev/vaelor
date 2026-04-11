@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const httpTimeout = 30 * time.Second
+const httpTimeout = 10 * time.Second
 
 // Client calls ox-codes HTTP API.
 type Client struct {

@@ -132,12 +132,14 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 	}
 
 	p := sitter.NewParser()
+	defer p.Close()
 	p.SetLanguage(handler.SitterLanguage())
 
 	tree, err := p.ParseCtx(context.Background(), nil, source)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	defer tree.Close()
 
 	result := &ParseResult{
 		File:     path,
@@ -155,6 +157,7 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 // and populates result with symbols and imports.
 func runQuery(result *ParseResult, handler LanguageHandler, root *sitter.Node, source []byte, path string, opts ParseOpts) {
 	qc := sitter.NewQueryCursor()
+	defer qc.Close()
 	qc.Exec(handler.TagsQuery(), root)
 
 	// Deduplicate symbols by "kind:name:startLine" to avoid duplicates

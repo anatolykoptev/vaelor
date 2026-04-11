@@ -2,8 +2,6 @@ package compare
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -72,15 +70,6 @@ func computeFuncComplexity(symbols []*parser.Symbol) funcComplexityResult {
 		r.avgNesting = float64(totalNesting) / float64(funcCount)
 	}
 	return r
-}
-
-// isExported reports whether a symbol name is exported (starts with an uppercase letter).
-func isExported(name string) bool {
-	if name == "" {
-		return false
-	}
-	r, _ := utf8.DecodeRuneInString(name)
-	return unicode.IsUpper(r)
 }
 
 // funcLines returns the line count for a function/method symbol.
@@ -261,75 +250,6 @@ func countFuncParams(sig string) int {
 		count++
 	}
 	return count
-}
-
-// extractParamList finds the parameter list, skipping Go receivers.
-func extractParamList(sig string, firstParen int) string {
-	end := findMatchingParen(sig, firstParen)
-	if end < 0 {
-		return ""
-	}
-	// Check if there's another paren group after (means first was receiver).
-	rest := sig[end+1:]
-	nextParen := strings.IndexByte(rest, '(')
-	if nextParen >= 0 {
-		between := strings.TrimSpace(rest[:nextParen])
-		if len(between) > 0 && isIdent(between) {
-			nextEnd := findMatchingParen(rest, nextParen)
-			if nextEnd >= 0 {
-				return rest[nextParen+1 : nextEnd]
-			}
-		}
-	}
-	return sig[firstParen+1 : end]
-}
-
-func findMatchingParen(s string, open int) int {
-	depth := 1
-	for i := open + 1; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func isIdent(s string) bool {
-	for _, r := range s {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '*' && r != '[' && r != ']' && r != ' ' {
-			return false
-		}
-	}
-	return true
-}
-
-// splitParams splits a parameter list by commas, respecting parentheses depth.
-// Commas inside nested parens (e.g., func(K, V)) are not treated as separators.
-func splitParams(s string) []string {
-	var parts []string
-	depth := 0
-	start := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, s[start:i])
-				start = i + 1
-			}
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
 }
 
 // computeParamMetrics returns average and max parameter count across functions/methods.

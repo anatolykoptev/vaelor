@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,7 +39,10 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 	if err != nil {
 		return nil, fmt.Errorf("search code: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github search/code returned %d", resp.StatusCode)
@@ -96,7 +100,10 @@ func (g *GitHubForge) SearchIssues(ctx context.Context, query string) (_ []Issue
 	if err != nil {
 		return nil, fmt.Errorf("search issues: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode == http.StatusUnprocessableEntity {
 		return nil, errors.New("github issues search failed (repo may not exist or query is invalid)")
@@ -179,7 +186,10 @@ func (g *GitHubForge) SearchRepos(ctx context.Context, query, sort string) (_ []
 	if err != nil {
 		return nil, fmt.Errorf("search repos: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github search/repositories returned %d", resp.StatusCode)

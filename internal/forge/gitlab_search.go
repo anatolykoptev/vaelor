@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -45,7 +46,10 @@ func (g *GitLabForge) searchCodeInRepo(ctx context.Context, repo, query string) 
 	if err != nil {
 		return nil, fmt.Errorf("search code in %s: %w", repo, err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("gitlab search/blobs returned %d for %s", resp.StatusCode, repo)
@@ -96,7 +100,10 @@ func (g *GitLabForge) SearchIssues(ctx context.Context, query string) (_ []Issue
 	if err != nil {
 		return nil, fmt.Errorf("search issues: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("gitlab search/issues returned %d", resp.StatusCode)
@@ -160,7 +167,10 @@ func (g *GitLabForge) SearchRepos(ctx context.Context, query, _ string) (_ []Rep
 	if err != nil {
 		return nil, fmt.Errorf("search repos: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("gitlab projects search returned %d", resp.StatusCode)

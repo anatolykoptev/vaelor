@@ -47,12 +47,14 @@ func ExtractRelationships(path string, source []byte, opts ParseOpts) ([]TypeRel
 	}
 
 	p := sitter.NewParser()
+	defer p.Close()
 	p.SetLanguage(handler.SitterLanguage())
 
 	tree, err := p.ParseCtx(context.Background(), nil, source)
 	if err != nil {
 		return nil, err
 	}
+	defer tree.Close()
 
 	lang := handler.Language()
 	return runRelQuery(rqp.RelationshipsQuery(), tree.RootNode(), source, path, lang), nil
@@ -68,6 +70,7 @@ type relMatchResult struct {
 
 func runRelQuery(q *sitter.Query, root *sitter.Node, source []byte, path, lang string) []TypeRelationship {
 	qc := sitter.NewQueryCursor()
+	defer qc.Close()
 	qc.Exec(q, root)
 
 	var rels []TypeRelationship
