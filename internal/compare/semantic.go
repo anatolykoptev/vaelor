@@ -95,7 +95,7 @@ func filterEmbeddable(syms []*parser.Symbol, max int) []*parser.Symbol {
 		if s.Body == "" {
 			continue
 		}
-		if s.Kind != "function" && s.Kind != "method" {
+		if s.Kind != "function" && s.Kind != "method" && s.Kind != "class" {
 			continue
 		}
 		result = append(result, s)
