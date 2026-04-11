@@ -27,7 +27,7 @@ type CodeHealthInput struct {
 }
 
 // registerCodeHealth registers the code_health MCP tool.
-func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps) {
+func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps, graphStore *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -171,7 +171,15 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		// Ox-codes quality checks (informational, non-fatal, do not affect grade).
 		oxChecks := explore.RunOxCodesHealthChecks(ctx, deps.OxCodes, root, input.Language)
 
-		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr, vr, oxChecks)
+		// Architecture metrics from graph store (optional, non-fatal).
+		var archMetrics *compare.ArchMetrics
+		if graphStore != nil {
+			gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
+			defer gcancel()
+			archMetrics = compare.CollectArchMetrics(gctx, graphStore, root)
+		}
+
+		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr, vr, oxChecks, archMetrics)
 		return xmlMarshalResult(resp, "code_health", outputDir), nil
 	})
 }
@@ -186,6 +194,7 @@ func buildHealthXML(
 	fr *freshness.FreshnessResult,
 	vr *freshness.VulnResult,
 	oxChecks *explore.OxCodesHealthChecks,
+	archMetrics *compare.ArchMetrics,
 ) xmlHealthResponse {
 	resp := xmlHealthResponse{
 		Health: xmlHealth{
@@ -217,6 +226,9 @@ func buildHealthXML(
 	}
 	if oxChecks != nil {
 		resp.Health.OxChecks = convertOxCodesChecks(oxChecks)
+	}
+	if archMetrics != nil {
+		resp.Health.ArchMetrics = convertArchMetrics(archMetrics)
 	}
 
 	return resp
