@@ -52,8 +52,18 @@ Respond with ONLY a JSON object (no markdown, no explanation outside JSON):
   "recommendations": [
     "Actionable recommendation 1",
     "Actionable recommendation 2"
-  ]
+  ],
+  "verdict": {
+    "canReplace": "yes" | "partial" | "no",
+    "reason": "one-sentence explanation of whether repo B can fully replace repo A",
+    "blockers": ["specific features/APIs missing from repo B that prevent full replacement"]
+  }
 }
+
+Include a verdict on whether repo_b can fully replace repo_a:
+- "yes" = repo_b covers all of repo_a's functionality
+- "partial" = repo_b covers most but has significant gaps
+- "no" = architecturally incompatible or too many gaps
 
 Focus on:
 1. Implementation quality — cleaner, more optimized, more modern approach

@@ -161,11 +161,18 @@ type xmlDiffStats struct {
 	TotalMoves       int `xml:"moves,attr"`
 }
 
+type xmlVerdict struct {
+	CanReplace string   `xml:"canReplace,attr"`
+	Reason     string   `xml:"reason,attr"`
+	Blockers   []string `xml:"blockers>blocker,omitempty"`
+}
+
 type xmlAnalysis struct {
 	Quality         []xmlQuality     `xml:"quality,omitempty"`
 	Gaps            []xmlGap         `xml:"gap,omitempty"`
 	Architecture    []xmlArchInsight `xml:"architecture,omitempty"`
 	Recommendations []string         `xml:"recommendation,omitempty"`
+	Verdict         *xmlVerdict      `xml:"verdict,omitempty"`
 }
 
 type xmlQuality struct {
@@ -452,6 +459,13 @@ func convertAnalysis(a compare.LLMAnalysis) xmlAnalysis {
 			Insight: ai.Insight, Source: ai.Source,
 			Example: ai.Example, Benefit: ai.Benefit,
 		})
+	}
+	if a.Verdict.CanReplace != "" {
+		xa.Verdict = &xmlVerdict{
+			CanReplace: a.Verdict.CanReplace,
+			Reason:     a.Verdict.Reason,
+			Blockers:   a.Verdict.Blockers,
+		}
 	}
 	return xa
 }
