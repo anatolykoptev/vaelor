@@ -8,6 +8,14 @@ import (
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 )
 
+// DataflowStats holds dead code and data flow findings from ox-codes.
+type DataflowStats struct {
+	DeadStores    int `json:"deadStores"`
+	UnusedVars    int `json:"unusedVars"`
+	TotalFindings int `json:"totalFindings"`
+	FilesAnalyzed int `json:"filesAnalyzed"`
+}
+
 // QualityIndicators summarizes code quality signals from ox-codes.
 type QualityIndicators struct {
 	TodoCount     int `json:"todo_count"`

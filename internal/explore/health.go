@@ -82,6 +82,17 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 	}
 
 	// Test ratio: test files / total files.
+	// Collect files containing Rust test attributes (#[test], #[cfg(test)]).
+	rustTestFiles := make(map[string]struct{})
+	for _, sym := range symbols {
+		for _, attr := range sym.Attributes {
+			if strings.Contains(attr, "test") {
+				rustTestFiles[sym.File] = struct{}{}
+				break
+			}
+		}
+	}
+
 	testFiles := 0
 	for _, f := range files {
 		base := filepath.Base(f.RelPath)
@@ -89,6 +100,11 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 			strings.HasPrefix(base, "test_") ||
 			strings.Contains(base, ".test.") ||
 			strings.Contains(base, ".spec.") {
+			testFiles++
+			continue
+		}
+		// Check if any symbol in this file has a test attribute (Rust).
+		if _, ok := rustTestFiles[f.Path]; ok {
 			testFiles++
 		}
 	}

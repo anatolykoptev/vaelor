@@ -104,6 +104,17 @@ func (e *Expander) execCypher(ctx context.Context, graphName string, cypher stri
 		return nil
 	}
 
+	// Check if graph exists before querying to avoid postgres ERROR logs.
+	var exists bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1)`,
+		graphName,
+	).Scan(&exists)
+	if err != nil || !exists {
+		slog.Debug("graph expand: graph not found", slog.String("graph", graphName))
+		return nil
+	}
+
 	sql := fmt.Sprintf(
 		`SELECT * FROM ag_catalog.cypher('%s', $$ %s $$) AS (name agtype, file agtype, kind agtype)`,
 		graphName, cypher,

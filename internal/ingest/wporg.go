@@ -112,7 +112,10 @@ func SearchWPPlugins(ctx context.Context, query string, perPage, page int) (*WPS
 	if err != nil {
 		return nil, fmt.Errorf("search wp plugins: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wordpress search API returned %d", resp.StatusCode)
@@ -142,7 +145,10 @@ func FetchWPPluginMeta(ctx context.Context, slug string) (*WPPluginMeta, error) 
 	if err != nil {
 		return nil, fmt.Errorf("fetch plugin meta: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wordpress API returned %d for slug %q", resp.StatusCode, slug)
@@ -214,7 +220,10 @@ func downloadZIP(ctx context.Context, url, dir, slug string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("download plugin zip: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download returned %d for %s", resp.StatusCode, url)

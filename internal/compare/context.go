@@ -47,6 +47,28 @@ type metricsJSON struct {
 	RepoB RepoMetrics `json:"repo_b"`
 }
 
+// contextWriter wraps a strings.Builder with a budget check.
+// Each Write call is a no-op once the budget is exceeded.
+type contextWriter struct {
+	sb     strings.Builder
+	budget int
+}
+
+func newContextWriter() *contextWriter { return &contextWriter{budget: maxContextChars} }
+
+// over reports whether the budget has been exhausted.
+func (w *contextWriter) over() bool { return w.sb.Len() >= w.budget }
+
+// write calls fn only when budget is not yet exceeded.
+// Returns true if the budget was hit after the call.
+func (w *contextWriter) write(fn func(*strings.Builder)) bool {
+	if w.over() {
+		return true
+	}
+	fn(&w.sb)
+	return w.over()
+}
+
 // BuildCompareContext assembles structured text context for the LLM (no hotspots).
 func BuildCompareContext(matches []SymbolMatch, metricsA, metricsB RepoMetrics, query string) string {
 	return BuildCompareContextV2(matches, metricsA, metricsB, query, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
@@ -68,73 +90,51 @@ func BuildCompareContextV2(matches []SymbolMatch, metricsA, metricsB RepoMetrics
 	freshnessA, freshnessB *FreshnessStats, dataflowA, dataflowB *DataflowStats,
 	apiDiff *APIDiff, routeDiff *RouteDiff,
 	archA, archB *ArchMetrics) string {
-	var sb strings.Builder
+	w := newContextWriter()
 
-	writeQuery(&sb, query)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
+	hsFiles := hotspotFileSet(hotspotsA, hotspotsB)
+
+	sections := []func(*strings.Builder){
+		func(sb *strings.Builder) { writeQuery(sb, query) },
+		func(sb *strings.Builder) { writeMetrics(sb, metricsA, metricsB) },
+		func(sb *strings.Builder) {
+			if len(hotspotsA) > 0 || len(hotspotsB) > 0 {
+				writeHotspots(sb, hotspotsA, hotspotsB)
+			}
+		},
+		func(sb *strings.Builder) {
+			if relStatsA != nil || relStatsB != nil {
+				writeRelStats(sb, relStatsA, relStatsB)
+			}
+		},
+		func(sb *strings.Builder) { writeFreshness(sb, freshnessA, freshnessB) },
+		func(sb *strings.Builder) { writeDataflow(sb, dataflowA, dataflowB) },
+		func(sb *strings.Builder) { writeAPISurface(sb, apiDiff) },
+		func(sb *strings.Builder) { writeRoutesDiff(sb, routeDiff) },
+		func(sb *strings.Builder) { writeArchMetrics(sb, archA, archB) },
+		func(sb *strings.Builder) { writeMatchedPairs(sb, matches, hsFiles) },
+		func(sb *strings.Builder) { writeGaps(sb, matches) },
 	}
 
-	writeMetrics(&sb, metricsA, metricsB)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	if len(hotspotsA) > 0 || len(hotspotsB) > 0 {
-		writeHotspots(&sb, hotspotsA, hotspotsB)
-		if sb.Len() >= maxContextChars {
-			return sb.String()
+	for _, fn := range sections {
+		if w.write(fn) {
+			break
 		}
 	}
 
-	if relStatsA != nil || relStatsB != nil {
-		writeRelStats(&sb, relStatsA, relStatsB)
-		if sb.Len() >= maxContextChars {
-			return sb.String()
-		}
-	}
+	return w.sb.String()
+}
 
-	writeFreshness(&sb, freshnessA, freshnessB)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	writeDataflow(&sb, dataflowA, dataflowB)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	writeAPISurface(&sb, apiDiff)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	writeRoutesDiff(&sb, routeDiff)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	writeArchMetrics(&sb, archA, archB)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	hsFiles := make(map[string]bool)
+// hotspotFileSet builds a set of file paths from hotspot slices.
+func hotspotFileSet(hotspotsA, hotspotsB []HotspotFile) map[string]bool {
+	files := make(map[string]bool, len(hotspotsA)+len(hotspotsB))
 	for _, h := range hotspotsA {
-		hsFiles[h.File] = true
+		files[h.File] = true
 	}
 	for _, h := range hotspotsB {
-		hsFiles[h.File] = true
+		files[h.File] = true
 	}
-
-	writeMatchedPairs(&sb, matches, hsFiles)
-	if sb.Len() >= maxContextChars {
-		return sb.String()
-	}
-
-	writeGaps(&sb, matches)
-
-	return sb.String()
+	return files
 }
 
 func writeQuery(sb *strings.Builder, query string) {

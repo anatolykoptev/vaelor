@@ -31,18 +31,21 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 	}
 
 	p := sitter.NewParser()
+	defer p.Close()
 	p.SetLanguage(handler.SitterLanguage())
 
 	tree, err := p.ParseCtx(context.Background(), nil, source)
 	if err != nil {
 		return nil, err
 	}
+	defer tree.Close()
 
 	return runCallQuery(cqp.CallsQuery(), tree.RootNode(), source, path), nil
 }
 
 func runCallQuery(q *sitter.Query, root *sitter.Node, source []byte, path string) []CallSite {
 	qc := sitter.NewQueryCursor()
+	defer qc.Close()
 	qc.Exec(q, root)
 
 	var calls []CallSite

@@ -66,7 +66,10 @@ func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
 	prog := &indexProgress{running: true}
 	p.progress.Store(repoKey, prog)
 	go func() {
-		defer func() { prog.running = false }()
+		defer func() {
+			prog.running = false
+			p.progress.Delete(repoKey)
+		}()
 		ctx := context.Background()
 		result, err := p.indexRepo(ctx, repoKey, root, prog)
 		if err != nil {

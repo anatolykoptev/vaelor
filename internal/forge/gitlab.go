@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -105,7 +106,10 @@ func (g *GitLabForge) FetchRepoMeta(ctx context.Context, slug string) (_ *RepoMe
 	if err != nil {
 		return nil, fmt.Errorf("fetch repo meta: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("gitlab api returned %d for %s", resp.StatusCode, slug)
@@ -158,7 +162,10 @@ func (g *GitLabForge) FetchREADME(ctx context.Context, slug string) (_ string, e
 	if err != nil {
 		return "", fmt.Errorf("fetch readme: %w", err)
 	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		err = errors.Join(err, resp.Body.Close())
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return "", nil
