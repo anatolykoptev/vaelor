@@ -562,6 +562,63 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ---
 
+## v1.19: Diff-Aware Review
+
+**Goal**: Git-integrated change analysis — detect changed symbols, compute differential impact, generate review context with risk guidance. Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) blast-radius approach but built on go-code's superior backend (AGE graph, type-aware analysis, ox-codes search).
+
+**Status**: Planned.
+
+### 19.1 Git layer (`internal/git/`)
+- [ ] `ChangedFiles(repoRoot, base string) ([]string, error)` — `git diff --name-only` between base and HEAD
+- [ ] `ParseUnifiedDiff(repoRoot, base string) ([]FileDiff, error)` — changed lines per file (added/removed/modified ranges)
+- [ ] `ChangedSymbols(diffs []FileDiff, symbols []Symbol) []ChangedSymbol` — intersect diff line ranges with parsed symbol spans
+- [ ] Support base refs: commit SHA, branch name, `HEAD~N`, tag
+- [ ] Fallback: `git diff --cached` for staged changes when no base specified
+- [ ] Unit tests: mock git output, verify symbol-diff intersection
+
+**Where**: `internal/git/diff.go`, `internal/git/symbols.go`.
+
+### 19.2 TESTED_BY edges in graph
+- [ ] Extract test→symbol mappings during graph build (`internal/codegraph/graph_build.go`)
+- [ ] Go: `TestXxx` / `Test_Xxx` → function `Xxx` (same package)
+- [ ] Python: `test_xxx` → function `xxx`; class `TestXxx` → class `Xxx`
+- [ ] TS/JS: `describe("Xxx")` / `it("should xxx")` → nearest matching symbol
+- [ ] Generic fallback: test file `*_test.*` → symbols in corresponding source file
+- [ ] `TESTED_BY` edge label in AGE schema + Cypher template `tests_for`
+- [ ] Unit tests: verify edge creation for Go, Python, TS test patterns
+
+**Where**: `internal/codegraph/tested_by.go`, `internal/codegraph/schema.go`.
+
+### 19.3 `review_delta` MCP tool
+- [ ] Input: `repo` (GitHub/local), `base` (default `HEAD~1`), `depth` (default 2), `include_snippets` (bool)
+- [ ] Pipeline: git diff → changed symbols → impact_analysis per symbol → aggregate → risk guidance
+- [ ] Output XML:
+  - `<changed_files>` — list with added/removed/modified line counts
+  - `<changed_symbols>` — name, kind, file, change type (added/modified/removed)
+  - `<impacted_symbols>` — transitive callers/callees within depth
+  - `<untested>` — changed symbols lacking TESTED_BY edges
+  - `<risk_guidance>` — flags: wide blast radius (>20 nodes), inheritance changes, cross-package impact, untested changes
+  - `<source_snippets>` — optional context around changed symbols (3 lines before, 1 after)
+- [ ] Token-aware truncation: configurable max output size, prioritize high-risk items
+- [ ] Integration with existing `impact.Analyze()` and `codegraph` TESTED_BY queries
+- [ ] Unit tests + integration test on go-code's own repo
+
+**Where**: `internal/review/delta.go`, `cmd/go-code/tool_review_delta.go`.
+
+### 19.4 `review_pr` MCP tool (stretch)
+- [ ] Input: `repo`, `pr_number` — fetch PR diff via forge API (GitHub/GitLab)
+- [ ] Reuse `review_delta` pipeline with PR diff as input
+- [ ] Add PR metadata: title, description, author, labels, changed file count
+- [ ] Risk summary with actionable review checklist
+
+**Where**: `cmd/go-code/tool_review_pr.go`.
+
+**Ref**: [code-review-graph](https://github.com/tirth8205/code-review-graph) — SQLite graph + BFS blast radius + review context (avg 6.8x token reduction); go-code advantage: AGE graph (Cypher queries, PageRank), type-aware Go analysis, hidden caller detection via ox-codes, 3-tier degradation.
+
+**Deliverable**: `review_delta` + `review_pr` tools — diff-aware impact analysis with risk guidance. 20 MCP tools total.
+
+---
+
 ## Dependencies
 
 ```
@@ -589,9 +646,14 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
                                           v1.18 Type-Aware ✅
                                            Analysis (go/types
                                            + compound tools)
+                                               │
+                                          v1.19 Diff-Aware
+                                           Review (git diff
+                                           + TESTED_BY + delta)
 ```
 
 **Completed**: v1.0 through v1.18 (18 tools, 9 languages, type-aware Go analysis, compound tools, 3-tier degradation).
+**Planned**: v1.19 (diff-aware review — `review_delta` + `review_pr` tools).
 
 ## Releases
 
