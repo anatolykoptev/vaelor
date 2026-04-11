@@ -103,6 +103,25 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	// --- Step 7: token-budget pruning ---
 	kept, pruned := pruneToTokenBudget(expanded, seedScores, filteredSymbols, input.MaxTokens, input.IncludeBody)
 
+	// --- Step 7b: attach sibling test files (only when IncludeTests=true) ---
+	if input.IncludeTests {
+		allFilesMap := make(map[string]bool, len(data.Files))
+		for _, f := range data.Files {
+			allFilesMap[f.RelPath] = true
+		}
+		kept = linkTestFiles(kept, allFilesMap)
+
+		// Populate filteredSymbols for any newly-added test files so the
+		// render/graph stages don't see nil entries.
+		for _, sf := range kept {
+			if _, ok := filteredSymbols[sf.expand.relPath]; !ok {
+				filteredSymbols[sf.expand.relPath] = filterSymbolsByQuery(
+					data.FileSymbols[sf.expand.relPath], data.QueryTerms,
+				)
+			}
+		}
+	}
+
 	// --- Step 8: render map ---
 	codeMap := RenderMap(kept, input.IncludeBody)
 	estimatedTokens := estimateMapTokens(codeMap)

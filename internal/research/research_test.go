@@ -298,6 +298,60 @@ func TestRunIncludesTestsWhenAsked(t *testing.T) {
 	}
 }
 
+func TestLinkTestFilesAttachesSiblings(t *testing.T) {
+	allFiles := map[string]bool{
+		"foo.go":      true,
+		"foo_test.go": true,
+		"bar.go":      true,
+		// no bar_test.go on purpose
+	}
+	kept := []scoredFile{
+		{expand: expandResult{relPath: "foo.go", distance: 0, whyLinked: "seed"}, seedScore: 1.0},
+		{expand: expandResult{relPath: "bar.go", distance: 1, whyLinked: "imports foo"}, seedScore: 0.5},
+	}
+	out := linkTestFiles(kept, allFiles)
+
+	got := map[string]bool{}
+	for _, sf := range out {
+		got[sf.expand.relPath] = true
+	}
+	if !got["foo_test.go"] {
+		t.Error("foo_test.go must be linked next to foo.go")
+	}
+	if got["bar_test.go"] {
+		t.Error("bar_test.go does not exist on disk; must not appear")
+	}
+	// Originals still present.
+	if !got["foo.go"] || !got["bar.go"] {
+		t.Errorf("original kept files must remain, got %v", got)
+	}
+}
+
+func TestLinkTestFilesSkipsExistingTestFiles(t *testing.T) {
+	// When a kept file is itself a test file, don't try to link a sibling.
+	allFiles := map[string]bool{
+		"foo_test.go": true,
+	}
+	kept := []scoredFile{
+		{expand: expandResult{relPath: "foo_test.go", distance: 0, whyLinked: "seed"}},
+	}
+	out := linkTestFiles(kept, allFiles)
+	if len(out) != 1 {
+		t.Errorf("expected exactly 1 file (no duplicate linking), got %d: %+v", len(out), out)
+	}
+}
+
+func TestTestCandidatesPython(t *testing.T) {
+	got := testCandidates("pkg/foo.py")
+	want := map[string]bool{"pkg/test_foo.py": true, "pkg/tests/test_foo.py": true}
+	for _, c := range got {
+		delete(want, c)
+	}
+	if len(want) > 0 {
+		t.Errorf("missing Python test candidates: %v", want)
+	}
+}
+
 func mustWriteFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
