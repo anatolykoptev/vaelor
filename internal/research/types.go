@@ -5,7 +5,24 @@
 // Pipeline: seeds(BM25F+embed+RRF) → DAG expand → prune → Aider-style map
 package research
 
-import "github.com/anatolykoptev/go-code/internal/parser"
+import (
+	"context"
+
+	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// EmbedClient is the minimal interface the research package needs from an
+// embedding provider. Satisfied by *embeddings.Client (structural typing).
+type EmbedClient interface {
+	EmbedQuery(ctx context.Context, query string) ([]float32, error)
+}
+
+// EmbedStore is the minimal interface the research package needs from a
+// vector store. Satisfied by *embeddings.Store.
+type EmbedStore interface {
+	Search(ctx context.Context, vec []float32, opts embeddings.SearchOpts) ([]embeddings.SearchResult, error)
+}
 
 // Input holds parameters for a code-research request.
 type Input struct {
@@ -28,6 +45,21 @@ type Input struct {
 
 	// IncludeBody includes full symbol bodies in the output map.
 	IncludeBody bool
+
+	// FileGlob restricts analysis to files matching this glob (e.g.
+	// "internal/**", "pkg/foo/*.go"). Empty = no filter.
+	FileGlob string
+
+	// IncludeTests controls whether *_test.go / test files are indexed.
+	// Default false — test files are usually noise for "how does X work"
+	// queries. Set true to include them.
+	IncludeTests bool
+
+	// IncludeCallGraph enables a second BFS expansion pass using call edges
+	// (callers + callees) in addition to import-DAG edges. Slower but higher
+	// precision for "what calls X" queries. Results are merged with the import
+	// expansion, keeping the shorter distance when both reach the same file.
+	IncludeCallGraph bool
 }
 
 // DefaultMaxTokens is the default token budget (~8k tokens ≈ comfortable context).
@@ -59,12 +91,12 @@ type Result struct {
 
 // SeedSymbol is a symbol that directly matched the query.
 type SeedSymbol struct {
-	File       string
-	Name       string
-	Kind       string
-	Line       int
-	Score      float64 // RRF or BM25F score
-	Source     string  // "semantic", "keyword", or "hybrid"
+	File   string
+	Name   string
+	Kind   string
+	Line   int
+	Score  float64 // RRF or BM25F score
+	Source string  // "semantic", "keyword", or "hybrid"
 }
 
 // LinkedFile is a file reached via import-DAG expansion from a seed.

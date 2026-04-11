@@ -61,9 +61,17 @@ func isTestFile(relPath string) bool {
 }
 
 // buildEmbedText formats a symbol for embedding with file path context.
+// Includes the doc comment (if present) between signature and body to
+// improve NL-query MRR (CodeSearchNet: ~2× improvement).
 // Truncates at line boundary within maxEmbedText chars.
 func buildEmbedText(sym *parser.Symbol, filePath string) string {
-	header := fmt.Sprintf("%s %s %s %s: %s\n", filePath, sym.Language, sym.Kind, sym.Name, sym.Signature)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s %s %s %s: %s\n", filePath, sym.Language, sym.Kind, sym.Name, sym.Signature))
+	if doc := strings.TrimSpace(sym.DocComment); doc != "" {
+		sb.WriteString(doc)
+		sb.WriteString("\n")
+	}
+	header := sb.String()
 	remaining := maxEmbedText - len(header)
 	if remaining <= 0 {
 		return header[:maxEmbedText]

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/anatolykoptev/go-code/internal/codesearch"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -28,8 +30,10 @@ type ResearchData struct {
 	// PkgFiles maps package dir → relPaths of files in that package.
 	PkgFiles map[string][]string
 
-	// BM25Scores maps relPath → BM25F score for the query.
-	BM25Scores map[string]float64
+	// FusedScores maps relPath → multi-signal fused score
+	// (BM25F 0.5 + Personalized PageRank 0.3 + exact-match 0.2)
+	// produced by prioritizeFilesWithScores. NOT raw BM25.
+	FusedScores map[string]float64
 
 	// QueryTerms are the extracted terms used for BM25F matching.
 	QueryTerms []string
@@ -39,7 +43,7 @@ type ResearchData struct {
 // needed by the research pipeline (symbols, import graph, BM25 scores).
 // It is analogous to AnalyzeRepo but returns structured data instead of a
 // rendered result, so the research package can apply its own ranking/pruning.
-func AnalyzeForResearch(ctx context.Context, root, query, language string, deps Deps) (*ResearchData, error) {
+func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob string, includeTests bool, deps Deps) (*ResearchData, error) {
 	var langs []string
 	if language != "" {
 		langs = []string{language}
@@ -52,6 +56,27 @@ func AnalyzeForResearch(ctx context.Context, root, query, language string, deps 
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ingest: %w", err)
+	}
+
+	if !includeTests {
+		filtered := ir.Files[:0]
+		for _, f := range ir.Files {
+			if langutil.IsTestFile(f.RelPath) {
+				continue
+			}
+			filtered = append(filtered, f)
+		}
+		ir.Files = filtered
+	}
+
+	if fileGlob != "" {
+		filtered := ir.Files[:0]
+		for _, f := range ir.Files {
+			if codesearch.MatchFileGlob(f.RelPath, fileGlob) {
+				filtered = append(filtered, f)
+			}
+		}
+		ir.Files = filtered
 	}
 
 	parseResults := parseFilesParallel(ctx, ir.Files, false, deps.ParseCache)
@@ -85,9 +110,9 @@ func AnalyzeForResearch(ctx context.Context, root, query, language string, deps 
 		}
 	}
 
-	// BM25F scores.
+	// Fused scores (BM25F + Personalized PageRank + exact-match).
 	queryTerms := extractQueryTerms(query)
-	_, bm25Scores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
+	_, fusedScores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
 
 	return &ResearchData{
 		Root:        root,
@@ -95,7 +120,7 @@ func AnalyzeForResearch(ctx context.Context, root, query, language string, deps 
 		FileSymbols: fileSymbols,
 		FileImports: fileImports,
 		PkgFiles:    pkgFiles,
-		BM25Scores:  bm25Scores,
+		FusedScores: fusedScores,
 		QueryTerms:  queryTerms,
 	}, nil
 }

@@ -10,6 +10,7 @@ import (
 const (
 	WeightSymbol = 5.0 // symbol name matches are most important
 	WeightPath   = 3.0 // file path matches are moderately important
+	WeightDoc    = 2.0 // doc-comment matches (more verbose, less specific than symbol names)
 )
 
 // BM25 tuning parameters.
@@ -19,10 +20,11 @@ const (
 )
 
 // Document represents a file for BM25F scoring.
-// Only Path and Symbols are used — file content is scored via LLM, not BM25F.
+// Only Path, Symbols, and Docs are used — file content is scored via LLM, not BM25F.
 type Document struct {
 	Path    string   // relative file path
 	Symbols []string // symbol names in the file
+	Docs    []string // doc-comments / leading comments per symbol
 }
 
 // BM25F implements field-weighted BM25 scoring.
@@ -41,6 +43,7 @@ type BM25F struct {
 type documentInternal struct {
 	pathLower    string
 	symbolsLower []string
+	docsLower    []string // lowercased doc-comment strings
 }
 
 // NewBM25F creates a BM25F scorer from a corpus of documents.
@@ -66,9 +69,14 @@ func NewBM25F(docs []Document) *BM25F {
 		for j, sym := range doc.Symbols {
 			b.docs[i].symbolsLower[j] = strings.ToLower(sym)
 		}
+		b.docs[i].docsLower = make([]string, len(doc.Docs))
+		for j, d := range doc.Docs {
+			b.docs[i].docsLower[j] = strings.ToLower(d)
+		}
 
 		// Compute weighted document length: sum of field contributions.
 		dl := float64(len(b.docs[i].symbolsLower))*WeightSymbol +
+			float64(len(b.docs[i].docsLower))*WeightDoc +
 			WeightPath // path always contributes a baseline length
 		b.docDL[i] = dl
 		totalDL += dl
@@ -179,7 +187,7 @@ func (b *BM25F) scoreTermAtIndex(termLower string, docIdx int) float64 {
 }
 
 // computeWeightedTF computes the weighted term frequency for a term in a document.
-// tf = (symbol match count * WeightSymbol) + (path match * WeightPath)
+// tf = (symbol match count * WeightSymbol) + (doc-comment match count * WeightDoc) + (path match * WeightPath)
 func computeWeightedTF(doc documentInternal, termLower string) float64 {
 	var tf float64
 
@@ -187,6 +195,13 @@ func computeWeightedTF(doc documentInternal, termLower string) float64 {
 	for _, sym := range doc.symbolsLower {
 		if strings.Contains(sym, termLower) {
 			tf += WeightSymbol
+		}
+	}
+
+	// Doc-comment matches: count how many doc strings contain the term.
+	for _, d := range doc.docsLower {
+		if strings.Contains(d, termLower) {
+			tf += WeightDoc
 		}
 	}
 
@@ -205,6 +220,11 @@ func documentContainsTerm(doc documentInternal, termLower string) bool {
 	}
 	for _, sym := range doc.symbolsLower {
 		if strings.Contains(sym, termLower) {
+			return true
+		}
+	}
+	for _, d := range doc.docsLower {
+		if strings.Contains(d, termLower) {
 			return true
 		}
 	}
