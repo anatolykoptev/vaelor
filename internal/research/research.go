@@ -140,6 +140,29 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}, nil
 }
 
+const (
+	semanticTopKMin = 10
+	semanticTopKMax = 100
+	semanticTopKDiv = 400
+)
+
+// semanticTopK scales the embedding-store TopK with the token budget.
+// Formula: clamp(MaxTokens / 400, 10, 100). A budget of 8000 (default)
+// yields 20 — matching the previous hardcoded value.
+func semanticTopK(maxTokens int) int {
+	if maxTokens <= 0 {
+		maxTokens = DefaultMaxTokens
+	}
+	k := maxTokens / semanticTopKDiv
+	if k < semanticTopKMin {
+		k = semanticTopKMin
+	}
+	if k > semanticTopKMax {
+		k = semanticTopKMax
+	}
+	return k
+}
+
 // runSemanticSeeds queries the embed store and returns the raw hits.
 func runSemanticSeeds(ctx context.Context, input Input, deps Deps) ([]embeddings.SearchResult, string) {
 	vec, err := deps.EmbedClient.EmbedQuery(ctx, input.Query)
@@ -150,7 +173,7 @@ func runSemanticSeeds(ctx context.Context, input Input, deps Deps) ([]embeddings
 	results, err := deps.EmbedStore.Search(ctx, vec, embeddings.SearchOpts{
 		RepoKey:  deps.RepoKey,
 		Language: input.Language,
-		TopK:     20,
+		TopK:     semanticTopK(input.MaxTokens),
 	})
 	if err != nil || len(results) == 0 {
 		return nil, "keyword-only"
