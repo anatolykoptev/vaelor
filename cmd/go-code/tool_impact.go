@@ -28,6 +28,9 @@ type ImpactInput struct {
 const (
 	defaultImpactDepth = 5
 	maxImpactDepth     = 10
+	// maxHotspotFiles caps how many top churn-weighted files are treated as
+	// hotspots when reordering impact callers. Ten is the rule-of-thumb top-N.
+	maxHotspotFiles = 10
 )
 
 func registerImpact(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
@@ -104,7 +107,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 			fc = compare.FileComplexityFromSnapshot(snap)
 		}
 		hotspots := compare.ComputeHotspots(churn, fc)
-		hotspotSet = topHotspotSet(hotspots, 10)
+		hotspotSet = topHotspotSet(hotspots, maxHotspotFiles)
 	}
 
 	// Reorder direct and transitive callers so hotspot-file callers come first,
