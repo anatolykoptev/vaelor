@@ -79,6 +79,10 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 	return textResult(string(data)), nil
 }
 
+// deriveVerdict maps a delta review's risk guidance into a structured merge
+// verdict. It recognises the three levels produced by review.classifyRisk
+// ("low", "medium", "high"); any future level falls through to nil so the
+// verdict is simply omitted rather than emitting a misleading default.
 func deriveVerdict(r *review.DeltaResult) *xmlVerdict {
 	if r == nil {
 		return nil
