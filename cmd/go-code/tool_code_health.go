@@ -4,16 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"net/http"
-	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/explore"
 	"github.com/anatolykoptev/go-code/internal/freshness"
-	"github.com/anatolykoptev/go-code/internal/semhealth"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -50,115 +46,42 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		}
 		defer cleanup()
 
-		// Determine snapshot focus — magic_numbers and semantic_duplicates are special modes, not path filters.
-		snapshotFocus := input.Focus
-		isMagicMode := input.Focus == "magic_numbers"
-		if isMagicMode || input.Focus == "semantic_duplicates" {
-			snapshotFocus = ""
-		}
-
-		snap, err := compare.BuildSnapshot(ctx, root, compare.SnapshotOpts{
-			Focus:    snapshotFocus,
-			Language: input.Language,
-		})
+		// Stage 1: snapshot + special focus modes.
+		sr, err := buildHealthSnapshot(ctx, root, input.Language, input.Focus)
 		if err != nil {
 			return errResult(fmt.Sprintf("snapshot: %s", err)), nil
 		}
 
-		// Magic numbers focused report.
-		if isMagicMode {
-			entries := compare.CollectMagicNumbers(snap)
-			resp := buildMagicNumbersXML(snap.Name, snap.Language, entries)
+		if sr.isMagicMode {
+			entries := compare.CollectMagicNumbers(sr.snap)
+			resp := buildMagicNumbersXML(sr.snap.Name, sr.snap.Language, entries)
 			return xmlMarshalResult(resp, "code_health", outputDir), nil
 		}
 
-		// Semantic duplicates focused report.
-		if input.Focus == "semantic_duplicates" {
+		if sr.isSemanticDup {
 			if semDeps == nil || semDeps.Store == nil {
 				return errResult("semantic search not configured: set EMBED_URL and DATABASE_URL"), nil
 			}
-			repoKey := codegraph.GraphNameFor(root)
-			funcCount := countFuncs(snap.Symbols)
-			sem := semhealth.Analyze(ctx, semDeps.Store, repoKey, funcCount)
-			var groups []semhealth.DupGroup
-			if sem != nil {
-				groups = sem.DupGroups
-			}
-			resp := buildSemanticDupXML(snap.Name, snap.Language, groups)
+			groups := collectSemanticDupGroups(ctx, semDeps, root, sr.snap)
+			resp := buildSemanticDupXML(sr.snap.Name, sr.snap.Language, groups)
 			return xmlMarshalResult(resp, "code_health", outputDir), nil
 		}
 
-		metrics := compare.ComputeMetrics(snap)
-		score := compare.GradeScore(metrics)
+		// Stage 2: core metrics + semantic dup enrichment.
+		metrics := compare.ComputeMetrics(sr.snap)
+		gatherHealthSemanticDup(ctx, semDeps, root, sr.snap, &metrics)
 
-		// Semantic duplication analysis (optional, non-fatal).
-		if semDeps != nil && semDeps.Store != nil {
-			repoKey := codegraph.GraphNameFor(root)
-			funcCount := countFuncs(snap.Symbols)
-			if sem := semhealth.Analyze(ctx, semDeps.Store, repoKey, funcCount); sem != nil && sem.SemanticDupRatio > 0 {
-				metrics.SemanticDupRatio = sem.SemanticDupRatio
-				score = compare.GradeScore(metrics)
-				metrics.Score = score
-				metrics.Grade = compare.ComputeGrade(metrics)
-			}
-		}
+		// Stage 3: freshness + vulnerability.
+		fr := gatherHealthFreshness(ctx, root, &metrics)
 
-		// Dependency freshness and vulnerability checks (optional, non-fatal).
-		var fr *freshness.FreshnessResult
-		var vr *freshness.VulnResult
-		manifests := freshness.DiscoverManifests(root)
-		if len(manifests) > 0 {
-			freshnessTimeout := 30 * time.Second
-			client := &http.Client{Timeout: freshnessTimeout}
-			allDeps := freshness.CollectDeps(manifests)
+		// Stage 4: hotspots.
+		hotspots := gatherHealthHotspots(ctx, root, input.Repo, sr.snap)
 
-			if len(allDeps) > 0 {
-				// Freshness check.
-				reg := freshness.NewMultiRegistryWithCache(client, nil)
-				fr = freshness.CheckFreshness(ctx, allDeps, reg)
-				metrics.DepFreshnessRatio = fr.Ratio
+		relStats := compare.ComputeRelStats(sr.snap.Rels)
+		outliers := compare.CollectOutliers(sr.snap)
 
-				// Vulnerability check.
-				vr = freshness.CheckVulnerabilities(ctx, allDeps, client, freshness.DefaultOSVURL)
-				metrics.VulnSecurityRatio = vr.Ratio
-			}
-
-			// Go runtime version check.
-			for _, m := range manifests {
-				if m.Language == "go" && m.RuntimeVersion != "" {
-					status := freshness.CheckGoRuntime(ctx, client, m.RuntimeVersion)
-					if fr == nil {
-						fr = &freshness.FreshnessResult{Ratio: 1.0}
-					}
-					fr.RuntimeStatus = status
-					break
-				}
-			}
-
-			// Recompute score after freshness/vuln updates.
-			score = compare.GradeScore(metrics)
-			metrics.Score = score
-			metrics.Grade = compare.ComputeGrade(metrics)
-		}
-
-		// Hotspot analysis (non-fatal).
-		churn, churnErr := compare.CollectChurn(ctx, root)
-		if churnErr != nil {
-			slog.Debug("code_health: churn collection failed", slog.String("repo", input.Repo), slog.Any("error", churnErr))
-		}
-		var hotspots []compare.HotspotFile
-		if churn != nil {
-			hotspots = compare.ComputeHotspots(churn, compare.FileComplexityFromSnapshot(snap))
-		}
-
-		relStats := compare.ComputeRelStats(snap.Rels)
-
-		// Recommendations.
-		outliers := compare.CollectOutliers(snap)
-
-		// SARIF output for GitHub Code Scanning.
 		if input.Format == "sarif" {
-			sarifReport := compare.BuildSARIF(snap.Name, metrics, nil, nil, hotspots, outliers)
+			sarifReport := compare.BuildSARIF(sr.snap.Name, metrics, nil, nil, hotspots, outliers)
 			data, err := json.MarshalIndent(sarifReport, "", "  ")
 			if err != nil {
 				return errResult(fmt.Sprintf("sarif marshal: %s", err)), nil
@@ -167,19 +90,12 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		}
 
 		recs := compare.ComputeRecommendations(metrics, outliers, 5)
-
-		// Ox-codes quality checks (informational, non-fatal, do not affect grade).
 		oxChecks := explore.RunOxCodesHealthChecks(ctx, deps.OxCodes, root, input.Language)
 
-		// Architecture metrics from graph store (optional, non-fatal).
-		var archMetrics *compare.ArchMetrics
-		if graphStore != nil {
-			gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
-			defer gcancel()
-			archMetrics = compare.CollectArchMetrics(gctx, graphStore, root)
-		}
+		// Stage 5: architecture graph (separate timeout).
+		archMetrics := gatherHealthArchMetrics(ctx, graphStore, root)
 
-		resp := buildHealthXML(snap.Name, snap.Language, metrics, score, hotspots, relStats, recs, fr, vr, oxChecks, archMetrics)
+		resp := buildHealthXML(sr.snap.Name, sr.snap.Language, metrics, metrics.Score, hotspots, relStats, recs, fr.fr, fr.vr, oxChecks, archMetrics)
 		return xmlMarshalResult(resp, "code_health", outputDir), nil
 	})
 }
