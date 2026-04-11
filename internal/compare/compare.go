@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/prompts"
@@ -281,11 +282,12 @@ type CompareResult struct {
 
 // CompareInput is the input for CompareRepos.
 type CompareInput struct {
-	RootA   string
-	RootB   string
-	Query   string
-	Opts    SnapshotOpts
-	OxCodes *oxcodes.Client
+	RootA       string
+	RootB       string
+	Query       string
+	Opts        SnapshotOpts
+	OxCodes     *oxcodes.Client
+	EmbedClient *embeddings.Client // nil = skip semantic matching
 }
 
 // CompareRepos orchestrates a full comparison between two repositories.
@@ -319,7 +321,11 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	}
 
 	// Match symbols.
-	matches := MatchSymbols(snapA.Symbols, snapB.Symbols, nil)
+	var classifier LLMClassifier
+	if input.EmbedClient != nil {
+		classifier = NewEmbeddingClassifier(ctx, input.EmbedClient)
+	}
+	matches := MatchSymbols(snapA.Symbols, snapB.Symbols, classifier)
 
 	// Annotate modified matches with AST diffs.
 	annotateASTDiffs(matches)
