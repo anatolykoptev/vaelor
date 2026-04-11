@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -280,6 +281,9 @@ type CompareResult struct {
 	RouteDiffResult *RouteDiff         `json:"route_diff,omitempty"`
 	CouplingA       []CoupledPair      `json:"coupling_a,omitempty"`
 	CouplingB       []CoupledPair      `json:"coupling_b,omitempty"`
+	ArchMetricsA    *ArchMetrics       `json:"arch_metrics_a,omitempty"`
+	ArchMetricsB    *ArchMetrics       `json:"arch_metrics_b,omitempty"`
+	CrossLangReport *CrossLangReport   `json:"cross_lang_report,omitempty"`
 }
 
 // CompareInput is the input for CompareRepos.
@@ -290,6 +294,7 @@ type CompareInput struct {
 	Opts        SnapshotOpts
 	OxCodes     *oxcodes.Client
 	EmbedClient *embeddings.Client // nil = skip semantic matching
+	GraphStore  *codegraph.Store   // nil = skip architecture graph analysis
 }
 
 // CompareRepos orchestrates a full comparison between two repositories.
@@ -356,11 +361,12 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 	// All are non-fatal and independent. LLM runs AFTER enrichment so it has
 	// freshness, dataflow, API surface, and route data in its context.
 	var (
-		qualityA, qualityB     *QualityIndicators
-		freshnessA, freshnessB *FreshnessStats
-		dataflowA, dataflowB   *DataflowStats
-		couplingA, couplingB   []CoupledPair
-		analysis               LLMAnalysis
+		qualityA, qualityB         *QualityIndicators
+		freshnessA, freshnessB     *FreshnessStats
+		dataflowA, dataflowB       *DataflowStats
+		couplingA, couplingB       []CoupledPair
+		archMetricsA, archMetricsB *ArchMetrics
+		analysis                   LLMAnalysis
 	)
 	{
 		ectx, ecancel := context.WithTimeout(ctx, qualityTimeout)
@@ -407,6 +413,19 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		go func() { defer ewg.Done(); couplingA = CollectCoupling(ectx, input.RootA, defaultMinCoChanges) }()
 		go func() { defer ewg.Done(); couplingB = CollectCoupling(ectx, input.RootB, defaultMinCoChanges) }()
 
+		// Architecture graph (when codegraph available).
+		if input.GraphStore != nil {
+			ewg.Add(2)
+			go func() {
+				defer ewg.Done()
+				archMetricsA = CollectArchMetrics(ectx, input.GraphStore, input.RootA)
+			}()
+			go func() {
+				defer ewg.Done()
+				archMetricsB = CollectArchMetrics(ectx, input.GraphStore, input.RootB)
+			}()
+		}
+
 		ewg.Wait()
 	}
 
@@ -428,13 +447,19 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		routeDiff = &d
 	}
 
+	// Cross-language report (when repos use different languages).
+	var crossLangReport *CrossLangReport
+	if snapA.Language != snapB.Language {
+		crossLangReport = BuildCrossLangReport(matches, snapA.Language, snapB.Language)
+	}
+
 	// LLM analysis runs after all enrichment so it has full context:
 	// freshness, dataflow, API surface, and routes.
 	if llmClient != nil {
 		analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
 			hotspotsA, hotspotsB, relStatsA, relStatsB,
 			freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff,
-			nil, nil)
+			archMetricsA, archMetricsB)
 	}
 
 	result := &CompareResult{
@@ -464,6 +489,9 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client
 		RouteDiffResult: routeDiff,
 		CouplingA:       couplingA,
 		CouplingB:       couplingB,
+		ArchMetricsA:    archMetricsA,
+		ArchMetricsB:    archMetricsB,
+		CrossLangReport: crossLangReport,
 	}
 
 	return result, nil

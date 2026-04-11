@@ -88,7 +88,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 
 	registerRepoAnalyze(server, cfg, deps)
 	registerFileParse(server, cfg, deps)
-	registerCodeCompare(server, cfg, deps, &semDeps)
+	registerCodeCompare(server, cfg, deps, &semDeps, graphStore)
 	registerDepGraph(server, cfg, deps)
 	registerSymbolSearch(server, cfg, deps, &semDeps)
 	registerCallTrace(server, cfg, deps, &semDeps)
