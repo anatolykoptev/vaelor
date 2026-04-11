@@ -260,6 +260,43 @@ func TestRunFiltersByFileGlob(t *testing.T) {
 	}
 }
 
+func TestRunExcludesTestFilesByDefault(t *testing.T) {
+	tmp := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmp, "foo.go"), "package foo\nfunc Foo() {}\n")
+	mustWriteFile(t, filepath.Join(tmp, "foo_test.go"), "package foo\nimport \"testing\"\nfunc TestFoo(t *testing.T) {}\n")
+
+	res, err := Run(context.Background(), Input{Root: tmp, Query: "Foo"}, Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range res.Seeds {
+		if strings.HasSuffix(s.File, "_test.go") {
+			t.Errorf("test files must be excluded by default, got %s", s.File)
+		}
+	}
+}
+
+func TestRunIncludesTestsWhenAsked(t *testing.T) {
+	tmp := t.TempDir()
+	// foo.go has no reference to "UniqueTestHelper" — the test file is the sole match.
+	mustWriteFile(t, filepath.Join(tmp, "foo.go"), "package foo\nfunc Foo() {}\n")
+	mustWriteFile(t, filepath.Join(tmp, "foo_test.go"), "package foo\nimport \"testing\"\nfunc UniqueTestHelper(t *testing.T) {}\n")
+
+	res, err := Run(context.Background(), Input{Root: tmp, Query: "UniqueTestHelper", IncludeTests: true}, Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range res.Seeds {
+		if strings.HasSuffix(s.File, "_test.go") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected foo_test.go in seeds when IncludeTests=true, got %+v", res.Seeds)
+	}
+}
+
 func mustWriteFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

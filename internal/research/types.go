@@ -32,6 +32,11 @@ type Input struct {
 	// FileGlob restricts analysis to files matching this glob (e.g.
 	// "internal/**", "pkg/foo/*.go"). Empty = no filter.
 	FileGlob string
+
+	// IncludeTests controls whether *_test.go / test files are indexed.
+	// Default false — test files are usually noise for "how does X work"
+	// queries. Set true to include them.
+	IncludeTests bool
 }
 
 // DefaultMaxTokens is the default token budget (~8k tokens ≈ comfortable context).
