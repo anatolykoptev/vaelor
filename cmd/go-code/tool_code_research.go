@@ -21,6 +21,7 @@ type CodeResearchInput struct {
 	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema_description:"Token budget for the output map (default 8000). Higher = more context, more tokens."`
 	ExpandHops  int    `json:"expand_hops,omitempty" jsonschema_description:"Import-graph expansion hops from seed files (default 2). Higher = wider context."`
 	IncludeBody bool   `json:"include_body,omitempty" jsonschema_description:"Include full function bodies in the output (default false). Significantly increases token usage."`
+	FileGlob    string `json:"file_glob,omitempty" jsonschema_description:"Restrict analysis to files matching this glob (e.g. 'internal/**', 'pkg/foo/*.go'). Optional."`
 }
 
 // registerCodeResearch registers the code_research MCP tool.
@@ -76,6 +77,7 @@ func handleCodeResearch(
 		MaxTokens:   input.MaxTokens,
 		ExpandHops:  input.ExpandHops,
 		IncludeBody: input.IncludeBody,
+		FileGlob:    input.FileGlob,
 	}, resDeps)
 	if err != nil {
 		return errResult(fmt.Sprintf("code_research: %s", err)), nil

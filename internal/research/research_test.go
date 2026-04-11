@@ -1,6 +1,9 @@
 package research
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -223,5 +226,46 @@ func TestFuseScoresIgnoresAbsoluteMagnitudes(t *testing.T) {
 
 	if small["a"] != large["a"] || small["b"] != large["b"] {
 		t.Errorf("rank-based RRF must ignore magnitudes: small=%v large=%v", small, large)
+	}
+}
+
+func TestInputAcceptsFileGlob(t *testing.T) {
+	in := Input{
+		Root:     "/tmp/x",
+		Query:    "Foo",
+		FileGlob: "internal/**",
+	}
+	if in.FileGlob != "internal/**" {
+		t.Errorf("FileGlob field missing or wrong value")
+	}
+}
+
+func TestRunFiltersByFileGlob(t *testing.T) {
+	tmp := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmp, "internal/foo/foo.go"), "package foo\nfunc Foo() {}\n")
+	mustWriteFile(t, filepath.Join(tmp, "cmd/main.go"), "package main\nfunc Foo() {}\n")
+
+	res, err := Run(context.Background(), Input{
+		Root:     tmp,
+		Query:    "Foo",
+		FileGlob: "internal/**",
+	}, Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range res.Seeds {
+		if strings.HasPrefix(s.File, "cmd/") {
+			t.Errorf("FileGlob 'internal/**' should have excluded %s", s.File)
+		}
+	}
+}
+
+func mustWriteFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

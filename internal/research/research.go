@@ -48,7 +48,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}
 
 	// --- Step 1: parse repo + build BM25F scores ---
-	data, err := analyze.AnalyzeForResearch(ctx, input.Root, input.Query, input.Language, deps.AnalyzeDeps)
+	data, err := analyze.AnalyzeForResearch(ctx, input.Root, input.Query, input.Language, input.FileGlob, deps.AnalyzeDeps)
 	if err != nil {
 		return nil, fmt.Errorf("analyze: %w", err)
 	}

@@ -28,6 +28,10 @@ type Input struct {
 
 	// IncludeBody includes full symbol bodies in the output map.
 	IncludeBody bool
+
+	// FileGlob restricts analysis to files matching this glob (e.g.
+	// "internal/**", "pkg/foo/*.go"). Empty = no filter.
+	FileGlob string
 }
 
 // DefaultMaxTokens is the default token budget (~8k tokens ≈ comfortable context).
@@ -59,12 +63,12 @@ type Result struct {
 
 // SeedSymbol is a symbol that directly matched the query.
 type SeedSymbol struct {
-	File       string
-	Name       string
-	Kind       string
-	Line       int
-	Score      float64 // RRF or BM25F score
-	Source     string  // "semantic", "keyword", or "hybrid"
+	File   string
+	Name   string
+	Kind   string
+	Line   int
+	Score  float64 // RRF or BM25F score
+	Source string  // "semantic", "keyword", or "hybrid"
 }
 
 // LinkedFile is a file reached via import-DAG expansion from a seed.
