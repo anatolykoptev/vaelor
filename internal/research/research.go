@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -25,6 +26,11 @@ type Deps struct {
 	// RepoKey is the embedding store key for this repository. Required when
 	// EmbedClient/EmbedStore are set.
 	RepoKey string
+
+	// BuildCallGraph is an optional hook that returns the call graph for a
+	// repository root. Used when Input.IncludeCallGraph=true. Non-fatal — if
+	// nil or it returns an error, import-DAG expansion still runs normally.
+	BuildCallGraph func(ctx context.Context, root string) (*callgraph.CallGraph, error)
 }
 
 // Run executes the full code-research pipeline:
@@ -92,6 +98,15 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 
 	// --- Step 5: DAG expansion ---
 	expanded := expandFromSeeds(seedFiles, data.FileImports, input.ExpandHops)
+
+	// --- Step 5b: call-graph BFS expansion (optional) ---
+	if input.IncludeCallGraph && deps.BuildCallGraph != nil {
+		if cg, err := deps.BuildCallGraph(ctx, input.Root); err == nil && cg != nil {
+			cgExpanded := expandFromCallGraph(seedFiles, cg, input.ExpandHops)
+			expanded = mergeExpandResults(expanded, cgExpanded)
+		}
+		// Non-fatal: import-DAG expansion is already in `expanded`.
+	}
 
 	// --- Step 6: filter symbols per file by query terms ---
 	filteredSymbols := make(map[string][]*parser.Symbol, len(expanded))
