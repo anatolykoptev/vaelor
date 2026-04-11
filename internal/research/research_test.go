@@ -341,6 +341,73 @@ func TestLinkTestFilesSkipsExistingTestFiles(t *testing.T) {
 	}
 }
 
+func TestPruneAppliesMMRDiversity(t *testing.T) {
+	// Three files: two near-duplicates (foo, foo2) and one unique (bar).
+	// Budget fits exactly 2. MMR should pick foo + bar (not foo + foo2)
+	// because foo2 is ~100% Jaccard-similar to foo.
+	mkSym := func(names ...string) []*parser.Symbol {
+		out := make([]*parser.Symbol, 0, len(names))
+		for _, n := range names {
+			out = append(out, &parser.Symbol{Name: n, Kind: parser.KindFunction})
+		}
+		return out
+	}
+	expanded := []expandResult{
+		{relPath: "foo.go", distance: 0},
+		{relPath: "foo2.go", distance: 0},
+		{relPath: "bar.go", distance: 0},
+	}
+	scores := map[string]float64{
+		"foo.go":  0.95,
+		"foo2.go": 0.93,
+		"bar.go":  0.50,
+	}
+	syms := map[string][]*parser.Symbol{
+		"foo.go":  mkSym("Retry", "Backoff", "Wait"),
+		"foo2.go": mkSym("Retry", "Backoff", "Wait"), // identical names
+		"bar.go":  mkSym("ParseURL", "Encode"),
+	}
+	// Budget sized so only ~2 files fit.
+	// Each file cost: mapOverheadCharsPerFile(80) + sum(name_len+30) / charsPerToken(4)
+	// foo.go: (80+35+36+34)/4 = 46 tokens; bar.go: (80+38+36)/4 = 38 tokens; total=84
+	// foo2.go identical cost to foo.go=46; 46+46+38=130 > 90, so budget=90 fits exactly 2.
+	kept, _ := pruneToTokenBudget(expanded, scores, syms, 90, false)
+
+	got := map[string]bool{}
+	for _, sf := range kept {
+		got[sf.expand.relPath] = true
+	}
+	if !got["foo.go"] {
+		t.Errorf("MMR should pick foo.go (highest score), got %v", got)
+	}
+	if !got["bar.go"] {
+		t.Errorf("MMR should pick bar.go (diverse), got %v", got)
+	}
+	if got["foo2.go"] {
+		t.Errorf("MMR should drop near-duplicate foo2.go, got %v", got)
+	}
+}
+
+func TestJaccardBasic(t *testing.T) {
+	a := map[string]bool{"x": true, "y": true, "z": true}
+	b := map[string]bool{"x": true, "y": true, "z": true}
+	if got := jaccard(a, b); got != 1.0 {
+		t.Errorf("identical sets: got %f, want 1.0", got)
+	}
+	c := map[string]bool{"p": true, "q": true}
+	if got := jaccard(a, c); got != 0.0 {
+		t.Errorf("disjoint sets: got %f, want 0.0", got)
+	}
+	d := map[string]bool{"x": true, "y": true, "w": true}
+	// {x,y,z} ∩ {x,y,w} = {x,y} → 2; union = {x,y,z,w} → 4; jaccard = 0.5
+	if got := jaccard(a, d); got != 0.5 {
+		t.Errorf("half overlap: got %f, want 0.5", got)
+	}
+	if got := jaccard(nil, a); got != 0.0 {
+		t.Errorf("nil input: got %f, want 0.0", got)
+	}
+}
+
 func TestTestCandidatesPython(t *testing.T) {
 	got := testCandidates("pkg/foo.py")
 	want := map[string]bool{"pkg/test_foo.py": true, "pkg/tests/test_foo.py": true}
