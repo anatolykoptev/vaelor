@@ -91,6 +91,12 @@ type Config struct {
 
 	// DesignMDDir is the directory containing */DESIGN.md files for design_search.
 	DesignMDDir string
+
+	// DesignEmbedURL is the embedding server for design_search (e5-large, 1024-dim).
+	DesignEmbedURL string
+
+	// DesignEmbedModel is the model name for design embeddings.
+	DesignEmbedModel string
 }
 
 const (
@@ -149,6 +155,8 @@ func loadConfig() Config {
 		GitLabURL:         env.Str("GITLAB_URL", ""),
 		OxCodesURL:        env.Str("OX_CODES_URL", ""),
 		DesignMDDir:       env.Str("DESIGN_MD_DIR", ""),
+		DesignEmbedURL:    env.Str("DESIGN_EMBED_URL", ""),
+		DesignEmbedModel:  env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
 	}
 }
 
