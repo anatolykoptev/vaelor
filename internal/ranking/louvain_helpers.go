@@ -118,29 +118,6 @@ func buildUndirectedAdj(graph map[string][]string) (map[string][]string, []strin
 	return adj, nodes
 }
 
-// compactIDs remaps community IDs to a contiguous range 0..k-1.
-// Iterates nodes in sorted order for deterministic ID assignment.
-func compactIDs(community map[string]int) map[string]int {
-	nodes := make([]string, 0, len(community))
-	for node := range community {
-		nodes = append(nodes, node)
-	}
-	slices.Sort(nodes)
-
-	remap := make(map[int]int)
-	next := 0
-	result := make(map[string]int, len(community))
-	for _, node := range nodes {
-		comm := community[node]
-		if _, ok := remap[comm]; !ok {
-			remap[comm] = next
-			next++
-		}
-		result[node] = remap[comm]
-	}
-	return result
-}
-
 // countDistinct returns the number of unique values in a map[string]int.
 func countDistinct(m map[string]int) int {
 	seen := make(map[int]struct{})
