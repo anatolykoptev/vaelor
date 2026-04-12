@@ -1,16 +1,14 @@
 package ranking
 
 const (
-	maxCommunityFraction = 0.25
-	minSplitSize         = 10
-	maxLouvainPasses     = 50
+	maxLouvainPasses = 50
+	maxLevels        = 10
 )
 
 // Louvain performs community detection on an undirected graph using the Louvain
 // modularity optimization algorithm. Input is an adjacency list (same format as
 // PageRank). Returns a map from node to community ID (0-indexed). Returns nil
-// for empty input. Communities larger than 25% of the graph (min 10 nodes) are
-// recursively split.
+// for empty input. Uses multi-level graph contraction for better cluster separation.
 func Louvain(graph map[string][]string) map[string]int {
 	if len(graph) == 0 {
 		return nil
@@ -21,12 +19,70 @@ func Louvain(graph map[string][]string) map[string]int {
 	}
 
 	adj, sortedNodes := buildUndirectedAdj(graph)
-	communities := coreLouvain(adj, sortedNodes)
-	communities = splitOversized(communities, adj)
-	return compactIDs(communities)
+
+	nodeToSuper := make(map[string]string, len(sortedNodes))
+	for _, n := range sortedNodes {
+		nodeToSuper[n] = n
+	}
+
+	currentAdj := adj
+	currentNodes := sortedNodes
+
+	for range maxLevels {
+		communities := coreLouvain(currentAdj, currentNodes)
+
+		distinct := countDistinct(communities)
+		// No further improvement possible.
+		if distinct >= len(currentNodes) {
+			break
+		}
+
+		commToName := make(map[int]string)
+		for _, node := range currentNodes {
+			c := communities[node]
+			if _, ok := commToName[c]; !ok {
+				commToName[c] = node
+			}
+		}
+
+		// Always propagate community assignments to original nodes when we have
+		// a non-trivial partition (distinct > 1).
+		if distinct > 1 {
+			newNodeToSuper := make(map[string]string, len(nodeToSuper))
+			for origNode, superNode := range nodeToSuper {
+				c := communities[superNode]
+				newNodeToSuper[origNode] = commToName[c]
+			}
+			nodeToSuper = newNodeToSuper
+		}
+
+		superAdj, superNodes := contractGraph(currentAdj, currentNodes, communities)
+
+		// Stop if contraction didn't reduce graph size (or everything collapsed to 1).
+		if len(superNodes) >= len(currentNodes) {
+			break
+		}
+
+		currentAdj = superAdj
+		currentNodes = superNodes
+	}
+
+	superToID := make(map[string]int)
+	nextID := 0
+	result := make(map[string]int, len(nodeToSuper))
+	for _, origNode := range sortedNodes {
+		superNode := nodeToSuper[origNode]
+		if _, ok := superToID[superNode]; !ok {
+			superToID[superNode] = nextID
+			nextID++
+		}
+		result[origNode] = superToID[superNode]
+	}
+
+	return result
 }
 
-// coreLouvain runs the greedy modularity optimization loop (no oversized split).
+// coreLouvain runs the greedy modularity optimization loop.
 // nodes must be sorted for deterministic output.
 func coreLouvain(adj map[string][]string, nodes []string) map[string]int {
 	if len(adj) == 0 {

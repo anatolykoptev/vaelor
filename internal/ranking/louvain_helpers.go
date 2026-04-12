@@ -4,82 +4,74 @@ import (
 	"slices"
 )
 
-// splitOversized finds communities larger than maxCommunityFraction of the total
-// graph (and >= minSplitSize nodes) and recursively splits them via a second
-// Louvain pass on the subgraph.
-func splitOversized(community map[string]int, adj map[string][]string) map[string]int {
-	total := len(community)
-	threshold := int(float64(total) * maxCommunityFraction)
-	if threshold < minSplitSize {
-		threshold = minSplitSize
-	}
-
-	groups := make(map[int][]string)
-	for node, comm := range community {
-		groups[comm] = append(groups[comm], node)
-	}
-
-	maxID := 0
-	for _, comm := range community {
-		if comm > maxID {
-			maxID = comm
+// contractGraph merges nodes by community assignment, producing a super-graph.
+// Returns adjacency map and sorted super-node names.
+func contractGraph(
+	adj map[string][]string,
+	nodes []string,
+	community map[string]int,
+) (superAdj map[string][]string, superNodes []string) {
+	commName := make(map[int]string)
+	for _, node := range nodes {
+		c := community[node]
+		if _, ok := commName[c]; !ok {
+			commName[c] = node
 		}
 	}
 
-	result := make(map[string]int, len(community))
-	for node, comm := range community {
-		result[node] = comm
-	}
+	// Find edges between communities.
+	type edgeKey = [2]string
+	edgeExists := make(map[edgeKey]bool)
 
-	for comm, members := range groups {
-		if len(members) < threshold {
-			continue
-		}
-		memberSet := make(map[string]struct{}, len(members))
-		for _, m := range members {
-			memberSet[m] = struct{}{}
-		}
-		subAdj := make(map[string][]string, len(members))
-		for _, m := range members {
-			subAdj[m] = []string{}
-			for _, nb := range adj[m] {
-				if _, inSet := memberSet[nb]; inSet {
-					subAdj[m] = append(subAdj[m], nb)
-				}
+	for _, node := range nodes {
+		cName := commName[community[node]]
+		for _, nb := range adj[node] {
+			nbName := commName[community[nb]]
+			if cName == nbName {
+				continue
 			}
-		}
-
-		subNodes := make([]string, len(members))
-		copy(subNodes, members)
-		slices.Sort(subNodes)
-
-		subCommunity := coreLouvain(subAdj, subNodes)
-		subCommunity = compactIDs(subCommunity)
-
-		if countDistinct(subCommunity) <= 1 {
-			continue
-		}
-
-		subIDMap := make(map[int]int)
-		nextID := maxID + 1
-		for _, subID := range subCommunity {
-			if _, mapped := subIDMap[subID]; !mapped {
-				if subID == 0 {
-					subIDMap[subID] = comm
-				} else {
-					subIDMap[subID] = nextID
-					nextID++
-				}
+			a, b := cName, nbName
+			if a > b {
+				a, b = b, a
 			}
-		}
-		maxID = nextID - 1
-
-		for _, m := range members {
-			result[m] = subIDMap[subCommunity[m]]
+			edgeExists[edgeKey{a, b}] = true
 		}
 	}
 
-	return result
+	// Build super-adjacency.
+	superSet := make(map[string]map[string]bool)
+	for ek := range edgeExists {
+		if superSet[ek[0]] == nil {
+			superSet[ek[0]] = make(map[string]bool)
+		}
+		if superSet[ek[1]] == nil {
+			superSet[ek[1]] = make(map[string]bool)
+		}
+		superSet[ek[0]][ek[1]] = true
+		superSet[ek[1]][ek[0]] = true
+	}
+
+	// Ensure isolated super-nodes exist.
+	for _, name := range commName {
+		if _, ok := superSet[name]; !ok {
+			superSet[name] = make(map[string]bool)
+		}
+	}
+
+	superAdj = make(map[string][]string, len(superSet))
+	superNodes = make([]string, 0, len(superSet))
+	for name, nbs := range superSet {
+		superNodes = append(superNodes, name)
+		nbList := make([]string, 0, len(nbs))
+		for nb := range nbs {
+			nbList = append(nbList, nb)
+		}
+		slices.Sort(nbList)
+		superAdj[name] = nbList
+	}
+	slices.Sort(superNodes)
+
+	return superAdj, superNodes
 }
 
 // buildUndirectedAdj builds a symmetric adjacency list from a directed input graph,
