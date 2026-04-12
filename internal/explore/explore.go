@@ -6,10 +6,8 @@ package explore
 import (
 	"context"
 	"log/slog"
-	"os"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -32,19 +30,20 @@ type Input struct {
 
 // Result is the structured output of an exploration.
 type Result struct {
-	ReadmeExcerpt string           `json:"readme_excerpt,omitempty"`
-	FocusMode     string           `json:"focus_mode,omitempty"`
-	FileCount     int              `json:"file_count"`
-	SymbolCount   int              `json:"symbol_count"`
-	TotalLines    int              `json:"total_lines"`
-	Languages     []LanguageStat   `json:"languages"`
-	TopSymbols    []SymbolSummary  `json:"top_symbols"`
-	DeadCode      *DeadCodeSummary `json:"dead_code,omitempty"`
-	Packages      []string         `json:"packages"`
-	DepHighlights *DepHighlights   `json:"dep_highlights,omitempty"`
-	Health        *HealthSummary   `json:"health,omitempty"`
-	Tier          string           `json:"tier,omitempty"`
-	Backend       string           `json:"backend,omitempty"`
+	ReadmeExcerpt string             `json:"readme_excerpt,omitempty"`
+	FocusMode     string             `json:"focus_mode,omitempty"`
+	FileCount     int                `json:"file_count"`
+	SymbolCount   int                `json:"symbol_count"`
+	TotalLines    int                `json:"total_lines"`
+	Languages     []LanguageStat     `json:"languages"`
+	TopSymbols    []SymbolSummary    `json:"top_symbols"`
+	DeadCode      *DeadCodeSummary   `json:"dead_code,omitempty"`
+	Communities   *CommunityOverview `json:"communities,omitempty"`
+	Packages      []string           `json:"packages"`
+	DepHighlights *DepHighlights     `json:"dep_highlights,omitempty"`
+	Health        *HealthSummary     `json:"health,omitempty"`
+	Tier          string             `json:"tier,omitempty"`
+	Backend       string             `json:"backend,omitempty"`
 }
 
 // LanguageStat holds file count and ratio for a detected language.
@@ -130,6 +129,8 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	readme := readmeExcerpt(input.Root)
 	health := computeHealth(pr.symbols, ir.Files)
 
+	communityOverview := buildCommunityOverview(cg, input.Root)
+
 	result := &Result{
 		ReadmeExcerpt: readme,
 		FocusMode:     focusMode,
@@ -139,6 +140,7 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		Languages:     langStats,
 		TopSymbols:    topSymbols,
 		DeadCode:      dcSummary,
+		Communities:   communityOverview,
 		Packages:      packages,
 		DepHighlights: depHL,
 		Health:        health,
@@ -147,56 +149,3 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	result.Backend = cg.Backend
 	return result, nil
 }
-
-// parseAllFiles parses all ingested files, collecting symbols, calls, imports, and line counts.
-func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, error) {
-	result := parseResults{imports: make(map[string][]string, len(files))}
-	for _, f := range files {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		source, readErr := os.ReadFile(f.Path)
-		if readErr != nil {
-			continue
-		}
-
-		result.totalLines += goutil.CountLines(source)
-
-		opts := parser.ParseOpts{
-			Language:       f.Language,
-			IncludeBody:    false,
-			IncludeImports: true,
-		}
-
-		pr, parseErr := parser.ParseFile(f.Path, source, opts)
-		if parseErr != nil {
-			continue
-		}
-		result.symbols = append(result.symbols, pr.Symbols...)
-		if len(pr.Imports) > 0 {
-			result.imports[f.Path] = pr.Imports
-		}
-
-		calls, callErr := parser.ExtractCalls(f.Path, source, opts)
-		if callErr != nil {
-			slog.Debug("explore: extract calls failed", slog.String("file", f.Path), slog.Any("error", callErr))
-		}
-		result.calls = append(result.calls, calls...)
-	}
-	return &result, nil
-}
-
-// countIncomingCalls returns a map of symbol to its incoming call count.
-func countIncomingCalls(cg *callgraph.CallGraph) map[*parser.Symbol]int {
-	callCounts := make(map[*parser.Symbol]int)
-	for _, edge := range cg.Edges {
-		if edge.Callee != nil {
-			callCounts[edge.Callee]++
-		}
-	}
-	return callCounts
-}
-
-
-
