@@ -1,5 +1,9 @@
 package ranking
 
+import (
+	"slices"
+)
+
 // splitOversized finds communities larger than maxCommunityFraction of the total
 // graph (and >= minSplitSize nodes) and recursively splits them via a second
 // Louvain pass on the subgraph.
@@ -45,7 +49,11 @@ func splitOversized(community map[string]int, adj map[string][]string) map[strin
 			}
 		}
 
-		subCommunity := coreLouvain(subAdj)
+		subNodes := make([]string, len(members))
+		copy(subNodes, members)
+		slices.Sort(subNodes)
+
+		subCommunity := coreLouvain(subAdj, subNodes)
 		subCommunity = compactIDs(subCommunity)
 
 		if countDistinct(subCommunity) <= 1 {
@@ -75,9 +83,12 @@ func splitOversized(community map[string]int, adj map[string][]string) map[strin
 }
 
 // buildUndirectedAdj builds a symmetric adjacency list from a directed input graph,
-// deduplicating edges and skipping self-loops.
-func buildUndirectedAdj(graph map[string][]string) map[string][]string {
+// deduplicating edges and skipping self-loops. Returns the adjacency map and a
+// sorted node list for deterministic iteration.
+func buildUndirectedAdj(graph map[string][]string) (map[string][]string, []string) {
 	nodes, _ := collectNodes(graph)
+	slices.Sort(nodes)
+
 	adj := make(map[string][]string, len(nodes))
 	for _, n := range nodes {
 		adj[n] = []string{}
@@ -107,15 +118,28 @@ func buildUndirectedAdj(graph map[string][]string) map[string][]string {
 			addEdge(src, tgt)
 		}
 	}
-	return adj
+
+	for _, neighbors := range adj {
+		slices.Sort(neighbors)
+	}
+
+	return adj, nodes
 }
 
 // compactIDs remaps community IDs to a contiguous range 0..k-1.
+// Iterates nodes in sorted order for deterministic ID assignment.
 func compactIDs(community map[string]int) map[string]int {
+	nodes := make([]string, 0, len(community))
+	for node := range community {
+		nodes = append(nodes, node)
+	}
+	slices.Sort(nodes)
+
 	remap := make(map[int]int)
 	next := 0
 	result := make(map[string]int, len(community))
-	for node, comm := range community {
+	for _, node := range nodes {
+		comm := community[node]
 		if _, ok := remap[comm]; !ok {
 			remap[comm] = next
 			next++
