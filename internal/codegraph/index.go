@@ -177,7 +177,7 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname string) (*Grap
 		return existing, nil
 	}
 	// Snapshot the stale graph before dropping it.
-	snapshotBeforeRebuild(ctx, store, repoKey, gname)
+	SnapshotBeforeRebuild(ctx, store, repoKey, gname)
 	if dropErr := store.DropGraph(ctx, gname, repoKey); dropErr != nil {
 		return nil, fmt.Errorf("drop stale graph: %w", dropErr)
 	}

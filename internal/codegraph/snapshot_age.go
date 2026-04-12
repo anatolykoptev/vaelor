@@ -53,9 +53,10 @@ func buildSnapshotFromAGE(ctx context.Context, store *Store, graphName string) (
 	return Snapshot{Symbols: syms, Edges: edges}, nil
 }
 
-// snapshotBeforeRebuild captures the current graph state before a rebuild.
+// SnapshotBeforeRebuild captures the current graph state before a rebuild.
 // Non-fatal: failures log warnings but don't block the rebuild.
-func snapshotBeforeRebuild(ctx context.Context, store *Store, repoKey, graphName string) {
+// Exported for use by tool handlers (e.g. refresh=true path).
+func SnapshotBeforeRebuild(ctx context.Context, store *Store, repoKey, graphName string) {
 	snap, err := buildSnapshotFromAGE(ctx, store, graphName)
 	if err != nil {
 		slog.Warn("codegraph: snapshot before rebuild failed", slog.Any("error", err))

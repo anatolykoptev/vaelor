@@ -87,6 +87,8 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 
 		if input.Refresh {
 			key := codegraph.GraphNameFor(root)
+			// Snapshot current graph before forced refresh for future diffing.
+			codegraph.SnapshotBeforeRebuild(ctx, store, key, key)
 			if dropErr := store.DropGraph(ctx, key, key); dropErr != nil {
 				slog.Warn("code_graph: drop graph failed (continuing with re-index)",
 					slog.String("key", key),
