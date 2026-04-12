@@ -89,7 +89,7 @@ type Config struct {
 	// When set, code_search uses ox-codes with fallback to Go codesearch.
 	OxCodesURL string
 
-	// DesignMDDir is the directory containing */DESIGN.md files for design_search.
+	// DesignMDDir is the base directory for design_search (contains design-md/, design-md-styles/, etc.).
 	DesignMDDir string
 
 	// DesignEmbedURL is the embedding server for design_search (e5-large, 1024-dim).
