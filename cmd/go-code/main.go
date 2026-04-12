@@ -15,7 +15,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/designmd"
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-mcpserver"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -35,6 +38,12 @@ const (
 
 func main() {
 	cfg := loadConfig()
+
+	// Handle CLI subcommands before starting MCP server.
+	if len(os.Args) >= 3 && os.Args[1] == "index-designs" {
+		runIndexDesigns(cfg, os.Args[2])
+		return
+	}
 
 	if err := os.MkdirAll(cfg.WorkspaceDir, workspaceDirPerm); err != nil {
 		slog.Error("failed to create workspace dir", slog.Any("error", err))
@@ -80,4 +89,37 @@ func main() {
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
+}
+
+func runIndexDesigns(cfg Config, dir string) {
+	if cfg.EmbedURL == "" {
+		slog.Error("EMBED_URL is required for indexing")
+		os.Exit(1)
+	}
+	if cfg.DatabaseURL == "" {
+		slog.Error("DATABASE_URL is required for indexing")
+		os.Exit(1)
+	}
+
+	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("database connect failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	client := embeddings.NewClient(cfg.EmbedURL, cfg.EmbedModel)
+	store := embeddings.NewStore(pool)
+
+	result, err := designmd.Index(context.Background(), dir, client, store)
+	if err != nil {
+		slog.Error("indexing failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	slog.Info("indexing complete",
+		slog.Int("brands", result.Brands),
+		slog.Int("indexed", result.Indexed),
+		slog.Int("skipped", result.Skipped),
+	)
 }
