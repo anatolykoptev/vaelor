@@ -2,13 +2,11 @@ package codegraph
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
 )
 
@@ -70,7 +68,13 @@ func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphN
 		},
 	}
 
-	addNarrative(ctx, llmClient, result, rows, query, cypher)
+	// Post-process surprises template: score and rank raw edge results.
+	if cls.Template == "surprises" {
+		limit := 10
+		result.Results, result.Narrative = postProcessSurprises(rows, limit)
+	} else {
+		addNarrative(ctx, llmClient, result, rows, query, cypher)
+	}
 	return result, nil
 }
 
@@ -174,23 +178,4 @@ func countReturnCols(cypher string) int {
 		cols = 1
 	}
 	return cols
-}
-
-// addNarrative generates an LLM narrative for the query results (non-fatal).
-func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResult, rows [][]string, query, cypher string) {
-	if llmClient == nil || len(rows) == 0 {
-		return
-	}
-	rawJSON, err := json.Marshal(rows)
-	if err != nil {
-		slog.Warn("narrative: marshal results failed", slog.Any("error", err))
-		return
-	}
-	prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
-	narrative, err := llmClient.Complete(ctx, prompts.SystemPromptGraphNarrative, prompt)
-	if err == nil {
-		result.Narrative = narrative
-	} else {
-		slog.Warn("narrative generation failed (non-fatal)", slog.Any("error", err))
-	}
 }
