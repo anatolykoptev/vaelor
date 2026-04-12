@@ -78,6 +78,47 @@ func atofSafe(s string) float64 {
 	return v
 }
 
+// postProcessGraphDiff loads the latest snapshot, builds current state from AGE,
+// computes a diff, and returns formatted rows + narrative.
+func postProcessGraphDiff(ctx context.Context, store *Store, graphName, repoKey string) ([][]string, string) {
+	snap, err := loadLatestSnapshot(ctx, store, repoKey)
+	if err != nil {
+		return nil, fmt.Sprintf("error loading snapshot: %s", err)
+	}
+	if snap == nil {
+		return nil, "No previous snapshot found. Run with refresh=true to create a baseline, then query graph_diff after the next rebuild."
+	}
+
+	currentSnap, err := buildSnapshotFromAGE(ctx, store, graphName)
+	if err != nil {
+		return nil, fmt.Sprintf("error reading current graph: %s", err)
+	}
+
+	diff := DiffGraphs(*snap, currentSnap)
+
+	var rows [][]string
+	for _, s := range diff.AddedSymbols {
+		rows = append(rows, []string{"+ symbol", s.Name, s.Kind, s.File})
+	}
+	for _, s := range diff.RemovedSymbols {
+		rows = append(rows, []string{"- symbol", s.Name, s.Kind, s.File})
+	}
+	for _, e := range diff.AddedEdges {
+		rows = append(rows, []string{"+ edge", e.From, e.Label, e.To})
+	}
+	for _, e := range diff.RemovedEdges {
+		rows = append(rows, []string{"- edge", e.From, e.Label, e.To})
+	}
+	for _, m := range diff.CommunityMigrations {
+		rows = append(rows, []string{"~ community", m.Name, fmt.Sprintf("%d → %d", m.OldCommunity, m.NewCommunity), m.File})
+	}
+	for _, c := range diff.ComplexityChanges {
+		rows = append(rows, []string{"~ complexity", c.Name, fmt.Sprintf("%d → %d", c.OldComplexity, c.NewComplexity), c.File})
+	}
+
+	return rows, diff.Summary
+}
+
 // addNarrative generates an LLM narrative for the query results (non-fatal).
 func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResult, rows [][]string, query, cypher string) {
 	if llmClient == nil || len(rows) == 0 {
