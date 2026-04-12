@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -47,13 +48,13 @@ func registerDesignSearch(server *mcp.Server, cfg Config, deps DesignDeps) {
 			"Returns ranked brands with visual theme, colors, and copy command. " +
 			"Uses semantic search over 66 design systems (Stripe, Linear, Tesla, etc.).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DesignSearchInput) (*mcp.CallToolResult, error) {
-		return handleDesignSearch(ctx, input, deps, metaIndex, cfg.DesignMDDir)
+		return handleDesignSearch(ctx, input, deps, metaIndex, cfg.DesignMDDir, cfg.PathMappings)
 	})
 }
 
 func handleDesignSearch(
 	ctx context.Context, input DesignSearchInput, deps DesignDeps,
-	metaIndex map[string]designmd.BrandMeta, designDir string,
+	metaIndex map[string]designmd.BrandMeta, designDir string, mappings []analyze.PathMapping,
 ) (*mcp.CallToolResult, error) {
 	if input.Query == "" {
 		return errResult("query is required"), nil
@@ -164,8 +165,20 @@ func handleDesignSearch(
 	}
 	sb.WriteString("  </results>\n")
 	if designDir != "" {
-		fmt.Fprintf(&sb, "  <usage>Copy: cp %s/BRAND/DESIGN.md ./</usage>\n", escapeXML(designDir))
+		hostDir := reversePathMapping(designDir, mappings)
+		fmt.Fprintf(&sb, "  <usage>Copy: cp %s/BRAND/DESIGN.md ./</usage>\n", escapeXML(hostDir))
 	}
 	sb.WriteString("</response>")
 	return textResult(sb.String()), nil
+}
+
+// reversePathMapping converts container-internal paths back to host paths.
+// e.g. /host/tools/... → /home/krolik/tools/... using PathMappings (External:/home/krolik, Internal:/host).
+func reversePathMapping(path string, mappings []analyze.PathMapping) string {
+	for _, m := range mappings {
+		if strings.HasPrefix(path, m.Internal) {
+			return m.External + path[len(m.Internal):]
+		}
+	}
+	return path
 }
