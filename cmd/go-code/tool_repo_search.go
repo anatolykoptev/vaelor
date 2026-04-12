@@ -59,8 +59,8 @@ type enrichedRepo struct {
 func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "repo_search",
-		Description: "Discover GitHub repositories for a task or technology. " +
-			"Searches web + GitHub API, enriches with metadata (stars, language, topics), " +
+		Description: "Discover repositories for a task or technology. " +
+			"Searches web + GitHub/GitLab APIs, enriches with metadata (stars, language, topics), " +
 			"fetches READMEs, and returns LLM-summarized recommendations.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoSearchInput) (*mcp.CallToolResult, error) {
 		if input.Query == "" {
@@ -148,5 +148,3 @@ func parallelRepoSearch(ctx context.Context, query, sort string, deps analyze.De
 
 	return all
 }
-
-

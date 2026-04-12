@@ -25,7 +25,7 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 		Name: "explore",
 		Description: "Quick structured overview of a repository. " +
 			"Returns file/symbol counts, language breakdown, top symbols by call frequency, " +
-			"dead code summary, and package list. " +
+			"dead code summary, package list, health score (A-F), dependency freshness, and vulnerability count. " +
 			"Use as a first step when encountering an unfamiliar codebase. " +
 			"Fast (no LLM calls) — purely static analysis.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ExploreInput) (*mcp.CallToolResult, error) {
