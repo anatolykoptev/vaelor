@@ -33,16 +33,15 @@ func coreLouvain(adj map[string][]string) map[string]int {
 		return map[string]int{}
 	}
 
-	// Compute degrees and total edge count (2m = sum of all degrees)
+	// Compute degrees and total edge count (2m = sum of all degrees).
 	degree := make(map[string]int, len(adj))
 	twoM := 0
 	for node, neighbors := range adj {
 		degree[node] = len(neighbors)
 		twoM += len(neighbors)
 	}
-	// twoM is already 2*edges because each edge appears twice in undirected adj
 
-	// Initialize each node in its own community
+	// Initialize each node in its own community.
 	community := make(map[string]int, len(adj))
 	idx := 0
 	for node := range adj {
@@ -50,29 +49,28 @@ func coreLouvain(adj map[string][]string) map[string]int {
 		idx++
 	}
 
-	// Build sigma_tot: sum of degrees in each community
+	// Build sigma_tot: sum of degrees in each community.
 	sigmaTot := make(map[int]int)
 	for node, comm := range community {
 		sigmaTot[comm] += degree[node]
 	}
 
-	// Greedy optimization passes
-	for pass := 0; pass < maxLouvainPasses; pass++ {
+	// Greedy optimization passes.
+	for pass := range maxLouvainPasses {
+		_ = pass
 		improved := false
 
 		for node, neighbors := range adj {
 			currentComm := community[node]
 			ki := degree[node]
 
-			// Count edges to each neighboring community
+			// Count edges to each neighboring community.
 			edgesToComm := make(map[int]int)
 			for _, nb := range neighbors {
 				edgesToComm[community[nb]]++
 			}
 
-			// Compute gain for current community (as baseline)
-			// gain = edges_to_community - (ki * sigma_tot) / (2m)
-			// We remove node from its community first (conceptually)
+			// Compute gain for current community as baseline.
 			sigmaTotCurrent := sigmaTot[currentComm] - ki
 			bestGain := float64(edgesToComm[currentComm]) - float64(ki)*float64(sigmaTotCurrent)/float64(twoM)
 			bestComm := currentComm
@@ -89,7 +87,6 @@ func coreLouvain(adj map[string][]string) map[string]int {
 			}
 
 			if bestComm != currentComm {
-				// Move node to bestComm
 				sigmaTot[currentComm] -= ki
 				community[node] = bestComm
 				sigmaTot[bestComm] += ki
