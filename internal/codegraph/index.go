@@ -93,6 +93,9 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 
 	vertices, edges := buildGraph(root, allFiles, allSymbols, cg, fileImports, allRels)
 
+	// Compute communities and inject into Symbol vertices before persisting.
+	injectCommunities(vertices, edges)
+
 	if err := insertBatches(ctx, store, gname, cfg.BatchSize, vertices, buildVertexBatch); err != nil {
 		return nil, fmt.Errorf("insert vertices: %w", err)
 	}
@@ -183,4 +186,3 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname string) (*Grap
 func relPath(abs, root string) string {
 	return langutil.RelPath(abs, root)
 }
-
