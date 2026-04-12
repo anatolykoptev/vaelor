@@ -85,6 +85,12 @@ func Louvain(graph map[string][]string) map[string]int {
 // coreLouvain runs the greedy modularity optimization loop.
 // nodes must be sorted for deterministic output.
 func coreLouvain(adj map[string][]string, nodes []string) map[string]int {
+	return coreLouvainGamma(adj, nodes, 1.0)
+}
+
+// coreLouvainGamma is coreLouvain with a resolution parameter γ.
+// γ > 1.0 → more smaller communities; γ < 1.0 → fewer larger communities.
+func coreLouvainGamma(adj map[string][]string, nodes []string, gamma float64) map[string]int {
 	if len(adj) == 0 {
 		return map[string]int{}
 	}
@@ -121,14 +127,14 @@ func coreLouvain(adj map[string][]string, nodes []string) map[string]int {
 			}
 
 			sigmaTotCurrent := sigmaTot[currentComm] - ki
-			bestGain := float64(edgesToComm[currentComm]) - float64(ki)*float64(sigmaTotCurrent)/float64(twoM)
+			bestGain := float64(edgesToComm[currentComm]) - gamma*float64(ki)*float64(sigmaTotCurrent)/float64(twoM)
 			bestComm := currentComm
 
 			for comm, edgeCount := range edgesToComm {
 				if comm == currentComm {
 					continue
 				}
-				gain := float64(edgeCount) - float64(ki)*float64(sigmaTot[comm])/float64(twoM)
+				gain := float64(edgeCount) - gamma*float64(ki)*float64(sigmaTot[comm])/float64(twoM)
 				if gain > bestGain {
 					bestGain = gain
 					bestComm = comm

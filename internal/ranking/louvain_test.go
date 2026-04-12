@@ -148,6 +148,32 @@ func TestLouvain_ThreeClusters(t *testing.T) {
 	}
 }
 
+// TestLouvainWithResolution verifies that higher resolution produces more communities.
+func TestLouvainWithResolution(t *testing.T) {
+	// Ring of 8 nodes with local clustering.
+	graph := map[string][]string{
+		"a": {"b", "h"},
+		"b": {"a", "c"},
+		"c": {"b", "d"},
+		"d": {"c", "e"},
+		"e": {"d", "f"},
+		"f": {"e", "g"},
+		"g": {"f", "h"},
+		"h": {"g", "a"},
+	}
+
+	low := LouvainWithResolution(graph, 0.5)
+	high := LouvainWithResolution(graph, 2.0)
+
+	lowCount := countDistinct(low)
+	highCount := countDistinct(high)
+
+	if highCount <= lowCount {
+		t.Errorf("expected higher resolution to produce more communities: γ=0.5 gave %d, γ=2.0 gave %d",
+			lowCount, highCount)
+	}
+}
+
 // TestLouvain_OversizedSplit verifies a fully-connected clique of 10 nodes
 // gets communities assigned (exercises the split path when needed).
 func TestLouvain_OversizedSplit(t *testing.T) {
