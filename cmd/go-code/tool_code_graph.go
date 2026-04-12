@@ -60,10 +60,13 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 		Name: "code_graph",
 		Description: "Query a persistent code knowledge graph backed by Apache AGE. " +
 			"Indexes the repository as a property graph with vertices (Package, File, Symbol, Layer, Route) " +
-			"and edges (CONTAINS, CALLS, INHERITS, IMPLEMENTS, IMPORTS, HANDLES, FETCHES, BELONGS_TO). " +
+			"and edges (CONTAINS, CALLS, INHERITS, IMPLEMENTS, IMPORTS, HANDLES, FETCHES, BELONGS_TO, TESTED_BY). " +
 			"Answers natural-language questions using Cypher query templates or LLM-generated Cypher. " +
 			"Ideal for: call chains, type hierarchies, dependency analysis, dead code detection, " +
-			"API route mapping, cross-language connections, and coupling analysis. " +
+			"API route mapping, cross-language connections, coupling analysis, " +
+			"community detection (Louvain clusters — 'show communities'), " +
+			"surprise scoring (hidden cross-package dependencies — 'find hidden dependencies'), " +
+			"and graph diff (what changed since last rebuild — 'what changed in the graph'). " +
 			"Results include raw graph rows and an LLM narrative.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeGraphInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
