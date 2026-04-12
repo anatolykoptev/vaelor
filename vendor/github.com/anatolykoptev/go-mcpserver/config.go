@@ -16,7 +16,7 @@ const (
 	defaultReadTimeout     = 30 * time.Second
 	defaultWriteTimeout    = 0 // disabled for SSE — tools manage own timeout via context
 	defaultShutdownTimeout = 10 * time.Second
-	defaultToolTimeout     = 30 * time.Second
+	defaultToolTimeout     = 60 * time.Second
 	portEnvVar             = "MCP_PORT"
 )
 
@@ -48,7 +48,7 @@ type Config struct {
 	MCPReceivingMiddleware []mcp.Middleware // applied to incoming JSON-RPC (client→server)
 	MCPSendingMiddleware   []mcp.Middleware // applied to outgoing JSON-RPC (server→client)
 
-	ToolTimeout  time.Duration            // default tool execution timeout; 0 = 30s; tools can override via ToolTimeouts
+	ToolTimeout  time.Duration            // default tool execution timeout; 0 = 60s; tools can override via ToolTimeouts
 	ToolTimeouts map[string]time.Duration // per-tool timeout overrides; key = tool name
 
 	SessionTimeout time.Duration  // idle session timeout; 0 = never (passed to StreamableHTTPOptions)
