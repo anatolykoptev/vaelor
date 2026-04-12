@@ -119,25 +119,55 @@ func TestPruneToTokenBudget_budget(t *testing.T) {
 
 // TestRenderMap_empty returns empty string for no files.
 func TestRenderMap_empty(t *testing.T) {
-	assert.Equal(t, "", RenderMap(nil, false))
-	assert.Equal(t, "", RenderMap([]scoredFile{}, false))
+	assert.Equal(t, "", RenderMap(nil, false, ""))
+	assert.Equal(t, "", RenderMap([]scoredFile{}, false, ""))
 }
 
 // TestRenderMap_basic produces path + annotation line.
 func TestRenderMap_basic(t *testing.T) {
 	files := []scoredFile{
 		{
-			expand: expandResult{relPath: "internal/foo/bar.go", distance: 0, whyLinked: "seed"},
+			expand:  expandResult{relPath: "internal/foo/bar.go", distance: 0, whyLinked: "seed"},
+			symbols: makeSymbols("Foo"),
 		},
 		{
-			expand: expandResult{relPath: "internal/baz/qux.go", distance: 1, whyLinked: "imports seed"},
+			expand:  expandResult{relPath: "internal/baz/qux.go", distance: 1, whyLinked: "imports seed"},
+			symbols: makeSymbols("Qux"),
 		},
 	}
-	out := RenderMap(files, false)
+	out := RenderMap(files, false, "")
 	assert.Contains(t, out, "internal/foo/bar.go")
 	assert.Contains(t, out, "[seed]")
 	assert.Contains(t, out, "internal/baz/qux.go")
 	assert.Contains(t, out, "distance=1")
+}
+
+func TestRenderMap_stripsRoot(t *testing.T) {
+	files := []scoredFile{
+		{
+			expand:  expandResult{relPath: "/tmp/workspace/repo/pkg/foo.go", distance: 0, whyLinked: "seed"},
+			symbols: makeSymbols("Foo"),
+		},
+	}
+	out := RenderMap(files, false, "/tmp/workspace/repo")
+	assert.Contains(t, out, "pkg/foo.go")
+	assert.NotContains(t, out, "/tmp/workspace")
+}
+
+func TestRenderMap_skipsEmptySymbols(t *testing.T) {
+	files := []scoredFile{
+		{
+			expand:  expandResult{relPath: "a.go", distance: 0, whyLinked: "seed"},
+			symbols: makeSymbols("Foo"),
+		},
+		{
+			expand: expandResult{relPath: "empty.go", distance: 0, whyLinked: "seed"},
+			// no symbols
+		},
+	}
+	out := RenderMap(files, false, "")
+	assert.Contains(t, out, "a.go")
+	assert.NotContains(t, out, "empty.go")
 }
 
 // TestFilterSymbolsByQuery matches on name substring.
