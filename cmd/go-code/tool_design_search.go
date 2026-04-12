@@ -1,0 +1,167 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/anatolykoptev/go-code/internal/designmd"
+	"github.com/anatolykoptev/go-code/internal/embeddings"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+type DesignSearchInput struct {
+	Query string `json:"query" jsonschema_description:"Natural language description of the UI you want (e.g. 'dark minimal SaaS dashboard with green accent', 'premium fintech with purple gradients')"`
+	TopK  int    `json:"top_k,omitempty" jsonschema_description:"Number of results (default 5, max 20)"`
+}
+
+const (
+	defaultDesignTopK = 5
+	maxDesignTopK     = 20
+)
+
+func registerDesignSearch(server *mcp.Server, cfg Config, deps SemanticDeps) {
+	var metaIndex map[string]designmd.BrandMeta
+	if cfg.DesignMDDir != "" {
+		metaPath := cfg.DesignMDDir + "/index.json"
+		if data, err := os.ReadFile(metaPath); err == nil {
+			_ = json.Unmarshal(data, &metaIndex)
+		}
+	}
+
+	mcpserver.AddTool(server, &mcp.Tool{
+		Name: "design_search",
+		Description: "Find the best DESIGN.md for your UI by describing the look and feel. " +
+			"Returns ranked brands with visual theme, colors, and copy command. " +
+			"Uses semantic search over 66 design systems (Stripe, Linear, Tesla, etc.).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DesignSearchInput) (*mcp.CallToolResult, error) {
+		return handleDesignSearch(ctx, input, deps, metaIndex, cfg.DesignMDDir)
+	})
+}
+
+func handleDesignSearch(
+	ctx context.Context, input DesignSearchInput, deps SemanticDeps,
+	metaIndex map[string]designmd.BrandMeta, designDir string,
+) (*mcp.CallToolResult, error) {
+	if input.Query == "" {
+		return errResult("query is required"), nil
+	}
+	if deps.Client == nil || deps.Store == nil {
+		return errResult("design_search requires EMBED_URL and DATABASE_URL"), nil
+	}
+
+	topK := input.TopK
+	if topK <= 0 {
+		topK = defaultDesignTopK
+	}
+	if topK > maxDesignTopK {
+		topK = maxDesignTopK
+	}
+
+	vector, err := deps.Client.EmbedQuery(ctx, input.Query)
+	if err != nil {
+		return errResult(fmt.Sprintf("embed query: %s", err)), nil
+	}
+
+	results, err := deps.Store.Search(ctx, vector, embeddings.SearchOpts{
+		RepoKey: designmd.RepoKey,
+		TopK:    topK * 3,
+	})
+	if err != nil {
+		return errResult(fmt.Sprintf("search: %s", err)), nil
+	}
+
+	if len(results) == 0 {
+		return textResult(fmt.Sprintf(
+			"<response tool=\"design_search\">\n  <query>%s</query>\n"+
+				"  <status>not_indexed</status>\n"+
+				"  <message>No design embeddings found. Run: go-code index-designs /path/to/design-md/</message>\n"+
+				"</response>", escapeXML(input.Query))), nil
+	}
+
+	type brandHit struct {
+		brand    string
+		section  string
+		distance float32
+		excerpt  string
+	}
+	seen := make(map[string]bool)
+	var hits []brandHit
+	for _, r := range results {
+		brand := strings.SplitN(r.FilePath, "/", 2)[0]
+		if seen[brand] {
+			continue
+		}
+		seen[brand] = true
+
+		excerpt := r.SymbolName
+		if designDir != "" {
+			if content, err := os.ReadFile(designDir + "/" + r.FilePath); err == nil {
+				sections := designmd.SplitSections(string(content))
+				for _, s := range sections {
+					if s.Title == r.SymbolName {
+						body := strings.SplitN(s.Body, "\n", 2)
+						if len(body) > 1 {
+							excerpt = strings.TrimSpace(body[1])
+							if len(excerpt) > 200 {
+								cut := strings.LastIndex(excerpt[:200], " ")
+								if cut > 100 {
+									excerpt = excerpt[:cut] + "..."
+								} else {
+									excerpt = excerpt[:200] + "..."
+								}
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+
+		hits = append(hits, brandHit{
+			brand:    brand,
+			section:  r.SymbolName,
+			distance: r.Distance,
+			excerpt:  excerpt,
+		})
+		if len(hits) >= topK {
+			break
+		}
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<response tool=\"design_search\">\n")
+	fmt.Fprintf(&sb, "  <query>%s</query>\n", escapeXML(input.Query))
+	fmt.Fprintf(&sb, "  <results count=\"%d\">\n", len(hits))
+	for i, h := range hits {
+		score := 1.0 - float64(h.distance)
+		fmt.Fprintf(&sb, "    <result rank=\"%d\" score=\"%.2f\" brand=\"%s\">\n",
+			i+1, score, escapeXML(h.brand))
+		fmt.Fprintf(&sb, "      <file>%s/DESIGN.md</file>\n", escapeXML(h.brand))
+
+		if meta, ok := metaIndex[h.brand]; ok {
+			if meta.Vibe != "" {
+				fmt.Fprintf(&sb, "      <vibe>%s</vibe>\n", escapeXML(meta.Vibe))
+			}
+			if len(meta.Colors) > 0 {
+				fmt.Fprintf(&sb, "      <colors>%s</colors>\n", escapeXML(strings.Join(meta.Colors, ", ")))
+			}
+			if meta.BestFor != "" {
+				fmt.Fprintf(&sb, "      <best_for>%s</best_for>\n", escapeXML(meta.BestFor))
+			}
+		}
+
+		fmt.Fprintf(&sb, "      <matched_section>%s</matched_section>\n", escapeXML(h.section))
+		fmt.Fprintf(&sb, "      <excerpt>%s</excerpt>\n", escapeXML(h.excerpt))
+		fmt.Fprintf(&sb, "    </result>\n")
+	}
+	sb.WriteString("  </results>\n")
+	if designDir != "" {
+		fmt.Fprintf(&sb, "  <usage>Copy: cp %s/BRAND/DESIGN.md ./</usage>\n", escapeXML(designDir))
+	}
+	sb.WriteString("</response>")
+	return textResult(sb.String()), nil
+}
