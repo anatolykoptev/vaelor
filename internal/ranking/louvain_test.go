@@ -91,6 +91,27 @@ func TestLouvain_DisconnectedComponents(t *testing.T) {
 	}
 }
 
+// TestLouvain_Deterministic verifies identical input produces identical output across 10 runs.
+func TestLouvain_Deterministic(t *testing.T) {
+	graph := map[string][]string{
+		"a": {"b", "c"},
+		"b": {"a", "c"},
+		"c": {"a", "b", "d"},
+		"d": {"c", "e", "f"},
+		"e": {"d", "f"},
+		"f": {"d", "e"},
+	}
+	baseline := Louvain(graph)
+	for i := range 10 {
+		result := Louvain(graph)
+		for node, comm := range baseline {
+			if result[node] != comm {
+				t.Fatalf("run %d: node %q got community %d, want %d", i, node, result[node], comm)
+			}
+		}
+	}
+}
+
 // TestLouvain_OversizedSplit verifies a fully-connected clique of 10 nodes
 // gets communities assigned (exercises the split path when needed).
 func TestLouvain_OversizedSplit(t *testing.T) {

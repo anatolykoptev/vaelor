@@ -20,57 +20,50 @@ func Louvain(graph map[string][]string) map[string]int {
 		return nil
 	}
 
-	adj := buildUndirectedAdj(graph)
-	communities := coreLouvain(adj)
+	adj, sortedNodes := buildUndirectedAdj(graph)
+	communities := coreLouvain(adj, sortedNodes)
 	communities = splitOversized(communities, adj)
 	return compactIDs(communities)
 }
 
 // coreLouvain runs the greedy modularity optimization loop (no oversized split).
-// Returns a map from node to community ID (not necessarily compact).
-func coreLouvain(adj map[string][]string) map[string]int {
+// nodes must be sorted for deterministic output.
+func coreLouvain(adj map[string][]string, nodes []string) map[string]int {
 	if len(adj) == 0 {
 		return map[string]int{}
 	}
 
-	// Compute degrees and total edge count (2m = sum of all degrees).
 	degree := make(map[string]int, len(adj))
 	twoM := 0
-	for node, neighbors := range adj {
-		degree[node] = len(neighbors)
-		twoM += len(neighbors)
+	for _, node := range nodes {
+		degree[node] = len(adj[node])
+		twoM += len(adj[node])
 	}
 
-	// Initialize each node in its own community.
 	community := make(map[string]int, len(adj))
-	idx := 0
-	for node := range adj {
+	for idx, node := range nodes {
 		community[node] = idx
-		idx++
 	}
 
-	// Build sigma_tot: sum of degrees in each community.
 	sigmaTot := make(map[int]int)
-	for node, comm := range community {
-		sigmaTot[comm] += degree[node]
+	for _, node := range nodes {
+		sigmaTot[community[node]] += degree[node]
 	}
 
-	// Greedy optimization passes.
-	for pass := range maxLouvainPasses {
-		_ = pass
+	edgesToComm := make(map[int]int)
+
+	for range maxLouvainPasses {
 		improved := false
 
-		for node, neighbors := range adj {
+		for _, node := range nodes {
 			currentComm := community[node]
 			ki := degree[node]
 
-			// Count edges to each neighboring community.
-			edgesToComm := make(map[int]int)
-			for _, nb := range neighbors {
+			clear(edgesToComm)
+			for _, nb := range adj[node] {
 				edgesToComm[community[nb]]++
 			}
 
-			// Compute gain for current community as baseline.
 			sigmaTotCurrent := sigmaTot[currentComm] - ki
 			bestGain := float64(edgesToComm[currentComm]) - float64(ki)*float64(sigmaTotCurrent)/float64(twoM)
 			bestComm := currentComm
