@@ -34,7 +34,7 @@ func registerDesignSearch(server *mcp.Server, cfg Config, deps DesignDeps) {
 	if cfg.DesignMDDir != "" {
 		metaPath := cfg.DesignMDDir + "/index.json"
 		if data, err := os.ReadFile(metaPath); err != nil {
-			data, _ = os.ReadFile("/tmp/design-md-index.json")
+			data, _ = os.ReadFile("/tmp/go-code-output/design-md-index.json")
 			_ = json.Unmarshal(data, &metaIndex)
 		} else {
 			_ = json.Unmarshal(data, &metaIndex)
