@@ -1,4 +1,3 @@
-// internal/designmd/index.go
 package designmd
 
 import (
@@ -13,20 +12,19 @@ import (
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 )
 
-const (
-	RepoKey      = "design-md"
-	maxEmbedText = 2000
-)
+const maxEmbedText = 2000
 
+// IndexResult summarizes an indexing run.
 type IndexResult struct {
 	Brands  int
 	Indexed int
 	Skipped int
 }
 
-// Index reads all */DESIGN.md files under dir, embeds sections, and upserts to pgvector.
-// Writes index.json with per-brand metadata next to dir.
-func Index(ctx context.Context, dir string, client *embeddings.Client, store *embeddings.Store) (*IndexResult, error) {
+// Index reads all */DESIGN.md files under dir, embeds sections via e5-large,
+// and upserts to the design_embeddings table (1024-dim).
+// Writes index.json with per-brand metadata.
+func Index(ctx context.Context, dir string, client *embeddings.Client, store *Store) (*IndexResult, error) {
 	pattern := filepath.Join(dir, "*", "DESIGN.md")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
@@ -36,14 +34,14 @@ func Index(ctx context.Context, dir string, client *embeddings.Client, store *em
 		return nil, fmt.Errorf("no DESIGN.md files found in %s", dir)
 	}
 
-	existing, err := store.GetHashes(ctx, RepoKey)
+	existing, err := store.GetHashes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get hashes: %w", err)
 	}
 
 	var result IndexResult
 	metaIndex := make(map[string]BrandMeta)
-	var records []embeddings.EmbeddingRecord
+	var records []Record
 	var texts []string
 
 	for _, f := range files {
@@ -57,29 +55,25 @@ func Index(ctx context.Context, dir string, client *embeddings.Client, store *em
 		result.Brands++
 		metaIndex[brand] = ExtractMeta(string(content))
 
-		sections := SplitSections(string(content))
-		for _, sec := range sections {
-			relPath := brand + "/DESIGN.md"
+		for _, sec := range SplitSections(string(content)) {
 			embedText := fmt.Sprintf("%s %s: %s", brand, sec.Title, sec.Body)
 			if len(embedText) > maxEmbedText {
 				embedText = embedText[:maxEmbedText]
 			}
 
 			h := textHash(embedText)
-			key := relPath + ":" + sec.Title
+			key := brand + ":" + sec.Title
 			if prev, ok := existing[key]; ok && prev == h {
 				result.Skipped++
 				continue
 			}
 
-			records = append(records, embeddings.EmbeddingRecord{
-				RepoKey:    RepoKey,
-				FilePath:   relPath,
-				SymbolName: sec.Title,
-				SymbolKind: "design-section",
-				Language:   "markdown",
-				StartLine:  sec.StartLine,
-				BodyHash:   h,
+			records = append(records, Record{
+				Brand:     brand,
+				Section:   sec.Title,
+				FilePath:  brand + "/DESIGN.md",
+				StartLine: sec.StartLine,
+				BodyHash:  h,
 			})
 			texts = append(texts, embedText)
 		}
@@ -100,13 +94,13 @@ func Index(ctx context.Context, dir string, client *embeddings.Client, store *em
 		result.Indexed = len(records)
 	}
 
+	// Write index.json metadata sidecar.
 	metaPath := filepath.Join(dir, "index.json")
 	data, err := json.MarshalIndent(metaIndex, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal meta: %w", err)
 	}
 	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
-		// Fallback to /tmp if dir is read-only (e.g. Docker :ro mount).
 		metaPath = "/tmp/design-md-index.json"
 		if err2 := os.WriteFile(metaPath, data, 0o644); err2 != nil {
 			return nil, fmt.Errorf("write index.json: %w (fallback: %w)", err, err2)

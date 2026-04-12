@@ -12,6 +12,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
@@ -110,7 +111,15 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerReviewPR(server, cfg, deps)
 	registerRewrite(server, cfg, deps)
 	registerDataflow(server, cfg, deps)
-	registerDesignSearch(server, cfg, semDeps)
+	// Design search deps (optional — needs DESIGN_EMBED_URL + DATABASE_URL).
+	var designDeps DesignDeps
+	if cfg.DesignEmbedURL != "" && dbPool != nil {
+		designDeps = DesignDeps{
+			Client: embeddings.NewClient(cfg.DesignEmbedURL, cfg.DesignEmbedModel),
+			Store:  designmd.NewStore(dbPool),
+		}
+	}
+	registerDesignSearch(server, cfg, designDeps)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {

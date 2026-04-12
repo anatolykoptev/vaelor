@@ -18,17 +18,22 @@ type DesignSearchInput struct {
 	TopK  int    `json:"top_k,omitempty" jsonschema_description:"Number of results (default 5, max 20)"`
 }
 
+// DesignDeps holds dependencies for design_search tool.
+type DesignDeps struct {
+	Client *embeddings.Client
+	Store  *designmd.Store
+}
+
 const (
 	defaultDesignTopK = 5
 	maxDesignTopK     = 20
 )
 
-func registerDesignSearch(server *mcp.Server, cfg Config, deps SemanticDeps) {
+func registerDesignSearch(server *mcp.Server, cfg Config, deps DesignDeps) {
 	var metaIndex map[string]designmd.BrandMeta
 	if cfg.DesignMDDir != "" {
 		metaPath := cfg.DesignMDDir + "/index.json"
 		if data, err := os.ReadFile(metaPath); err != nil {
-			// Fallback to /tmp (Docker :ro mount writes there).
 			data, _ = os.ReadFile("/tmp/design-md-index.json")
 			_ = json.Unmarshal(data, &metaIndex)
 		} else {
@@ -47,14 +52,14 @@ func registerDesignSearch(server *mcp.Server, cfg Config, deps SemanticDeps) {
 }
 
 func handleDesignSearch(
-	ctx context.Context, input DesignSearchInput, deps SemanticDeps,
+	ctx context.Context, input DesignSearchInput, deps DesignDeps,
 	metaIndex map[string]designmd.BrandMeta, designDir string,
 ) (*mcp.CallToolResult, error) {
 	if input.Query == "" {
 		return errResult("query is required"), nil
 	}
 	if deps.Client == nil || deps.Store == nil {
-		return errResult("design_search requires EMBED_URL and DATABASE_URL"), nil
+		return errResult("design_search requires DESIGN_EMBED_URL and DATABASE_URL"), nil
 	}
 
 	topK := input.TopK
@@ -70,10 +75,7 @@ func handleDesignSearch(
 		return errResult(fmt.Sprintf("embed query: %s", err)), nil
 	}
 
-	results, err := deps.Store.Search(ctx, vector, embeddings.SearchOpts{
-		RepoKey: designmd.RepoKey,
-		TopK:    topK * 3,
-	})
+	results, err := deps.Store.Search(ctx, vector, topK*3)
 	if err != nil {
 		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
@@ -95,18 +97,16 @@ func handleDesignSearch(
 	seen := make(map[string]bool)
 	var hits []brandHit
 	for _, r := range results {
-		brand := strings.SplitN(r.FilePath, "/", 2)[0]
-		if seen[brand] {
+		if seen[r.Brand] {
 			continue
 		}
-		seen[brand] = true
+		seen[r.Brand] = true
 
-		excerpt := r.SymbolName
+		excerpt := r.Section
 		if designDir != "" {
 			if content, err := os.ReadFile(designDir + "/" + r.FilePath); err == nil {
-				sections := designmd.SplitSections(string(content))
-				for _, s := range sections {
-					if s.Title == r.SymbolName {
+				for _, s := range designmd.SplitSections(string(content)) {
+					if s.Title == r.Section {
 						body := strings.SplitN(s.Body, "\n", 2)
 						if len(body) > 1 {
 							excerpt = strings.TrimSpace(body[1])
@@ -126,8 +126,8 @@ func handleDesignSearch(
 		}
 
 		hits = append(hits, brandHit{
-			brand:    brand,
-			section:  r.SymbolName,
+			brand:    r.Brand,
+			section:  r.Section,
 			distance: r.Distance,
 			excerpt:  excerpt,
 		})

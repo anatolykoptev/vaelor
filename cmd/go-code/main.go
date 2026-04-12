@@ -92,8 +92,15 @@ func main() {
 }
 
 func runIndexDesigns(cfg Config, dir string) {
-	if cfg.EmbedURL == "" {
-		slog.Error("EMBED_URL is required for indexing")
+	embedURL := cfg.DesignEmbedURL
+	embedModel := cfg.DesignEmbedModel
+	if embedURL == "" {
+		// Fallback to code embed config.
+		embedURL = cfg.EmbedURL
+		embedModel = cfg.EmbedModel
+	}
+	if embedURL == "" {
+		slog.Error("DESIGN_EMBED_URL (or EMBED_URL) is required for indexing")
 		os.Exit(1)
 	}
 	if cfg.DatabaseURL == "" {
@@ -108,8 +115,8 @@ func runIndexDesigns(cfg Config, dir string) {
 	}
 	defer pool.Close()
 
-	client := embeddings.NewClient(cfg.EmbedURL, cfg.EmbedModel)
-	store := embeddings.NewStore(pool)
+	client := embeddings.NewClient(embedURL, embedModel)
+	store := designmd.NewStore(pool)
 
 	result, err := designmd.Index(context.Background(), dir, client, store)
 	if err != nil {
