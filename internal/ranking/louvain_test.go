@@ -112,6 +112,42 @@ func TestLouvain_Deterministic(t *testing.T) {
 	}
 }
 
+// TestLouvain_ThreeClusters verifies three well-separated clusters are detected.
+func TestLouvain_ThreeClusters(t *testing.T) {
+	graph := map[string][]string{
+		"a1": {"a2", "a3"},
+		"a2": {"a1", "a3"},
+		"a3": {"a1", "a2", "b1"},
+		"b1": {"a3", "b2", "b3"},
+		"b2": {"b1", "b3"},
+		"b3": {"b1", "b2", "c1"},
+		"c1": {"b3", "c2", "c3"},
+		"c2": {"c1", "c3"},
+		"c3": {"c1", "c2"},
+	}
+	communities := Louvain(graph)
+	if communities == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if communities["a1"] != communities["a2"] || communities["a1"] != communities["a3"] {
+		t.Errorf("a-cluster split: %v", communities)
+	}
+	if communities["b1"] != communities["b2"] || communities["b1"] != communities["b3"] {
+		t.Errorf("b-cluster split: %v", communities)
+	}
+	if communities["c1"] != communities["c2"] || communities["c1"] != communities["c3"] {
+		t.Errorf("c-cluster split: %v", communities)
+	}
+	distinct := map[int]bool{
+		communities["a1"]: true,
+		communities["b1"]: true,
+		communities["c1"]: true,
+	}
+	if len(distinct) < 3 {
+		t.Errorf("expected 3 distinct communities, got %d: %v", len(distinct), communities)
+	}
+}
+
 // TestLouvain_OversizedSplit verifies a fully-connected clique of 10 nodes
 // gets communities assigned (exercises the split path when needed).
 func TestLouvain_OversizedSplit(t *testing.T) {
