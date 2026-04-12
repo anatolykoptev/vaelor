@@ -12,7 +12,7 @@ func GraphSchemaText() string {
 	b.WriteString("Vertex labels:\n")
 	b.WriteString("  - Package (name, path, repo)\n")
 	b.WriteString("  - File (path, language, lines)\n")
-	b.WriteString("  - Symbol (name, kind, signature, file, start_line, end_line, complexity, lines, pagerank)\n")
+	b.WriteString("  - Symbol (name, kind, signature, file, start_line, end_line, complexity, lines, pagerank, community)\n")
 	b.WriteString("  - Layer (name, role, language, root_dir)\n")
 	b.WriteString("  - Route (method, path, framework)\n")
 	b.WriteString("\n")
