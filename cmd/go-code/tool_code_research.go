@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -67,7 +69,9 @@ func handleCodeResearch(
 	resDeps := research.Deps{
 		AnalyzeDeps: analyzeDeps,
 		BuildCallGraph: func(ctx context.Context, root string) (*callgraph.CallGraph, error) {
-			return callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{Root: root})
+			cgCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			return callgraph.BuildFromRepo(cgCtx, callgraph.TraceRepoInput{Root: root})
 		},
 	}
 	if semDeps != nil && semDeps.Client != nil && semDeps.Store != nil {
@@ -95,11 +99,21 @@ func handleCodeResearch(
 		return errResult(fmt.Sprintf("code_research: %s", err)), nil
 	}
 
-	return textResult(formatResearchResult(input, result)), nil
+	return textResult(formatResearchResult(input, root, result)), nil
 }
 
-func formatResearchResult(input CodeResearchInput, r *research.Result) string {
+const (
+	// maxSeedsOutput caps the number of seed files in the XML output.
+	maxSeedsOutput = 30
+	// maxGraphOutput caps the number of graph files in the XML output.
+	maxGraphOutput = 50
+)
+
+func formatResearchResult(input CodeResearchInput, root string, r *research.Result) string {
 	var sb strings.Builder
+
+	// Strip workspace prefix from paths for cleaner output.
+	stripRoot := root + "/"
 
 	fmt.Fprintf(&sb, "<response tool=\"code_research\">\n")
 	fmt.Fprintf(&sb, "  <query>%s</query>\n", escapeXML(input.Query))
@@ -109,19 +123,20 @@ func formatResearchResult(input CodeResearchInput, r *research.Result) string {
 		len(r.Seeds), len(r.Graph), r.PrunedFiles, r.EstimatedTokens)
 
 	if !input.Compact {
-		// Seeds section.
-		if len(r.Seeds) > 0 {
+		// Seeds section — top N by score.
+		seeds := sortedSeeds(r.Seeds, maxSeedsOutput)
+		if len(seeds) > 0 {
 			fmt.Fprintf(&sb, "  <seeds>\n")
 			seen := make(map[string]bool)
-			for _, s := range r.Seeds {
-				if seen[s.File] {
+			for _, s := range seeds {
+				relFile := strings.TrimPrefix(s.File, stripRoot)
+				if seen[relFile] {
 					continue
 				}
-				seen[s.File] = true
-				fmt.Fprintf(&sb, "    <file path=%q score=\"%.4f\">\n", s.File, s.Score)
-				// Emit distinct symbols for this file.
-				for _, s2 := range r.Seeds {
-					if s2.File == s.File && s2.Name != "" {
+				seen[relFile] = true
+				fmt.Fprintf(&sb, "    <file path=%q score=\"%.4f\">\n", relFile, s.Score)
+				for _, s2 := range seeds {
+					if strings.TrimPrefix(s2.File, stripRoot) == relFile && s2.Name != "" {
 						fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\" source=%q>%s</symbol>\n",
 							escapeXML(s2.Kind), s2.Line, escapeXML(s2.Source), escapeXML(s2.Name))
 					}
@@ -131,12 +146,14 @@ func formatResearchResult(input CodeResearchInput, r *research.Result) string {
 			fmt.Fprintf(&sb, "  </seeds>\n")
 		}
 
-		// Graph section.
-		if len(r.Graph) > 0 {
+		// Graph section — top N by score.
+		graph := sortedGraph(r.Graph, maxGraphOutput)
+		if len(graph) > 0 {
 			fmt.Fprintf(&sb, "  <graph>\n")
-			for _, lf := range r.Graph {
+			for _, lf := range graph {
+				relPath := strings.TrimPrefix(lf.RelPath, stripRoot)
 				fmt.Fprintf(&sb, "    <file path=%q distance=\"%d\" why=%q score=\"%.4f\">\n",
-					lf.RelPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
+					relPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
 				for _, sym := range lf.Symbols {
 					fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
 						escapeXML(string(sym.Kind)), sym.StartLine, escapeXML(sym.Name))
@@ -154,6 +171,29 @@ func formatResearchResult(input CodeResearchInput, r *research.Result) string {
 
 	sb.WriteString("</response>")
 	return sb.String()
+}
+
+func sortedSeeds(seeds []research.SeedSymbol, limit int) []research.SeedSymbol {
+	if len(seeds) <= limit {
+		out := make([]research.SeedSymbol, len(seeds))
+		copy(out, seeds)
+		sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+		return out
+	}
+	out := make([]research.SeedSymbol, len(seeds))
+	copy(out, seeds)
+	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	return out[:limit]
+}
+
+func sortedGraph(graph []research.LinkedFile, limit int) []research.LinkedFile {
+	if len(graph) <= limit {
+		return graph
+	}
+	out := make([]research.LinkedFile, len(graph))
+	copy(out, graph)
+	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	return out[:limit]
 }
 
 // embeddings.SearchOpts needs to be accessible — re-export via alias is not needed

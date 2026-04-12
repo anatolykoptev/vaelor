@@ -162,6 +162,9 @@ const (
 	semanticTopKMin = 10
 	semanticTopKMax = 100
 	semanticTopKDiv = 400
+
+	// minSeedScore filters out near-zero BM25F/RRF seeds that add noise.
+	minSeedScore = 0.001
 )
 
 // semanticTopK scales the embedding-store TopK with the token budget.
@@ -266,8 +269,12 @@ func buildSeedList(
 
 	// 2) Keyword/fused-derived seeds. If the same (file, name) already exists
 	//    from a semantic hit, upgrade it to "hybrid" instead of duplicating.
+	// Skip zero/near-zero score seeds — they're noise.
 	for relPath := range seedFiles {
 		score := seedScores[relPath]
+		if score < minSeedScore {
+			continue
+		}
 		syms := filterSymbolsByQuery(fileSymbols[relPath], queryTerms)
 		if len(syms) == 0 {
 			// file-level seed with no resolved symbol

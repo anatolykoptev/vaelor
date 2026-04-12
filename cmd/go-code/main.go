@@ -70,6 +70,13 @@ func main() {
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware()},
+		ToolTimeouts: map[string]time.Duration{
+			"code_research": 90 * time.Second,
+			"repo_analyze":  90 * time.Second,
+			"code_compare":  90 * time.Second,
+			"call_trace":    60 * time.Second,
+			"code_health":   60 * time.Second,
+		},
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}

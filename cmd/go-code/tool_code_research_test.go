@@ -16,7 +16,7 @@ func TestFormatResearchResultCompact(t *testing.T) {
 		Map:   "a.go [seed]\n    Foo\n",
 		Mode:  "keyword-only",
 	}
-	out := formatResearchResult(in, r)
+	out := formatResearchResult(in, "/tmp/workspace", r)
 	if strings.Contains(out, "<seeds>") {
 		t.Errorf("compact mode must omit <seeds>, got:\n%s", out)
 	}
@@ -40,7 +40,7 @@ func TestFormatResearchResultNonCompact(t *testing.T) {
 		Map:   "a.go [seed]\n    Foo\n",
 		Mode:  "keyword-only",
 	}
-	out := formatResearchResult(in, r)
+	out := formatResearchResult(in, "/tmp/workspace", r)
 	for _, tag := range []string{"<seeds>", "<graph>", "<map>", "<stats"} {
 		if !strings.Contains(out, tag) {
 			t.Errorf("non-compact must include %s, got:\n%s", tag, out)
