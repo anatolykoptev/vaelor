@@ -234,6 +234,7 @@ func convertHotspots(hh []compare.HotspotFile) *xmlHotspots {
 func convertArchMetrics(m *compare.ArchMetrics) *xmlArchMetrics {
 	x := &xmlArchMetrics{
 		PackageCount:      m.PackageCount,
+		CommunityCount:    m.CommunityCount,
 		CrossPkgCallRatio: m.CrossPkgCallRatio,
 		MaxCallDepth:      m.MaxCallDepth,
 		InterfaceRatio:    m.InterfaceRatio,
