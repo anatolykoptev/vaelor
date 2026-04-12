@@ -101,7 +101,7 @@ func Index(ctx context.Context, dir string, client *embeddings.Client, store *St
 		return nil, fmt.Errorf("marshal meta: %w", err)
 	}
 	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
-		metaPath = "/tmp/design-md-index.json"
+		metaPath = "/tmp/go-code-output/design-md-index.json"
 		if err2 := os.WriteFile(metaPath, data, 0o644); err2 != nil {
 			return nil, fmt.Errorf("write index.json: %w (fallback: %w)", err, err2)
 		}
