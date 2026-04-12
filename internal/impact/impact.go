@@ -3,12 +3,10 @@ package impact
 
 import (
 	"context"
-	"path/filepath"
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
-	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 // Blast radius classification thresholds.
@@ -34,19 +32,21 @@ type AffectedSymbol struct {
 	Package    string  `json:"package"`
 	Distance   int     `json:"distance"`
 	Confidence float64 `json:"confidence"`
+	Community  int     `json:"community"`
 }
 
 // Result is the output of an impact analysis.
 type Result struct {
-	Symbol            string           `json:"symbol"`
-	Found             bool             `json:"found"`
-	DirectCallers     []AffectedSymbol `json:"direct_callers"`
-	TransitiveCallers []AffectedSymbol `json:"transitive_callers"`
-	HiddenCallers     []HiddenCaller   `json:"hidden_callers,omitempty"`
-	TotalAffected     int              `json:"total_affected"`
-	AffectedPackages  []string         `json:"affected_packages"`
-	BlastRadius       string           `json:"blast_radius"` // none, low, medium, high
-	RiskScore         float64          `json:"risk_score"`
+	Symbol             string           `json:"symbol"`
+	Found              bool             `json:"found"`
+	DirectCallers      []AffectedSymbol `json:"direct_callers"`
+	TransitiveCallers  []AffectedSymbol `json:"transitive_callers"`
+	HiddenCallers      []HiddenCaller   `json:"hidden_callers,omitempty"`
+	TotalAffected      int              `json:"total_affected"`
+	AffectedPackages   []string         `json:"affected_packages"`
+	CommunitiesCrossed int              `json:"communities_crossed"`
+	BlastRadius        string           `json:"blast_radius"` // none, low, medium, high
+	RiskScore          float64          `json:"risk_score"`
 }
 
 const (
@@ -73,8 +73,9 @@ func Analyze(ctx context.Context, cg *callgraph.CallGraph, symbolName string, op
 	}
 	result.Found = true
 
+	communityMap := buildCommunityMap(cg)
 	callerIndex := buildCallerIndex(cg.Edges)
-	pkgSet := traverseCallers(target, callerIndex, opts.MaxDepth, result)
+	pkgSet := traverseCallers(target, callerIndex, communityMap, opts.MaxDepth, result)
 
 	result.TotalAffected = len(result.DirectCallers) + len(result.TransitiveCallers)
 
@@ -88,103 +89,23 @@ func Analyze(ctx context.Context, cg *callgraph.CallGraph, symbolName string, op
 	}
 	sort.Strings(result.AffectedPackages)
 
+	// Count distinct communities among affected callers.
+	commSet := make(map[int]bool)
+	for _, c := range result.DirectCallers {
+		commSet[c.Community] = true
+	}
+	for _, c := range result.TransitiveCallers {
+		commSet[c.Community] = true
+	}
+	result.CommunitiesCrossed = len(commSet)
+
 	result.BlastRadius = classifyBlastRadius(result.TotalAffected, len(result.AffectedPackages))
-	result.RiskScore = float64(result.TotalAffected) * (1.0 + float64(len(result.AffectedPackages))*packageRiskMultiplier)
+
+	communityRisk := 0.0
+	if result.CommunitiesCrossed > 1 {
+		communityRisk = float64(result.CommunitiesCrossed-1) * 0.15
+	}
+	result.RiskScore = float64(result.TotalAffected) * (1.0 + float64(len(result.AffectedPackages))*packageRiskMultiplier + communityRisk)
 
 	return result
-}
-
-// findTarget returns the first function/method with the given name.
-func findTarget(symbols []*parser.Symbol, name string) *parser.Symbol {
-	for _, sym := range symbols {
-		if sym.Name == name && (sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod) {
-			return sym
-		}
-	}
-	return nil
-}
-
-// buildCallerIndex creates a reverse map: callee → edges where it's called.
-func buildCallerIndex(edges []callgraph.CallEdge) map[*parser.Symbol][]callgraph.CallEdge {
-	idx := make(map[*parser.Symbol][]callgraph.CallEdge)
-	for _, e := range edges {
-		if e.Callee != nil {
-			idx[e.Callee] = append(idx[e.Callee], e)
-		}
-	}
-	return idx
-}
-
-type bfsItem struct {
-	sym   *parser.Symbol
-	depth int
-}
-
-// traverseCallers runs BFS from target through the caller index,
-// populating result.DirectCallers and result.TransitiveCallers.
-// Returns the set of affected packages.
-func traverseCallers(target *parser.Symbol, callerIndex map[*parser.Symbol][]callgraph.CallEdge,
-	maxDepth int, result *Result) map[string]bool {
-	visited := map[*parser.Symbol]bool{target: true}
-	queue := []bfsItem{{target, 0}}
-	pkgSet := make(map[string]bool)
-
-	for len(queue) > 0 {
-		item := queue[0]
-		queue = queue[1:]
-
-		if item.depth >= maxDepth {
-			continue
-		}
-
-		for _, edge := range callerIndex[item.sym] {
-			caller := edge.Caller
-			if caller == nil || visited[caller] {
-				continue
-			}
-			visited[caller] = true
-
-			distance := item.depth + 1
-			affected := makeAffected(caller, distance)
-			pkgSet[affected.Package] = true
-
-			if distance == 1 {
-				result.DirectCallers = append(result.DirectCallers, affected)
-			} else {
-				result.TransitiveCallers = append(result.TransitiveCallers, affected)
-			}
-
-			queue = append(queue, bfsItem{caller, distance})
-		}
-	}
-
-	return pkgSet
-}
-
-// makeAffected creates an AffectedSymbol with confidence decaying by distance.
-func makeAffected(sym *parser.Symbol, distance int) AffectedSymbol {
-	confidence := 1.0 - float64(distance-1)*confidenceDecayPerHop
-	if confidence < minConfidence {
-		confidence = minConfidence
-	}
-	return AffectedSymbol{
-		Name:       sym.Name,
-		File:       sym.File,
-		Package:    filepath.Dir(sym.File),
-		Distance:   distance,
-		Confidence: confidence,
-	}
-}
-
-func classifyBlastRadius(callers, packages int) string {
-	if callers == 0 {
-		return "none"
-	}
-	if callers <= lowMaxCallers && packages <= lowMaxPackages {
-		return "low"
-	}
-	if callers <= medMaxCallers && packages <= medMaxPackages {
-		return "medium"
-	}
-	return "high"
 }
