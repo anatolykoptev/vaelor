@@ -43,7 +43,7 @@ type ResearchData struct {
 // needed by the research pipeline (symbols, import graph, BM25 scores).
 // It is analogous to AnalyzeRepo but returns structured data instead of a
 // rendered result, so the research package can apply its own ranking/pruning.
-func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob string, includeTests bool, deps Deps) (*ResearchData, error) {
+func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob string, includeTests, includeBody bool, deps Deps) (*ResearchData, error) {
 	var langs []string
 	if language != "" {
 		langs = []string{language}
@@ -79,7 +79,7 @@ func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob str
 		ir.Files = filtered
 	}
 
-	parseResults := parseFilesParallel(ctx, ir.Files, false, deps.ParseCache)
+	parseResults := parseFilesParallel(ctx, ir.Files, includeBody, deps.ParseCache)
 
 	// Package-level import graph (local packages only).
 	pkgGraph := buildImportGraph(root, parseResults, false)
