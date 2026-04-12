@@ -146,11 +146,14 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 			fmt.Fprintf(&sb, "  </seeds>\n")
 		}
 
-		// Graph section — top N by score.
+		// Graph section — top N by score, skip files with no symbols.
 		graph := sortedGraph(r.Graph, maxGraphOutput)
 		if len(graph) > 0 {
 			fmt.Fprintf(&sb, "  <graph>\n")
 			for _, lf := range graph {
+				if len(lf.Symbols) == 0 {
+					continue
+				}
 				relPath := strings.TrimPrefix(lf.RelPath, stripRoot)
 				fmt.Fprintf(&sb, "    <file path=%q distance=\"%d\" why=%q score=\"%.4f\">\n",
 					relPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
