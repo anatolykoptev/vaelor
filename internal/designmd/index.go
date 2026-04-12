@@ -106,7 +106,11 @@ func Index(ctx context.Context, dir string, client *embeddings.Client, store *em
 		return nil, fmt.Errorf("marshal meta: %w", err)
 	}
 	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
-		return nil, fmt.Errorf("write index.json: %w", err)
+		// Fallback to /tmp if dir is read-only (e.g. Docker :ro mount).
+		metaPath = "/tmp/design-md-index.json"
+		if err2 := os.WriteFile(metaPath, data, 0o644); err2 != nil {
+			return nil, fmt.Errorf("write index.json: %w (fallback: %w)", err, err2)
+		}
 	}
 	slog.Info("designmd: index.json written", slog.String("path", metaPath))
 

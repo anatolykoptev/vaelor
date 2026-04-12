@@ -27,7 +27,11 @@ func registerDesignSearch(server *mcp.Server, cfg Config, deps SemanticDeps) {
 	var metaIndex map[string]designmd.BrandMeta
 	if cfg.DesignMDDir != "" {
 		metaPath := cfg.DesignMDDir + "/index.json"
-		if data, err := os.ReadFile(metaPath); err == nil {
+		if data, err := os.ReadFile(metaPath); err != nil {
+			// Fallback to /tmp (Docker :ro mount writes there).
+			data, _ = os.ReadFile("/tmp/design-md-index.json")
+			_ = json.Unmarshal(data, &metaIndex)
+		} else {
 			_ = json.Unmarshal(data, &metaIndex)
 		}
 	}
