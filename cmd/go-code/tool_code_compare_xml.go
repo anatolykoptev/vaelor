@@ -226,6 +226,7 @@ type xmlRelStats struct {
 
 type xmlArchMetrics struct {
 	PackageCount      int          `xml:"packages,attr"`
+	CommunityCount    int          `xml:"communityCount,attr,omitempty"`
 	CrossPkgCallRatio float64      `xml:"crossPkgCalls,attr"`
 	MaxCallDepth      int          `xml:"maxCallDepth,attr"`
 	InterfaceRatio    float64      `xml:"interfaceRatio,attr"`
