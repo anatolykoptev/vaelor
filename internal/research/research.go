@@ -141,7 +141,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}
 
 	// --- Step 8: render map ---
-	codeMap := RenderMap(kept, input.IncludeBody)
+	codeMap := RenderMap(kept, input.IncludeBody, input.Root)
 	estimatedTokens := estimateMapTokens(codeMap)
 
 	// --- Build result ---
@@ -163,8 +163,10 @@ const (
 	semanticTopKMax = 100
 	semanticTopKDiv = 400
 
-	// minSeedScore filters out near-zero BM25F/RRF seeds that add noise.
-	minSeedScore = 0.001
+	// minSeedScore filters out low-relevance BM25F/RRF seeds.
+	// RRF scores cluster around 0.009-0.016 for noise files; meaningful
+	// matches typically score 0.02+. Semantic seeds bypass this filter.
+	minSeedScore = 0.02
 )
 
 // semanticTopK scales the embedding-store TopK with the token budget.

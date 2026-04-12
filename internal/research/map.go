@@ -15,25 +15,35 @@ import (
 //	    ParseResult
 //
 // If includeBody is true, function bodies are included (higher token cost).
-func RenderMap(files []scoredFile, includeBody bool) string {
+// rootPrefix is stripped from file paths (e.g. "/tmp/go-code-workspace/owner_repo/").
+func RenderMap(files []scoredFile, includeBody bool, rootPrefix string) string {
 	if len(files) == 0 {
 		return ""
 	}
+	strip := ""
+	if rootPrefix != "" {
+		strip = strings.TrimSuffix(rootPrefix, "/") + "/"
+	}
 	var sb strings.Builder
 	for _, sf := range files {
-		renderFileEntry(&sb, sf, includeBody)
+		// Skip files with no symbols — they're just path noise.
+		if len(sf.symbols) == 0 {
+			continue
+		}
+		renderFileEntry(&sb, sf, includeBody, strip)
 	}
 	return sb.String()
 }
 
-func renderFileEntry(sb *strings.Builder, sf scoredFile, includeBody bool) {
+func renderFileEntry(sb *strings.Builder, sf scoredFile, includeBody bool, strip string) {
+	relPath := sf.expand.relPath
+	if strip != "" {
+		relPath = strings.TrimPrefix(relPath, strip)
+	}
+
 	// Header line: path + link annotation.
 	annotation := buildAnnotation(sf)
-	fmt.Fprintf(sb, "%s  %s\n", sf.expand.relPath, annotation)
-
-	if len(sf.symbols) == 0 {
-		return
-	}
+	fmt.Fprintf(sb, "%s  %s\n", relPath, annotation)
 
 	// Symbols — grouped by kind for readability.
 	types := filterByKinds(sf.symbols, parser.KindClass, parser.KindInterface, parser.KindStruct)
@@ -67,7 +77,6 @@ func buildSignature(sym *parser.Symbol) string {
 	if sym.Signature != "" {
 		return sym.Signature
 	}
-	// Fallback: just name.
 	return sym.Name
 }
 
