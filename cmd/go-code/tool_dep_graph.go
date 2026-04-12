@@ -59,7 +59,8 @@ func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			"Parses import/require/use statements across all source files using tree-sitter, " +
 			"then constructs a directed graph of package or module dependencies. " +
 			"Supports output as Mermaid diagrams, Graphviz DOT, or JSON adjacency lists. " +
-			"Can detect cycles, highly-connected nodes (hotspots), and layering violations.",
+			"Can detect cycles, hotspots, and layering violations. " +
+			"Set cross_language=true to add HTTP Route edges connecting frontend callers to backend handlers.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DepGraphInput) (*mcp.CallToolResult, error) {
 		if input.Repo == "" {
 			return errResult("repo is required"), nil

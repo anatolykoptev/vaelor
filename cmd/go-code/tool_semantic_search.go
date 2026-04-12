@@ -14,8 +14,8 @@ import (
 
 // SemanticSearchInput is the input schema for the semantic_search tool.
 type SemanticSearchInput struct {
-	Repo     string `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path to search in"`
-	Query    string `json:"query" jsonschema_description:"Natural language description of what you're looking for (e.g. 'function that validates JWT tokens', 'error handling for database connections')"`
+	Repo        string  `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path to search in"`
+	Query       string  `json:"query" jsonschema_description:"Natural language description of what you're looking for (e.g. 'function that validates JWT tokens', 'error handling for database connections')"`
 	Language    string  `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript)"`
 	TopK        int     `json:"top_k,omitempty" jsonschema_description:"Number of results (default 10, max 50)"`
 	MaxDistance float32 `json:"max_distance,omitempty" jsonschema_description:"Maximum cosine distance (0.0-1.0, default 0.75). Lower = stricter matching"`
@@ -40,7 +40,7 @@ func registerSemanticSearch(server *mcp.Server, _ Config, deps SemanticDeps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "semantic_search",
 		Description: "Find code by meaning using natural language queries. " +
-			"Searches function and method bodies using vector similarity (embeddings). " +
+			"Uses hybrid RRF (keyword + vector similarity) with 1-hop graph expansion via Apache AGE. " +
 			"Works best after the repository has been indexed via code_graph or repo_analyze. " +
 			"Returns ranked results with file paths, symbol names, and similarity scores.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SemanticSearchInput) (*mcp.CallToolResult, error) {
@@ -96,7 +96,7 @@ func handleSemanticSearch(
 		RepoKey:     repoKey,
 		Language:    input.Language,
 		TopK:        topK,
-		MaxDistance:  maxDist,
+		MaxDistance: maxDist,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("search: %s", err)), nil

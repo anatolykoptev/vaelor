@@ -107,6 +107,7 @@ func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *S
 			"Shows what happens when a function is called (callees) or who calls it (callers). " +
 			"Returns a call tree with resolved cross-file references and an LLM-generated " +
 			"narrative explanation of the execution flow. " +
+			"Type-aware for Go repos: resolves interface calls to concrete implementations via go/types. " +
 			"Suggests semantically similar symbols when the target is not found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, error) {
 		return handleCallTrace(ctx, input, deps, sem, outputDir)
