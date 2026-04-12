@@ -19,7 +19,7 @@ type BrandMeta struct {
 }
 
 var (
-	sectionRe  = regexp.MustCompile(`(?m)^## \d+\.\s+(.+)$`)
+	sectionRe  = regexp.MustCompile(`(?m)^## \d+\\?\.\s+(.+)$`)
 	hexColorRe = regexp.MustCompile(`#[0-9a-fA-F]{6}`)
 )
 
