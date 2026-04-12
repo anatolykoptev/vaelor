@@ -88,6 +88,9 @@ type Config struct {
 	// OxCodesURL is the base URL for the ox-codes search service (e.g. http://ox-codes:8902).
 	// When set, code_search uses ox-codes with fallback to Go codesearch.
 	OxCodesURL string
+
+	// DesignMDDir is the directory containing */DESIGN.md files for design_search.
+	DesignMDDir string
 }
 
 const (
@@ -119,32 +122,33 @@ const (
 // loadConfig reads environment variables and returns a Config with defaults applied.
 func loadConfig() Config {
 	return Config{
-		Port:         env.Str("MCP_PORT", defaultPort),
-		LLMURL:       env.Str("LLM_API_BASE", defaultLLMURL),
-		LLMAPIKey:    env.Str("LLM_API_KEY", ""),
-		LLMModel:     env.Str("LLM_MODEL", defaultLLMModel),
-		LLMMaxTokens: env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
-		GithubToken:  env.Str("GITHUB_TOKEN", ""),
-		WorkspaceDir: env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
+		Port:              env.Str("MCP_PORT", defaultPort),
+		LLMURL:            env.Str("LLM_API_BASE", defaultLLMURL),
+		LLMAPIKey:         env.Str("LLM_API_KEY", ""),
+		LLMModel:          env.Str("LLM_MODEL", defaultLLMModel),
+		LLMMaxTokens:      env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
+		GithubToken:       env.Str("GITHUB_TOKEN", ""),
+		WorkspaceDir:      env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
 		RedisURL:          env.Str("REDIS_URL", ""),
-		LLMFallbackKeys:  env.List("LLM_API_KEY_FALLBACK", ""),
+		LLMFallbackKeys:   env.List("LLM_API_KEY_FALLBACK", ""),
 		GithubSearchRepos: env.List("GITHUB_SEARCH_REPOS", ""),
-		OutputDir:    env.Str("OUTPUT_DIR", ""),
-		PathMappings: parsePathMappings(env.Str("PATH_MAPPINGS", "")),
-		MaxFileBytes: int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
-		MaxRepoBytes:  int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
-		DatabaseURL:    env.Str("DATABASE_URL", ""),
-		GraphTTLLocal:  env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
-		GraphTTLRemote: env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
-		GraphBatchSize: env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
-		EmbedURL:       env.Str("EMBED_URL", ""),
-		EmbedModel:     env.Str("EMBED_MODEL", defaultEmbedModel),
-		AutoIndexDirs:  env.List("AUTO_INDEX_DIRS", ""),
-		OxBrowserURL:   env.Str("OX_BROWSER_URL", ""),
-		GoSearchURL:    env.Str("GO_SEARCH_URL", ""),
-		GitLabToken:    env.Str("GITLAB_TOKEN", ""),
-		GitLabURL:      env.Str("GITLAB_URL", ""),
-		OxCodesURL:     env.Str("OX_CODES_URL", ""),
+		OutputDir:         env.Str("OUTPUT_DIR", ""),
+		PathMappings:      parsePathMappings(env.Str("PATH_MAPPINGS", "")),
+		MaxFileBytes:      int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
+		MaxRepoBytes:      int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
+		DatabaseURL:       env.Str("DATABASE_URL", ""),
+		GraphTTLLocal:     env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
+		GraphTTLRemote:    env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
+		GraphBatchSize:    env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
+		EmbedURL:          env.Str("EMBED_URL", ""),
+		EmbedModel:        env.Str("EMBED_MODEL", defaultEmbedModel),
+		AutoIndexDirs:     env.List("AUTO_INDEX_DIRS", ""),
+		OxBrowserURL:      env.Str("OX_BROWSER_URL", ""),
+		GoSearchURL:       env.Str("GO_SEARCH_URL", ""),
+		GitLabToken:       env.Str("GITLAB_TOKEN", ""),
+		GitLabURL:         env.Str("GITLAB_URL", ""),
+		OxCodesURL:        env.Str("OX_CODES_URL", ""),
+		DesignMDDir:       env.Str("DESIGN_MD_DIR", ""),
 	}
 }
 
@@ -164,4 +168,3 @@ func parsePathMappings(raw string) []analyze.PathMapping {
 	}
 	return mappings
 }
-

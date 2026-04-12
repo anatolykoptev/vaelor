@@ -110,6 +110,7 @@ func registerTools(server *mcp.Server, cfg Config) {
 	registerReviewPR(server, cfg, deps)
 	registerRewrite(server, cfg, deps)
 	registerDataflow(server, cfg, deps)
+	registerDesignSearch(server, cfg, semDeps)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {

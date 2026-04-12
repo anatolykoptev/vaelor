@@ -28,7 +28,7 @@ var version = "dev"
 
 const (
 	serviceName = "go-code"
-	toolCount   = 15
+	toolCount   = 16
 
 	defaultPort = "8897"
 
