@@ -150,7 +150,7 @@ func TestTemplateRenderEscaping(t *testing.T) {
 }
 
 func TestTemplateCount(t *testing.T) {
-	const want = 27
+	const want = 28
 	got := len(templates)
 	if got != want {
 		t.Errorf("expected %d templates, got %d", want, got)

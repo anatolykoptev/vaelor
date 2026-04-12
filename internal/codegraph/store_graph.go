@@ -40,6 +40,11 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		return fmt.Errorf("ensure mtimes table: %w", err)
 	}
 
+	// Ensure the snapshot table exists for graph diffing.
+	if _, err := conn.Exec(ctx, snapshotTableSQL); err != nil {
+		return fmt.Errorf("ensure snapshot table: %w", err)
+	}
+
 	return nil
 }
 

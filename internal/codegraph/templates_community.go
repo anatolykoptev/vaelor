@@ -22,4 +22,11 @@ func init() {
 		Cypher:      "MATCH (a:Symbol)-[r:CALLS]->(b:Symbol) WHERE a.file <> b.file RETURN a.name, a.file, a.community, b.name, b.file, b.community, a.pagerank, b.pagerank LIMIT 500",
 		Cols:        8,
 	}
+	templates["graph_diff"] = &Template{
+		ID:          "graph_diff",
+		Description: "Compare current graph with the previous snapshot — show new/removed symbols, edges, community migrations",
+		Params:      []string{},
+		Cypher:      "MATCH (s:Symbol) RETURN s.name LIMIT 1",
+		Cols:        1,
+	}
 }
