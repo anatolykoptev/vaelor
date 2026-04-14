@@ -21,4 +21,5 @@ type ReviewPayload struct {
 type Poster interface {
 	PostReview(ctx context.Context, slug string, pr int, p ReviewPayload) (htmlURL string, err error)
 	PostIssueComment(ctx context.Context, slug string, number int, body string) (htmlURL string, err error)
+	PostCommitComment(ctx context.Context, slug, sha, body string) (htmlURL string, err error)
 }

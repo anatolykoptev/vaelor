@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	glDefaultAPIBase    = "https://gitlab.com"
-	glDefaultTimeout    = 15 * time.Second
-	glDefaultBranch     = "main"
+	glDefaultAPIBase = "https://gitlab.com"
+	glDefaultTimeout = 15 * time.Second
+	glDefaultBranch  = "main"
 
 	glHeaderPrivateToken = "PRIVATE-TOKEN"
 	glSearchPerPage      = 30
@@ -199,10 +199,4 @@ func cleanGitLabSlug(apiBase, slug string) string {
 	return slug
 }
 
-func (g *GitLabForge) PostReview(ctx context.Context, slug string, mr int, p ReviewPayload) (string, error) {
-	return "", fmt.Errorf("gitlab PostReview: not implemented")
-}
-
-func (g *GitLabForge) PostIssueComment(ctx context.Context, slug string, number int, body string) (string, error) {
-	return "", fmt.Errorf("gitlab PostIssueComment: not implemented")
-}
+// Post* write methods live in poster_gitlab.go.
