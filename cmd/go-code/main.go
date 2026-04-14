@@ -11,7 +11,9 @@ package main
 
 import (
 	"context"
+	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -60,8 +62,30 @@ func main() {
 		Version: version,
 	}, nil)
 
-	registerTools(server, cfg)
+	deps := registerTools(server, cfg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
+
+	// Register webhook handler if GITHUB_WEBHOOK_SECRET is set
+	if secret := os.Getenv("GITHUB_WEBHOOK_SECRET"); secret != "" {
+		enabled := os.Getenv("REVIEW_POST_ENABLED") == "true"
+		botUser := os.Getenv("REVIEW_BOT_USER")
+		sink := func(event string, payload []byte) {
+			DispatchGitHubEvent(event, payload, dispatchDeps{
+				botUser: botUser,
+				postReview: func(slug string, pr int) error {
+					if !enabled {
+						log.Printf("review_post disabled; would review %s#%d", slug, pr)
+						return nil
+					}
+					ctx := context.Background()
+					_, err := handleReviewPRPost(ctx, ReviewPRPostInput{Repo: slug, PR: pr}, deps)
+					return err
+				},
+			})
+		}
+		http.Handle("/webhook/github", newGitHubWebhook(secret, sink))
+		slog.Info("webhook registered", slog.String("path", "/webhook/github"))
+	}
 
 	hooks := mcpserver.MCPHooks{
 		OnToolCall: func(_ context.Context, name string) {
