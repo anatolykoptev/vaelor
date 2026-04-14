@@ -89,12 +89,48 @@ func DispatchGitHubEvent(event string, payload []byte, deps dispatchDeps) {
 		if err := deps.postReview(p.Repo.FullName, p.Number); err != nil {
 			log.Printf("post review %s#%d: %v", p.Repo.FullName, p.Number, err)
 		}
+	case "push":
+		var p struct {
+			Ref    string `json:"ref"`
+			Before string `json:"before"`
+			After  string `json:"after"`
+			Repo   struct {
+				FullName string `json:"full_name"`
+			} `json:"repository"`
+			Pusher struct {
+				Name string `json:"name"`
+			} `json:"pusher"`
+			HeadCommit struct {
+				Message string `json:"message"`
+			} `json:"head_commit"`
+		}
+		if err := json.Unmarshal(payload, &p); err != nil {
+			log.Printf("webhook push parse: %v", err)
+			return
+		}
+		if p.Ref != "refs/heads/main" {
+			return
+		}
+		if deps.botUser != "" && p.Pusher.Name == deps.botUser {
+			return
+		}
+		// Skip branch creation (before = 40 zeros) and deletion (after = 40 zeros).
+		if strings.HasPrefix(p.Before, "00000000") || strings.HasPrefix(p.After, "00000000") {
+			return
+		}
+		if deps.postPushReview == nil {
+			return
+		}
+		if err := deps.postPushReview(p.Repo.FullName, p.Before, p.After); err != nil {
+			log.Printf("post push review %s %s..%s: %v", p.Repo.FullName, p.Before[:8], p.After[:8], err)
+		}
 	case "issue_comment":
 		// Stretch: @go-code mention dispatch (Task 8)
 	}
 }
 
 type dispatchDeps struct {
-	botUser    string
-	postReview func(slug string, pr int) error
+	botUser        string
+	postReview     func(slug string, pr int) error
+	postPushReview func(slug, before, after string) error
 }

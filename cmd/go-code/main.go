@@ -83,6 +83,13 @@ func main() {
 					_, err := handleReviewPRPost(ctx, ReviewPRPostInput{Repo: slug, PR: pr}, deps)
 					return err
 				},
+				postPushReview: func(slug, before, after string) error {
+					if !enabled {
+						log.Printf("review_post disabled; would review push %s %s..%s", slug, before[:8], after[:8])
+						return nil
+					}
+					return handlePushReview(slug, before, after, deps)
+				},
 			})
 		}
 		handler := newGitHubWebhook(secret, sink)

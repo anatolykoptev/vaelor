@@ -1,7 +1,6 @@
 package forge
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,8 +12,8 @@ import (
 )
 
 const (
-	ghDefaultAPIBase  = "https://api.github.com"
-	ghDefaultTimeout  = 15 * time.Second
+	ghDefaultAPIBase = "https://api.github.com"
+	ghDefaultTimeout = 15 * time.Second
 
 	ghHeaderAccept     = "Accept"
 	ghHeaderAuth       = "Authorization"
@@ -152,72 +151,4 @@ func (g *GitHubForge) setHeaders(req *http.Request) {
 	}
 }
 
-func (g *GitHubForge) PostReview(ctx context.Context, slug string, pr int, p ReviewPayload) (string, error) {
-	type ghInline struct {
-		Path string `json:"path"`
-		Line int    `json:"line"`
-		Body string `json:"body"`
-		Side string `json:"side"`
-	}
-	type ghBody struct {
-		Body     string     `json:"body"`
-		Event    string     `json:"event"`
-		Comments []ghInline `json:"comments,omitempty"`
-	}
-	body := ghBody{Body: p.Body, Event: p.Event}
-	for _, c := range p.Comments {
-		body.Comments = append(body.Comments, ghInline{Path: c.Path, Line: c.Line, Body: c.Body, Side: "RIGHT"})
-	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("marshal review: %w", err)
-	}
-	url := fmt.Sprintf("%s/repos/%s/pulls/%d/reviews", g.apiBase, slug, pr)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return "", fmt.Errorf("build request: %w", err)
-	}
-	g.setHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := g.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("post review: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("post review: %s: %s", resp.Status, string(b))
-	}
-	var out struct {
-		HTMLURL string `json:"html_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode: %w", err)
-	}
-	return out.HTMLURL, nil
-}
-
-func (g *GitHubForge) PostIssueComment(ctx context.Context, slug string, number int, body string) (string, error) {
-	raw, _ := json.Marshal(map[string]string{"body": body})
-	url := fmt.Sprintf("%s/repos/%s/issues/%d/comments", g.apiBase, slug, number)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return "", fmt.Errorf("build request: %w", err)
-	}
-	g.setHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := g.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("post comment: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("post comment: %s: %s", resp.Status, string(b))
-	}
-	var out struct {
-		HTMLURL string `json:"html_url"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	return out.HTMLURL, nil
-}
+// Post* write methods live in poster_github.go.
