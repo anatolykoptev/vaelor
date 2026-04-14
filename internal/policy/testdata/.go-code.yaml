@@ -1,0 +1,18 @@
+version: 1
+severity: warning            # warning | error
+path_filters:
+  include:
+    - "**/*.go"
+  exclude:
+    - "vendor/**"
+    - "**/*_test.go"
+rules:
+  forbidden_imports:
+    - pattern: "github.com/pkg/errors"
+      reason: "use stdlib errors + fmt.Errorf"
+  required_when_touching:
+    - path: "internal/api/**"
+      must_also_touch: "**/*_test.go"
+      reason: "api changes need tests"
+  max_func_lines: 100
+  no_magic_http_status: true

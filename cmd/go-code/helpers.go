@@ -12,6 +12,8 @@ import (
 	"unicode"
 
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/go-code/internal/policy"
+	"github.com/anatolykoptev/go-code/internal/review"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -143,4 +145,18 @@ func capitalizeFirst(s string) string {
 	r := []rune(s)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
+}
+
+func applyPolicy(ctx context.Context, root string, r *review.DeltaResult) []policy.Finding {
+	p, err := policy.Load(root)
+	if err != nil || p == nil {
+		return nil
+	}
+	return p.Apply(r, func(path string) string {
+		b, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	})
 }

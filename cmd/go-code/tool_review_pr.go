@@ -68,6 +68,11 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 		return errResult(fmt.Sprintf("review: %s", err)), nil
 	}
 
+	findings := applyPolicy(ctx, root, result)
+	for _, f := range findings {
+		result.Risk.Flags = append(result.Risk.Flags, fmt.Sprintf("policy:%s %s:%d %s", f.Rule, f.Path, f.Line, f.Message))
+	}
+
 	resp := buildDeltaXML(result)
 	resp.Tool = "review_pr"
 	resp.Verdict = deriveVerdict(result)
