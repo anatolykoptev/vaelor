@@ -65,7 +65,9 @@ func main() {
 	deps := registerTools(server, cfg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
 
-	// Register webhook handler if GITHUB_WEBHOOK_SECRET is set
+	// Webhook handler registered via mcpserver.Config.Routes below so it shares
+	// the server's mux (http.DefaultServeMux is unused by mcpserver).
+	var webhookRoutes func(*http.ServeMux)
 	if secret := os.Getenv("GITHUB_WEBHOOK_SECRET"); secret != "" {
 		enabled := os.Getenv("REVIEW_POST_ENABLED") == "true"
 		botUser := os.Getenv("REVIEW_BOT_USER")
@@ -83,7 +85,10 @@ func main() {
 				},
 			})
 		}
-		http.Handle("/webhook/github", newGitHubWebhook(secret, sink))
+		handler := newGitHubWebhook(secret, sink)
+		webhookRoutes = func(mux *http.ServeMux) {
+			mux.Handle("/webhook/github", handler)
+		}
 		slog.Info("webhook registered", slog.String("path", "/webhook/github"))
 	}
 
@@ -103,6 +108,7 @@ func main() {
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware()},
+		Routes:                 webhookRoutes,
 		ToolTimeouts: map[string]time.Duration{
 			"code_research": 90 * time.Second,
 			"repo_analyze":  90 * time.Second,
