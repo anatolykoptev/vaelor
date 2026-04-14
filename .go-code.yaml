@@ -1,26 +1,19 @@
 version: 1
-severity: warning
-
-path_filters:
-  include:
-    - "**/*.go"
-  exclude:
-    - "vendor/**"
-    - "**/*_test.go"
-    - "**/testdata/**"
+# Repo-local overrides for go-code itself.
+# Team defaults live in policies/defaults.yaml and are merged in automatically
+# via GOCODE_DEFAULT_POLICY env var.
 
 rules:
   forbidden_imports:
-    - pattern: "github.com/pkg/errors"
-      reason: "use stdlib errors + fmt.Errorf per CLAUDE.md"
-    - pattern: "github.com/sirupsen/logrus"
-      reason: "use log/slog (stdlib) per project convention"
+    - pattern: "github.com/smacker/go-tree-sitter/bash"
+      reason: "bash parser not used in go-code; avoid accidental CGO bloat"
   required_when_touching:
     - path: "cmd/go-code/tool_*.go"
       must_also_touch: "*_test.go"
-      reason: "MCP tool changes must include tests"
+      reason: "new MCP tool must ship with tests"
     - path: "internal/forge/**"
       must_also_touch: "*_test.go"
-      reason: "forge is the write-path to external systems — needs coverage"
-  no_magic_http_status: true
-  max_func_lines: 100
+      reason: "forge is the external write-path; regressions here post wrong data to GitHub"
+    - path: "internal/learnings/**"
+      must_also_touch: "*_test.go"
+      reason: "DB-touching code needs coverage"

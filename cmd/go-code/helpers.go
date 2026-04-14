@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/policy"
 	"github.com/anatolykoptev/go-code/internal/review"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -147,8 +147,8 @@ func capitalizeFirst(s string) string {
 	return string(r)
 }
 
-func applyPolicy(ctx context.Context, root string, r *review.DeltaResult) []policy.Finding {
-	p, err := policy.Load(root)
+func applyPolicy(_ context.Context, root string, r *review.DeltaResult) []policy.Finding {
+	p, err := policy.LoadWithDefaults(root, os.Getenv("GOCODE_DEFAULT_POLICY"))
 	if err != nil || p == nil {
 		return nil
 	}

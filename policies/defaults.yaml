@@ -1,0 +1,29 @@
+version: 1
+severity: warning
+
+path_filters:
+  include:
+    - "**/*.go"
+  exclude:
+    - "vendor/**"
+    - "**/*_test.go"
+    - "**/testdata/**"
+    - "**/mocks/**"
+
+rules:
+  forbidden_imports:
+    - pattern: "github.com/pkg/errors"
+      reason: "use stdlib errors + fmt.Errorf (CLAUDE.md convention)"
+    - pattern: "github.com/sirupsen/logrus"
+      reason: "use log/slog (stdlib)"
+    - pattern: "io/ioutil"
+      reason: "deprecated, use io and os directly"
+  required_when_touching:
+    - path: "internal/api/**"
+      must_also_touch: "*_test.go"
+      reason: "api changes need tests"
+    - path: "internal/handlers/**"
+      must_also_touch: "*_test.go"
+      reason: "handler changes need tests"
+  no_magic_http_status: true
+  max_func_lines: 100
