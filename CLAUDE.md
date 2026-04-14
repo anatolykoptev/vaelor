@@ -47,6 +47,9 @@
 | `prepare_change` | Pre-change risk assessment. Aggregates: impact_analysis + dead_code check |
 | `site_analyze` | Web site tech analysis |
 | `site_crawl` | BFS web crawler |
+| `review_pr` | Review a pull request: differential impact analysis on all changes |
+| `review_delta` | Analyze changes between two git refs and compute differential impact |
+| `review_pr_post` | Run review_pr and post the result as a PR review on GitHub |
 
 ## Environment Variables
 
@@ -75,6 +78,17 @@
 | `AUTO_INDEX_DIRS` | optional | Comma-separated dirs to auto-index for semantic search (e.g. `/host/src`) |
 | `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/path/to/repos:/host`) |
 | `OUTPUT_DIR` | optional | Output dir for generated files (e.g. `/tmp/go-code-output`) |
+| `GITHUB_WEBHOOK_SECRET` | optional | When set, enables `/webhook/github` PR-review receiver |
+| `REVIEW_POST_ENABLED` | `false` | When `true`, webhook posts reviews; otherwise dry-log |
+| `REVIEW_BOT_USER` | optional | GitHub login to skip (avoid self-triggered loops) |
+
+## Webhook
+
+### GitHub webhook
+- Endpoint: `POST /webhook/github` on MCP port (:8897)
+- Headers required: `X-GitHub-Event`, `X-Hub-Signature-256`
+- Events handled: `pull_request` (opened/synchronize/reopened)
+- Setup: expose via your existing tunnel (e.g. dozor/Cloudflare) and register in GitHub repo settings
 
 ## Build
 

@@ -23,7 +23,8 @@ import (
 
 // registerTools registers all MCP tool handlers on the server.
 // Each tool has its own file: tool_<name>.go
-func registerTools(server *mcp.Server, cfg Config) {
+// Returns the analyze.Deps for use by other components (e.g., webhook handler).
+func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	parseCacheSize := env.Int("PARSE_CACHE_SIZE", cache.DefaultParseCacheSize)
 	llmCacheSize := env.Int("LLM_CACHE_SIZE", cache.DefaultLLMCacheSize)
 	llmCacheTTLMin := env.Int("LLM_CACHE_TTL_MIN", defaultLLMCacheTTL)
@@ -126,6 +127,8 @@ func registerTools(server *mcp.Server, cfg Config) {
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
 		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor)
 	}
+
+	return deps
 }
 
 // buildWebSearchClient creates a go-search client if configured.
