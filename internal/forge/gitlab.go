@@ -198,3 +198,11 @@ func cleanGitLabSlug(apiBase, slug string) string {
 	slug = strings.TrimSuffix(slug, ".git")
 	return slug
 }
+
+func (g *GitLabForge) PostReview(ctx context.Context, slug string, mr int, p ReviewPayload) (string, error) {
+	return "", fmt.Errorf("gitlab PostReview: not implemented")
+}
+
+func (g *GitLabForge) PostIssueComment(ctx context.Context, slug string, number int, body string) (string, error) {
+	return "", fmt.Errorf("gitlab PostIssueComment: not implemented")
+}
