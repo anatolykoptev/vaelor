@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/review"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -71,6 +73,30 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 	findings := applyPolicy(ctx, root, result)
 	for _, f := range findings {
 		result.Risk.Flags = append(result.Risk.Flags, fmt.Sprintf("policy:%s %s:%d %s", f.Rule, f.Path, f.Line, f.Message))
+	}
+
+	// Persist learnings and look up prior findings
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		store, err := learnings.New(ctx, dsn, nil)
+		if err == nil {
+			defer store.Close()
+			slug := input.Repo
+			for _, cs := range result.ChangedSymbols {
+				// Lookup hints
+				prior, _ := store.Nearest(ctx, slug, cs.Symbol.Name, 3)
+				for _, p := range prior {
+					result.Risk.Suggestions = append(result.Risk.Suggestions,
+						fmt.Sprintf("prior review on %s: %s (%s)", p.Symbol, p.Flag, p.PRURL))
+				}
+				// Record current verdict
+				_ = store.Upsert(ctx, learnings.Record{
+					Repo: slug, Symbol: cs.Symbol.Name,
+					Verdict: result.Risk.RiskLevel,
+					Flag:    strings.Join(result.Risk.Flags, ";"),
+					PRURL:   fmt.Sprintf("https://github.com/%s/pull/%d", slug, input.PR),
+				})
+			}
+		}
 	}
 
 	resp := buildDeltaXML(result)
