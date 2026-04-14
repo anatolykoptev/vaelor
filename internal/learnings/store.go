@@ -4,10 +4,14 @@ package learnings
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+//go:embed schema.sql
+var schemaSQL string
 
 // Embedder abstracts the embedding client; pass nil to disable vector updates
 // and fall back to exact (repo, symbol) lookups.
@@ -31,6 +35,10 @@ func New(ctx context.Context, dsn string, emb Embedder) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool: %w", err)
+	}
+	if _, err := pool.Exec(ctx, schemaSQL); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("migrate review_learnings schema: %w", err)
 	}
 	return &Store{pool: pool, emb: emb}, nil
 }

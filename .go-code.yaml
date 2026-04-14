@@ -1,0 +1,26 @@
+version: 1
+severity: warning
+
+path_filters:
+  include:
+    - "**/*.go"
+  exclude:
+    - "vendor/**"
+    - "**/*_test.go"
+    - "**/testdata/**"
+
+rules:
+  forbidden_imports:
+    - pattern: "github.com/pkg/errors"
+      reason: "use stdlib errors + fmt.Errorf per CLAUDE.md"
+    - pattern: "github.com/sirupsen/logrus"
+      reason: "use log/slog (stdlib) per project convention"
+  required_when_touching:
+    - path: "cmd/go-code/tool_*.go"
+      must_also_touch: "*_test.go"
+      reason: "MCP tool changes must include tests"
+    - path: "internal/forge/**"
+      must_also_touch: "*_test.go"
+      reason: "forge is the write-path to external systems — needs coverage"
+  no_magic_http_status: true
+  max_func_lines: 100
