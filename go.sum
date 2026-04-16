@@ -7,6 +7,8 @@ github.com/anatolykoptev/go-mcpserver v0.9.1 h1:gaFBKgV1dH9dX9t3W5PFx6WAJiG6L31Z
 github.com/anatolykoptev/go-mcpserver v0.9.1/go.mod h1:79FK7brYlWBx7D8oBGOOms1yoYWhXDNJ2Rw3oeQ/pik=
 github.com/anatolykoptev/go-mcpserver v0.10.0 h1:6dy+XL466UEp7UdkZe8XDk6vv1lcmF69riL2KdOBKIo=
 github.com/anatolykoptev/go-mcpserver v0.10.0/go.mod h1:79FK7brYlWBx7D8oBGOOms1yoYWhXDNJ2Rw3oeQ/pik=
+github.com/anatolykoptev/go-mcpserver v0.10.1 h1:QRj4CispB1uR22p+UPKmbBwgl+CrpnaVGLufr+7dLyE=
+github.com/anatolykoptev/go-mcpserver v0.10.1/go.mod h1:79FK7brYlWBx7D8oBGOOms1yoYWhXDNJ2Rw3oeQ/pik=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
