@@ -89,7 +89,7 @@
 | `GITLAB_TOKEN` | optional | GitLab API token (`PRIVATE-TOKEN` header) |
 | `GITLAB_URL` | optional | Self-hosted GitLab base URL (default: `https://gitlab.com`) |
 | `GO_SEARCH_URL` | optional | go-search MCP endpoint for web search (e.g. `http://go-search:8890/mcp`) |
-| `EMBED_URL` | optional | Embedding server (e.g. `http://embed-jina:8083`) — enables semantic_search |
+| `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `jina-code-v2` | Model name for OpenAI-compatible embed API |
 | `AUTO_INDEX_DIRS` | optional | Comma-separated dirs to auto-index for semantic search (e.g. `/host/src`) |
 | `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/home/krolik:/host`) |
@@ -133,7 +133,7 @@ make deploy  # docker compose build --no-cache + up -d
 - **code_graph DB name**: always `gocode` (not the service name, not configurable at runtime)
 - **Local repo paths**: Docker mounts `/home/krolik:/host:ro`; `PATH_MAPPINGS=/home/krolik:/host` translates paths automatically
 - **Partial clone**: `--filter=blob:none` reduces memory for large repos (no blob download during clone)
-- **Semantic search stack**: embed-jina (jina-code-v2, 768 dim) → pgvector (HNSW cosine) → hybrid RRF (semantic + keyword) → graph expansion (1-hop AGE)
+- **Semantic search stack**: embed-server (jina-code-v2, 768 dim via `EMBED_MODELS` multi-model) → pgvector (HNSW cosine) → hybrid RRF (semantic + keyword) → graph expansion (1-hop AGE)
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
 - **`GOWORK=off` mandatory**: without it, `go test`/`go build` resolve against the user-wide `go.work` and break imports
 - **Extension → language is single source of truth via `handler.Extensions()`** — don't duplicate in a separate map (historical bug: `.cjs` was in handler but missing from the lang map, making `ParseFile("foo.cjs")` fail silently)
