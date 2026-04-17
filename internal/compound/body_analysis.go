@@ -9,9 +9,14 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// bodySearchMaxResults caps the number of matches fetched per ox-codes query
+// when scanning a single file for symbol body patterns (error exits, defer,
+// TODO). Bounded per-file so spammy files don't bloat the analysis result.
+const bodySearchMaxResults = 50
+
 // BodyAnalysis contains additional analysis of a symbol's implementation.
 type BodyAnalysis struct {
-	ErrorExits      int  `json:"error_exits"`       // panic/return err patterns
+	ErrorExits      int  `json:"error_exits"` // panic/return err patterns
 	HasDeferCleanup bool `json:"has_defer_cleanup"`
 	HasTODO         bool `json:"has_todo"`
 }
@@ -38,7 +43,7 @@ func AnalyzeBody(ctx context.Context, client *oxcodes.Client, root string, sym *
 	// Search for error exits: panic, return err, return nil/err, return fmt.Errorf
 	errResult, err := client.Search(ctx, oxcodes.SearchInput{
 		Root: root, Pattern: `(panic\(|return\s+(nil,\s*)?err|return\s+fmt\.Errorf)`,
-		IsRegex: true, FileGlob: fileGlob, MaxResults: 50, CaseSensitive: true,
+		IsRegex: true, FileGlob: fileGlob, MaxResults: bodySearchMaxResults, CaseSensitive: true,
 	})
 	if err != nil {
 		slog.Warn("understand: ox-codes error analysis failed", "err", err)
@@ -52,7 +57,7 @@ func AnalyzeBody(ctx context.Context, client *oxcodes.Client, root string, sym *
 
 	// Search for defer in this file.
 	deferResult, err := client.Search(ctx, oxcodes.SearchInput{
-		Root: root, Pattern: "defer ", FileGlob: fileGlob, MaxResults: 50, CaseSensitive: true,
+		Root: root, Pattern: "defer ", FileGlob: fileGlob, MaxResults: bodySearchMaxResults, CaseSensitive: true,
 	})
 	if err == nil {
 		for _, m := range deferResult.Matches {
@@ -66,7 +71,7 @@ func AnalyzeBody(ctx context.Context, client *oxcodes.Client, root string, sym *
 	// Search for TODO/FIXME in this file.
 	todoResult, err := client.Search(ctx, oxcodes.SearchInput{
 		Root: root, Pattern: "TODO|FIXME", IsRegex: true,
-		FileGlob: fileGlob, MaxResults: 50, CaseSensitive: false,
+		FileGlob: fileGlob, MaxResults: bodySearchMaxResults, CaseSensitive: false,
 	})
 	if err == nil {
 		for _, m := range todoResult.Matches {
