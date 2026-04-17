@@ -163,15 +163,28 @@ func TestParseUnsupportedExtension(t *testing.T) {
 
 func TestParseFileAliases(t *testing.T) {
 	src := []byte("function hello() { return 42; }\n")
-	exts := []string{".mjs", ".cjs", ".cts", ".mts"}
-	for _, ext := range exts {
-		t.Run(ext, func(t *testing.T) {
-			result, err := parser.ParseFile("module"+ext, src, parser.ParseOpts{})
+	cases := []struct {
+		ext      string
+		wantLang string
+	}{
+		{".mjs", "javascript"},
+		{".cjs", "javascript"},
+		{".cts", "typescript"},
+		{".mts", "typescript"},
+		{".js", "javascript"},
+		{".ts", "typescript"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ext, func(t *testing.T) {
+			result, err := parser.ParseFile("module"+tc.ext, src, parser.ParseOpts{})
 			if err != nil {
-				t.Fatalf("ParseFile(%q): unexpected error: %v", ext, err)
+				t.Fatalf("ParseFile(%q): unexpected error: %v", tc.ext, err)
 			}
 			if len(result.Symbols) == 0 {
-				t.Errorf("ParseFile(%q): expected at least one symbol, got none", ext)
+				t.Errorf("ParseFile(%q): expected at least one symbol, got none", tc.ext)
+			}
+			if result.Language != tc.wantLang {
+				t.Errorf("ParseFile(%q): Language = %q, want %q", tc.ext, result.Language, tc.wantLang)
 			}
 		})
 	}

@@ -127,7 +127,14 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 		return fallbackParse(path, source, lang), nil
 	}
 
-	return handler.Parse(path, source, opts)
+	result, err := handler.Parse(path, source, opts)
+	if err != nil {
+		return nil, err
+	}
+	// Override with detected language: one handler may serve multiple languages
+	// (typescriptHandler parses .js as "javascript", not its canonical "typescript").
+	result.Language = lang
+	return result, nil
 }
 
 // SupportedLanguages returns the list of languages that have tree-sitter grammar support.
