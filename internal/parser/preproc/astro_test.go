@@ -98,6 +98,28 @@ func TestExtractAstro_CRLF(t *testing.T) {
 	}
 }
 
+// TestExtractAstro_AttrGtEntity verifies that &gt; inside a script attribute value
+// does not confuse the tag-close search. The raw bytes of &gt; contain no '>' byte,
+// so the scanner correctly finds the actual closing '>' of the opening tag.
+func TestExtractAstro_AttrGtEntity(t *testing.T) {
+	src := `<script src="x&gt;y.js">let x = 1;</script>`
+	vs := ExtractAstro([]byte(src))
+	code := string(vs.Code)
+	if code != "let x = 1;" {
+		t.Errorf("AttrGtEntity: Code = %q, want %q", code, "let x = 1;")
+	}
+}
+
+// TestExtractAstro_AttrLiteralGt documents that a literal '>' byte inside an
+// attribute value fools the raw-byte scanner. This is a known limitation.
+func TestExtractAstro_AttrLiteralGt(t *testing.T) {
+	src := `<script title="<<<>>>" src="ok.js">let x = 1;</script>`
+	vs := ExtractAstro([]byte(src))
+	if vs == nil {
+		t.Fatal("AttrLiteralGt: returned nil VirtualSource")
+	}
+}
+
 func TestExtractAstro_NoFrontmatterNoScript(t *testing.T) {
 	src := "<html><body>plain</body></html>\n"
 	vs := ExtractAstro([]byte(src))
