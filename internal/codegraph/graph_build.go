@@ -22,14 +22,25 @@ const (
 	edgeLabelImplements = "IMPLEMENTS"
 )
 
-// buildGraph constructs vertices and edges from ingested files and parsed symbols.
+// buildGraphInput holds all inputs to buildGraph.
 // fileImports maps each file's relative path to the import paths declared in that file.
 // rels contains type relationships (embeds/extends/implements) extracted by the parser.
 // tplRefs contains Astro template component usages that produce USES edges.
-func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg *callgraph.CallGraph, fileImports map[string][]string, rels []parser.TypeRelationship, tplRefs []templateFileRef) ([]vertexData, []edgeData) {
+type buildGraphInput struct {
+	Root        string
+	Files       []*ingest.File
+	Symbols     []*parser.Symbol
+	CallGraph   *callgraph.CallGraph
+	FileImports map[string][]string
+	Rels        []parser.TypeRelationship
+	TplRefs     []templateFileRef
+}
+
+// buildGraph constructs vertices and edges from ingested files and parsed symbols.
+func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 	// Collect unique packages (directories).
 	pkgDirs := make(map[string]struct{})
-	for _, f := range files {
+	for _, f := range in.Files {
 		dir := filepath.Dir(f.RelPath)
 		pkgDirs[dir] = struct{}{}
 	}
@@ -38,7 +49,7 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	var edges []edgeData
 
 	// Compute PageRank on CALLS graph.
-	prScores := computeSymbolPageRank(root, symbols, cg)
+	prScores := computeSymbolPageRank(in.Root, in.Symbols, in.CallGraph)
 
 	// Package vertices.
 	for dir := range pkgDirs {
@@ -47,13 +58,13 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 			Props: map[string]string{
 				"name": filepath.Base(dir),
 				"path": dir,
-				"repo": root,
+				"repo": in.Root,
 			},
 		})
 	}
 
 	// File vertices + CONTAINS (pkg→file) edges.
-	for _, f := range files {
+	for _, f := range in.Files {
 		lineCount := estimateLines(f)
 		vertices = append(vertices, vertexData{
 			Label: "File",
@@ -76,17 +87,17 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	}
 
 	// Symbol vertices + CONTAINS (file→symbol) edges.
-	symVerts, symEdges := buildSymbolGraph(root, symbols, prScores)
+	symVerts, symEdges := buildSymbolGraph(in.Root, in.Symbols, prScores)
 	vertices = append(vertices, symVerts...)
 	edges = append(edges, symEdges...)
 
 	// CALLS edges (Symbol→Symbol).
-	for _, ce := range cg.Edges {
+	for _, ce := range in.CallGraph.Edges {
 		if ce.Caller == nil || ce.Callee == nil {
 			continue
 		}
-		callerRelFile := relPath(ce.Caller.File, root)
-		calleeRelFile := relPath(ce.Callee.File, root)
+		callerRelFile := relPath(ce.Caller.File, in.Root)
+		calleeRelFile := relPath(ce.Callee.File, in.Root)
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
 			FromKey:   ce.Caller.Name + ":" + callerRelFile,
@@ -100,22 +111,22 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	}
 
 	// INHERITS / IMPLEMENTS edges (Symbol→Symbol).
-	relEdges := buildRelationshipEdges(root, rels, symbols)
+	relEdges := buildRelationshipEdges(in.Root, in.Rels, in.Symbols)
 	edges = append(edges, relEdges...)
 
 	// TESTED_BY edges (test Symbol → tested Symbol).
-	testedByEdges := ExtractTestedByEdges(root, symbols)
+	testedByEdges := ExtractTestedByEdges(in.Root, in.Symbols)
 	edges = append(edges, testedByEdges...)
 
 	// IMPORTS edges (File→Package) + external Package vertices.
-	impVertices, impEdges := buildImportsGraph(pkgDirs, fileImports)
+	impVertices, impEdges := buildImportsGraph(pkgDirs, in.FileImports)
 	vertices = append(vertices, impVertices...)
 	edges = append(edges, impEdges...)
 
 	// USES edges (File→File) from resolved Astro template component references.
 	// Unresolved refs are already dropped by indexParseFile; all refs here have
 	// a valid resolvedTo path.
-	for _, ref := range tplRefs {
+	for _, ref := range in.TplRefs {
 		edges = append(edges, edgeData{
 			FromLabel: "File",
 			FromKey:   ref.relFile,

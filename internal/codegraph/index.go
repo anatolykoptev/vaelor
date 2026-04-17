@@ -91,7 +91,15 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
 
-	vertices, edges := buildGraph(root, allFiles, allSymbols, cg, fileImports, allRels, allTplRefs)
+	vertices, edges := buildGraph(buildGraphInput{
+		Root:        root,
+		Files:       allFiles,
+		Symbols:     allSymbols,
+		CallGraph:   cg,
+		FileImports: fileImports,
+		Rels:        allRels,
+		TplRefs:     allTplRefs,
+	})
 
 	// Compute communities and inject into Symbol vertices before persisting.
 	injectCommunities(vertices, edges)
