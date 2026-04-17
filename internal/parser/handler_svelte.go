@@ -11,10 +11,16 @@ import (
 // tree-sitter grammar. Symbol line numbers are remapped back to the .svelte
 // file's coordinates via preproc.RemapSymbolLines.
 //
+// Supported (Svelte 5):
+//   - Rune call expressions ($state, $derived, $effect, $props, $bindable, $inspect
+//     and their dotted variants) are detected after TS parsing and emitted as
+//     KindRune symbols with a RuneKind field set to the canonical category.
+//
 // Not supported (silently ignored, matches plan scope):
 //   - Template markup ({#if}, {#each}, <slot>, component invocations)
 //   - <style> blocks
-//   - Svelte 5 runes as first-class symbols (parsed as plain function calls)
+//   - Destructured $props() bindings (e.g. let { name } = $props() — skipped,
+//     known limitation; the standalone $props() call is still emitted)
 type svelteHandler struct {
 	parserBase
 }
@@ -40,8 +46,15 @@ func (h *svelteHandler) MapCapture(captureName string, node *sitter.Node, source
 	return tsLang.MapCapture(captureName, node, source)
 }
 
-// Parse extracts <script> blocks, delegates to the TypeScript parser, then
-// remaps symbol line numbers back to the original .svelte file coordinates.
+// Parse extracts <script> blocks, delegates to the TypeScript parser, remaps
+// symbol line numbers back to the original .svelte file coordinates, then
+// appends Svelte 5 rune symbols detected by the post-parse rune classifier.
 func (h *svelteHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
-	return parseWithTSAndRemap(path, preproc.ExtractSvelte(src), "svelte", opts)
+	vs := preproc.ExtractSvelte(src)
+	result, err := parseWithTSAndRemap(path, vs, "svelte", opts)
+	if err != nil {
+		return nil, err
+	}
+	appendRuneSymbols(result, vs, path)
+	return result, nil
 }
