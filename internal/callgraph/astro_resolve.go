@@ -99,6 +99,9 @@ func scanFrontmatterBindings(src []byte) map[string]string {
 	bindings := make(map[string]string)
 	fm := src[fmStart:fmEnd]
 
+	var stmtBuf strings.Builder
+	inStmt := false
+
 	for len(fm) > 0 {
 		nl := bytes.IndexByte(fm, '\n')
 		var line []byte
@@ -109,11 +112,40 @@ func scanFrontmatterBindings(src []byte) map[string]string {
 			line = fm[:nl]
 			fm = fm[nl+1:]
 		}
-		line = bytes.TrimSpace(line)
-		if !bytes.HasPrefix(line, []byte("import ")) {
+		// Strip Windows \r if present.
+		line = bytes.TrimRight(line, "\r")
+		trimmed := bytes.TrimSpace(line)
+
+		if inStmt {
+			// Continuation of a multi-line import statement.
+			stmtBuf.WriteByte(' ')
+			stmtBuf.Write(trimmed)
+			// Statement is complete once the continuation line delivers " from ".
+			if bytes.Contains(trimmed, []byte(" from ")) {
+				parseImportLine(stmtBuf.String(), bindings)
+				stmtBuf.Reset()
+				inStmt = false
+			}
 			continue
 		}
-		parseImportLine(string(line), bindings)
+
+		if !bytes.HasPrefix(trimmed, []byte("import ")) {
+			continue
+		}
+		// Start of an import statement.
+		if bytes.Contains(trimmed, []byte(" from ")) {
+			// Single-line — handle directly.
+			parseImportLine(string(trimmed), bindings)
+		} else {
+			// Multi-line: accumulate until " from " appears.
+			stmtBuf.Reset()
+			stmtBuf.Write(trimmed)
+			inStmt = true
+		}
+	}
+	// Flush any incomplete statement (shouldn't happen in valid Astro, but be safe).
+	if inStmt && stmtBuf.Len() > 0 {
+		parseImportLine(stmtBuf.String(), bindings)
 	}
 	return bindings
 }
@@ -130,7 +162,7 @@ func findFMClose(src []byte, fmStart int) int {
 		}
 		lineStart := nl + 1
 		if bytes.HasPrefix(search[lineStart:], []byte("---")) {
-			return orig + (len(src[orig:]) - len(search)) + lineStart
+			return orig + lineStart
 		}
 		search = search[lineStart:]
 		orig += lineStart
