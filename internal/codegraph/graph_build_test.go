@@ -29,7 +29,7 @@ func TestBuildGraphSymbolComplexityProps(t *testing.T) {
 		},
 	}
 	cg := &callgraph.CallGraph{}
-	vertices, _ := buildGraph(root, files, symbols, cg, nil, nil, nil)
+	vertices, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg})
 
 	var fooFound, barFound bool
 	for _, v := range vertices {
@@ -80,7 +80,7 @@ func TestBuildGraphInheritsEdges(t *testing.T) {
 		{Subject: "MyReader", Target: "Reader", Kind: parser.RelEmbeds, Line: 8, File: "/repo/main.go"},
 	}
 	cg := &callgraph.CallGraph{}
-	_, edges := buildGraph(root, files, symbols, cg, nil, rels, nil)
+	_, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, Rels: rels})
 
 	found := false
 	for _, e := range edges {
@@ -117,7 +117,7 @@ func TestBuildGraphPageRankProps(t *testing.T) {
 			{Caller: symMain, Callee: symHelper, Line: 2},
 		},
 	}
-	vertices, _ := buildGraph(root, files, []*parser.Symbol{symMain, symHelper}, cg, nil, nil, nil)
+	vertices, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: []*parser.Symbol{symMain, symHelper}, CallGraph: cg})
 
 	var mainPR, helperPR string
 	for _, v := range vertices {
@@ -160,7 +160,7 @@ func TestBuildGraphInheritsEdgesExternalTarget(t *testing.T) {
 		{Subject: "MyReader", Target: "ExternalInterface", Kind: parser.RelImplements, Line: 8, File: "/repo/main.go"},
 	}
 	cg := &callgraph.CallGraph{}
-	_, edges := buildGraph(root, files, symbols, cg, nil, rels, nil)
+	_, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, Rels: rels})
 
 	for _, e := range edges {
 		if e.EdgeLabel == "INHERITS" || e.EdgeLabel == "IMPLEMENTS" {
