@@ -2,12 +2,12 @@ package explore
 
 import (
 	"math"
-	"path/filepath"
 	"strings"
 	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -55,11 +55,11 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 	}
 
 	var (
-		funcCount      int
+		funcCount       int
 		totalComplexity int
-		maxComplexity  int
-		totalFuncLines int
-		exportedCount  int
+		maxComplexity   int
+		totalFuncLines  int
+		exportedCount   int
 		documentedCount int
 	)
 
@@ -96,11 +96,7 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 
 	testFiles := 0
 	for _, f := range files {
-		base := filepath.Base(f.RelPath)
-		if strings.HasSuffix(base, "_test.go") ||
-			strings.HasPrefix(base, "test_") ||
-			strings.Contains(base, ".test.") ||
-			strings.Contains(base, ".spec.") {
+		if langutil.IsTestFile(f.RelPath) {
 			testFiles++
 			continue
 		}

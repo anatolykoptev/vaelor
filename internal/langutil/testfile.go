@@ -6,12 +6,14 @@ import (
 	"strings"
 )
 
-// testSuffixes covers Go, Python, Rust, JS/TS test file patterns.
+// testSuffixes covers Go, Python, Rust test file patterns.
 var testSuffixes = []string{
 	"_test.go", "_test.py", "_test.rs",
-	".test.ts", ".test.js", ".test.tsx",
-	".spec.ts", ".spec.js", ".spec.tsx",
 }
+
+// testInfixes covers JS/TS/Svelte/Astro infix-based test file patterns.
+// TestStem uses these to extract the stem (e.g. "Button" from "Button.test.ts").
+var testInfixes = []string{".test.", ".spec."}
 
 // testExactNames covers exact file names that are test files.
 var testExactNames = []string{"tests.rs"}
@@ -22,8 +24,23 @@ var testPrefixes = []string{"test_"}
 // testDirs covers common test directories.
 var testDirs = []string{"/test/", "/tests/"}
 
+// TestStem extracts the logical stem from an infix-based test file path
+// (e.g. "Button.test.ts" → "Button", true; "Modal.spec.svelte" → "Modal", true).
+// It uses the first occurrence of ".test." or ".spec." in the file base-name.
+// Returns ("", false) if the path does not contain a recognised infix or if
+// the stem before the infix is empty (e.g. ".test.ts").
+func TestStem(path string) (stem string, ok bool) {
+	base := filepath.Base(path)
+	for _, infix := range testInfixes {
+		if idx := strings.Index(base, infix); idx > 0 {
+			return base[:idx], true
+		}
+	}
+	return "", false
+}
+
 // IsTestFile returns true if the path looks like a test file
-// based on suffix, prefix, or containing directory.
+// based on suffix, prefix, infix, or containing directory.
 func IsTestFile(path string) bool {
 	lower := strings.ToLower(path)
 	base := filepath.Base(lower)
@@ -42,6 +59,9 @@ func IsTestFile(path string) bool {
 		if strings.HasPrefix(base, pre) {
 			return true
 		}
+	}
+	if _, ok := TestStem(lower); ok {
+		return true
 	}
 	for _, dir := range testDirs {
 		if strings.Contains(lower, dir) {
