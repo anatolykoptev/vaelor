@@ -127,6 +127,9 @@ func TestDetectLanguage(t *testing.T) {
 		{"component.tsx", "typescript"},
 		{"index.js", "javascript"},
 		{"module.mjs", "javascript"},
+		{"module.cjs", "javascript"},
+		{"module.cts", "typescript"},
+		{"module.mts", "typescript"},
 		{"main.rs", "rust"},
 		{"Main.java", "java"},
 		{"main.c", "c"},
@@ -155,6 +158,22 @@ func TestParseUnsupportedExtension(t *testing.T) {
 	_, err := parser.ParseFile("file.unknown", []byte("content"), parser.ParseOpts{})
 	if err == nil {
 		t.Error("expected error for unsupported extension, got nil")
+	}
+}
+
+func TestParseFileAliases(t *testing.T) {
+	src := []byte("function hello() { return 42; }\n")
+	exts := []string{".mjs", ".cjs", ".cts", ".mts"}
+	for _, ext := range exts {
+		t.Run(ext, func(t *testing.T) {
+			result, err := parser.ParseFile("module"+ext, src, parser.ParseOpts{})
+			if err != nil {
+				t.Fatalf("ParseFile(%q): unexpected error: %v", ext, err)
+			}
+			if len(result.Symbols) == 0 {
+				t.Errorf("ParseFile(%q): expected at least one symbol, got none", ext)
+			}
+		})
 	}
 }
 
@@ -508,9 +527,9 @@ func TestParseCFile(t *testing.T) {
 		kind parser.NodeKind
 	}
 	wantSymbols := []wantSym{
-		{"Config", parser.KindType},       // typedef struct { ... } Config
-		{"Server", parser.KindStruct},     // struct Server { ... }
-		{"Status", parser.KindType},       // enum Status
+		{"Config", parser.KindType},   // typedef struct { ... } Config
+		{"Server", parser.KindStruct}, // struct Server { ... }
+		{"Status", parser.KindType},   // enum Status
 		{"create_config", parser.KindFunction},
 		{"run_server", parser.KindFunction},
 	}
@@ -733,13 +752,13 @@ func TestParseCSharpFile(t *testing.T) {
 		kind parser.NodeKind
 	}
 	wantSymbols := []wantSym{
-		{"Server", parser.KindType},      // namespace
-		{"Point", parser.KindStruct},     // struct
+		{"Server", parser.KindType},  // namespace
+		{"Point", parser.KindStruct}, // struct
 		{"IHandler", parser.KindInterface},
 		{"Config", parser.KindClass},
-		{"Config", parser.KindMethod},    // constructor
+		{"Config", parser.KindMethod}, // constructor
 		{"Address", parser.KindMethod},
-		{"Status", parser.KindType},      // enum
+		{"Status", parser.KindType}, // enum
 	}
 
 	for _, ws := range wantSymbols {
