@@ -2,6 +2,7 @@ package parser
 
 import (
 	_ "embed"
+	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
@@ -41,6 +42,23 @@ func init() {
 
 func (h *typescriptHandler) Extensions() []string {
 	return []string{".ts", ".js", ".mjs", ".cjs", ".cts", ".mts"}
+}
+
+// Parse parses the source file. For .svelte.ts and .svelte.js files, rune symbols
+// are appended after normal TypeScript parsing — these files are Svelte 5 rune modules
+// (shared state outside .svelte components) and use the same rune syntax.
+func (h *typescriptHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
+	result, err := h.parserBase.Parse(path, src, opts)
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasSuffix(path, ".svelte.ts") || strings.HasSuffix(path, ".svelte.js") {
+		for _, sym := range collectRuneSymbols(src, path) {
+			sym.Language = result.Language
+			result.Symbols = append(result.Symbols, sym)
+		}
+	}
+	return result, nil
 }
 
 // MapCapture converts a tree-sitter capture to a Symbol for TypeScript/JavaScript.

@@ -82,7 +82,7 @@ type Symbol struct {
 	Attributes []string
 
 	// RuneKind is the canonical Svelte 5 rune category for KindRune symbols.
-	// Values: "state", "derived", "effect", "props", "bindable", "inspect".
+	// Values: "state", "derived", "effect", "props", "bindable", "inspect", "host".
 	// Empty for all non-rune symbols.
 	RuneKind string
 }

@@ -55,6 +55,23 @@ func TestRunesBasic(t *testing.T) {
 		}
 	}
 
+	// Line 5 of runes_basic.svelte is `let { name = "anon" } = $props();` — destructured
+	// $props must emit exactly one KindRune with RuneKind="props" and StartLine=5.
+	propsDestructured, hasPD := byName["$props"]
+	if !hasPD {
+		t.Errorf("missing $props symbol for destructured let { name } = $props(); got %v", runeSymbolNames(result.Symbols))
+	} else {
+		if propsDestructured.Kind != parser.KindRune {
+			t.Errorf("$props: Kind = %q, want rune", propsDestructured.Kind)
+		}
+		if propsDestructured.RuneKind != "props" {
+			t.Errorf("$props: RuneKind = %q, want props", propsDestructured.RuneKind)
+		}
+		if propsDestructured.StartLine != 5 {
+			t.Errorf("$props: StartLine = %d, want 5", propsDestructured.StartLine)
+		}
+	}
+
 	// Standalone $effect, $effect.pre, $effect.root, $effect.tracking, $effect.pending.
 	if len(runeSymbolsWithKind(result.Symbols, "effect")) < 3 {
 		t.Errorf("expected at least 3 effect rune symbols (pre+root+tracking/pending), got %d; all: %v",
