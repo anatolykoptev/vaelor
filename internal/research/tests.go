@@ -69,6 +69,19 @@ func testCandidates(prod string) []string {
 			filepath.Join(dir, stem+".test"+ext),
 			filepath.Join(dir, stem+".spec"+ext),
 		)
+	case ".svelte":
+		out = append(out,
+			filepath.Join(dir, stem+".test.svelte"),
+			filepath.Join(dir, stem+".spec.svelte"),
+			filepath.Join(dir, "__tests__", stem+".test.svelte"),
+			filepath.Join(dir, "__tests__", stem+".test.ts"),
+		)
+	case ".astro":
+		out = append(out,
+			filepath.Join(dir, stem+".test.astro"),
+			filepath.Join(dir, stem+".spec.astro"),
+			filepath.Join(dir, "__tests__", stem+".test.astro"),
+		)
 	}
 	return out
 }
