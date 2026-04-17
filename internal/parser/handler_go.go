@@ -21,10 +21,7 @@ var goRelsQueryBytes []byte
 
 // goHandler implements LanguageHandler for Go source files.
 type goHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
-	relsQuery *sitter.Query
+	parserBase
 }
 
 // goLang is the singleton Go language handler, registered on package init.
@@ -32,36 +29,20 @@ var goLang = &goHandler{}
 
 func init() {
 	lang := golang.GetLanguage()
-	q, err := sitter.NewQuery(goQueryBytes, lang)
-	if err != nil {
-		panic("go.scm query compile error: " + err.Error())
+	goLang.parserBase = parserBase{
+		lang: "go",
+		caps: Capabilities{
+			SitterLanguage:     lang,
+			TagsQuery:          mustCompileQuery(goQueryBytes, lang, "go.scm"),
+			CallsQuery:         mustCompileQuery(goCallsQueryBytes, lang, "go_calls.scm"),
+			RelationshipsQuery: mustCompileQuery(goRelsQueryBytes, lang, "go_rels.scm"),
+			MapCapture:         goLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(goCallsQueryBytes, lang)
-	if err != nil {
-		panic("go_calls.scm query compile error: " + err.Error())
-	}
-	rq, err := sitter.NewQuery(goRelsQueryBytes, lang)
-	if err != nil {
-		panic("go_rels.scm query compile error: " + err.Error())
-	}
-	goLang.lang = lang
-	goLang.query = q
-	goLang.callQuery = cq
-	goLang.relsQuery = rq
 	registerHandler(goLang)
 }
 
-func (h *goHandler) Language() string { return "go" }
-
 func (h *goHandler) Extensions() []string { return []string{".go"} }
-
-func (h *goHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *goHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *goHandler) CallsQuery() *sitter.Query { return h.callQuery }
-
-func (h *goHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol.
 // Returns nil for captures that are not top-level declarations.
@@ -222,4 +203,3 @@ func detectTypeKind(typeSpec *sitter.Node) NodeKind {
 		return KindType
 	}
 }
-

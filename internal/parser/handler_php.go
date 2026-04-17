@@ -16,9 +16,7 @@ var phpCallsQueryBytes []byte
 
 // phpHandler implements LanguageHandler for PHP source files.
 type phpHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
+	parserBase
 }
 
 // phpLang is the singleton PHP language handler, registered on package init.
@@ -26,29 +24,19 @@ var phpLang = &phpHandler{}
 
 func init() {
 	lang := php.GetLanguage()
-	q, err := sitter.NewQuery(phpQueryBytes, lang)
-	if err != nil {
-		panic("php.scm query compile error: " + err.Error())
+	phpLang.parserBase = parserBase{
+		lang: "php",
+		caps: Capabilities{
+			SitterLanguage: lang,
+			TagsQuery:      mustCompileQuery(phpQueryBytes, lang, "php.scm"),
+			CallsQuery:     mustCompileQuery(phpCallsQueryBytes, lang, "php_calls.scm"),
+			MapCapture:     phpLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(phpCallsQueryBytes, lang)
-	if err != nil {
-		panic("php_calls.scm query compile error: " + err.Error())
-	}
-	phpLang.lang = lang
-	phpLang.query = q
-	phpLang.callQuery = cq
 	registerHandler(phpLang)
 }
 
-func (h *phpHandler) Language() string { return "php" }
-
 func (h *phpHandler) Extensions() []string { return []string{".php"} }
-
-func (h *phpHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *phpHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *phpHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for PHP.
 func (h *phpHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

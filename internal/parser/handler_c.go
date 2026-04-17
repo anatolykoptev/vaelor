@@ -9,10 +9,10 @@ import (
 
 // C/C++ tree-sitter node type name constants shared across C and C++ handlers.
 const (
-	nodeIdentifier        = "identifier"
-	nodeFieldIdentifier   = "field_identifier"
-	nodeFunctionDeclarator = "function_declarator"
-	nodePointerDeclarator  = "pointer_declarator"
+	nodeIdentifier          = "identifier"
+	nodeFieldIdentifier     = "field_identifier"
+	nodeFunctionDeclarator  = "function_declarator"
+	nodePointerDeclarator   = "pointer_declarator"
 	nodeReferenceDeclarator = "reference_declarator"
 	nodeQualifiedIdentifier = "qualified_identifier"
 )
@@ -25,9 +25,7 @@ var cCallsQueryBytes []byte
 
 // cHandler implements LanguageHandler for C source files.
 type cHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
+	parserBase
 }
 
 // cLang is the singleton C language handler, registered on package init.
@@ -35,29 +33,19 @@ var cLang = &cHandler{}
 
 func init() {
 	lang := c.GetLanguage()
-	q, err := sitter.NewQuery(cQueryBytes, lang)
-	if err != nil {
-		panic("c.scm query compile error: " + err.Error())
+	cLang.parserBase = parserBase{
+		lang: "c",
+		caps: Capabilities{
+			SitterLanguage: lang,
+			TagsQuery:      mustCompileQuery(cQueryBytes, lang, "c.scm"),
+			CallsQuery:     mustCompileQuery(cCallsQueryBytes, lang, "c_calls.scm"),
+			MapCapture:     cLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(cCallsQueryBytes, lang)
-	if err != nil {
-		panic("c_calls.scm query compile error: " + err.Error())
-	}
-	cLang.lang = lang
-	cLang.query = q
-	cLang.callQuery = cq
 	registerHandler(cLang)
 }
 
-func (h *cHandler) Language() string { return "c" }
-
 func (h *cHandler) Extensions() []string { return []string{".c", ".h"} }
-
-func (h *cHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *cHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *cHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for C.
 func (h *cHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

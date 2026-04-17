@@ -16,9 +16,7 @@ var rubyCallsQueryBytes []byte
 
 // rubyHandler implements LanguageHandler for Ruby source files.
 type rubyHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
+	parserBase
 }
 
 // rubyLang is the singleton Ruby language handler, registered on package init.
@@ -26,29 +24,19 @@ var rubyLang = &rubyHandler{}
 
 func init() {
 	lang := ruby.GetLanguage()
-	q, err := sitter.NewQuery(rubyQueryBytes, lang)
-	if err != nil {
-		panic("ruby.scm query compile error: " + err.Error())
+	rubyLang.parserBase = parserBase{
+		lang: "ruby",
+		caps: Capabilities{
+			SitterLanguage: lang,
+			TagsQuery:      mustCompileQuery(rubyQueryBytes, lang, "ruby.scm"),
+			CallsQuery:     mustCompileQuery(rubyCallsQueryBytes, lang, "ruby_calls.scm"),
+			MapCapture:     rubyLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(rubyCallsQueryBytes, lang)
-	if err != nil {
-		panic("ruby_calls.scm query compile error: " + err.Error())
-	}
-	rubyLang.lang = lang
-	rubyLang.query = q
-	rubyLang.callQuery = cq
 	registerHandler(rubyLang)
 }
 
-func (h *rubyHandler) Language() string { return "ruby" }
-
 func (h *rubyHandler) Extensions() []string { return []string{".rb"} }
-
-func (h *rubyHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *rubyHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *rubyHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for Ruby.
 func (h *rubyHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
