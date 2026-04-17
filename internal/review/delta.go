@@ -166,15 +166,8 @@ func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 			}
 		case "svelte", "astro", "typescript", "javascript":
 			// File-based: Button.test.ts or Modal.spec.svelte → mark stem "Button"/"Modal".
-			base := s.File
-			if idx := strings.LastIndex(base, "/"); idx >= 0 {
-				base = base[idx+1:]
-			}
-			for _, infix := range []string{".test.", ".spec."} {
-				if idx := strings.Index(base, infix); idx > 0 {
-					tested[base[:idx]] = true
-					break
-				}
+			if stem, ok := langutil.TestStem(s.File); ok {
+				tested[stem] = true
 			}
 		}
 	}
