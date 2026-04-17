@@ -449,6 +449,71 @@ func TestTestCandidatesPython(t *testing.T) {
 	}
 }
 
+func TestTestCandidatesSvelte(t *testing.T) {
+	cases := []struct {
+		prod string
+		want []string
+	}{
+		{
+			prod: "Button.svelte",
+			want: []string{"Button.test.svelte", "Button.spec.svelte", "__tests__/Button.test.svelte", "__tests__/Button.test.ts"},
+		},
+		{
+			prod: "src/components/Modal.svelte",
+			want: []string{
+				"src/components/Modal.test.svelte",
+				"src/components/Modal.spec.svelte",
+				"src/components/__tests__/Modal.test.svelte",
+				"src/components/__tests__/Modal.test.ts",
+			},
+		},
+	}
+	for _, tc := range cases {
+		got := testCandidates(tc.prod)
+		gotSet := make(map[string]bool, len(got))
+		for _, c := range got {
+			gotSet[c] = true
+		}
+		for _, w := range tc.want {
+			if !gotSet[w] {
+				t.Errorf("testCandidates(%q): missing %q; got %v", tc.prod, w, got)
+			}
+		}
+	}
+}
+
+func TestTestCandidatesAstro(t *testing.T) {
+	cases := []struct {
+		prod string
+		want []string
+	}{
+		{
+			prod: "Layout.astro",
+			want: []string{"Layout.test.astro", "Layout.spec.astro", "__tests__/Layout.test.astro"},
+		},
+		{
+			prod: "src/pages/Index.astro",
+			want: []string{
+				"src/pages/Index.test.astro",
+				"src/pages/Index.spec.astro",
+				"src/pages/__tests__/Index.test.astro",
+			},
+		},
+	}
+	for _, tc := range cases {
+		got := testCandidates(tc.prod)
+		gotSet := make(map[string]bool, len(got))
+		for _, c := range got {
+			gotSet[c] = true
+		}
+		for _, w := range tc.want {
+			if !gotSet[w] {
+				t.Errorf("testCandidates(%q): missing %q; got %v", tc.prod, w, got)
+			}
+		}
+	}
+}
+
 func mustWriteFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
