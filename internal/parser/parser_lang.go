@@ -5,17 +5,28 @@ import (
 	"sort"
 )
 
-// SupportedLanguages returns the deduplicated list of language names from the
-// handler registry, sorted alphabetically.
+// SupportedLanguages returns the deduplicated list of tree-sitter-supported
+// language names, sorted alphabetically. Derives from the handler registry
+// plus extLanguageOverride values — so "javascript" is included even though
+// no handler's Language() returns it (it's served by typescriptHandler).
+// Fallback-only languages (kotlin, scala, lua, perl, swift, dart, elixir)
+// are NOT included — they have no tree-sitter grammar.
 func SupportedLanguages() []string {
 	seen := make(map[string]struct{})
-	var langs []string
-	for _, h := range registry {
-		name := h.Language()
+	add := func(name string) {
 		if _, ok := seen[name]; ok {
-			continue
+			return
 		}
 		seen[name] = struct{}{}
+	}
+	for _, h := range registry {
+		add(h.Language())
+	}
+	for _, name := range extLanguageOverride {
+		add(name)
+	}
+	langs := make([]string, 0, len(seen))
+	for name := range seen {
 		langs = append(langs, name)
 	}
 	sort.Strings(langs)
@@ -26,6 +37,9 @@ func SupportedLanguages() []string {
 // match the canonical language name for that extension. For example, the
 // TypeScript handler also handles .js/.mjs/.cjs (same tree-sitter grammar) but
 // those files are "javascript", not "typescript".
+//
+// Keep entries in sync with typescriptHandler.Extensions() — if a new JS
+// variant is added there, it must appear here too.
 var extLanguageOverride = map[string]string{
 	".js":  "javascript",
 	".jsx": "javascript",

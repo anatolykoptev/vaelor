@@ -161,6 +161,16 @@ func TestParseUnsupportedExtension(t *testing.T) {
 	}
 }
 
+func TestSupportedLanguages(t *testing.T) {
+	langs := parser.SupportedLanguages()
+	mustHave := []string{"go", "python", "typescript", "javascript", "rust", "java", "c", "cpp", "ruby", "csharp", "php"}
+	for _, want := range mustHave {
+		if !slices.Contains(langs, want) {
+			t.Errorf("SupportedLanguages missing %q; got %v", want, langs)
+		}
+	}
+}
+
 func TestParseFileAliases(t *testing.T) {
 	src := []byte("function hello() { return 42; }\n")
 	cases := []struct {
