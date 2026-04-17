@@ -9,6 +9,9 @@ type IndexerConfig struct {
 }
 
 // indexerRegistry maps language names to their SCIP indexer configurations.
+// Note: svelte and astro are intentionally absent:
+// - astro has no SCIP indexer
+// - svelte uses svelte-language-tools which emits LSIF (not SCIP)
 var indexerRegistry = map[string]IndexerConfig{
 	"go":         {Name: "scip-go"},
 	"typescript": {Name: "scip-typescript", Args: []string{"index"}},
