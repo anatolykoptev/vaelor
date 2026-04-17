@@ -12,9 +12,18 @@ import (
 // file's coordinates via preproc.RemapSymbolLines.
 //
 // Supported (Svelte 5):
-//   - Rune call expressions ($state, $derived, $effect, $props, $bindable, $inspect
-//     and their dotted variants) are detected after TS parsing and emitted as
-//     KindRune symbols with a RuneKind field set to the canonical category.
+//   - Rune call expressions are detected after TS parsing and emitted as KindRune
+//     symbols with a RuneKind field set to the canonical category. Canonical list
+//     (sourced from Svelte 5 compiler CallExpression visitor):
+//     state:    $state, $state.raw, $state.eager, $state.snapshot
+//     derived:  $derived, $derived.by
+//     effect:   $effect, $effect.pre, $effect.tracking, $effect.root, $effect.pending
+//     props:    $props, $props.id
+//     bindable: $bindable
+//     inspect:  $inspect, $inspect.trace
+//     host:     $host
+//   - NOT classified as runes: $$slots/$$props/$$restProps (Svelte 4 legacy),
+//     $.proxy/$.computed/etc. (Svelte 5 internals), $inspect.with (chained method).
 //
 // Not supported (silently ignored, matches plan scope):
 //   - Template markup ({#if}, {#each}, <slot>, component invocations)

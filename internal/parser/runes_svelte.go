@@ -9,21 +9,36 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
-// runeKindMap maps canonical rune call texts (as they appear in source, including
-// dotted variants) to their RuneKind category string.
+// runeKindMap is the canonical Svelte 5 rune list, sourced from
+// packages/svelte/src/compiler/phases/2-analyze/visitors/CallExpression.js
+// (the switch-case in CallExpression visitor), Svelte v5.x main branch as of 2026-04-16.
+//
+// Anti-patterns NOT in this map (do not add):
+//   - $$slots, $$props, $$restProps — legacy Svelte 4 double-dollar variables, not runes.
+//   - $.proxy, $.computed, $.user_effect, etc. — Svelte 5 internal helpers (start with "$.").
+//   - $inspect.with — this is a CHAINED method on $inspect(value) results, not an
+//     independent rune. On the AST level it surfaces as a separate call_expression
+//     on the result of $inspect(); the inner $inspect(value) is correctly classified.
+//
+// Detection strategy: direct map lookup on the call target text. No prefix matching, no regex.
 var runeKindMap = map[string]string{
-	"$state":        "state",
-	"$state.raw":    "state",
-	"$derived":      "derived",
-	"$derived.by":   "derived",
-	"$effect":       "effect",
-	"$effect.pre":   "effect",
-	"$effect.root":  "effect",
-	"$props":        "props",
-	"$props.id":     "props",
-	"$bindable":     "bindable",
-	"$inspect":      "inspect",
-	"$inspect.with": "inspect",
+	"$state":           "state",
+	"$state.raw":       "state",
+	"$state.eager":     "state",
+	"$state.snapshot":  "state",
+	"$derived":         "derived",
+	"$derived.by":      "derived",
+	"$effect":          "effect",
+	"$effect.pre":      "effect",
+	"$effect.tracking": "effect",
+	"$effect.root":     "effect",
+	"$effect.pending":  "effect",
+	"$props":           "props",
+	"$props.id":        "props",
+	"$bindable":        "bindable",
+	"$inspect":         "inspect",
+	"$inspect.trace":   "inspect",
+	"$host":            "host",
 }
 
 // appendRuneSymbols walks vs.Code parsed with the TS grammar, finds rune call
@@ -72,8 +87,8 @@ func appendRuneSymbols(result *ParseResult, vs *preproc.VirtualSource, path stri
 
 // walkRuneNodes recursively walks the AST and emits KindRune symbols for:
 //   - variable_declarator whose value is a rune call_expression
-//   - expression_statement (or expression_statement > await_expression) that is
-//     a standalone rune call_expression
+//   - expression_statement whose expression is (or begins with) a rune call_expression,
+//     including chained forms like $inspect(val).with(cb) where $inspect is the root call
 func walkRuneNodes(node *sitter.Node, src []byte, out *[]*Symbol, path string) {
 	switch node.Type() {
 	case "variable_declarator":
@@ -81,10 +96,11 @@ func walkRuneNodes(node *sitter.Node, src []byte, out *[]*Symbol, path string) {
 			*out = append(*out, sym)
 		}
 	case "expression_statement":
-		// expression_statement > call_expression (standalone rune call)
+		// Walk the expression chain rooted at child(0) to find the innermost
+		// rune call_expression. Handles both direct calls ($effect(...)) and
+		// chained calls ($inspect(val).with(cb)) where the rune is the chain root.
 		if node.ChildCount() > 0 {
-			child := node.Child(0)
-			if sym := runeFromCallExpr(child, src, path, ""); sym != nil {
+			if sym := runeFromExprChain(node.Child(0), src, path); sym != nil {
 				*out = append(*out, sym)
 			}
 		}
@@ -92,6 +108,34 @@ func walkRuneNodes(node *sitter.Node, src []byte, out *[]*Symbol, path string) {
 	for i := range int(node.ChildCount()) {
 		walkRuneNodes(node.Child(i), src, out, path)
 	}
+}
+
+// runeFromExprChain finds the innermost rune call_expression in a call chain.
+// Handles:
+//   - direct:   $effect(...)           → call_expression{function=identifier}
+//   - chained:  $inspect(val).with(cb) → call_expression{function=member_expression{
+//     object=call_expression{function=identifier("$inspect")}}}
+//
+// Returns the first (leftmost) rune call found by peeling the chain inward.
+func runeFromExprChain(node *sitter.Node, src []byte, path string) *Symbol {
+	if node == nil {
+		return nil
+	}
+	if node.Type() != "call_expression" {
+		return nil
+	}
+	// Try this node first (handles direct rune call).
+	if sym := runeFromCallExpr(node, src, path, ""); sym != nil {
+		return sym
+	}
+	// If function is a member_expression, the object might be a rune call chain.
+	// e.g. $inspect(val).with(cb): function=member_expression{object=$inspect(val)}
+	funcNode := node.ChildByFieldName("function")
+	if funcNode != nil && funcNode.Type() == "member_expression" {
+		obj := funcNode.ChildByFieldName("object")
+		return runeFromExprChain(obj, src, path)
+	}
+	return nil
 }
 
 // runeFromDeclarator attempts to build a KindRune symbol from a variable_declarator
