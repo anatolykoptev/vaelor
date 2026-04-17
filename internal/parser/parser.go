@@ -26,6 +26,10 @@ const (
 	KindImport    NodeKind = "import"
 	KindClass     NodeKind = "class"
 	KindModule    NodeKind = "module"
+	// KindRune is a Svelte 5 rune call expression ($state, $derived, $effect, etc.).
+	// Svelte-only: the rune detector in runes_svelte.go synthesizes these symbols
+	// after tree-sitter parsing and sets RuneKind to the canonical rune category.
+	KindRune NodeKind = "rune"
 )
 
 // Symbol is a named code entity extracted from a parsed file.
@@ -76,6 +80,11 @@ type Symbol struct {
 
 	// Attributes are annotations/decorators (e.g. "#[test]", "#[derive(Clone)]").
 	Attributes []string
+
+	// RuneKind is the canonical Svelte 5 rune category for KindRune symbols.
+	// Values: "state", "derived", "effect", "props", "bindable", "inspect".
+	// Empty for all non-rune symbols.
+	RuneKind string
 }
 
 // ParseResult contains the symbols extracted from a single source file.
