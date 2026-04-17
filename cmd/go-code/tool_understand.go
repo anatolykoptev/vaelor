@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -50,14 +51,13 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 
 	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
 		Root:     root,
-		Focus:    input.Focus,
 		Language: input.Language,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
 
-	matches := compound.FilterByFocus(compound.FindSymbol(cg.Symbols, input.Symbol), input.Focus)
+	matches := filterByFocus(compound.FindSymbol(cg.Symbols, input.Symbol), input.Focus)
 
 	if len(matches) == 0 {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
@@ -83,6 +83,39 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
 	return textResult(string(data)), nil
+}
+
+// filterByFocus narrows a symbol list to those whose file path matches focus.
+// Strategy: exact → suffix → substring. Empty focus returns all symbols unchanged.
+func filterByFocus(symbols []*parser.Symbol, focus string) []*parser.Symbol {
+	if focus == "" {
+		return symbols
+	}
+	var exact []*parser.Symbol
+	for _, sym := range symbols {
+		if sym.File == focus {
+			exact = append(exact, sym)
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	var suffix []*parser.Symbol
+	for _, sym := range symbols {
+		if strings.HasSuffix(sym.File, focus) {
+			suffix = append(suffix, sym)
+		}
+	}
+	if len(suffix) > 0 {
+		return suffix
+	}
+	var sub []*parser.Symbol
+	for _, sym := range symbols {
+		if strings.Contains(sym.File, focus) {
+			sub = append(sub, sym)
+		}
+	}
+	return sub
 }
 
 // understandAmbiguousResult returns a JSON response listing ambiguous symbol matches.
