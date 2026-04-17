@@ -1,6 +1,7 @@
 package preproc
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -63,14 +64,7 @@ func TestExtractAstro_FrontmatterAndScript(t *testing.T) {
 	if !strings.Contains(string(vs.Code), "document") {
 		t.Errorf("missing script content")
 	}
-	foundPadding := false
-	for _, v := range vs.LineMap {
-		if v == 0 {
-			foundPadding = true
-			break
-		}
-	}
-	if !foundPadding {
+	if !slices.Contains(vs.LineMap, 0) {
 		t.Errorf("expected padding line between frontmatter and script")
 	}
 	assertLineMap(t, "fm+script", vs)

@@ -1,6 +1,7 @@
 package preproc
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -68,14 +69,7 @@ func TestExtractSvelte_MultipleBlocks(t *testing.T) {
 	assertLineMap(t, "multi-block", vs)
 
 	// Should have a padding line (0) between blocks.
-	foundPadding := false
-	for _, v := range vs.LineMap {
-		if v == 0 {
-			foundPadding = true
-			break
-		}
-	}
-	if !foundPadding {
+	if !slices.Contains(vs.LineMap, 0) {
 		t.Errorf("expected at least one padding line (0) in LineMap, got: %v", vs.LineMap)
 	}
 }

@@ -20,6 +20,8 @@ import "bytes"
 //   - <style> blocks
 //   - Template markup
 //   - Escaped &lt;script&gt; in string literals
+//   - Template literal strings containing <script> (backtick-quoted JS strings with
+//     embedded <script> markers may be misidentified as real script blocks)
 func ExtractSvelte(src []byte) *VirtualSource {
 	b := NewBuilder("svelte")
 	first := true
@@ -34,7 +36,16 @@ func ExtractSvelte(src []byte) *VirtualSource {
 		tagStart := pos + idx
 
 		// Find the closing '>' of the opening tag.
-		gtIdx := bytes.IndexByte(src[tagStart:], '>')
+		// Limit lookahead to one line or 512 bytes, whichever is shorter.
+		tagEndLimit := tagStart + 512
+		if tagEndLimit > len(src) {
+			tagEndLimit = len(src)
+		}
+		if nl := bytes.IndexByte(src[tagStart:tagEndLimit], '\n'); nl >= 0 {
+			// Allow '>' on the same line as the newline if it precedes it; cap at newline+1.
+			tagEndLimit = tagStart + nl + 1
+		}
+		gtIdx := bytes.IndexByte(src[tagStart:tagEndLimit], '>')
 		if gtIdx < 0 {
 			break // malformed
 		}
