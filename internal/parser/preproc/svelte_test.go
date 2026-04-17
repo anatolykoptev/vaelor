@@ -133,6 +133,39 @@ func TestExtractSvelte_AttrLiteralGt(t *testing.T) {
 	}
 }
 
+// TestExtractSvelte_BoundSingleLine verifies that a <script> whose opening tag
+// spans two lines (i.e. the closing '>' is on the second line) is not extracted.
+// The bound logic caps the '>' search to the first newline; since no '>' appears
+// on the same line as "<script", gtIdx < 0 → break → zero scripts returned.
+// Removing the newline-cap logic would allow the scanner to find '>' on the next
+// line and incorrectly extract the block.
+func TestExtractSvelte_BoundSingleLine(t *testing.T) {
+	// Opening tag spans two lines — '>' is on line 2, not line 1.
+	src := "<script\nsrc=\"really-long-attr\">\nlet x = 1;\n</script>\n"
+	vs := ExtractSvelte([]byte(src))
+	code := string(vs.Code)
+	if code != "" {
+		t.Errorf("BoundSingleLine: expected empty Code (multi-line open tag), got %q", code)
+	}
+}
+
+// TestExtractSvelte_BoundMaxBytes verifies that a malformed <script> tag whose
+// attribute value stretches beyond 512 bytes without a newline or '>' does not
+// cause the scanner to run away past the bound. The scanner hits the 512-byte
+// limit, finds no '>', and breaks. Removing the 512-byte cap would let the
+// scanner scan arbitrarily far and eventually find the '>' after the long pad.
+func TestExtractSvelte_BoundMaxBytes(t *testing.T) {
+	// Construct: <script src="<600 bytes of 'a'>">let x = 1;</script>
+	// The opening tag has no newline and no '>' within the first 512 bytes.
+	pad := strings.Repeat("a", 600)
+	src := `<script src="` + pad + `">let x = 1;</script>`
+	vs := ExtractSvelte([]byte(src))
+	code := string(vs.Code)
+	if code != "" {
+		t.Errorf("BoundMaxBytes: expected empty Code (no '>' within 512 bytes), got %q", code)
+	}
+}
+
 func TestExtractSvelte_OffsetLineMap(t *testing.T) {
 	// prefix = 3 lines; <script> tag is on line 4, content \n is still line 4.
 	prefix := "line1\nline2\nline3\n"               // lines 1-3
