@@ -22,7 +22,16 @@ var testExactNames = []string{"tests.rs"}
 var testPrefixes = []string{"test_"}
 
 // testDirs covers common test directories.
-var testDirs = []string{"/test/", "/tests/"}
+var testDirs = []string{"/test/", "/tests/", "/__tests__/"}
+
+// testFileExtensions is the allowlist of extensions recognised for infix-based
+// test file detection (.test.<ext> / .spec.<ext>). Restricting to known frontend
+// extensions prevents false positives on arbitrary files like foo.test.md or
+// bar.spec.json that happen to contain ".test." in the name.
+var testFileExtensions = []string{
+	".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+	".svelte", ".astro", ".vue",
+}
 
 // TestStem extracts the logical stem from an infix-based test file path
 // (e.g. "Button.test.ts" → "Button", true; "Modal.spec.svelte" → "Modal", true).
@@ -33,7 +42,13 @@ func TestStem(path string) (stem string, ok bool) {
 	base := filepath.Base(path)
 	for _, infix := range testInfixes {
 		if idx := strings.Index(base, infix); idx > 0 {
-			return base[:idx], true
+			ext := filepath.Ext(base)
+			for _, allowed := range testFileExtensions {
+				if ext == allowed {
+					return base[:idx], true
+				}
+			}
+			return "", false
 		}
 	}
 	return "", false
