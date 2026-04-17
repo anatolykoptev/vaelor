@@ -51,6 +51,47 @@ func TestRemapSymbolLines(t *testing.T) {
 	}
 }
 
+// TestRemapSymbolLines_EndLinePadding covers the branch where sym.StartLine
+// maps to a real original line but sym.EndLine maps to 0 (padding).
+// The function must fall back to EndLine = StartLine (origStart) so the
+// range stays non-empty.
+func TestRemapSymbolLines_EndLinePadding(t *testing.T) {
+	// Virtual line map:
+	//   virt 1 → orig 5  (real)
+	//   virt 2 → orig 0  (padding)
+	//   virt 3 → orig 7  (real)
+	vs := &preproc.VirtualSource{
+		Code:    []byte("a\nb\nc\n"),
+		Lang:    "astro",
+		LineMap: []uint32{5, 0, 7},
+	}
+	result := &ParseResult{
+		File:     "test.astro",
+		Language: "typescript",
+		Symbols: []*Symbol{
+			// StartLine=1 (→ orig 5, real), EndLine=2 (→ orig 0, padding).
+			// Expected: symbol kept, EndLine falls back to StartLine (5).
+			{Name: "end_in_padding", StartLine: 1, EndLine: 2},
+		},
+	}
+
+	RemapSymbolLines(result, vs)
+
+	if got := len(result.Symbols); got != 1 {
+		t.Fatalf("Symbols length = %d, want 1", got)
+	}
+	s := result.Symbols[0]
+	if s.StartLine != 5 {
+		t.Errorf("StartLine = %d, want 5", s.StartLine)
+	}
+	if s.EndLine != 5 {
+		t.Errorf("EndLine = %d, want 5 (fallback to StartLine); EndLine→padding must not propagate zero", s.EndLine)
+	}
+	if s.Language != "astro" {
+		t.Errorf("Language = %q, want %q", s.Language, "astro")
+	}
+}
+
 func TestRemapSymbolLines_Nil(t *testing.T) {
 	RemapSymbolLines(nil, nil) // must not panic
 	RemapSymbolLines(&ParseResult{}, nil)
