@@ -12,6 +12,7 @@ var edgeWeights = map[string]int{
 	"IMPLEMENTS": 2,
 	"INHERITS":   2,
 	"TESTED_BY":  1,
+	"USES":       1,
 }
 
 // injectCommunities runs weighted Louvain community detection on Symbol-level edges
