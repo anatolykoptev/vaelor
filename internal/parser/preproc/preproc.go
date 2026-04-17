@@ -14,6 +14,18 @@ package preproc
 // newline — without it, the scanner would traverse the rest of the file.
 const tagOpenScanLimit = 512
 
+// TemplateRef records a single usage of a capitalised JSX-style component tag
+// found in an Astro (or similar) template body.
+//
+// Name is the bare tag name (e.g. "Breadcrumbs"), Line and Col are 1-based
+// positions in the original source file.
+// Closing tags (</Foo>) are not recorded — only opening tags.
+type TemplateRef struct {
+	Name string
+	Line uint32
+	Col  uint32
+}
+
 // VirtualSource is TypeScript code extracted from a preprocessor-language
 // file (Svelte, Astro, Vue) together with a per-virtual-line mapping back
 // to the original source line numbers.
