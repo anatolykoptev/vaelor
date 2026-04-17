@@ -15,9 +15,7 @@ var csharpCallsQueryBytes []byte
 
 // csharpHandler implements LanguageHandler for C# source files.
 type csharpHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
+	parserBase
 }
 
 // csharpLang is the singleton C# language handler, registered on package init.
@@ -25,29 +23,19 @@ var csharpLang = &csharpHandler{}
 
 func init() {
 	lang := csharp.GetLanguage()
-	q, err := sitter.NewQuery(csharpQueryBytes, lang)
-	if err != nil {
-		panic("csharp.scm query compile error: " + err.Error())
+	csharpLang.parserBase = parserBase{
+		lang: "csharp",
+		caps: Capabilities{
+			SitterLanguage: lang,
+			TagsQuery:      mustCompileQuery(csharpQueryBytes, lang, "csharp.scm"),
+			CallsQuery:     mustCompileQuery(csharpCallsQueryBytes, lang, "csharp_calls.scm"),
+			MapCapture:     csharpLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(csharpCallsQueryBytes, lang)
-	if err != nil {
-		panic("csharp_calls.scm query compile error: " + err.Error())
-	}
-	csharpLang.lang = lang
-	csharpLang.query = q
-	csharpLang.callQuery = cq
 	registerHandler(csharpLang)
 }
 
-func (h *csharpHandler) Language() string { return "csharp" }
-
 func (h *csharpHandler) Extensions() []string { return []string{".cs"} }
-
-func (h *csharpHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *csharpHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *csharpHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for C#.
 func (h *csharpHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

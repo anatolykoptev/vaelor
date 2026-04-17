@@ -25,14 +25,14 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 		return nil, nil
 	}
 
-	cqp, ok := handler.(CallQueryProvider)
-	if !ok || cqp.CallsQuery() == nil {
+	caps := handler.Capabilities()
+	if caps.CallsQuery == nil {
 		return nil, nil
 	}
 
 	p := sitter.NewParser()
 	defer p.Close()
-	p.SetLanguage(handler.SitterLanguage())
+	p.SetLanguage(caps.SitterLanguage)
 
 	tree, err := p.ParseCtx(context.Background(), nil, source)
 	if err != nil {
@@ -40,7 +40,7 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 	}
 	defer tree.Close()
 
-	return runCallQuery(cqp.CallsQuery(), tree.RootNode(), source, path), nil
+	return runCallQuery(caps.CallsQuery, tree.RootNode(), source, path), nil
 }
 
 func runCallQuery(q *sitter.Query, root *sitter.Node, source []byte, path string) []CallSite {

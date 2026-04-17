@@ -20,10 +20,7 @@ var cppRelsQueryBytes []byte
 
 // cppHandler implements LanguageHandler for C++ source files.
 type cppHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
-	relsQuery *sitter.Query
+	parserBase
 }
 
 // cppLang is the singleton C++ language handler, registered on package init.
@@ -31,36 +28,20 @@ var cppLang = &cppHandler{}
 
 func init() {
 	lang := cpp.GetLanguage()
-	q, err := sitter.NewQuery(cppQueryBytes, lang)
-	if err != nil {
-		panic("cpp.scm query compile error: " + err.Error())
+	cppLang.parserBase = parserBase{
+		lang: "cpp",
+		caps: Capabilities{
+			SitterLanguage:     lang,
+			TagsQuery:          mustCompileQuery(cppQueryBytes, lang, "cpp.scm"),
+			CallsQuery:         mustCompileQuery(cppCallsQueryBytes, lang, "cpp_calls.scm"),
+			RelationshipsQuery: mustCompileQuery(cppRelsQueryBytes, lang, "cpp_rels.scm"),
+			MapCapture:         cppLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(cppCallsQueryBytes, lang)
-	if err != nil {
-		panic("cpp_calls.scm query compile error: " + err.Error())
-	}
-	rq, err := sitter.NewQuery(cppRelsQueryBytes, lang)
-	if err != nil {
-		panic("cpp_rels.scm query compile error: " + err.Error())
-	}
-	cppLang.lang = lang
-	cppLang.query = q
-	cppLang.callQuery = cq
-	cppLang.relsQuery = rq
 	registerHandler(cppLang)
 }
 
-func (h *cppHandler) Language() string { return "cpp" }
-
 func (h *cppHandler) Extensions() []string { return []string{".cpp", ".cc", ".cxx", ".hpp"} }
-
-func (h *cppHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *cppHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *cppHandler) CallsQuery() *sitter.Query { return h.callQuery }
-
-func (h *cppHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for C++.
 func (h *cppHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
@@ -197,4 +178,3 @@ func (h *cppHandler) mapVarOrConst(node *sitter.Node, source []byte, forceConst 
 		Attributes: extractCppAttributes(node, source),
 	}
 }
-

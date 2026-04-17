@@ -41,14 +41,14 @@ func ExtractRelationships(path string, source []byte, opts ParseOpts) ([]TypeRel
 		return nil, nil
 	}
 
-	rqp, ok := handler.(RelationshipQueryProvider)
-	if !ok || rqp.RelationshipsQuery() == nil {
+	caps := handler.Capabilities()
+	if caps.RelationshipsQuery == nil {
 		return nil, nil
 	}
 
 	p := sitter.NewParser()
 	defer p.Close()
-	p.SetLanguage(handler.SitterLanguage())
+	p.SetLanguage(caps.SitterLanguage)
 
 	tree, err := p.ParseCtx(context.Background(), nil, source)
 	if err != nil {
@@ -57,7 +57,7 @@ func ExtractRelationships(path string, source []byte, opts ParseOpts) ([]TypeRel
 	defer tree.Close()
 
 	lang := handler.Language()
-	return runRelQuery(rqp.RelationshipsQuery(), tree.RootNode(), source, path, lang), nil
+	return runRelQuery(caps.RelationshipsQuery, tree.RootNode(), source, path, lang), nil
 }
 
 // relMatchResult holds the extracted capture fields from a single query match.

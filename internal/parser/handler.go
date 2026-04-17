@@ -34,6 +34,9 @@ const (
 // LanguageHandler abstracts a tree-sitter language grammar and its query logic.
 // Each handler knows how to parse its language and map tree-sitter captures
 // to the common Symbol type.
+//
+// Implementations should embed parserBase for the default tree-sitter behaviour.
+// Preprocessor handlers (svelte, astro) override Parse to preprocess before delegating.
 type LanguageHandler interface {
 	// Language returns the canonical language name (e.g. "go", "python").
 	Language() string
@@ -41,27 +44,18 @@ type LanguageHandler interface {
 	// Extensions returns the file extensions handled (e.g. [".go"]).
 	Extensions() []string
 
-	// SitterLanguage returns the tree-sitter language for parser initialization.
-	SitterLanguage() *sitter.Language
+	// Parse parses the given source file and returns its symbol table.
+	// path is used for language detection and populating Symbol.File fields.
+	Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error)
 
-	// TagsQuery returns the compiled tree-sitter query for symbol extraction.
-	TagsQuery() *sitter.Query
+	// Capabilities returns the compiled tree-sitter queries and language
+	// grammar reference for this handler. Callers use this to determine
+	// whether call extraction or relationship extraction is supported.
+	Capabilities() Capabilities
 
 	// MapCapture converts a single tree-sitter capture into a Symbol.
 	// Returns nil if the capture should be skipped.
 	MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol
-}
-
-// CallQueryProvider is an optional interface that LanguageHandler implementations
-// can satisfy to support call extraction.
-type CallQueryProvider interface {
-	CallsQuery() *sitter.Query
-}
-
-// RelationshipQueryProvider is an optional interface that LanguageHandler implementations
-// can satisfy to support type relationship extraction (extends, implements, embeds).
-type RelationshipQueryProvider interface {
-	RelationshipsQuery() *sitter.Query
 }
 
 // registry maps file extension (e.g. ".go") to its LanguageHandler.

@@ -14,41 +14,27 @@ var tsxCallsQueryBytes []byte
 // Reuses the TypeScript tags/rels queries (all TS node types exist in TSX grammar)
 // but uses a separate calls query with JSX-specific patterns.
 type tsxHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
-	relsQuery *sitter.Query
+	parserBase
 }
 
 var tsxLang = &tsxHandler{}
 
 func init() {
 	lang := tsx.GetLanguage()
-	q, err := sitter.NewQuery(typescriptQueryBytes, lang)
-	if err != nil {
-		panic("typescript.scm (tsx) query compile error: " + err.Error())
+	tsxLang.parserBase = parserBase{
+		lang: "typescript",
+		caps: Capabilities{
+			SitterLanguage:     lang,
+			TagsQuery:          mustCompileQuery(typescriptQueryBytes, lang, "typescript.scm (tsx)"),
+			CallsQuery:         mustCompileQuery(tsxCallsQueryBytes, lang, "tsx_calls.scm"),
+			RelationshipsQuery: mustCompileQuery(tsRelsQueryBytes, lang, "typescript_rels.scm (tsx)"),
+			MapCapture:         tsxLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(tsxCallsQueryBytes, lang)
-	if err != nil {
-		panic("tsx_calls.scm query compile error: " + err.Error())
-	}
-	rq, err := sitter.NewQuery(tsRelsQueryBytes, lang)
-	if err != nil {
-		panic("typescript_rels.scm (tsx) query compile error: " + err.Error())
-	}
-	tsxLang.lang = lang
-	tsxLang.query = q
-	tsxLang.callQuery = cq
-	tsxLang.relsQuery = rq
 	registerHandler(tsxLang)
 }
 
-func (h *tsxHandler) Language() string                 { return "typescript" }
-func (h *tsxHandler) Extensions() []string             { return []string{".tsx", ".jsx"} }
-func (h *tsxHandler) SitterLanguage() *sitter.Language { return h.lang }
-func (h *tsxHandler) TagsQuery() *sitter.Query         { return h.query }
-func (h *tsxHandler) CallsQuery() *sitter.Query        { return h.callQuery }
-func (h *tsxHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
+func (h *tsxHandler) Extensions() []string { return []string{".tsx", ".jsx"} }
 
 // MapCapture delegates to the shared TypeScript capture mapper.
 // TSX shares all symbol types with TypeScript (function, class, method, etc.)

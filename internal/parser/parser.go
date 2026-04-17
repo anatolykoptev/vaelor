@@ -8,12 +8,8 @@
 package parser
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
-
-	sitter "github.com/smacker/go-tree-sitter"
 )
 
 // NodeKind represents the kind of a code symbol extracted from the AST.
@@ -131,92 +127,7 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 		return fallbackParse(path, source, lang), nil
 	}
 
-	p := sitter.NewParser()
-	defer p.Close()
-	p.SetLanguage(handler.SitterLanguage())
-
-	tree, err := p.ParseCtx(context.Background(), nil, source)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-	defer tree.Close()
-
-	result := &ParseResult{
-		File:     path,
-		Language: lang,
-		Symbols:  make([]*Symbol, 0),
-		Imports:  make([]string, 0),
-	}
-
-	runQuery(result, handler, tree.RootNode(), source, path, opts)
-
-	return result, nil
-}
-
-// runQuery executes the language handler's TagsQuery against the tree root
-// and populates result with symbols and imports.
-func runQuery(result *ParseResult, handler LanguageHandler, root *sitter.Node, source []byte, path string, opts ParseOpts) {
-	qc := sitter.NewQueryCursor()
-	defer qc.Close()
-	qc.Exec(handler.TagsQuery(), root)
-
-	// Deduplicate symbols by "kind:name:startLine" to avoid duplicates
-	// that arise when multiple captures match the same declaration node.
-	seen := make(map[string]struct{})
-	q := handler.TagsQuery()
-
-	for {
-		match, ok := qc.NextMatch()
-		if !ok {
-			break
-		}
-		for _, capture := range match.Captures {
-			captureName := q.CaptureNameForId(capture.Index)
-			processCapture(result, handler, captureName, capture.Node, source, path, opts, seen)
-		}
-	}
-}
-
-// processCapture handles a single tree-sitter query capture and updates result accordingly.
-func processCapture(
-	result *ParseResult,
-	handler LanguageHandler,
-	captureName string,
-	node *sitter.Node,
-	source []byte,
-	path string,
-	opts ParseOpts,
-	seen map[string]struct{},
-) {
-	if captureName == captureImport {
-		if opts.IncludeImports {
-			// Strip surrounding quotes — languages use `"..."` or `'...'`.
-			importPath := strings.Trim(node.Content(source), `"'`)
-			result.Imports = append(result.Imports, importPath)
-		}
-		return
-	}
-
-	sym := handler.MapCapture(captureName, node, source)
-	if sym == nil {
-		return
-	}
-
-	dedupeKey := fmt.Sprintf("%s:%s:%d", sym.Kind, sym.Name, sym.StartLine)
-	if _, exists := seen[dedupeKey]; exists {
-		return
-	}
-	seen[dedupeKey] = struct{}{}
-
-	sym.File = path
-	sym.DocComment = extractDocComment(node, source)
-	if sym.Kind == KindFunction || sym.Kind == KindMethod {
-		sym.Complexity = Complexity(node.Content(source))
-	}
-	if opts.IncludeBody {
-		sym.Body = node.Content(source)
-	}
-	result.Symbols = append(result.Symbols, sym)
+	return handler.Parse(path, source, opts)
 }
 
 // SupportedLanguages returns the list of languages that have tree-sitter grammar support.

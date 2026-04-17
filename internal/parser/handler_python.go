@@ -21,10 +21,7 @@ var pythonRelsQueryBytes []byte
 
 // pythonHandler implements LanguageHandler for Python source files.
 type pythonHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
-	relsQuery *sitter.Query
+	parserBase
 }
 
 // pyLang is the singleton Python language handler, registered on package init.
@@ -32,36 +29,20 @@ var pyLang = &pythonHandler{}
 
 func init() {
 	lang := python.GetLanguage()
-	q, err := sitter.NewQuery(pythonQueryBytes, lang)
-	if err != nil {
-		panic("python.scm query compile error: " + err.Error())
+	pyLang.parserBase = parserBase{
+		lang: "python",
+		caps: Capabilities{
+			SitterLanguage:     lang,
+			TagsQuery:          mustCompileQuery(pythonQueryBytes, lang, "python.scm"),
+			CallsQuery:         mustCompileQuery(pythonCallsQueryBytes, lang, "python_calls.scm"),
+			RelationshipsQuery: mustCompileQuery(pythonRelsQueryBytes, lang, "python_rels.scm"),
+			MapCapture:         pyLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(pythonCallsQueryBytes, lang)
-	if err != nil {
-		panic("python_calls.scm query compile error: " + err.Error())
-	}
-	rq, err := sitter.NewQuery(pythonRelsQueryBytes, lang)
-	if err != nil {
-		panic("python_rels.scm query compile error: " + err.Error())
-	}
-	pyLang.lang = lang
-	pyLang.query = q
-	pyLang.callQuery = cq
-	pyLang.relsQuery = rq
 	registerHandler(pyLang)
 }
 
-func (h *pythonHandler) Language() string { return "python" }
-
 func (h *pythonHandler) Extensions() []string { return []string{".py"} }
-
-func (h *pythonHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *pythonHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *pythonHandler) CallsQuery() *sitter.Query { return h.callQuery }
-
-func (h *pythonHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for Python.
 func (h *pythonHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {

@@ -18,10 +18,7 @@ var tsRelsQueryBytes []byte
 
 // typescriptHandler implements LanguageHandler for TypeScript and JavaScript source files.
 type typescriptHandler struct {
-	lang      *sitter.Language
-	query     *sitter.Query
-	callQuery *sitter.Query
-	relsQuery *sitter.Query
+	parserBase
 }
 
 // tsLang is the singleton TypeScript language handler, registered on package init.
@@ -29,38 +26,22 @@ var tsLang = &typescriptHandler{}
 
 func init() {
 	lang := typescript.GetLanguage()
-	q, err := sitter.NewQuery(typescriptQueryBytes, lang)
-	if err != nil {
-		panic("typescript.scm query compile error: " + err.Error())
+	tsLang.parserBase = parserBase{
+		lang: "typescript",
+		caps: Capabilities{
+			SitterLanguage:     lang,
+			TagsQuery:          mustCompileQuery(typescriptQueryBytes, lang, "typescript.scm"),
+			CallsQuery:         mustCompileQuery(tsCallsQueryBytes, lang, "typescript_calls.scm"),
+			RelationshipsQuery: mustCompileQuery(tsRelsQueryBytes, lang, "typescript_rels.scm"),
+			MapCapture:         tsLang.MapCapture,
+		},
 	}
-	cq, err := sitter.NewQuery(tsCallsQueryBytes, lang)
-	if err != nil {
-		panic("typescript_calls.scm query compile error: " + err.Error())
-	}
-	rq, err := sitter.NewQuery(tsRelsQueryBytes, lang)
-	if err != nil {
-		panic("typescript_rels.scm query compile error: " + err.Error())
-	}
-	tsLang.lang = lang
-	tsLang.query = q
-	tsLang.callQuery = cq
-	tsLang.relsQuery = rq
 	registerHandler(tsLang)
 }
-
-func (h *typescriptHandler) Language() string { return "typescript" }
 
 func (h *typescriptHandler) Extensions() []string {
 	return []string{".ts", ".js", ".mjs", ".cjs", ".cts", ".mts"}
 }
-
-func (h *typescriptHandler) SitterLanguage() *sitter.Language { return h.lang }
-
-func (h *typescriptHandler) TagsQuery() *sitter.Query { return h.query }
-
-func (h *typescriptHandler) CallsQuery() *sitter.Query { return h.callQuery }
-
-func (h *typescriptHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 // MapCapture converts a tree-sitter capture to a Symbol for TypeScript/JavaScript.
 func (h *typescriptHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
