@@ -27,6 +27,11 @@ type Capabilities struct {
 	// MapCapture converts a single tree-sitter capture into a Symbol.
 	// Bound to the handler method so it can access handler-specific logic.
 	// Returns nil if the capture should be skipped.
+	//
+	// IMPORTANT: wire this from a POINTER receiver (e.g. goLang.MapCapture where
+	// goLang is *goHandler). A value-receiver bound before init() finishes would
+	// capture a zero-value copy and miss any subsequent field writes on the
+	// singleton.
 	MapCapture func(captureName string, node *sitter.Node, src []byte) *Symbol
 }
 
