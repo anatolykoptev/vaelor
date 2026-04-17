@@ -57,6 +57,8 @@ type Config struct {
 	MCPLogger      *slog.Logger   // separate logger for StreamableHTTP handler; nil = none
 
 	BearerAuth *BearerAuth // nil = no auth; wraps /mcp only (see auth.go)
+	RESTBridge bool   // enable /api/tools/* REST endpoints (auto-generated from MCP tools)
+	RESTPrefix string // URL prefix for REST endpoints; default "/api"
 
 	Context    context.Context // nil → internal signal.NotifyContext(SIGINT, SIGTERM)
 	Logger     *slog.Logger    // nil → auto (stdout HTTP / stderr stdio, LevelInfo)
