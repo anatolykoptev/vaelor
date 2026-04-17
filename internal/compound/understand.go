@@ -40,14 +40,14 @@ type UnderstandResult struct {
 
 // SymbolInfo is a summary of a symbol for compound tool output.
 type SymbolInfo struct {
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	File      string `json:"file"`
-	StartLine uint32 `json:"start_line"`
-	EndLine   uint32 `json:"end_line"`
-	Signature string `json:"signature,omitempty"`
-	Complexity int   `json:"complexity,omitempty"`
-	Receiver  string `json:"receiver,omitempty"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	File       string `json:"file"`
+	StartLine  uint32 `json:"start_line"`
+	EndLine    uint32 `json:"end_line"`
+	Signature  string `json:"signature,omitempty"`
+	Complexity int    `json:"complexity,omitempty"`
+	Receiver   string `json:"receiver,omitempty"`
 }
 
 // CallRef is a reference to a called/calling function.

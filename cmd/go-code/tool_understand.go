@@ -57,7 +57,7 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
 
-	matches := compound.FindSymbol(cg.Symbols, input.Symbol)
+	matches := compound.FilterByFocus(compound.FindSymbol(cg.Symbols, input.Symbol), input.Focus)
 
 	if len(matches) == 0 {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
@@ -99,7 +99,7 @@ func understandAmbiguousResult(name string, symbols []*parser.Symbol) (*mcp.Call
 	}
 
 	type ambiguousResponse struct {
-		Error   string              `json:"error"`
+		Error   string               `json:"error"`
 		Matches []*compound.MatchRef `json:"matches"`
 	}
 	resp := ambiguousResponse{
