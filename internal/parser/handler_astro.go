@@ -21,6 +21,9 @@ type astroHandler struct {
 var astroLang = &astroHandler{}
 
 func init() {
+	// Set only the language name. Capabilities are borrowed lazily from tsLang
+	// to avoid Go init-order issues (handler_astro.go < handler_typescript.go
+	// alphabetically, so tsLang.caps is empty when this init runs).
 	astroLang.parserBase = parserBase{lang: "astro"}
 	registerHandler(astroLang)
 }
