@@ -7,6 +7,17 @@ import (
 	"github.com/anatolykoptev/go-code/internal/ingest"
 )
 
+// frameworkManifestNames maps framework-specific config filenames to their
+// framework language. These take precedence over generic manifestNames entries
+// when both are present in the same directory.
+var frameworkManifestNames = map[string]string{
+	"svelte.config.js": "svelte",
+	"svelte.config.ts": "svelte",
+	"astro.config.mjs": "astro",
+	"astro.config.ts":  "astro",
+	"astro.config.js":  "astro",
+}
+
 // manifestNames maps exact manifest filenames to their language.
 var manifestNames = map[string]string{
 	"go.mod":            "go",
@@ -56,7 +67,13 @@ func findManifests(files []*ingest.File) []Manifest {
 
 // manifestLanguage returns the language associated with the given manifest
 // filename, or "" if it is not a recognized manifest.
+// Framework manifests (svelte.config.*, astro.config.*) take precedence over
+// generic language manifests (package.json → "typescript").
 func manifestLanguage(filename string) string {
+	if lang, ok := frameworkManifestNames[filename]; ok {
+		return lang
+	}
+
 	if lang, ok := manifestNames[filename]; ok {
 		return lang
 	}
