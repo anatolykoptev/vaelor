@@ -112,11 +112,16 @@ func TestExtractAstro_AttrGtEntity(t *testing.T) {
 
 // TestExtractAstro_AttrLiteralGt documents that a literal '>' byte inside an
 // attribute value fools the raw-byte scanner. This is a known limitation.
+// Pins current limited behavior. If the scanner gains escape handling, update this assertion.
 func TestExtractAstro_AttrLiteralGt(t *testing.T) {
+	// The scanner sees the first '>' inside "<<<>>>" as the tag close, so content
+	// starts after that '>', yielding the remaining attr garbage plus the real JS.
 	src := `<script title="<<<>>>" src="ok.js">let x = 1;</script>`
 	vs := ExtractAstro([]byte(src))
-	if vs == nil {
-		t.Fatal("AttrLiteralGt: returned nil VirtualSource")
+	// Current behavior: scanner picks up '>' inside attr value; code starts with '>'.
+	wantCode := `>>" src="ok.js">let x = 1;`
+	if string(vs.Code) != wantCode {
+		t.Errorf("AttrLiteralGt: Code = %q, want %q", string(vs.Code), wantCode)
 	}
 }
 
@@ -138,7 +143,7 @@ func TestExtractAstro_BoundSingleLine(t *testing.T) {
 // scanner run past the 512-byte window. Without the cap the scanner would
 // eventually find '>' and incorrectly extract content.
 func TestExtractAstro_BoundMaxBytes(t *testing.T) {
-	pad := strings.Repeat("a", 600)
+	pad := strings.Repeat("a", tagOpenScanLimit+88) // pad past the bound
 	src := `<script src="` + pad + `">let x = 1;</script>`
 	vs := ExtractAstro([]byte(src))
 	code := string(vs.Code)
