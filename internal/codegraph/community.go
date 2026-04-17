@@ -6,13 +6,15 @@ import (
 	"github.com/anatolykoptev/go-code/internal/ranking"
 )
 
-// edgeWeights defines semantic importance for codegraph edge types.
+// edgeWeights defines semantic importance for codegraph edge types used in
+// community detection. Only Symbol→Symbol edges are considered; File→File
+// edges (USES, IMPORTS) are intentionally excluded from this map because the
+// Louvain loop filters to Symbol label pairs before consulting this table.
 var edgeWeights = map[string]int{
 	"CALLS":      3,
 	"IMPLEMENTS": 2,
 	"INHERITS":   2,
 	"TESTED_BY":  1,
-	"USES":       1,
 }
 
 // injectCommunities runs weighted Louvain community detection on Symbol-level edges

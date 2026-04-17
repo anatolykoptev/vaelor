@@ -112,15 +112,17 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 	vertices = append(vertices, impVertices...)
 	edges = append(edges, impEdges...)
 
-	// USES edges (File→File) from Astro template component references.
+	// USES edges (File→File) from resolved Astro template component references.
+	// Unresolved refs are already dropped by indexParseFile; all refs here have
+	// a valid resolvedTo path.
 	for _, ref := range tplRefs {
 		edges = append(edges, edgeData{
 			FromLabel: "File",
 			FromKey:   ref.relFile,
 			ToLabel:   "File",
-			ToKey:     "tplref:" + ref.name, // sentinel prefix: unresolved tag; resolution is a v2 TODO
+			ToKey:     ref.resolvedTo,
 			EdgeLabel: "USES",
-			Props:     map[string]string{"line": strconv.Itoa(int(ref.line)), "unresolved": "true"},
+			Props:     map[string]string{"line": strconv.Itoa(int(ref.line))},
 		})
 	}
 
