@@ -18,8 +18,8 @@ func TestBuildGraphUsesEdges(t *testing.T) {
 	}
 	cg := &callgraph.CallGraph{}
 	tplRefs := []templateFileRef{
-		{relFile: "src/index.astro", name: "Header", line: 5},
-		{relFile: "src/index.astro", name: "Footer", line: 8},
+		{relFile: "src/index.astro", resolvedTo: "src/components/Header.astro", line: 5},
+		{relFile: "src/index.astro", resolvedTo: "src/components/Footer.astro", line: 8},
 	}
 
 	_, edges := buildGraph(root, files, []*parser.Symbol{}, cg, nil, nil, tplRefs)
@@ -37,12 +37,11 @@ func TestBuildGraphUsesEdges(t *testing.T) {
 		if e.FromLabel != "File" || e.FromKey != "src/index.astro" {
 			t.Errorf("unexpected USES edge from: %+v", e)
 		}
-		if e.Props["unresolved"] != "true" {
-			t.Errorf("expected unresolved=true on USES edge")
+		if e.ToLabel != "File" {
+			t.Errorf("expected ToLabel=File on USES edge, got %q", e.ToLabel)
 		}
-		// ToKey must carry the tplref: sentinel to avoid collisions with Symbol keys.
-		if len(e.ToKey) < 8 || e.ToKey[:7] != "tplref:" {
-			t.Errorf("expected ToKey to start with tplref: sentinel, got %q", e.ToKey)
+		if e.ToKey == "" {
+			t.Errorf("expected non-empty ToKey on USES edge")
 		}
 	}
 }
