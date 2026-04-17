@@ -43,16 +43,5 @@ func (h *svelteHandler) MapCapture(captureName string, node *sitter.Node, source
 // Parse extracts <script> blocks, delegates to the TypeScript parser, then
 // remaps symbol line numbers back to the original .svelte file coordinates.
 func (h *svelteHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
-	vs := preproc.ExtractSvelte(src)
-	if vs == nil || len(vs.Code) == 0 {
-		return &ParseResult{File: path, Language: "svelte", Symbols: []*Symbol{}, Imports: []string{}}, nil
-	}
-	// Parse the virtual TypeScript source using tsLang's full parser.
-	result, err := tsLang.parserBase.Parse(path, vs.Code, opts)
-	if err != nil {
-		return nil, err
-	}
-	// Remap virtual line numbers to original .svelte coordinates.
-	RemapSymbolLines(result, vs)
-	return result, nil
+	return parseWithTSAndRemap(path, preproc.ExtractSvelte(src), "svelte", opts)
 }

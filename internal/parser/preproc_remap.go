@@ -8,12 +8,17 @@ import (
 // virtual coordinates (positions within vs.Code) to original-file coordinates
 // (positions within the source the virtual code was extracted from).
 //
-// Symbols whose StartLine maps to 0 in vs.LineMap are padding and get dropped
-// from r.Symbols. Symbols whose EndLine maps to 0 have their EndLine left at
-// the last mapped line so the range stays non-empty.
+// Side effects (all in place):
+//   - r.Language is set to vs.Lang.
+//   - Each retained Symbol has its Language field overwritten with vs.Lang
+//     (callers must not rely on the pre-call Language of individual symbols).
+//   - Symbols whose StartLine maps to 0 in vs.LineMap are padding and are
+//     dropped from r.Symbols.
+//   - Symbols whose EndLine maps to 0 keep their StartLine as EndLine so the
+//     range stays non-empty.
 //
-// Also overrides r.Language with vs.Lang so callers see "svelte"/"astro"
-// instead of the embedded "typescript".
+// Pointer identity of RETAINED symbols is preserved — caller-held *Symbol
+// pointers remain valid but their fields have been mutated.
 func RemapSymbolLines(r *ParseResult, vs *preproc.VirtualSource) {
 	if r == nil || vs == nil {
 		return
@@ -47,4 +52,28 @@ func virtualToOriginal(lineMap []uint32, virtualLine uint32) uint32 {
 		return 0
 	}
 	return lineMap[virtualLine-1]
+}
+
+// parseWithTSAndRemap parses vs.Code with the TypeScript grammar and remaps
+// symbol line numbers from virtual to original-file coordinates. Shared by
+// preprocessor-language handlers (Svelte, Astro).
+//
+// Uses tsLang.parserBase.Parse directly (not handler.Parse) to avoid
+// re-entering the preprocessor's Parse and to side-step init-ordering
+// constraints (tsLang caps are wired when this is called at parse time,
+// even if the preprocessor handler was init'd first).
+//
+// path is the ORIGINAL file path — propagated into Symbol.File.
+// lang is the preprocessor-language label ("svelte", "astro") — set on the
+// result and on every retained symbol via RemapSymbolLines.
+func parseWithTSAndRemap(path string, vs *preproc.VirtualSource, lang string, opts ParseOpts) (*ParseResult, error) {
+	if vs == nil || len(vs.Code) == 0 {
+		return &ParseResult{File: path, Language: lang, Symbols: []*Symbol{}, Imports: []string{}}, nil
+	}
+	result, err := tsLang.parserBase.Parse(path, vs.Code, opts)
+	if err != nil {
+		return nil, err
+	}
+	RemapSymbolLines(result, vs)
+	return result, nil
 }
