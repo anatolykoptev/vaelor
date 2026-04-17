@@ -115,13 +115,7 @@ func isTestSymbol(s *parser.Symbol) bool {
 	case "python":
 		return strings.HasPrefix(s.Name, "test_") || strings.HasPrefix(s.Name, "Test")
 	default:
-		base := filepath.Base(s.File)
-		return strings.HasSuffix(base, "_test.go") ||
-			strings.HasPrefix(base, "test_") ||
-			strings.HasSuffix(base, ".test.ts") ||
-			strings.HasSuffix(base, ".test.js") ||
-			strings.HasSuffix(base, ".spec.ts") ||
-			strings.HasSuffix(base, ".spec.js")
+		return langutil.IsTestFile(s.File)
 	}
 }
 
