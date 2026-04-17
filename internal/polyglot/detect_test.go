@@ -2,20 +2,9 @@ package polyglot
 
 import (
 	"testing"
-	"time"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 )
-
-func makeFile(relPath, lang string) *ingest.File {
-	return &ingest.File{
-		Path:     "/repo/" + relPath,
-		RelPath:  relPath,
-		Language: lang,
-		Size:     100,
-		ModTime:  time.Now(),
-	}
-}
 
 func TestDetectStructure(t *testing.T) {
 	t.Parallel()
@@ -102,157 +91,63 @@ func TestDetectStructure(t *testing.T) {
 	}
 }
 
-func TestFindManifests(t *testing.T) {
+func TestDetectStructure_SvelteProjectPrimaryLanguage(t *testing.T) {
 	t.Parallel()
 
-	files := []*ingest.File{
-		makeFile("go.mod", ""),
-		makeFile("frontend/package.json", ""),
-		makeFile("main.go", "go"),
-		makeFile("scripts/requirements.txt", ""),
-		makeFile("scripts/pyproject.toml", ""),
-		makeFile("README.md", ""),
-	}
-
-	manifests := findManifests(files)
-
-	if len(manifests) != 4 {
-		t.Errorf("findManifests: got %d manifests, want 4", len(manifests))
-		for _, m := range manifests {
-			t.Logf("  manifest: %s (%s)", m.Path, m.Language)
-		}
-	}
-}
-
-func TestManifestLanguage(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		filename string
-		want     string
-	}{
-		{"go.mod", "go"},
-		{"package.json", "typescript"},
-		{"Cargo.toml", "rust"},
-		{"pyproject.toml", "python"},
-		{"requirements.txt", "python"},
-		{"pom.xml", "java"},
-		{"build.gradle", "java"},
-		{"Gemfile", "ruby"},
-		{"foo.csproj", "csharp"},
-		{"unknown.txt", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.filename, func(t *testing.T) {
-			t.Parallel()
-
-			got := manifestLanguage(tt.filename)
-			if got != tt.want {
-				t.Errorf("manifestLanguage(%q) = %q, want %q", tt.filename, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestManifestLanguage_FrameworkManifests(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		filename string
-		want     string
-	}{
-		{"svelte.config.js", "svelte"},
-		{"svelte.config.ts", "svelte"},
-		{"astro.config.mjs", "astro"},
-		{"astro.config.ts", "astro"},
-		{"astro.config.js", "astro"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.filename, func(t *testing.T) {
-			t.Parallel()
-
-			got := manifestLanguage(tt.filename)
-			if got != tt.want {
-				t.Errorf("manifestLanguage(%q) = %q, want %q", tt.filename, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestDetectProjectLanguage_Svelte(t *testing.T) {
-	t.Parallel()
-
+	// Fixture: svelte.config.js + package.json + 2 Svelte source files + 1 TypeScript.
+	// DetectStructure must produce a layer with Language == "svelte" (dominant source language).
 	files := []*ingest.File{
 		makeFile("svelte.config.js", ""),
 		makeFile("package.json", ""),
 		makeFile("src/App.svelte", "svelte"),
+		makeFile("src/Other.svelte", "svelte"),
 		makeFile("src/lib/util.ts", "typescript"),
 	}
 
-	manifests := findManifests(files)
+	rs := DetectStructure(files)
 
-	var svelteFound bool
-	for _, m := range manifests {
-		if m.Language == "svelte" {
-			svelteFound = true
-			break
-		}
+	if rs == nil {
+		t.Fatal("DetectStructure returned nil")
 	}
-	if !svelteFound {
-		t.Errorf("expected svelte manifest to be detected; got manifests: %v", manifests)
+	if len(rs.Layers) == 0 {
+		t.Fatal("DetectStructure returned no layers")
+	}
+
+	// Layers[0] must be "svelte": 2 svelte source files vs 1 typescript.
+	got := rs.Layers[0].Language
+	if got != "svelte" {
+		t.Errorf("Layers[0].Language = %q, want %q (layers=%v, languages=%v)",
+			got, "svelte", rs.Layers, rs.Languages)
 	}
 }
 
-func TestDetectProjectLanguage_Astro(t *testing.T) {
+func TestDetectStructure_AstroProjectPrimaryLanguage(t *testing.T) {
 	t.Parallel()
 
+	// Fixture: astro.config.mjs + package.json + 2 Astro source files + 1 TypeScript.
+	// DetectStructure must produce a layer with Language == "astro" (dominant source language).
 	files := []*ingest.File{
 		makeFile("astro.config.mjs", ""),
 		makeFile("package.json", ""),
-		makeFile("src/pages/index.astro", "astro"),
+		makeFile("src/pages/Index.astro", "astro"),
+		makeFile("src/pages/About.astro", "astro"),
+		makeFile("src/util.ts", "typescript"),
 	}
 
-	manifests := findManifests(files)
+	rs := DetectStructure(files)
 
-	var astroFound bool
-	for _, m := range manifests {
-		if m.Language == "astro" {
-			astroFound = true
-			break
-		}
+	if rs == nil {
+		t.Fatal("DetectStructure returned nil")
 	}
-	if !astroFound {
-		t.Errorf("expected astro manifest to be detected; got manifests: %v", manifests)
-	}
-}
-
-func TestDetectProjectLanguage_FrameworkPrecedence(t *testing.T) {
-	t.Parallel()
-
-	// package.json alone → typescript; with svelte.config.ts → svelte wins.
-	files := []*ingest.File{
-		makeFile("package.json", ""),
-		makeFile("svelte.config.ts", ""),
-		makeFile("src/App.svelte", "svelte"),
+	if len(rs.Layers) == 0 {
+		t.Fatal("DetectStructure returned no layers")
 	}
 
-	manifests := findManifests(files)
-
-	// Both manifests should be detected; svelte.config.ts must be one of them.
-	langSet := make(map[string]bool)
-	for _, m := range manifests {
-		langSet[m.Language] = true
-	}
-	if !langSet["svelte"] {
-		t.Errorf("expected svelte manifest in results; got manifests: %v", manifests)
-	}
-	// Verify that svelte.config.ts is specifically detected as "svelte", not "typescript".
-	for _, m := range manifests {
-		if m.Type == "svelte.config.ts" && m.Language != "svelte" {
-			t.Errorf("svelte.config.ts detected as %q, want %q", m.Language, "svelte")
-		}
+	// Layers[0] must be "astro": 2 astro source files vs 1 typescript.
+	got := rs.Layers[0].Language
+	if got != "astro" {
+		t.Errorf("Layers[0].Language = %q, want %q (layers=%v, languages=%v)",
+			got, "astro", rs.Layers, rs.Languages)
 	}
 }
 
