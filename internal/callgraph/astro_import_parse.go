@@ -57,11 +57,29 @@ func parseImportLine(line string, bindings map[string]string) {
 	// "Foo" or "Foo, { Bar }".
 	comma := strings.Index(clause, ",")
 	defaultName := clause
+	trailingNamed := ""
 	if comma >= 0 {
 		defaultName = strings.TrimSpace(clause[:comma])
+		trailingNamed = strings.TrimSpace(clause[comma+1:])
 	}
 	if defaultName != "" && !strings.ContainsAny(defaultName, "{}* ") {
 		bindings[defaultName] = importPath
+	}
+	// Handle trailing named imports: "{ Bar, Baz }"
+	if strings.HasPrefix(trailingNamed, "{") {
+		end := strings.Index(trailingNamed, "}")
+		if end >= 0 {
+			for _, n := range strings.Split(trailingNamed[1:end], ",") {
+				n = strings.TrimSpace(n)
+				if asIdx := strings.Index(n, " as "); asIdx >= 0 {
+					if alias := strings.TrimSpace(n[asIdx+4:]); alias != "" {
+						bindings[alias] = importPath
+					}
+				} else if n != "" {
+					bindings[n] = importPath
+				}
+			}
+		}
 	}
 }
 

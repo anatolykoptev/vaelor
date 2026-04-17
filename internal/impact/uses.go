@@ -25,7 +25,7 @@ func appendUsesCallers(usesIndex map[string][]string, symbolName string, result 
 			Confidence: 1.0,
 		})
 	}
-	result.TotalAffected = len(result.DirectCallers)
+	result.TotalAffected += len(callers)
 	for pkg := range pkgSet {
 		result.AffectedPackages = append(result.AffectedPackages, pkg)
 	}
