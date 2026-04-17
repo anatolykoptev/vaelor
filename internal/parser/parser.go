@@ -136,5 +136,3 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 	result.Language = lang
 	return result, nil
 }
-
-// SupportedLanguages returns the list of languages that have tree-sitter grammar support.
