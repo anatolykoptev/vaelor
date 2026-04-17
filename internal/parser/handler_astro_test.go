@@ -124,3 +124,58 @@ func astroContainsName(names []string, target string) bool {
 	}
 	return false
 }
+
+func TestParseAstroTemplateRefs(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("testdata", "astro", "template_refs.astro"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	result, err := parser.ParseFile("template_refs.astro", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if result.Language != "astro" {
+		t.Errorf("Language = %q, want astro", result.Language)
+	}
+
+	names := make([]string, len(result.TemplateRefs))
+	for i, r := range result.TemplateRefs {
+		names[i] = r.Name
+	}
+
+	wantNames := []string{"Header", "Breadcrumbs"}
+	for _, want := range wantNames {
+		found := false
+		for _, n := range names {
+			if n == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TemplateRefs missing %q; got %v", want, names)
+		}
+	}
+
+	// div, main, slot are lowercase — must not appear
+	for _, n := range names {
+		if n == "div" || n == "main" || n == "slot" {
+			t.Errorf("TemplateRefs contains HTML tag %q", n)
+		}
+	}
+}
+
+func TestParseAstroNoTemplateRefs(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("testdata", "astro", "frontmatter_only.astro"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	result, err := parser.ParseFile("frontmatter_only.astro", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	// frontmatter_only has no capitalised JSX tags in the template body
+	for _, r := range result.TemplateRefs {
+		t.Errorf("unexpected TemplateRef %q in frontmatter-only file", r.Name)
+	}
+}

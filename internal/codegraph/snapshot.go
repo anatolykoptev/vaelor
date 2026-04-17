@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS code_graph_snapshots (
 
 // semanticEdgeLabels defines which edge types to include in snapshots.
 var semanticEdgeLabels = map[string]bool{
-	"CALLS": true, "INHERITS": true, "IMPLEMENTS": true, "TESTED_BY": true,
+	"CALLS": true, "INHERITS": true, "IMPLEMENTS": true, "TESTED_BY": true, "USES": true,
 }
 
 // SnapshotSymbol holds a single symbol entry in a snapshot.
