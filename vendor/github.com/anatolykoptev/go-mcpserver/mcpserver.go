@@ -7,6 +7,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -77,7 +78,10 @@ func Run(server *mcp.Server, cfg Config) error {
 	}
 	defer cancel()
 
-	h := buildHandler(server, cfg, logger)
+	h, err := buildHandler(sigCtx, server, cfg, logger)
+	if err != nil {
+		return fmt.Errorf("mcpserver: %w", err)
+	}
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
@@ -138,10 +142,10 @@ func Build(server *mcp.Server, cfg Config) (http.Handler, error) {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
-	return buildHandler(server, cfg, logger), nil
+	return buildHandler(buildCtx(cfg), server, cfg, logger)
 }
 
-func buildHandler(server *mcp.Server, cfg Config, logger *slog.Logger) http.Handler {
+func buildHandler(ctx context.Context, server *mcp.Server, cfg Config, logger *slog.Logger) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	if !cfg.DisableMCP {
@@ -185,7 +189,13 @@ func buildHandler(server *mcp.Server, cfg Config, logger *slog.Logger) http.Hand
 		cfg.Routes(mux)
 	}
 
-	return Chain(mux, buildMiddleware(cfg, logger)...)
+	if cfg.RESTBridge && !cfg.DisableMCP {
+		if err := startRESTBridge(ctx, server, mux, cfg, logger); err != nil {
+			return nil, fmt.Errorf("REST bridge init failed: %w", err)
+		}
+	}
+
+	return Chain(mux, buildMiddleware(cfg, logger)...), nil
 }
 
 // applyBearerAuth wraps handler with bearer token verification.
@@ -221,4 +231,12 @@ func isLoopback(r *http.Request) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// buildCtx returns the context from cfg, or context.Background() if nil.
+func buildCtx(cfg Config) context.Context {
+	if cfg.Context != nil {
+		return cfg.Context
+	}
+	return context.Background()
 }

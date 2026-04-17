@@ -3,7 +3,7 @@
 github.com/anatolykoptev/go-kit/cache
 github.com/anatolykoptev/go-kit/env
 github.com/anatolykoptev/go-kit/llm
-# github.com/anatolykoptev/go-mcpserver v0.9.1
+# github.com/anatolykoptev/go-mcpserver v0.11.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
 # github.com/cespare/xxhash/v2 v2.3.0
