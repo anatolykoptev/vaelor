@@ -35,16 +35,3 @@ func countLines(b []byte) int {
 	}
 	return n
 }
-
-// buildLineStartOffsets returns a slice of byte offsets where each line starts.
-// Index 0 → byte 0 (start of first line). len(src)+1 is appended as sentinel.
-func buildLineStartOffsets(src []byte) []int {
-	offsets := []int{0}
-	for i, c := range src {
-		if c == '\n' {
-			offsets = append(offsets, i+1)
-		}
-	}
-	offsets = append(offsets, len(src)+1) // sentinel
-	return offsets
-}
