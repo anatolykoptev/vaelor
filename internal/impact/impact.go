@@ -68,7 +68,18 @@ func Analyze(ctx context.Context, cg *callgraph.CallGraph, symbolName string, op
 
 	target := findTarget(cg.Symbols, symbolName)
 	if target == nil {
-		result.BlastRadius = "none"
+		// Fall through to file-level USES index for Astro components.
+		// symbolName may be a relative file path (e.g. "src/components/Breadcrumbs.astro").
+		if len(cg.UsesIndex) > 0 {
+			appendUsesCallers(cg.UsesIndex, symbolName, result)
+		}
+		if result.TotalAffected == 0 {
+			result.BlastRadius = "none"
+			return result
+		}
+		result.Found = true
+		result.BlastRadius = classifyBlastRadius(result.TotalAffected, len(result.AffectedPackages))
+		result.RiskScore = float64(result.TotalAffected)
 		return result
 	}
 	result.Found = true
