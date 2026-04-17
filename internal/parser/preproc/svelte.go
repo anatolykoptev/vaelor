@@ -37,7 +37,7 @@ func ExtractSvelte(src []byte) *VirtualSource {
 
 		// Find the closing '>' of the opening tag.
 		// Limit lookahead to one line or 512 bytes, whichever is shorter.
-		tagEndLimit := tagStart + 512
+		tagEndLimit := tagStart + tagOpenScanLimit
 		if tagEndLimit > len(src) {
 			tagEndLimit = len(src)
 		}
