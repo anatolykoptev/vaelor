@@ -118,7 +118,7 @@ func buildGraph(root string, files []*ingest.File, symbols []*parser.Symbol, cg 
 			FromLabel: "File",
 			FromKey:   ref.relFile,
 			ToLabel:   "File",
-			ToKey:     ref.name, // unresolved: tag name only (resolution is a v2 TODO)
+			ToKey:     "tplref:" + ref.name, // sentinel prefix: unresolved tag; resolution is a v2 TODO
 			EdgeLabel: "USES",
 			Props:     map[string]string{"line": strconv.Itoa(int(ref.line)), "unresolved": "true"},
 		})

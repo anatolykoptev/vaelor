@@ -195,10 +195,22 @@ comment/script stripping cleanly. Prefer the state machine.
 ### 4.6 Integration with existing systems
 
 - `dep_graph` / `code_graph`: AGE upserts a new `USES` relationship type. Cypher templates stay; new ones can `MATCH ()-[:USES]->()` if desired.
-- `impact_analysis`: already walks all incoming edges of a symbol; including `USES` is automatic once the label is in `semanticEdgeLabels`.
-- `understand`: `callers` aggregator needs to include USES edges (1 line in the aggregator) — or report them under a separate "used-by" bucket, which is arguably more accurate.
+- `impact_analysis`: **does NOT automatically see USES edges today.** `internal/impact/traverse.go` walks the in-memory `callgraph.CallGraph` (CallEdges only); it does not query AGE or snapshot edges. USES edges land in AGE and snapshots, but `impact_analysis` and `understand --reverse` are blind to them until v2 work wires USES into the in-memory CallGraph OR adds an AGE-based caller lookup that includes USES. See §4.7.
+- `understand`: `callers` aggregator needs to include USES edges (1 line in the aggregator) — or report them under a separate "used-by" bucket, which is arguably more accurate. Same blocker as `impact_analysis` applies.
 - `dead_code`: now correctly excludes Astro components that are referenced from templates.
 - Snapshots / diff: `USES` added/removed appears in `review_delta` output naturally once added to `semanticEdgeLabels`.
+
+### 4.7 Known Limitation: impact_analysis and understand integration (v2)
+
+`impact_analysis` and `understand --reverse` (callers) both traverse `callgraph.CallGraph` in memory (`internal/impact/traverse.go:39–75`). This graph is built from parsed CALLS/IMPORTS edges only — it does not read AGE or snapshot USES edges at query time.
+
+Consequence: after v1 lands, `impact_analysis(Breadcrumbs.astro)` will still return zero callers even though AGE contains correct USES edges. The feature is visible in `code_graph` Cypher queries and `dep_graph`, but invisible to the blast-radius tools.
+
+v2 options (pick one):
+1. **In-memory wiring**: populate `callgraph.CallGraph` with USES edges during graph construction so that `traverse.go` sees them without any API change.
+2. **AGE-based caller lookup**: add an AGE query path in `understand`/`impact` that falls back to `MATCH ()-[:USES]->(file)` when in-memory callers are empty or incomplete.
+
+Neither is required for v1 correctness; document here to prevent false expectations.
 
 ## 5. Open questions
 

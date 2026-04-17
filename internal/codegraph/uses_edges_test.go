@@ -40,5 +40,9 @@ func TestBuildGraphUsesEdges(t *testing.T) {
 		if e.Props["unresolved"] != "true" {
 			t.Errorf("expected unresolved=true on USES edge")
 		}
+		// ToKey must carry the tplref: sentinel to avoid collisions with Symbol keys.
+		if len(e.ToKey) < 8 || e.ToKey[:7] != "tplref:" {
+			t.Errorf("expected ToKey to start with tplref: sentinel, got %q", e.ToKey)
+		}
 	}
 }
