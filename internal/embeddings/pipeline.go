@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	maxEmbedText   = 2000
-	maxIndexFileKB = 512 * 1024
-	indexChunkSize = 100
+	maxEmbedText      = 2000
+	maxIndexFileBytes = 512 * 1024
+	indexChunkSize    = 100
 )
 
 // indexProgress tracks the progress of a background indexing run.
