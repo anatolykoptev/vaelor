@@ -5,10 +5,12 @@ import (
 )
 
 // cStyleLanguages is the set of languages that use // and /* */ comment syntax.
+// svelte / astro scripts are TypeScript/JavaScript so they use the same style.
 var cStyleLanguages = map[string]bool{
 	"go": true, "javascript": true, "typescript": true, "java": true,
 	"rust": true, "c": true, "cpp": true, "csharp": true,
 	"swift": true, "kotlin": true,
+	"svelte": true, "astro": true,
 }
 
 // hashStyleLanguages is the set of languages that use # comment syntax.

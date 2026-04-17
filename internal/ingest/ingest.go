@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 // File represents a single source file ready for parsing.
@@ -227,33 +229,8 @@ func containsString(slice []string, s string) bool {
 }
 
 // DetectLanguage returns the programming language for the given filename
-// based on its extension.
+// based on its extension. Delegates to parser.DetectLanguageFromPath so
+// there is a single source of truth — the handler registry.
 func DetectLanguage(filename string) string {
-	ext := filepath.Ext(filename)
-	switch ext {
-	case ".go":
-		return "go"
-	case ".py":
-		return "python"
-	case ".ts", ".tsx":
-		return "typescript"
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return "javascript"
-	case ".rs":
-		return "rust"
-	case ".java":
-		return "java"
-	case ".c", ".h":
-		return "c"
-	case ".cpp", ".cc", ".cxx", ".hpp":
-		return "cpp"
-	case ".rb":
-		return "ruby"
-	case ".cs":
-		return "csharp"
-	case ".php":
-		return "php"
-	default:
-		return ""
-	}
+	return parser.DetectLanguageFromPath(filename)
 }
