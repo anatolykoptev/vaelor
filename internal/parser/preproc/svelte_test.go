@@ -120,16 +120,17 @@ func TestExtractSvelte_AttrGtEntity(t *testing.T) {
 // TestExtractSvelte_AttrLiteralGt documents that a literal '>' byte inside an
 // attribute value fools the raw-byte scanner: it picks up the attribute-internal
 // '>' as the tag close. This is a known limitation of the byte scanner — it does
-// not parse HTML attributes. The test asserts the CURRENT (limited) behavior so
-// that any change is visible in CI.
+// not parse HTML attributes.
+// Pins current limited behavior. If the scanner gains escape handling, update this assertion.
 func TestExtractSvelte_AttrLiteralGt(t *testing.T) {
-	// The scanner will see the first '>' inside "<<<>>>" and treat everything after
-	// it as script content. This is incorrect HTML but documents the boundary.
+	// The scanner sees the first '>' inside "<<<>>>" as the tag close, so content
+	// starts after that '>', yielding the remaining attr garbage plus the real JS.
 	src := `<script title="<<<>>>" src="ok.js">let x = 1;</script>`
 	vs := ExtractSvelte([]byte(src))
-	// We only assert no panic and non-empty output — exact content is scanner-defined.
-	if vs == nil {
-		t.Fatal("AttrLiteralGt: returned nil VirtualSource")
+	// Current behavior: scanner picks up '>' inside attr value; code starts with '>'.
+	wantCode := `>>" src="ok.js">let x = 1;`
+	if string(vs.Code) != wantCode {
+		t.Errorf("AttrLiteralGt: Code = %q, want %q", string(vs.Code), wantCode)
 	}
 }
 
@@ -157,7 +158,7 @@ func TestExtractSvelte_BoundSingleLine(t *testing.T) {
 func TestExtractSvelte_BoundMaxBytes(t *testing.T) {
 	// Construct: <script src="<600 bytes of 'a'>">let x = 1;</script>
 	// The opening tag has no newline and no '>' within the first 512 bytes.
-	pad := strings.Repeat("a", 600)
+	pad := strings.Repeat("a", tagOpenScanLimit+88) // pad past the bound
 	src := `<script src="` + pad + `">let x = 1;</script>`
 	vs := ExtractSvelte([]byte(src))
 	code := string(vs.Code)

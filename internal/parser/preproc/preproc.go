@@ -8,6 +8,12 @@
 // internal/parser/preproc_remap.go (parser package) to avoid a cycle.
 package preproc
 
+// tagOpenScanLimit is the maximum number of bytes the scanner will look ahead
+// from the start of a '<script' token when searching for the closing '>'.
+// This bounds the scan on malformed tags that lack a closing '>' and have no
+// newline — without it, the scanner would traverse the rest of the file.
+const tagOpenScanLimit = 512
+
 // VirtualSource is TypeScript code extracted from a preprocessor-language
 // file (Svelte, Astro, Vue) together with a per-virtual-line mapping back
 // to the original source line numbers.

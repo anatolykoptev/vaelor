@@ -73,7 +73,7 @@ func ExtractAstro(src []byte) *VirtualSource {
 		tagStart := pos + idx
 
 		// Limit lookahead to one line or 512 bytes, whichever is shorter.
-		tagEndLimit := tagStart + 512
+		tagEndLimit := tagStart + tagOpenScanLimit
 		if tagEndLimit > len(src) {
 			tagEndLimit = len(src)
 		}
