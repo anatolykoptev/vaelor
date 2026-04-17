@@ -1,7 +1,7 @@
 # go-code — Code Intelligence MCP Server
 
 **Module**: `github.com/anatolykoptev/go-code` | **Port**: 8897 | **MCP**: `http://127.0.0.1:8897/mcp`
-**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#
+**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP
 
 ## Package Overview
 
@@ -9,7 +9,7 @@
 |---------|------|
 | `cmd/go-code/` | MCP entry point; `tool_*.go` = one file per tool, `register.go` wires them |
 | `internal/ingest/` | Repo clone (`--filter=blob:none` partial clone) + walk |
-| `internal/parser/` | tree-sitter AST → symbols (9 languages) |
+| `internal/parser/` | tree-sitter AST → symbols (11 languages) |
 | `internal/analyze/` | Orchestration imported by tool handlers (tools import ONLY this) |
 | `internal/callgraph/` | In-memory call tracing + go/types type-aware resolution for Go repos |
 | `internal/goanalysis/` | Go package loading (`go/packages`) + type-aware call resolution (`go/types`) |
@@ -24,6 +24,17 @@
 | `internal/forge/` | Multi-forge abstraction: `Forge` interface, GitHub + GitLab implementations, URL detection, registry |
 | `internal/websearch/` | HTTP client for go-search MCP (smart_search depth=fast), used by repo_search |
 | `internal/llm/` | CLIProxyAPI client with retry + fallback |
+| `internal/clean/` | Symbol post-processing between parser and analyze |
+| `internal/cache/` | Parse/LLM/tool caches (in-mem L1 + optional Redis L2) |
+| `internal/compare/` | Repo structural comparison (backs `code_compare`) |
+| `internal/deadcode/` | Unused-symbol detection (backs `dead_code`) |
+| `internal/explore/` | Quick repo overview (backs `explore`) |
+| `internal/impact/` | Change-impact analysis (backs `impact_analysis`) |
+| `internal/research/` | Deep repository research (backs `code_research`) |
+| `internal/review/` | PR / delta review (backs `review_*`) |
+| `internal/designmd/` | Design-doc indexing (backs `design_search`) |
+| `internal/oxcodes/` | ox-codes cross-service integration |
+| `internal/webanalyze/` | Site technology fingerprinting |
 
 ## MCP Tools
 
@@ -50,6 +61,11 @@
 | `review_pr` | Review a pull request: differential impact analysis on all changes |
 | `review_delta` | Analyze changes between two git refs and compute differential impact |
 | `review_pr_post` | Run review_pr and post the result as a PR review on GitHub |
+| `code_research` | Deep repo research — AST traversal + LLM narrative + test linkage |
+| `rewrite` | Automated refactor suggestions / code rewrite |
+| `dataflow` | Taint / dead-value data-flow analysis (sub-modes: dead, taint) |
+| `design_search` | Semantic search across design docs (requires `DESIGN_EMBED_URL`) |
+| `wp_plugin_search` | Search the WordPress.org plugin directory |
 
 ## Environment Variables
 
@@ -93,6 +109,7 @@
 ## Build
 
 ```bash
+# All go commands need GOWORK=off — the user-wide go.work interferes.
 make build   # CGO_ENABLED=1 required (tree-sitter grammars are C)
 make lint
 make test
@@ -118,6 +135,8 @@ make deploy  # docker compose build --no-cache + up -d
 - **Partial clone**: `--filter=blob:none` reduces memory for large repos (no blob download during clone)
 - **Semantic search stack**: embed-jina (jina-code-v2, 768 dim) → pgvector (HNSW cosine) → hybrid RRF (semantic + keyword) → graph expansion (1-hop AGE)
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
+- **`GOWORK=off` mandatory**: without it, `go test`/`go build` resolve against the user-wide `go.work` and break imports
+- **Extension → language is single source of truth via `handler.Extensions()`** — don't duplicate in a separate map (historical bug: `.cjs` was in handler but missing from the lang map, making `ParseFile("foo.cjs")` fail silently)
 
 ## Contributing
 
