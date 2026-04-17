@@ -4,7 +4,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 
 ## Features
 
-- **9 languages** — Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#
+- **13 languages** — Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro
 - **8 MCP tools** — from quick code search to deep structural analysis
 - **Multiple analysis modes** — deep (clone + AST + LLM), quick (GitHub Code Search), issues/PRs
 - **Call chain tracing** — bidirectional BFS with cycle detection and LLM narrative
@@ -146,7 +146,7 @@ claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
 ```
 cmd/go-code/          — MCP server, tool handlers (one file per tool)
 internal/
-  parser/             — tree-sitter AST parsing, 9 language handlers
+  parser/             — tree-sitter AST parsing, 13 language handlers
   ingest/             — repo cloning, file walking, gitignore filtering
   clean/              — smart code cleaning for LLM context
   render/             — rendering modes (signatures, skeleton, focused)
