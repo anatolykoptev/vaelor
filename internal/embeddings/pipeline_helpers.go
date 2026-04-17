@@ -17,7 +17,7 @@ import (
 func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*ingest.File, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
-		MaxFileBytes: maxIndexFileKB,
+		MaxFileBytes: maxIndexFileBytes,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("ingest repo: %w", err)
