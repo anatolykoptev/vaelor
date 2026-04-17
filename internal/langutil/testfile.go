@@ -38,6 +38,7 @@ var testFileExtensions = []string{
 // It uses the first occurrence of ".test." or ".spec." in the file base-name.
 // Returns ("", false) if the path does not contain a recognised infix or if
 // the stem before the infix is empty (e.g. ".test.ts").
+// Detection is case-sensitive; lowercase the path first if case-insensitive matching is needed.
 func TestStem(path string) (stem string, ok bool) {
 	base := filepath.Base(path)
 	for _, infix := range testInfixes {
