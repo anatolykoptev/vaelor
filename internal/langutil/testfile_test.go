@@ -23,8 +23,16 @@ func TestIsTestFile(t *testing.T) {
 		{"Button.test.svelte", true},
 		{"Modal.spec.svelte", true},
 		{"Layout.test.astro", true},
-		// __tests__ directory variant.
+		// __tests__ directory variant — both with and without infix in basename.
 		{"src/components/__tests__/Button.test.ts", true},
+		{"src/__tests__/helper.ts", true},          // directory alone is sufficient
+		{"src/components/__tests__/util.go", true}, // directory alone, Go file
+		// False positives guarded by extension allowlist.
+		{"foo.test.md", false},
+		{"bar.spec.json", false},
+		{"data.spec.csv", false},
+		// Negative: __tests__ substring must be a path segment, not a prefix/suffix.
+		{"src/test_data/file.ts", false},
 	}
 	for _, tt := range tests {
 		if got := IsTestFile(tt.path); got != tt.want {
@@ -56,6 +64,10 @@ func TestTestStem(t *testing.T) {
 		{"manifest.test.config.ts", "manifest", true},
 		// leading dot guard — .test.ts has no stem before the dot.
 		{".test.ts", "", false},
+		// extension not in allowlist — infix present but extension rejected.
+		{"foo.test.md", "", false},
+		{"bar.spec.json", "", false},
+		{"data.spec.csv", "", false},
 		// negative cases — no infix.
 		{"random.ts", "", false},
 		{"main.go", "", false},
