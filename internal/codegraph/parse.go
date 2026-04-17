@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -23,12 +24,13 @@ type indexParseResult struct {
 	templateRefs []templateFileRef
 }
 
-// templateFileRef pairs a file's relative path with a TemplateRef so the
-// codegraph builder can emit USES edges.
+// templateFileRef is a resolved Astro USES relationship ready for AGE insertion.
+// Resolution (tag name → file path) is performed in indexParseFile via
+// callgraph.ResolveTemplateRefs; unresolved refs are dropped before storage.
 type templateFileRef struct {
-	relFile string
-	name    string
-	line    uint32
+	relFile    string // Astro file that contains the tag usage
+	resolvedTo string // relative path of the imported component file
+	line       uint32
 }
 
 // ingestAndParse ingests a repository and parses all files in parallel.
@@ -43,7 +45,7 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
-	results := indexParseParallel(ctx, ir.Files)
+	results := indexParseParallel(ctx, root, ir.Files)
 
 	var allFiles []*ingest.File
 	var allSymbols []*parser.Symbol
@@ -70,7 +72,7 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 }
 
 // indexParseParallel parses all files concurrently and returns results.
-func indexParseParallel(ctx context.Context, files []*ingest.File) []indexParseResult {
+func indexParseParallel(ctx context.Context, root string, files []*ingest.File) []indexParseResult {
 	results := make([]indexParseResult, len(files))
 
 	workers := runtime.NumCPU()
@@ -93,7 +95,7 @@ func indexParseParallel(ctx context.Context, files []*ingest.File) []indexParseR
 				if ctx.Err() != nil {
 					return
 				}
-				results[idx] = indexParseFile(files[idx])
+				results[idx] = indexParseFile(root, files[idx])
 			}
 		}()
 	}
@@ -102,7 +104,7 @@ func indexParseParallel(ctx context.Context, files []*ingest.File) []indexParseR
 	return results
 }
 
-func indexParseFile(f *ingest.File) indexParseResult {
+func indexParseFile(root string, f *ingest.File) indexParseResult {
 	source, err := os.ReadFile(f.Path)
 	if err != nil {
 		return indexParseResult{}
@@ -128,12 +130,13 @@ func indexParseFile(f *ingest.File) indexParseResult {
 		slog.Debug("codegraph: extract relationships failed", slog.String("file", f.Path), slog.Any("error", relErr))
 	}
 
+	// Resolve template refs to file paths immediately; unresolved refs are dropped.
 	var tplRefs []templateFileRef
-	for _, ref := range pr.TemplateRefs {
+	for _, u := range callgraph.ResolveTemplateRefs(source, pr.TemplateRefs, f.RelPath, root) {
 		tplRefs = append(tplRefs, templateFileRef{
-			relFile: f.RelPath,
-			name:    ref.Name,
-			line:    ref.Line,
+			relFile:    u.From,
+			resolvedTo: u.To,
+			line:       u.Line,
 		})
 	}
 

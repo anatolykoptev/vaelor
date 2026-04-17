@@ -3,14 +3,11 @@ package callgraph
 import (
 	"context"
 	"fmt"
-	"os"
-	"runtime"
-	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/goanalysis"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/routes"
+	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
 const maxFileBytes = 512 * 1024
@@ -28,6 +25,9 @@ type parseResult struct {
 	symbols []*parser.Symbol
 	calls   []parser.CallSite
 	rels    []parser.TypeRelationship
+	src     []byte // raw file bytes, needed for template-ref resolution
+	fileRel string // file path relative to repo root
+	tplRefs []preproc.TemplateRef
 }
 
 // BuildFromRepo ingests a repo, parses files, and returns the call graph
@@ -88,6 +88,9 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 		InjectHookEdges(cg, hookRoutes)
 	}
 
+	// Populate UsesIndex from Astro template component references.
+	cg.UsesIndex = buildUsesIndex(results, input.Root)
+
 	return cg, nil
 }
 
@@ -104,65 +107,6 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 	return &result, nil
 }
 
-func parseFilesParallel(ctx context.Context, files []*ingest.File) []parseResult {
-	results := make([]parseResult, len(files))
-
-	workers := runtime.NumCPU()
-	if workers < 1 {
-		workers = 1
-	}
-
-	work := make(chan int, len(files))
-	for i := range files {
-		work <- i
-	}
-	close(work)
-
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range work {
-				if ctx.Err() != nil {
-					return
-				}
-				results[idx] = parseFileForCalls(files[idx])
-			}
-		}()
-	}
-
-	wg.Wait()
-	return results
-}
-
-// extractHookRoutes collects WordPress hook routes from PHP files.
-func extractHookRoutes(files []*ingest.File) []HookRoute {
-	var out []HookRoute
-	for _, f := range files {
-		if f.Language != "php" {
-			continue
-		}
-		src, err := os.ReadFile(f.Path)
-		if err != nil {
-			continue
-		}
-		for _, r := range routes.ExtractAll("php", src) {
-			if r.Framework != "wordpress" {
-				continue
-			}
-			out = append(out, HookRoute{
-				Method:  r.Method,
-				Path:    r.Path,
-				Handler: r.Handler,
-				Side:    r.Side,
-				Line:    r.Line,
-			})
-		}
-	}
-	return out
-}
-
 // tryGoTypesResolution attempts to load Go packages and resolve typed call edges.
 // Returns nil on any failure — callers fall back to tree-sitter-only graph.
 func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {
@@ -177,25 +121,20 @@ func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.
 	return ConvertToCallGraph(typedEdges, tsSymbols)
 }
 
-func parseFileForCalls(file *ingest.File) parseResult {
-	source, err := os.ReadFile(file.Path)
-	if err != nil {
-		return parseResult{}
+// buildUsesIndex resolves Astro template refs from all parse results and returns
+// a map from target-file → []using-file (all paths relative to root).
+func buildUsesIndex(results []parseResult, root string) map[string][]string {
+	idx := make(map[string][]string)
+	for _, r := range results {
+		if len(r.tplRefs) == 0 {
+			continue
+		}
+		for _, u := range ResolveTemplateRefs(r.src, r.tplRefs, r.fileRel, root) {
+			idx[u.To] = append(idx[u.To], u.From)
+		}
 	}
-
-	opts := parser.ParseOpts{
-		Language:       file.Language,
-		IncludeBody:    true,
-		IncludeImports: true,
+	if len(idx) == 0 {
+		return nil
 	}
-
-	pr, err := parser.ParseFile(file.Path, source, opts)
-	if err != nil {
-		return parseResult{}
-	}
-
-	calls, _ := parser.ExtractCalls(file.Path, source, opts)
-	rels, _ := parser.ExtractRelationships(file.Path, source, opts)
-
-	return parseResult{symbols: pr.Symbols, calls: calls, rels: rels}
+	return idx
 }

@@ -25,6 +25,11 @@ type CallGraph struct {
 	HookCallbacks []string                  // function names registered as hook callbacks
 	Tier          string                    // "basic" (tree-sitter), "enhanced" (go/types merged), "full" (future)
 	Backend       string                    // resolution backend: "tree-sitter", "tree-sitter+go/types", "tree-sitter+scip"
+	// UsesIndex maps a target file's relative path to a list of relative paths
+	// of Astro files that render it as a component (<Foo />). Populated by
+	// ResolveTemplateRefs during BuildFromRepo. Enables impact_analysis to
+	// report file-level USES callers for Astro components.
+	UsesIndex map[string][]string
 }
 
 // BuildCallGraph resolves call sites against the symbol table.
@@ -127,138 +132,4 @@ func commonPrefixLen(a, b string) int {
 		}
 	}
 	return n
-}
-
-// InjectHookEdges adds synthetic call edges for WordPress hook connections.
-//
-// For each hook name that has both a registration (add_action/add_filter,
-// Side="server") and an invocation (do_action/apply_filters, Side="client"),
-// it creates a CallEdge from the invoking function to the callback function.
-//
-// hookRoutes must come from routes.ExtractAll("php", ...) and symbols from
-// the same repository's parsed symbol table.
-func InjectHookEdges(cg *CallGraph, hookRoutes []HookRoute) {
-	// Index server-side: hook name -> []callback name
-	callbacks := make(map[string][]string)
-	for _, r := range hookRoutes {
-		if r.Side == "server" && r.Handler != "" {
-			callbacks[r.Path] = append(callbacks[r.Path], r.Handler)
-		}
-	}
-	if len(callbacks) == 0 {
-		return
-	}
-
-	// Index symbols by name for resolution.
-	byName := indexByName(cg.Symbols)
-
-	// Track which hooks have client-side invocations.
-	clientHooks := make(map[string]bool)
-	for _, r := range hookRoutes {
-		if r.Side == "client" {
-			clientHooks[r.Path] = true
-		}
-	}
-
-	// For each client-side hook invocation, create edges to all registered callbacks.
-	for _, r := range hookRoutes {
-		if r.Side != "client" {
-			continue
-		}
-		cbs, ok := callbacks[r.Path]
-		if !ok {
-			continue
-		}
-		for _, cbName := range cbs {
-			targets := byName[cbName]
-			if len(targets) == 0 {
-				// Unresolved callback — still record the edge.
-				cg.Edges = append(cg.Edges, CallEdge{
-					CalleeName: cbName,
-					Line:       r.Line,
-				})
-				continue
-			}
-			for _, target := range targets {
-				cg.Edges = append(cg.Edges, CallEdge{
-					Callee:     target,
-					CalleeName: cbName,
-					Line:       r.Line,
-				})
-			}
-		}
-	}
-
-	// Collect all callback names for dead code safety net.
-	var cbCollected []string
-	for _, r := range hookRoutes {
-		if r.Side == "server" && r.Handler != "" {
-			cbCollected = append(cbCollected, r.Handler)
-		}
-	}
-	cg.HookCallbacks = cbCollected
-
-	// Second pass: inject edges for server-only hooks (no client-side invocation
-	// in the analyzed repo). These are typically WordPress core hooks like
-	// admin_notices, init, enqueue_block_editor_assets, etc. — the do_action()
-	// call lives in WordPress core, not in the plugin code. The add_action()
-	// registration itself proves the callback is alive.
-	for hookName, cbNames := range callbacks {
-		if clientHooks[hookName] {
-			continue // Already handled by client→server matching above.
-		}
-		for _, cbName := range cbNames {
-			targets := byName[cbName]
-			if len(targets) == 0 {
-				cg.Edges = append(cg.Edges, CallEdge{
-					CalleeName: cbName,
-				})
-				continue
-			}
-			for _, target := range targets {
-				cg.Edges = append(cg.Edges, CallEdge{
-					Callee:     target,
-					CalleeName: cbName,
-				})
-			}
-		}
-	}
-}
-
-// HookRoute is a minimal representation of a WordPress hook route used by
-// InjectHookEdges. It mirrors the fields needed from routes.Route without
-// importing the routes package (to avoid circular dependencies).
-type HookRoute struct {
-	Method  string // "ACTION" or "FILTER"
-	Path    string // hook name
-	Handler string // callback function name (empty for client-side)
-	Side    string // "server" or "client"
-	Line    uint32
-}
-
-func indexByName(symbols []*parser.Symbol) map[string][]*parser.Symbol {
-	m := make(map[string][]*parser.Symbol)
-	for _, sym := range symbols {
-		if sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod {
-			m[sym.Name] = append(m[sym.Name], sym)
-		}
-	}
-	return m
-}
-
-func indexByFile(symbols []*parser.Symbol) map[string][]*parser.Symbol {
-	m := make(map[string][]*parser.Symbol)
-	for _, sym := range symbols {
-		m[sym.File] = append(m[sym.File], sym)
-	}
-	return m
-}
-
-func indexByDir(symbols []*parser.Symbol) map[string][]*parser.Symbol {
-	m := make(map[string][]*parser.Symbol)
-	for _, sym := range symbols {
-		dir := filepath.Dir(sym.File)
-		m[dir] = append(m[dir], sym)
-	}
-	return m
 }
