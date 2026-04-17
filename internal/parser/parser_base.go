@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
@@ -155,4 +156,26 @@ func processCaptureWithCaps(
 // Languages use both `"..."` and `'...'` for import/require strings.
 func trimQuotes(s string) string {
 	return strings.Trim(s, `"'`)
+}
+
+// parseBytesWithPreproc is a helper for preprocessor-language handlers
+// (Svelte, Astro). It parses vs.Code as if it were source in the language
+// provided by the base caps (typically TypeScript), then remaps symbol lines
+// from virtual to original coordinates using vs.LineMap.
+//
+// path is the ORIGINAL file path — used for Symbol.File and error messages.
+//
+// This is defined on *parserBase (not as a free function) to match other
+// methods on the struct and allow future extension (e.g. caching).
+func (p *parserBase) parseBytesWithPreproc(path string, vs *preproc.VirtualSource, opts ParseOpts) (*ParseResult, error) {
+	if vs == nil {
+		// Nothing to parse — return empty result with the expected language label.
+		return &ParseResult{File: path, Language: p.lang, Symbols: []*Symbol{}, Imports: []string{}}, nil
+	}
+	result, err := p.Parse(path, vs.Code, opts)
+	if err != nil {
+		return nil, err
+	}
+	RemapSymbolLines(result, vs)
+	return result, nil
 }
