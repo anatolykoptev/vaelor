@@ -120,6 +120,33 @@ func TestExtractAstro_AttrLiteralGt(t *testing.T) {
 	}
 }
 
+// TestExtractAstro_BoundSingleLine verifies that a <script> whose opening tag
+// spans two lines is not extracted. The bound caps '>' search to the first
+// newline; since no '>' appears before the newline, gtIdx < 0 → break.
+// Removing the newline-cap would let the scanner find '>' on the next line.
+func TestExtractAstro_BoundSingleLine(t *testing.T) {
+	src := "<html>\n<script\nsrc=\"long-attr\">\nlet x = 1;\n</script>\n</html>\n"
+	vs := ExtractAstro([]byte(src))
+	code := string(vs.Code)
+	if code != "" {
+		t.Errorf("BoundSingleLine: expected empty Code (multi-line open tag), got %q", code)
+	}
+}
+
+// TestExtractAstro_BoundMaxBytes verifies that an opening <script> tag whose
+// attribute value is >512 bytes without any newline or '>' does not let the
+// scanner run past the 512-byte window. Without the cap the scanner would
+// eventually find '>' and incorrectly extract content.
+func TestExtractAstro_BoundMaxBytes(t *testing.T) {
+	pad := strings.Repeat("a", 600)
+	src := `<script src="` + pad + `">let x = 1;</script>`
+	vs := ExtractAstro([]byte(src))
+	code := string(vs.Code)
+	if code != "" {
+		t.Errorf("BoundMaxBytes: expected empty Code (no '>' within 512 bytes), got %q", code)
+	}
+}
+
 func TestExtractAstro_NoFrontmatterNoScript(t *testing.T) {
 	src := "<html><body>plain</body></html>\n"
 	vs := ExtractAstro([]byte(src))
