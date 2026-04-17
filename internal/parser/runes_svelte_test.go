@@ -35,9 +35,11 @@ func TestRunesBasic(t *testing.T) {
 		{"count", "state"},
 		{"doubled", "derived"},
 		{"raw", "state"},
+		{"eager", "state"},
 		{"sum", "derived"},
 		{"id", "props"},
 		{"val", "bindable"},
+		{"h", "host"},
 	}
 	for _, c := range cases {
 		sym, ok := byName[c.name]
@@ -53,11 +55,12 @@ func TestRunesBasic(t *testing.T) {
 		}
 	}
 
-	// Standalone $effect, $effect.pre, $effect.root should appear as synthetic symbols.
-	if len(runeSymbolsWithKind(result.Symbols, "effect")) < 1 {
-		t.Errorf("expected at least 1 effect rune symbol, got 0; all: %v", runeSymbolNames(result.Symbols))
+	// Standalone $effect, $effect.pre, $effect.root, $effect.tracking, $effect.pending.
+	if len(runeSymbolsWithKind(result.Symbols, "effect")) < 3 {
+		t.Errorf("expected at least 3 effect rune symbols (pre+root+tracking/pending), got %d; all: %v",
+			len(runeSymbolsWithKind(result.Symbols, "effect")), runeSymbolNames(result.Symbols))
 	}
-	// $inspect and $inspect.with should appear.
+	// $inspect and $inspect.trace should appear.
 	if len(runeSymbolsWithKind(result.Symbols, "inspect")) < 1 {
 		t.Errorf("expected at least 1 inspect rune symbol, got 0; all: %v", runeSymbolNames(result.Symbols))
 	}
