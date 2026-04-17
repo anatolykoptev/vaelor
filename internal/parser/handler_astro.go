@@ -38,7 +38,16 @@ func (h *astroHandler) MapCapture(captureName string, node *sitter.Node, source 
 	return tsLang.MapCapture(captureName, node, source)
 }
 
-// Parse extracts frontmatter + scripts, delegates to TS grammar, remaps lines.
+// Parse extracts frontmatter + scripts, delegates to TS grammar, remaps lines,
+// and populates TemplateRefs from capitalised tags in the template body.
 func (h *astroHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
-	return parseWithTSAndRemap(path, preproc.ExtractAstro(src), "astro", opts)
+	vs, refs := preproc.ExtractAstroWithRefs(src)
+	result, err := parseWithTSAndRemap(path, vs, "astro", opts)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) > 0 {
+		result.TemplateRefs = refs
+	}
+	return result, nil
 }

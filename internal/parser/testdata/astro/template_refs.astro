@@ -1,0 +1,10 @@
+---
+import Header from '../layouts/Header.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+const title = "Hello";
+---
+<Header />
+<main>
+  <Breadcrumbs items={[]} />
+  <div class="content"><slot /></div>
+</main>

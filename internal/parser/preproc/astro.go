@@ -1,6 +1,27 @@
 package preproc
 
-import "bytes"
+import (
+	"bytes"
+)
+
+// ExtractAstroWithRefs is the primary extractor. It returns both the virtual
+// TypeScript/JS source (frontmatter + <script> blocks) and a list of
+// capitalised JSX-style component tag references found in the template body.
+//
+// TemplateRefs are emitted for each opening tag whose name starts with an
+// uppercase ASCII letter. Closing tags, HTML-lowercase tags, and
+// namespace-prefixed tags (<astro:fragment>, <svelte:head>) are skipped.
+// Contents of <!-- comments -->, <script>, and <style> blocks are also skipped.
+// Each usage occurrence is recorded (no deduplication — callers may deduplicate
+// per their own requirements).
+//
+// Resolution of tag names to file paths is NOT performed here — callers should
+// join TemplateRefs against ParseResult.Imports for that purpose.
+func ExtractAstroWithRefs(src []byte) (*VirtualSource, []TemplateRef) {
+	vs := ExtractAstro(src)
+	refs := scanTemplateRefs(src)
+	return vs, refs
+}
 
 // ExtractAstro extracts the Astro frontmatter block (between leading ---) and
 // all <script> blocks (page-level <script> tags). Returns VirtualSource with
@@ -110,6 +131,42 @@ func ExtractAstro(src []byte) *VirtualSource {
 	}
 
 	return b.Build()
+}
+
+// skipRange is a [start, end) byte range used to exclude script/style blocks
+// from the template-ref scanner.
+type skipRange struct{ start, end int }
+
+// collectSkipRanges returns ranges covering all <script> and <style> tags in
+// src. Used by scanTemplateRefs to skip those regions during the template walk.
+func collectSkipRanges(src []byte) []skipRange {
+	var ranges []skipRange
+	for _, tag := range []string{"script", "style"} {
+		pos, open, close := 0, []byte("<"+tag), []byte("</"+tag+">")
+		for pos < len(src) {
+			idx := bytes.Index(src[pos:], open)
+			if idx < 0 {
+				break
+			}
+			start := pos + idx
+			gt := bytes.IndexByte(src[start:], '>')
+			if gt < 0 {
+				break
+			}
+			cs := start + gt + 1
+			ci := bytes.Index(src[cs:], close)
+			end := len(src)
+			if ci >= 0 {
+				end = cs + ci + len(close)
+			}
+			ranges = append(ranges, skipRange{start, end})
+			if ci < 0 {
+				break
+			}
+			pos = end
+		}
+	}
+	return ranges
 }
 
 // findLinePrefix searches src[from:] for the first occurrence of a line that

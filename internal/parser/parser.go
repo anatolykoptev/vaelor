@@ -10,6 +10,8 @@ package parser
 import (
 	"fmt"
 	"path/filepath"
+
+	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
 // NodeKind represents the kind of a code symbol extracted from the AST.
@@ -100,6 +102,12 @@ type ParseResult struct {
 
 	// Imports is the list of import paths/modules declared in the file.
 	Imports []string
+
+	// TemplateRefs holds capitalised JSX-style component tag usages found in
+	// the template body of Astro (and future Svelte/Vue) files. Empty for all
+	// other languages. Each entry is one occurrence; callers may deduplicate.
+	// Resolution of names to file paths requires joining against Imports.
+	TemplateRefs []preproc.TemplateRef `json:"template_refs,omitempty"`
 
 	// Error is set if parsing failed or produced an error node in the tree.
 	Error error

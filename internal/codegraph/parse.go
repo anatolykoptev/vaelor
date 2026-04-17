@@ -12,25 +12,35 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
-// indexParseResult holds symbols, calls, imports, and type relationships parsed from one file.
+// indexParseResult holds symbols, calls, imports, type relationships, and
+// template refs parsed from one file.
 type indexParseResult struct {
-	file    *ingest.File
-	symbols []*parser.Symbol
-	calls   []parser.CallSite
-	imports []string
-	rels    []parser.TypeRelationship
+	file         *ingest.File
+	symbols      []*parser.Symbol
+	calls        []parser.CallSite
+	imports      []string
+	rels         []parser.TypeRelationship
+	templateRefs []templateFileRef
+}
+
+// templateFileRef pairs a file's relative path with a TemplateRef so the
+// codegraph builder can emit USES edges.
+type templateFileRef struct {
+	relFile string
+	name    string
+	line    uint32
 }
 
 // ingestAndParse ingests a repository and parses all files in parallel.
 // The returned map associates each file's relative path with the import paths
 // declared in that file.
-func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, []parser.TypeRelationship, error) {
+func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, []parser.TypeRelationship, []templateFileRef, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
 		MaxFileBytes: maxIndexFileBytes,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
 	results := indexParseParallel(ctx, ir.Files)
@@ -39,6 +49,7 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 	var allSymbols []*parser.Symbol
 	var allCalls []parser.CallSite
 	var allRels []parser.TypeRelationship
+	var allTplRefs []templateFileRef
 	fileImports := make(map[string][]string)
 
 	for _, r := range results {
@@ -49,12 +60,13 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 		allSymbols = append(allSymbols, r.symbols...)
 		allCalls = append(allCalls, r.calls...)
 		allRels = append(allRels, r.rels...)
+		allTplRefs = append(allTplRefs, r.templateRefs...)
 		if len(r.imports) > 0 {
 			fileImports[r.file.RelPath] = r.imports
 		}
 	}
 
-	return allFiles, allSymbols, allCalls, fileImports, allRels, nil
+	return allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, nil
 }
 
 // indexParseParallel parses all files concurrently and returns results.
@@ -116,12 +128,22 @@ func indexParseFile(f *ingest.File) indexParseResult {
 		slog.Debug("codegraph: extract relationships failed", slog.String("file", f.Path), slog.Any("error", relErr))
 	}
 
+	var tplRefs []templateFileRef
+	for _, ref := range pr.TemplateRefs {
+		tplRefs = append(tplRefs, templateFileRef{
+			relFile: f.RelPath,
+			name:    ref.Name,
+			line:    ref.Line,
+		})
+	}
+
 	return indexParseResult{
-		file:    f,
-		symbols: pr.Symbols,
-		calls:   calls,
-		imports: pr.Imports,
-		rels:    rels,
+		file:         f,
+		symbols:      pr.Symbols,
+		calls:        calls,
+		imports:      pr.Imports,
+		rels:         rels,
+		templateRefs: tplRefs,
 	}
 }
 

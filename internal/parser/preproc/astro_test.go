@@ -159,3 +159,144 @@ func TestExtractAstro_NoFrontmatterNoScript(t *testing.T) {
 		t.Errorf("no fm/script: expected empty Code, got %q", vs.Code)
 	}
 }
+
+// ---- TemplateRef / scanTemplateRefs tests ----
+
+func TestScanTemplateRefs_CapitalisedTags(t *testing.T) {
+	src := "---\nimport Breadcrumbs from './Breadcrumbs.astro';\n---\n<Header />\n<main>\n  <Breadcrumbs items={items} />\n  <Footer />\n</main>\n"
+	refs := scanTemplateRefs([]byte(src))
+	names := refNames(refs)
+	want := []string{"Header", "Breadcrumbs", "Footer"}
+	if !stringSlicesMatch(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestScanTemplateRefs_HTMLTagsSkipped(t *testing.T) {
+	src := "---\n---\n<div><span /><p>text</p></div>\n"
+	refs := scanTemplateRefs([]byte(src))
+	if len(refs) != 0 {
+		t.Errorf("expected 0 refs for HTML-only, got %v", refNames(refs))
+	}
+}
+
+func TestScanTemplateRefs_Mixed(t *testing.T) {
+	src := "---\n---\n<Header /><div><Footer /></div>\n"
+	refs := scanTemplateRefs([]byte(src))
+	names := refNames(refs)
+	want := []string{"Header", "Footer"}
+	if !stringSlicesMatch(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestScanTemplateRefs_NamespacedSkipped(t *testing.T) {
+	src := "---\n---\n<astro:fragment><Foo /></astro:fragment>\n"
+	refs := scanTemplateRefs([]byte(src))
+	names := refNames(refs)
+	// astro:fragment is skipped; Foo inside is kept
+	if len(refs) != 1 || refs[0].Name != "Foo" {
+		t.Errorf("got %v, want [Foo]", names)
+	}
+}
+
+func TestScanTemplateRefs_Conditional(t *testing.T) {
+	src := "---\n---\n{cond && <Foo />}\n"
+	refs := scanTemplateRefs([]byte(src))
+	if len(refs) != 1 || refs[0].Name != "Foo" {
+		t.Errorf("got %v, want [Foo]", refNames(refs))
+	}
+}
+
+func TestScanTemplateRefs_SelfClosingAndNested(t *testing.T) {
+	src := "---\n---\n<Foo /><Bar><Baz /></Bar>\n"
+	refs := scanTemplateRefs([]byte(src))
+	names := refNames(refs)
+	want := []string{"Foo", "Bar", "Baz"}
+	if !stringSlicesMatch(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestScanTemplateRefs_SkipsScriptContent(t *testing.T) {
+	src := "---\n---\n<script>const X = <Header />;</script>\n<Real />\n"
+	refs := scanTemplateRefs([]byte(src))
+	names := refNames(refs)
+	// Header inside <script> must be skipped; Real outside is kept
+	if len(refs) != 1 || refs[0].Name != "Real" {
+		t.Errorf("got %v, want [Real]", names)
+	}
+}
+
+func TestScanTemplateRefs_SkipsHTMLComment(t *testing.T) {
+	src := "---\n---\n<!-- <Hidden /> -->\n<Visible />\n"
+	refs := scanTemplateRefs([]byte(src))
+	if len(refs) != 1 || refs[0].Name != "Visible" {
+		t.Errorf("got %v, want [Visible]", refNames(refs))
+	}
+}
+
+func TestScanTemplateRefs_PositionTracking(t *testing.T) {
+	// Breadcrumbs is on line 4, col 1 (after 3-line frontmatter).
+	src := "---\nimport B from './B.astro';\n---\n<Breadcrumbs />\n"
+	refs := scanTemplateRefs([]byte(src))
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 ref, got %d", len(refs))
+	}
+	if refs[0].Line != 4 {
+		t.Errorf("Line = %d, want 4", refs[0].Line)
+	}
+	if refs[0].Col != 1 {
+		t.Errorf("Col = %d, want 1", refs[0].Col)
+	}
+}
+
+func TestScanTemplateRefs_MultipleOccurrences(t *testing.T) {
+	src := "---\n---\n<Foo /><Foo /><Foo />\n"
+	refs := scanTemplateRefs([]byte(src))
+	if len(refs) != 3 {
+		t.Errorf("expected 3 refs (no dedup), got %d", len(refs))
+	}
+}
+
+func TestScanTemplateRefs_NoFrontmatter(t *testing.T) {
+	src := "<Bar /><div />\n"
+	refs := scanTemplateRefs([]byte(src))
+	if len(refs) != 1 || refs[0].Name != "Bar" {
+		t.Errorf("got %v, want [Bar]", refNames(refs))
+	}
+}
+
+func TestExtractAstroWithRefs_ReturnsVSAndRefs(t *testing.T) {
+	src := "---\nconst x = 1;\n---\n<MyComp />\n"
+	vs, refs := ExtractAstroWithRefs([]byte(src))
+	if vs == nil {
+		t.Fatal("VirtualSource is nil")
+	}
+	if !strings.Contains(string(vs.Code), "x = 1") {
+		t.Errorf("VirtualSource missing frontmatter content")
+	}
+	if len(refs) != 1 || refs[0].Name != "MyComp" {
+		t.Errorf("refs = %v, want [MyComp]", refNames(refs))
+	}
+}
+
+func refNames(refs []TemplateRef) []string {
+	names := make([]string, len(refs))
+	for i, r := range refs {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func stringSlicesMatch(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

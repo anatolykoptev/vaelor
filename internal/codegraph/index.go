@@ -77,7 +77,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		return nil, fmt.Errorf("ensure graph: %w", err)
 	}
 
-	allFiles, allSymbols, allCalls, fileImports, allRels, err := ingestAndParse(ctx, root)
+	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, err := ingestAndParse(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
 
-	vertices, edges := buildGraph(root, allFiles, allSymbols, cg, fileImports, allRels)
+	vertices, edges := buildGraph(root, allFiles, allSymbols, cg, fileImports, allRels, allTplRefs)
 
 	// Compute communities and inject into Symbol vertices before persisting.
 	injectCommunities(vertices, edges)
