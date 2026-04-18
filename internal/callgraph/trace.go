@@ -1,16 +1,31 @@
 package callgraph
 
-import "github.com/anatolykoptev/go-code/internal/parser"
+import (
+	"context"
+
+	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
 
 const (
 	defaultMaxDepth = 5
 	maxAllowedDepth = 10
+
+	// CrossLanguageFetchKind is the node Kind set on synthetic nodes injected
+	// by the cross-language enrichment pass (HANDLES → FETCHES traversal).
+	CrossLanguageFetchKind = "cross_language_fetch"
 )
 
 // TraceOpts controls the call chain traversal.
 type TraceOpts struct {
 	Direction string // "callees" (default) or "callers"
 	MaxDepth  int    // default 5, max 10
+
+	// CrossRefs, when non-nil, extends the trace through HANDLES/FETCHES
+	// edges at +1 depth beyond the existing call graph. Noop when nil.
+	CrossRefs graphx.CrossRefs
+	// Repo is the repo key used for CrossRefs lookups. Required when CrossRefs is set.
+	Repo string
 }
 
 // SpeculativeCall represents a candidate callee found via text search.
@@ -23,11 +38,13 @@ type SpeculativeCall struct {
 
 // CallChainNode is a single node in the call chain tree.
 type CallChainNode struct {
-	Symbol      *parser.Symbol   `json:"symbol"`
-	Children    []CallChainNode  `json:"children,omitempty"`
-	CallLine    uint32           `json:"callLine,omitempty"`
-	Cycle       bool             `json:"cycle,omitempty"`
+	Symbol      *parser.Symbol    `json:"symbol"`
+	Children    []CallChainNode   `json:"children,omitempty"`
+	CallLine    uint32            `json:"callLine,omitempty"`
+	Cycle       bool              `json:"cycle,omitempty"`
 	Speculative []SpeculativeCall `json:"speculative,omitempty"` // candidates for unresolved calls
+	Kind        string            `json:"kind,omitempty"`        // empty = normal; CrossLanguageFetchKind for synthetic nodes
+	Depth       int               `json:"depth,omitempty"`       // only set on synthetic cross-language nodes
 }
 
 // TraceResult holds the complete call chain traversal output.
@@ -43,7 +60,14 @@ type TraceResult struct {
 
 // Trace walks the call graph from the named symbol, building a tree of call chains.
 // Direction "callees" follows outgoing calls; "callers" follows incoming calls.
-func Trace(g *CallGraph, symbolName string, opts TraceOpts) TraceResult {
+//
+// When opts.CrossRefs is non-nil and opts.Repo is non-empty, a single extra pass
+// runs after the main BFS/DFS: for each discovered node at depth <= MaxDepth-1
+// it checks whether the symbol HANDLES an HTTP route, then queries FetchedBy for
+// upstream callers. Results are appended as synthetic CallChainNode values with
+// Kind == CrossLanguageFetchKind. The pass never recurses. CrossRefs errors are
+// swallowed (slog.Debug) — the feature is purely opportunistic.
+func Trace(ctx context.Context, g *CallGraph, symbolName string, opts TraceOpts) TraceResult {
 	if opts.MaxDepth <= 0 {
 		opts.MaxDepth = defaultMaxDepth
 	}
@@ -71,6 +95,11 @@ func Trace(g *CallGraph, symbolName string, opts TraceOpts) TraceResult {
 
 	node := traceNode(root, adjacency, visited, 0, opts.MaxDepth, &result)
 	result.Tree = []CallChainNode{node}
+
+	// Cross-language enrichment pass — noop when CrossRefs is nil or Repo empty.
+	if opts.CrossRefs != nil && opts.Repo != "" {
+		injectCrossLangNodes(ctx, &result, opts)
+	}
 
 	return result
 }
