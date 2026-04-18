@@ -78,7 +78,7 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 	// Enrich changed symbols with graph signals (community_move / high_surprise).
 	// No before-community map available here — community_move requires a pre-merge
 	// snapshot which review_pr does not fetch; only high_surprise can fire.
-	review.ApplyGraphFlags(ctx, deps.Graph, input.Repo, result.ChangedSymbols, nil)
+	review.ApplyGraphFlags(ctx, deps.Graph, root, result.ChangedSymbols, nil)
 
 	// Persist learnings and look up prior findings
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {

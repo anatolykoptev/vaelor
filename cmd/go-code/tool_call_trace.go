@@ -146,6 +146,8 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		Opts: callgraph.TraceOpts{
 			Direction: direction,
 			MaxDepth:  depth,
+			CrossRefs: deps.Refs,
+			Repo:      root,
 		},
 	})
 	if err != nil {
