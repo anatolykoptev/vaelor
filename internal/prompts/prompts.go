@@ -176,6 +176,7 @@ IMPORTANT Apache AGE constraints:
 - Instead use: OPTIONAL MATCH (caller)-[:REL]->(n) WITH n, caller WHERE caller IS NULL
 - Variable-length paths work with single types: [:CALLS*1..5]
 - OPTIONAL MATCH is supported
+- CRITICAL: never start a variable-length path ([:REL*1..N]) from a node bound only by OPTIONAL MATCH — AGE throws "match_vle_terminal_edge() arguments cannot be NULL" when the start is NULL. Either use a required MATCH for the start, or insert a "WITH startNode WHERE startNode IS NOT NULL" guard before the VLE.
 - Use single quotes for string values in WHERE clauses
 
 Example queries:
@@ -185,6 +186,7 @@ Example queries:
 - Important symbols: MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.kind, s.file, s.pagerank ORDER BY s.pagerank DESC LIMIT 20
 - Call chain: MATCH (a:Symbol {name: 'main'})-[:CALLS*1..10]->(b:Symbol {name: 'query'}) RETURN a, b
 - Dead code: MATCH (s:Symbol) WHERE s.kind = 'function' OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WITH s, caller WHERE caller IS NULL RETURN s
+- VLE after optional start (SAFE): MATCH (h:Symbol)-[:HANDLES]->(r:Route) WITH h WHERE h IS NOT NULL MATCH (h)-[:CALLS*1..10]->(db:Symbol) WHERE db.name CONTAINS 'sql' RETURN h.name, db.name
 
 Generate a READ-ONLY Cypher query. Do NOT use CREATE, DELETE, SET, MERGE, REMOVE, or DROP.
 
