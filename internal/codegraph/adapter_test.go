@@ -37,6 +37,9 @@ func TestAnalyticsAdapter_NilStore_ReturnsZero(t *testing.T) {
 		if sig.Found {
 			t.Error("expected Found=false for nil store")
 		}
+		if sig.Surprise != 0 {
+			t.Errorf("expected Surprise=0 for nil store, got %v", sig.Surprise)
+		}
 	})
 
 	t.Run("TopPageRank", func(t *testing.T) {
@@ -147,6 +150,12 @@ func TestAnalyticsAdapter_LiveGraph(t *testing.T) {
 		if sig.PageRank <= 0 {
 			t.Errorf("expected PageRank > 0, got %v", sig.PageRank)
 		}
-		t.Logf("QueryGraph: pagerank=%.6f community=%s", sig.PageRank, sig.Community)
+		// Surprise is 0 when the graph was built without CODEGRAPH_SURPRISE_INDEX=1;
+		// we only assert it is non-negative (never negative).
+		if sig.Surprise < 0 {
+			t.Errorf("expected Surprise >= 0, got %v", sig.Surprise)
+		}
+		t.Logf("QueryGraph: pagerank=%.6f community=%s surprise=%.4f",
+			sig.PageRank, sig.Community, sig.Surprise)
 	})
 }
