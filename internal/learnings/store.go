@@ -23,9 +23,9 @@ type Embedder interface {
 // Record is a single learning.
 //
 // RiskLevel and ReviewOutcome are orthogonal:
-//   * RiskLevel is written by the impact-analysis path (review_pr) and uses
+//   - RiskLevel is written by the impact-analysis path (review_pr) and uses
 //     the vocabulary low|medium|high.
-//   * ReviewOutcome is written by the posted-review path (review_pr_post) and
+//   - ReviewOutcome is written by the posted-review path (review_pr with dry_run=false) and
 //     uses the vocabulary good|neutral|bad (mapped from the GitHub review
 //     event).
 //

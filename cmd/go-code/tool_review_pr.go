@@ -14,11 +14,23 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// ReviewPRInput is the unified input for the review_pr tool.
+// When DryRun is true (the default) the review is returned without
+// posting to GitHub or persisting learnings. Set DryRun=false to post
+// the review as a GitHub PR review and persist per-symbol learnings.
 type ReviewPRInput struct {
-	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo) or full URL"`
-	PR       int    `json:"pr" jsonschema_description:"Pull request number"`
-	Depth    int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
+	Repo  string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo) or full URL"`
+	PR    int    `json:"pr" jsonschema_description:"Pull request number"`
+	Depth int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
+	// Language limits analysis to files of the given language (dry-run path only).
 	Language string `json:"language,omitempty" jsonschema_description:"Limit to files of this language"`
+	// DryRun controls whether the review is posted. When true (default) the
+	// review XML/body is returned without any side effects. Set false to post
+	// to GitHub and write learnings.
+	DryRun bool `json:"dry_run,omitempty" jsonschema_description:"When true (default), returns the review without posting or persisting. Set false to post to GitHub + write learnings."`
+	// Event is the GitHub review event. Required when DryRun=false.
+	// Accepted values: APPROVE | COMMENT | REQUEST_CHANGES.
+	Event string `json:"event,omitempty" jsonschema_description:"Required when dry_run=false: APPROVE | COMMENT | REQUEST_CHANGES."`
 }
 
 func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps) {
@@ -26,7 +38,10 @@ func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps) {
 		Name: "review_pr",
 		Description: "Review a pull request: fetches PR metadata and diff, " +
 			"then runs differential impact analysis on all changes. " +
-			"Returns changed symbols, blast radius, untested code, and risk guidance.",
+			"Returns changed symbols, blast radius, untested code, and risk guidance. " +
+			"When dry_run=false (requires event=APPROVE|COMMENT|REQUEST_CHANGES), " +
+			"posts the review to GitHub and persists per-symbol learnings. " +
+			"Requires GITHUB_TOKEN when dry_run=false.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ReviewPRInput) (*mcp.CallToolResult, error) {
 		return handleReviewPR(ctx, input, deps)
 	})
@@ -39,6 +54,12 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 	if input.PR <= 0 {
 		return errResult("pr number is required"), nil
 	}
+
+	// Backward-compat semantics:
+	//   Event absent  → always dry-run (matches pre-consolidation review_pr behaviour).
+	//   Event present → post unless DryRun=true (matches pre-consolidation review_pr_post).
+	// Users who want to preview what would be posted can set both Event and DryRun=true.
+	dryRun := input.DryRun || input.Event == ""
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
 	if err != nil {
@@ -76,18 +97,26 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 	}
 
 	// Enrich changed symbols with graph signals (community_move / high_surprise).
-	// No before-community map available here — community_move requires a pre-merge
-	// snapshot which review_pr does not fetch; only high_surprise can fire.
 	review.ApplyGraphFlags(ctx, deps.Graph, root, result.ChangedSymbols, nil)
 
-	// Persist learnings and look up prior findings
+	if dryRun {
+		return reviewPRDryRun(ctx, input, result)
+	}
+	return reviewPRPost(ctx, input, deps, root, result, findings)
+}
+
+// reviewPRDryRun executes the dry-run path: persists risk-level learnings
+// (best-effort) and returns the review as XML. Byte-identical to the former
+// standalone review_pr behaviour.
+func reviewPRDryRun(ctx context.Context, input ReviewPRInput, result *review.DeltaResult) (*mcp.CallToolResult, error) {
+	// Persist learnings and look up prior findings.
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		store, err := learnings.New(ctx, dsn, nil)
 		if err == nil {
 			defer store.Close()
 			slug := input.Repo
 			for _, cs := range result.ChangedSymbols {
-				// Lookup hints
+				// Lookup hints.
 				prior, _ := store.Nearest(ctx, slug, cs.Symbol.Name, 3)
 				for _, p := range prior {
 					result.Risk.Suggestions = append(result.Risk.Suggestions,

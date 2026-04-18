@@ -56,34 +56,34 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// Simulate the review_pr_post persist path: three review outcomes for the
+	// Simulate the review_pr (dry_run=false) persist path: three review outcomes for the
 	// same (repo, symbol). A 1ms sleep between inserts guarantees distinct
 	// created_at values so ORDER BY created_at DESC is deterministic
 	// without a tiebreaker column.
 	recs := []learnings.Record{
 		{
-			Repo:    testRepo,
-			Symbol:  testSym,
+			Repo:          testRepo,
+			Symbol:        testSym,
 			ReviewOutcome: "good",
-			Flag:    "style",
-			Note:    "all good",
-			PRURL:   "https://github.com/owner/repo/pull/1",
+			Flag:          "style",
+			Note:          "all good",
+			PRURL:         "https://github.com/owner/repo/pull/1",
 		},
 		{
-			Repo:    testRepo,
-			Symbol:  testSym,
+			Repo:          testRepo,
+			Symbol:        testSym,
 			ReviewOutcome: "neutral",
-			Flag:    "minor",
-			Note:    "ok",
-			PRURL:   "https://github.com/owner/repo/pull/2",
+			Flag:          "minor",
+			Note:          "ok",
+			PRURL:         "https://github.com/owner/repo/pull/2",
 		},
 		{
-			Repo:    testRepo,
-			Symbol:  testSym,
+			Repo:          testRepo,
+			Symbol:        testSym,
 			ReviewOutcome: "bad",
-			Flag:    "critical",
-			Note:    "please fix",
-			PRURL:   "https://github.com/owner/repo/pull/3",
+			Flag:          "critical",
+			Note:          "please fix",
+			PRURL:         "https://github.com/owner/repo/pull/3",
 		},
 	}
 	for i, r := range recs {

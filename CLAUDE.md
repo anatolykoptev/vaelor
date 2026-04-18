@@ -59,9 +59,8 @@
 | `prepare_change` | Pre-change risk assessment. Aggregates: impact_analysis + dead_code check |
 | `site_analyze` | Web site tech analysis |
 | `site_crawl` | BFS web crawler |
-| `review_pr` | Review a pull request: differential impact analysis on all changes |
+| `review_pr` | Review a pull request: differential impact analysis on all changes. `dry_run=false` + `event` posts to GitHub and persists learnings. |
 | `review_delta` | Analyze changes between two git refs and compute differential impact |
-| `review_pr_post` | Run review_pr and post the result as a PR review on GitHub |
 | `code_research` | Deep repo research — AST traversal + LLM narrative + test linkage |
 | `rewrite` | Automated refactor suggestions / code rewrite |
 | `dataflow` | Taint / dead-value data-flow analysis (sub-modes: dead, taint) |
@@ -102,7 +101,7 @@
 
 ## Learnings loop
 
-`review_pr_post` persists one `learnings.Record` per changed symbol on successful (non-dry-run) PostReview — `review_outcome` mapped from the GitHub review event (`APPROVE`→`good`, `REQUEST_CHANGES`→`bad`, else `neutral`), with flag/note derived from the first policy finding whose line intersects the symbol. `review_pr` writes `risk_level` (`low`/`medium`/`high`) on the same table, in an orthogonal column. `understand` then calls `Store.Nearest(repo, symbol, 3)` and emits matches as `prior_learnings` on its JSON result (omitted when empty). `Store.NearestVector(ctx, query, k)` provides semantic lookup when an embedder is configured at `learnings.New` time. Storage is gated on `LEARNINGS_DATABASE_URL` (or `DATABASE_URL`); with neither, the loop silently no-ops.
+`review_pr` (with `dry_run=false`) persists one `learnings.Record` per changed symbol on successful PostReview — `review_outcome` mapped from the GitHub review event (`APPROVE`→`good`, `REQUEST_CHANGES`→`bad`, else `neutral`), with flag/note derived from the first policy finding whose line intersects the symbol. `review_pr` (dry-run path) writes `risk_level` (`low`/`medium`/`high`) on the same table, in an orthogonal column. `understand` then calls `Store.Nearest(repo, symbol, 3)` and emits matches as `prior_learnings` on its JSON result (omitted when empty). `Store.NearestVector(ctx, query, k)` provides semantic lookup when an embedder is configured at `learnings.New` time. Storage is gated on `LEARNINGS_DATABASE_URL` (or `DATABASE_URL`); with neither, the loop silently no-ops.
 
 ## Graph signal ecosystem
 
@@ -112,8 +111,8 @@ Two graph representations cooperate through `internal/graphx/` interfaces (`Anal
 |---|---|---|
 | PageRank, Community | `Analytics.Symbol` | `understand` (`<graph_analytics>`), `prepare_change` (`communities_crossed`, `high_pagerank_callers`) |
 | Top-K PageRank | `Analytics.TopPageRank` | `prepare_change` (decile threshold for high-PR flag) |
-| Community membership | `Analytics.Symbol` | `review_pr` + `review_pr_post` (`community_move` flag) |
-| Surprise score | `Analytics.Symbol` | `review_pr` + `review_pr_post` (`high_surprise` flag when ≥0.5) |
+| Community membership | `Analytics.Symbol` | `review_pr` (`community_move` flag) |
+| Surprise score | `Analytics.Symbol` | `review_pr` (`high_surprise` flag when ≥0.5) |
 | HANDLES / FETCHES | `CrossRefs.HandlesRoute`, `CrossRefs.FetchedBy` | `call_trace` (cross-language fetch nodes at +1 depth) |
 | TESTED_BY | `CrossRefs.TestedBy` | `impact_analysis` (`tests_covering`) |
 

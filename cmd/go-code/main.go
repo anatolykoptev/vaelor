@@ -80,7 +80,7 @@ func main() {
 						return nil
 					}
 					ctx := context.Background()
-					_, err := handleReviewPRPost(ctx, ReviewPRPostInput{Repo: slug, PR: pr}, deps)
+					_, err := handleReviewPR(ctx, ReviewPRInput{Repo: slug, PR: pr, Event: "COMMENT"}, deps)
 					return err
 				},
 				postPushReview: func(slug, before, after string) error {
@@ -115,7 +115,7 @@ func main() {
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware()},
-		RESTBridge:              true,
+		RESTBridge:             true,
 		Routes:                 webhookRoutes,
 		ToolTimeouts: map[string]time.Duration{
 			"code_research": 90 * time.Second,
