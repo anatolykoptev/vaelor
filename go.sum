@@ -1,14 +1,8 @@
 entgo.io/ent v0.14.3 h1:wokAV/kIlH9TeklJWGGS7AYJdVckr0DloWjIcO9iIIQ=
 entgo.io/ent v0.14.3/go.mod h1:aDPE/OziPEu8+OWbzy4UlvWmD2/kbRuWfK2A40hcxJM=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/anatolykoptev/go-kit v0.8.1-0.20260303025008-7865f1e55c04 h1:J1ZpmFLnRYLOsMpP4aeX9aDp/kgLtAre0U11xB4tNAw=
-github.com/anatolykoptev/go-kit v0.8.1-0.20260303025008-7865f1e55c04/go.mod h1:sxZXhRKXffOpIH5oSOCcnRZjiQT0s6te4os6eMUMwqg=
-github.com/anatolykoptev/go-mcpserver v0.9.1 h1:gaFBKgV1dH9dX9t3W5PFx6WAJiG6L31ZHAk4HLMi+pY=
-github.com/anatolykoptev/go-mcpserver v0.9.1/go.mod h1:79FK7brYlWBx7D8oBGOOms1yoYWhXDNJ2Rw3oeQ/pik=
-github.com/anatolykoptev/go-mcpserver v0.10.0 h1:6dy+XL466UEp7UdkZe8XDk6vv1lcmF69riL2KdOBKIo=
-github.com/anatolykoptev/go-mcpserver v0.10.0/go.mod h1:79FK7brYlWBx7D8oBGOOms1yoYWhXDNJ2Rw3oeQ/pik=
-github.com/anatolykoptev/go-mcpserver v0.10.1 h1:QRj4CispB1uR22p+UPKmbBwgl+CrpnaVGLufr+7dLyE=
-github.com/anatolykoptev/go-mcpserver v0.10.1/go.mod h1:79FK7brYlWBx7D8oBGOOms1yoYWhXDNJ2Rw3oeQ/pik=
+github.com/anatolykoptev/go-kit v0.19.0 h1:aSr9OAOQGUqC6xY7RQ6r7m42Z/nT7uamaj61QX7EEcs=
+github.com/anatolykoptev/go-kit v0.19.0/go.mod h1:1b59+RoFzLTINNhurlMBIoRzzKxFhJ/l3lVpF+Li6vM=
 github.com/anatolykoptev/go-mcpserver v0.11.0 h1:shz0WBhOvrPGHQpAeEMo3Fhx1F+p3AV6403FaKSiuSY=
 github.com/anatolykoptev/go-mcpserver v0.11.0/go.mod h1:pQfKlzExLv/evW42l940ZHMMcliv1OU98oExwfBnIWQ=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=

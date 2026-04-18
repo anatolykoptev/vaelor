@@ -3,7 +3,7 @@ module github.com/anatolykoptev/go-code
 go 1.26.0
 
 require (
-	github.com/anatolykoptev/go-kit v0.8.1-0.20260303025008-7865f1e55c04
+	github.com/anatolykoptev/go-kit v0.19.0
 	github.com/anatolykoptev/go-mcpserver v0.11.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/jackc/pgx/v5 v5.9.1
@@ -25,7 +25,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jmoiron/sqlx v1.4.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
