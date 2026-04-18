@@ -3,9 +3,11 @@ package impact
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 )
 
@@ -20,9 +22,11 @@ const (
 // Options configures the impact analysis.
 type Options struct {
 	MaxDepth int
-	OxCodes  *oxcodes.Client // optional: enables hidden caller search
-	Root     string          // required when OxCodes is set
-	Language string          // optional: limit search to this language
+	OxCodes  *oxcodes.Client  // optional: enables hidden caller search
+	Root     string           // required when OxCodes is set
+	Language string           // optional: limit search to this language
+	Refs     graphx.CrossRefs // optional: enables TESTED_BY edge lookup
+	Repo     string           // required when Refs is set (repo key for graph queries)
 }
 
 // AffectedSymbol represents a caller that would be affected by a change.
@@ -47,6 +51,9 @@ type Result struct {
 	CommunitiesCrossed int              `json:"communities_crossed"`
 	BlastRadius        string           `json:"blast_radius"` // none, low, medium, high
 	RiskScore          float64          `json:"risk_score"`
+	// TestsCovering are test functions that directly cover the target symbol.
+	// Populated when the graph has TESTED_BY edges; empty otherwise.
+	TestsCovering []graphx.SymbolRef `json:"tests_covering,omitempty"`
 }
 
 const (
@@ -117,6 +124,15 @@ func Analyze(ctx context.Context, cg *callgraph.CallGraph, symbolName string, op
 		communityRisk = float64(result.CommunitiesCrossed-1) * 0.15
 	}
 	result.RiskScore = float64(result.TotalAffected) * (1.0 + float64(len(result.AffectedPackages))*packageRiskMultiplier + communityRisk)
+
+	if opts.Refs != nil && opts.Repo != "" {
+		tests, err := opts.Refs.TestedBy(ctx, opts.Repo, target.Name, target.File)
+		if err != nil {
+			slog.Debug("impact: TestedBy lookup failed", slog.Any("error", err))
+		} else {
+			result.TestsCovering = tests
+		}
+	}
 
 	return result
 }
