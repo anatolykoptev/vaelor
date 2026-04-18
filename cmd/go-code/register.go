@@ -105,6 +105,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	registerExplore(server, cfg, deps)
 	registerCodeHealth(server, cfg, deps, &semDeps, graphStore)
 	registerCodeGraph(server, cfg, deps, graphStore)
+	registerRememberGraphInsights(server, cfg, deps, graphStore)
 	registerRepoSearch(server, cfg, deps)
 	registerCodeSearch(server, cfg, deps, &semDeps)
 	registerWPPluginSearch(server, cfg, deps)

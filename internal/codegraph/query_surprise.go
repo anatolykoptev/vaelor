@@ -12,10 +12,12 @@ import (
 	"github.com/anatolykoptev/go-kit/llm"
 )
 
-// postProcessSurprises scores raw cross-package edge rows and returns top-N
+// PostProcessSurprises scores raw cross-package edge rows and returns top-N
 // with a narrative summary. Input cols: fromName, fromFile, fromCommunity,
 // toName, toFile, toCommunity, fromPageRank, toPageRank.
-func postProcessSurprises(rows [][]string, limit int) ([][]string, string) {
+// Output cols (6): FromName, FromFile, ToName, ToFile, Score, Reasons —
+// the shape expected by PersistInsights for the "surprises" template.
+func PostProcessSurprises(rows [][]string, limit int) ([][]string, string) {
 	if limit <= 0 {
 		limit = 10
 	}
