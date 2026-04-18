@@ -31,7 +31,7 @@ func (s *stubStore) Nearest(_ context.Context, _, _ string, _ int) ([]learnings.
 }
 
 func TestPersistInsights_NilStore(t *testing.T) {
-	n := PersistInsights(context.Background(), nil, "repo", templateInsightSurprises, [][]string{{"a", "b", "c", "d", "5", "r"}})
+	n := PersistInsights(context.Background(), nil, "repo", TemplateInsightSurprises, [][]string{{"a", "b", "c", "d", "5", "r"}})
 	if n != 0 {
 		t.Fatalf("nil store: want 0, got %d", n)
 	}
@@ -39,7 +39,7 @@ func TestPersistInsights_NilStore(t *testing.T) {
 
 func TestPersistInsights_EmptyRows(t *testing.T) {
 	s := &stubStore{}
-	n := PersistInsights(context.Background(), s, "repo", templateInsightSurprises, nil)
+	n := PersistInsights(context.Background(), s, "repo", TemplateInsightSurprises, nil)
 	if n != 0 {
 		t.Fatalf("empty rows: want 0, got %d", n)
 	}
@@ -67,7 +67,7 @@ func TestPersistInsights_Surprises_ScoreFilter(t *testing.T) {
 		{"FromB", "pkg/b.go", "ToB", "pkg/c.go", "5", "reason high"},
 	}
 	s := &stubStore{}
-	n := PersistInsights(context.Background(), s, "myrepo", templateInsightSurprises, rows)
+	n := PersistInsights(context.Background(), s, "myrepo", TemplateInsightSurprises, rows)
 	if n != 2 {
 		t.Fatalf("want 2 records (FromB + ToB), got %d", n)
 	}
@@ -94,7 +94,7 @@ func TestPersistInsights_DeadCode(t *testing.T) {
 		{`{"id":3,"label":"Symbol","properties":{"name":"DeadHelper","kind":"function","file":"z.go"}}`},
 	}
 	s := &stubStore{}
-	n := PersistInsights(context.Background(), s, "repo", templateInsightDeadCode, rows)
+	n := PersistInsights(context.Background(), s, "repo", TemplateInsightDeadCode, rows)
 	if n != 3 {
 		t.Fatalf("want 3 dead_code records, got %d", n)
 	}
@@ -116,7 +116,7 @@ func TestPersistInsights_Dedupe(t *testing.T) {
 		// Nearest returns a record with flag=hidden_dep for any symbol.
 		existing: []learnings.Record{{Flag: "hidden_dep"}},
 	}
-	n := PersistInsights(context.Background(), s, "repo", templateInsightSurprises, rows)
+	n := PersistInsights(context.Background(), s, "repo", TemplateInsightSurprises, rows)
 	// Both symbols are deduped → 0.
 	if n != 0 {
 		t.Fatalf("dedupe: want 0, got %d", n)

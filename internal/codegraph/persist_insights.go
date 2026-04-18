@@ -16,17 +16,17 @@ import (
 // is "graph_diff" whose rows are mixed-format. Only the two templates with
 // stable column shapes are listed here.
 var insightTemplates = map[string]struct{}{
-	templateInsightSurprises: {},
-	templateInsightDeadCode:  {},
+	TemplateInsightSurprises: {},
+	TemplateInsightDeadCode:  {},
 }
 
 const (
-	// templateInsightSurprises is the template that surfaces hidden
+	// TemplateInsightSurprises is the template that surfaces hidden
 	// cross-package coupling scored by community/pagerank distance.
-	templateInsightSurprises = "surprises"
+	TemplateInsightSurprises = "surprises"
 
-	// templateInsightDeadCode is the template that finds uncalled functions.
-	templateInsightDeadCode = "dead_code"
+	// TemplateInsightDeadCode is the template that finds uncalled functions.
+	TemplateInsightDeadCode = "dead_code"
 
 	// minSurpriseScoreForPersist is the minimum surprise score required to
 	// persist a finding. Edges with score < 5 are common cross-package calls
@@ -70,9 +70,9 @@ func PersistInsights(ctx context.Context, store learningsStore, repoKey, templat
 	}
 
 	switch template {
-	case templateInsightSurprises:
+	case TemplateInsightSurprises:
 		return persistSurprises(ctx, store, repoKey, rows)
-	case templateInsightDeadCode:
+	case TemplateInsightDeadCode:
 		return persistDeadCode(ctx, store, repoKey, rows)
 	default:
 		return 0
