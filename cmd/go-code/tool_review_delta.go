@@ -62,10 +62,11 @@ type xmlChangedFile struct {
 }
 
 type xmlChangedSymbol struct {
-	Name       string `xml:"name,attr"`
-	Kind       string `xml:"kind,attr"`
-	File       string `xml:"file,attr"`
-	ChangeType string `xml:"change,attr"`
+	Name       string       `xml:"name,attr"`
+	Kind       string       `xml:"kind,attr"`
+	File       string       `xml:"file,attr"`
+	ChangeType string       `xml:"change,attr"`
+	Flag       *xmlFlagHint `xml:"flag,omitempty"`
 }
 
 type xmlImpacted struct {
@@ -163,10 +164,14 @@ func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
 		})
 	}
 	for _, cs := range r.ChangedSymbols {
-		resp.ChangedSymbols = append(resp.ChangedSymbols, xmlChangedSymbol{
+		xcs := xmlChangedSymbol{
 			Name: cs.Symbol.Name, Kind: string(cs.Symbol.Kind),
 			File: cs.FileDiff.Path, ChangeType: string(cs.ChangeType),
-		})
+		}
+		if cs.Flag != "" {
+			xcs.Flag = &xmlFlagHint{Kind: cs.Flag, Note: cs.Note}
+		}
+		resp.ChangedSymbols = append(resp.ChangedSymbols, xcs)
 	}
 	for _, is := range r.ImpactedSymbols {
 		resp.ImpactedSymbols = append(resp.ImpactedSymbols, xmlImpacted{
