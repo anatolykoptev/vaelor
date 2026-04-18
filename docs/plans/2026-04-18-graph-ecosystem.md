@@ -426,6 +426,73 @@ Phase 5 closes the loop with a real release memo.
 
 ---
 
+### Task 14 — Persist `code_graph` findings into learnings store
+
+**Agent:** Sonnet. **Runs AFTER Task 13.**
+
+**Rationale:** `code_graph` answers are ephemeral today — the LLM reads them once, then forgets. Treating `code_graph` as a **manual hook** (user explicitly asked for analysis → worth remembering) lets us promote its findings into the same `learnings_store` that already feeds `prior_learnings` in `understand`. Next time the user edits a flagged symbol, PreToolUse → `prepare_change` → `understand` surfaces the prior finding automatically.
+
+**Gated behind `CODEGRAPH_PERSIST_INSIGHTS=1`** (default off). Avoids learnings-store noise until the signal is measured.
+
+**Implementation:**
+
+1. `internal/codegraph/persist_insights.go` (new, ~120 LOC):
+   ```go
+   package codegraph
+   
+   import (
+       "context"
+       "github.com/anatolykoptev/go-code/internal/learnings"
+   )
+   
+   const minSurpriseScoreForPersist = 5
+   
+   // PersistInsights writes per-symbol Records to the learnings store based on
+   // the template and rows of a QueryResult. No-op when store is nil.
+   // Returns count of records written.
+   func PersistInsights(ctx context.Context, store *learnings.Store, repoKey, template string, rows [][]string) int { ... }
+   ```
+   Dispatch by template:
+   - `surprises` (or freeform rows that match the surprise row shape of 6 cols): parse via a helper that mirrors `postProcessSurprises`; for each edge with `score >= minSurpriseScoreForPersist`, write 2 Records (from/to symbols) with `Flag="hidden_dep"`, `Note=reasons joined`.
+   - `dead_code`: one Record per row with `Flag="dead_code_candidate"`.
+   - `community_changes` (when "what changed in the graph" is used): one Record per moved symbol with `Flag="community_move"`, `Note="community changed X → Y"`.
+   - Everything else (`who_calls`, `call_chain`, `most_connected`, `complex_functions`, etc.) → skip (point queries, not structural insights).
+   Dedupe: before writing, check existing Records via `Nearest(repoKey, symbol, 1)` — if same Flag within last 24h, skip.
+
+2. `cmd/go-code/tool_code_graph.go` `registerCodeGraph` handler:
+   - After `QueryGraph` returns successfully, if `cfg.PersistInsights && deps.Learnings != nil`, call `codegraph.PersistInsights(ctx, deps.Learnings, input.Repo, result.Template, result.Rows)`.
+   - Log count: `slog.Info("code_graph: persisted insights", "template", t, "count", n)`.
+   - Errors swallowed — never fail the user-visible query because persistence failed.
+
+3. `cmd/go-code/config.go`:
+   - Parse `CODEGRAPH_PERSIST_INSIGHTS` (bool, default false).
+
+4. Tests:
+   - `persist_insights_test.go` — stub `learnings.Store` (interface-extract if needed); assert for each template:
+     - `surprises` with score=3 → 0 records (below threshold)
+     - `surprises` with score=5 + 2 endpoints → 2 records
+     - `dead_code` with 3 rows → 3 records
+     - `who_calls` with rows → 0 records
+     - Dedupe path: second call within 24h → 0 records
+
+**Constraints:**
+- Cold path (flag off OR store nil) MUST preserve today's behaviour byte-for-byte.
+- Never error the `code_graph` response because of persistence failure.
+- Flag `persisted_count` in the XML response metadata when writes happened (so users see the hook fired).
+- Threshold `minSurpriseScoreForPersist = 5` — scoreSurprise max is 6, so score≥5 means at least 4 of 5 reasons matched. Tunable later.
+
+**Acceptance:**
+- Call `code_graph` on acme-web with "find hidden dependencies" → log shows "persisted insights count=N".
+- `psql -c "SELECT count(*) FROM review_learnings WHERE flag='hidden_dep'"` returns N.
+- Subsequent `understand` on one of those symbols → `<prior_learnings>` contains the hidden_dep flag.
+- Second identical query within 24h → count=0 (dedupe works).
+
+**Commit:** `feat(codegraph): persist findings to learnings store when flag set`.
+
+**Rollback:** Single revert. No schema change (reuses existing `review_learnings` table).
+
+---
+
 ## Out of scope (deliberately)
 
 - **Merging `callgraph` and `codegraph` packages** — they have legitimately different lifecycles (ephemeral vs persistent). Merging adds complexity without removing duplication (because the extraction layer is already shared).
