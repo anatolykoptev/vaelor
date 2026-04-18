@@ -26,9 +26,13 @@ type PrepareChangeOpts struct {
 	// and its direct callers. When nil the new fields stay zero and are omitted.
 	Graph graphx.Analytics
 
-	// Repo is the user-supplied repo key used to query the persistent graph.
-	// Must be non-empty for Graph queries to fire.
+	// Repo is the user-supplied repo key (host-facing form).
 	Repo string
+
+	// Root is the container-resolved repo path used to key the persistent
+	// graph. When set, takes precedence over Repo for graph lookups because
+	// the graph is indexed under the resolved path, not the user-facing one.
+	Root string
 }
 
 // PrepareChangeResult is the output of pre-change risk assessment.
@@ -111,7 +115,15 @@ func PrepareChange(ctx context.Context, cg *callgraph.CallGraph, symbolName stri
 // signals are cold (Found=false). Errors are swallowed with slog.Debug so the
 // tool stays functional when the graph is offline.
 func enrichWithGraph(ctx context.Context, opts PrepareChangeOpts, target SymbolInfo, callers []impact.AffectedSymbol) (communitiesCrossed int, highPR []string) {
-	if opts.Graph == nil || opts.Repo == "" {
+	if opts.Graph == nil {
+		return 0, nil
+	}
+	// Graph is keyed by the container-resolved Root, not the user-facing Repo.
+	repoKey := opts.Root
+	if repoKey == "" {
+		repoKey = opts.Repo
+	}
+	if repoKey == "" {
 		return 0, nil
 	}
 
@@ -119,7 +131,7 @@ func enrichWithGraph(ctx context.Context, opts PrepareChangeOpts, target SymbolI
 	communitySet := make(map[string]struct{})
 	anyFound := false
 
-	targetSig, err := opts.Graph.Symbol(ctx, opts.Repo, target.Name, target.File)
+	targetSig, err := opts.Graph.Symbol(ctx, repoKey, target.Name, target.File)
 	if err != nil {
 		slog.Debug("graph signals unavailable for target", "symbol", target.Name, "err", err)
 	} else if targetSig.Found {
@@ -130,9 +142,9 @@ func enrichWithGraph(ctx context.Context, opts PrepareChangeOpts, target SymbolI
 	}
 
 	// Fetch pagerank top-decile threshold once.
-	topList, err := opts.Graph.TopPageRank(ctx, opts.Repo, topPageRankSampleSize)
+	topList, err := opts.Graph.TopPageRank(ctx, repoKey, topPageRankSampleSize)
 	if err != nil {
-		slog.Debug("TopPageRank unavailable", "repo", opts.Repo, "err", err)
+		slog.Debug("TopPageRank unavailable", "repo", repoKey, "err", err)
 		topList = nil
 	}
 	var prThreshold float64
@@ -146,7 +158,7 @@ func enrichWithGraph(ctx context.Context, opts PrepareChangeOpts, target SymbolI
 
 	// Resolve each direct caller.
 	for _, c := range callers {
-		sig, err := opts.Graph.Symbol(ctx, opts.Repo, c.Name, c.File)
+		sig, err := opts.Graph.Symbol(ctx, repoKey, c.Name, c.File)
 		if err != nil {
 			slog.Debug("graph signals unavailable for caller", "symbol", c.Name, "err", err)
 			continue
