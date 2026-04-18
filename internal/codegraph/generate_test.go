@@ -1,9 +1,22 @@
 package codegraph
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/anatolykoptev/go-kit/llm"
 )
+
+type captureCompleter struct {
+	userPrompt string
+	reply      string
+}
+
+func (c *captureCompleter) Complete(_ context.Context, _, userPrompt string, _ ...llm.ChatOption) (string, error) {
+	c.userPrompt = userPrompt
+	return c.reply, nil
+}
 
 func TestExtractCypher(t *testing.T) {
 	t.Parallel()
@@ -65,6 +78,43 @@ func TestCypherSystemPrompt_ContainsExamples(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "pagerank") {
 		t.Error("freeform prompt should mention pagerank property")
+	}
+	if !strings.Contains(prompt, "match_vle_terminal_edge") {
+		t.Error("freeform prompt must warn about the AGE NULL-start VLE pitfall")
+	}
+	if !strings.Contains(prompt, "WITH startNode WHERE startNode IS NOT NULL") {
+		t.Error("freeform prompt must show the WITH-guard pattern for VLE")
+	}
+}
+
+func TestGenerateCypherWithRetry_VLEHintOnNullEdgeError(t *testing.T) {
+	t.Parallel()
+
+	cap := &captureCompleter{reply: "MATCH (n) RETURN n"}
+	firstErr := `row iteration: ERROR: match_vle_terminal_edge() arguments cannot be NULL (SQLSTATE 22023)`
+
+	_, err := GenerateCypherWithRetry(context.Background(), cap, "show me stuff", firstErr)
+	if err != nil {
+		t.Fatalf("retry returned unexpected error: %v", err)
+	}
+	if !strings.Contains(cap.userPrompt, "variable-length path") {
+		t.Errorf("retry prompt missing VLE hint, got:\n%s", cap.userPrompt)
+	}
+	if !strings.Contains(cap.userPrompt, "IS NOT NULL") {
+		t.Errorf("retry prompt missing NULL-guard remedy, got:\n%s", cap.userPrompt)
+	}
+}
+
+func TestGenerateCypherWithRetry_NoHintOnUnrelatedError(t *testing.T) {
+	t.Parallel()
+
+	cap := &captureCompleter{reply: "MATCH (n) RETURN n"}
+	_, err := GenerateCypherWithRetry(context.Background(), cap, "show me stuff", "syntax error at position 42")
+	if err != nil {
+		t.Fatalf("retry returned unexpected error: %v", err)
+	}
+	if strings.Contains(cap.userPrompt, "variable-length path") {
+		t.Errorf("retry prompt injected VLE hint for unrelated error:\n%s", cap.userPrompt)
 	}
 }
 

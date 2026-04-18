@@ -42,12 +42,21 @@ func GenerateCypher(ctx context.Context, client llmCompleter, query string) (str
 	return cypher, nil
 }
 
+// vleNullHint describes the AGE VLE NULL-start-node pitfall so the retry
+// prompt nudges the model toward a guarded rewrite instead of random variants.
+const vleNullHint = "\n\nHint: the failing query likely starts a variable-length path ([:REL*1..N]) from a node that was bound by OPTIONAL MATCH and may be NULL. " +
+	"AGE requires the start node to be non-NULL. Insert `WITH startNode WHERE startNode IS NOT NULL` before the VLE, or turn the first OPTIONAL MATCH into a required MATCH."
+
 // GenerateCypherWithRetry retries Cypher generation with the previous error
 // attached to the prompt so the model can self-correct.
 func GenerateCypherWithRetry(ctx context.Context, client llmCompleter, query, firstErr string) (string, error) {
+	hint := ""
+	if strings.Contains(firstErr, "match_vle_terminal_edge") {
+		hint = vleNullHint
+	}
 	retryPrompt := fmt.Sprintf(
-		"%s\n\nPrevious attempt failed with error: %s\nPlease fix the query.",
-		query, firstErr,
+		"%s\n\nPrevious attempt failed with error: %s%s\nPlease fix the query.",
+		query, firstErr, hint,
 	)
 
 	raw, err := client.Complete(ctx, cypherSystemPrompt(), retryPrompt)
