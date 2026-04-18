@@ -39,11 +39,12 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	graphName := GraphNameFor(repoKey)
 	relFile := toRelativeFile(repoKey, file)
 	cypher := fmt.Sprintf(
-		"MATCH (s:Symbol {name: '%s', file: '%s'}) RETURN s.pagerank, s.community LIMIT 1",
+		"MATCH (s:Symbol {name: '%s', file: '%s'}) RETURN s.pagerank, s.community, s.surprise LIMIT 1",
 		escapeCypher(symbolName), escapeCypher(relFile),
 	)
 
-	rows, err := a.store.ExecCypher(ctx, graphName, cypher, 2)
+	const symbolQueryCols = 3
+	rows, err := a.store.ExecCypher(ctx, graphName, cypher, symbolQueryCols)
 	if err != nil {
 		if isGraphMissingError(err) {
 			slog.Debug("codegraph.analyticsAdapter.Symbol: graph absent",
@@ -59,10 +60,12 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	row := rows[0]
 	pr := atofSafe(row[0])
 	community := strings.Trim(row[1], `"`)
+	surprise := atofSafe(row[2]) // 0 when NULL (graph built without surprise index)
 
 	return graphx.Signals{
 		PageRank:  pr,
 		Community: community,
+		Surprise:  surprise,
 		Found:     true,
 	}, nil
 }
