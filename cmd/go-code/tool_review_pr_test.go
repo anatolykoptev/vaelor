@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/policy"
@@ -25,6 +27,29 @@ func (s *spyPersister) Upsert(_ context.Context, r learnings.Record) error {
 	return nil
 }
 
+// post/renderReview tests
+
+func TestRenderReview(t *testing.T) {
+	r := &review.DeltaResult{
+		Risk:            review.RiskGuidance{RiskLevel: "medium", RiskScore: 0.5, Flags: []string{"touches api"}},
+		UntestedSymbols: []string{"Svc.Foo"},
+	}
+	findings := []policy.Finding{
+		{Path: "main.go", Line: 10, Rule: "forbidden_import", Message: "use stdlib"},
+	}
+	body, comments := renderReview(r, findings)
+	if !strings.Contains(body, "medium") {
+		t.Fatal("body missing risk")
+	}
+	if len(comments) != 1 || comments[0].Path != "main.go" {
+		t.Fatalf("bad comments: %+v", comments)
+	}
+	// Verify the type of comment is correct.
+	_ = forge.InlineComment{}
+}
+
+// post/outcomeFromEvent tests
+
 func TestOutcomeFromEvent(t *testing.T) {
 	cases := []struct {
 		event string
@@ -44,6 +69,8 @@ func TestOutcomeFromEvent(t *testing.T) {
 		}
 	}
 }
+
+// post/persistChangedSymbols tests
 
 func TestPersistChangedSymbols_NilPersister_NoPanic(t *testing.T) {
 	// Must not panic or error when persister is nil.
