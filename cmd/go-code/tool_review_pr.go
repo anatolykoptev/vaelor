@@ -88,12 +88,12 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 					result.Risk.Suggestions = append(result.Risk.Suggestions,
 						fmt.Sprintf("prior review on %s: %s (%s)", p.Symbol, p.Flag, p.PRURL))
 				}
-				// Record current verdict
+				// Record current risk level from impact analysis.
 				_ = store.Upsert(ctx, learnings.Record{
 					Repo: slug, Symbol: cs.Symbol.Name,
-					Verdict: result.Risk.RiskLevel,
-					Flag:    strings.Join(result.Risk.Flags, ";"),
-					PRURL:   fmt.Sprintf("https://github.com/%s/pull/%d", slug, input.PR),
+					RiskLevel: result.Risk.RiskLevel,
+					Flag:      strings.Join(result.Risk.Flags, ";"),
+					PRURL:     fmt.Sprintf("https://github.com/%s/pull/%d", slug, input.PR),
 				})
 			}
 		}

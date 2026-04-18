@@ -33,7 +33,7 @@
 | `internal/research/` | Deep repository research (backs `code_research`) |
 | `internal/review/` | PR / delta review (backs `review_*`) |
 | `internal/designmd/` | Design-doc indexing (backs `design_search`) |
-| `internal/learnings/` | pgvector-backed store for prior review verdicts surfaced in `understand` |
+| `internal/learnings/` | pgvector-backed store for prior review findings surfaced in `understand` |
 | `internal/oxcodes/` | ox-codes cross-service integration |
 | `internal/webanalyze/` | Site technology fingerprinting |
 
@@ -102,7 +102,7 @@
 
 ## Learnings loop
 
-`review_pr_post` persists one `learnings.Record` per changed symbol on successful (non-dry-run) PostReview — verdict mapped from the GitHub review event (`APPROVE`→`good`, `REQUEST_CHANGES`→`bad`, else `neutral`), with flag/note derived from the first policy finding whose line intersects the symbol. `understand` then calls `Store.Nearest(repo, symbol, 3)` and emits matches as `prior_learnings` on its JSON result (omitted when empty). `Store.NearestVector(ctx, query, k)` provides semantic lookup when an embedder is configured at `learnings.New` time. Storage is gated on `LEARNINGS_DATABASE_URL` (or `DATABASE_URL`); with neither, the loop silently no-ops.
+`review_pr_post` persists one `learnings.Record` per changed symbol on successful (non-dry-run) PostReview — `review_outcome` mapped from the GitHub review event (`APPROVE`→`good`, `REQUEST_CHANGES`→`bad`, else `neutral`), with flag/note derived from the first policy finding whose line intersects the symbol. `review_pr` writes `risk_level` (`low`/`medium`/`high`) on the same table, in an orthogonal column. `understand` then calls `Store.Nearest(repo, symbol, 3)` and emits matches as `prior_learnings` on its JSON result (omitted when empty). `Store.NearestVector(ctx, query, k)` provides semantic lookup when an embedder is configured at `learnings.New` time. Storage is gated on `LEARNINGS_DATABASE_URL` (or `DATABASE_URL`); with neither, the loop silently no-ops.
 
 ## Webhook
 
@@ -143,7 +143,6 @@ make deploy  # docker compose build --no-cache + up -d
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
 - **`GOWORK=off` mandatory**: without it, `go test`/`go build` resolve against the user-wide `go.work` and break imports
 - **Extension → language is single source of truth via `handler.Extensions()`** — don't duplicate in a separate map (historical bug: `.cjs` was in handler but missing from the lang map, making `ParseFile("foo.cjs")` fail silently)
-- **Learnings verdict vocabulary conflict**: `tool_review_pr.go` writes `review_learnings.verdict` using risk levels (`low|medium|high` from `review.classifyRisk`); `tool_review_pr_post.go` writes the same column using event-derived verdicts (`good|neutral|bad` from `verdictFromEvent`). Both land in one column — readers must tolerate both vocabularies until the schemas are aligned
 
 ## Contributing
 
