@@ -74,6 +74,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 	opts := compound.PrepareChangeOpts{
 		MaxDepth: depth,
 		Repo:     input.Repo,
+		Root:     root,
 	}
 	if deps.Graph != nil {
 		opts.Graph = deps.Graph

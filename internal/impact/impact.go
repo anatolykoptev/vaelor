@@ -125,12 +125,19 @@ func Analyze(ctx context.Context, cg *callgraph.CallGraph, symbolName string, op
 	}
 	result.RiskScore = float64(result.TotalAffected) * (1.0 + float64(len(result.AffectedPackages))*packageRiskMultiplier + communityRisk)
 
-	if opts.Refs != nil && opts.Repo != "" {
-		tests, err := opts.Refs.TestedBy(ctx, opts.Repo, target.Name, target.File)
-		if err != nil {
-			slog.Debug("impact: TestedBy lookup failed", slog.Any("error", err))
-		} else {
-			result.TestsCovering = tests
+	if opts.Refs != nil {
+		// Graph is keyed by resolved Root (container path), not user-facing Repo.
+		repoKey := opts.Root
+		if repoKey == "" {
+			repoKey = opts.Repo
+		}
+		if repoKey != "" {
+			tests, err := opts.Refs.TestedBy(ctx, repoKey, target.Name, target.File)
+			if err != nil {
+				slog.Debug("impact: TestedBy lookup failed", slog.Any("error", err))
+			} else {
+				result.TestsCovering = tests
+			}
 		}
 	}
 
