@@ -5,6 +5,7 @@ package learnings
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -73,6 +74,44 @@ func (s *Store) Nearest(ctx context.Context, repo, symbol string, k int) ([]Reco
 		ORDER BY created_at DESC
 		LIMIT $3
 	`, repo, symbol, k)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		var r Record
+		if err := rows.Scan(&r.Repo, &r.Symbol, &r.Verdict, &r.Flag, &r.Note, &r.PRURL); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// NearestVector returns up to k prior learnings closest to the given query
+// string by cosine distance over the embedding column. It requires a configured
+// Embedder; callers should fall back to the exact (repo, symbol) Nearest path
+// when no embedder is available.
+func (s *Store) NearestVector(ctx context.Context, query string, k int) ([]Record, error) {
+	if s.emb == nil {
+		return nil, errors.New("embedder not configured")
+	}
+	emb, err := s.emb.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+	arg := vectorArg(emb)
+	if arg == nil {
+		return nil, errors.New("empty query embedding")
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT repo, symbol, verdict, flag, note, pr_url
+		FROM review_learnings
+		WHERE embedding IS NOT NULL
+		ORDER BY embedding <=> $1
+		LIMIT $2
+	`, arg, k)
 	if err != nil {
 		return nil, err
 	}
