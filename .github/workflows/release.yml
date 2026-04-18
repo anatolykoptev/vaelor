@@ -24,20 +24,11 @@ jobs:
       - name: Install C toolchain (tree-sitter grammars, native + cross)
         run: sudo apt-get update && sudo apt-get install -y gcc gcc-aarch64-linux-gnu
 
-      - name: Pre-download modules (ensures tree-sitter C headers)
-        run: |
-          GOWORK=off go mod download -x
-          find "$(go env GOMODCACHE)/github.com/smacker/go-tree-sitter"*/php -maxdepth 2 -name '*.h' | head -10
-          ls -la "$(go env GOMODCACHE)/github.com/smacker/go-tree-sitter"*/php/tree_sitter/ || true
-
-      - name: Diagnostic build of go-code native amd64
-        run: GOWORK=off CGO_ENABLED=1 go build -v -o /tmp/go-code-native ./cmd/go-code 2>&1 | tail -30
-
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: ~> v2
-          args: release --clean --parallelism=1
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
