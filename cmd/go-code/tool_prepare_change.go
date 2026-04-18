@@ -71,9 +71,14 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
 
-	result := compound.PrepareChange(ctx, cg, input.Symbol, compound.PrepareChangeOpts{
+	opts := compound.PrepareChangeOpts{
 		MaxDepth: depth,
-	})
+		Repo:     input.Repo,
+	}
+	if deps.Graph != nil {
+		opts.Graph = deps.Graph
+	}
+	result := compound.PrepareChange(ctx, cg, input.Symbol, opts)
 
 	if !result.Found {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
