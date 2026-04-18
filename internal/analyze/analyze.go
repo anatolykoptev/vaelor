@@ -17,6 +17,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/websearch"
@@ -66,6 +67,10 @@ type Deps struct {
 	// OxCodes is the optional ox-codes search backend client.
 	// When set, code_search uses ox-codes for grep, scoped, and structural search.
 	OxCodes *oxcodes.Client
+
+	// Learnings is the optional store for prior review findings.
+	// When set, review tools persist and surface past verdicts.
+	Learnings *learnings.Store
 }
 
 // maxFileBytes returns the effective file size limit.
