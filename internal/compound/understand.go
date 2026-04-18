@@ -154,10 +154,20 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 // Errors are swallowed with slog.Debug so understand stays functional when the
 // graph is offline.
 func fetchGraphSignals(ctx context.Context, opts UnderstandOpts, sym *parser.Symbol) *graphx.Signals {
-	if opts.Graph == nil || opts.Repo == "" {
+	if opts.Graph == nil {
 		return nil
 	}
-	sig, err := opts.Graph.Symbol(ctx, opts.Repo, sym.Name, sym.File)
+	// Graph is indexed under the resolved container path (opts.Root), not the
+	// user-facing host path (opts.Repo). Using the wrong one picks a different
+	// graph hash and always returns empty.
+	repoKey := opts.Root
+	if repoKey == "" {
+		repoKey = opts.Repo
+	}
+	if repoKey == "" {
+		return nil
+	}
+	sig, err := opts.Graph.Symbol(ctx, repoKey, sym.Name, sym.File)
 	if err != nil {
 		slog.Debug("graph signals unavailable", "symbol", sym.Name, "err", err)
 		return nil
