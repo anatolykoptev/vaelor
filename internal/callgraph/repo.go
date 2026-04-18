@@ -101,7 +101,7 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 		return nil, err
 	}
 
-	result := Trace(g, input.Symbol, input.Opts)
+	result := Trace(ctx, g, input.Symbol, input.Opts)
 	result.Tier = g.Tier
 
 	return &result, nil
