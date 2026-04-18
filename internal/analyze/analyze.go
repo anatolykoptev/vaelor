@@ -11,75 +11,9 @@ import (
 	"context"
 	"fmt"
 
-	kitcache "github.com/anatolykoptev/go-kit/cache"
-	"github.com/anatolykoptev/go-kit/llm"
-
-	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/learnings"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/websearch"
 )
-
-// defaultMaxFileBytes is the default maximum file size for parsing (512 KB).
-const defaultMaxFileBytes = 512 * 1024
-
-// PathMapping maps an external filesystem prefix to a container-internal prefix.
-type PathMapping struct {
-	External string
-	Internal string
-}
-
-// Deps holds injected dependencies for analysis operations.
-type Deps struct {
-	// LLM is the client used for natural-language queries.
-	LLM *llm.Client
-
-	// MaxFileBytes is the max file size to parse. 0 uses the default.
-	MaxFileBytes int64
-
-	// GithubToken is the optional GitHub token for cloning private repos.
-	GithubToken string
-
-	// WorkspaceDir is the directory used for temporary clones.
-	WorkspaceDir string
-
-	// PathMappings translates external paths to container-internal paths.
-	PathMappings []PathMapping
-
-	// ParseCache caches parsed AST results per file. Optional.
-	ParseCache *cache.ParseCache
-
-	// LLMCache caches LLM responses. Optional.
-	LLMCache *cache.LLMCache
-
-	// Forges is the multi-forge registry for search operations.
-	Forges *forge.Registry
-
-	// WebSearch is the go-search client for web-based repo discovery. Optional.
-	WebSearch *websearch.Client
-
-	// ToolCache is a generic cache for tool results (search, etc.).
-	ToolCache *kitcache.Cache
-
-	// OxCodes is the optional ox-codes search backend client.
-	// When set, code_search uses ox-codes for grep, scoped, and structural search.
-	OxCodes *oxcodes.Client
-
-	// Learnings is the optional store for prior review findings.
-	// When set, review tools persist and surface past verdicts.
-	Learnings *learnings.Store
-}
-
-// maxFileBytes returns the effective file size limit.
-func (d Deps) maxFileBytes() int64 {
-	if d.MaxFileBytes > 0 {
-		return d.MaxFileBytes
-	}
-	return defaultMaxFileBytes
-}
 
 // RepoAnalysisInput is the input for a repository analysis request.
 type RepoAnalysisInput struct {
@@ -221,7 +155,6 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 	return buildAnalysisResult(input.Root, ingestResult, parseResults, cd), nil
 }
 
-
 // BuildDepGraph constructs and renders the dependency graph for a repository.
 func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 	ingestResult, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
@@ -249,4 +182,3 @@ func BuildDepGraph(ctx context.Context, input DepGraphInput) (string, error) {
 
 	return renderGraph(graph, format)
 }
-
