@@ -426,13 +426,19 @@ Phase 5 closes the loop with a real release memo.
 
 ---
 
-### Task 14 — Persist `code_graph` findings into learnings store
+### Task 14 — Human-invoked `remember_graph_insights` tool + `/gc:remember` slash command
 
 **Agent:** Sonnet. **Runs AFTER Task 13.**
 
-**Rationale:** `code_graph` answers are ephemeral today — the LLM reads them once, then forgets. Treating `code_graph` as a **manual hook** (user explicitly asked for analysis → worth remembering) lets us promote its findings into the same `learnings_store` that already feeds `prior_learnings` in `understand`. Next time the user edits a flagged symbol, PreToolUse → `prepare_change` → `understand` surfaces the prior finding automatically.
+**Rationale (revised):** earlier version wired persistence into `code_graph` itself, gated by env + optional per-query flag. **Rejected.** Agents call `code_graph` frequently and copy flags from examples mechanically — they have poor temporal sense for "this finding is worth saving permanently." Per-query flags become meaningless noise.
 
-**Gated behind `CODEGRAPH_PERSIST_INSIGHTS=1`** (default off). Avoids learnings-store noise until the signal is measured.
+**New design:** `code_graph` stays **purely read-only**. Persistence lives in a **separate, explicitly-named MCP tool** (`remember_graph_insights`) that is NOT mentioned in any agent system prompt and is only reachable via a human-invoked slash command (`/gc:remember <repo>`). Agents can call `code_graph` a hundred times a day — zero persistence. When the human decides "bank current findings" they type `/gc:remember`, the tool fires once.
+
+**Why this works:**
+- Temporal sense delegated to human → typically weekly or post-merge gesture, not per-call noise.
+- `code_graph` remains side-effect-free — agents can't accidentally trigger persistence.
+- Permanent dedupe by `(repo, symbol, flag)`: second `/gc:remember` on the same findings is a no-op.
+- No env gate needed — the tool's very existence is opt-in by the human typing the slash command.
 
 **Implementation:**
 
