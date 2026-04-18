@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS review_learnings (
     repo        TEXT    NOT NULL,
     symbol      TEXT    NOT NULL,
     risk_level      TEXT,                          -- low | medium | high (from review_pr impact analysis)
-    review_outcome  TEXT,                          -- good | neutral | bad (from review_pr_post event)
+    review_outcome  TEXT,                          -- good | neutral | bad (from review_pr dry_run=false event)
     flag        TEXT    NOT NULL,                  -- e.g. "policy:forbidden_import"
     note        TEXT    NOT NULL DEFAULT '',
     pr_url      TEXT    NOT NULL DEFAULT '',

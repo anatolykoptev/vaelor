@@ -41,7 +41,7 @@ type UnderstandOpts struct {
 
 	// Repo is the user-supplied repo key (slug, URL, or host path) used to
 	// look up prior learnings. Must match the value persisted by
-	// review_pr_post for lookups to succeed.
+	// review_pr (dry_run=false) for lookups to succeed.
 	Repo string
 
 	// Learnings optionally sources prior review findings for the symbol.

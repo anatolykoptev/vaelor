@@ -1,5 +1,9 @@
 package main
 
+// tool_review_pr_post_impl.go — post-path helpers for review_pr (dry_run=false).
+// Separated from tool_review_pr.go purely for file-size hygiene; both files
+// belong to the same tool. See ReviewPRInput in tool_review_pr.go.
+
 import (
 	"context"
 	"fmt"
@@ -13,83 +17,35 @@ import (
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/policy"
 	"github.com/anatolykoptev/go-code/internal/review"
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type ReviewPRPostInput struct {
-	Repo  string `json:"repo" jsonschema_description:"Repository: owner/repo slug"`
-	PR    int    `json:"pr" jsonschema_description:"Pull request number"`
-	Depth int    `json:"depth,omitempty" jsonschema_description:"Impact depth (default 2, max 5)"`
-	Event string `json:"event,omitempty" jsonschema_description:"GitHub review event: COMMENT (default), REQUEST_CHANGES, APPROVE"`
-	Dry   bool   `json:"dry,omitempty" jsonschema_description:"Preview only — do not post"`
-}
-
-// learningsPersister is the narrow write-side interface handleReviewPRPost
-// uses to record review outcomes. *learnings.Store satisfies it; tests supply a spy.
-// Kept local to cmd/go-code so the production path keeps using the Store
-// directly via deps.Learnings (same pattern as compound.LearningsLookup).
+// learningsPersister is the narrow write-side interface used to record review
+// outcomes. *learnings.Store satisfies it; tests supply a spy.
 type learningsPersister interface {
 	Upsert(ctx context.Context, r learnings.Record) error
 }
 
-func registerReviewPRPost(server *mcp.Server, _ Config, deps analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
-		Name:        "review_pr_post",
-		Description: "Run review_pr and post the result as a PR review on GitHub. Requires GITHUB_TOKEN.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ReviewPRPostInput) (*mcp.CallToolResult, error) {
-		return handleReviewPRPost(ctx, input, deps)
-	})
-}
-
-func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
-	if input.Repo == "" || input.PR <= 0 {
-		return errResult("repo and pr are required"), nil
-	}
-
-	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
-	if err != nil {
-		return errResult(fmt.Sprintf("resolve: %s", err)), nil
-	}
-	defer cleanup()
-
-	base, err := fetchPRBase(ctx, root, input.PR)
-	if err != nil {
-		base = "origin/main"
-	}
-
-	depth := input.Depth
-	if depth <= 0 {
-		depth = defaultReviewDepth
-	}
-	if depth > maxReviewDepth {
-		depth = maxReviewDepth
-	}
-
-	result, err := review.DeltaReview(ctx, review.DeltaInput{
-		Root: root, Base: base, Depth: depth, OxCodes: deps.OxCodes,
-	})
-	if err != nil {
-		return errResult(fmt.Sprintf("review: %s", err)), nil
-	}
-	review.ApplyGraphFlags(ctx, deps.Graph, root, result.ChangedSymbols, nil)
-	findings := applyPolicy(ctx, root, result)
-	body, comments := renderReview(result, findings)
-
-	if input.Dry {
-		// Dry-run: preview only, no side effects (no post, no persist).
-		return textResult(body + "\n\n--- inline comments ---\n" + fmt.Sprintf("%+v", comments)), nil
-	}
-
+// reviewPRPost posts the review to GitHub and persists per-symbol learnings.
+// It is the dry_run=false path of handleReviewPR. root is the absolute path to
+// the local repo checkout (needed for learnings path resolution). Behaviour is
+// byte-identical to the former standalone review_pr_post tool behaviour.
+func reviewPRPost(
+	ctx context.Context,
+	input ReviewPRInput,
+	deps analyze.Deps,
+	root string,
+	result *review.DeltaResult,
+	findings []policy.Finding,
+) (*mcp.CallToolResult, error) {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		return errResult("GITHUB_TOKEN not set"), nil
 	}
+
+	body, comments := renderReview(result, findings)
 	g := forge.NewGitHubForge(token)
 	event := input.Event
-	if event == "" {
-		event = "COMMENT"
-	}
 	url, err := g.PostReview(ctx, input.Repo, input.PR, forge.ReviewPayload{
 		Body: body, Event: event, Comments: comments,
 	})
@@ -99,8 +55,7 @@ func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analy
 
 	// Persist a review outcome per changed symbol so future reviews on the same
 	// repo/symbol can surface prior findings. Best-effort: Upsert failures
-	// are logged but never fail the tool. Use typed-nil-interface guard
-	// (deps.Learnings is a concrete *Store, assign only when non-nil).
+	// are logged but never fail the tool.
 	if deps.Learnings != nil {
 		persistChangedSymbols(
 			ctx, deps.Learnings,
