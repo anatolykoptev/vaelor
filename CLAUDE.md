@@ -104,6 +104,21 @@
 
 `review_pr_post` persists one `learnings.Record` per changed symbol on successful (non-dry-run) PostReview — `review_outcome` mapped from the GitHub review event (`APPROVE`→`good`, `REQUEST_CHANGES`→`bad`, else `neutral`), with flag/note derived from the first policy finding whose line intersects the symbol. `review_pr` writes `risk_level` (`low`/`medium`/`high`) on the same table, in an orthogonal column. `understand` then calls `Store.Nearest(repo, symbol, 3)` and emits matches as `prior_learnings` on its JSON result (omitted when empty). `Store.NearestVector(ctx, query, k)` provides semantic lookup when an embedder is configured at `learnings.New` time. Storage is gated on `LEARNINGS_DATABASE_URL` (or `DATABASE_URL`); with neither, the loop silently no-ops.
 
+## Graph signal ecosystem
+
+Two graph representations cooperate through `internal/graphx/` interfaces (`Analytics`, `CrossRefs`) without either package knowing about the other. `codegraph.Store` implements both via adapters (`NewAnalyticsAdapter`, `NewCrossRefsAdapter`); `analyze.Deps.Graph`/`Refs` defaults to `graphx.Noop{}` when `DATABASE_URL` is empty.
+
+| Signal (AGE-computed) | Exposed via | Consumed by |
+|---|---|---|
+| PageRank, Community | `Analytics.Symbol` | `understand` (`<graph_analytics>`), `prepare_change` (`communities_crossed`, `high_pagerank_callers`) |
+| Top-K PageRank | `Analytics.TopPageRank` | `prepare_change` (decile threshold for high-PR flag) |
+| Community membership | `Analytics.Symbol` | `review_pr` + `review_pr_post` (`community_move` flag) |
+| Surprise score | `Analytics.Symbol` | `review_pr` + `review_pr_post` (`high_surprise` flag when ≥0.5) |
+| HANDLES / FETCHES | `CrossRefs.HandlesRoute`, `CrossRefs.FetchedBy` | `call_trace` (cross-language fetch nodes at +1 depth) |
+| TESTED_BY | `CrossRefs.TestedBy` | `impact_analysis` (`tests_covering`) |
+
+**Cold-path guarantee**: every consumer skips enrichment when `Signals.Found == false` or `CrossRefs` returns empty, preserving byte-identical output when the graph has no snapshot. See `docs/plans/2026-04-18-graph-ecosystem.md` for the full architecture.
+
 ## Webhook
 
 ### GitHub webhook
