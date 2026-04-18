@@ -59,3 +59,20 @@ Lazy per-repo indexing on first semantic query, not eager at boot. Latency basel
 
 - `prior_learnings` field on `understand` output hasn't been observed yet in prod — correct per spec (omitted when `Nearest` returns empty). Will surface organically after the first successful `review_pr_post` writes a row.
 - Task 5 mac catalog update is out of scope on this host.
+
+---
+
+## Appendix — mac client (`/Users/anatoliikoptev/.claude/`)
+
+A parallel Claude Code session on mac shipped the same Phase 1 Task 1–5 deliverables (slash commands `/gc:understand`, `/gc:impact`, `/gc:pr`, `/gc:graph`, `/gc:rewrite` + two hooks). Key differences from the Linux client described above:
+
+- **MCP endpoint**: `https://mcp.krolik.run/code/mcp` with Bearer from `~/.claude.json`. Linux client hits the local `127.0.0.1:8897`.
+- **Hook output format**: mac variant emits to stderr with `exit 0` (v1 convention). The Linux agent discovered the harness now expects `{"hookSpecificOutput":{"hookEventName":...,"additionalContext":...}}` on stdout and updated their hooks accordingly. Mac client should be ported to the JSON format — tracked as follow-up.
+- **Non-blocking guarantee**: both clients run `trap 'exit 0' ERR` after `set -euo pipefail` so `jq`/`grep` pipeline errors never block the user's edit.
+- **Path scope**: PreToolUse hook only fires for `*.go` under `$HOME/src/` on both clients (pattern `$HOME/src/"*` rather than `*/src/*`).
+- **MCP tools catalog memory** (`~/.claude/projects/-Users-anatoliikoptev/memory/mcp-tools-catalog.md`) was updated with a "Claude Code integration" subsection listing the compound tools, slash commands, hooks, and auto-indexing. Linux equivalent is a one-line pointer in that host's MEMORY.md.
+
+## Mac follow-ups
+
+- Port mac hooks to the stdout-JSON `hookSpecificOutput.additionalContext` format used by the Linux variant so they actually surface to Claude in the next turn (v1 stderr path is silently ignored by current harness versions).
+- Update mac `mcp-tools-catalog.md` to remove the "Phase 3 upcoming" framing for learnings — it's now live.
