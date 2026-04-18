@@ -11,6 +11,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 - **Code comparison** — three-pass symbol matching (exact/fuzzy/semantic) with quality verdicts
 - **Knowledge graph** — Apache AGE graph with NL-to-Cypher query generation
 - **Caching** — LRU in-memory + optional Redis L2 (200x speedup on repeated queries)
+- **Learnings** — prior review verdicts auto-surface in `understand`
 
 ## Tools
 
