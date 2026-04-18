@@ -19,6 +19,13 @@ type ChangedSymbol struct {
 	Symbol     *parser.Symbol
 	ChangeType ChangeType
 	FileDiff   FileDiff
+
+	// Flag is a non-fatal classification attached by the review pipeline when
+	// graph signals indicate something noteworthy (e.g. community_move, high_surprise).
+	// Empty when no flag applied.
+	Flag string `json:"flag,omitempty"`
+	// Note is a human-readable explanation of Flag. Empty when Flag is empty.
+	Note string `json:"note,omitempty"`
 }
 
 // ChangedSymbols intersects parsed symbols with git diff line ranges.
