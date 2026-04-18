@@ -27,9 +27,10 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 	}
 
 	graphName := GraphNameFor(repoKey)
+	relFile := toRelativeFile(repoKey, file)
 	cypher := fmt.Sprintf(
-		"MATCH (s:Symbol {name: '%s'})-[:HANDLES]->(r:Route) WHERE %s RETURN r.method, r.path LIMIT 1",
-		escapeCypher(symbolName), symbolFileMatch("s", file),
+		"MATCH (s:Symbol {name: '%s', file: '%s'})-[:HANDLES]->(r:Route) RETURN r.method, r.path LIMIT 1",
+		escapeCypher(symbolName), escapeCypher(relFile),
 	)
 
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
@@ -94,9 +95,10 @@ func (c *crossRefsAdapter) TestedBy(ctx context.Context, repoKey, symbolName, fi
 	}
 
 	graphName := GraphNameFor(repoKey)
+	relFile := toRelativeFile(repoKey, file)
 	cypher := fmt.Sprintf(
-		"MATCH (test:Symbol)-[:TESTED_BY]->(s:Symbol {name: '%s'}) WHERE %s RETURN test.name, test.file",
-		escapeCypher(symbolName), symbolFileMatch("s", file),
+		"MATCH (test:Symbol)-[:TESTED_BY]->(s:Symbol {name: '%s', file: '%s'}) RETURN test.name, test.file",
+		escapeCypher(symbolName), escapeCypher(relFile),
 	)
 
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
