@@ -72,6 +72,7 @@ func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analy
 	if err != nil {
 		return errResult(fmt.Sprintf("review: %s", err)), nil
 	}
+	review.ApplyGraphFlags(ctx, deps.Graph, input.Repo, result.ChangedSymbols, nil)
 	findings := applyPolicy(ctx, root, result)
 	body, comments := renderReview(result, findings)
 
