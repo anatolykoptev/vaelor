@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/go-code/internal/langutil"
+	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/policy"
 	"github.com/anatolykoptev/go-code/internal/review"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -20,6 +23,14 @@ type ReviewPRPostInput struct {
 	Depth int    `json:"depth,omitempty" jsonschema_description:"Impact depth (default 2, max 5)"`
 	Event string `json:"event,omitempty" jsonschema_description:"GitHub review event: COMMENT (default), REQUEST_CHANGES, APPROVE"`
 	Dry   bool   `json:"dry,omitempty" jsonschema_description:"Preview only — do not post"`
+}
+
+// learningsPersister is the narrow write-side interface handleReviewPRPost
+// uses to record verdicts. *learnings.Store satisfies it; tests supply a spy.
+// Kept local to cmd/go-code so the production path keeps using the Store
+// directly via deps.Learnings (same pattern as compound.LearningsLookup).
+type learningsPersister interface {
+	Upsert(ctx context.Context, r learnings.Record) error
 }
 
 func registerReviewPRPost(server *mcp.Server, _ Config, deps analyze.Deps) {
@@ -65,6 +76,7 @@ func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analy
 	body, comments := renderReview(result, findings)
 
 	if input.Dry {
+		// Dry-run: preview only, no side effects (no post, no persist).
 		return textResult(body + "\n\n--- inline comments ---\n" + fmt.Sprintf("%+v", comments)), nil
 	}
 
@@ -83,7 +95,99 @@ func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analy
 	if err != nil {
 		return errResult(fmt.Sprintf("post: %s", err)), nil
 	}
+
+	// Persist a verdict per changed symbol so future reviews on the same
+	// repo/symbol can surface prior findings. Best-effort: Upsert failures
+	// are logged but never fail the tool. Use typed-nil-interface guard
+	// (deps.Learnings is a concrete *Store, assign only when non-nil).
+	if deps.Learnings != nil {
+		persistChangedSymbols(
+			ctx, deps.Learnings,
+			input.Repo, url,
+			verdictFromEvent(event),
+			root, result.ChangedSymbols, findings,
+		)
+	}
 	return textResult("posted: " + url), nil
+}
+
+// verdictFromEvent maps a GitHub review event to a canonical verdict string
+// persisted in the learnings store. Unknown events fall back to "neutral"
+// so we never emit an invalid verdict column value.
+func verdictFromEvent(event string) string {
+	switch strings.ToUpper(event) {
+	case "APPROVE":
+		return "good"
+	case "REQUEST_CHANGES":
+		return "bad"
+	default:
+		return "neutral"
+	}
+}
+
+// persistChangedSymbols writes one learnings.Record per changed symbol.
+//
+// Flag/Note derivation: for each symbol, the first policy.Finding whose path
+// matches the symbol's file AND whose line falls within the symbol's range
+// wins; otherwise Flag defaults to the ChangeType (added/modified/removed)
+// and Note is empty. This keeps the record informative even when no policy
+// rule fired.
+//
+// Upsert errors are swallowed and logged via slog.Warn — persistence is
+// best-effort and MUST NOT fail the posting workflow.
+func persistChangedSymbols(
+	ctx context.Context,
+	p learningsPersister,
+	repo, prURL, verdict, root string,
+	symbols []review.ChangedSymbol,
+	findings []policy.Finding,
+) {
+	if p == nil {
+		return
+	}
+	for _, cs := range symbols {
+		if cs.Symbol == nil {
+			continue
+		}
+		flag, note := deriveFlagNote(cs, findings, root)
+		rec := learnings.Record{
+			Repo:    repo,
+			Symbol:  cs.Symbol.Name,
+			Verdict: verdict,
+			Flag:    flag,
+			Note:    note,
+			PRURL:   prURL,
+		}
+		if err := p.Upsert(ctx, rec); err != nil {
+			slog.Warn("learnings upsert failed",
+				slog.String("repo", repo),
+				slog.String("symbol", cs.Symbol.Name),
+				slog.Any("error", err),
+			)
+		}
+	}
+}
+
+// deriveFlagNote picks the first policy finding that lands inside the
+// symbol's line range (in the symbol's own file), returning its rule+message.
+// Falls back to (ChangeType, "") when no finding matches.
+func deriveFlagNote(cs review.ChangedSymbol, findings []policy.Finding, root string) (string, string) {
+	sym := cs.Symbol
+	if sym != nil {
+		symRel := langutil.RelPath(sym.File, root)
+		for _, f := range findings {
+			if f.Path == "" || f.Line == 0 {
+				continue
+			}
+			if f.Path != symRel {
+				continue
+			}
+			if f.Line >= int(sym.StartLine) && f.Line <= int(sym.EndLine) {
+				return f.Rule, f.Message
+			}
+		}
+	}
+	return string(cs.ChangeType), ""
 }
 
 // renderReview converts a DeltaResult + policy findings into a markdown body

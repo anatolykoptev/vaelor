@@ -33,6 +33,7 @@
 | `internal/research/` | Deep repository research (backs `code_research`) |
 | `internal/review/` | PR / delta review (backs `review_*`) |
 | `internal/designmd/` | Design-doc indexing (backs `design_search`) |
+| `internal/learnings/` | pgvector-backed store for prior review verdicts surfaced in `understand` |
 | `internal/oxcodes/` | ox-codes cross-service integration |
 | `internal/webanalyze/` | Site technology fingerprinting |
 
@@ -83,6 +84,7 @@
 | `MAX_REPO_MB` | `200` | |
 | `REDIS_URL` | optional | L2 cache, DB 6 |
 | `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
+| `LEARNINGS_DATABASE_URL` | optional | PostgreSQL DSN (pgvector) for the review learnings store; falls back to `DATABASE_URL` when unset. When both are empty, the learnings loop is silently disabled |
 | `GRAPH_TTL_LOCAL` | `3600` | Seconds |
 | `GRAPH_TTL_REMOTE` | `86400` | Seconds |
 | `GRAPH_BATCH_SIZE` | `5` | Keep small — AGE limitation |
@@ -91,12 +93,16 @@
 | `GO_SEARCH_URL` | optional | go-search MCP endpoint for web search (e.g. `http://go-search:8890/mcp`) |
 | `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `jina-code-v2` | Model name for OpenAI-compatible embed API |
-| `AUTO_INDEX_DIRS` | optional | Comma-separated dirs to auto-index for semantic search (e.g. `/host/src`) |
+| `AUTO_INDEX_DIRS` | optional | Comma-separated dirs eligible for auto-indexing (e.g. `/host/src`). Indexing is lazy per-repo on first semantic query, not eager at boot. Runtime compose sets `/host/src` |
 | `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/path/to/repos:/host`) |
 | `OUTPUT_DIR` | optional | Output dir for generated files (e.g. `/tmp/go-code-output`) |
 | `GITHUB_WEBHOOK_SECRET` | optional | When set, enables `/webhook/github` PR-review receiver |
 | `REVIEW_POST_ENABLED` | `false` | When `true`, webhook posts reviews; otherwise dry-log |
 | `REVIEW_BOT_USER` | optional | GitHub login to skip (avoid self-triggered loops) |
+
+## Learnings loop
+
+`review_pr_post` persists one `learnings.Record` per changed symbol on successful (non-dry-run) PostReview — verdict mapped from the GitHub review event (`APPROVE`→`good`, `REQUEST_CHANGES`→`bad`, else `neutral`), with flag/note derived from the first policy finding whose line intersects the symbol. `understand` then calls `Store.Nearest(repo, symbol, 3)` and emits matches as `prior_learnings` on its JSON result (omitted when empty). `Store.NearestVector(ctx, query, k)` provides semantic lookup when an embedder is configured at `learnings.New` time. Storage is gated on `LEARNINGS_DATABASE_URL` (or `DATABASE_URL`); with neither, the loop silently no-ops.
 
 ## Webhook
 
@@ -137,6 +143,7 @@ make deploy  # docker compose build --no-cache + up -d
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
 - **`GOWORK=off` mandatory**: without it, `go test`/`go build` resolve against the user-wide `go.work` and break imports
 - **Extension → language is single source of truth via `handler.Extensions()`** — don't duplicate in a separate map (historical bug: `.cjs` was in handler but missing from the lang map, making `ParseFile("foo.cjs")` fail silently)
+- **Learnings verdict vocabulary conflict**: `tool_review_pr.go` writes `review_learnings.verdict` using risk levels (`low|medium|high` from `review.classifyRisk`); `tool_review_pr_post.go` writes the same column using event-derived verdicts (`good|neutral|bad` from `verdictFromEvent`). Both land in one column — readers must tolerate both vocabularies until the schemas are aligned
 
 ## Contributing
 
