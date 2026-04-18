@@ -229,6 +229,58 @@ Commit: `docs(CLAUDE.md): describe graph signal ecosystem`.
 ### Phase 5 — Smoke + rollout
 
 #### Task 11 — End-to-end smoke + release memo
+**(runs as described below)**
+
+#### Task 12 — Consolidate `review_pr` + `review_pr_post` into one tool
+**Agent:** Sonnet. **Runs AFTER Task 11** so smoke verifies both existing tools still produce correct graph signals before we collapse them.
+
+**Rationale:** the two tools share ~90% of the pipeline (`review.DeltaReview`, policy application, findings rendering, graph enrichment). Separation was originally about read-vs-write intent, but a single tool with explicit `dry_run` semantics expresses the same intent with less surface area and one registration path. This is cleanup, not feature work — it only makes sense once Tasks 1-11 prove the graph-signals pipeline is correct on both paths.
+
+**New unified shape:**
+```
+mcp__go-code__review_pr:
+  repo: required
+  pr: required
+  depth: optional (int, default 2)
+  dry_run: optional (bool, default true) — when true, returns review without posting
+  event: optional ("APPROVE" | "COMMENT" | "REQUEST_CHANGES") — required when dry_run=false
+```
+
+- When `dry_run=true` (default) → today's `review_pr` behaviour, including graph flags.
+- When `dry_run=false` + `event` set → today's `review_pr_post` behaviour: post to GitHub + persist `learnings.Record` (with `Flag`/`Note` from the graph enrichment).
+- When `dry_run=false` without `event` → structured error `"event is required when dry_run=false"`.
+
+**Files:**
+- Modify: `cmd/go-code/tool_review_pr.go` — absorb the post path; add `DryRun` + `Event` to `ReviewPRInput`.
+- Delete: `cmd/go-code/tool_review_pr_post.go`.
+- Delete: `cmd/go-code/tool_review_pr_post_test.go` (if present) — port its cases into `tool_review_pr_test.go` under `t.Run("post/...")`.
+- Modify: `cmd/go-code/register.go` — drop the second registration.
+- Update `README.md` + `CLAUDE.md` — tool table: 27 → 26 tools.
+
+**Compatibility:** existing Claude Code clients / hook scripts that call `mcp__go-code__review_pr_post` will need to migrate to `review_pr` with `dry_run=false`. Search `~/.claude/` for callers before deleting (`grep -rn review_pr_post ~/.claude/ ~/plugins/` on the controller side, not in the subagent — controller handles client migration). Since this is our own ecosystem and nobody external uses `review_pr_post`, the break is controlled.
+
+**Tests:** merge `TestReviewPRPost_*` cases into `TestReviewPR_Post_*` subtests. The learnings persistence path must stay covered (existing `review_pr_post_learnings_test.go` style).
+
+**Acceptance:**
+- `mcp__go-code__review_pr_post` no longer registered — only `review_pr` remains.
+- `review_pr dry_run=false event=COMMENT` behaves exactly as `review_pr_post event=COMMENT` today.
+- `review_pr dry_run=true` (default) identical to today's `review_pr`.
+- All tests green.
+- MCP tool count 26 in `README.md` / `CLAUDE.md`.
+
+**Why it's at Task 12 and not earlier:** if consolidation happened before Task 6, we'd be instrumenting graph signals into a moving target (two tools converging into one). Sequencing:
+1. Tasks 1-5 build the plumbing.
+2. Task 6 lands graph flags into both existing tools.
+3. Tasks 7-11 finish ecosystem + smoke.
+4. Task 12 collapses the two into one — lowest-risk point because both code paths are already verified.
+
+**Rollback:** single revert restores both tools. No data migration required.
+
+Commit: `refactor(review): consolidate review_pr + review_pr_post into a single tool with dry_run flag`.
+
+---
+
+### Phase 5 — Smoke + rollout (original Task 11)
 **Agent:** Haiku.
 
 1. `git push origin main` → dozor redeploys (background, timeout 600000).
