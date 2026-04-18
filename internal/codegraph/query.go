@@ -71,7 +71,7 @@ func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphN
 	// Post-process surprises template: score and rank raw edge results.
 	switch cls.Template {
 	case "surprises":
-		result.Results, result.Narrative = postProcessSurprises(rows, 10)
+		result.Results, result.Narrative = PostProcessSurprises(rows, 10)
 	case "graph_diff":
 		result.Results, result.Narrative = postProcessGraphDiff(ctx, store, graphName, meta.RepoKey)
 	default:
