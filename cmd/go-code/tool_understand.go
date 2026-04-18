@@ -72,11 +72,18 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		return understandAmbiguousResult(input.Symbol, matches)
 	}
 
-	result := compound.Understand(ctx, matches[0], cg, compound.UnderstandOpts{
+	opts := compound.UnderstandOpts{
 		IncludeCallers: input.IncludeCallers,
 		OxCodes:        deps.OxCodes,
 		Root:           root,
-	})
+		Repo:           input.Repo,
+	}
+	// Avoid the typed-nil-interface trap: only assign Learnings when the
+	// store is actually configured, so opts.Learnings == nil behaves correctly.
+	if deps.Learnings != nil {
+		opts.Learnings = deps.Learnings
+	}
+	result := compound.Understand(ctx, matches[0], cg, opts)
 
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
