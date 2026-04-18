@@ -56,7 +56,7 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// Simulate the review_pr_post persist path: three verdicts for the
+	// Simulate the review_pr_post persist path: three review outcomes for the
 	// same (repo, symbol). A 1ms sleep between inserts guarantees distinct
 	// created_at values so ORDER BY created_at DESC is deterministic
 	// without a tiebreaker column.
@@ -64,7 +64,7 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 		{
 			Repo:    testRepo,
 			Symbol:  testSym,
-			Verdict: "good",
+			ReviewOutcome: "good",
 			Flag:    "style",
 			Note:    "all good",
 			PRURL:   "https://github.com/owner/repo/pull/1",
@@ -72,7 +72,7 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 		{
 			Repo:    testRepo,
 			Symbol:  testSym,
-			Verdict: "neutral",
+			ReviewOutcome: "neutral",
 			Flag:    "minor",
 			Note:    "ok",
 			PRURL:   "https://github.com/owner/repo/pull/2",
@@ -80,7 +80,7 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 		{
 			Repo:    testRepo,
 			Symbol:  testSym,
-			Verdict: "bad",
+			ReviewOutcome: "bad",
 			Flag:    "critical",
 			Note:    "please fix",
 			PRURL:   "https://github.com/owner/repo/pull/3",
@@ -91,7 +91,7 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 		if err := store.Upsert(ctx, r); err != nil {
-			t.Fatalf("upsert %q: %v", r.Verdict, err)
+			t.Fatalf("upsert %q: %v", r.ReviewOutcome, err)
 		}
 	}
 
@@ -106,19 +106,19 @@ func TestE2E_ReviewPersistToStore_UnderstandReads(t *testing.T) {
 
 	// Nearest orders by created_at DESC (store.go), so got[0] is the
 	// last insert ("bad"). The 1ms sleeps guarantee distinct timestamps.
-	if got[0].Verdict != "bad" || got[0].Note != "please fix" {
+	if got[0].ReviewOutcome != "bad" || got[0].Note != "please fix" {
 		t.Errorf("expected bad/please fix at [0], got %+v", got[0])
 	}
 
-	// Sanity check: all three verdicts are present in the result set
+	// Sanity check: all three review outcomes are present in the result set
 	// (defensive against any reordering at the storage layer).
-	verdicts := map[string]bool{}
+	outcomes := map[string]bool{}
 	for _, r := range got[:3] {
-		verdicts[r.Verdict] = true
+		outcomes[r.ReviewOutcome] = true
 	}
 	for _, want := range []string{"good", "neutral", "bad"} {
-		if !verdicts[want] {
-			t.Errorf("expected verdict %q in top 3 results, got verdicts=%v", want, verdicts)
+		if !outcomes[want] {
+			t.Errorf("expected outcome %q in top 3 results, got outcomes=%v", want, outcomes)
 		}
 	}
 }

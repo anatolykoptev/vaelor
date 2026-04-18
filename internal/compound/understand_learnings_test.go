@@ -72,7 +72,7 @@ func TestUnderstand_PriorLearnings_OneRecord(t *testing.T) {
 		{
 			Repo:    "r",
 			Symbol:  "Foo",
-			Verdict: "bad",
+			ReviewOutcome: "bad",
 			Flag:    "missing-input-validation",
 			Note:    wantNote,
 			PRURL:   "https://github.com/o/r/pull/42",

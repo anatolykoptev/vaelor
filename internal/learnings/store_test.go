@@ -17,7 +17,7 @@ func TestStoreRoundtrip(t *testing.T) {
 	}
 	t.Cleanup(s.Close)
 
-	rec := Record{Repo: "foo/bar", Symbol: "Svc.DoThing", Verdict: "medium", Flag: "policy:forbidden_import", Note: "use stdlib", PRURL: "https://x/1"}
+	rec := Record{Repo: "foo/bar", Symbol: "Svc.DoThing", RiskLevel: "medium", Flag: "policy:forbidden_import", Note: "use stdlib", PRURL: "https://x/1"}
 	if err := s.Upsert(context.Background(), rec); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -90,9 +90,9 @@ func TestStore_NearestByVector(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	seeds := []Record{
-		{Repo: tag, Symbol: "pkg.A", Verdict: "good", Flag: "flag-a", Note: "note-a"},
-		{Repo: tag, Symbol: "pkg.B", Verdict: "neutral", Flag: "flag-b", Note: "note-b"},
-		{Repo: tag, Symbol: "pkg.C", Verdict: "bad", Flag: "flag-c", Note: "note-c"},
+		{Repo: tag, Symbol: "pkg.A", ReviewOutcome: "good", Flag: "flag-a", Note: "note-a"},
+		{Repo: tag, Symbol: "pkg.B", ReviewOutcome: "neutral", Flag: "flag-b", Note: "note-b"},
+		{Repo: tag, Symbol: "pkg.C", ReviewOutcome: "bad", Flag: "flag-c", Note: "note-c"},
 	}
 	for _, r := range seeds {
 		if err := s.Upsert(ctx, r); err != nil {

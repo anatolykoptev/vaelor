@@ -26,7 +26,7 @@ type ReviewPRPostInput struct {
 }
 
 // learningsPersister is the narrow write-side interface handleReviewPRPost
-// uses to record verdicts. *learnings.Store satisfies it; tests supply a spy.
+// uses to record review outcomes. *learnings.Store satisfies it; tests supply a spy.
 // Kept local to cmd/go-code so the production path keeps using the Store
 // directly via deps.Learnings (same pattern as compound.LearningsLookup).
 type learningsPersister interface {
@@ -96,7 +96,7 @@ func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analy
 		return errResult(fmt.Sprintf("post: %s", err)), nil
 	}
 
-	// Persist a verdict per changed symbol so future reviews on the same
+	// Persist a review outcome per changed symbol so future reviews on the same
 	// repo/symbol can surface prior findings. Best-effort: Upsert failures
 	// are logged but never fail the tool. Use typed-nil-interface guard
 	// (deps.Learnings is a concrete *Store, assign only when non-nil).
@@ -104,17 +104,17 @@ func handleReviewPRPost(ctx context.Context, input ReviewPRPostInput, deps analy
 		persistChangedSymbols(
 			ctx, deps.Learnings,
 			input.Repo, url,
-			verdictFromEvent(event),
+			outcomeFromEvent(event),
 			root, result.ChangedSymbols, findings,
 		)
 	}
 	return textResult("posted: " + url), nil
 }
 
-// verdictFromEvent maps a GitHub review event to a canonical verdict string
-// persisted in the learnings store. Unknown events fall back to "neutral"
-// so we never emit an invalid verdict column value.
-func verdictFromEvent(event string) string {
+// outcomeFromEvent maps a GitHub review event to a canonical review-outcome
+// string persisted in the learnings store. Unknown events fall back to
+// "neutral" so we never emit an invalid review_outcome column value.
+func outcomeFromEvent(event string) string {
 	switch strings.ToUpper(event) {
 	case "APPROVE":
 		return "good"
@@ -138,7 +138,7 @@ func verdictFromEvent(event string) string {
 func persistChangedSymbols(
 	ctx context.Context,
 	p learningsPersister,
-	repo, prURL, verdict, root string,
+	repo, prURL, outcome, root string,
 	symbols []review.ChangedSymbol,
 	findings []policy.Finding,
 ) {
@@ -151,12 +151,12 @@ func persistChangedSymbols(
 		}
 		flag, note := deriveFlagNote(cs, findings, root)
 		rec := learnings.Record{
-			Repo:    repo,
-			Symbol:  cs.Symbol.Name,
-			Verdict: verdict,
-			Flag:    flag,
-			Note:    note,
-			PRURL:   prURL,
+			Repo:          repo,
+			Symbol:        cs.Symbol.Name,
+			ReviewOutcome: outcome,
+			Flag:          flag,
+			Note:          note,
+			PRURL:         prURL,
 		}
 		if err := p.Upsert(ctx, rec); err != nil {
 			slog.Warn("learnings upsert failed",

@@ -1,5 +1,5 @@
 // Package learnings persists review findings so future reviews on the same
-// repo/symbol can reference prior verdicts.
+// repo/symbol can reference prior outcomes.
 package learnings
 
 import (
@@ -21,8 +21,24 @@ type Embedder interface {
 }
 
 // Record is a single learning.
+//
+// RiskLevel and ReviewOutcome are orthogonal:
+//   * RiskLevel is written by the impact-analysis path (review_pr) and uses
+//     the vocabulary low|medium|high.
+//   * ReviewOutcome is written by the posted-review path (review_pr_post) and
+//     uses the vocabulary good|neutral|bad (mapped from the GitHub review
+//     event).
+//
+// Either (or both) may be empty on a given row depending on which writer
+// produced it.
 type Record struct {
-	Repo, Symbol, Verdict, Flag, Note, PRURL string
+	Repo          string `json:"repo"`
+	Symbol        string `json:"symbol"`
+	RiskLevel     string `json:"risk_level,omitempty"`
+	ReviewOutcome string `json:"review_outcome,omitempty"`
+	Flag          string `json:"flag,omitempty"`
+	Note          string `json:"note,omitempty"`
+	PRURL         string `json:"pr_url,omitempty"`
 }
 
 // Store persists learnings in Postgres (pgvector).
@@ -58,9 +74,9 @@ func (s *Store) Upsert(ctx context.Context, r Record) error {
 		}
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO review_learnings (repo, symbol, verdict, flag, note, pr_url, embedding)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, r.Repo, r.Symbol, r.Verdict, r.Flag, r.Note, r.PRURL, vectorArg(emb))
+		INSERT INTO review_learnings (repo, symbol, risk_level, review_outcome, flag, note, pr_url, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, r.Repo, r.Symbol, r.RiskLevel, r.ReviewOutcome, r.Flag, r.Note, r.PRURL, vectorArg(emb))
 	return err
 }
 
@@ -68,7 +84,7 @@ func (s *Store) Upsert(ctx context.Context, r Record) error {
 // (Vector search is added later; exact match is enough for v1.)
 func (s *Store) Nearest(ctx context.Context, repo, symbol string, k int) ([]Record, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT repo, symbol, verdict, flag, note, pr_url
+		SELECT repo, symbol, risk_level, review_outcome, flag, note, pr_url
 		FROM review_learnings
 		WHERE repo = $1 AND symbol = $2
 		ORDER BY created_at DESC
@@ -81,8 +97,15 @@ func (s *Store) Nearest(ctx context.Context, repo, symbol string, k int) ([]Reco
 	var out []Record
 	for rows.Next() {
 		var r Record
-		if err := rows.Scan(&r.Repo, &r.Symbol, &r.Verdict, &r.Flag, &r.Note, &r.PRURL); err != nil {
+		var risk, outcome *string
+		if err := rows.Scan(&r.Repo, &r.Symbol, &risk, &outcome, &r.Flag, &r.Note, &r.PRURL); err != nil {
 			return nil, err
+		}
+		if risk != nil {
+			r.RiskLevel = *risk
+		}
+		if outcome != nil {
+			r.ReviewOutcome = *outcome
 		}
 		out = append(out, r)
 	}
@@ -106,7 +129,7 @@ func (s *Store) NearestVector(ctx context.Context, query string, k int) ([]Recor
 		return nil, errors.New("empty query embedding")
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT repo, symbol, verdict, flag, note, pr_url
+		SELECT repo, symbol, risk_level, review_outcome, flag, note, pr_url
 		FROM review_learnings
 		WHERE embedding IS NOT NULL
 		ORDER BY embedding <=> $1
@@ -119,8 +142,15 @@ func (s *Store) NearestVector(ctx context.Context, query string, k int) ([]Recor
 	var out []Record
 	for rows.Next() {
 		var r Record
-		if err := rows.Scan(&r.Repo, &r.Symbol, &r.Verdict, &r.Flag, &r.Note, &r.PRURL); err != nil {
+		var risk, outcome *string
+		if err := rows.Scan(&r.Repo, &r.Symbol, &risk, &outcome, &r.Flag, &r.Note, &r.PRURL); err != nil {
 			return nil, err
+		}
+		if risk != nil {
+			r.RiskLevel = *risk
+		}
+		if outcome != nil {
+			r.ReviewOutcome = *outcome
 		}
 		out = append(out, r)
 	}
