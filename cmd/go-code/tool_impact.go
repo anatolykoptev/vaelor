@@ -82,6 +82,8 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		OxCodes:  deps.OxCodes,
 		Root:     root,
 		Language: input.Language,
+		Refs:     deps.Refs,
+		Repo:     input.Repo,
 	})
 
 	if !result.Found {
