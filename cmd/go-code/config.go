@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -97,6 +98,10 @@ type Config struct {
 
 	// DesignEmbedModel is the model name for design embeddings.
 	DesignEmbedModel string
+
+	// LearningsDSN is the PostgreSQL DSN for the review_learnings store.
+	// Falls back to DATABASE_URL if unset.
+	LearningsDSN string
 }
 
 const (
@@ -157,6 +162,7 @@ func loadConfig() Config {
 		DesignMDDir:       env.Str("DESIGN_MD_DIR", ""),
 		DesignEmbedURL:    env.Str("DESIGN_EMBED_URL", ""),
 		DesignEmbedModel:  env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
+		LearningsDSN:      env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
 	}
 }
 

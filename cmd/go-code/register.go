@@ -15,6 +15,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -57,6 +58,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 		WebSearch:    buildWebSearchClient(cfg),
 		ToolCache:    toolCache,
 		OxCodes:      buildOxCodesClient(cfg),
+		Learnings:    buildLearningsStore(cfg),
 	}
 
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
@@ -155,4 +157,18 @@ func buildForgeRegistry(cfg Config) *forge.Registry {
 		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
 	}
 	return reg
+}
+
+// buildLearningsStore opens a learnings.Store if configured.
+// Returns nil (disabled) when LearningsDSN is empty or the pool fails to open.
+func buildLearningsStore(cfg Config) *learnings.Store {
+	if cfg.LearningsDSN == "" {
+		return nil
+	}
+	ls, err := learnings.New(context.Background(), cfg.LearningsDSN, nil)
+	if err != nil {
+		slog.Warn("learnings store disabled", "err", err)
+		return nil
+	}
+	return ls
 }
