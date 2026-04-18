@@ -15,6 +15,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
@@ -74,6 +75,9 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			graphStore = codegraph.NewStore(dbPool)
 		}
 	}
+
+	// Wire graph signals — always non-nil (Noop when no store available).
+	deps.Graph, deps.Refs = buildGraphDeps(graphStore)
 
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
 	// Created early so tools can use semantic fallback.
@@ -157,6 +161,17 @@ func buildForgeRegistry(cfg Config) *forge.Registry {
 		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
 	}
 	return reg
+}
+
+// buildGraphDeps wires graphx.Analytics and graphx.CrossRefs from an optional
+// codegraph.Store. Returns Noop{} for both when the store is nil (no DATABASE_URL
+// or pool construction failed).
+func buildGraphDeps(store *codegraph.Store) (graphx.Analytics, graphx.CrossRefs) {
+	if store == nil {
+		return graphx.Noop{}, graphx.Noop{}
+	}
+	slog.Info("graph signals enabled via codegraph.Store")
+	return codegraph.NewAnalyticsAdapter(store), codegraph.NewCrossRefsAdapter(store)
 }
 
 // buildLearningsStore opens a learnings.Store if configured.
