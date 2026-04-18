@@ -25,7 +25,7 @@ func (s *spyPersister) Upsert(_ context.Context, r learnings.Record) error {
 	return nil
 }
 
-func TestVerdictFromEvent(t *testing.T) {
+func TestOutcomeFromEvent(t *testing.T) {
 	cases := []struct {
 		event string
 		want  string
@@ -39,8 +39,8 @@ func TestVerdictFromEvent(t *testing.T) {
 		{"SOMETHING_ELSE", "neutral"},
 	}
 	for _, c := range cases {
-		if got := verdictFromEvent(c.event); got != c.want {
-			t.Errorf("verdictFromEvent(%q) = %q, want %q", c.event, got, c.want)
+		if got := outcomeFromEvent(c.event); got != c.want {
+			t.Errorf("outcomeFromEvent(%q) = %q, want %q", c.event, got, c.want)
 		}
 	}
 }
@@ -80,8 +80,8 @@ func TestPersistChangedSymbols_CallsUpsertPerSymbol(t *testing.T) {
 		if sp.calls[i].Repo != "owner/repo" {
 			t.Errorf("call[%d].Repo = %q, want owner/repo", i, sp.calls[i].Repo)
 		}
-		if sp.calls[i].Verdict != "good" {
-			t.Errorf("call[%d].Verdict = %q, want good", i, sp.calls[i].Verdict)
+		if sp.calls[i].ReviewOutcome != "good" {
+			t.Errorf("call[%d].ReviewOutcome = %q, want good", i, sp.calls[i].ReviewOutcome)
 		}
 		if sp.calls[i].PRURL != "https://github.com/owner/repo/pull/42" {
 			t.Errorf("call[%d].PRURL wrong: %q", i, sp.calls[i].PRURL)
