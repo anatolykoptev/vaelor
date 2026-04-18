@@ -100,9 +100,10 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 		}
 
 		meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, codegraph.IndexConfig{
-			TTLLocal:  cfg.GraphTTLLocal,
-			TTLRemote: cfg.GraphTTLRemote,
-			BatchSize: cfg.GraphBatchSize,
+			TTLLocal:            cfg.GraphTTLLocal,
+			TTLRemote:           cfg.GraphTTLRemote,
+			BatchSize:           cfg.GraphBatchSize,
+			EnableSurpriseIndex: cfg.CodegraphSurpriseIndex,
 		})
 		if err != nil {
 			return errResult(fmt.Sprintf("index repo: %s", err)), nil

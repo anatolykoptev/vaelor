@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/langutil"
 )
 
 const (
@@ -22,6 +21,13 @@ type IndexConfig struct {
 	TTLLocal  int // seconds, default 3600
 	TTLRemote int // seconds, default 86400
 	BatchSize int // vertices per Cypher batch, default 500
+
+	// EnableSurpriseIndex triggers the two-phase surprise persistence pass
+	// (IndexSurpriseEdges + IndexSurpriseNodes) after the pagerank/community
+	// pass.  Gated behind CODEGRAPH_SURPRISE_INDEX=1 (default off).
+	// Failures in the surprise pass are non-fatal — they log a warning and
+	// IndexRepo continues normally.
+	EnableSurpriseIndex bool
 }
 
 // GraphMeta describes a built code graph stored in code_graph_meta.
@@ -154,6 +160,17 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	// Store file mtimes for future incremental updates.
 	storeFileMtimes(ctx, store, repoKey, allFiles)
 
+	// Optional surprise persistence pass — gated behind EnableSurpriseIndex.
+	// Errors are non-fatal: log a warning and continue so IndexRepo never fails
+	// because of the surprise pass.
+	if cfg.EnableSurpriseIndex {
+		if err := IndexSurpriseEdges(ctx, store, gname); err != nil {
+			slog.Warn("codegraph: surprise edge index failed", slog.Any("error", err))
+		} else if err := IndexSurpriseNodes(ctx, store, gname); err != nil {
+			slog.Warn("codegraph: surprise node index failed", slog.Any("error", err))
+		}
+	}
+
 	return meta, nil
 }
 
@@ -169,30 +186,4 @@ func applyConfigDefaults(cfg IndexConfig) IndexConfig {
 		cfg.BatchSize = defaultBatchSize
 	}
 	return cfg
-}
-
-// checkCache returns existing fresh meta, nil+nil when rebuild is needed, or
-// nil+err on a hard failure (e.g. drop failed).
-func checkCache(ctx context.Context, store *Store, repoKey, gname string) (*GraphMeta, error) {
-	existing, err := getMeta(ctx, store, repoKey)
-	if err != nil {
-		return nil, fmt.Errorf("check cache: %w", err)
-	}
-	if existing == nil {
-		return nil, nil
-	}
-	if isFresh(existing.BuiltAt, existing.TTLSeconds) {
-		return existing, nil
-	}
-	// Snapshot the stale graph before dropping it.
-	SnapshotBeforeRebuild(ctx, store, repoKey, gname)
-	if dropErr := store.DropGraph(ctx, gname, repoKey); dropErr != nil {
-		return nil, fmt.Errorf("drop stale graph: %w", dropErr)
-	}
-	return nil, nil
-}
-
-// relPath returns the path of abs relative to root.
-func relPath(abs, root string) string {
-	return langutil.RelPath(abs, root)
 }
