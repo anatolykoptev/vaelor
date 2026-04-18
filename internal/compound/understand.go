@@ -4,8 +4,10 @@ package compound
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -46,6 +48,10 @@ type UnderstandOpts struct {
 	// When nil (not configured) or Nearest returns no rows, the result's
 	// PriorLearnings field stays empty and is omitted from JSON output.
 	Learnings LearningsLookup
+
+	// Graph optionally surfaces pagerank/community/surprise for the symbol.
+	// When nil or the graph has no snapshot, GraphSignals.Found stays false.
+	Graph graphx.Analytics
 }
 
 // UnderstandResult is the output of the understand compound tool.
@@ -57,6 +63,9 @@ type UnderstandResult struct {
 	Warnings       []string           `json:"warnings,omitempty"`
 	Body           *BodyAnalysis      `json:"body_analysis,omitempty"`
 	PriorLearnings []learnings.Record `json:"prior_learnings,omitempty"`
+	// GraphSignals holds pagerank/community/surprise when the persistent graph
+	// has them. Signals.Found==false means the graph is cold; omitted from output.
+	GraphSignals *graphx.Signals `json:"graph_signals,omitempty"`
 }
 
 // SymbolInfo is a summary of a symbol for compound tool output.
@@ -135,66 +144,28 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 	}
 
 	result.PriorLearnings = fetchPriorLearnings(ctx, opts, sym.Name)
+	result.GraphSignals = fetchGraphSignals(ctx, opts, sym)
 
 	return result
 }
 
-// collectCallees walks the call graph for edges where sym is the caller and
-// returns up to max unique callee references.
-func collectCallees(cg *callgraph.CallGraph, sym *parser.Symbol, max int) []CallRef {
-	var out []CallRef
-	seen := make(map[string]struct{})
-	for _, edge := range cg.Edges {
-		if len(out) >= max {
-			break
-		}
-		if edge.Caller != sym {
-			continue
-		}
-		file := ""
-		if edge.Callee != nil {
-			file = edge.Callee.File
-		}
-		key := edge.CalleeName + ":" + file
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, CallRef{
-			Name:     edge.CalleeName,
-			File:     file,
-			Line:     edge.Line,
-			Receiver: edge.Receiver,
-		})
+// fetchGraphSignals queries the persistent graph for pagerank/community/surprise.
+// Returns nil (omitted from JSON) when Graph is not configured or Found==false.
+// Errors are swallowed with slog.Debug so understand stays functional when the
+// graph is offline.
+func fetchGraphSignals(ctx context.Context, opts UnderstandOpts, sym *parser.Symbol) *graphx.Signals {
+	if opts.Graph == nil || opts.Repo == "" {
+		return nil
 	}
-	return out
-}
-
-// collectCallers walks the call graph for edges where sym is the callee and
-// returns up to max unique caller references.
-func collectCallers(cg *callgraph.CallGraph, sym *parser.Symbol, max int) []CallRef {
-	var out []CallRef
-	seen := make(map[string]struct{})
-	for _, edge := range cg.Edges {
-		if len(out) >= max {
-			break
-		}
-		if edge.Callee != sym || edge.Caller == nil {
-			continue
-		}
-		key := edge.Caller.Name + ":" + edge.Caller.File
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, CallRef{
-			Name:     edge.Caller.Name,
-			File:     edge.Caller.File,
-			Line:     edge.Line,
-			Receiver: edge.Caller.Receiver,
-		})
+	sig, err := opts.Graph.Symbol(ctx, opts.Repo, sym.Name, sym.File)
+	if err != nil {
+		slog.Debug("graph signals unavailable", "symbol", sym.Name, "err", err)
+		return nil
 	}
-	return out
+	if !sig.Found {
+		return nil
+	}
+	return &sig
 }
 
 // fetchPriorLearnings queries the learnings store for up to
