@@ -83,6 +83,9 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	if deps.Learnings != nil {
 		opts.Learnings = deps.Learnings
 	}
+	if deps.Graph != nil {
+		opts.Graph = deps.Graph
+	}
 	result := compound.Understand(ctx, matches[0], cg, opts)
 
 	data, err := json.MarshalIndent(result, "", "  ")
