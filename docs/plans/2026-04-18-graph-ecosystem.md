@@ -387,6 +387,45 @@ Phase 5 closes the loop with a real release memo.
 
 ---
 
+### Task 13 — Per-symbol surprise score (Option B)
+
+**Agent:** Sonnet. **Runs AFTER Task 12** — adds per-symbol `surprise` on the persisted graph so `graphx.Signals.Surprise` stops being always-0.
+
+**Rationale:** the existing `rankSurprises` in `internal/codegraph/surprise.go` scores CALLS edges on the fly when `code_graph` gets a "find hidden dependencies" query. Scores are not persisted — so compound tools (`understand`, `prepare_change`, `review_pr`) can't read them. Option A (compute per-query) was rejected: would cost ~30-100ms per adapter call, multiplied by N callers in `prepare_change`.
+
+**Implementation:**
+
+1. `internal/codegraph/surprise_index.go` (new, ~120 LOC):
+   - `IndexSurpriseEdges(ctx, store, graphName) error` — runs one Cypher to fetch all CALLS edges joined with endpoint `pagerank`, `community`, `file`. Computes degree per endpoint via a second query (`MATCH (s)-[:CALLS]-() RETURN s.name, count(*)`). For each edge, calls `scoreSurprise` (existing). Writes `SET r.surprise = $score` in batches of `GRAPH_BATCH_SIZE` (AGE limit 5).
+   - `IndexSurpriseNodes(ctx, store, graphName) error` — aggregates: for each Symbol, MAX of adjacent edge surprises, written as `SET s.surprise = $score` (normalized 0..1 via `score/6.0`).
+
+2. `internal/codegraph/index.go` `IndexRepo`:
+   - After existing pagerank + community passes, call `IndexSurpriseEdges` then `IndexSurpriseNodes`.
+   - Gated behind env `CODEGRAPH_SURPRISE_INDEX=1` (default off for first deploy — turn on once perf measured on acme-web).
+
+3. `internal/codegraph/adapter.go` `analyticsAdapter.Symbol`:
+   - Extend Cypher to `RETURN s.pagerank, s.community, s.surprise`.
+   - Populate `Signals.Surprise` from new column; 0 when NULL.
+
+4. Tests:
+   - `surprise_index_test.go` — fixture with a known cross-package edge, assert `r.surprise >= 3` and `s.surprise > 0` on endpoints. Gate on `DATABASE_URL`.
+   - Update `adapter_test.go` to cover surprise in the unit-test stub and the live path.
+
+5. Rollout:
+   - Ship with `CODEGRAPH_SURPRISE_INDEX=0` first.
+   - Measure index time on acme-web (expected ~2-5s post pagerank).
+   - Flip to `=1` in `compose/search.yml` once cost is acceptable.
+   - `code_graph refresh=true` on each warm repo to re-index with surprise.
+
+**Acceptance:**
+- `mcp__go-code__understand` on a symbol that crosses communities returns `GraphSignals.Surprise > 0`.
+- `review_pr` on a PR touching such a symbol emits `high_surprise` flag (previously always dead-code because Surprise was 0).
+- Cold-graph and flag-off path both preserve byte-identical output.
+
+**Commit:** `feat(codegraph): persist per-symbol surprise during indexing`.
+
+---
+
 ## Out of scope (deliberately)
 
 - **Merging `callgraph` and `codegraph` packages** — they have legitimately different lifecycles (ephemeral vs persistent). Merging adds complexity without removing duplication (because the extraction layer is already shared).
