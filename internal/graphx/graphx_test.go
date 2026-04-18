@@ -27,7 +27,6 @@ func TestNoopSymbol(t *testing.T) {
 
 	n := graphx.Noop{}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := n.Symbol(context.Background(), tc.repoKey, tc.symbolName, tc.file)
@@ -64,7 +63,6 @@ func TestNoopTopPageRank(t *testing.T) {
 
 	n := graphx.Noop{}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := n.TopPageRank(context.Background(), tc.repoKey, tc.k)
@@ -93,7 +91,6 @@ func TestNoopHandlesRoute(t *testing.T) {
 
 	n := graphx.Noop{}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			route, found, err := n.HandlesRoute(context.Background(), tc.repoKey, tc.symbolName, tc.file)
@@ -124,7 +121,6 @@ func TestNoopFetchedBy(t *testing.T) {
 
 	n := graphx.Noop{}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := n.FetchedBy(context.Background(), tc.repoKey, tc.route)
@@ -153,7 +149,6 @@ func TestNoopTestedBy(t *testing.T) {
 
 	n := graphx.Noop{}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := n.TestedBy(context.Background(), tc.repoKey, tc.symbolName, tc.file)
