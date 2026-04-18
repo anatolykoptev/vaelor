@@ -37,8 +37,8 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 
 	graphName := GraphNameFor(repoKey)
 	cypher := fmt.Sprintf(
-		"MATCH (s:Symbol {name: '%s', file: '%s'}) RETURN s.pagerank, s.community",
-		escapeCypher(symbolName), escapeCypher(file),
+		"MATCH (s:Symbol {name: '%s'}) WHERE %s RETURN s.pagerank, s.community LIMIT 1",
+		escapeCypher(symbolName), symbolFileMatch("s", file),
 	)
 
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, 2)
@@ -102,6 +102,22 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 		})
 	}
 	return signals, nil
+}
+
+// symbolFileMatch returns a Cypher WHERE fragment that matches a Symbol's file
+// field against an incoming absolute path.
+//
+// AGE stores Symbol.file as a repo-root-relative path (e.g. "crates/x/y.rs"),
+// but tool callers typically pass an absolute container path
+// (e.g. "/host/src/repo/crates/x/y.rs"). The fragment tests both equality (for
+// relative inputs) and a path-separator-guarded ENDS WITH (for absolute inputs
+// that share the suffix). The "/" guard prevents "y.rs" from matching
+// "my_y.rs".
+//
+// alias is the bound variable for the Symbol node (e.g. "s" or "target").
+func symbolFileMatch(alias, file string) string {
+	esc := escapeCypher(file)
+	return fmt.Sprintf("(%s.file = '%s' OR '%s' ENDS WITH '/' + %s.file)", alias, esc, esc, alias)
 }
 
 // isGraphMissingError returns true if the error indicates a missing AGE graph.
