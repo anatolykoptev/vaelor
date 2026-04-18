@@ -1,8 +1,8 @@
 entgo.io/ent v0.14.3 h1:wokAV/kIlH9TeklJWGGS7AYJdVckr0DloWjIcO9iIIQ=
 entgo.io/ent v0.14.3/go.mod h1:aDPE/OziPEu8+OWbzy4UlvWmD2/kbRuWfK2A40hcxJM=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/anatolykoptev/go-kit v0.20.1 h1:41pBbtCg5VFKN0iZekQjEwNpiU+/NpWjZvwRvPIVjK0=
-github.com/anatolykoptev/go-kit v0.20.1/go.mod h1:1b59+RoFzLTINNhurlMBIoRzzKxFhJ/l3lVpF+Li6vM=
+github.com/anatolykoptev/go-kit v0.21.0 h1:GYP2ZGcKSWLfhmD6tJ30eRPDskbqy3JC8t+7NPqMRQs=
+github.com/anatolykoptev/go-kit v0.21.0/go.mod h1:1b59+RoFzLTINNhurlMBIoRzzKxFhJ/l3lVpF+Li6vM=
 github.com/anatolykoptev/go-mcpserver v0.11.0 h1:shz0WBhOvrPGHQpAeEMo3Fhx1F+p3AV6403FaKSiuSY=
 github.com/anatolykoptev/go-mcpserver v0.11.0/go.mod h1:pQfKlzExLv/evW42l940ZHMMcliv1OU98oExwfBnIWQ=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=

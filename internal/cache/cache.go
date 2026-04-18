@@ -5,7 +5,9 @@ package cache
 
 import (
 	"container/list"
+	"context"
 	"hash/fnv"
+	"strconv"
 	"sync"
 	"time"
 
@@ -131,24 +133,12 @@ func (c *ParseCache) Stats() Stats {
 
 // ──────────────────────────────────────────────────────────────────
 // LLMCache — caches LLM responses keyed by prompt hash.
-// TTL-based expiry + LRU eviction.
+// TTL-based expiry + S3-FIFO eviction via go-kit/cache.
 // ──────────────────────────────────────────────────────────────────
 
 // LLMCache caches LLM completion responses keyed by FNV-1a hash of prompts.
 type LLMCache struct {
-	mu      sync.Mutex
-	entries map[uint64]*list.Element
-	order   *list.List
-	maxSize int
-	ttl     time.Duration
-	hits    int64
-	misses  int64
-}
-
-type llmCacheEntry struct {
-	key       uint64
-	response  string
-	createdAt time.Time
+	c *kitcache.Cache
 }
 
 // NewLLMCache creates an LLM response cache with the given size and TTL.
@@ -160,10 +150,11 @@ func NewLLMCache(maxSize int, ttl time.Duration) *LLMCache {
 		ttl = DefaultLLMTTL
 	}
 	return &LLMCache{
-		entries: make(map[uint64]*list.Element, maxSize),
-		order:   list.New(),
-		maxSize: maxSize,
-		ttl:     ttl,
+		c: kitcache.New(kitcache.Config{
+			L1MaxItems:    maxSize,
+			L1TTL:         ttl,
+			JitterPercent: 0,
+		}),
 	}
 }
 
@@ -176,68 +167,27 @@ func PromptHash(systemPrompt, userPrompt string) uint64 {
 	return h.Sum64()
 }
 
+// llmKey converts a uint64 hash to a hex string key for kitcache.
+func llmKey(h uint64) string { return strconv.FormatUint(h, 16) }
+
 // Get returns a cached LLM response if present and not expired.
 func (c *LLMCache) Get(key uint64) (string, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	el, ok := c.entries[key]
+	data, ok := c.c.Get(context.Background(), llmKey(key))
 	if !ok {
-		c.misses++
 		return "", false
 	}
-
-	entry := el.Value.(*llmCacheEntry)
-	if time.Since(entry.createdAt) > c.ttl {
-		// Expired — remove.
-		c.order.Remove(el)
-		delete(c.entries, key)
-		c.misses++
-		return "", false
-	}
-
-	c.order.MoveToFront(el)
-	c.hits++
-	return entry.response, true
+	return string(data), true
 }
 
-// Put stores an LLM response. Evicts the LRU entry if at capacity.
+// Put stores an LLM response. Evicts the least-frequently-used entry if at capacity.
 func (c *LLMCache) Put(key uint64, response string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Update existing.
-	if el, ok := c.entries[key]; ok {
-		c.order.MoveToFront(el)
-		e := el.Value.(*llmCacheEntry)
-		e.response = response
-		e.createdAt = time.Now()
-		return
-	}
-
-	// Evict LRU if at capacity.
-	if c.order.Len() >= c.maxSize {
-		tail := c.order.Back()
-		if tail != nil {
-			evicted := c.order.Remove(tail).(*llmCacheEntry)
-			delete(c.entries, evicted.key)
-		}
-	}
-
-	entry := &llmCacheEntry{
-		key:       key,
-		response:  response,
-		createdAt: time.Now(),
-	}
-	el := c.order.PushFront(entry)
-	c.entries[key] = el
+	c.c.Set(context.Background(), llmKey(key), []byte(response))
 }
 
 // Stats returns current cache statistics.
 func (c *LLMCache) Stats() Stats {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return Stats{Hits: c.hits, Misses: c.misses, Entries: c.order.Len()}
+	s := c.c.Stats()
+	return Stats{Hits: s.L1Hits, Misses: s.L1Misses, Entries: s.L1Size}
 }
 
 // Key generates a deterministic cache key from parts using FNV-128a.

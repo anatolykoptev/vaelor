@@ -3,7 +3,7 @@ module github.com/anatolykoptev/go-code
 go 1.26.0
 
 require (
-	github.com/anatolykoptev/go-kit v0.20.1
+	github.com/anatolykoptev/go-kit v0.21.0
 	github.com/anatolykoptev/go-mcpserver v0.11.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/jackc/pgx/v5 v5.9.1
