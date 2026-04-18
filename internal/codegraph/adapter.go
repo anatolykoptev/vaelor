@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/graphx"
@@ -36,9 +37,10 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	}
 
 	graphName := GraphNameFor(repoKey)
+	relFile := toRelativeFile(repoKey, file)
 	cypher := fmt.Sprintf(
-		"MATCH (s:Symbol {name: '%s'}) WHERE %s RETURN s.pagerank, s.community LIMIT 1",
-		escapeCypher(symbolName), symbolFileMatch("s", file),
+		"MATCH (s:Symbol {name: '%s', file: '%s'}) RETURN s.pagerank, s.community LIMIT 1",
+		escapeCypher(symbolName), escapeCypher(relFile),
 	)
 
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, 2)
@@ -104,20 +106,33 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 	return signals, nil
 }
 
-// symbolFileMatch returns a Cypher WHERE fragment that matches a Symbol's file
-// field against an incoming absolute path.
+// toRelativeFile normalises an incoming file path into the repo-root-relative
+// form AGE actually stores.
 //
-// AGE stores Symbol.file as a repo-root-relative path (e.g. "crates/x/y.rs"),
-// but tool callers typically pass an absolute container path
-// (e.g. "/host/src/repo/crates/x/y.rs"). The fragment tests both equality (for
-// relative inputs) and a path-separator-guarded ENDS WITH (for absolute inputs
-// that share the suffix). The "/" guard prevents "y.rs" from matching
-// "my_y.rs".
-//
-// alias is the bound variable for the Symbol node (e.g. "s" or "target").
-func symbolFileMatch(alias, file string) string {
-	esc := escapeCypher(file)
-	return fmt.Sprintf("(%s.file = '%s' OR '%s' ENDS WITH '/' + %s.file)", alias, esc, esc, alias)
+// Tool callers typically pass absolute container paths
+// ("/host/src/repo/crates/x/y.rs"), but AGE stores Symbol.file as relative
+// ("crates/x/y.rs"). We try three strategies in order:
+//  1. filepath.Rel(repoKey, file) — works when both sides share the same prefix.
+//  2. filepath.Rel(mapToContainer(repoKey), file) — host↔container rewrite
+//     ("/home/krolik/src/repo" ↔ "/host/src/repo"), matching our PATH_MAPPINGS
+//     convention documented in CLAUDE.md.
+//  3. Give up and return the input unchanged — the Cypher lookup will miss,
+//     which is the safe failure mode (Found=false, no incorrect enrichment).
+func toRelativeFile(repoKey, file string) string {
+	if file == "" || !filepath.IsAbs(file) {
+		return file
+	}
+	if rel, err := filepath.Rel(repoKey, file); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	// PATH_MAPPINGS convention: host path /home/krolik/… is mounted as /host/… inside the container.
+	containerKey := strings.Replace(repoKey, "/home/krolik", "/host", 1)
+	if containerKey != repoKey {
+		if rel, err := filepath.Rel(containerKey, file); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	return file
 }
 
 // isGraphMissingError returns true if the error indicates a missing AGE graph.
