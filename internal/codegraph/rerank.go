@@ -239,3 +239,37 @@ func parseIntField(s, field string) int {
 	}
 	return n
 }
+
+// callRerankerWithClient is like callReranker but uses a caller-supplied
+// http.Client — for build-time scoring that needs longer timeout than rerankHTTPClient.
+func callRerankerWithClient(ctx context.Context, client *http.Client, query string, documents []string) (*rerankResponse, error) {
+	body, err := json.Marshal(rerankRequest{Model: rerankModel, Query: query, Documents: documents})
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rerankURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("rerank returned %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	var result rerankResponse
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w", err)
+	}
+	if len(result.Results) == 0 {
+		return nil, fmt.Errorf("empty results")
+	}
+	return &result, nil
+}
