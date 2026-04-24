@@ -130,3 +130,46 @@ func (s *Store) EnsureIndexes(ctx context.Context, name string) error {
 
 	return nil
 }
+
+// knownVLabels and knownELabels enumerate every label the graph model uses.
+// They are pre-created by EnsureLabels before parallel inserts to prevent
+// the AGE race condition where concurrent workers all try to create the same
+// label table and all but the first fail with "duplicate key".
+var (
+	knownVLabels = []string{"File", "Layer", "Package", "Route", "Symbol"}
+	knownELabels = []string{
+		"BELONGS_TO", "CALLS", "CONTAINS", "FETCHES",
+		"HANDLES", "IMPLEMENTS", "IMPORTS", "INHERITS",
+		"TESTED_BY", "USES",
+	}
+)
+
+// EnsureLabels pre-creates all known vertex and edge labels for gname.
+// Safe to call when labels already exist; "already exists" errors are ignored.
+func (s *Store) EnsureLabels(ctx context.Context, gname string) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, ageSetup); err != nil {
+		return fmt.Errorf("AGE setup: %w", err)
+	}
+
+	for _, label := range knownVLabels {
+		sql := fmt.Sprintf("SELECT ag_catalog.create_vlabel('%s', '%s')", gname, label)
+		if _, err := conn.Exec(ctx, sql); err != nil && !strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("create vlabel %q: %w", label, err)
+		}
+	}
+
+	for _, label := range knownELabels {
+		sql := fmt.Sprintf("SELECT ag_catalog.create_elabel('%s', '%s')", gname, label)
+		if _, err := conn.Exec(ctx, sql); err != nil && !strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("create elabel %q: %w", label, err)
+		}
+	}
+
+	return nil
+}
