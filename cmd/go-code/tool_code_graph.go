@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"sync"
+	"time"
 	"encoding/xml"
 	"fmt"
 	"log/slog"
@@ -12,6 +14,9 @@ import (
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// buildingRepos tracks repos currently being indexed to prevent concurrent builds.
+var buildingRepos sync.Map
 
 type xmlGraphResponse struct {
 	XMLName xml.Name      `xml:"response"`
@@ -99,12 +104,47 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			}
 		}
 
-		meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, codegraph.IndexConfig{
+		// Check whether a fresh graph is already cached.
+		// If not, launch a background goroutine to build it and return immediately
+		// so the MCP client is not held for the duration of the first-time build,
+		// which can take several minutes for large repos.
+		fresh, cacheErr := codegraph.CacheStatus(ctx, store, root)
+		if cacheErr != nil {
+			slog.Warn("code_graph: cache status check failed, proceeding with sync build",
+				slog.Any("error", cacheErr))
+		}
+
+		indexCfg := codegraph.IndexConfig{
 			TTLLocal:            cfg.GraphTTLLocal,
 			TTLRemote:           cfg.GraphTTLRemote,
 			BatchSize:           cfg.GraphBatchSize,
 			EnableSurpriseIndex: cfg.CodegraphSurpriseIndex,
-		})
+		}
+
+		if !fresh {
+			// Not cached: build in background and tell the client to retry.
+			// Use sync.Map to prevent two concurrent goroutines building the same graph
+			// (AGE is not concurrency-safe for writes to the same graph).
+			repoKey := codegraph.GraphNameFor(root)
+			if _, alreadyBuilding := buildingRepos.LoadOrStore(repoKey, true); alreadyBuilding {
+				return errResult("graph is being built — retry in 2-3 minutes"), nil
+			}
+			bgRoot := root
+			go func() {
+				defer buildingRepos.Delete(repoKey)
+				bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+				defer bgCancel()
+				if _, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
+					slog.Warn("code_graph: background index failed",
+						slog.String("repo", bgRoot), slog.Any("error", err))
+				} else {
+					slog.Info("code_graph: background index complete", slog.String("repo", bgRoot))
+				}
+			}()
+			return errResult("graph is being built — retry in 2-3 minutes"), nil
+		}
+
+		meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, indexCfg)
 		if err != nil {
 			return errResult(fmt.Sprintf("index repo: %s", err)), nil
 		}

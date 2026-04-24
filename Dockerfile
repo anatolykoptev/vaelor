@@ -20,11 +20,9 @@ RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
     CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o go-code ./cmd/go-code
 
 # ── Stage 2: SCIP indexer binaries ───────────────────────────────────────────
-FROM golang:1.26-alpine AS scip-builder
-
-# Build scip-go from source (separate stage for layer caching — only rebuilds
-# when scip-go releases a new version, not on every code change).
-RUN go install github.com/sourcegraph/scip-go/cmd/scip-go@latest
+# Reuse scip-go from the previously built image to avoid re-downloading.
+# To update: replace FROM with golang:1.26-alpine and restore the RUN go install line.
+FROM krolik-server-go-code:latest AS scip-builder
 
 # ── Stage 3: Runtime ─────────────────────────────────────────────────────────
 FROM alpine:3.21
@@ -42,7 +40,7 @@ RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
 
 WORKDIR /app
 COPY --from=builder /build/go-code .
-COPY --from=scip-builder /go/bin/scip-go /usr/local/bin/scip-go
+COPY --from=scip-builder /usr/local/bin/scip-go /usr/local/bin/scip-go
 
 EXPOSE 8897
 
