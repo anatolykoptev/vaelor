@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
 	"github.com/anatolykoptev/go-code/internal/prompts"
@@ -32,14 +34,15 @@ type xmlDeadCode struct {
 }
 
 type xmlDeadSymbol struct {
-	Kind       string `xml:"kind,attr"`
-	Name       string `xml:"name,attr"`
-	File       string `xml:"file,attr"`
-	Package    string `xml:"package,attr"`
-	Line       int    `xml:"line,attr"`
-	Lines      int    `xml:"lines,attr"`
-	Exported   bool   `xml:"exported,attr,omitempty"`
-	Confidence string `xml:"confidence,attr"`
+	Kind       string  `xml:"kind,attr"`
+	Name       string  `xml:"name,attr"`
+	File       string  `xml:"file,attr"`
+	Package    string  `xml:"package,attr"`
+	Line       int     `xml:"line,attr"`
+	Lines      int     `xml:"lines,attr"`
+	Exported   bool    `xml:"exported,attr,omitempty"`
+	Confidence string  `xml:"confidence,attr"`
+	CEScore    float32 `xml:"ceScore,attr,omitempty"` // CE reranker confidence (0 if not scored)
 }
 
 // DeadCodeInput is the input schema for the dead_code tool.
@@ -50,7 +53,7 @@ type DeadCodeInput struct {
 	Focus           string `json:"focus,omitempty" jsonschema_description:"Optional focus area for the LLM narrative"`
 }
 
-func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps) {
+func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps, store *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -58,13 +61,15 @@ func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		Description: "Detect functions and methods with zero incoming calls. " +
 			"Filters out entry points (main, init), test functions, and exported symbols " +
 			"to reduce false positives. Shows confidence levels: high (unexported), " +
-			"medium (methods, may satisfy interfaces), low (exported).",
+			"medium (methods, may satisfy interfaces), low (exported). " +
+			"When the repository has a code_graph snapshot, results are enriched with " +
+			"CE reranker confidence scores (ceScore attribute: negative float, closer to 0 = more likely dead code).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeadCodeInput) (*mcp.CallToolResult, error) {
-		return handleDeadCode(ctx, input, deps, outputDir)
+		return handleDeadCode(ctx, input, deps, outputDir, store)
 	})
 }
 
-func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps, outputDir string) (*mcp.CallToolResult, error) {
+func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps, outputDir string, store *codegraph.Store) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -107,6 +112,29 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 			Exported:   s.Exported,
 			Confidence: s.Confidence,
 		}
+	}
+
+	// Enrich with pre-computed CE scores from AGE graph.
+	if store != nil {
+		repoKey := codegraph.GraphNameFor(root)
+		for i := range symbols {
+			if score, ok := store.LoadDeadCodeScore(ctx, repoKey, symbols[i].Name, symbols[i].File); ok {
+				symbols[i].CEScore = score
+			}
+		}
+		// Sort: CE-scored symbols first (by score DESC = most likely dead code first),
+		// then unscored symbols by confidence.
+		sort.SliceStable(symbols, func(i, j int) bool {
+			si, sj := symbols[i].CEScore, symbols[j].CEScore
+			hasI, hasJ := si != 0, sj != 0
+			if hasI != hasJ {
+				return hasI // CE-scored first
+			}
+			if hasI && hasJ {
+				return si > sj // higher CE score = more dead
+			}
+			return false
+		})
 	}
 
 	// Dataflow analysis via ox-codes (non-fatal, 10s timeout, language-gated).
