@@ -42,7 +42,7 @@ type xmlDeadSymbol struct {
 	Lines      int     `xml:"lines,attr"`
 	Exported   bool    `xml:"exported,attr,omitempty"`
 	Confidence string  `xml:"confidence,attr"`
-	CEScore    float32 `xml:"ceScore,attr,omitempty"` // CE reranker confidence (0 if not scored)
+	CEScore    float32 `xml:"ceScore,attr,omitempty"` // CE dead-code probability [0..1]
 }
 
 // DeadCodeInput is the input schema for the dead_code tool.
@@ -63,7 +63,7 @@ func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps, store *
 			"to reduce false positives. Shows confidence levels: high (unexported), " +
 			"medium (methods, may satisfy interfaces), low (exported). " +
 			"When the repository has a code_graph snapshot, results are enriched with " +
-			"CE reranker confidence scores (ceScore attribute: negative float, closer to 0 = more likely dead code).",
+			"CE dead-code probability scores (ceScore attribute, ceScore 0..1: higher = more likely genuine dead code).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeadCodeInput) (*mcp.CallToolResult, error) {
 		return handleDeadCode(ctx, input, deps, outputDir, store)
 	})
