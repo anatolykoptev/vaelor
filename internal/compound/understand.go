@@ -4,6 +4,7 @@ package compound
 
 import (
 	"context"
+	"strings"
 	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -229,7 +230,12 @@ func fetchDeadCodeScore(ctx context.Context, opts UnderstandOpts, sym *parser.Sy
 	if repoKey == "" {
 		return nil, ""
 	}
-	score, ok := opts.DeadCodeScores.LoadDeadCodeScore(ctx, repoKey, sym.Name, sym.File)
+	// sym.File is absolute (/host/src/Repo/src/pkg/file.py); table stores relative.
+	file := sym.File
+	if opts.Root != "" {
+		file = strings.TrimPrefix(strings.TrimPrefix(file, opts.Root), "/")
+	}
+	score, ok := opts.DeadCodeScores.LoadDeadCodeScore(ctx, repoKey, sym.Name, file)
 	if !ok {
 		return nil, ""
 	}
