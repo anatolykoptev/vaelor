@@ -147,6 +147,25 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	return nil
 }
 
+// LoadDeadCodeScore returns the pre-computed CE score for a single symbol.
+// Returns (score, true) if found, (0, false) if not scored yet.
+func (s *Store) LoadDeadCodeScore(ctx context.Context, repoKey, name, file string) (float32, bool) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return 0, false
+	}
+	defer conn.Release()
+
+	var score float32
+	err = conn.QueryRow(ctx,
+		"SELECT score FROM code_dead_code_scores WHERE repo_key = $1 AND name = $2 AND file = $3",
+		repoKey, name, file).Scan(&score)
+	if err != nil {
+		return 0, false
+	}
+	return score, true
+}
+
 // LoadDeadCodeScores fetches pre-computed reranker scores for dead_code rows.
 // Returns rows sorted by score DESC if scores exist; nil if no scores stored.
 func (s *Store) LoadDeadCodeScores(ctx context.Context, repoKey string, rows [][]string) [][]string {

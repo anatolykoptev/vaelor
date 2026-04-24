@@ -101,7 +101,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	registerSymbolSearch(server, cfg, deps, &semDeps)
 	registerCallTrace(server, cfg, deps, &semDeps)
 	registerImpact(server, cfg, deps, &semDeps)
-	registerDeadCode(server, cfg, deps)
+	registerDeadCode(server, cfg, deps, graphStore)
 	registerExplore(server, cfg, deps)
 	registerCodeHealth(server, cfg, deps, &semDeps, graphStore)
 	registerCodeGraph(server, cfg, deps, graphStore)
