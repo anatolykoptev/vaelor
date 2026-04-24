@@ -94,7 +94,7 @@ var templates = map[string]*Template{
 		ID:          "dead_code",
 		Description: "Find functions that are never called",
 		Params:      []string{},
-		Cypher:      "MATCH (s:Symbol) WHERE s.kind = 'function' OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WITH s, caller WHERE caller IS NULL RETURN s",
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind = 'function' OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WITH s, caller WHERE caller IS NULL RETURN s LIMIT 100",
 		Cols:        1,
 	},
 	"depends_on": {

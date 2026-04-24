@@ -122,11 +122,24 @@ func postProcessGraphDiff(ctx context.Context, store *Store, graphName, repoKey 
 }
 
 // addNarrative generates an LLM narrative for the query results (non-fatal).
+// maxNarrativeRows is the maximum number of result rows sent to the LLM for
+// narrative generation. Large result sets (e.g. 1268 dead-code candidates)
+// create >600KB prompts that exceed the 60s MCP client timeout.
+const maxNarrativeRows = 50
+
 func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResult, rows [][]string, query, cypher string) {
 	if llmClient == nil || len(rows) == 0 {
 		return
 	}
-	rawJSON, err := json.Marshal(rows)
+	// Cap rows to prevent huge LLM prompts. The narrative describes patterns,
+	// not every individual row — 50 examples are enough.
+	narrativeRows := rows
+	truncationNote := ""
+	if len(rows) > maxNarrativeRows {
+		narrativeRows = rows[:maxNarrativeRows]
+		truncationNote = fmt.Sprintf("\n\n[Showing %d of %d total results.]", maxNarrativeRows, len(rows))
+	}
+	rawJSON, err := json.Marshal(narrativeRows)
 	if err != nil {
 		slog.Warn("narrative: marshal results failed", slog.Any("error", err))
 		return
@@ -134,7 +147,7 @@ func addNarrative(ctx context.Context, llmClient *llm.Client, result *QueryResul
 	prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
 	narrative, err := llmClient.Complete(ctx, prompts.SystemPromptGraphNarrative, prompt)
 	if err == nil {
-		result.Narrative = narrative
+		result.Narrative = narrative + truncationNote
 	} else {
 		slog.Warn("narrative generation failed (non-fatal)", slog.Any("error", err))
 	}
