@@ -148,8 +148,11 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 }
 
 // LoadDeadCodeScore returns the pre-computed CE score for a single symbol.
+// root can be either the full repo path OR the pre-computed graph key (hash).
 // Returns (score, true) if found, (0, false) if not scored yet.
-func (s *Store) LoadDeadCodeScore(ctx context.Context, repoKey, name, file string) (float32, bool) {
+func (s *Store) LoadDeadCodeScore(ctx context.Context, root, name, file string) (float32, bool) {
+	// Normalise: full paths must be converted to graph key (sha-prefix hash).
+	repoKey := GraphNameFor(root)
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return 0, false
