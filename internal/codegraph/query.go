@@ -74,6 +74,11 @@ func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphN
 		result.Results, result.Narrative = PostProcessSurprises(rows, 10)
 	case "graph_diff":
 		result.Results, result.Narrative = postProcessGraphDiff(ctx, store, graphName, meta.RepoKey)
+	case TemplateInsightDeadCode:
+		// Rerank dead_code results to surface real dead code (not entrypoints) first.
+		rows = RerankDeadCode(ctx, rows)
+		result.Results = rows
+		addNarrative(ctx, llmClient, result, rows, query, cypher)
 	default:
 		addNarrative(ctx, llmClient, result, rows, query, cypher)
 	}
