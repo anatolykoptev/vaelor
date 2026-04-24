@@ -655,6 +655,67 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 **Completed**: v1.0 through v1.18 (18 tools, 9 languages, type-aware Go analysis, compound tools, 3-tier degradation).
 **Planned**: v1.19 (diff-aware review — `review_delta` + `review_pr` tools).
 
+
+
+## v1.20: AGE Graph Build Performance — Direct COPY INSERT
+
+**Goal:** Reduce code_graph first-build time from ~90s to <15s for large repos by replacing Cypher-layer writes with direct SQL `COPY FROM STDIN` into AGE's internal PostgreSQL tables.
+
+**Background:** v1.8 introduced code_graph (AGE). v1.19.5 investigated performance and found the Cypher layer (UNWIND+MERGE) is the bottleneck — AGE parses and executes Cypher queries for each batch. Direct SQL INSERT bypasses this entirely.
+
+**Research findings (2026-04-24):**
+- AGE vertex tables: `{graphName}.{Label}(id graphid, properties agtype)`
+- AGE edge tables: `{graphName}.{Edge}(id graphid, start_id graphid, end_id graphid, properties agtype)`
+- `graphid` accepts integer string input: `'1970324836974593'::graphid` ✓
+- `agtype` accepts JSON string input: `'{"name": "func"}'::agtype` ✓
+- `graphid = (label_id << 48) | seq_num` — fully deterministic, no DB round-trips
+- Text-format COPY FROM STDIN works for both types → no shared volume needed
+- After COPY, must `setval(label_seq, count)` to advance AGE sequences
+
+**Expected results:**
+- Vertices (8700 for memdb): UNWIND ~38s → COPY ~2s (**19x**)
+- Edges (33000 for memdb): UNWIND ~41s → COPY ~2s (**20x**)
+- Total build: ~90s → ~12s (**7.5x**)
+
+### 20.1 Proof of concept ✅ (pre-implementation validated)
+- [x] `'integer'::graphid` confirmed working via psql
+- [x] `'{"json":"string"}'::agtype` confirmed working
+- [x] `COPY table FROM STDIN (FORMAT text)` approach validated
+- [x] graphid bit-layout confirmed: label_id=7 (Symbol), seq=1 → id=1970324836974593
+
+### 20.2 `BulkCopyInsert` implementation
+- [ ] `internal/codegraph/copy_insert.go` — core COPY logic
+- [ ] `queryLabelMetas` — fetch label_id + seq_name from ag_catalog.ag_label
+- [ ] `copyVertices` — stream vertex rows via PgConn.CopyFrom text format
+- [ ] `copyEdges` — stream edge rows with pre-computed graphid endpoint lookup
+- [ ] `advanceSequences` — setval each label sequence after COPY
+- [ ] Fallback to UNWIND on any error (non-fatal)
+
+### 20.3 Wire in IndexRepo
+- [ ] Replace insertBatches/insertEdgeBatches with BulkCopyInsert
+- [ ] Keep UNWIND fallback for resilience
+- [ ] Benchmark: small-repo (9 files) + memdb (950 files)
+
+**Deliverable**: code_graph first-build <15s for memdb. Zero Cypher writes. Full Cypher readability preserved.
+
+**Plan**: `~/deploy/example-server/plans/go-code/2026-04-24-age-direct-copy-insert.md`
+
+---
+
+## v1.19.x: AGE Stability Fixes (Shipped 2026-04-24)
+
+These fixes were discovered and shipped while debugging code_graph performance:
+
+- **v1.19.1** `ed0325b` — AGE stability: CREATE EXTENSION age + 42P01 cache miss + single-vertex inserts + background goroutine for first-build + sync.Map race prevention + Dockerfile scip-go reuse
+- **v1.19.2** `33c52f8` — CypherWriter interface + BulkWriter (synchronous_commit=off) + timing instrumentation in IndexRepo
+- **v1.19.3** `4bf0eed` — UNWIND batch inserts for vertices (group by label) and edges (UNWIND+MATCH+MERGE, confirmed working)  
+- **v1.19.4** `97a197c` — Pre-edge EnsureIndexes + disable statement_timeout in BulkWriter
+- **v1.19.5** `8c7148a` — Pre-INSERT EnsureIndexes (GIN indexes before vertex inserts eliminates O(N²) MERGE scan)
+- **v1.19.6** `60cca65` — Adaptive UNWIND batch size per label (caps Cypher query at 8KB)
+- **v1.19.7** `bfb64d0` — storeFileMtimes via pgx.CopyFrom (948 sequential INSERTs → 1 COPY, 280x faster)
+
+**Cumulative improvement**: code_graph first-build 6+ min → ~90s. Queries from cache: 2-3s.
+
 ## Releases
 
 | Tag | Commit | What |
