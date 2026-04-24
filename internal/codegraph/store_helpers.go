@@ -156,3 +156,75 @@ func (s *Store) DeleteFileMtimes(ctx context.Context, repoKey string) error {
 	_, err := s.pool.Exec(ctx, "DELETE FROM code_file_mtimes WHERE repo_key = $1", repoKey)
 	return err
 }
+
+// healthCacheTableSQL is the schema for storing code_health result cache.
+const healthCacheTableSQL = `
+CREATE TABLE IF NOT EXISTS code_health_cache (
+    repo_key     TEXT PRIMARY KEY,
+    repo_path    TEXT NOT NULL,
+    score        INT NOT NULL,
+    grade        TEXT NOT NULL,
+    result_xml   TEXT NOT NULL,
+    computed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ttl_seconds  INT NOT NULL DEFAULT 3600
+)`
+
+// UpsertHealthCache stores a code_health XML result.
+func (s *Store) UpsertHealthCache(ctx context.Context, repoKey, repoPath, grade, resultXML string, score int, ttl int) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire: %w", err)
+	}
+	defer conn.Release()
+	_, err = conn.Exec(ctx, `
+		INSERT INTO code_health_cache (repo_key, repo_path, score, grade, result_xml, computed_at, ttl_seconds)
+		VALUES ($1, $2, $3, $4, $5, now(), $6)
+		ON CONFLICT (repo_key) DO UPDATE SET
+			repo_path = EXCLUDED.repo_path, score = EXCLUDED.score, grade = EXCLUDED.grade,
+			result_xml = EXCLUDED.result_xml, computed_at = EXCLUDED.computed_at,
+			ttl_seconds = EXCLUDED.ttl_seconds`,
+		repoKey, repoPath, score, grade, resultXML, ttl)
+	return err
+}
+
+// HealthCacheEntry holds a cached code_health result.
+type HealthCacheEntry struct {
+	ResultXML  string
+	Score      int
+	Grade      string
+	ComputedAt time.Time
+	TTLSeconds int
+}
+
+// LoadHealthCache returns the cached health result if fresh.
+// Returns nil if not cached or stale.
+func (s *Store) LoadHealthCache(ctx context.Context, repoKey string) *HealthCacheEntry {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return nil
+	}
+	defer conn.Release()
+	var e HealthCacheEntry
+	err = conn.QueryRow(ctx, `
+		SELECT result_xml, score, grade, computed_at, ttl_seconds
+		FROM code_health_cache WHERE repo_key = $1`, repoKey).
+		Scan(&e.ResultXML, &e.Score, &e.Grade, &e.ComputedAt, &e.TTLSeconds)
+	if err != nil {
+		return nil
+	}
+	if time.Since(e.ComputedAt) > time.Duration(e.TTLSeconds)*time.Second {
+		return nil // stale
+	}
+	return &e
+}
+
+// EnsureHealthCacheTable creates the code_health_cache table if it doesn't exist.
+func (s *Store) EnsureHealthCacheTable(ctx context.Context) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire: %w", err)
+	}
+	defer conn.Release()
+	_, err = conn.Exec(ctx, healthCacheTableSQL)
+	return err
+}

@@ -80,6 +80,11 @@ type healthFreshnessResult struct {
 // version checks. Non-fatal: returns nil result when no manifests are found.
 // On success, updates DepFreshnessRatio and VulnSecurityRatio in metrics.
 func gatherHealthFreshness(ctx context.Context, root string, metrics *compare.RepoMetrics) healthFreshnessResult {
+	// Hard cap so freshness never blocks the entire pipeline on large repos.
+	// 313 PyPI deps at 20 concurrent × 2s = ~32s worst case; give 35s total.
+	fCtx, fCancel := context.WithTimeout(ctx, 35*time.Second)
+	defer fCancel()
+	ctx = fCtx
 	manifests := freshness.DiscoverManifests(root)
 	if len(manifests) == 0 {
 		return healthFreshnessResult{}

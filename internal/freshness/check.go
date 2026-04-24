@@ -10,8 +10,8 @@ import (
 
 // Concurrency and timeout constants for freshness checks.
 const (
-	maxConcurrency   = 10
-	perLookupTimeout = 3 * time.Second
+	maxConcurrency   = 20         // raised: larger repos need more parallelism
+	perLookupTimeout = 2 * time.Second // reduced: 2s is enough for registry lookups
 	semverParts      = 3
 )
 
