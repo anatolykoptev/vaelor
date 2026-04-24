@@ -1,6 +1,7 @@
 package codegraph
 
 import (
+	"math"
 	"net/http"
 	"context"
 	"fmt"
@@ -53,6 +54,13 @@ func buildDeadCodeScoringQuery(limit int) string {
 		        ELSE 1.0 END) *
 		  toFloat(s.complexity) AS pre_score
 		RETURN s ORDER BY pre_score DESC LIMIT %d`, limit)
+}
+
+// ceScoreToProbability converts a raw CE relevance logit to dead-code probability [0..1].
+// Sigmoid: higher probability = more likely genuine dead code.
+// Example: raw -1.75 -> 0.15 (unlikely), raw -0.5 -> 0.38 (moderate).
+func ceScoreToProbability(rawScore float64) float32 {
+	return float32(1.0 / (1.0 + math.Exp(rawScore)))
 }
 
 // ScoreDeadCodeCandidates finds orphan functions in the graph, reranks
@@ -135,7 +143,7 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 			VALUES ($1, $2, $3, $4, now())
 			ON CONFLICT (repo_key, name, file) DO UPDATE
 			SET score = EXCLUDED.score, scored_at = EXCLUDED.scored_at`,
-			repoKey, name, file, float32(r.RelevanceScore))
+			repoKey, name, file, ceScoreToProbability(r.RelevanceScore))
 		if uErr != nil {
 			slog.Warn("codegraph: upsert dead_code score",
 				slog.String("name", name), slog.Any("error", uErr))
@@ -147,9 +155,8 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	return nil
 }
 
-// LoadDeadCodeScore returns the pre-computed CE score for a single symbol.
-// root can be either the full repo path OR the pre-computed graph key (hash).
-// Returns (score, true) if found, (0, false) if not scored yet.
+// LoadDeadCodeScore returns the pre-computed CE dead-code probability [0..1].
+// Higher = more likely genuine dead code. Returns (0, false) if not scored.
 func (s *Store) LoadDeadCodeScore(ctx context.Context, root, name, file string) (float32, bool) {
 	// Normalise: full paths must be converted to graph key (sha-prefix hash).
 	repoKey := GraphNameFor(root)

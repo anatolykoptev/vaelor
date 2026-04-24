@@ -240,7 +240,7 @@ func fetchDeadCodeScore(ctx context.Context, opts UnderstandOpts, sym *parser.Sy
 		return nil, ""
 	}
 	s := score
-	return &s, "This symbol has no callers in the call graph. CE confidence score: closer to 0 means more likely to be genuine dead code."
+	return &s, "CE dead-code probability [0..1]: higher = more likely genuine dead code (not an entrypoint or test utility)."
 }
 
 // fetchTestedBy queries the AGE graph for test functions covering this symbol
