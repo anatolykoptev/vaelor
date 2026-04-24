@@ -152,6 +152,14 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 
 	cd := buildContextData(ingestResult, parseResults, input.Query)
 
+	// Boost file scores using pg_trgm symbol name matching when available.
+	if deps.SymbolBooster != nil && deps.RepoKeyFunc != nil {
+		repoKey := deps.RepoKeyFunc(ingestResult.Root)
+		cd.FileScores = BoostBySymbolNames(ctx, cd.FileScores, deps.SymbolBooster, repoKey, input.Query, input.Language)
+		// Re-sort RankedFiles to reflect the boosted scores.
+		cd.RankedFiles, _ = sortByScores(cd.RankedFiles, cd.FileScores)
+	}
+
 	return buildAnalysisResult(input.Root, ingestResult, parseResults, cd), nil
 }
 

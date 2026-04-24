@@ -94,6 +94,12 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 		}
 	}
 
+	// Wire pg_trgm symbol boosting for repo_analyze when embeddings are available.
+	if semDeps.Store != nil {
+		deps.SymbolBooster = &symbolBoostAdapter{store: semDeps.Store}
+		deps.RepoKeyFunc = codegraph.GraphNameFor
+	}
+
 	registerRepoAnalyze(server, cfg, deps)
 	registerFileParse(server, cfg, deps)
 	registerCodeCompare(server, cfg, deps, &semDeps, graphStore)
