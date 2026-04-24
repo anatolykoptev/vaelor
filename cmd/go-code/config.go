@@ -126,7 +126,7 @@ const (
 	// Graph defaults.
 	defaultGraphTTLLocal  = 3600  // 1 hour
 	defaultGraphTTLRemote = 86400 // 24 hours
-	defaultGraphBatchSize = 5
+	defaultGraphBatchSize = 500 // AGE UNWIND is stable to 5000+; was 5 for legacy multi-MERGE
 
 	// Cache defaults.
 	defaultToolCacheSize = 200
