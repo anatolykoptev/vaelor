@@ -79,6 +79,16 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		return nil, fmt.Errorf("ensure labels: %w", err)
 	}
 
+	// Create vertex indexes before inserts so UNWIND+MERGE uses index-based lookup
+	// rather than full table scans. Creating indexes on empty tables is instant;
+	// PostgreSQL maintains them incrementally during inserts.
+	t_idx := time.Now()
+	if err := store.EnsureIndexes(ctx, gname); err != nil {
+		slog.Warn("codegraph: pre-insert EnsureIndexes", slog.Any("error", err))
+	}
+	slog.Info("codegraph: pre-insert EnsureIndexes done",
+		slog.String("repo", root), slog.Duration("elapsed", time.Since(t_idx)))
+
 	t1 := time.Now()
 	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, err := ingestAndParse(ctx, root)
 	if err != nil {
@@ -121,15 +131,6 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	slog.Info("codegraph: insert vertices done",
 		slog.String("repo", root), slog.Int("count", len(vertices)),
 		slog.Duration("elapsed", time.Since(t3)))
-
-	// Create indexes BEFORE edge inserts: UNWIND+MATCH needs index on vertex
-	// properties to avoid full-table scans (O(N*M) without index).
-	t_idx := time.Now()
-	if err := store.EnsureIndexes(ctx, gname); err != nil {
-		slog.Warn("codegraph: pre-edge EnsureIndexes", slog.Any("error", err))
-	}
-	slog.Info("codegraph: pre-edge EnsureIndexes done",
-		slog.String("repo", root), slog.Duration("elapsed", time.Since(t_idx)))
 
 	t4 := time.Now()
 	if err := insertEdgeBatches(ctx, writer, gname, cfg.BatchSize, edges); err != nil {
