@@ -12,7 +12,7 @@ import (
 // deadCodeCypher finds orphan functions (no callers).
 const deadCodeCypher = "MATCH (s:Symbol) WHERE s.kind = 'function' " +
 	"OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) " +
-	"WITH s, caller WHERE caller IS NULL RETURN s LIMIT 100"
+	"WITH s, caller WHERE caller IS NULL RETURN s ORDER BY toFloat(s.complexity) DESC LIMIT 100"
 
 // ScoreDeadCodeCandidates finds orphan functions in the graph, reranks
 // them via the CE reranker, and persists scores to code_dead_code_scores.
