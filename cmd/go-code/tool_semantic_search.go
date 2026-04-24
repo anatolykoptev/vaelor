@@ -31,8 +31,11 @@ type SemanticDeps struct {
 }
 
 const (
-	defaultSemanticTopK = 10
-	maxSemanticTopK     = 50
+	defaultSemanticTopK      = 10
+	maxSemanticTopK          = 50
+	// semanticRerankCandidates is the minimum candidate pool for CE reranker.
+	// Ensures at least 20 candidates regardless of topK.
+	semanticRerankCandidates = 20
 )
 
 // registerSemanticSearch registers the semantic_search MCP tool.
@@ -147,12 +150,23 @@ func handleSemanticHits(
 	}
 
 	// Hybrid: run keyword search and merge with RRF.
+	// Overretrieve before CE reranking so the reranker sees more candidates.
+	rerankCap := max(topK*2, semanticRerankCandidates)
 	keyHits := runKeywordSearch(ctx, input.Query, root)
 	if len(keyHits) > 0 {
 		matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
 		if matchErr == nil && len(matched) > 0 {
-			hybrid := embeddings.MergeRRF(results, matched, topK)
-			return textResult(formatHybridResults(input, hybrid)), nil
+			// Merge with an enlarged pool so CE reranker can pick the best topK.
+			hybrid := embeddings.MergeRRF(results, matched, rerankCap)
+			// Flatten HybridResult → SearchResult for CE reranker.
+			flat := make([]embeddings.SearchResult, len(hybrid))
+			for i, h := range hybrid {
+				flat[i] = h.SearchResult
+				flat[i].Source = h.Source
+			}
+			// CE reranking: reorder by cross-encoder relevance score.
+			reranked := codegraph.RerankSemanticResults(ctx, input.Query, flat, topK)
+			return textResult(formatSemanticResults(input, reranked)), nil
 		}
 	}
 	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
@@ -163,7 +177,9 @@ func handleSemanticHits(
 		}
 		filtered = append(filtered, r)
 	}
-	return textResult(formatSemanticResults(input, filtered)), nil
+	// CE reranking on pure semantic fallback path.
+	reranked := codegraph.RerankSemanticResults(ctx, input.Query, filtered, topK)
+	return textResult(formatSemanticResults(input, reranked)), nil
 }
 
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult) string {
