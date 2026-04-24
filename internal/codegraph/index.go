@@ -125,20 +125,22 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	}
 
 	t3 := time.Now()
-	if err := insertBatches(ctx, writer, gname, cfg.BatchSize, vertices, buildVertexBatch); err != nil {
-		return nil, fmt.Errorf("insert vertices: %w", err)
+	// Attempt direct COPY INSERT (bypasses Cypher parser, 10-20x faster).
+	// Falls back to UNWIND inserts on any error.
+	if err := store.BulkCopyInsert(ctx, gname, vertices, edges); err != nil {
+		slog.Warn("codegraph: BulkCopyInsert failed, falling back to UNWIND inserts",
+			slog.String("repo", root), slog.Any("error", err))
+		if fbErr := insertBatches(ctx, writer, gname, cfg.BatchSize, vertices, buildVertexBatch); fbErr != nil {
+			return nil, fmt.Errorf("insert vertices (fallback): %w", fbErr)
+		}
+		if fbErr := insertEdgeBatches(ctx, writer, gname, cfg.BatchSize, edges); fbErr != nil {
+			return nil, fmt.Errorf("insert edges (fallback): %w", fbErr)
+		}
 	}
-	slog.Info("codegraph: insert vertices done",
-		slog.String("repo", root), slog.Int("count", len(vertices)),
+	slog.Info("codegraph: insert done",
+		slog.String("repo", root),
+		slog.Int("vertices", len(vertices)), slog.Int("edges", len(edges)),
 		slog.Duration("elapsed", time.Since(t3)))
-
-	t4 := time.Now()
-	if err := insertEdgeBatches(ctx, writer, gname, cfg.BatchSize, edges); err != nil {
-		return nil, fmt.Errorf("insert edges: %w", err)
-	}
-	slog.Info("codegraph: insert edges done",
-		slog.String("repo", root), slog.Int("count", len(edges)),
-		slog.Duration("elapsed", time.Since(t4)))
 
 	// Cross-language analysis (non-fatal).
 	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles)
