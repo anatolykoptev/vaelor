@@ -8,6 +8,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -32,6 +33,10 @@ type Deps struct {
 	// repository root. Used when Input.IncludeCallGraph=true. Non-fatal — if
 	// nil or it returns an error, import-DAG expansion still runs normally.
 	BuildCallGraph func(ctx context.Context, root string) (*callgraph.CallGraph, error)
+
+	// SymbolSearcher enables pg_trgm symbol name search.
+	// Optional — nil disables symbol name augmentation.
+	SymbolSearcher SymbolSearcher
 }
 
 // Run executes the full code-research pipeline:
@@ -86,6 +91,25 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 				}
 			}
 			seedScores = fuseScores(seedScores, semFileScores)
+		}
+	}
+
+	// --- Step 3.5: pg_trgm symbol name augmentation ---
+	// Finds symbols missed by vector search due to abbreviated names (init->initializes etc.)
+	if deps.SymbolSearcher != nil && deps.RepoKey != "" {
+		kws := embeddings.ExtractQueryKeywords(input.Query)
+		if nameHits, err := deps.SymbolSearcher.SearchBySymbolName(ctx, deps.RepoKey, kws, input.Language, 20); err == nil && len(nameHits) > 0 {
+			// Build per-file scores from pg_trgm hits and fuse into seedScores.
+			trgmFileScores := make(map[string]float64, len(nameHits))
+			for _, r := range nameHits {
+				s := float64(1.0 - r.Distance)
+				if s > trgmFileScores[r.FilePath] {
+					trgmFileScores[r.FilePath] = s
+				}
+			}
+			seedScores = fuseScores(seedScores, trgmFileScores)
+			// Also append to semanticHits so buildSeedList surfaces individual symbols.
+			semanticHits = append(semanticHits, nameHits...)
 		}
 	}
 
@@ -147,6 +171,43 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	// --- Build result ---
 	seeds := buildSeedList(seedFiles, seedScores, data.FileSymbols, data.QueryTerms, semanticHits)
 	graph := buildLinkedFiles(kept, data.FileSymbols, data.QueryTerms)
+
+	// --- CE rerank seeds for better relevance ordering ---
+	// Converts SeedSymbol list to SearchResult, reranks via cross-encoder, maps back.
+	if len(seeds) > 0 && input.Root != "" && input.Query != "" {
+		searchResults := make([]embeddings.SearchResult, len(seeds))
+		for i, s := range seeds {
+			searchResults[i] = embeddings.SearchResult{
+				FilePath:   s.File,
+				SymbolName: s.Name,
+				SymbolKind: s.Kind,
+				Language:   input.Language,
+				StartLine:  int(s.Line),
+			}
+		}
+		reranked := codegraph.RerankSemanticResults(ctx, input.Root, input.Query, searchResults, min(len(searchResults), 50))
+		// Map reranked SearchResults back to SeedSymbols preserving all fields.
+		seedByKey := make(map[string]SeedSymbol, len(seeds))
+		for _, s := range seeds {
+			seedByKey[s.File+":"+s.Name] = s
+		}
+		rerankedSeeds := make([]SeedSymbol, 0, len(reranked))
+		seen := make(map[string]bool, len(reranked))
+		for _, r := range reranked {
+			key := r.FilePath + ":" + r.SymbolName
+			if s, ok := seedByKey[key]; ok {
+				rerankedSeeds = append(rerankedSeeds, s)
+				seen[key] = true
+			}
+		}
+		// Append any seeds not covered by reranker (e.g. beyond topK).
+		for _, s := range seeds {
+			if !seen[s.File+":"+s.Name] {
+				rerankedSeeds = append(rerankedSeeds, s)
+			}
+		}
+		seeds = rerankedSeeds
+	}
 
 	return &Result{
 		Seeds:           seeds,
