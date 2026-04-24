@@ -18,15 +18,13 @@ const (
 
 // IndexConfig controls caching behaviour for IndexRepo.
 type IndexConfig struct {
-	TTLLocal  int // seconds, default 3600
-	TTLRemote int // seconds, default 86400
-	BatchSize int // vertices per Cypher batch, default 500
+	TTLLocal  int
+	TTLRemote int
+	BatchSize int
 
 	// EnableSurpriseIndex triggers the two-phase surprise persistence pass
 	// (IndexSurpriseEdges + IndexSurpriseNodes) after the pagerank/community
 	// pass.  Gated behind CODEGRAPH_SURPRISE_INDEX=1 (default off).
-	// Failures in the surprise pass are non-fatal — they log a warning and
-	// IndexRepo continues normally.
 	EnableSurpriseIndex bool
 }
 
@@ -59,20 +57,15 @@ type edgeData struct {
 }
 
 // IndexRepo builds (or returns cached) a code graph for the repo at root.
-//
-// If the graph exists and is not stale it returns the cached GraphMeta immediately.
-// Otherwise it drops any stale graph, rebuilds it from scratch, and persists GraphMeta.
 func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cfg IndexConfig) (*GraphMeta, error) {
 	cfg = applyConfigDefaults(cfg)
-
 	repoKey := graphName(root)
 	gname := repoKey
+	t0 := time.Now()
 
 	if cached, err := checkCache(ctx, store, repoKey, gname); err != nil {
 		return nil, err
 	} else if cached != nil {
-		// Ensure indexes exist even on cache hit — safe to run (IF NOT EXISTS).
-		// Handles existing graphs that were built before indexes were introduced.
 		if ierr := store.EnsureIndexes(ctx, gname); ierr != nil {
 			slog.Warn("codegraph: ensure indexes on cache hit", slog.Any("error", ierr))
 		}
@@ -82,91 +75,103 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	if err := store.EnsureGraph(ctx, gname); err != nil {
 		return nil, fmt.Errorf("ensure graph: %w", err)
 	}
-
 	if err := store.EnsureLabels(ctx, gname); err != nil {
 		return nil, fmt.Errorf("ensure labels: %w", err)
 	}
 
+	t1 := time.Now()
 	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, err := ingestAndParse(ctx, root)
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("codegraph: ingestAndParse done",
+		slog.String("repo", root), slog.Int("files", len(allFiles)),
+		slog.Duration("elapsed", time.Since(t1)))
 
+	t2 := time.Now()
 	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
-
-	// Inject WordPress hook edges before building the graph so they appear
-	// as regular CALLS edges in code_graph.
 	hookRoutes := extractHookRoutes(root, allFiles)
 	if len(hookRoutes) > 0 {
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
-
 	vertices, edges := buildGraph(buildGraphInput{
-		Root:        root,
-		Files:       allFiles,
-		Symbols:     allSymbols,
-		CallGraph:   cg,
-		FileImports: fileImports,
-		Rels:        allRels,
-		TplRefs:     allTplRefs,
+		Root: root, Files: allFiles, Symbols: allSymbols,
+		CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,
 	})
-
-	// Compute communities and inject into Symbol vertices before persisting.
 	injectCommunities(vertices, edges)
+	slog.Info("codegraph: buildGraph done",
+		slog.String("repo", root), slog.Int("vertices", len(vertices)), slog.Int("edges", len(edges)),
+		slog.Duration("elapsed", time.Since(t2)))
 
-	if err := insertBatches(ctx, store, gname, cfg.BatchSize, vertices, buildVertexBatch); err != nil {
+	// Open a bulk write session (synchronous_commit=off, single connection).
+	// 5x faster than per-call pool acquire. Falls back to Store on error.
+	var writer CypherWriter = store
+	bw, bwErr := store.NewBulkWriter(ctx)
+	if bwErr != nil {
+		slog.Warn("codegraph: BulkWriter unavailable, using standard writes", slog.Any("error", bwErr))
+	} else {
+		defer bw.Close(ctx)
+		writer = bw
+	}
+
+	t3 := time.Now()
+	if err := insertBatches(ctx, writer, gname, cfg.BatchSize, vertices, buildVertexBatch); err != nil {
 		return nil, fmt.Errorf("insert vertices: %w", err)
 	}
+	slog.Info("codegraph: insert vertices done",
+		slog.String("repo", root), slog.Int("count", len(vertices)),
+		slog.Duration("elapsed", time.Since(t3)))
 
-	if err := insertEdgeBatches(ctx, store, gname, cfg.BatchSize, edges); err != nil {
+	t4 := time.Now()
+	if err := insertEdgeBatches(ctx, writer, gname, cfg.BatchSize, edges); err != nil {
 		return nil, fmt.Errorf("insert edges: %w", err)
 	}
+	slog.Info("codegraph: insert edges done",
+		slog.String("repo", root), slog.Int("count", len(edges)),
+		slog.Duration("elapsed", time.Since(t4)))
 
-	// --- Cross-language analysis ---
+	// Cross-language analysis (non-fatal).
 	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles)
 	if len(crossVertices) > 0 {
-		if err := insertBatches(ctx, store, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
+		if err := insertBatches(ctx, writer, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
 			slog.Warn("codegraph: cross-language vertices", slog.Any("error", err))
 		}
 	}
 	if len(crossEdges) > 0 {
-		if err := insertEdgeBatches(ctx, store, gname, cfg.BatchSize, crossEdges); err != nil {
+		if err := insertEdgeBatches(ctx, writer, gname, cfg.BatchSize, crossEdges); err != nil {
 			slog.Warn("codegraph: cross-language edges", slog.Any("error", err))
 		}
 	}
 
-	// Create Postgres indexes on AGE vertex tables for fast WHERE filtering.
-	// Non-fatal: index failures log but don't block graph availability.
+	t5 := time.Now()
 	if err := store.EnsureIndexes(ctx, gname); err != nil {
 		slog.Warn("codegraph: ensure indexes", slog.Any("error", err))
 	}
+	slog.Info("codegraph: EnsureIndexes done",
+		slog.String("repo", root), slog.Duration("elapsed", time.Since(t5)))
 
 	ttl := cfg.TTLLocal
 	if isRemote {
 		ttl = cfg.TTLRemote
 	}
-
 	meta := &GraphMeta{
-		RepoKey:     repoKey,
-		RepoPath:    root,
-		GraphName:   gname,
-		FileCount:   len(allFiles),
-		SymbolCount: len(allSymbols),
-		EdgeCount:   len(edges),
-		BuiltAt:     time.Now().UTC(),
-		TTLSeconds:  ttl,
+		RepoKey: repoKey, RepoPath: root, GraphName: gname,
+		FileCount: len(allFiles), SymbolCount: len(allSymbols), EdgeCount: len(edges),
+		BuiltAt: time.Now().UTC(), TTLSeconds: ttl,
 	}
-
 	if err := upsertMeta(ctx, store, meta); err != nil {
 		return nil, fmt.Errorf("upsert meta: %w", err)
 	}
 
-	// Store file mtimes for future incremental updates.
+	t6 := time.Now()
 	storeFileMtimes(ctx, store, repoKey, allFiles)
+	slog.Info("codegraph: storeFileMtimes done",
+		slog.String("repo", root), slog.Int("files", len(allFiles)),
+		slog.Duration("elapsed", time.Since(t6)))
 
-	// Optional surprise persistence pass — gated behind EnableSurpriseIndex.
-	// Errors are non-fatal: log a warning and continue so IndexRepo never fails
-	// because of the surprise pass.
+	slog.Info("codegraph: IndexRepo complete",
+		slog.String("repo", root), slog.Duration("total", time.Since(t0)))
+
 	if cfg.EnableSurpriseIndex {
 		if err := IndexSurpriseEdges(ctx, store, gname); err != nil {
 			slog.Warn("codegraph: surprise edge index failed", slog.Any("error", err))
