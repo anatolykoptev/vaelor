@@ -216,6 +216,12 @@ func (s *Store) NewBulkWriter(ctx context.Context) (*BulkWriter, error) {
 		conn.Release()
 		return nil, fmt.Errorf("set synchronous_commit: %w", err)
 	}
+	// Disable statement_timeout for bulk operations: individual UNWIND batches
+	// on large graphs can exceed the default 30s limit.
+	if _, err := conn.Exec(ctx, "SET statement_timeout = 0"); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("set statement_timeout: %w", err)
+	}
 	return &BulkWriter{conn: conn}, nil
 }
 
@@ -249,5 +255,6 @@ func (bw *BulkWriter) ExecCypherWrite(ctx context.Context, graph, cypher string)
 // Close resets synchronous_commit and returns the connection to the pool.
 func (bw *BulkWriter) Close(ctx context.Context) {
 	_, _ = bw.conn.Exec(ctx, "RESET synchronous_commit")
+	_, _ = bw.conn.Exec(ctx, "RESET statement_timeout")
 	bw.conn.Release()
 }
