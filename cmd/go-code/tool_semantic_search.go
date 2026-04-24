@@ -76,7 +76,7 @@ func handleSemanticSearch(
 
 	maxDist := input.MaxDistance
 	if maxDist <= 0 {
-		maxDist = 0.75
+		maxDist = 0.85 // CE reranker filters noise; higher threshold improves recall
 	}
 
 	// Resolve repo root.
