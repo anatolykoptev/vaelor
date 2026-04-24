@@ -46,10 +46,9 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].cx > candidates[j].cx
 	})
-	const maxCandidates = 20
-	if len(candidates) > maxCandidates {
-		candidates = candidates[:maxCandidates]
-	}
+	// No cap: all Cypher candidates go to the reranker.
+	// At build time there is no user-facing timeout — 100 docs takes ~10s,
+	// well within IndexRepo total. Better coverage -> better ranking quality.
 
 	// Step 3: Build document strings and call reranker with generous timeout —
 	// this runs at graph build time, not in a user request.
