@@ -92,9 +92,9 @@ func ExtractQueryKeywords(query string) []string {
 }
 
 // SearchBySymbolName searches the embedding index by symbol name and file path
-// using keyword pattern matching. Supplements vector search for cases where the
-// query keywords directly appear in function names (e.g. "init_llm" for "init LLM").
-// Returns SearchResult with Source="keyword_name".
+// using pg_trgm trigram similarity — correctly handles code abbreviations like
+// "init" matching "initializes", "llm" matching "llms" etc.
+// Returns results sorted by combined trigram similarity score DESC.
 func (s *Store) SearchBySymbolName(
 	ctx context.Context,
 	repoKey string,
@@ -109,39 +109,75 @@ func (s *Store) SearchBySymbolName(
 		return nil, err
 	}
 
-	// Build ILIKE patterns: each keyword becomes %keyword%.
-	patterns := make([]string, len(keywords))
-	for i, kw := range keywords {
-		patterns[i] = "%" + kw + "%"
-	}
+	// Build a combined search string from keywords for similarity matching.
+	searchStr := strings.Join(keywords, " ")
 
-	// Match rows where symbol_name OR file_path contains any keyword.
+	// Use pg_trgm similarity to find symbols whose name or path resembles
+	// the query keywords. The % operator uses the similarity_threshold (default 0.3).
+	// Rank by combined similarity of symbol_name (primary) and file_path (secondary).
 	q := `
-		SELECT file_path, symbol_name, symbol_kind, language, start_line
+		SELECT file_path, symbol_name, symbol_kind, language, start_line,
+		       (similarity(symbol_name, $3) * 2.0 + similarity(file_path, $3)) / 3.0 AS score
 		FROM code_embeddings
 		WHERE repo_key = $1
 		  AND ($2 = '' OR language = $2)
 		  AND (
-		    symbol_name ILIKE ANY($3::text[])
-		    OR file_path ILIKE ANY($3::text[])
+		    similarity(symbol_name, $3) > 0.1
+		    OR similarity(file_path, $3) > 0.1
 		  )
-		ORDER BY symbol_name
+		ORDER BY score DESC
 		LIMIT $4`
 
-	rows, err := s.pool.Query(ctx, q, repoKey, language, patterns, limit)
+	rows, err := s.pool.Query(ctx, q, repoKey, language, searchStr, limit)
 	if err != nil {
-		return nil, fmt.Errorf("symbol name search: %w", err)
+		// pg_trgm not available — fall back to ILIKE prefix search.
+		return s.searchBySymbolNameFallback(ctx, repoKey, keywords, language, limit)
 	}
 	defer rows.Close()
 
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.FilePath, &r.SymbolName, &r.SymbolKind, &r.Language, &r.StartLine); err != nil {
+		var score float64
+		if err := rows.Scan(&r.FilePath, &r.SymbolName, &r.SymbolKind, &r.Language, &r.StartLine, &score); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		r.RepoKey = repoKey
-		r.Distance = 0.5 // nominal distance for keyword hits
+		// Map similarity score [0..1] to distance [0..1] (higher similarity = lower distance).
+		r.Distance = float32(1.0 - score*0.5) // keep in [0.5..1.0] range to stay below threshold
+		if r.Distance < 0.3 {
+			r.Distance = 0.3
+		}
+		r.Source = "keyword_name"
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// searchBySymbolNameFallback uses ILIKE when tsvector is unavailable.
+func (s *Store) searchBySymbolNameFallback(ctx context.Context, repoKey string, keywords []string, language string, limit int) ([]SearchResult, error) {
+	patterns := make([]string, len(keywords))
+	for i, kw := range keywords {
+		patterns[i] = "%" + kw + "%"
+	}
+	q := `SELECT file_path, symbol_name, symbol_kind, language, start_line
+		FROM code_embeddings
+		WHERE repo_key = $1 AND ($2 = '' OR language = $2)
+		  AND symbol_name ILIKE ANY($3::text[])
+		LIMIT $4`
+	rows, err := s.pool.Query(ctx, q, repoKey, language, patterns, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fallback symbol search: %w", err)
+	}
+	defer rows.Close()
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.FilePath, &r.SymbolName, &r.SymbolKind, &r.Language, &r.StartLine); err != nil {
+			return nil, err
+		}
+		r.RepoKey = repoKey
+		r.Distance = 0.5
 		r.Source = "keyword_name"
 		results = append(results, r)
 	}
