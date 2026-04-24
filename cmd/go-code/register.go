@@ -121,7 +121,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	registerSiteCrawl(server, cfg)
 	registerUnderstand(server, cfg, deps, &semDeps, graphStore)
 	registerPrepareChange(server, cfg, deps, &semDeps)
-	registerReviewDelta(server, cfg, deps)
+	registerReviewDelta(server, cfg, deps, graphStore)
 	registerReviewPR(server, cfg, deps)
 	registerRewrite(server, cfg, deps)
 	registerDataflow(server, cfg, deps)

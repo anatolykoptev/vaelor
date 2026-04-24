@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/review"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,7 +27,7 @@ const (
 	maxReviewImpacted    = 50     // max impacted symbols after truncation
 )
 
-func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphStore *codegraph.Store) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "review_delta",
 		Description: "Analyze changes between two git refs and compute differential impact. " +
@@ -34,7 +35,7 @@ func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"untested changes, and risk guidance. " +
 			"Ideal for pre-merge review: shows blast radius of a branch's changes.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ReviewDeltaInput) (*mcp.CallToolResult, error) {
-		return handleReviewDelta(ctx, input, deps)
+		return handleReviewDelta(ctx, input, deps, graphStore)
 	})
 }
 
@@ -62,11 +63,13 @@ type xmlChangedFile struct {
 }
 
 type xmlChangedSymbol struct {
-	Name       string       `xml:"name,attr"`
-	Kind       string       `xml:"kind,attr"`
-	File       string       `xml:"file,attr"`
-	ChangeType string       `xml:"change,attr"`
-	Flag       *xmlFlagHint `xml:"flag,omitempty"`
+	Name          string       `xml:"name,attr"`
+	Kind          string       `xml:"kind,attr"`
+	File          string       `xml:"file,attr"`
+	ChangeType    string       `xml:"change,attr"`
+	Flag          *xmlFlagHint `xml:"flag,omitempty"`
+	DeadCodeScore float32      `xml:"deadCodeScore,attr,omitempty"`
+	DeadCodeNote  string       `xml:"deadCodeNote,attr,omitempty"`
 }
 
 type xmlImpacted struct {
@@ -92,7 +95,7 @@ type xmlSnippet struct {
 	Code   xmlCDATA `xml:"code"`
 }
 
-func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
+func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze.Deps, graphStore *codegraph.Store) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -126,6 +129,24 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 	findings := applyPolicy(ctx, root, result)
 	for _, f := range findings {
 		result.Risk.Flags = append(result.Risk.Flags, fmt.Sprintf("policy:%s %s:%d %s", f.Rule, f.Path, f.Line, f.Message))
+	}
+
+	// Annotate removed symbols with dead_code_score when available.
+	if graphStore != nil {
+		for i := range result.ChangedSymbols {
+			s := &result.ChangedSymbols[i]
+			if s.ChangeType != review.ChangeRemoved {
+				continue
+			}
+			if s.Symbol == nil {
+				continue
+			}
+			score, ok := graphStore.LoadDeadCodeScore(ctx, root, s.Symbol.Name, s.Symbol.File)
+			if ok && score > 0.25 {
+				s.DeadCodeScore = score
+				s.DeadCodeNote = fmt.Sprintf("CE dead-code probability %.0f%% — likely safe to remove", float64(score)*100)
+			}
+		}
 	}
 
 	resp := buildDeltaXML(result)
@@ -170,6 +191,10 @@ func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
 		}
 		if cs.Flag != "" {
 			xcs.Flag = &xmlFlagHint{Kind: cs.Flag, Note: cs.Note}
+		}
+		if cs.DeadCodeScore > 0 {
+			xcs.DeadCodeScore = cs.DeadCodeScore
+			xcs.DeadCodeNote = cs.DeadCodeNote
 		}
 		resp.ChangedSymbols = append(resp.ChangedSymbols, xcs)
 	}
