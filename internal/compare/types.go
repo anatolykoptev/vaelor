@@ -141,6 +141,10 @@ type RepoMetrics struct {
 	SemanticDupRatio       float64 `json:"semanticDupRatio,omitempty"`  // fraction of functions in semantic dup groups
 	DepFreshnessRatio      float64 `json:"depFreshnessRatio,omitempty"` // fraction of deps that are up-to-date
 	VulnSecurityRatio      float64 `json:"vulnSecurityRatio,omitempty"` // fraction of deps with no known vulns
+	// DeadCodeCandidates is the count of functions with CE dead-code probability >= 0.25.
+	// Populated from code_dead_code_scores when code_graph snapshot is available.
+	DeadCodeCandidates int      `json:"deadCodeCandidates,omitempty"`
+	DeadCodeTopNames   []string `json:"deadCodeTopNames,omitempty"` // up to 3 top candidates
 }
 
 // QualityAspect describes a qualitative comparison point between two repos.

@@ -82,6 +82,7 @@ type xmlCompMetrics struct {
 	MaxParamCount          int     `xml:"maxParamCount,attr"`
 	Score                  float64 `xml:"score,attr"`
 	SemanticDupRatio       float64 `xml:"semanticDupRatio,attr,omitempty"`
+	DeadCodeCandidates     int     `xml:"deadCodeCandidates,attr,omitempty"`
 }
 
 type xmlMatchBreak struct {

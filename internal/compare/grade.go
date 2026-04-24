@@ -105,6 +105,12 @@ func GradeScore(m RepoMetrics) float64 {
 		freshnessScore*weightDepFreshness +
 		vulnScore*weightVulnSecurity
 
+	// Dead code penalty: each confirmed dead function costs 0.4 score points, max -8.
+	// Penalises repos with many unused functions regardless of other metrics.
+	if m.DeadCodeCandidates > 0 {
+		deadCodePenalty := math.Min(8.0, float64(m.DeadCodeCandidates)*0.4)
+		return math.Round(math.Max(0, total*percentScale-deadCodePenalty))
+	}
 	return math.Round(total * percentScale)
 }
 
