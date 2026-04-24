@@ -10,8 +10,8 @@ Performance and capability milestones tracked empirically on krolik (ARM 24GB, O
 |---|---|---|---|---|---|
 | Baseline (sequential 1/query) | 2026-04-24 | ~6 min | ~42s | ~165s | code_graph was broken (no AGE extension) |
 | AGE fixed + background goroutine | 2026-04-24 | 3m15s | ~161s | ~24s | UNWIND large batches (crashed PG at 200) |
-| GIN indexes before inserts + adaptive batch | 2026-04-24 | **1m28s** | 38s | 41s | Statement timeout fixed, GIN eliminates O(N²) |
-| **Target: Direct COPY INSERT** | planned | **<15s** | ~2s | ~2s | Bypass Cypher layer via text-format COPY |
+| GIN indexes before inserts + adaptive batch | 2026-04-24 | 1m28s | 38s | 41s | Statement timeout fixed, GIN eliminates O(N²) |
+| **Direct COPY INSERT (BulkCopyInsert)** | **2026-04-24** | **14s** | **908ms** | **incl.** | **Bypass Cypher layer, ~100x insert speedup** |
 
 ## code_graph Query Latency (cached)
 
@@ -52,7 +52,7 @@ Performance and capability milestones tracked empirically on krolik (ARM 24GB, O
 |---|---|---|
 | PostgreSQL + AGE | ✅ | krolik-postgres-age:17, AGE 1.7.0 |
 | AGE UNWIND inserts | ✅ | Stable to 5000+ vertices, adaptive batch sizing |
-| AGE direct COPY INSERT | 🔜 | v1.20 — bypass Cypher, target <15s build |
+| AGE direct COPY INSERT | ✅ | v1.20 — bypass Cypher, **14s total build** (was ~6 min) |
 | Qdrant (vector search) | ✅ | Used for semantic_search |
 | BM25F + PageRank | ✅ | Used for code_research |
 | go/types (Go type analysis) | ✅ | v1.18 |
