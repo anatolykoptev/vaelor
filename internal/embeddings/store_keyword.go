@@ -3,6 +3,7 @@ package embeddings
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -143,9 +144,10 @@ func (s *Store) SearchBySymbolName(
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		r.RepoKey = repoKey
-		// Map similarity score [0..1] to distance [0..1] (higher similarity = lower distance).
-		_ = score // score used implicitly via ORDER BY DESC in SQL
-		r.Distance = 0.4 // fixed: always below maxDistance threshold, CE reranker orders them
+		// Map pg_trgm similarity -> RRF-friendly distance [0.25..0.75].
+		// Higher similarity -> lower distance -> better rank in RRF merge.
+		// All values stay below maxDist=0.85, so no hits are filtered.
+		r.Distance = float32(math.Max(0.25, 0.75-float64(score)*0.5))
 		r.Source = "keyword_name"
 		results = append(results, r)
 	}
