@@ -52,6 +52,20 @@ type UnderstandOpts struct {
 	// Graph optionally surfaces pagerank/community/surprise for the symbol.
 	// When nil or the graph has no snapshot, GraphSignals.Found stays false.
 	Graph graphx.Analytics
+
+	// Refs optionally sources cross-reference edges from the AGE graph.
+	// Used to surface tested_by coverage edges. When nil, tested_by is omitted.
+	Refs graphx.CrossRefs
+
+	// DeadCodeScores optionally sources CE reranker scores for dead-code detection.
+	// When nil, dead_code_score is omitted from the result.
+	DeadCodeScores DeadCodeScoreLookup
+}
+
+// DeadCodeScoreLookup is the narrow interface for fetching a single symbol's
+// dead-code CE reranker score. *codegraph.Store satisfies it.
+type DeadCodeScoreLookup interface {
+	LoadDeadCodeScore(ctx context.Context, repoKey, name, file string) (float32, bool)
 }
 
 // UnderstandResult is the output of the understand compound tool.
@@ -66,6 +80,14 @@ type UnderstandResult struct {
 	// GraphSignals holds pagerank/community/surprise when the persistent graph
 	// has them. Signals.Found==false means the graph is cold; omitted from output.
 	GraphSignals *graphx.Signals `json:"graph_signals,omitempty"`
+	// DeadCodeScore is the CE reranker confidence that this symbol is genuine dead code.
+	// Only present when the symbol has no callers and code_graph has pre-scored it.
+	// Negative float; closer to 0 means more likely to be genuine dead code.
+	DeadCodeScore *float32 `json:"dead_code_score,omitempty"`
+	// DeadCodeNote explains the score when DeadCodeScore is set.
+	DeadCodeNote string `json:"dead_code_note,omitempty"`
+	// TestedBy lists test functions that directly cover this symbol via AGE TESTED_BY edges.
+	TestedBy []graphx.SymbolRef `json:"tested_by,omitempty"`
 }
 
 // SymbolInfo is a summary of a symbol for compound tool output.
@@ -145,6 +167,8 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 
 	result.PriorLearnings = fetchPriorLearnings(ctx, opts, sym.Name)
 	result.GraphSignals = fetchGraphSignals(ctx, opts, sym)
+	result.DeadCodeScore, result.DeadCodeNote = fetchDeadCodeScore(ctx, opts, sym)
+	result.TestedBy = fetchTestedBy(ctx, opts, sym)
 
 	return result
 }
@@ -192,4 +216,41 @@ func fetchPriorLearnings(ctx context.Context, opts UnderstandOpts, symbol string
 		return nil
 	}
 	return recs
+}
+
+// fetchDeadCodeScore looks up the CE reranker confidence score for a symbol
+// from the code_dead_code_scores table. Returns (nil, "") when no score is
+// available (graph offline, no snapshot, or symbol not in orphan set).
+func fetchDeadCodeScore(ctx context.Context, opts UnderstandOpts, sym *parser.Symbol) (*float32, string) {
+	if opts.DeadCodeScores == nil {
+		return nil, ""
+	}
+	repoKey := opts.Root
+	if repoKey == "" {
+		return nil, ""
+	}
+	score, ok := opts.DeadCodeScores.LoadDeadCodeScore(ctx, repoKey, sym.Name, sym.File)
+	if !ok {
+		return nil, ""
+	}
+	s := score
+	return &s, "This symbol has no callers in the call graph. CE confidence score: closer to 0 means more likely to be genuine dead code."
+}
+
+// fetchTestedBy queries the AGE graph for test functions covering this symbol
+// via TESTED_BY edges. Returns nil when the graph is offline or no edges exist.
+func fetchTestedBy(ctx context.Context, opts UnderstandOpts, sym *parser.Symbol) []graphx.SymbolRef {
+	if opts.Refs == nil {
+		return nil
+	}
+	repoKey := opts.Root
+	if repoKey == "" {
+		return nil
+	}
+	refs, err := opts.Refs.TestedBy(ctx, repoKey, sym.Name, sym.File)
+	if err != nil {
+		slog.Debug("tested_by unavailable", "symbol", sym.Name, "err", err)
+		return nil
+	}
+	return refs
 }
