@@ -165,7 +165,7 @@ func handleSemanticHits(
 				flat[i].Source = h.Source
 			}
 			// CE reranking: reorder by cross-encoder relevance score.
-			reranked := codegraph.RerankSemanticResults(ctx, input.Query, flat, topK)
+			reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, flat, topK)
 			return textResult(formatSemanticResults(input, reranked)), nil
 		}
 	}
@@ -178,7 +178,7 @@ func handleSemanticHits(
 		filtered = append(filtered, r)
 	}
 	// CE reranking on pure semantic fallback path.
-	reranked := codegraph.RerankSemanticResults(ctx, input.Query, filtered, topK)
+	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, filtered, topK)
 	return textResult(formatSemanticResults(input, reranked)), nil
 }
 

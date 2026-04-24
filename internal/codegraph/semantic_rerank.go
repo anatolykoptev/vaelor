@@ -1,11 +1,15 @@
 package codegraph
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/embeddings"
@@ -14,9 +18,39 @@ import (
 const (
 	semanticRerankTimeout = 15 * time.Second
 	semanticRerankTopN    = 20 // max docs sent to reranker
+	codeSignatureLines    = 5  // lines to read for CE context
 )
 
 var semanticRerankClient = &http.Client{Timeout: semanticRerankTimeout}
+
+// readCodeSignature reads the first nLines lines from a source file starting
+// at startLine. Returns empty string on any error — CE falls back gracefully.
+func readCodeSignature(root, relFilePath string, startLine, nLines int) string {
+	if root == "" || relFilePath == "" || startLine <= 0 {
+		return ""
+	}
+	fullPath := filepath.Join(root, relFilePath)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	lineNum := 0
+	var lines []string
+	for scanner.Scan() {
+		lineNum++
+		if lineNum < startLine {
+			continue
+		}
+		lines = append(lines, scanner.Text())
+		if len(lines) >= nLines {
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 // RerankSemanticResults applies CE reranking to semantic search results.
 // Takes the merged results from hybrid RRF, sends top semanticRerankTopN to
@@ -26,6 +60,7 @@ var semanticRerankClient = &http.Client{Timeout: semanticRerankTimeout}
 // The caller's topK is applied AFTER reranking so the best topK are returned.
 func RerankSemanticResults(
 	ctx context.Context,
+	root string,
 	query string,
 	results []embeddings.SearchResult,
 	topK int,
@@ -49,22 +84,27 @@ func RerankSemanticResults(
 	}
 
 	// Format each result as a document for the CE model.
-	// Format: "symbol: FuncName (kind)\nfile: path/to/file.go\nlanguage: go"
-	// CE sees (query, document) holistically — even without code body,
-	// symbol name + file path gives strong signal.
+	// Includes code signature (first codeSignatureLines lines from StartLine)
+	// so CE can distinguish same-named symbols in different files/contexts.
 	docs := make([]string, len(candidates))
 	for i, r := range candidates {
-		doc := fmt.Sprintf("symbol: %s", r.SymbolName)
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "symbol: %s", r.SymbolName)
 		if r.SymbolKind != "" {
-			doc += fmt.Sprintf(" (%s)", r.SymbolKind)
+			fmt.Fprintf(&sb, " (%s)", r.SymbolKind)
 		}
 		if r.FilePath != "" {
-			doc += fmt.Sprintf("\nfile: %s", r.FilePath)
+			fmt.Fprintf(&sb, "\nfile: %s", r.FilePath)
 		}
 		if r.Language != "" {
-			doc += fmt.Sprintf("\nlanguage: %s", r.Language)
+			fmt.Fprintf(&sb, "\nlanguage: %s", r.Language)
 		}
-		docs[i] = doc
+		// Include code signature for richer CE context.
+		sig := readCodeSignature(root, r.FilePath, r.StartLine, codeSignatureLines)
+		if sig != "" {
+			fmt.Fprintf(&sb, "\ncode:\n%s", sig)
+		}
+		docs[i] = sb.String()
 	}
 
 	// Use a background context so the reranker call is not bound by the
