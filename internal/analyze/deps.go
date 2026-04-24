@@ -68,6 +68,14 @@ type Deps struct {
 	// Refs surfaces graph edges not carried in callgraph (HANDLES, FETCHES, TESTED_BY).
 	// Always non-nil; use graphx.Noop{} when no snapshot is available.
 	Refs graphx.CrossRefs
+
+	// SymbolBooster is the optional pg_trgm symbol name searcher used to boost
+	// file scores when symbols match query keywords. Optional — nil disables boosting.
+	SymbolBooster SymbolNameSearcher
+
+	// RepoKeyFunc derives the embedding store repo key from a local root path.
+	// Must be set when SymbolBooster is non-nil. If nil, boosting is skipped.
+	RepoKeyFunc func(root string) string
 }
 
 // maxFileBytes returns the effective file size limit.

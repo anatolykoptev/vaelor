@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"context"
 	"sort"
 	"strings"
 
@@ -223,4 +224,74 @@ func resolveImportToFiles(importPath string, pkgFiles map[string][]string) []str
 		}
 	}
 	return nil
+}
+
+// SymbolNameSearcher is the narrow interface for pg_trgm symbol name lookup.
+// *embeddings.Store satisfies this interface via an adapter in the cmd layer.
+type SymbolNameSearcher interface {
+	SearchBySymbolName(ctx context.Context, repoKey string, keywords []string, language string, limit int) ([]SymbolHit, error)
+}
+
+// SymbolHit is a minimal result from a symbol name search.
+// Kept local so the analyze package does not depend on the embeddings package.
+type SymbolHit struct {
+	FilePath string
+}
+
+// BoostBySymbolNames enhances file scores by boosting files containing symbols
+// whose names match query keywords via pg_trgm similarity.
+// Files housing pg_trgm-matched symbols receive a symbolBoost additive boost.
+// Non-fatal: returns unmodified scores on any error or when preconditions unmet.
+func BoostBySymbolNames(
+	ctx context.Context,
+	scores map[string]float64,
+	store SymbolNameSearcher,
+	repoKey, query, language string,
+) map[string]float64 {
+	if store == nil || query == "" || repoKey == "" {
+		return scores
+	}
+	kws := extractKeywordsForBoost(query)
+	if len(kws) == 0 {
+		return scores
+	}
+	hits, err := store.SearchBySymbolName(ctx, repoKey, kws, language, 30)
+	if err != nil || len(hits) == 0 {
+		return scores
+	}
+	boosted := make(map[string]float64, len(scores))
+	for k, v := range scores {
+		boosted[k] = v
+	}
+	const symbolBoost = 0.3
+	for _, hit := range hits {
+		if _, exists := boosted[hit.FilePath]; exists {
+			boosted[hit.FilePath] += symbolBoost
+		}
+		// Files not already in scores were filtered during ingest — skip them
+		// to avoid injecting results outside the analyzed file set.
+	}
+	return boosted
+}
+
+// extractKeywordsForBoost splits a query into meaningful keywords for symbol matching,
+// removing stopwords and short tokens (min 3 chars). Returns lowercase terms.
+func extractKeywordsForBoost(query string) []string {
+	stopwords := map[string]bool{
+		"the": true, "and": true, "for": true, "that": true, "with": true,
+		"this": true, "from": true, "are": true, "not": true, "have": true,
+		"function": true, "method": true, "code": true, "file": true,
+		"which": true, "where": true, "when": true, "how": true, "what": true,
+	}
+	seen := make(map[string]bool)
+	var keywords []string
+	for _, word := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	}) {
+		if len(word) >= 3 && !stopwords[word] && !seen[word] {
+			seen[word] = true
+			keywords = append(keywords, word)
+		}
+	}
+	return keywords
 }
