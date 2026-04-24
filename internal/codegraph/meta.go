@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,10 @@ func getMeta(ctx context.Context, store *Store, repoKey string) (*GraphMeta, err
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		// 42P01 = undefined_table: schema not yet initialised; treat as cache miss.
+		if strings.Contains(err.Error(), "42P01") {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query meta: %w", err)
@@ -74,4 +79,15 @@ func isFresh(builtAt time.Time, ttlSeconds int) bool {
 		return false
 	}
 	return time.Since(builtAt) < time.Duration(ttlSeconds)*time.Second
+}
+
+// CacheStatus checks if a valid cached graph exists for root.
+// Returns (true, nil) if cached and fresh, (false, nil) if not present or stale.
+func CacheStatus(ctx context.Context, store *Store, root string) (bool, error) {
+	key := GraphNameFor(root)
+	meta, err := getMeta(ctx, store, key)
+	if err != nil {
+		return false, err
+	}
+	return meta != nil && isFresh(meta.BuiltAt, meta.TTLSeconds), nil
 }

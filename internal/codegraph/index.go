@@ -83,6 +83,10 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		return nil, fmt.Errorf("ensure graph: %w", err)
 	}
 
+	if err := store.EnsureLabels(ctx, gname); err != nil {
+		return nil, fmt.Errorf("ensure labels: %w", err)
+	}
+
 	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, err := ingestAndParse(ctx, root)
 	if err != nil {
 		return nil, err
