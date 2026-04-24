@@ -122,6 +122,15 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Int("count", len(vertices)),
 		slog.Duration("elapsed", time.Since(t3)))
 
+	// Create indexes BEFORE edge inserts: UNWIND+MATCH needs index on vertex
+	// properties to avoid full-table scans (O(N*M) without index).
+	t_idx := time.Now()
+	if err := store.EnsureIndexes(ctx, gname); err != nil {
+		slog.Warn("codegraph: pre-edge EnsureIndexes", slog.Any("error", err))
+	}
+	slog.Info("codegraph: pre-edge EnsureIndexes done",
+		slog.String("repo", root), slog.Duration("elapsed", time.Since(t_idx)))
+
 	t4 := time.Now()
 	if err := insertEdgeBatches(ctx, writer, gname, cfg.BatchSize, edges); err != nil {
 		return nil, fmt.Errorf("insert edges: %w", err)
@@ -143,12 +152,13 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		}
 	}
 
-	t5 := time.Now()
-	if err := store.EnsureIndexes(ctx, gname); err != nil {
-		slog.Warn("codegraph: ensure indexes", slog.Any("error", err))
+	// Indexes already created before edge inserts; run again as IF NOT EXISTS
+	// for cross-language vertices added after the main pass.
+	if len(crossVertices) > 0 {
+		if err := store.EnsureIndexes(ctx, gname); err != nil {
+			slog.Warn("codegraph: post-cross EnsureIndexes", slog.Any("error", err))
+		}
 	}
-	slog.Info("codegraph: EnsureIndexes done",
-		slog.String("repo", root), slog.Duration("elapsed", time.Since(t5)))
 
 	ttl := cfg.TTLLocal
 	if isRemote {
