@@ -1,0 +1,78 @@
+# go-code Milestones
+
+Performance and capability milestones tracked empirically on krolik (ARM 24GB, Oracle Cloud).
+
+## code_graph Build Performance
+
+**Repo:** memdb (`/host/src/MemDB`) — 950 files, ~8700 vertices, ~33000 edges, Python+Go
+
+| Milestone | Date | Total | Vertices | Edges | Notes |
+|---|---|---|---|---|---|
+| Baseline (sequential 1/query) | 2026-04-24 | ~6 min | ~42s | ~165s | code_graph was broken (no AGE extension) |
+| AGE fixed + background goroutine | 2026-04-24 | 3m15s | ~161s | ~24s | UNWIND large batches (crashed PG at 200) |
+| GIN indexes before inserts + adaptive batch | 2026-04-24 | **1m28s** | 38s | 41s | Statement timeout fixed, GIN eliminates O(N²) |
+| **Target: Direct COPY INSERT** | planned | **<15s** | ~2s | ~2s | Bypass Cypher layer via text-format COPY |
+
+## code_graph Query Latency (cached)
+
+**Repo:** memdb
+
+| Milestone | Date | Latency | Notes |
+|---|---|---|---|
+| After first successful build | 2026-04-24 | 2.35s | Cypher template query, LLM narrative |
+
+## Supported Languages
+
+| Language | Added | Parser | Type-aware |
+|---|---|---|---|
+| Go | v1.0 (2026-02-28) | tree-sitter | ✅ go/types |
+| Python | v1.0 | tree-sitter | ❌ |
+| TypeScript/JS | v1.0 | tree-sitter | ❌ |
+| Rust | v1.1 | tree-sitter | ❌ |
+| Java | v1.1 | tree-sitter | ❌ |
+| C / C++ | v1.1 | tree-sitter | ❌ |
+| Ruby | v1.1 | tree-sitter | ❌ |
+| C# | v1.1 | tree-sitter | ❌ |
+| PHP | v1.16 | tree-sitter | ❌ |
+
+## MCP Tools Count
+
+| Version | Date | Tools | Notable additions |
+|---|---|---|---|
+| v1.0 | 2026-02-28 | 5 | repo_analyze, file_parse, symbol_search, dep_graph, code_compare |
+| v1.6 | 2026-03-xx | 8 | call_trace |
+| v1.8 | 2026-03-xx | 10 | code_graph (AGE), code_search |
+| v1.13 | 2026-03-xx | 14 | explore, dead_code |
+| v1.14 | 2026-03-xx | 16 | code_health, dataflow_analyze |
+| v1.18 | 2026-03-16 | 18 | understand, prepare_change (compound tools) |
+
+## Infrastructure
+
+| Component | Status | Notes |
+|---|---|---|
+| PostgreSQL + AGE | ✅ | krolik-postgres-age:17, AGE 1.7.0 |
+| AGE UNWIND inserts | ✅ | Stable to 5000+ vertices, adaptive batch sizing |
+| AGE direct COPY INSERT | 🔜 | v1.20 — bypass Cypher, target <15s build |
+| Qdrant (vector search) | ✅ | Used for semantic_search |
+| BM25F + PageRank | ✅ | Used for code_research |
+| go/types (Go type analysis) | ✅ | v1.18 |
+
+## AGE Graph Stats (memdb, 2026-04-24)
+
+```
+graph:   code_f40acc09
+files:   950
+vertices: 8706
+  Package: ~626
+  File:    950
+  Symbol:  ~7120
+  Layer:   ~5
+  Route:   ~5
+edges:   33013
+  CALLS:   ~14000
+  CONTAINS: ~7950
+  IMPORTS:  ~4750
+  BELONGS_TO: ~3800
+  USES:    ~1400
+  others:  ~113
+```
