@@ -238,3 +238,4 @@ func (s *Store) LoadDeadCodeScores(ctx context.Context, repoKey string, rows [][
 	}
 	return result
 }
+
