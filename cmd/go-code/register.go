@@ -193,3 +193,29 @@ func buildLearningsStore(cfg Config) *learnings.Store {
 	}
 	return ls
 }
+
+// symbolBoostAdapter wraps *embeddings.Store to satisfy analyze.SymbolNameSearcher.
+// analyze.SymbolNameSearcher returns []analyze.SymbolHit (FilePath only), while
+// embeddings.Store.SearchBySymbolName returns []embeddings.SearchResult (full record).
+// This adapter lives here — co-located with the wiring — instead of a separate file.
+type symbolBoostAdapter struct {
+	store *embeddings.Store
+}
+
+func (a *symbolBoostAdapter) SearchBySymbolName(
+	ctx context.Context,
+	repoKey string,
+	keywords []string,
+	language string,
+	limit int,
+) ([]analyze.SymbolHit, error) {
+	results, err := a.store.SearchBySymbolName(ctx, repoKey, keywords, language, limit)
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]analyze.SymbolHit, len(results))
+	for i, r := range results {
+		hits[i] = analyze.SymbolHit{FilePath: r.FilePath}
+	}
+	return hits, nil
+}
