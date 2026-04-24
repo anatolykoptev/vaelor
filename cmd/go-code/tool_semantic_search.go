@@ -149,6 +149,15 @@ func handleSemanticHits(
 		results = append(results, extra...)
 	}
 
+	// Symbol name search: find functions whose names contain query keywords.
+	// Fills recall gaps where vector distance misses well-named private functions.
+	if deps.Store != nil {
+		kws := embeddings.ExtractQueryKeywords(input.Query)
+		if nameHits, nerr := deps.Store.SearchBySymbolName(ctx, repoKey, kws, input.Language, 20); nerr == nil {
+			results = append(results, nameHits...)
+		}
+	}
+
 	// Hybrid: run keyword search and merge with RRF.
 	// Overretrieve before CE reranking so the reranker sees more candidates.
 	rerankCap := max(topK*2, semanticRerankCandidates)
