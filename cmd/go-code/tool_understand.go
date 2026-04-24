@@ -8,6 +8,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compound"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -23,19 +24,21 @@ type UnderstandInput struct {
 	IncludeCallers bool   `json:"include_callers,omitempty" jsonschema_description:"Include who calls this symbol (default: false)"`
 }
 
-func registerUnderstand(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
+func registerUnderstand(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps, graphStore *codegraph.Store) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "understand",
 		Description: "Deep-dive into a single symbol. Aggregates: symbol info + callees + callers + complexity. " +
 			"Returns type-aware results for Go repos (interface dispatch resolution). " +
 			"Use instead of separate call_trace + symbol_search + code_graph calls. " +
-			"Suggests similar symbols when the target is not found.",
+			"Suggests similar symbols when the target is not found. " +
+			"When a code_graph snapshot exists: shows tested_by (test functions covering this symbol) " +
+			"and dead_code_score (CE reranker confidence that this function is unused, if applicable).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input UnderstandInput) (*mcp.CallToolResult, error) {
-		return handleUnderstand(ctx, input, deps, sem)
+		return handleUnderstand(ctx, input, deps, sem, graphStore)
 	})
 }
 
-func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.Deps, sem *SemanticDeps) (*mcp.CallToolResult, error) {
+func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.Deps, sem *SemanticDeps, graphStore *codegraph.Store) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -85,6 +88,12 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	}
 	if deps.Graph != nil {
 		opts.Graph = deps.Graph
+	}
+	if deps.Refs != nil {
+		opts.Refs = deps.Refs
+	}
+	if graphStore != nil {
+		opts.DeadCodeScores = graphStore
 	}
 	result := compound.Understand(ctx, matches[0], cg, opts)
 
