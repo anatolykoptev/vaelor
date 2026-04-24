@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 const (
@@ -106,6 +107,24 @@ func ComputeRecommendations(m RepoMetrics, out Outliers, maxItems int) []Recomme
 			Area:      c.sub.Name,
 			Message:   buildMessage(c.sub, m, out),
 		}
+	}
+
+	// Dead code recommendation (from CE reranker scores).
+	if m.DeadCodeCandidates > 0 {
+		note := fmt.Sprintf("Remove %d likely dead functions (CE confidence >= 25%%)", m.DeadCodeCandidates)
+		if len(m.DeadCodeTopNames) > 0 {
+			note += ". Top: " + strings.Join(m.DeadCodeTopNames, ", ")
+		}
+		impact := int(math.Min(8, float64(m.DeadCodeCandidates)*0.4))
+		if impact < 1 {
+			impact = 1
+		}
+		recs = append(recs, Recommendation{
+			Priority:  len(recs) + 1,
+			Area:      "dead_code",
+			Message:   note,
+			Potential: impact,
+		})
 	}
 	return recs
 }

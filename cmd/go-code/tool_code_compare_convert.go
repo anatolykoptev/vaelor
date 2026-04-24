@@ -187,6 +187,7 @@ func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
 		MaxParamCount:          m.MaxParamCount,
 		Score:                  m.Score,
 		SemanticDupRatio:       m.SemanticDupRatio,
+		DeadCodeCandidates:     m.DeadCodeCandidates,
 	}
 }
 
