@@ -60,7 +60,7 @@ func buildDeadCodeScoringQuery(limit int) string {
 // Sigmoid: higher probability = more likely genuine dead code.
 // Example: raw -1.75 -> 0.15 (unlikely), raw -0.5 -> 0.38 (moderate).
 func ceScoreToProbability(rawScore float64) float32 {
-	return float32(1.0 / (1.0 + math.Exp(rawScore)))
+	return float32(1.0 / (1.0 + math.Exp(-rawScore)))
 }
 
 // ScoreDeadCodeCandidates finds orphan functions in the graph, reranks
