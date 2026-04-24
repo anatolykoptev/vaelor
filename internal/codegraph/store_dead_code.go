@@ -9,18 +9,61 @@ import (
 	"time"
 )
 
-// deadCodeCypher finds orphan functions (no callers).
-const deadCodeCypher = "MATCH (s:Symbol) WHERE s.kind = 'function' " +
-	"OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) " +
-	"WITH s, caller WHERE caller IS NULL RETURN s ORDER BY toFloat(s.complexity) DESC LIMIT 100"
+// orphanCandidateLimit returns a repo-relative limit for dead_code scoring.
+// Scales with symbol count but stays in [50, 200] to bound reranker time (~90s max).
+func orphanCandidateLimit(symbolCount int) int {
+	const minLimit, maxLimit = 50, 200
+	l := symbolCount / 60 // ~1 candidate per 60 symbols
+	if l < minLimit {
+		return minLimit
+	}
+	if l > maxLimit {
+		return maxLimit
+	}
+	return l
+}
+
+// buildDeadCodeScoringQuery generates a Cypher query that pre-scores orphan
+// functions with a composite signal before sending to the CE reranker:
+//   - penalizes entrypoints (main), test/benchmark/example functions
+//   - penalizes test/evaluation/example file paths
+//   - uses complexity as the primary magnitude
+//
+// This ensures the reranker sees the most interesting production dead code
+// regardless of repo size, not a random or complexity-only slice.
+func buildDeadCodeScoringQuery(limit int) string {
+	return fmt.Sprintf(`
+		MATCH (s:Symbol) WHERE s.kind = 'function'
+		OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s)
+		WITH s, caller WHERE caller IS NULL
+		WITH s,
+		  (CASE WHEN s.name = 'main' THEN 0.05
+		        WHEN s.name STARTS WITH 'Test' THEN 0.1
+		        WHEN s.name STARTS WITH 'test_' THEN 0.1
+		        WHEN s.name STARTS WITH 'setup_' OR s.name STARTS WITH 'teardown_' THEN 0.2
+		        WHEN s.name STARTS WITH 'example_' OR s.name STARTS WITH 'Example' THEN 0.2
+		        WHEN s.name STARTS WITH 'Benchmark' THEN 0.2
+		        ELSE 1.0 END) *
+		  (CASE WHEN s.file CONTAINS '_test.go' OR s.file CONTAINS '_test.py' THEN 0.1
+		        WHEN s.file CONTAINS '/test/' OR s.file CONTAINS '/tests/' THEN 0.15
+		        WHEN s.file CONTAINS 'evaluation/' THEN 0.25
+		        WHEN s.file CONTAINS 'examples/' THEN 0.25
+		        WHEN s.file CONTAINS '/scripts/' THEN 0.3
+		        WHEN s.file CONTAINS 'benchmark' THEN 0.2
+		        ELSE 1.0 END) *
+		  toFloat(s.complexity) AS pre_score
+		RETURN s ORDER BY pre_score DESC LIMIT %d`, limit)
+}
 
 // ScoreDeadCodeCandidates finds orphan functions in the graph, reranks
 // them via the CE reranker, and persists scores to code_dead_code_scores.
 // Non-fatal: logging only on any error. Scores are available immediately
 // for the next dead_code query on this repo.
-func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey string) error {
-	// Step 1: Query orphan functions.
-	rows, err := s.ExecCypher(ctx, gname, deadCodeCypher, 1)
+func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey string, symbolCount int) error {
+	// Step 1: Query orphan functions with pre-scored ordering.
+	limit := orphanCandidateLimit(symbolCount)
+	query := buildDeadCodeScoringQuery(limit)
+	rows, err := s.ExecCypher(ctx, gname, query, 1)
 	if err != nil {
 		return fmt.Errorf("query orphans: %w", err)
 	}
@@ -28,7 +71,7 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 		return nil
 	}
 	slog.Info("codegraph: scoring dead_code candidates",
-		slog.String("repo", repoKey), slog.Int("candidates", len(rows)))
+		slog.String("repo", repoKey), slog.Int("limit", limit), slog.Int("candidates", len(rows)))
 
 	// Step 2: Pre-filter top-20 by complexity (highest complexity first —
 	// most interesting dead code targets).
