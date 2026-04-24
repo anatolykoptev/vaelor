@@ -3,8 +3,10 @@ package codegraph
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 )
+
 
 // buildVertexBatch generates a Cypher statement that MERGEs all vertices in batch.
 func buildVertexBatch(graphName string, vertices []vertexData) string {
@@ -143,44 +145,198 @@ func formatSet(varName string, props map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
-// insertBatches inserts vertices one at a time using sequential Cypher writes.
-// Multi-MERGE batches crash AGE on ARM; concurrent writes cause "Entity failed
-// to be updated" races because AGE MERGE is not concurrency-safe.
-// Single-vertex sequential inserts are stable. The background context in
-// tool_code_graph.go ensures large repos are not limited by MCP client timeout.
-//
-// The batchSize parameter is kept for API compatibility but is ignored.
+// buildVertexUnwindBatch generates a single Cypher UNWIND statement that
+// MERGEs all vertices of the SAME label in one DB round-trip.
+// All vertices in the slice MUST have the same Label.
+func buildVertexUnwindBatch(graphName string, vertices []vertexData) string {
+	if len(vertices) == 0 {
+		return ""
+	}
+	label := vertices[0].Label
+
+	// Collect all property keys across the batch for a consistent SET clause.
+	keySet := make(map[string]struct{})
+	for _, v := range vertices {
+		for k := range v.Props {
+			keySet[k] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	sb.WriteString("UNWIND [")
+	for i, v := range vertices {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString("{")
+		for j, k := range keys {
+			if j > 0 {
+				sb.WriteString(", ")
+			}
+			val := v.Props[k]
+			fmt.Fprintf(&sb, "%s: '%s'", k, escapeCypher(val))
+		}
+		sb.WriteString("}")
+	}
+	sb.WriteString("] AS props\n")
+
+	matchProp := unwindVertexMatch(label, keys)
+	fmt.Fprintf(&sb, "MERGE (v:%s {%s})\n", label, matchProp)
+
+	var setParts []string
+	for _, k := range keys {
+		setParts = append(setParts, fmt.Sprintf("v.%s = props.%s", k, k))
+	}
+	if len(setParts) > 0 {
+		fmt.Fprintf(&sb, "SET %s\n", strings.Join(setParts, ", "))
+	}
+	sb.WriteString("RETURN count(v)")
+	return sb.String()
+}
+
+// unwindVertexMatch returns the MERGE match expression using props.key syntax.
+func unwindVertexMatch(label string, keys []string) string {
+	hasPath := false
+	for _, k := range keys {
+		if k == "path" {
+			hasPath = true
+			break
+		}
+	}
+	switch label {
+	case "Symbol":
+		return "name: props.name, file: props.file"
+	case "Package":
+		if hasPath {
+			return "path: props.path"
+		}
+		return "name: props.name"
+	case "Layer":
+		return "name: props.name"
+	case "Route":
+		return "method: props.method, path: props.path"
+	default:
+		return "path: props.path"
+	}
+}
+
+// edgeGroupKey groups edges with identical endpoint labels and edge label
+// so they can share a single UNWIND+MATCH+MERGE statement.
+type edgeGroupKey struct {
+	FromLabel, ToLabel, EdgeLabel string
+}
+
+// buildEdgeUnwindBatch generates UNWIND+MATCH+MERGE Cypher for a batch of
+// edges sharing the same FromLabel, ToLabel, and EdgeLabel.
+// AGE 1.7.0: MATCH after UNWIND works; MATCH after MERGE does not.
+func buildEdgeUnwindBatch(graphName string, edges []edgeData) string {
+	if len(edges) == 0 {
+		return ""
+	}
+	e0 := edges[0]
+
+	var sb strings.Builder
+	sb.WriteString("UNWIND [")
+	for i, e := range edges {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "{fk: '%s', tk: '%s'}", escapeCypher(e.FromKey), escapeCypher(e.ToKey))
+	}
+	sb.WriteString("] AS e\n")
+
+	fmt.Fprintf(&sb, "MATCH (f:%s {%s})\n", e0.FromLabel, unwindEdgeMatch(e0.FromLabel, "fk"))
+	fmt.Fprintf(&sb, "MATCH (t:%s {%s})\n", e0.ToLabel, unwindEdgeMatch(e0.ToLabel, "tk"))
+	fmt.Fprintf(&sb, "MERGE (f)-[:%s]->(t)\n", e0.EdgeLabel)
+	sb.WriteString("RETURN count(*)")
+	return sb.String()
+}
+
+// unwindEdgeMatch builds the MATCH property expression for an edge endpoint.
+func unwindEdgeMatch(label, field string) string {
+	switch label {
+	case "Symbol":
+		// Symbol FromKey/ToKey is "name:file" — split in Cypher.
+		return fmt.Sprintf("name: split(e.%s, ':')[0], file: split(e.%s, ':')[1]", field, field)
+	case "Package":
+		return fmt.Sprintf("path: e.%s", field)
+	case "File":
+		return fmt.Sprintf("path: e.%s", field)
+	case "Layer":
+		return fmt.Sprintf("name: e.%s", field)
+	case "Route":
+		return fmt.Sprintf("method: split(e.%s, ':')[0], path: split(e.%s, ':')[1]", field, field)
+	default:
+		return fmt.Sprintf("path: e.%s", field)
+	}
+}
+
+// insertBatches groups vertices by label and inserts each group via UNWIND
+// batches of batchSize. AGE UNWIND is stable to 5000+ items; the old
+// multi-MERGE approach crashed AGE on ARM beyond ~20 items per query.
 func insertBatches(
 	ctx context.Context,
-	store *Store,
+	w CypherWriter,
 	gname string,
-	_ int,
+	batchSize int,
 	vertices []vertexData,
-	buildFn func(string, []vertexData) string,
+	_ func(string, []vertexData) string, // kept for API compat
 ) error {
+	if len(vertices) == 0 {
+		return nil
+	}
+	groups := make(map[string][]vertexData)
 	for _, v := range vertices {
-		cypher := buildFn(gname, []vertexData{v})
-		if cypher == "" {
-			continue
-		}
-		if err := store.ExecCypherWrite(ctx, gname, cypher); err != nil {
-			return fmt.Errorf("vertex %q: %w", v.Props["name"], err)
+		groups[v.Label] = append(groups[v.Label], v)
+	}
+	for label, group := range groups {
+		for i := 0; i < len(group); i += batchSize {
+			end := i + batchSize
+			if end > len(group) {
+				end = len(group)
+			}
+			cypher := buildVertexUnwindBatch(gname, group[i:end])
+			if cypher == "" {
+				continue
+			}
+			if err := w.ExecCypherWrite(ctx, gname, cypher); err != nil {
+				return fmt.Errorf("vertices label=%s batch [%d:%d]: %w", label, i, end, err)
+			}
 		}
 	}
 	return nil
 }
 
-// insertEdgeBatches inserts edges one at a time. AGE does not support
-// MATCH-after-MERGE in a single cypher() call, so edges are always one
-// statement each.
-func insertEdgeBatches(ctx context.Context, store *Store, gname string, _ int, edges []edgeData) error {
-	for i, e := range edges {
-		cypher := buildSingleEdge(e)
-		if cypher == "" {
-			continue
-		}
-		if err := store.ExecCypherWrite(ctx, gname, cypher); err != nil {
-			return fmt.Errorf("edge %d (%s->%s): %w", i, e.FromKey, e.ToKey, err)
+// insertEdgeBatches groups edges by (fromLabel, toLabel, edgeLabel) and
+// inserts each group via UNWIND+MATCH+MERGE batches of batchSize.
+func insertEdgeBatches(ctx context.Context, w CypherWriter, gname string, batchSize int, edges []edgeData) error {
+	if len(edges) == 0 {
+		return nil
+	}
+	groups := make(map[edgeGroupKey][]edgeData)
+	for _, e := range edges {
+		k := edgeGroupKey{e.FromLabel, e.ToLabel, e.EdgeLabel}
+		groups[k] = append(groups[k], e)
+	}
+	for key, group := range groups {
+		for i := 0; i < len(group); i += batchSize {
+			end := i + batchSize
+			if end > len(group) {
+				end = len(group)
+			}
+			cypher := buildEdgeUnwindBatch(gname, group[i:end])
+			if cypher == "" {
+				continue
+			}
+			if err := w.ExecCypherWrite(ctx, gname, cypher); err != nil {
+				return fmt.Errorf("edges %s-[%s]->%s batch [%d:%d]: %w",
+					key.FromLabel, key.EdgeLabel, key.ToLabel, i, end, err)
+			}
 		}
 	}
 	return nil
