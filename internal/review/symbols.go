@@ -26,6 +26,13 @@ type ChangedSymbol struct {
 	Flag string `json:"flag,omitempty"`
 	// Note is a human-readable explanation of Flag. Empty when Flag is empty.
 	Note string `json:"note,omitempty"`
+
+	// DeadCodeScore is the CE reranker probability [0..1] that this symbol is
+	// genuine dead code. Set only for ChangeRemoved symbols when a score is
+	// available in code_dead_code_scores (score > 0.25).
+	DeadCodeScore float32 `json:"dead_code_score,omitempty"`
+	// DeadCodeNote is a human-readable explanation of the dead-code probability.
+	DeadCodeNote string `json:"dead_code_note,omitempty"`
 }
 
 // ChangedSymbols intersects parsed symbols with git diff line ranges.
