@@ -295,8 +295,9 @@ func insertBatches(
 		groups[v.Label] = append(groups[v.Label], v)
 	}
 	for label, group := range groups {
-		for i := 0; i < len(group); i += batchSize {
-			end := i + batchSize
+		labelBatch := adaptiveBatchSize(label)
+		for i := 0; i < len(group); i += labelBatch {
+			end := i + labelBatch
 			if end > len(group) {
 				end = len(group)
 			}
@@ -340,4 +341,30 @@ func insertEdgeBatches(ctx context.Context, w CypherWriter, gname string, batchS
 		}
 	}
 	return nil
+}
+
+// maxCypherBatchBytes is the target max Cypher UNWIND query size per batch.
+// Large queries cause AGE parser slowness: Symbol avg 283 bytes/vertex,
+// 500-vertex UNWIND = 141KB → 9s. At 8KB: ~23 per batch → ~40ms.
+const maxCypherBatchBytes = 8192
+
+// adaptiveBatchSize returns how many vertices of the given label
+// fit within maxCypherBatchBytes.
+func adaptiveBatchSize(label string) int {
+	var bytesPerVertex int
+	switch label {
+	case "Symbol":
+		bytesPerVertex = 350
+	case "File":
+		bytesPerVertex = 120
+	case "Package":
+		bytesPerVertex = 80
+	default:
+		bytesPerVertex = 100
+	}
+	n := maxCypherBatchBytes / bytesPerVertex
+	if n < 1 {
+		return 1
+	}
+	return n
 }
