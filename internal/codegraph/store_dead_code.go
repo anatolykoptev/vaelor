@@ -1,6 +1,7 @@
 package codegraph
 
 import (
+	"net/http"
 	"context"
 	"fmt"
 	"log/slog"
@@ -56,9 +57,12 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	for i, c := range candidates {
 		docs[i] = formatDeadCodeDoc(c.row[0])
 	}
-	rerankCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Use a dedicated HTTP client with longer timeout for build-time scoring.
+	// rerankHTTPClient has 35s — insufficient for 100 docs (~35-40s on ARM).
+	buildClient := &http.Client{Timeout: 90 * time.Second}
+	rerankCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	scored, rerankErr := callReranker(rerankCtx, rerankDeadCodeQuery, docs)
+	scored, rerankErr := callRerankerWithClient(rerankCtx, buildClient, rerankDeadCodeQuery, docs)
 	if rerankErr != nil {
 		slog.Warn("codegraph: dead_code reranker unavailable, skipping pre-score",
 			slog.String("repo", repoKey), slog.Any("error", rerankErr))
