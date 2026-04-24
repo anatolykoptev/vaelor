@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // truncate returns the first n runes of s, or s if shorter.
@@ -98,17 +100,26 @@ func (s *Store) UpsertFileMtimes(ctx context.Context, repoKey string, mtimes map
 	}
 	defer conn.Release()
 
-	_, err = conn.Exec(ctx, "DELETE FROM code_file_mtimes WHERE repo_key = $1", repoKey)
-	if err != nil {
+	if _, err := conn.Exec(ctx, "DELETE FROM code_file_mtimes WHERE repo_key = $1", repoKey); err != nil {
 		return fmt.Errorf("delete old mtimes: %w", err)
 	}
+	if len(mtimes) == 0 {
+		return nil
+	}
+
+	rows := make([][]any, 0, len(mtimes))
 	for path, mtime := range mtimes {
-		_, err = conn.Exec(ctx,
-			"INSERT INTO code_file_mtimes (repo_key, file_path, mod_time) VALUES ($1, $2, $3)",
-			repoKey, path, mtime)
-		if err != nil {
-			return fmt.Errorf("insert mtime: %w", err)
-		}
+		rows = append(rows, []any{repoKey, path, mtime})
+	}
+
+	_, err = conn.CopyFrom(
+		ctx,
+		pgx.Identifier{"code_file_mtimes"},
+		[]string{"repo_key", "file_path", "mod_time"},
+		pgx.CopyFromRows(rows),
+	)
+	if err != nil {
+		return fmt.Errorf("copy file mtimes: %w", err)
 	}
 	return nil
 }
