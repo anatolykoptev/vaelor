@@ -144,10 +144,8 @@ func (s *Store) SearchBySymbolName(
 		}
 		r.RepoKey = repoKey
 		// Map similarity score [0..1] to distance [0..1] (higher similarity = lower distance).
-		r.Distance = float32(1.0 - score*0.5) // keep in [0.5..1.0] range to stay below threshold
-		if r.Distance < 0.3 {
-			r.Distance = 0.3
-		}
+		_ = score // score used implicitly via ORDER BY DESC in SQL
+		r.Distance = 0.4 // fixed: always below maxDistance threshold, CE reranker orders them
 		r.Source = "keyword_name"
 		results = append(results, r)
 	}
