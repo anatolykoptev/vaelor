@@ -114,6 +114,12 @@ func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob str
 	queryTerms := extractQueryTerms(query)
 	_, fusedScores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
 
+	// Boost via pg_trgm symbol name matching when available.
+	if deps.SymbolBooster != nil && deps.RepoKeyFunc != nil {
+		repoKey := deps.RepoKeyFunc(root)
+		fusedScores = BoostBySymbolNames(ctx, fusedScores, deps.SymbolBooster, repoKey, query, language)
+	}
+
 	return &ResearchData{
 		Root:        root,
 		Files:       ir.Files,
