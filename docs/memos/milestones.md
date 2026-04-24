@@ -56,6 +56,8 @@ Performance and capability milestones tracked empirically on krolik (ARM 24GB, O
 | Qdrant (vector search) | ✅ | Used for semantic_search |
 | BM25F + PageRank | ✅ | Used for code_research |
 | go/types (Go type analysis) | ✅ | v1.18 |
+| CE reranker (gte-multi-rerank) | 🔜 | v1.21 — rerank dead_code results; model at embed-server:8082 |
+| code_graph query timeout fix | ✅ | addNarrative cap 50 rows; dead_code LIMIT 100 — 2026-04-24 |
 
 ## AGE Graph Stats (memdb, 2026-04-24)
 
