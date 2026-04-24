@@ -45,6 +45,11 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		return fmt.Errorf("ensure snapshot table: %w", err)
 	}
 
+	// Ensure dead code scores table exists for pre-computed reranker scores.
+	if _, err := conn.Exec(ctx, deadCodeScoresTableSQL); err != nil {
+		return fmt.Errorf("ensure dead_code_scores table: %w", err)
+	}
+
 	return nil
 }
 
