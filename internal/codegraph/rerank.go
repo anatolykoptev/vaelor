@@ -18,7 +18,9 @@ const (
 	rerankModel         = "gte-multi-rerank"
 	rerankDeadCodeQuery = "orphaned function with no callers that is a bug risk"
 	rerankTopN          = 20
-	rerankTimeout       = 10 * time.Second
+	rerankTimeout       = 35 * time.Second
+	// rerankPreFilterN is the max docs sent to reranker; ~4s for 20 docs on ARM.
+	rerankPreFilterN = 20
 )
 
 var rerankHTTPClient = &http.Client{Timeout: rerankTimeout}
@@ -41,33 +43,61 @@ type rerankResponse struct {
 // RerankDeadCode reranks dead_code Cypher rows by likelihood of being
 // actual dead code (not entrypoints or test utilities).
 //
+// Pre-filters to top rerankPreFilterN rows by complexity before calling the
+// reranker — gte-multi-rerank takes ~0.2s/doc on ARM, so 20 docs ≈ 4s total.
+//
 // Returns the top rerankTopN rows sorted by relevance_score DESC.
 // Falls back to original rows (capped at rerankTopN) on any error (non-fatal).
-func RerankDeadCode(ctx context.Context, rows [][]string) [][]string {
+func RerankDeadCode(_ context.Context, rows [][]string) [][]string {
 	if len(rows) == 0 {
 		return rows
 	}
 
-	// Build document strings from row[0] (full AGE vertex JSON).
-	docs := make([]string, 0, len(rows))
+	// Pre-filter: sort by complexity DESC and take top rerankPreFilterN.
+	// High-complexity orphan functions are the most interesting dead code candidates.
+	type rowWithComplexity struct {
+		row        []string
+		complexity int
+	}
+	candidates := make([]rowWithComplexity, 0, len(rows))
 	for _, row := range rows {
 		if len(row) == 0 {
-			docs = append(docs, "unknown function")
 			continue
 		}
-		docs = append(docs, formatDeadCodeDoc(row[0]))
+		cx := parseIntField(row[0], "complexity")
+		candidates = append(candidates, rowWithComplexity{row, cx})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].complexity > candidates[j].complexity
+	})
+	limit := rerankPreFilterN
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+	candidates = candidates[:limit]
+
+	// Build document strings for the reranker.
+	docs := make([]string, len(candidates))
+	candidateRows := make([][]string, len(candidates))
+	for i, c := range candidates {
+		docs[i] = formatDeadCodeDoc(c.row[0])
+		candidateRows[i] = c.row
 	}
 
+	// Use a background context so the reranker call is not bound by the
+	// MCP request context (which may be near its 60s deadline already).
+	rerankCtx, cancel := context.WithTimeout(context.Background(), rerankTimeout)
+	defer cancel()
+
 	// Call reranker.
-	ranked, err := callReranker(ctx, rerankDeadCodeQuery, docs)
+	ranked, err := callReranker(rerankCtx, rerankDeadCodeQuery, docs)
 	if err != nil {
 		slog.Warn("codegraph: dead_code rerank failed, using original order",
 			slog.Any("error", err))
-		// Return original rows, capped at rerankTopN.
-		if len(rows) > rerankTopN {
-			return rows[:rerankTopN]
+		if len(candidateRows) > rerankTopN {
+			return candidateRows[:rerankTopN]
 		}
-		return rows
+		return candidateRows
 	}
 
 	// Sort by score DESC and take top N.
@@ -75,12 +105,12 @@ func RerankDeadCode(ctx context.Context, rows [][]string) [][]string {
 		return ranked.Results[i].RelevanceScore > ranked.Results[j].RelevanceScore
 	})
 
-	limit := min(rerankTopN, len(ranked.Results))
+	limit = min(rerankTopN, len(ranked.Results))
 
 	reranked := make([][]string, 0, limit)
 	for _, r := range ranked.Results[:limit] {
-		if r.Index < len(rows) {
-			reranked = append(reranked, rows[r.Index])
+		if r.Index < len(candidateRows) {
+			reranked = append(reranked, candidateRows[r.Index])
 		}
 	}
 
@@ -193,4 +223,19 @@ func callReranker(ctx context.Context, query string, documents []string) (*reran
 		return nil, fmt.Errorf("empty results")
 	}
 	return &result, nil
+}
+
+// parseIntField parses an integer field from an AGE vertex JSON string.
+func parseIntField(s, field string) int {
+	val := extractFieldRerank(s, field)
+	if val == "" {
+		return 0
+	}
+	n := 0
+	for _, c := range val {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		}
+	}
+	return n
 }
