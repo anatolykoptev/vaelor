@@ -75,10 +75,17 @@ func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphN
 	case "graph_diff":
 		result.Results, result.Narrative = postProcessGraphDiff(ctx, store, graphName, meta.RepoKey)
 	case TemplateInsightDeadCode:
-		// Rerank dead_code results to surface real dead code (not entrypoints) first.
-		rows = RerankDeadCode(ctx, rows)
-		result.Results = rows
-		addNarrative(ctx, llmClient, result, rows, query, cypher)
+		// Try pre-computed scores first (populated at graph build time).
+		if preScored := store.LoadDeadCodeScores(ctx, meta.RepoKey, rows); preScored != nil {
+			rows = preScored
+			result.Results = rows
+			addNarrative(ctx, llmClient, result, rows, query, cypher)
+		} else {
+			// Fallback: live reranking (used on first query before build completes).
+			rows = RerankDeadCode(ctx, rows)
+			result.Results = rows
+			addNarrative(ctx, llmClient, result, rows, query, cypher)
+		}
 	default:
 		addNarrative(ctx, llmClient, result, rows, query, cypher)
 	}

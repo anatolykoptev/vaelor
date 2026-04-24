@@ -182,6 +182,17 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Int("files", len(allFiles)),
 		slog.Duration("elapsed", time.Since(t6)))
 
+	// Pre-score dead_code candidates so query-time reranking is instant.
+	// Non-fatal: errors are logged but do not fail IndexRepo.
+	t7 := time.Now()
+	if scoreErr := store.ScoreDeadCodeCandidates(ctx, gname, repoKey); scoreErr != nil {
+		slog.Warn("codegraph: dead_code pre-scoring failed (non-fatal)",
+			slog.String("repo", root), slog.Any("error", scoreErr))
+	} else {
+		slog.Info("codegraph: dead_code pre-scoring done",
+			slog.String("repo", root), slog.Duration("elapsed", time.Since(t7)))
+	}
+
 	slog.Info("codegraph: IndexRepo complete",
 		slog.String("repo", root), slog.Duration("total", time.Since(t0)))
 

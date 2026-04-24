@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS code_file_mtimes (
     PRIMARY KEY (repo_key, file_path)
 )`
 
+// deadCodeScoresTableSQL defines the schema for pre-computed dead_code reranker scores.
+const deadCodeScoresTableSQL = `
+CREATE TABLE IF NOT EXISTS code_dead_code_scores (
+    repo_key  TEXT NOT NULL,
+    name      TEXT NOT NULL,
+    file      TEXT NOT NULL,
+    score     REAL NOT NULL,
+    scored_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (repo_key, name, file)
+)`
+
 
 // Store wraps a pgxpool for Apache AGE graph operations on code repositories.
 type Store struct {
