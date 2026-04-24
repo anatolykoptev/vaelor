@@ -57,7 +57,7 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	for i, c := range candidates {
 		docs[i] = formatDeadCodeDoc(c.row[0])
 	}
-	rerankCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	rerankCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	scored, rerankErr := callReranker(rerankCtx, rerankDeadCodeQuery, docs)
 	if rerankErr != nil {
