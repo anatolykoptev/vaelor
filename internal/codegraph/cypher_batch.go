@@ -143,35 +143,36 @@ func formatSet(varName string, props map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
-// insertBatches splits vertices into batches of size batchSize and executes
-// each batch as a Cypher write.
+// insertBatches inserts vertices one at a time using sequential Cypher writes.
+// Multi-MERGE batches crash AGE on ARM; concurrent writes cause "Entity failed
+// to be updated" races because AGE MERGE is not concurrency-safe.
+// Single-vertex sequential inserts are stable. The background context in
+// tool_code_graph.go ensures large repos are not limited by MCP client timeout.
+//
+// The batchSize parameter is kept for API compatibility but is ignored.
 func insertBatches(
 	ctx context.Context,
 	store *Store,
 	gname string,
-	batchSize int,
+	_ int,
 	vertices []vertexData,
 	buildFn func(string, []vertexData) string,
 ) error {
-	for i := 0; i < len(vertices); i += batchSize {
-		end := i + batchSize
-		if end > len(vertices) {
-			end = len(vertices)
-		}
-		batch := vertices[i:end]
-		cypher := buildFn(gname, batch)
+	for _, v := range vertices {
+		cypher := buildFn(gname, []vertexData{v})
 		if cypher == "" {
 			continue
 		}
 		if err := store.ExecCypherWrite(ctx, gname, cypher); err != nil {
-			return fmt.Errorf("batch [%d:%d]: %w", i, end, err)
+			return fmt.Errorf("vertex %q: %w", v.Props["name"], err)
 		}
 	}
 	return nil
 }
 
-// insertEdgeBatches inserts edges one at a time — AGE doesn't support
-// MATCH after MERGE in a single cypher() call, so batching isn't possible.
+// insertEdgeBatches inserts edges one at a time. AGE does not support
+// MATCH-after-MERGE in a single cypher() call, so edges are always one
+// statement each.
 func insertEdgeBatches(ctx context.Context, store *Store, gname string, _ int, edges []edgeData) error {
 	for i, e := range edges {
 		cypher := buildSingleEdge(e)
