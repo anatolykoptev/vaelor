@@ -249,3 +249,48 @@ func (s *Store) LoadDeadCodeScores(ctx context.Context, repoKey string, rows [][
 	return result
 }
 
+
+// DeadCodeCandidate is a high-confidence dead code function from code_dead_code_scores.
+type DeadCodeCandidate struct {
+	Name  string
+	File  string
+	Score float32
+}
+
+// LoadTopDeadCodeCandidates returns the top N dead-code candidates for a repo
+// with CE probability above minScore (0..1).
+// Returns nil, nil when no candidates exist (graph not indexed or no orphans).
+func (s *Store) LoadTopDeadCodeCandidates(
+	ctx context.Context,
+	repoKey string,
+	minScore float32,
+	limit int,
+) ([]DeadCodeCandidate, error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire: %w", err)
+	}
+	defer conn.Release()
+
+	rows, err := conn.Query(ctx, `
+		SELECT name, file, score
+		FROM code_dead_code_scores
+		WHERE repo_key = $1 AND score >= $2
+		ORDER BY score DESC
+		LIMIT $3`,
+		repoKey, minScore, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []DeadCodeCandidate
+	for rows.Next() {
+		var c DeadCodeCandidate
+		if err := rows.Scan(&c.Name, &c.File, &c.Score); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	return candidates, rows.Err()
+}
