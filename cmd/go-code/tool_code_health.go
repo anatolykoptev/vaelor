@@ -105,12 +105,29 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 			archMetrics = gatherHealthArchMetrics(ctx, graphStore, root)
 		}()
 
+		// Dead code metrics (from CE scores in code_dead_code_scores).
+		var deadCodeCandidates int
+		var deadCodeTopNames []string
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			gatherHealthDeadCode(ctx, graphStore, root, &deadCodeCandidates, &deadCodeTopNames)
+		}()
+
 		// Relationship stats and outliers (CPU-bound, parallel with above).
 		relStats := compare.ComputeRelStats(sr.snap.Rels)
 		outliers := compare.CollectOutliers(sr.snap)
 
 		// Wait for all parallel stages.
 		wg.Wait()
+
+		if deadCodeCandidates > 0 {
+			metrics.DeadCodeCandidates = deadCodeCandidates
+			metrics.DeadCodeTopNames = deadCodeTopNames
+			// Recompute score/grade with dead code penalty.
+			metrics.Score = compare.GradeScore(metrics)
+			metrics.Grade = compare.ComputeGrade(metrics)
+		}
 
 		if input.Format == "sarif" {
 			sarifReport := compare.BuildSARIF(sr.snap.Name, metrics, nil, nil, hotspots, outliers)

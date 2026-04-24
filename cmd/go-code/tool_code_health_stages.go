@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -134,4 +135,49 @@ func gatherHealthArchMetrics(ctx context.Context, graphStore *codegraph.Store, r
 	gctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return compare.CollectArchMetrics(gctx, graphStore, root)
+}
+
+// gatherHealthDeadCode queries pre-computed CE dead-code scores and populates
+// candidate count and top function names. Non-fatal: no-op when graph unavailable.
+func gatherHealthDeadCode(
+	ctx context.Context,
+	graphStore *codegraph.Store,
+	root string,
+	candidateCount *int,
+	topNames *[]string,
+) {
+	if graphStore == nil {
+		return
+	}
+	repoKey := codegraph.GraphNameFor(root)
+
+	const minScore = float32(0.25)
+	const maxTop = 3
+	const queryLimit = 50
+
+	candidates, err := graphStore.LoadTopDeadCodeCandidates(ctx, repoKey, minScore, queryLimit)
+	if err != nil || len(candidates) == 0 {
+		return
+	}
+
+	*candidateCount = len(candidates)
+
+	// Collect top-3 names for the recommendation note.
+	names := make([]string, 0, maxTop)
+	seen := make(map[string]bool)
+	for _, c := range candidates {
+		if len(names) >= maxTop {
+			break
+		}
+		if !seen[c.Name] {
+			seen[c.Name] = true
+			names = append(names, fmt.Sprintf("%s (%.0f%%)", c.Name, c.Score*100))
+		}
+	}
+	*topNames = names
+
+	slog.Info("codegraph: dead_code health metrics",
+		slog.String("repo", root),
+		slog.Int("candidates", *candidateCount),
+	)
 }
