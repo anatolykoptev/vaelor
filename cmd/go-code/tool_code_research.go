@@ -78,6 +78,8 @@ func handleCodeResearch(
 		resDeps.EmbedClient = semDeps.Client
 		resDeps.EmbedStore = semDeps.Store
 		resDeps.RepoKey = codegraph.GraphNameFor(root)
+		// Wire pg_trgm symbol search for Step 3.5 augmentation.
+		resDeps.SymbolSearcher = semDeps.Store
 		// Trigger background re-index for freshness.
 		if semDeps.Pipeline != nil {
 			semDeps.Pipeline.IndexRepoAsync(resDeps.RepoKey, root)

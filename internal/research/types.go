@@ -24,6 +24,15 @@ type EmbedStore interface {
 	Search(ctx context.Context, vec []float32, opts embeddings.SearchOpts) ([]embeddings.SearchResult, error)
 }
 
+
+// SymbolSearcher finds indexed symbols whose names match query keywords.
+// Enables pg_trgm symbol name augmentation — catches functions with abbreviated
+// names that vector search misses (e.g. "init" -> "initializes"). Optional.
+// Satisfied by *embeddings.Store (structural typing).
+type SymbolSearcher interface {
+	SearchBySymbolName(ctx context.Context, repoKey string, keywords []string, language string, limit int) ([]embeddings.SearchResult, error)
+}
+
 // Input holds parameters for a code-research request.
 type Input struct {
 	// Root is the local path to the (already-cloned) repository.
