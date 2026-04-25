@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/compound"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -114,9 +116,30 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 		}
 	}
 
+	// Structural call site count via ox-codes — counts actual AST-level call sites.
+	// More reliable than call graph for dynamic dispatch, reflection, callbacks.
+	var callSiteCount int
+	if deps.OxCodes != nil && result.Found && result.Symbol.Name != "" {
+		lang := detectLangFromFile(result.Symbol.File)
+		if lang != "" {
+			sctx, scancel := context.WithTimeout(ctx, 8*time.Second)
+			defer scancel()
+			pattern := result.Symbol.Name + "($$$)"
+			if sresp, serr := deps.OxCodes.SearchStructural(sctx, oxcodes.StructuralSearchInput{
+				Root:       root,
+				Pattern:    pattern,
+				Language:   lang,
+				MaxResults: 200,
+			}); serr == nil && sresp != nil {
+				callSiteCount = sresp.TotalMatches
+			}
+		}
+	}
+
 	response := prepareChangeResponse{
-		PrepareChangeResult: result,
+		PrepareChangeResult: *result,
 		RelatedFiles:        relatedFiles,
+		CallSiteCount:       callSiteCount,
 	}
 	data, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
@@ -127,6 +150,25 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 
 // prepareChangeResponse wraps PrepareChangeResult with additional git coupling data.
 type prepareChangeResponse struct {
-	*compound.PrepareChangeResult
-	RelatedFiles []string `json:"related_files,omitempty"`
+	compound.PrepareChangeResult
+	RelatedFiles  []string `json:"related_files,omitempty"`
+	CallSiteCount int      `json:"call_site_count,omitempty"` // structural call sites via ox-codes
+}
+
+// detectLangFromFile maps a file extension to the ox-codes language identifier.
+func detectLangFromFile(filePath string) string {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".go":
+		return "go"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".js", ".jsx":
+		return "javascript"
+	case ".rs":
+		return "rust"
+	case ".py":
+		return "python"
+	default:
+		return ""
+	}
 }
