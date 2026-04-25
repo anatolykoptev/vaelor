@@ -165,6 +165,7 @@ func grepSearchOx(ctx context.Context, input CodeSearchInput, root string, clien
 		Language:      searchInput.Language,
 		Expand:        input.Expand,
 		MaxTokens:     input.MaxTokens,
+		Format:        "markdown",
 	})
 	if err != nil {
 		return nil, err
