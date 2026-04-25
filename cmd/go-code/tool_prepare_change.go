@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -116,31 +115,32 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 			relatedFiles = append(relatedFiles, other)
 		}
 	}
-
-// Call site count via ox-codes scoped search — name\( in function bodies.
-	// Uses regex to match call expressions but not string literals.
+	// Call site count via ox-codes structural search — AST-precise, no false positives.
+	// Methods: $RECV.Name($$$), functions: Name($$$). ox-codes v0.2.2 fixes Go method call parsing.
 	var callSiteCount int
 	if deps.OxCodes != nil && result.Found && result.Symbol.Name != "" {
 		lang := detectLangFromFile(result.Symbol.File)
 		if lang != "" {
 			sctx, scancel := context.WithTimeout(ctx, 8*time.Second)
 			defer scancel()
-			pattern := regexp.QuoteMeta(result.Symbol.Name) + "\\("
-			if sresp, serr := deps.OxCodes.SearchScoped(sctx, oxcodes.ScopedSearchInput{
-				Root:          root,
-				Pattern:       pattern,
-				Scope:         "function_bodies",
-				Language:      lang,
-				IsRegex:       true,
-				CaseSensitive: true,
-				MaxResults:    200,
-				ExcludeGlob:   "vendor/**,*_test.*",
+			// Method: $RECV.Name($$$) matches any receiver; Function: Name($$$)
+			var pattern string
+			if result.Symbol.Kind == "method" {
+				pattern = "$RECV." + result.Symbol.Name + "($$$)"
+			} else {
+				pattern = result.Symbol.Name + "($$$)"
+			}
+			if sresp, serr := deps.OxCodes.SearchStructural(sctx, oxcodes.StructuralSearchInput{
+				Root:        root,
+				Pattern:     pattern,
+				Language:    lang,
+				MaxResults:  200,
+				ExcludeGlob: "vendor/**,*_test.*",
 			}); serr == nil && sresp != nil {
 				callSiteCount = sresp.TotalMatches
 			}
 		}
 	}
-
 	response := prepareChangeResponse{
 		PrepareChangeResult: *result,
 		RelatedFiles:        relatedFiles,
