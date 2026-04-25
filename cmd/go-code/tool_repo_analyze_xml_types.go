@@ -20,6 +20,7 @@ type xmlResponse struct {
 	Symbols       xmlSymbols           `xml:"symbols"`
 	APISurface    *xmlAPISummary       `xml:"apiSurface,omitempty"`
 	Freshness     *xmlFreshnessSummary `xml:"freshness,omitempty"`
+	ArchCentral   *xmlArchCentral      `xml:"arch_central,omitempty"`
 }
 
 type xmlRepo struct {
@@ -98,13 +99,28 @@ type xmlFreshnessSummary struct {
 	TotalDeps  int     `xml:"totalDeps,attr"`
 }
 
+// xmlArchCentral holds the top architecturally central symbols by PageRank.
+// When Available is false the graph has no snapshot for this repo.
+type xmlArchCentral struct {
+	Available bool             `xml:"available,attr"`
+	Symbols   []xmlArchSymbol  `xml:"symbol,omitempty"`
+}
+
+// xmlArchSymbol is a single entry in the arch_central section.
+type xmlArchSymbol struct {
+	Name     string  `xml:"name,attr"`
+	File     string  `xml:"file,attr"`
+	PageRank float64 `xml:"pagerank,attr"`
+}
+
 // repoAnalysisExtras holds optional enrichment data computed only in deep mode.
 type repoAnalysisExtras struct {
 	APISurfaceSize int
 	FreshnessStats *compare.FreshnessStats
+	ArchCentral    *xmlArchCentral
 }
 
-// applyExtras populates APISurface and Freshness fields on resp from extras.
+// applyExtras populates APISurface, Freshness, and ArchCentral fields on resp from extras.
 func applyExtras(resp *xmlResponse, extras *repoAnalysisExtras) {
 	if extras == nil {
 		return
@@ -119,6 +135,9 @@ func applyExtras(resp *xmlResponse, extras *repoAnalysisExtras) {
 			VulnCount:  fs.VulnDeps,
 			TotalDeps:  fs.TotalDeps,
 		}
+	}
+	if extras.ArchCentral != nil {
+		resp.ArchCentral = extras.ArchCentral
 	}
 }
 
