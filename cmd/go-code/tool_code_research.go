@@ -85,6 +85,10 @@ func handleCodeResearch(
 			semDeps.Pipeline.IndexRepoAsync(resDeps.RepoKey, root)
 		}
 	}
+	if analyzeDeps.Graph != nil {
+		resDeps.Graph = analyzeDeps.Graph
+		resDeps.GraphRepoKey = root
+	}
 
 	result, err := research.Run(ctx, research.Input{
 		Root:             root,

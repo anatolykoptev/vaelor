@@ -10,6 +10,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -37,6 +38,13 @@ type Deps struct {
 	// SymbolSearcher enables pg_trgm symbol name search.
 	// Optional — nil disables symbol name augmentation.
 	SymbolSearcher SymbolSearcher
+
+	// Graph provides PageRank signals for symbol-importance file boosting.
+	// Optional - nil disables PageRank file prioritization.
+	Graph graphx.Analytics
+
+	// GraphRepoKey is the repo root path passed to TopPageRank. Required when Graph is non-nil.
+	GraphRepoKey string
 }
 
 // Run executes the full code-research pipeline:
@@ -110,6 +118,25 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 			seedScores = fuseScores(seedScores, trgmFileScores)
 			// Also append to semanticHits so buildSeedList surfaces individual symbols.
 			semanticHits = append(semanticHits, nameHits...)
+		}
+	}
+
+	// --- Step 3.6: PageRank file boost ---
+	// Files containing top-PageRank symbols get a structural importance boost.
+	// Ensures architecturally central code surfaces in research context even when
+	// not textually similar to the query (e.g. learnings/store.go PageRank=0.038).
+	if deps.Graph != nil && deps.GraphRepoKey != "" {
+		if signals, prErr := deps.Graph.TopPageRank(ctx, deps.GraphRepoKey, 20); prErr == nil {
+			for _, sig := range signals {
+				if sig.PageRank > 0 && sig.Symbol.File != "" {
+					// Boost proportional to PageRank, max +0.3
+					boost := sig.PageRank * 8.0
+					if boost > 0.3 {
+						boost = 0.3
+					}
+					seedScores[sig.Symbol.File] += boost
+				}
+			}
 		}
 	}
 
