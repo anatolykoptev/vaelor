@@ -202,14 +202,28 @@ func annotateWithPageRank(ctx context.Context, results []embeddings.SearchResult
 	if graph == nil || len(results) == 0 {
 		return results
 	}
+
+	// Single batch query for top-200 PageRank symbols (same pattern as sortCallersByPageRank).
+	const batchSize = 200
+	signals, err := graph.TopPageRank(ctx, repoKey, batchSize)
+	if err != nil || len(signals) == 0 {
+		return results
+	}
+
+	prMap := make(map[string]float64, len(signals))
+	for _, sig := range signals {
+		key := sig.Symbol.File + ":" + sig.Symbol.Name
+		prMap[key] = sig.PageRank
+	}
+
 	annotated := make([]embeddings.SearchResult, len(results))
 	copy(annotated, results)
 	for i, r := range annotated {
 		if r.SymbolName == "" {
 			continue
 		}
-		if sig, err := graph.Symbol(ctx, repoKey, r.SymbolName, r.FilePath); err == nil && sig.Found {
-			annotated[i].PageRank = float32(sig.PageRank)
+		if pr, ok := prMap[r.FilePath+":"+r.SymbolName]; ok {
+			annotated[i].PageRank = float32(pr)
 		}
 	}
 	return annotated
