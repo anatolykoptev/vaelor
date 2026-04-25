@@ -2,6 +2,7 @@ package embeddings
 
 import (
 	"context"
+	"time"
 	"fmt"
 	"math"
 	"strings"
@@ -129,7 +130,10 @@ func (s *Store) SearchBySymbolName(
 		ORDER BY score DESC
 		LIMIT $4`
 
-	rows, err := s.pool.Query(ctx, q, repoKey, language, searchStr, limit)
+	// Use a 5s timeout: if pool is exhausted (e.g. concurrent code_graph build), fail fast
+	sQueryCtx, sCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer sCancel()
+	rows, err := s.pool.Query(sQueryCtx, q, repoKey, language, searchStr, limit)
 	if err != nil {
 		// pg_trgm not available — fall back to ILIKE prefix search.
 		return s.searchBySymbolNameFallback(ctx, repoKey, keywords, language, limit)
