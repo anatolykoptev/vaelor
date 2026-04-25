@@ -3,6 +3,7 @@ package callgraph
 import (
 	"context"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
@@ -10,11 +11,11 @@ import (
 )
 
 const (
-	maxSpeculativePerTrace = 20
-	speculativeMaxResults  = 5
+	maxSpeculativePerTrace   = 20
+	speculativeMaxResults    = 5
 	speculativeMaxCandidates = 3
-	confidenceExact        = 0.8
-	confidencePartial      = 0.5
+	confidenceExact          = 0.8
+	confidencePartial        = 0.5
 )
 
 // speculativeCounter is a shared counter passed during tree walk.
@@ -22,32 +23,21 @@ type speculativeCounter struct {
 	count int
 }
 
-// langFuncPrefix returns the language-specific function declaration prefix for pattern building.
-func langFuncPrefix(language string) string {
-	switch strings.ToLower(language) {
-	case "python":
-		return "def "
-	case "ruby":
-		return "def "
-	case "rust":
-		return "fn "
-	case "java", "kotlin":
-		return ""
-	case "typescript", "javascript":
-		return "function "
-	default:
-		return "func "
-	}
-}
-
-// buildSearchPattern returns the search pattern for the given callee name and language.
+// buildSearchPattern returns a regex pattern for the given callee name and language.
 func buildSearchPattern(callName, language string) string {
-	prefix := langFuncPrefix(language)
-	if prefix == "" {
-		// Java/Kotlin: match method declarations broadly
-		return callName + "("
+	escaped := regexp.QuoteMeta(callName)
+	switch strings.ToLower(language) {
+	case "go", "golang":
+		return `\bfunc\s+` + escaped + `\s*\(`
+	case "typescript", "ts", "javascript", "js":
+		return `\bfunction\s+` + escaped + `\s*\(|\b` + escaped + `\s*[=:]\s*(?:async\s*)?\(`
+	case "python", "py":
+		return `\bdef\s+` + escaped + `\s*\(`
+	case "rust", "rs":
+		return `\bfn\s+` + escaped + `\s*\(`
+	default:
+		return `\b` + escaped + `\(`
 	}
-	return prefix + callName + "("
 }
 
 // ResolveSpeculative walks the call tree and fills Speculative candidates for
@@ -87,11 +77,12 @@ func searchCandidates(ctx context.Context, client *oxcodes.Client, root, languag
 
 	pattern := buildSearchPattern(callName, language)
 	resp, err := client.Search(ctx, oxcodes.SearchInput{
-		Root:       root,
-		Pattern:    pattern,
-		IsRegex:    false,
-		MaxResults: speculativeMaxResults,
-		Language:   language,
+		Root:        root,
+		Pattern:     pattern,
+		IsRegex:     true,
+		MaxResults:  speculativeMaxResults,
+		Language:    language,
+		ExcludeGlob: "*_test.go,*_test.ts,*_test.py,*_spec.*",
 	})
 	if err != nil {
 		log.Printf("speculative resolution: ox-codes search %q: %v", pattern, err)
@@ -103,16 +94,12 @@ func searchCandidates(ctx context.Context, client *oxcodes.Client, root, languag
 		if len(candidates) >= speculativeMaxCandidates {
 			break
 		}
-		confidence := confidencePartial
-		// Exact match: the text contains "func <name>(" (or equivalent) as a standalone declaration.
-		if strings.Contains(m.Text, langFuncPrefix(language)+callName+"(") {
-			confidence = confidenceExact
-		}
+		// All regex matches get confidenceExact — the pattern ensures function definition context.
 		candidates = append(candidates, SpeculativeCall{
 			Name:       callName,
 			File:       m.File,
 			Line:       m.Line,
-			Confidence: confidence,
+			Confidence: confidenceExact,
 		})
 	}
 	return candidates
