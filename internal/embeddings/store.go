@@ -60,6 +60,7 @@ type SearchResult struct {
 	StartLine  int
 	Distance   float32 // cosine distance (lower = more similar)
 	Source     string  // "semantic", "keyword", "hybrid", "graph" — set by caller
+	PageRank   float32 // structural importance from graph analysis (0 if not available)
 }
 
 // Store manages vector embeddings in PostgreSQL with pgvector.
