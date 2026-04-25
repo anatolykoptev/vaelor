@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"math/rand/v2"
+	"strconv"
 	"regexp"
 	"strings"
 	"time"
@@ -227,4 +229,46 @@ func (s *Store) EnsureHealthCacheTable(ctx context.Context) error {
 	defer conn.Release()
 	_, err = conn.Exec(ctx, healthCacheTableSQL)
 	return err
+}
+
+// SymbolStructuralRank returns a human-readable PageRank percentile for a symbol.
+// e.g. "Top 2% (6th of 4040 symbols by structural centrality)"
+// Returns "" when graph unavailable, symbol not found, or PageRank is 0.
+// The caller may pass the already-fetched pagerank value to avoid re-querying.
+func (s *Store) SymbolStructuralRank(ctx context.Context, repoKey, name, file string, pagerank float64) string {
+	if pagerank <= 0 {
+		return ""
+	}
+
+	graphName := GraphNameFor(repoKey)
+
+	// Query 1: total symbols with pagerank.
+	totalCypher := `MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN count(s)`
+	totalRows, err := s.ExecCypher(ctx, graphName, totalCypher, 1)
+	if err != nil || len(totalRows) == 0 {
+		return ""
+	}
+	total, err := strconv.Atoi(strings.Trim(totalRows[0][0], `"`))
+	if err != nil || total <= 0 {
+		return ""
+	}
+
+	// Query 2: how many symbols have pagerank >= this symbol's pagerank (its rank).
+	rankCypher := fmt.Sprintf(
+		`MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL AND toFloat(s.pagerank) >= %f RETURN count(s)`,
+		pagerank)
+	rankRows, err := s.ExecCypher(ctx, graphName, rankCypher, 1)
+	if err != nil || len(rankRows) == 0 {
+		return ""
+	}
+	rank, err := strconv.Atoi(strings.Trim(rankRows[0][0], `"`))
+	if err != nil || rank <= 0 {
+		return ""
+	}
+
+	pct := int(math.Round(float64(rank) / float64(total) * 100))
+	if pct <= 0 {
+		pct = 1
+	}
+	return fmt.Sprintf("Top %d%% (%dth of %d symbols by structural centrality)", pct, rank, total)
 }
