@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -19,9 +20,17 @@ func buildDeadCodeSummary(cg *callgraph.CallGraph) *DeadCodeSummary {
 		return nil
 	}
 	samples := make([]string, 0, maxDeadCodeSamples)
-	for i, ds := range dcResult.DeadSymbols {
-		if i >= maxDeadCodeSamples {
+	for _, ds := range dcResult.DeadSymbols {
+		if len(samples) >= maxDeadCodeSamples {
 			break
+		}
+		// Skip minified symbols (single/double char names from minified JS).
+		if len(ds.Name) <= 2 {
+			continue
+		}
+		// Skip symbols from compiled artifact paths.
+		if compare.IsCompiledArtifact(ds.File) {
+			continue
 		}
 		samples = append(samples, ds.Name)
 	}

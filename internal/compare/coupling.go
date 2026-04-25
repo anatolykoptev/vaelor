@@ -53,6 +53,15 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 	coChanges := make(map[string]int)
 
 	for _, files := range commits {
+		// Filter out compiled artifacts from coupling analysis.
+		var srcFiles []string
+		for _, f := range files {
+			if !IsCompiledArtifact(f) {
+				srcFiles = append(srcFiles, f)
+			}
+		}
+		files = srcFiles
+
 		if len(files) < 2 || len(files) > maxFilesPerCommit {
 			// Track single-file changes for ratio computation.
 			for _, f := range files {
