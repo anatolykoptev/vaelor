@@ -56,7 +56,7 @@ Performance and capability milestones tracked empirically on example (ARM 24GB, 
 | Qdrant (vector search) | ✅ | Used for semantic_search |
 | BM25F + PageRank | ✅ | Used for code_research |
 | go/types (Go type analysis) | ✅ | v1.18 |
-| CE reranker (gte-multi-rerank) | 🔜 | v1.21 — rerank dead_code results; model at embed-server:8082 |
+| CE reranker (gte-multi-rerank) | ✅ | v1.21 — reranks semantic_search + dead_code; sigmoid [0..1] scores; embed-server:8082 |
 | code_graph query timeout fix | ✅ | addNarrative cap 50 rows; dead_code LIMIT 100 — 2026-04-24 |
 
 ## AGE Graph Stats (memdb, 2026-04-24)
@@ -78,3 +78,32 @@ edges:   33013
   USES:    ~1400
   others:  ~113
 ```
+
+## Search Quality Improvements (2026-04-24/25)
+
+| Metric | Before | After | Method |
+|---|---|---|---|
+| Dead code false positives | All `main()` entrypoints in top-10 | gRPC handlers, complex orphans first | CE reranker + CASE WHEN pre-filter |
+| semantic_search "LLM client init" | All `__init__` methods | `NewLLMExtractorWithClient` #1 | pg_trgm finds by name, CE reranks |
+| semantic_search timeout | Pool exhaustion during graph build | Never | MaxConns 4->10 + 5s safety timeout |
+| code_health large repos | 60s timeout | 1.9ms cached | Background computation + PostgreSQL cache |
+| CE dead_code_score UX | -1.7486 (confusing) | 0.148 (probability) | Sigmoid normalization |
+
+## Three-Layer Search Architecture
+
+```
+Query -> Vector (semantic) -> top-N candidates
+      -> pg_trgm (symbol names) -> code abbreviation matches  
+      -> CE reranker (gte-multi-rerank) -> final ordering by relevance
+```
+
+Applied to: `semantic_search`, `code_research`, `repo_analyze`
+
+## Infrastructure Reliability
+
+| Component | Status | Notes |
+|---|---|---|
+| code_graph build (MemDB) | OK 14s | BulkCopyInsert direct COPY, was 6 min |
+| semantic_search concurrency | Fixed | pgxpool MaxConns=10, 5s safety timeout |
+| code_health (313 deps) | Fixed | Freshness 20-concurrent x 2s, 35s cap |
+| code_health cache | Active | 1h TTL, background computation |

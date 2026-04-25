@@ -53,3 +53,19 @@ BM25 on commit messages **outperforms** BM25 on source code for bug localization
 | [CodeCompass (arxiv 2602.20048)](https://arxiv.org/abs/2602.20048) | Graph-based navigation: 99.4% task completion vs 76.2% baseline. But 58% of agents with graph access made 0 tool calls — need explicit prompting. |
 | [MLSA (arxiv 1808.01213)](https://arxiv.org/abs/1808.01213) | Build monolingual call graphs independently, stitch at FFI boundaries. |
 | [CHARON (EuroSP 2025)](https://scnps.co/papers/eurosp25_polyglot_sast.pdf) | Polyglot Property Graphs with bidirectional cross-language edges for SAST. |
+
+## CE Cross-Encoder Dead Code Detection (go-code approach)
+
+**Problem with AST-only approaches**: Cyclomatic complexity detects complex functions but not unused ones.
+Static "zero callers" detection has high false positive rate (entrypoints, test utilities, generated code).
+
+**go-code approach (2026-04-24)**:
+1. Cypher query finds orphan functions (no CALLS edges in AGE graph)
+2. CASE WHEN pre-filter scores by signal: penalizes `main`/`Test*`/`evaluation/` paths, boosts `src/` + high complexity
+3. CE reranker (gte-multi-rerank) scores each candidate as (query, function_signature+file) pair
+4. Sigmoid normalization: raw logit -> probability [0..1]
+5. Results stored in `code_dead_code_scores` at build time, served instantly on query
+
+**Quality**: CE sees `_init_chat_llms` as lower dead-code probability (it initializes components) vs `calculate_scores` (complex function, no callers). Pure complexity-based approaches cannot make this distinction.
+
+**Performance**: 119 candidates -> CE reranker in ~35s at graph build (background) -> zero cost per query.
