@@ -40,6 +40,7 @@ type SearchInput struct {
 	Language      string `json:"language,omitempty"`
 	Expand        string `json:"expand,omitempty"`
 	MaxTokens     int    `json:"max_tokens,omitempty"`
+	Format        string `json:"format,omitempty"` // "markdown" wraps expanded bodies in ```lang fences
 }
 
 // ScopedSearchInput mirrors ox-codes /search/scoped request.
@@ -55,6 +56,7 @@ type ScopedSearchInput struct {
 	ExcludeGlob   string `json:"exclude_glob,omitempty"`
 	Expand        string `json:"expand,omitempty"`
 	MaxTokens     int    `json:"max_tokens,omitempty"`
+	Format        string `json:"format,omitempty"` // "markdown" wraps expanded bodies in ```lang fences
 }
 
 // StructuralSearchInput mirrors ox-codes /search/structural request.
@@ -66,6 +68,7 @@ type StructuralSearchInput struct {
 	ExcludeGlob string `json:"exclude_glob,omitempty"`
 	Expand      string `json:"expand,omitempty"`
 	MaxTokens   int    `json:"max_tokens,omitempty"`
+	Format      string `json:"format,omitempty"` // "markdown" wraps expanded bodies in ```lang fences
 }
 
 // RewriteInput mirrors ox-codes /rewrite request.
