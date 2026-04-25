@@ -64,7 +64,10 @@ func resolveSelector(info *types.Info, fset *token.FileSet, pkg *packages.Packag
 func resolveMethodSelection(info *types.Info, fset *token.FileSet, pkg *packages.Package, sel *ast.SelectorExpr, selection *types.Selection, callerName, callerFile string, callerLine, callLine uint32, concrete concreteTypes) []TypedEdge {
 	recv := selection.Recv()
 	recvType := typeName(recv)
-	fn := selection.Obj().(*types.Func) //nolint:forcetypeassert // Selections always have Func obj
+	fn, ok := selection.Obj().(*types.Func)
+	if !ok {
+		return nil // field access (Var), not a method call
+	}
 	calleeFile := posFile(fset, fn.Pos())
 	pkgPath := ""
 	if fn.Pkg() != nil {
