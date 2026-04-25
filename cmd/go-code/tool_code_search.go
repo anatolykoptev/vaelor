@@ -153,6 +153,11 @@ func grepSearch(ctx context.Context, input CodeSearchInput, root string, client 
 // grepSearchOx runs grep via ox-codes with expand support, returning raw ox matches.
 func grepSearchOx(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client) ([]oxcodes.SearchMatch, error) {
 	searchInput := buildCodeSearchInput(input, root)
+	// Only request markdown when expand is active — otherwise body is empty.
+	format := ""
+	if input.Expand != "" {
+		format = "markdown"
+	}
 	oxResult, err := client.Search(ctx, oxcodes.SearchInput{
 		Root:          searchInput.Root,
 		Pattern:       searchInput.Pattern,
@@ -165,7 +170,7 @@ func grepSearchOx(ctx context.Context, input CodeSearchInput, root string, clien
 		Language:      searchInput.Language,
 		Expand:        input.Expand,
 		MaxTokens:     input.MaxTokens,
-		Format:        "markdown",
+		Format:        format,
 	})
 	if err != nil {
 		return nil, err
