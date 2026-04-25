@@ -18,7 +18,7 @@ import (
 // DataflowInput is the input schema for the dataflow_analyze tool.
 type DataflowInput struct {
 	Repo        string `json:"repo" jsonschema_description:"Repository: GitHub slug, URL, or absolute local path"`
-	Language    string `json:"language,omitempty" jsonschema_description:"Language to analyze (go, python). Auto-detected if omitted."`
+	Language    string `json:"language,omitempty" jsonschema_description:"Language to analyze (go, python, typescript, javascript, rust). Auto-detected if omitted."`
 	Focus       string `json:"focus,omitempty" jsonschema_description:"Analysis focus: 'all' (default), 'quality' (dead stores, unused vars), 'security' (taint/injection)"`
 	FileGlob    string `json:"file_glob,omitempty" jsonschema_description:"Include only files matching glob"`
 	ExcludeGlob string `json:"exclude_glob,omitempty" jsonschema_description:"Exclude files matching glob"`
