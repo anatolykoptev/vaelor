@@ -32,6 +32,17 @@ func HasGoModule(dir string) bool {
 
 // LoadPackages loads Go packages from dir with full type info.
 // Returns error if go.mod missing or context expires.
+
+// goEnv returns env vars for go/packages.Load.
+// Uses -mod=vendor when vendor/ dir exists (read-only mounts), else -mod=mod.
+func goEnv(dir string) []string {
+	flag := "-mod=mod"
+	if _, err := os.Stat(filepath.Join(dir, "vendor")); err == nil {
+		flag = "-mod=vendor"
+	}
+	return append(os.Environ(), "GOFLAGS="+flag, "GONOSUMCHECK=*", "GONOSUMDB=*")
+}
+
 func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, error) {
 	if !HasGoModule(dir) {
 		return nil, fmt.Errorf("no go.mod found in %s", dir)
@@ -59,7 +70,7 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 			packages.NeedDeps,
 		Dir:     dir,
 		Context: ctx,
-		Env:     append(os.Environ(), "GOFLAGS=-mod=mod"),
+		Env:     goEnv(dir),
 	}
 
 	pkgs, err := packages.Load(cfg, patterns...)
