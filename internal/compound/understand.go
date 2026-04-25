@@ -61,12 +61,22 @@ type UnderstandOpts struct {
 	// DeadCodeScores optionally sources CE reranker scores for dead-code detection.
 	// When nil, dead_code_score is omitted from the result.
 	DeadCodeScores DeadCodeScoreLookup
+
+	// SymbolRanker optionally computes a human-readable structural importance rank.
+	// When nil, structural_rank is omitted from the result.
+	SymbolRanker SymbolRanker
 }
 
 // DeadCodeScoreLookup is the narrow interface for fetching a single symbol's
 // dead-code CE reranker score. *codegraph.Store satisfies it.
 type DeadCodeScoreLookup interface {
 	LoadDeadCodeScore(ctx context.Context, repoKey, name, file string) (float32, bool)
+}
+
+// SymbolRanker computes a human-readable structural importance rank for a symbol.
+// *codegraph.Store satisfies it.
+type SymbolRanker interface {
+	SymbolStructuralRank(ctx context.Context, repoKey, name, file string, pagerank float64) string
 }
 
 // UnderstandResult is the output of the understand compound tool.
@@ -89,6 +99,10 @@ type UnderstandResult struct {
 	DeadCodeNote string `json:"dead_code_note,omitempty"`
 	// TestedBy lists test functions that directly cover this symbol via AGE TESTED_BY edges.
 	TestedBy []graphx.SymbolRef `json:"tested_by,omitempty"`
+	// StructuralRank is a human-readable summary of the symbol's architectural centrality.
+	// e.g. "Top 2% (6th of 4040 symbols by structural centrality)"
+	// Only present when the graph has pagerank data for this symbol.
+	StructuralRank string `json:"structural_rank,omitempty"`
 }
 
 // SymbolInfo is a summary of a symbol for compound tool output.
@@ -169,6 +183,7 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 	result.PriorLearnings = fetchPriorLearnings(ctx, opts, sym.Name)
 	result.GraphSignals = fetchGraphSignals(ctx, opts, sym)
 	result.DeadCodeScore, result.DeadCodeNote = fetchDeadCodeScore(ctx, opts, sym)
+	result.StructuralRank = fetchStructuralRank(ctx, opts, sym, result.GraphSignals)
 	result.TestedBy = fetchTestedBy(ctx, opts, sym)
 
 	return result
@@ -259,4 +274,22 @@ func fetchTestedBy(ctx context.Context, opts UnderstandOpts, sym *parser.Symbol)
 		return nil
 	}
 	return refs
+}
+
+// fetchStructuralRank queries the SymbolRanker for a human-readable percentile.
+// Returns "" when SymbolRanker is not configured, graph signals are unavailable,
+// or PageRank is 0.
+func fetchStructuralRank(ctx context.Context, opts UnderstandOpts, sym *parser.Symbol, signals *graphx.Signals) string {
+	if opts.SymbolRanker == nil || signals == nil || !signals.Found || signals.PageRank <= 0 {
+		return ""
+	}
+	repoKey := opts.Root
+	if repoKey == "" {
+		return ""
+	}
+	rank := opts.SymbolRanker.SymbolStructuralRank(ctx, repoKey, sym.Name, sym.File, signals.PageRank)
+	if rank == "" {
+		slog.Debug("structural rank unavailable", "symbol", sym.Name)
+	}
+	return rank
 }
