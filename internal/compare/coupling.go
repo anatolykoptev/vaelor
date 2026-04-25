@@ -36,7 +36,7 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 
 	//nolint:gosec // root is a trusted local path from resolveRoot
 	cmd := exec.CommandContext(ctx, "git", "-C", root,
-		"log", "--name-only", "--format=%x00", "--since=1 year", "--", "*.go")
+		"log", "--name-only", "--format=%x00", "--since=1 year")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
