@@ -121,6 +121,16 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		result.TransitiveCallers = partitionByHotspot(result.TransitiveCallers, root, hotspotSet)
 	}
 
+	// Cap direct callers passed to expensive post-processing.
+	// Symbols like "new" can have 289+ callers; sort+churn analysis on all would be slow.
+	const maxDirectCallersForProcessing = 100
+	var directCallersTruncNote string
+	if len(result.DirectCallers) > maxDirectCallersForProcessing {
+		totalDirect := len(result.DirectCallers)
+		result.DirectCallers = result.DirectCallers[:maxDirectCallersForProcessing]
+		directCallersTruncNote = fmt.Sprintf("showing top %d of %d direct callers (too many to process all)", maxDirectCallersForProcessing, totalDirect)
+	}
+
 	// Sort callers within each tier by PageRank (most architecturally important first).
 	// Applied after hotspot partition so hotspot/non-hotspot tiers are preserved.
 	repoKey := root // pass root path — graph.Symbol() calls GraphNameFor internally
@@ -148,8 +158,13 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		Tier           string   `json:"tier,omitempty"`
 		Narrative      string   `json:"narrative,omitempty"`
 		HotspotCallers []string `json:"hotspot_callers,omitempty"` // caller symbol names whose file is a top hotspot
+		Notes          []string `json:"notes,omitempty"`           // informational messages about truncation etc.
 	}
-	output := impactOutput{Result: result, Tier: cg.Tier, HotspotCallers: hotspotCallers}
+	var notes []string
+	if directCallersTruncNote != "" {
+		notes = append(notes, directCallersTruncNote)
+	}
+	output := impactOutput{Result: result, Tier: cg.Tier, HotspotCallers: hotspotCallers, Notes: notes}
 
 	if result.TotalAffected > 0 {
 		prefix := fmt.Sprintf("Changed symbol: %s\n\nImpact analysis:\n", input.Symbol)
