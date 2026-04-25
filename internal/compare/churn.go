@@ -39,6 +39,11 @@ const numstatFields = 3
 // churn statistics per file (relative paths).
 // Returns nil map and nil error for non-git directories.
 func CollectChurn(ctx context.Context, root string) (map[string]ChurnStats, error) {
+	key := churnCacheKey(root)
+	if cached, ok := globalChurnCache.get(key); ok {
+		return cached, nil
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, gitLogTimeout)
 	defer cancel()
 
@@ -59,7 +64,9 @@ func CollectChurn(ctx context.Context, root string) (map[string]ChurnStats, erro
 		return nil, fmt.Errorf("git log: %w: %s", err, stderr.String())
 	}
 
-	return parseNumstatOutput(stdout.Bytes()), nil
+	result := parseNumstatOutput(stdout.Bytes())
+	globalChurnCache.set(key, result)
+	return result, nil
 }
 
 // parseNumstatOutput parses the full output of git log --numstat --format=.
