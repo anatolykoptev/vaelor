@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/review"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -33,7 +34,7 @@ type ReviewPRInput struct {
 	Event string `json:"event,omitempty" jsonschema_description:"Required when dry_run=false: APPROVE | COMMENT | REQUEST_CHANGES."`
 }
 
-func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps) {
+func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps, graphStore *codegraph.Store) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "review_pr",
 		Description: "Review a pull request: fetches PR metadata and diff, " +
@@ -43,11 +44,11 @@ func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"posts the review to GitHub and persists per-symbol learnings. " +
 			"Requires GITHUB_TOKEN when dry_run=false.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ReviewPRInput) (*mcp.CallToolResult, error) {
-		return handleReviewPR(ctx, input, deps)
+		return handleReviewPR(ctx, input, deps, graphStore)
 	})
 }
 
-func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
+func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps, graphStore *codegraph.Store) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -98,6 +99,24 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps)
 
 	// Enrich changed symbols with graph signals (community_move / high_surprise).
 	review.ApplyGraphFlags(ctx, deps.Graph, root, result.ChangedSymbols, nil)
+
+	// Annotate removed symbols with dead_code_score when available.
+	if graphStore != nil {
+		for i := range result.ChangedSymbols {
+			s := &result.ChangedSymbols[i]
+			if s.ChangeType != review.ChangeRemoved {
+				continue
+			}
+			if s.Symbol == nil {
+				continue
+			}
+			score, ok := graphStore.LoadDeadCodeScore(ctx, root, s.Symbol.Name, s.Symbol.File)
+			if ok && score > 0.25 {
+				s.DeadCodeScore = score
+				s.DeadCodeNote = fmt.Sprintf("CE dead-code probability %.0f%% â likely safe to remove", float64(score)*100)
+			}
+		}
+	}
 
 	if dryRun {
 		return reviewPRDryRun(ctx, input, result)
