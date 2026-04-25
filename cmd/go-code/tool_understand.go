@@ -94,6 +94,7 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	}
 	if graphStore != nil {
 		opts.DeadCodeScores = graphStore
+		opts.SymbolRanker = graphStore
 	}
 	result := compound.Understand(ctx, matches[0], cg, opts)
 
