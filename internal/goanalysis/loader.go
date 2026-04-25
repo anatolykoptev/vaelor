@@ -10,7 +10,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-const defaultTimeout = 3 * time.Minute
+const defaultTimeout = 10 * time.Minute
 
 // LoadOpts configures package loading.
 type LoadOpts struct {
