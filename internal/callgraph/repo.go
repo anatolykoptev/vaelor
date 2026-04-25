@@ -2,10 +2,12 @@ package callgraph
 
 import (
 	"context"
-	"sync"
-	"time"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"sync"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/goanalysis"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -177,8 +179,25 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 
 	slog.Info("go/types: warming GOCACHE in background", "root", root)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
+
+	// Pre-warm GOCACHE with go build -- fills object cache without NeedTypesInfo overhead.
+	// After this, packages.Load completes in <10s instead of 3+ minutes.
+	slog.Info("go/types: pre-warming GOCACHE via go build", "root", root)
+	buildCmd := exec.CommandContext(ctx, "go", "build", "-mod=vendor", "./...")
+	buildCmd.Dir = root
+	buildCmd.Env = append(os.Environ(),
+		"GOCACHE=/tmp/go-build-cache",
+		"GOPATH=/tmp/gopath",
+		"GOWORK=off",
+		"GOFLAGS=-mod=vendor",
+	)
+	if berr := buildCmd.Run(); berr != nil {
+		slog.Warn("go/types: go build pre-warm failed (non-fatal)", "err", berr)
+		// Continue anyway -- packages.Load may still succeed from partial cache.
+	}
+	slog.Info("go/types: go build pre-warm done, starting packages.Load", "root", root)
 
 	typedCG := tryGoTypesResolution(ctx, root, symbols)
 	if typedCG == nil {
