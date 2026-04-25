@@ -51,6 +51,7 @@ type ScopedSearchInput struct {
 	IsRegex       bool   `json:"is_regex"`
 	MaxResults    int    `json:"max_results"`
 	CaseSensitive bool   `json:"case_sensitive"`
+	FileGlob      string `json:"file_glob,omitempty"`
 	ExcludeGlob   string `json:"exclude_glob,omitempty"`
 	Expand        string `json:"expand,omitempty"`
 	MaxTokens     int    `json:"max_tokens,omitempty"`
