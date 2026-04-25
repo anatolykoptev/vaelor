@@ -8,6 +8,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-code/internal/graphx"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -175,6 +176,8 @@ func handleSemanticHits(
 			}
 			// CE reranking: reorder by cross-encoder relevance score.
 			reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, flat, topK)
+			// Annotate with PageRank for architectural awareness.
+			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, repoKey)
 			return textResult(formatSemanticResults(input, reranked)), nil
 		}
 	}
@@ -188,7 +191,28 @@ func handleSemanticHits(
 	}
 	// CE reranking on pure semantic fallback path.
 	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, filtered, topK)
+	// Annotate with PageRank for architectural awareness.
+	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, repoKey)
 	return textResult(formatSemanticResults(input, reranked)), nil
+}
+
+// annotateWithPageRank adds PageRank signals to results for architectural awareness.
+// Non-fatal: results without PageRank data keep zero value and are not shown in output.
+func annotateWithPageRank(ctx context.Context, results []embeddings.SearchResult, graph graphx.Analytics, repoKey string) []embeddings.SearchResult {
+	if graph == nil || len(results) == 0 {
+		return results
+	}
+	annotated := make([]embeddings.SearchResult, len(results))
+	copy(annotated, results)
+	for i, r := range annotated {
+		if r.SymbolName == "" {
+			continue
+		}
+		if sig, err := graph.Symbol(ctx, repoKey, r.SymbolName, r.FilePath); err == nil && sig.Found {
+			annotated[i].PageRank = float32(sig.PageRank)
+		}
+	}
+	return annotated
 }
 
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult) string {
@@ -202,7 +226,12 @@ func formatSemanticResults(input SemanticSearchInput, results []embeddings.Searc
 		if source == "" {
 			source = "semantic"
 		}
-		fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\">\n", i+1, r.Distance, escapeXML(source))
+		if r.PageRank > 0 {
+			fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\" pagerank=\"%.6f\">\n",
+				i+1, r.Distance, escapeXML(source), r.PageRank)
+		} else {
+			fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\">\n", i+1, r.Distance, escapeXML(source))
+		}
 		fmt.Fprintf(&sb, "      <file>%s</file>\n", escapeXML(r.FilePath))
 		fmt.Fprintf(&sb, "      <symbol kind=\"%s\">%s</symbol>\n",
 			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))
