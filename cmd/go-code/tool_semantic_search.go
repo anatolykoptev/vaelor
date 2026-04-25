@@ -177,7 +177,7 @@ func handleSemanticHits(
 			// CE reranking: reorder by cross-encoder relevance score.
 			reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, flat, topK)
 			// Annotate with PageRank for architectural awareness.
-			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, repoKey)
+			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
 			return textResult(formatSemanticResults(input, reranked)), nil
 		}
 	}
@@ -192,7 +192,7 @@ func handleSemanticHits(
 	// CE reranking on pure semantic fallback path.
 	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, filtered, topK)
 	// Annotate with PageRank for architectural awareness.
-	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, repoKey)
+	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
 	return textResult(formatSemanticResults(input, reranked)), nil
 }
 
