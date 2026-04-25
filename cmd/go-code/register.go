@@ -66,7 +66,13 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	var graphStore *codegraph.Store
 	var dbPool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
-		p, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+		poolCfg, cfgErr := pgxpool.ParseConfig(cfg.DatabaseURL)
+		if cfgErr != nil {
+			slog.Warn("database: parse config failed", slog.Any("error", cfgErr))
+		} else {
+			poolCfg.MaxConns = 10 // code_graph build + concurrent queries need > default 4
+		}
+		p, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 		if err != nil {
 			slog.Warn("database: failed to connect, code_graph and semantic_search disabled",
 				slog.Any("error", err))
