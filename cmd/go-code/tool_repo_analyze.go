@@ -9,6 +9,7 @@ import (
 "time"
 
 "github.com/anatolykoptev/go-code/internal/analyze"
+"github.com/anatolykoptev/go-code/internal/codegraph"
 "github.com/anatolykoptev/go-code/internal/compare"
 mcpserver "github.com/anatolykoptev/go-mcpserver"
 "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -110,6 +111,35 @@ freshnessStats, _, _ = compare.CollectFreshness(fctx, root)
 extras = &repoAnalysisExtras{
 APISurfaceSize: len(apiSurface),
 FreshnessStats: freshnessStats,
+}
+}
+
+// Fetch architecturally central symbols from the AGE graph (any depth).
+// deps.Graph is always non-nil; Noop returns nil, nil when no snapshot exists.
+{
+repoKey := codegraph.GraphNameFor(root)
+const archTopK = 5
+signals, graphErr := deps.Graph.TopPageRank(ctx, repoKey, archTopK)
+if graphErr == nil && len(signals) > 0 {
+syms := make([]xmlArchSymbol, 0, len(signals))
+for _, sig := range signals {
+syms = append(syms, xmlArchSymbol{
+Name:     sig.Symbol.Name,
+File:     sig.Symbol.File,
+PageRank: sig.PageRank,
+})
+}
+archCentral := &xmlArchCentral{Available: true, Symbols: syms}
+if extras == nil {
+extras = &repoAnalysisExtras{}
+}
+extras.ArchCentral = archCentral
+} else {
+archCentral := &xmlArchCentral{Available: false}
+if extras == nil {
+extras = &repoAnalysisExtras{}
+}
+extras.ArchCentral = archCentral
 }
 }
 
