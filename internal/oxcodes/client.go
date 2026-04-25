@@ -77,6 +77,7 @@ type RewriteInput struct {
 	MaxResults  int    `json:"max_results"`
 	FileGlob    string `json:"file_glob,omitempty"`
 	ExcludeGlob string `json:"exclude_glob,omitempty"`
+	Apply       bool   `json:"apply,omitempty"`
 }
 
 // SearchResponse mirrors ox-codes response.

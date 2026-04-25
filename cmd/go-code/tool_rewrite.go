@@ -20,6 +20,7 @@ type RewriteInput struct {
 	MaxResults  int    `json:"max_results,omitempty" jsonschema_description:"Max matches (default: 50)"`
 	FileGlob    string `json:"file_glob,omitempty" jsonschema_description:"File glob filter (e.g. '*.go')"`
 	ExcludeGlob string `json:"exclude_glob,omitempty" jsonschema_description:"Exclude glob filter (e.g. 'vendor/*,testdata/*')"`
+	Apply       bool   `json:"apply,omitempty" jsonschema_description:"If true, write changes to disk (default: dry-run diff only)"`
 }
 
 type xmlRewriteResponse struct {
@@ -93,6 +94,7 @@ func handleRewrite(ctx context.Context, input RewriteInput, deps analyze.Deps, o
 		MaxResults:  maxResults,
 		FileGlob:    input.FileGlob,
 		ExcludeGlob: input.ExcludeGlob,
+		Apply:       input.Apply,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("rewrite: %s", err)), nil
