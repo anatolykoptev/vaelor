@@ -47,12 +47,18 @@ func filterByStringRefs(
 		go func(sym DeadSymbol) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			pattern := sym.Name
+			isRegex := false
+			if len(sym.Name) < 4 {
+				pattern = `\b` + sym.Name + `\b`
+				isRegex = true
+			}
 			resp, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
 				Root:          root,
-				Pattern:       sym.Name,
+				Pattern:       pattern,
 				Scope:         oxCodesScope,
 				Language:      language,
-				IsRegex:       false,
+				IsRegex:       isRegex,
 				MaxResults:    oxCodesMaxResults,
 				CaseSensitive: true,
 			})
