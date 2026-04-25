@@ -6,8 +6,10 @@ package explore
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -20,6 +22,12 @@ const maxDeadCodeSamples = 10
 
 // maxTopSymbols is the maximum number of top symbols returned.
 const maxTopSymbols = 20
+
+// maxRecentCommits is the number of recent commits to include.
+const maxRecentCommits = 20
+
+// maxTopCoupledPairs is the number of top coupled file pairs to include.
+const maxTopCoupledPairs = 5
 
 // Input configures the exploration.
 type Input struct {
@@ -44,6 +52,8 @@ type Result struct {
 	Health        *HealthSummary     `json:"health,omitempty"`
 	Tier          string             `json:"tier,omitempty"`
 	Backend       string             `json:"backend,omitempty"`
+	RecentCommits []CommitSummary    `json:"recent_commits,omitempty"`
+	TopCoupled    []CoupledSummary   `json:"top_coupled_files,omitempty"`
 }
 
 // LanguageStat holds file count and ratio for a detected language.
@@ -65,6 +75,21 @@ type SymbolSummary struct {
 type DeadCodeSummary struct {
 	Count   int      `json:"count"`
 	Samples []string `json:"samples"`
+}
+
+// CommitSummary is a compact view of a recent git commit.
+type CommitSummary struct {
+	Hash    string `json:"hash"`
+	Message string `json:"message"`
+	Date    string `json:"date"`
+	Files   int    `json:"files_changed"`
+}
+
+// CoupledSummary is a pair of files that frequently change together.
+type CoupledSummary struct {
+	FileA     string `json:"file_a"`
+	FileB     string `json:"file_b"`
+	CoChanges int    `json:"co_changes"`
 }
 
 // parseResults holds aggregated parse output from all files.
@@ -131,6 +156,36 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 
 	communityOverview := buildCommunityOverview(cg, input.Root)
 
+	// Recent commits: last 20, non-fatal.
+	var recentCommits []CommitSummary
+	{
+		rctx, rcancel := context.WithTimeout(ctx, 10*time.Second)
+		commits, cerr := collectRecentCommits(rctx, input.Root, maxRecentCommits)
+		rcancel()
+		if cerr == nil {
+			recentCommits = commits
+		}
+	}
+
+	// Top coupled files: non-fatal (CollectCoupling has LRU cache).
+	var topCoupled []CoupledSummary
+	{
+		cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
+		pairs := compare.CollectCoupling(cctx, input.Root, 3)
+		ccancel()
+		limit := maxTopCoupledPairs
+		if len(pairs) < limit {
+			limit = len(pairs)
+		}
+		for _, p := range pairs[:limit] {
+			topCoupled = append(topCoupled, CoupledSummary{
+				FileA:     p.FileA,
+				FileB:     p.FileB,
+				CoChanges: p.CoChanges,
+			})
+		}
+	}
+
 	result := &Result{
 		ReadmeExcerpt: readme,
 		FocusMode:     focusMode,
@@ -144,6 +199,8 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		Packages:      packages,
 		DepHighlights: depHL,
 		Health:        health,
+		RecentCommits: recentCommits,
+		TopCoupled:    topCoupled,
 	}
 	result.Tier = cg.Tier
 	result.Backend = cg.Backend
