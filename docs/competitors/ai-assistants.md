@@ -39,6 +39,20 @@ No static pre-selection. LLM explores via:
 For batch analysis (like go-code), **pre-ranking is better**.
 For interactive agents, **exploration tools are better**.
 
+## go-code — Three-Layer Search + Graph Intelligence
+
+- **Layer 1 (Recall)**: Vector embeddings (jina-code-v2) find semantically similar symbols
+- **Layer 2 (Precision)**: pg_trgm trigram similarity finds functions by name abbreviations
+  (`init_chat_llms` for query "initialize LLM" — vector misses it, pg_trgm finds it)
+- **Layer 3 (Quality)**: CE cross-encoder (gte-multi-rerank, 306M params) reranks top-20
+  by seeing query + code together, not just independent embeddings
+
+**Unique capabilities vs competitors:**
+- Cross-language call graph (Python → Go blast radius via AGE)
+- Dead code detection with CE probability [0..1] at graph build time
+- code_health grade A-F with dead code metric in formula
+- Background computation + PostgreSQL cache for large repos
+
 ## Patterns Summary
 
 | Tool | Context Strategy | Key Innovation |
@@ -47,4 +61,4 @@ For interactive agents, **exploration tools are better**.
 | Continue | BM25 + embeddings + RRF | Hybrid retrieval |
 | Cursor | Merkle + AST chunks + vectors | Incremental indexing |
 | Cline | LLM-driven exploration | No pre-ranking |
-| go-code | BM25F + PageRank + intent prompts | Graph DB + NL→Cypher |
+| go-code | Vector + pg_trgm + CE reranker (3 layers) | AGE cross-language graph, dead code CE scores, code_health cache, background builds |

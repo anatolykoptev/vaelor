@@ -738,6 +738,9 @@ These fixes were discovered and shipped while debugging code_graph performance:
 | v1.13.0 | `8eaf53f` | `explore` tool + codegraph fixes |
 | v1.14.0 | `0af48a3` | LLM-free architecture, XML output, `code_health`, explore content fallback |
 | v1.15.0 | `780139d` | Identifier-level fusion ranking (PPR + BM25F + exact match) |
+| v1.19.1–v1.19.7 | `ed0325b`–`472ce61` | AGE stability: CREATE EXTENSION, 42P01 fix, BulkWriter, UNWIND batching, EnsureIndexes before inserts |
+| v1.20.0 | `79b8791` | BulkCopyInsert — direct COPY INTO AGE tables; IndexRepo 6 min → 14s |
+| v1.21.0 | `60add60`–`15b045d` | Three-layer search (pg_trgm+CE), dead code CE scores, code_health cache, pool fix |
 
 ## Technical Debt Watch
 
@@ -754,3 +757,8 @@ These fixes were discovered and shipped while debugging code_graph performance:
 - [x] jsonschema tag format (fixed: jsonschema_description)
 - [x] Consistent versioning scheme (re-tagged: v1.0.0 → v1.4.0)
 - [x] golangci-lint clean (28 issues resolved)
+- [x] code_health timeout on large repos (background cache + freshness tuning)
+- [x] semantic_search recall for code abbreviations (pg_trgm + CE reranker)
+- [x] dead code false positives (CE cross-encoder confidence scores)
+- [x] pgxpool exhaustion under concurrent builds (MaxConns=10)
+
