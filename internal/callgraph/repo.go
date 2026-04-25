@@ -3,6 +3,7 @@ package callgraph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/goanalysis"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -33,6 +34,13 @@ type parseResult struct {
 // BuildFromRepo ingests a repo, parses files, and returns the call graph
 // without tracing a specific symbol.
 func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error) {
+	// Check cache first — parsing all repo files is expensive (15-60s on cold start).
+	cacheKey := cgCacheKey(input)
+	if cached, ok := cgCache.get(cacheKey); ok {
+		slog.Debug("callgraph: BuildFromRepo cache hit", slog.String("root", input.Root))
+		return cached, nil
+	}
+
 	var langs []string
 	if input.Language != "" {
 		langs = []string{input.Language}
@@ -91,6 +99,10 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	// Populate UsesIndex from Astro template component references.
 	cg.UsesIndex = buildUsesIndex(results, input.Root)
 
+	// Cache the result for subsequent calls within the same session.
+	cgCache.set(cacheKey, cg)
+	slog.Debug("callgraph: BuildFromRepo cached", slog.String("root", input.Root),
+		slog.String("tier", cg.Tier))
 	return cg, nil
 }
 
