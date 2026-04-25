@@ -9,7 +9,6 @@ import (
 "time"
 
 "github.com/anatolykoptev/go-code/internal/analyze"
-"github.com/anatolykoptev/go-code/internal/codegraph"
 "github.com/anatolykoptev/go-code/internal/compare"
 mcpserver "github.com/anatolykoptev/go-mcpserver"
 "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -117,9 +116,9 @@ FreshnessStats: freshnessStats,
 // Fetch architecturally central symbols from the AGE graph (any depth).
 // deps.Graph is always non-nil; Noop returns nil, nil when no snapshot exists.
 {
-repoKey := codegraph.GraphNameFor(root)
+_ = root // root passed directly to TopPageRank
 const archTopK = 5
-signals, graphErr := deps.Graph.TopPageRank(ctx, repoKey, archTopK)
+signals, graphErr := deps.Graph.TopPageRank(ctx, root, archTopK)
 if graphErr == nil && len(signals) > 0 {
 syms := make([]xmlArchSymbol, 0, len(signals))
 for _, sig := range signals {
