@@ -29,6 +29,11 @@ type CoupledPair struct {
 // Returns pairs with at least minCoChanges co-occurrences, sorted by frequency desc.
 // Looks at the last year of history. Returns nil if git is unavailable.
 func CollectCoupling(ctx context.Context, root string, minCoChanges int) []CoupledPair {
+	key := couplingCacheKey(root, minCoChanges)
+	if cached, ok := globalCouplingCache.get(key); ok {
+		return cached
+	}
+
 	//nolint:gosec // root is a trusted local path from resolveRoot
 	cmd := exec.CommandContext(ctx, "git", "-C", root,
 		"log", "--name-only", "--format=%x00", "--since=1 year", "--", "*.go")
@@ -83,6 +88,7 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 		pairs = pairs[:maxCouplingPairs]
 	}
 
+	globalCouplingCache.set(key, pairs)
 	return pairs
 }
 
