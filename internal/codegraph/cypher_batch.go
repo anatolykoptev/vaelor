@@ -51,21 +51,6 @@ func buildEdgeBatch(graphName string, edges []edgeData) string {
 	sb.WriteString("RETURN 1")
 	return sb.String()
 }
-
-// buildSingleEdge generates a Cypher statement for one edge: MATCH endpoints, MERGE edge.
-func buildSingleEdge(e edgeData) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "MATCH (f:%s {%s})\n", e.FromLabel, matchKey(e.FromLabel, e.FromKey))
-	fmt.Fprintf(&sb, "MATCH (t:%s {%s})\n", e.ToLabel, matchKey(e.ToLabel, e.ToKey))
-	if len(e.Props) > 0 {
-		fmt.Fprintf(&sb, "MERGE (f)-[e:%s {%s}]->(t)\n", e.EdgeLabel, formatProps(e.Props))
-	} else {
-		fmt.Fprintf(&sb, "MERGE (f)-[e:%s]->(t)\n", e.EdgeLabel)
-	}
-	sb.WriteString("RETURN 1")
-	return sb.String()
-}
-
 // vertexKey returns the primary key value for a vertex.
 // Package: keyed by path. File: keyed by path. Symbol: keyed by "name:file".
 func vertexKey(v vertexData) string {
