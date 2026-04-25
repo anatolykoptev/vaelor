@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/impact"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -119,6 +122,14 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		result.TransitiveCallers = partitionByHotspot(result.TransitiveCallers, root, hotspotSet)
 	}
 
+	// Sort callers within each tier by PageRank (most architecturally important first).
+	// Applied after hotspot partition so hotspot/non-hotspot tiers are preserved.
+	repoKey := codegraph.GraphNameFor(root)
+	result.DirectCallers = sortCallersByPageRank(ctx, result.DirectCallers, deps.Graph, repoKey)
+	if len(result.TransitiveCallers) > 0 {
+		result.TransitiveCallers = sortCallersByPageRank(ctx, result.TransitiveCallers, deps.Graph, repoKey)
+	}
+
 	// Collect deduplicated hotspot caller names (Name field) in reordered order.
 	var hotspotCallers []string
 	if hotspotSet != nil {
@@ -196,4 +207,38 @@ func partitionByHotspot(callers []impact.AffectedSymbol, root string, hotspotSet
 		}
 	}
 	return append(hot, cold...)
+}
+
+// sortCallersByPageRank performs a stable sort of callers by their symbol PageRank
+// descending. Uses graph.Symbol() for per-symbol lookup.
+// Non-fatal: callers with lookup errors keep their original position (rank 0).
+func sortCallersByPageRank(ctx context.Context, callers []impact.AffectedSymbol, graph graphx.Analytics, repoKey string) []impact.AffectedSymbol {
+	if graph == nil || len(callers) <= 1 {
+		return callers
+	}
+
+	// Fetch PageRank for each caller (one lookup per caller).
+	ranks := make([]float64, len(callers))
+	for i, c := range callers {
+		if sig, err := graph.Symbol(ctx, repoKey, c.Name, c.File); err == nil && sig.Found {
+			ranks[i] = sig.PageRank
+		}
+	}
+
+	// Build an index slice and stable-sort it by descending PageRank.
+	// This avoids the ranks[i]/ranks[j] aliasing problem that arises if we
+	// sorted the callers slice in-place while ranks tracked the original order.
+	idx := make([]int, len(callers))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		return ranks[idx[a]] > ranks[idx[b]]
+	})
+
+	sorted := make([]impact.AffectedSymbol, len(callers))
+	for i, orig := range idx {
+		sorted[i] = callers[orig]
+	}
+	return sorted
 }
