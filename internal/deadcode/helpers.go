@@ -104,6 +104,11 @@ func isExported(name string) bool {
 
 // classifyConfidence assigns a confidence level based on symbol properties.
 func classifyConfidence(sym *parser.Symbol, exported bool) string {
+	// Rust pub functions: medium confidence because they may be used by dependent
+	// crates externally or via FFI, even if not called within the analyzed codebase.
+	if sym.Language == "rust" && exported {
+		return ConfidenceMedium
+	}
 	if exported {
 		return ConfidenceLow
 	}

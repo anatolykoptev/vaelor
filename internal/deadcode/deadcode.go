@@ -147,13 +147,20 @@ func shouldSkipSymbol(sym *parser.Symbol, opts Options) bool {
 	if isRustWellKnownMethod(sym) {
 		return true
 	}
+	if isRustFrameworkHandler(sym) {
+		return true
+	}
 	if isCppImplicitMethod(sym) {
 		return true
 	}
 	if !opts.IncludeTests && isTestFile(sym.File) {
 		return true
 	}
-	if !opts.IncludeExported && isSymbolExported(sym) {
+	// For Rust: always include pub functions even when IncludeExported=false.
+	// In Rust, pub means visible to other crates, not definitely called externally.
+	// They get confidence=medium to indicate potential external usage.
+	isRustPub := sym.Language == "rust" && sym.IsPublic
+	if !opts.IncludeExported && isSymbolExported(sym) && !isRustPub {
 		return true
 	}
 	return false
