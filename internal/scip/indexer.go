@@ -52,7 +52,7 @@ var manifestFiles = map[string]bool{
 // skipDirs are not traversed during copyForIndexing.
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, "vendor": true,
-	"target": true, "__pycache__": true, ".cargo": true, ".rustup": true,
+	"target": true, "__pycache__": true, ".cargo": true, ".rustup": true, ".svelte-kit": true,
 	"dist": true, "build": true, ".next": true, ".nuxt": true, "out": true,
 }
 
