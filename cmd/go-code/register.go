@@ -97,6 +97,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			Pipeline:    embeddings.NewPipeline(ec, es),
 			AnalyzeDeps: deps,
 			Expander:    embeddings.NewExpander(dbPool),
+			OxCodes:     buildOxCodesClient(cfg),
 		}
 	}
 
