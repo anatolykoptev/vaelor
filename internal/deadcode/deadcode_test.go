@@ -559,14 +559,20 @@ func TestAnalyze_RustPubVisibility(t *testing.T) {
 		Edges:   nil,
 	}
 	result := Analyze(cg, Options{})
-	if result.DeadCount != 1 {
-		t.Errorf("expected 1 dead (helper), got %d", result.DeadCount)
+	// Rust pub functions are now included even with IncludeExported=false (default),
+	// because in Rust pub means crate-visibility, not "definitely used externally".
+	// Both pubFn (new, exported=true) and privateFn (helper) should appear as dead.
+	if result.DeadCount != 2 {
+		t.Errorf("expected 2 dead (new + helper), got %d", result.DeadCount)
 		for _, d := range result.DeadSymbols {
-			t.Logf("  dead: %s (exported=%v)", d.Name, d.Exported)
+			t.Logf("  dead: %s (exported=%v, confidence=%s)", d.Name, d.Exported, d.Confidence)
 		}
 	}
-	if result.DeadCount == 1 && result.DeadSymbols[0].Name != "helper" {
-		t.Errorf("expected dead 'helper', got %q", result.DeadSymbols[0].Name)
+	// pub fn should have medium confidence (may be used by dependent crates).
+	for _, d := range result.DeadSymbols {
+		if d.Name == "new" && d.Confidence != ConfidenceMedium {
+			t.Errorf("expected confidence=medium for pub fn new, got %s", d.Confidence)
+		}
 	}
 }
 
