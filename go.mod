@@ -3,10 +3,10 @@ module github.com/anatolykoptev/go-code
 go 1.26.0
 
 require (
-	github.com/anatolykoptev/go-kit v0.21.0
+	github.com/anatolykoptev/go-kit v0.24.1
 	github.com/anatolykoptev/go-mcpserver v0.11.0
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/jackc/pgx/v5 v5.9.1
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
