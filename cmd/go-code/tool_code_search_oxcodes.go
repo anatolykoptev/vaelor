@@ -17,6 +17,11 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 		caseSensitive = *input.CaseSensitive
 	}
 
+	// Only request markdown when expand is active — otherwise body is empty.
+	format := ""
+	if input.Expand != "" {
+		format = "markdown"
+	}
 	result, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
 		Root:          root,
 		Pattern:       input.Pattern,
@@ -28,7 +33,7 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 		ExcludeGlob:   input.ExcludeGlob,
 		Expand:        input.Expand,
 		MaxTokens:     input.MaxTokens,
-		Format:        "markdown",
+		Format:        format,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("scoped search: %s", err)), nil
@@ -45,6 +50,11 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string) (*mcp.CallToolResult, error) {
 	maxResults := clampMaxResults(input.MaxResults)
 
+	// Only request markdown when expand is active — otherwise body is empty.
+	format := ""
+	if input.Expand != "" {
+		format = "markdown"
+	}
 	result, err := client.SearchStructural(ctx, oxcodes.StructuralSearchInput{
 		Root:        root,
 		Pattern:     input.Pattern,
@@ -53,7 +63,7 @@ func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root str
 		ExcludeGlob: input.ExcludeGlob,
 		Expand:      input.Expand,
 		MaxTokens:   input.MaxTokens,
-		Format:      "markdown",
+		Format:      format,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("structural search: %s", err)), nil
