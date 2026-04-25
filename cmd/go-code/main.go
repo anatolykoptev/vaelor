@@ -80,7 +80,7 @@ func main() {
 						return nil
 					}
 					ctx := context.Background()
-					_, err := handleReviewPR(ctx, ReviewPRInput{Repo: slug, PR: pr, Event: "COMMENT"}, deps)
+					_, err := handleReviewPR(ctx, ReviewPRInput{Repo: slug, PR: pr, Event: "COMMENT"}, deps, nil)
 					return err
 				},
 				postPushReview: func(slug, before, after string) error {
