@@ -31,7 +31,7 @@ FROM alpine:3.21
 # git: shallow cloning of repositories for analysis.
 # tzdata: proper timezone handling in logs.
 # nodejs/npm: SCIP indexers for TypeScript and Python.
-RUN apk add --no-cache ca-certificates git tzdata nodejs npm && \
+RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-analyzer && \
     git config --global --add safe.directory '*'
 
 # SCIP indexers for multi-language type-aware analysis.
