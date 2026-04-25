@@ -128,7 +128,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	registerUnderstand(server, cfg, deps, &semDeps, graphStore)
 	registerPrepareChange(server, cfg, deps, &semDeps)
 	registerReviewDelta(server, cfg, deps, graphStore)
-	registerReviewPR(server, cfg, deps)
+	registerReviewPR(server, cfg, deps, graphStore)
 	registerRewrite(server, cfg, deps)
 	registerDataflow(server, cfg, deps)
 	// Design search deps (optional — needs DESIGN_EMBED_URL + DATABASE_URL).
