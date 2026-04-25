@@ -211,22 +211,41 @@ func partitionByHotspot(callers []impact.AffectedSymbol, root string, hotspotSet
 // sortCallersByPageRank performs a stable sort of callers by their symbol PageRank
 // descending. Uses graph.Symbol() for per-symbol lookup.
 // Non-fatal: callers with lookup errors keep their original position (rank 0).
+// sortCallersByPageRank sorts callers by structural importance (PageRank).
+//
+// Uses ONE batch TopPageRank query instead of N individual Symbol() lookups.
+// This is critical for common symbols (e.g. "new") that can have 289+ callers —
+// N individual queries × 5ms = 1.45s+ vs 1 batch query = ~30ms.
+//
+// Only the top-200 repo-wide symbols by PageRank are fetched; callers outside
+// that set keep their relative position (their PageRank is architecturally
+// negligible anyway).
 func sortCallersByPageRank(ctx context.Context, callers []impact.AffectedSymbol, graph graphx.Analytics, repoKey string) []impact.AffectedSymbol {
 	if graph == nil || len(callers) <= 1 {
 		return callers
 	}
 
-	// Fetch PageRank for each caller (one lookup per caller).
-	ranks := make([]float64, len(callers))
-	for i, c := range callers {
-		if sig, err := graph.Symbol(ctx, repoKey, c.Name, c.File); err == nil && sig.Found {
-			ranks[i] = sig.PageRank
-		}
+	// Single batch query: fetch top-200 symbols by PageRank across the whole repo.
+	const batchSize = 200
+	signals, err := graph.TopPageRank(ctx, repoKey, batchSize)
+	if err != nil || len(signals) == 0 {
+		return callers // graph cold or unavailable — keep original order
 	}
 
-	// Build an index slice and stable-sort it by descending PageRank.
-	// This avoids the ranks[i]/ranks[j] aliasing problem that arises if we
-	// sorted the callers slice in-place while ranks tracked the original order.
+	// Build a local map: "file:name" → PageRank. O(batchSize).
+	prMap := make(map[string]float64, len(signals))
+	for _, sig := range signals {
+		key := sig.Symbol.File + ":" + sig.Symbol.Name
+		prMap[key] = sig.PageRank
+	}
+
+	// Look up each caller's PageRank from the map (O(N), no DB round-trips).
+	ranks := make([]float64, len(callers))
+	for i, c := range callers {
+		ranks[i] = prMap[c.File+":"+c.Name]
+	}
+
+	// Stable sort descending by PageRank.
 	idx := make([]int, len(callers))
 	for i := range idx {
 		idx[i] = i
