@@ -183,10 +183,24 @@ var templates = map[string]*Template{
 	},
 	"important_symbols": {
 		ID:          "important_symbols",
-		Description: "Find the most important symbols by PageRank score (most depended-upon)",
+		Description: "Most structurally central symbols by PageRank — the load-bearing code you must understand first before diving into any feature area",
 		Params:      []string{"limit"},
 		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.file, s.kind, s.pagerank ORDER BY s.pagerank DESC LIMIT {limit}",
 		Cols:        4,
+	},
+	"explain_architecture": {
+		ID:          "explain_architecture",
+		Description: "Top architecturally important symbols with their files and structural communities — the essential map for understanding any codebase",
+		Params:      []string{"limit"},
+		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL AND s.kind IN ['function', 'method'] WITH s ORDER BY toFloat(s.pagerank) DESC LIMIT {limit} RETURN s.name, s.file, s.kind, s.pagerank, s.community",
+		Cols:        5,
+	},
+	"hotspot_files": {
+		ID:          "hotspot_files",
+		Description: "Files containing the most architecturally important symbols — the structural hotspots of the codebase where changes carry highest risk",
+		Params:      []string{"limit"},
+		Cypher:      "MATCH (f:File)-[:CONTAINS]->(s:Symbol) WHERE s.pagerank IS NOT NULL WITH f.path AS fpath, max(toFloat(s.pagerank)) AS maxPR, count(s) AS symCount RETURN fpath, maxPR, symCount ORDER BY maxPR DESC LIMIT {limit}",
+		Cols:        3,
 	},
 	"hook_handlers": {
 		ID:          "hook_handlers",
