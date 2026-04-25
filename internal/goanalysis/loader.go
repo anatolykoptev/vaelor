@@ -40,7 +40,7 @@ func goEnv(dir string) []string {
 	if _, err := os.Stat(filepath.Join(dir, "vendor")); err == nil {
 		flag = "-mod=vendor"
 	}
-	return append(os.Environ(), "GOFLAGS="+flag, "GONOSUMCHECK=*", "GONOSUMDB=*")
+	return append(os.Environ(), "GOFLAGS="+flag, "GONOSUMCHECK=*", "GONOSUMDB=*", "GOCACHE=/tmp/go-build-cache", "GOPATH=/tmp/gopath", "GOWORK=off")
 }
 
 func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, error) {
