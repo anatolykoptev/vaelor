@@ -28,6 +28,7 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 		ExcludeGlob:   input.ExcludeGlob,
 		Expand:        input.Expand,
 		MaxTokens:     input.MaxTokens,
+		Format:        "markdown",
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("scoped search: %s", err)), nil
@@ -52,6 +53,7 @@ func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root str
 		ExcludeGlob: input.ExcludeGlob,
 		Expand:      input.Expand,
 		MaxTokens:   input.MaxTokens,
+		Format:      "markdown",
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("structural search: %s", err)), nil
