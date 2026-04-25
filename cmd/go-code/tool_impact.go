@@ -10,7 +10,6 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/impact"
@@ -124,7 +123,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 
 	// Sort callers within each tier by PageRank (most architecturally important first).
 	// Applied after hotspot partition so hotspot/non-hotspot tiers are preserved.
-	repoKey := codegraph.GraphNameFor(root)
+	repoKey := root // pass root path — graph.Symbol() calls GraphNameFor internally
 	result.DirectCallers = sortCallersByPageRank(ctx, result.DirectCallers, deps.Graph, repoKey)
 	if len(result.TransitiveCallers) > 0 {
 		result.TransitiveCallers = sortCallersByPageRank(ctx, result.TransitiveCallers, deps.Graph, repoKey)
