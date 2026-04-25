@@ -38,7 +38,7 @@ var sourceExts = map[string]bool{
 	".py": true, ".java": true, ".rs": true, ".rb": true, ".cs": true,
 	".c": true, ".cpp": true, ".h": true, ".hpp": true,
 	".json": true, ".toml": true, ".mod": true, ".sum": true,
-	".lock": true, ".cfg": true, ".ini": true, ".yaml": true, ".yml": true,
+	".cfg": true, ".ini": true, ".yaml": true, ".yml": true,
 }
 
 // manifestFiles are always copied regardless of extension.
@@ -52,6 +52,8 @@ var manifestFiles = map[string]bool{
 // skipDirs are not traversed during copyForIndexing.
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, "vendor": true,
+	"target": true, "__pycache__": true, ".cargo": true, ".rustup": true,
+	"dist": true, "build": true, ".next": true, ".nuxt": true, "out": true,
 }
 
 // IndexResult holds the path to the generated index and an optional cleanup function.
