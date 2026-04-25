@@ -25,7 +25,7 @@ RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
 FROM example-server-go-code:latest AS scip-builder
 
 # ── Stage 3: Runtime ─────────────────────────────────────────────────────────
-FROM alpine:3.21
+FROM golang:1.26-alpine
 
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
 # git: shallow cloning of repositories for analysis.
