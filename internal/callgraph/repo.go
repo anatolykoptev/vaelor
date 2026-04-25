@@ -2,6 +2,8 @@ package callgraph
 
 import (
 	"context"
+	"sync"
+	"time"
 	"fmt"
 	"log/slog"
 
@@ -73,11 +75,21 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	cg.Backend = "tree-sitter"
 
 	// Attempt go/types resolution for Go modules — purely additive.
+	// Try with a short timeout first (warm GOCACHE = fast). If it doesn't finish
+	// in time, kick off a background goroutine that warms GOCACHE and updates
+	// the cache entry once done (next call will hit warm cache and succeed).
 	if goanalysis.HasGoModule(input.Root) {
-		if typedCG := tryGoTypesResolution(ctx, input.Root, allSymbols); typedCG != nil {
+		warmCtx, warmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		typedCG := tryGoTypesResolution(warmCtx, input.Root, allSymbols)
+		warmCancel()
+		if typedCG != nil {
 			cg = MergeCallGraphs(cg, typedCG)
 			cg.Tier = "enhanced"
 			cg.Backend = "tree-sitter+go/types"
+		} else {
+			// Cold cache — start background analysis to warm GOCACHE.
+			// The next call_trace will complete in <10s (warm cache).
+			go warmGoTypesCache(input.Root, allSymbols, cgCacheKey(input))
 		}
 	}
 
@@ -149,4 +161,37 @@ func buildUsesIndex(results []parseResult, root string) map[string][]string {
 		return nil
 	}
 	return idx
+}
+
+// goTypesWarmingSet tracks repos currently being warmed to avoid duplicate goroutines.
+var goTypesWarmingSet sync.Map
+
+// warmGoTypesCache runs go/types analysis in background to warm GOCACHE.
+// When complete, it upgrades the cached CallGraph from basic to enhanced tier.
+func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
+	_, alreadyWarming := goTypesWarmingSet.LoadOrStore(root, true)
+	if alreadyWarming {
+		return
+	}
+	defer goTypesWarmingSet.Delete(root)
+
+	slog.Info("go/types: warming GOCACHE in background", "root", root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	typedCG := tryGoTypesResolution(ctx, root, symbols)
+	if typedCG == nil {
+		slog.Warn("go/types: background warm failed", "root", root)
+		return
+	}
+
+	// Upgrade existing cache entry to enhanced tier.
+	if cached, ok := cgCache.get(cacheKey); ok {
+		enhanced := MergeCallGraphs(cached, typedCG)
+		enhanced.Tier = "enhanced"
+		enhanced.Backend = "tree-sitter+go/types"
+		cgCache.set(cacheKey, enhanced)
+	}
+	slog.Info("go/types: GOCACHE warmed, cache upgraded to enhanced", "root", root)
 }
