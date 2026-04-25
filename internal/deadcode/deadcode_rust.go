@@ -36,6 +36,19 @@ func isRustWellKnownMethod(sym *parser.Symbol) bool {
 	return sym.Language == "rust" && sym.Kind == parser.KindMethod && rustWellKnownMethods[sym.Name]
 }
 
+// isRustFrameworkHandler returns true for Rust functions that are likely framework
+// entry points registered via Axum, Actix, or Rocket — not dead even without explicit callers.
+func isRustFrameworkHandler(sym *parser.Symbol) bool {
+	if sym.Language != "rust" {
+		return false
+	}
+	name := sym.Name
+	// Common Axum/Actix/Rocket entry-point names and naming conventions.
+	return name == "handler" || name == "serve" || name == "run" ||
+		strings.HasPrefix(name, "handle_") ||
+		strings.HasSuffix(name, "_handler")
+}
+
 // isSymbolExported returns true if the symbol is public/exported.
 // Uses IsPublic field for languages that set it (Rust), falls back to Go uppercase convention.
 func isSymbolExported(sym *parser.Symbol) bool {
