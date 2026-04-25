@@ -9,6 +9,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -29,6 +30,7 @@ type SemanticDeps struct {
 	Pipeline    *embeddings.Pipeline
 	AnalyzeDeps analyze.Deps
 	Expander    *embeddings.Expander
+	OxCodes     *oxcodes.Client
 }
 
 const (
@@ -162,7 +164,12 @@ func handleSemanticHits(
 	// Hybrid: run keyword search and merge with RRF.
 	// Overretrieve before CE reranking so the reranker sees more candidates.
 	rerankCap := max(topK*2, semanticRerankCandidates)
-	keyHits := runKeywordSearch(ctx, input.Query, root)
+	var keyHits []embeddings.FileLineHit
+	if scopedHits := runScopedKeywordSearch(ctx, deps.OxCodes, input.Query, root, input.Language); len(scopedHits) > 0 {
+		keyHits = scopedHits
+	} else {
+		keyHits = runKeywordSearch(ctx, input.Query, root)
+	}
 	if len(keyHits) > 0 {
 		matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
 		if matchErr == nil && len(matched) > 0 {
