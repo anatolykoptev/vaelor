@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/designmd"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -130,14 +129,14 @@ func main() {
 }
 
 func runIndexDesigns(cfg Config, dir string) {
-	embedURL := cfg.DesignEmbedURL
-	embedModel := cfg.DesignEmbedModel
-	if embedURL == "" {
-		// Fallback to code embed config.
-		embedURL = cfg.EmbedURL
-		embedModel = cfg.EmbedModel
+	// Fallback to code embed config when design-specific URL is unset (legacy
+	// behavior). The factory uses cfg.DesignEmbedURL / cfg.DesignEmbedModel, so
+	// patch cfg in place for the CLI path only.
+	if cfg.DesignEmbedURL == "" {
+		cfg.DesignEmbedURL = cfg.EmbedURL
+		cfg.DesignEmbedModel = cfg.EmbedModel
 	}
-	if embedURL == "" {
+	if cfg.DesignEmbedURL == "" {
 		slog.Error("DESIGN_EMBED_URL (or EMBED_URL) is required for indexing")
 		os.Exit(1)
 	}
@@ -153,7 +152,11 @@ func runIndexDesigns(cfg Config, dir string) {
 	}
 	defer pool.Close()
 
-	client := embeddings.NewClient(embedURL, embedModel)
+	client, err := newDesignEmbedder(cfg)
+	if err != nil {
+		slog.Error("embed client failed", slog.Any("error", err))
+		os.Exit(1)
+	}
 	store := designmd.NewStore(pool)
 
 	result, err := designmd.Index(context.Background(), dir, client, store)

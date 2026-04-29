@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-kit/embed"
 )
 
 // semanticMatchThreshold is the minimum cosine similarity for a semantic match.
@@ -22,12 +22,12 @@ const semanticTimeout = 15 * time.Second
 
 // EmbeddingClassifier implements LLMClassifier using vector similarity.
 type EmbeddingClassifier struct {
-	client *embeddings.Client
+	client *embed.Client
 	ctx    context.Context
 }
 
 // NewEmbeddingClassifier creates a classifier using the given embedding client.
-func NewEmbeddingClassifier(ctx context.Context, client *embeddings.Client) *EmbeddingClassifier {
+func NewEmbeddingClassifier(ctx context.Context, client *embed.Client) *EmbeddingClassifier {
 	return &EmbeddingClassifier{client: client, ctx: ctx}
 }
 

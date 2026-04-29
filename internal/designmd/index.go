@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-kit/embed"
 )
 
 const maxEmbedText = 2000
@@ -24,7 +24,7 @@ type IndexResult struct {
 // Index reads all */DESIGN.md files under dir, embeds sections via e5-large,
 // and upserts to the design_embeddings table (1024-dim).
 // Writes index.json with per-brand metadata.
-func Index(ctx context.Context, dir string, client *embeddings.Client, store *Store) (*IndexResult, error) {
+func Index(ctx context.Context, dir string, client *embed.Client, store *Store) (*IndexResult, error) {
 	pattern := filepath.Join(dir, "*", "DESIGN.md")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
