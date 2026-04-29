@@ -6,7 +6,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/designmd"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-kit/embed"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -19,7 +19,7 @@ type DesignSearchInput struct {
 
 // DesignDeps holds dependencies for design_search tool.
 type DesignDeps struct {
-	Client *embeddings.Client
+	Client *embed.Client
 	Store  *designmd.Store
 }
 

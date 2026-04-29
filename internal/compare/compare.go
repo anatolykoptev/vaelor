@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/llm"
 )
 
@@ -25,8 +25,8 @@ type CompareInput struct {
 	Query       string
 	Opts        SnapshotOpts
 	OxCodes     *oxcodes.Client
-	EmbedClient *embeddings.Client // nil = skip semantic matching
-	GraphStore  *codegraph.Store   // nil = skip architecture graph analysis
+	EmbedClient *embed.Client    // nil = skip semantic matching
+	GraphStore  *codegraph.Store // nil = skip architecture graph analysis
 }
 
 // compareTimeout is the hard deadline for the entire CompareRepos operation.

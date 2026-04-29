@@ -7,7 +7,7 @@ import (
 "github.com/anatolykoptev/go-code/internal/analyze"
 "github.com/anatolykoptev/go-code/internal/codegraph"
 "github.com/anatolykoptev/go-code/internal/compare"
-"github.com/anatolykoptev/go-code/internal/embeddings"
+"github.com/anatolykoptev/go-kit/embed"
 mcpserver "github.com/anatolykoptev/go-mcpserver"
 "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -51,7 +51,7 @@ return errResult(fmt.Sprintf("resolve repo_b: %s", err)), nil
 }
 defer cleanupB()
 
-var embedClient *embeddings.Client
+var embedClient *embed.Client
 if semDeps != nil {
 embedClient = semDeps.Client
 }
