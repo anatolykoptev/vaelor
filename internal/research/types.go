@@ -13,7 +13,8 @@ import (
 )
 
 // EmbedClient is the minimal interface the research package needs from an
-// embedding provider. Satisfied by *embeddings.Client (structural typing).
+// embedding provider. Satisfied by *embed.Client (go-kit/embed) via structural
+// typing.
 type EmbedClient interface {
 	EmbedQuery(ctx context.Context, query string) ([]float32, error)
 }

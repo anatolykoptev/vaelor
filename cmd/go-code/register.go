@@ -6,6 +6,7 @@ import (
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
+	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/env"
 	"github.com/anatolykoptev/go-kit/llm"
 
@@ -89,15 +90,19 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	// Created early so tools can use semantic fallback.
 	var semDeps SemanticDeps
 	if cfg.EmbedURL != "" && dbPool != nil {
-		ec := embeddings.NewClient(cfg.EmbedURL, cfg.EmbedModel)
-		es := embeddings.NewStore(dbPool)
-		semDeps = SemanticDeps{
-			Client:      ec,
-			Store:       es,
-			Pipeline:    embeddings.NewPipeline(ec, es),
-			AnalyzeDeps: deps,
-			Expander:    embeddings.NewExpander(dbPool),
-			OxCodes:     buildOxCodesClient(cfg),
+		ec, err := newCodeEmbedder(cfg)
+		if err != nil {
+			slog.Warn("embed: code client disabled", slog.Any("error", err))
+		} else {
+			es := embeddings.NewStore(dbPool)
+			semDeps = SemanticDeps{
+				Client:      ec,
+				Store:       es,
+				Pipeline:    embeddings.NewPipeline(ec, es),
+				AnalyzeDeps: deps,
+				Expander:    embeddings.NewExpander(dbPool),
+				OxCodes:     buildOxCodesClient(cfg),
+			}
 		}
 	}
 
@@ -135,9 +140,14 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	// Design search deps (optional — needs DESIGN_EMBED_URL + DATABASE_URL).
 	var designDeps DesignDeps
 	if cfg.DesignEmbedURL != "" && dbPool != nil {
-		designDeps = DesignDeps{
-			Client: embeddings.NewClient(cfg.DesignEmbedURL, cfg.DesignEmbedModel),
-			Store:  designmd.NewStore(dbPool),
+		dc, err := newDesignEmbedder(cfg)
+		if err != nil {
+			slog.Warn("embed: design client disabled", slog.Any("error", err))
+		} else {
+			designDeps = DesignDeps{
+				Client: dc,
+				Store:  designmd.NewStore(dbPool),
+			}
 		}
 	}
 	registerDesignSearch(server, cfg, designDeps)
@@ -199,6 +209,39 @@ func buildLearningsStore(cfg Config) *learnings.Store {
 		return nil
 	}
 	return ls
+}
+
+// embeddingDims pin per-client vector dimensions for clarity/auditing. The HTTP
+// backend does not validate response dims against this value (it is only
+// surfaced via Dimension()), but pinning it here documents the contract:
+// the code embedder MUST stay 768d to match the pgvector(768) code_embeddings
+// schema; the design embedder MUST stay 1024d to match design_embeddings.
+const (
+	codeEmbedDim   = 768
+	designEmbedDim = 1024
+)
+
+// newCodeEmbedder constructs the code-search embedder (jina-code-v2, 768d).
+// Powers semantic_search, code_health, and codegraph indexing. Writes into the
+// pgvector(768) code_embeddings table — must NOT be swapped for a 1024d model.
+func newCodeEmbedder(cfg Config) (*embed.Client, error) {
+	return embed.NewClient(cfg.EmbedURL,
+		embed.WithBackend("http"),
+		embed.WithModel(cfg.EmbedModel),
+		embed.WithDim(codeEmbedDim),
+	)
+}
+
+// newDesignEmbedder constructs the design-search embedder (multilingual-e5-large, 1024d).
+// Powers design_search and the index-designs CLI. Writes into the
+// pgvector(1024) design_embeddings table — must NOT be swapped for the
+// code-trained 768d jina model.
+func newDesignEmbedder(cfg Config) (*embed.Client, error) {
+	return embed.NewClient(cfg.DesignEmbedURL,
+		embed.WithBackend("http"),
+		embed.WithModel(cfg.DesignEmbedModel),
+		embed.WithDim(designEmbedDim),
+	)
 }
 
 // symbolBoostAdapter wraps *embeddings.Store to satisfy analyze.SymbolNameSearcher.
