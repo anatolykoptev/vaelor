@@ -10,6 +10,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/go-kit/embed"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -25,7 +26,7 @@ type SemanticSearchInput struct {
 
 // SemanticDeps holds dependencies for semantic search.
 type SemanticDeps struct {
-	Client      *embeddings.Client
+	Client      *embed.Client
 	Store       *embeddings.Store
 	Pipeline    *embeddings.Pipeline
 	AnalyzeDeps analyze.Deps
