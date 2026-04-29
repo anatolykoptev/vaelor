@@ -1,0 +1,9 @@
+# Seed golden records for MemDB (Go + pgvector heavy).
+# Replace `expected_top_3` with real symbol paths after first harness run.
+{"query": "ingest a memory record into the store", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["Ingest"], "notes": "seed: top-level ingest entry, exact path TBD"}
+{"query": "rerank candidates with cross encoder", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["Rerank"], "notes": "seed: M9 rerank stage"}
+{"query": "compute pairwise cosine similarity over pgvector", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["CosineSimilarity"], "notes": "seed: vector distance helper"}
+{"query": "Memobase dual-speaker conversation handling", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["DualSpeaker"], "notes": "seed: Phase 5 port"}
+{"query": "LLM Judge filters low-confidence facts", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["LLMFilter"], "notes": "seed: M9 judge gate (verified via smoke run)"}
+{"query": "category 5 exclusion filter for memories", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["Category5Filter"], "notes": "seed: cat-5 exclusion logic"}
+{"query": "factual answer style prompt template", "repo": "/path/to/repos/src/MemDB", "expected_top_3": ["FactualPrompt"], "notes": "seed: M7 compound lift"}

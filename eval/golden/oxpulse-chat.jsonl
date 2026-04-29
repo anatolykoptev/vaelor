@@ -1,0 +1,8 @@
+# Seed golden records for oxpulse-chat (Rust + Axum).
+# Replace `expected_top_3` with real symbol paths after first harness run.
+{"query": "TURN credentials issuance for partner edges", "repo": "/path/to/repos/src/oxpulse-chat", "expected_top_3": ["issue_turn_credentials"], "notes": "seed: partner-edge TURN auth"}
+{"query": "validate JWT for chat session authorization", "repo": "/path/to/repos/src/oxpulse-chat", "expected_top_3": ["validate_jwt"], "notes": "seed: auth middleware"}
+{"query": "WebSocket upgrade for real-time chat", "repo": "/path/to/repos/src/oxpulse-chat", "expected_top_3": ["upgrade_websocket"], "notes": "seed: axum ws handler"}
+{"query": "partner token verification by sha256 prefix", "repo": "/path/to/repos/src/oxpulse-chat", "expected_top_3": ["verify_partner_token"], "notes": "seed: partner_tokens table"}
+{"query": "SFRAME packet integrity check", "repo": "/path/to/repos/src/oxpulse-chat", "expected_top_3": ["sframe_integrity"], "notes": "seed: SFU media auth"}
+{"query": "outbound message persistence to postgres", "repo": "/path/to/repos/src/oxpulse-chat", "expected_top_3": ["persist_message"], "notes": "seed: message store"}
