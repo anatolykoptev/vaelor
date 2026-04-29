@@ -1,0 +1,61 @@
+package main
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/anatolykoptev/go-code/internal/analyze"
+)
+
+// TestLoadConfig_InvalidFusionMode rejects ANALYZE_RANK_FUSION_MODE values
+// outside {minmax, rrf}. Typos must surface loudly so operators don't silently
+// fall back to the default and wonder why the rrf path never activates.
+func TestLoadConfig_InvalidFusionMode(t *testing.T) {
+	t.Setenv("ANALYZE_RANK_FUSION_MODE", "rrrf") // typo
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("loadConfig: want error on invalid fusion mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "ANALYZE_RANK_FUSION_MODE") {
+		t.Errorf("loadConfig error = %v; want mention of ANALYZE_RANK_FUSION_MODE", err)
+	}
+}
+
+// TestLoadConfig_DefaultFusionMode confirms the default is byte-identical
+// legacy minmax — Stream 3 must NOT flip the default in this PR.
+func TestLoadConfig_DefaultFusionMode(t *testing.T) {
+	t.Setenv("ANALYZE_RANK_FUSION_MODE", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.AnalyzeRankFusionMode != analyze.FusionModeMinmax {
+		t.Errorf("default fusion mode = %q, want %q", cfg.AnalyzeRankFusionMode, analyze.FusionModeMinmax)
+	}
+}
+
+// TestLoadConfig_RRFModeAccepted is the minimal positive case for the opt-in
+// path the offline harness will exercise.
+func TestLoadConfig_RRFModeAccepted(t *testing.T) {
+	t.Setenv("ANALYZE_RANK_FUSION_MODE", "rrf")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.AnalyzeRankFusionMode != analyze.FusionModeRRF {
+		t.Errorf("fusion mode = %q, want rrf", cfg.AnalyzeRankFusionMode)
+	}
+}
+
+// TestLoadConfig_NegativeWeightRejected guards the WeightedRRF panic invariant
+// at config-parse time so a misconfigured weight never reaches rerank.
+func TestLoadConfig_NegativeWeightRejected(t *testing.T) {
+	t.Setenv("ANALYZE_RANK_WEIGHT_BM25", "-0.5")
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("loadConfig: want error on negative weight, got nil")
+	}
+	if !strings.Contains(err.Error(), "ANALYZE_RANK_WEIGHT_BM25") {
+		t.Errorf("loadConfig error = %v; want mention of ANALYZE_RANK_WEIGHT_BM25", err)
+	}
+}

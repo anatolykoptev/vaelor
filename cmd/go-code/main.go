@@ -17,6 +17,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,7 +39,21 @@ const (
 )
 
 func main() {
-	cfg := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		slog.Error("failed to load config", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Wire the analyze package's fusion config + publish gocode_analyze_fusion_mode
+	// gauge before any analyze call path runs. Default minmax = byte-identical
+	// legacy; rrf is opt-in via ANALYZE_RANK_FUSION_MODE=rrf.
+	analyze.SetFusionConfig(analyze.FusionConfig{
+		Mode:           cfg.AnalyzeRankFusionMode,
+		WeightBM25:     cfg.AnalyzeRankWeightBM25,
+		WeightPageRank: cfg.AnalyzeRankWeightPageRank,
+		WeightSeed:     cfg.AnalyzeRankWeightSeed,
+	})
 
 	// Handle CLI subcommands before starting MCP server.
 	if len(os.Args) >= 3 && os.Args[1] == "index-designs" {
