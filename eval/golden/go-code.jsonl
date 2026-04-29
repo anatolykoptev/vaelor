@@ -1,0 +1,15 @@
+# Seed golden records for go-code itself. Replace `notes` and refine
+# `expected_top_3` after running the harness once and inspecting top-K.
+# Lines starting with '#' and blank lines are skipped by the loader.
+#
+# `repo` is set to the absolute local path so the harness hits the
+# already-indexed checkout; override per-record if needed (e.g. with
+# "anatolykoptev/go-code" to force the harness to clone & re-index).
+{"query": "merge ranked lists with reciprocal rank fusion", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "seed: hybrid RRF entry point in embeddings"}
+{"query": "MergeRRF", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "seed: identifier-style query, exact symbol"}
+{"query": "fuse rank scores with min-max normalization", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["internal/ranking/fusion.go:FusionRank"], "notes": "seed: legacy fusion path in analyze"}
+{"query": "embed code symbols and store vectors in pgvector", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["internal/embeddings/pipeline.go:Pipeline"], "notes": "seed: embed pipeline, file-level"}
+{"query": "background autoindex of repositories", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["internal/embeddings/autoindex.go:AutoIndex"], "notes": "seed: stream 5 target"}
+{"query": "PageRank annotation on semantic search results", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["cmd/go-code/tool_semantic_search.go:annotateWithPageRank"], "notes": "seed: tool handler logic"}
+{"query": "extract query keywords for hybrid search", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["internal/embeddings/keywords.go:ExtractQueryKeywords"], "notes": "seed: support function"}
+{"query": "register all MCP tools at startup", "repo": "/path/to/repos/src/go-code", "expected_top_3": ["cmd/go-code/register.go:registerTools"], "notes": "seed: bootstrap entry"}
