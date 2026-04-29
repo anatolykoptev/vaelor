@@ -23,8 +23,14 @@ deploy:
 
 vendor:
 	GOWORK=off go mod vendor
-	@# go mod vendor drops C headers needed by tree-sitter CGO; restore them.
-	git checkout -- vendor/github.com/smacker/go-tree-sitter/php/tree_sitter/
+	@# go mod vendor strips C headers needed by tree-sitter CGO. Restore from
+	@# GOMODCACHE — `git checkout` fallback fails when headers are absent from
+	@# HEAD (recurring footgun on every migration that didn't pre-restore).
+	@MOD_CACHE=$$(GOWORK=off go env GOMODCACHE); \
+	HDR_DIR=vendor/github.com/smacker/go-tree-sitter/php/tree_sitter; \
+	mkdir -p $$HDR_DIR && \
+	cp $$MOD_CACHE/github.com/smacker/go-tree-sitter@*/php/tree_sitter/*.h $$HDR_DIR/ && \
+	chmod u+w $$HDR_DIR/*.h
 
 clean:
 	rm -f $(BINARY)
