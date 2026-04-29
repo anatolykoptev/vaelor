@@ -9,6 +9,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-kit/embed"
 )
 
 const (
@@ -26,13 +27,13 @@ type indexProgress struct {
 
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
-	client   *Client
+	client   *embed.Client
 	store    *Store
 	progress sync.Map // repoKey -> *indexProgress
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
-func NewPipeline(client *Client, store *Store) *Pipeline {
+func NewPipeline(client *embed.Client, store *Store) *Pipeline {
 	return &Pipeline{client: client, store: store}
 }
 
