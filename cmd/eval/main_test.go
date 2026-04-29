@@ -5,6 +5,7 @@
 //   - NDCG10 / RecallAtK / MRR: fixed input → known output
 //   - parseSemanticXML: real semantic_search XML envelope
 //   - HTTP roundtrip via httptest.Server (mirrors REST bridge shape)
+//   - pairedTTest: identical inputs → p≈1, large delta → p<0.05
 //   - JSON Report stability (round-trip parse)
 package main
 
@@ -236,6 +237,55 @@ func TestRunEval_EndToEnd(t *testing.T) {
 	}
 }
 
+// ──────────────────── paired t-test ────────────────────
+
+func TestPairedTTest_IdenticalInputs(t *testing.T) {
+	a := []float64{0.5, 0.6, 0.7, 0.8, 0.9}
+	mean, p := pairedTTest(a, a)
+	if mean != 0 {
+		t.Errorf("delta mean = %f, want 0", mean)
+	}
+	// All differences are zero → variance is 0 → degenerate but well-defined p=1.
+	if p != 1.0 {
+		t.Errorf("p = %f, want 1.0", p)
+	}
+}
+
+func TestPairedTTest_LargeDelta(t *testing.T) {
+	// Candidate consistently ~0.1 above baseline → strong significance.
+	baseline := []float64{0.50, 0.55, 0.60, 0.45, 0.52, 0.58, 0.51, 0.49, 0.53, 0.57}
+	candidate := make([]float64, len(baseline))
+	for i := range baseline {
+		candidate[i] = baseline[i] + 0.1
+	}
+	mean, p := pairedTTest(candidate, baseline)
+	if math.Abs(mean-0.1) > 1e-9 {
+		t.Errorf("delta mean = %f, want 0.1", mean)
+	}
+	if p > 0.05 {
+		t.Errorf("p = %f, expected < 0.05 for +0.1 effect with zero variance in delta", p)
+	}
+}
+
+func TestPairedTTest_NoEffect(t *testing.T) {
+	// Symmetric noise around zero → small effect, p > 0.05.
+	a := []float64{0.5, 0.55, 0.45, 0.50, 0.52}
+	b := []float64{0.51, 0.54, 0.46, 0.49, 0.53}
+	_, p := pairedTTest(a, b)
+	if p < 0.05 {
+		t.Errorf("p = %f, expected > 0.05 for tiny noise effect", p)
+	}
+}
+
+func TestPairedTTest_StudentTReference(t *testing.T) {
+	// Spot-check Student-t two-tailed CDF against a published reference value:
+	// t = 2.776, df = 4 → two-tailed p ≈ 0.05. (Standard t-table critical value.)
+	got := studentTTwoTailed(2.776, 4)
+	if math.Abs(got-0.05) > 1e-3 {
+		t.Errorf("studentTTwoTailed(2.776, 4) = %f, want ≈0.05", got)
+	}
+}
+
 // ──────────────────── JSON output stability ────────────────────
 
 func TestReport_RoundTrip(t *testing.T) {
@@ -302,5 +352,29 @@ func TestLoadGolden_RejectsBadRecords(t *testing.T) {
 	}
 	if _, err := LoadGolden(dir); err == nil {
 		t.Error("expected error for empty query")
+	}
+}
+
+// ──────────────────── delta computation ────────────────────
+
+func TestComputeDelta_PairedQueriesOnly(t *testing.T) {
+	baseline := []QueryResult{
+		{Repo: "x", Query: "q1", NDCG10: 0.4, Recall10: 0.4, Recall20: 0.4, MRR: 0.4},
+		{Repo: "x", Query: "q2", NDCG10: 0.5, Recall10: 0.5, Recall20: 0.5, MRR: 0.5},
+		{Repo: "x", Query: "q3", NDCG10: 0.6, Recall10: 0.6, Recall20: 0.6, MRR: 0.6},
+		{Repo: "x", Query: "q4", NDCG10: 0.7, Recall10: 0.7, Recall20: 0.7, MRR: 0.7},
+	}
+	candidate := []QueryResult{
+		{Repo: "x", Query: "q1", NDCG10: 0.5, Recall10: 0.5, Recall20: 0.5, MRR: 0.5},
+		{Repo: "x", Query: "q2", NDCG10: 0.6, Recall10: 0.6, Recall20: 0.6, MRR: 0.6},
+		{Repo: "x", Query: "q3", NDCG10: 0.7, Recall10: 0.7, Recall20: 0.7, MRR: 0.7},
+		{Repo: "x", Query: "q4", NDCG10: 0.8, Recall10: 0.8, Recall20: 0.8, MRR: 0.8},
+	}
+	delta := computeDelta(baseline, candidate)
+	if delta == nil {
+		t.Fatal("delta is nil")
+	}
+	if !strings.HasPrefix(delta.NDCG10, "+0.1000") {
+		t.Errorf("expected +0.1000 nDCG delta prefix, got %q", delta.NDCG10)
 	}
 }

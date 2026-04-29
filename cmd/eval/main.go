@@ -2,19 +2,19 @@
 //
 // Replays a labeled (query, expected_top_3) golden dataset against a running
 // go-code MCP server's REST bridge, computes nDCG@10, Recall@10/@20, and MRR,
-// and writes a JSON report.
+// and writes a JSON report. Optional --baseline runs a paired t-test against
+// a prior report and reports per-metric significance.
 //
 // Usage:
 //
 //	go-code-eval \
 //	  --golden-dir eval/golden \
 //	  --target-url http://127.0.0.1:8897 \
-//	  --output     /tmp/eval-candidate.json
+//	  --output     /tmp/eval-candidate.json \
+//	  --baseline   /tmp/eval-baseline.json   # optional
 //
 // The harness is read-only against the target server: every query is a
 // semantic_search call. Use against a non-prod target for fair benchmarking.
-//
-// A/B comparison via paired t-test is added in a follow-up commit.
 package main
 
 import (
@@ -49,6 +49,7 @@ func main() {
 	goldenDir := fs.String("golden-dir", "eval/golden", "directory of <repo>.jsonl golden files")
 	targetURL := fs.String("target-url", "http://127.0.0.1:8897", "go-code MCP base URL (REST bridge at /api/tools)")
 	output := fs.String("output", "", "JSON output path (default: stdout)")
+	baseline := fs.String("baseline", "", "optional baseline report path for A/B comparison")
 	workers := fs.Int("workers", defaultWorkers, "concurrent HTTP workers")
 	topK := fs.Int("top-k", minTopK, "top_k passed to semantic_search (≥10 for Recall@10/@20)")
 	timeout := fs.Duration("timeout", defaultTimeout, "overall harness timeout")
@@ -61,13 +62,13 @@ func main() {
 		return
 	}
 
-	if err := run(*goldenDir, *targetURL, *output, *workers, *topK, *timeout); err != nil {
+	if err := run(*goldenDir, *targetURL, *output, *baseline, *workers, *topK, *timeout); err != nil {
 		slog.Error("eval failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(goldenDir, targetURL, output string, workers, topK int, timeout time.Duration) error {
+func run(goldenDir, targetURL, output, baseline string, workers, topK int, timeout time.Duration) error {
 	if topK < minTopK {
 		// Recall@20 requires the candidate pool to have at least 20 items.
 		topK = minTopK
@@ -109,6 +110,14 @@ func run(goldenDir, targetURL, output string, workers, topK int, timeout time.Du
 		PerQuery:   results,
 		PerRepo:    computePerRepo(results),
 		Aggregates: computeAggregates(results),
+	}
+
+	if baseline != "" {
+		base, err := readReport(baseline)
+		if err != nil {
+			return fmt.Errorf("baseline: %w", err)
+		}
+		report.Delta = computeDelta(base.PerQuery, results)
 	}
 
 	if err := writeReport(output, report); err != nil {
