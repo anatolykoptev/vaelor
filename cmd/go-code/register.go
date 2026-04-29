@@ -86,6 +86,16 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	// Wire graph signals — always non-nil (Noop when no store available).
 	deps.Graph, deps.Refs = buildGraphDeps(graphStore)
 
+	// RRF weights: published once at startup so /metrics records the deployed
+	// values, and threaded into SemanticDeps so MergeRRF picks them up. Logged
+	// for ops visibility — defaults (1.0, 1.0) are byte-identical to v0.32.0.
+	rrfWeights := cfg.RRFWeights()
+	embeddings.PublishRRFWeights(rrfWeights)
+	slog.Info("rrf weights",
+		slog.Float64("semantic", rrfWeights.Semantic),
+		slog.Float64("keyword", rrfWeights.Keyword),
+	)
+
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
 	// Created early so tools can use semantic fallback.
 	var semDeps SemanticDeps
@@ -106,6 +116,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 				AnalyzeDeps: deps,
 				Expander:    embeddings.NewExpander(dbPool),
 				OxCodes:     buildOxCodesClient(cfg),
+				RRFWeights:  rrfWeights,
 			}
 		}
 	}
