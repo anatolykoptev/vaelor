@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,6 +126,15 @@ type Config struct {
 	// the embed pipeline (Stream 4). Default true. Set EMBED_PIPELINE_CACHE=false
 	// to fall back to the byte-identical v0.32.0 indexer behavior.
 	EmbedPipelineCache bool
+
+	// AnalyzeRank* control prioritizeFilesWithScores fusion (Stream 3).
+	// Mode = "minmax" (default, legacy byte-identical) | "rrf" (opt-in, routes
+	// signals through rerank.WeightedRRF). Default flip pending offline-harness
+	// validation; do not flip in this sprint. Weights apply to the rrf path.
+	AnalyzeRankFusionMode     analyze.FusionMode
+	AnalyzeRankWeightBM25     float64
+	AnalyzeRankWeightPageRank float64
+	AnalyzeRankWeightSeed     float64
 }
 
 const (
@@ -157,10 +168,37 @@ const (
 	defaultAutoIndexConcurrency = 2
 	defaultAutoIndexRetryMax    = 3
 	defaultAutoIndexRetryBase   = 5 * time.Second
+
+	// AnalyzeRank fusion defaults (Stream 3). pagerank centrality outweighs
+	// pure text relevance; exact-match seed boost is auxiliary. These apply
+	// only to the rrf path — minmax mode uses its own const weights in rank.go.
+	defaultAnalyzeRankWeightBM25     = 1.0
+	defaultAnalyzeRankWeightPageRank = 1.5
+	defaultAnalyzeRankWeightSeed     = 0.5
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
-func loadConfig() Config {
+// Returns an error when an env value is invalid (currently: ANALYZE_RANK_FUSION_MODE
+// outside {minmax, rrf} and any negative ANALYZE_RANK_WEIGHT_*). Other env values
+// fall back to documented defaults silently per the env package contract.
+func loadConfig() (Config, error) {
+	mode, err := parseFusionMode(env.Str("ANALYZE_RANK_FUSION_MODE", string(analyze.FusionModeMinmax)))
+	if err != nil {
+		return Config{}, err
+	}
+	wBM25, err := parseNonNegFloat("ANALYZE_RANK_WEIGHT_BM25", defaultAnalyzeRankWeightBM25)
+	if err != nil {
+		return Config{}, err
+	}
+	wPR, err := parseNonNegFloat("ANALYZE_RANK_WEIGHT_PAGERANK", defaultAnalyzeRankWeightPageRank)
+	if err != nil {
+		return Config{}, err
+	}
+	wSeed, err := parseNonNegFloat("ANALYZE_RANK_WEIGHT_SEED", defaultAnalyzeRankWeightSeed)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                   env.Str("MCP_PORT", defaultPort),
 		LLMURL:                 env.Str("LLM_API_BASE", defaultLLMURL),
@@ -197,7 +235,43 @@ func loadConfig() Config {
 		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
 		EmbedPipelineCache:     env.Bool("EMBED_PIPELINE_CACHE", true),
+
+		AnalyzeRankFusionMode:     mode,
+		AnalyzeRankWeightBM25:     wBM25,
+		AnalyzeRankWeightPageRank: wPR,
+		AnalyzeRankWeightSeed:     wSeed,
+	}, nil
+}
+
+// parseFusionMode validates ANALYZE_RANK_FUSION_MODE. Empty/missing falls back
+// to minmax via the caller's default; any non-empty value must be exactly
+// "minmax" or "rrf" — typos must surface loudly rather than silently default.
+func parseFusionMode(raw string) (analyze.FusionMode, error) {
+	switch analyze.FusionMode(raw) {
+	case analyze.FusionModeMinmax, analyze.FusionModeRRF:
+		return analyze.FusionMode(raw), nil
+	default:
+		return "", fmt.Errorf("invalid ANALYZE_RANK_FUSION_MODE %q: must be %q or %q",
+			raw, analyze.FusionModeMinmax, analyze.FusionModeRRF)
 	}
+}
+
+// parseNonNegFloat reads a float env var and rejects negative values with a
+// loud error. Empty falls back to def. Unparseable surfaces a typed error so
+// operators see the bad value rather than silently inheriting the default.
+func parseNonNegFloat(key string, def float64) (float64, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || raw == "" {
+		return def, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", key, raw, err)
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("invalid %s %g: must be ≥ 0 (omit a retriever rather than negating it)", key, v)
+	}
+	return v, nil
 }
 
 func parsePathMappings(raw string) []analyze.PathMapping {

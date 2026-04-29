@@ -22,8 +22,12 @@ const (
 )
 
 // prioritizeFilesWithScores orders files by multi-signal fusion ranking:
-// BM25F (0.5) + Personalized PageRank on reference graph (0.3) + exact symbol match (0.2).
-// All signals are min-max normalized before combination.
+// BM25F + Personalized PageRank on reference graph + exact symbol match.
+// Combination strategy is selected by ANALYZE_RANK_FUSION_MODE:
+//   - "minmax" (default): legacy ranking.FusionRank with min-max normalize +
+//     weighted sum (weights 0.5/0.3/0.2). Byte-identical to pre-Stream-3 output.
+//   - "rrf": rerank.WeightedRRF over per-signal rank-only lists. Immune to
+//     score-scale drift across corpora; opt-in pending offline harness.
 func prioritizeFilesWithScores(
 	root string, files []*ingest.File,
 	results []fileParseResult, queryTerms []string,
@@ -58,12 +62,10 @@ func prioritizeFilesWithScores(
 	// Signal 3: Exact symbol name match.
 	exactScores := computeExactMatchScores(fileSymbols, queryTerms)
 
-	// Fusion: min-max normalize each signal, then weighted combination.
-	fused := ranking.FusionRank([]ranking.Signal{
-		{Name: "bm25", Weight: weightBM25, Scores: bm25Scores},
-		{Name: "pagerank", Weight: weightPR, Scores: prScores},
-		{Name: "exact", Weight: weightExact, Scores: exactScores},
-	})
+	// Fusion mode is selected at process startup via ANALYZE_RANK_FUSION_MODE.
+	// minmax (default) preserves byte-identical legacy behavior; rrf routes the
+	// three signals through rerank.WeightedRRF — see rank_fusion.go.
+	fused := fuseSignals(currentFusionConfig(), bm25Scores, prScores, exactScores)
 
 	return sortByScores(files, fused)
 }
