@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-kit/env"
 )
 
@@ -135,6 +136,17 @@ type Config struct {
 	AnalyzeRankWeightBM25     float64
 	AnalyzeRankWeightPageRank float64
 	AnalyzeRankWeightSeed     float64
+
+	// RRFWeightSemantic is the per-list weight applied to the semantic ranked
+	// list inside MergeRRF (Stream 1). Default 1.0 — combined with
+	// RRFWeightKeyword=1.0 reproduces byte-identical unweighted rerank.RRF.
+	// Operators tune via RRF_WEIGHT_SEMANTIC env. Must be ≥ 0; negative values
+	// panic (programmer error per go-kit/rerank.WeightedRRF contract).
+	RRFWeightSemantic float64
+
+	// RRFWeightKeyword is the per-list weight applied to the keyword ranked
+	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
+	RRFWeightKeyword float64
 }
 
 const (
@@ -175,6 +187,13 @@ const (
 	defaultAnalyzeRankWeightBM25     = 1.0
 	defaultAnalyzeRankWeightPageRank = 1.5
 	defaultAnalyzeRankWeightSeed     = 0.5
+
+	// RRF defaults: (1.0, 1.0) is the v0.32.0 baseline (mathematically
+	// identical to plain rerank.RRF). Stream 1 makes them tunable; defaults
+	// stay 1.0 so deploys are byte-identical until weights are grid-searched
+	// via the offline harness.
+	defaultRRFWeightSemantic = 1.0
+	defaultRRFWeightKeyword  = 1.0
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -240,6 +259,9 @@ func loadConfig() (Config, error) {
 		AnalyzeRankWeightBM25:     wBM25,
 		AnalyzeRankWeightPageRank: wPR,
 		AnalyzeRankWeightSeed:     wSeed,
+
+		RRFWeightSemantic: env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
+		RRFWeightKeyword:  env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
 	}, nil
 }
 
@@ -253,6 +275,15 @@ func parseFusionMode(raw string) (analyze.FusionMode, error) {
 	default:
 		return "", fmt.Errorf("invalid ANALYZE_RANK_FUSION_MODE %q: must be %q or %q",
 			raw, analyze.FusionModeMinmax, analyze.FusionModeRRF)
+	}
+}
+
+// RRFWeights returns the configured per-retriever weights for embeddings.MergeRRF.
+// Defaults to (1.0, 1.0) which is byte-identical to the unweighted RRF baseline.
+func (c Config) RRFWeights() embeddings.RRFWeights {
+	return embeddings.RRFWeights{
+		Semantic: c.RRFWeightSemantic,
+		Keyword:  c.RRFWeightKeyword,
 	}
 }
 
