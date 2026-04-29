@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-kit/env"
@@ -71,6 +72,18 @@ type Config struct {
 	// AutoIndexDirs are directories to scan for repos at startup (comma-separated).
 	AutoIndexDirs []string
 
+	// AutoIndexConcurrency caps the worker pool used by AutoIndex. Default 2;
+	// =1 reverts to byte-identical legacy serial behavior.
+	AutoIndexConcurrency int
+
+	// AutoIndexRetryMax is the per-repo retry budget on transient embed
+	// failures (deadline, 5xx, conn refused). Default 3; 0 disables retry.
+	AutoIndexRetryMax int
+
+	// AutoIndexRetryBase is the initial backoff before the first retry.
+	// Doubles on each subsequent attempt. Default 5s.
+	AutoIndexRetryBase time.Duration
+
 	// OxBrowserURL is the base URL for ox-browser HTTP API (e.g. http://ox-browser:8901).
 	// Empty means site_analyze tool is disabled.
 	OxBrowserURL string
@@ -132,6 +145,13 @@ const (
 	defaultToolCacheSize = 200
 	defaultToolCacheTTL  = 60 // minutes
 	defaultLLMCacheTTL   = 60 // minutes
+
+	// AutoIndex defaults — keep in sync with embeddings.DefaultAutoIndexOpts.
+	// Concurrency=2 starts conservative (today's serial baseline = 1) and
+	// will ramp to 4 once the embed-server fan-out is load-tested.
+	defaultAutoIndexConcurrency = 2
+	defaultAutoIndexRetryMax    = 3
+	defaultAutoIndexRetryBase   = 5 * time.Second
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -158,6 +178,9 @@ func loadConfig() Config {
 		EmbedURL:               env.Str("EMBED_URL", ""),
 		EmbedModel:             env.Str("EMBED_MODEL", defaultEmbedModel),
 		AutoIndexDirs:          env.List("AUTO_INDEX_DIRS", ""),
+		AutoIndexConcurrency:   env.Int("AUTOINDEX_CONCURRENCY", defaultAutoIndexConcurrency),
+		AutoIndexRetryMax:      env.Int("AUTOINDEX_RETRY_MAX", defaultAutoIndexRetryMax),
+		AutoIndexRetryBase:     env.Duration("AUTOINDEX_RETRY_BASE", defaultAutoIndexRetryBase),
 		OxBrowserURL:           env.Str("OX_BROWSER_URL", ""),
 		GoSearchURL:            env.Str("GO_SEARCH_URL", ""),
 		GitLabToken:            env.Str("GITLAB_TOKEN", ""),
