@@ -95,10 +95,14 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			slog.Warn("embed: code client disabled", slog.Any("error", err))
 		} else {
 			es := embeddings.NewStore(dbPool)
+			var pipelineOpts []embeddings.PipelineOpt
+			if cfg.EmbedPipelineCache {
+				pipelineOpts = append(pipelineOpts, embeddings.WithFileCache(embeddings.NewPipelineCache()))
+			}
 			semDeps = SemanticDeps{
 				Client:      ec,
 				Store:       es,
-				Pipeline:    embeddings.NewPipeline(ec, es),
+				Pipeline:    embeddings.NewPipeline(ec, es, pipelineOpts...),
 				AnalyzeDeps: deps,
 				Expander:    embeddings.NewExpander(dbPool),
 				OxCodes:     buildOxCodesClient(cfg),

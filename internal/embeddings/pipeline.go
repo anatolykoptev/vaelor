@@ -7,9 +7,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	kitcache "github.com/anatolykoptev/go-kit/cache"
+	"github.com/anatolykoptev/go-kit/embed"
+
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-kit/embed"
 )
 
 const (
@@ -27,14 +29,33 @@ type indexProgress struct {
 
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
-	client   *embed.Client
-	store    *Store
-	progress sync.Map // repoKey -> *indexProgress
+	client    *embed.Client
+	store     *Store
+	progress  sync.Map // repoKey -> *indexProgress
+	fileCache *kitcache.Cache // optional per-file symbol-entry cache; nil disables.
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
-func NewPipeline(client *embed.Client, store *Store) *Pipeline {
-	return &Pipeline{client: client, store: store}
+//
+// Pass a non-nil fileCache via WithFileCache to enable per-file symbol-entry
+// caching keyed on (repoKey, file.RelPath) and validated by file modTime+size.
+// When fileCache is nil, behavior is byte-identical to the v0.32.0 baseline.
+func NewPipeline(client *embed.Client, store *Store, opts ...PipelineOpt) *Pipeline {
+	p := &Pipeline{client: client, store: store}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+// PipelineOpt configures a Pipeline at construction time.
+type PipelineOpt func(*Pipeline)
+
+// WithFileCache wires a *kitcache.Cache to memoize per-file symbol entries.
+// Validator (modTime+size) ensures stale entries are evicted on the next
+// indexRepo pass after a file is touched. Pass nil to disable explicitly.
+func WithFileCache(c *kitcache.Cache) PipelineOpt {
+	return func(p *Pipeline) { p.fileCache = c }
 }
 
 // IsIndexing returns true if background indexing is running for the given repo.
@@ -102,7 +123,7 @@ func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexR
 func (p *Pipeline) indexRepo(
 	ctx context.Context, repoKey, root string, prog *indexProgress,
 ) (*IndexResult, error) {
-	symbols, files, err := collectSymbols(ctx, root)
+	symbols, files, err := p.collectSymbolsCached(ctx, repoKey, root)
 	if err != nil {
 		return nil, err
 	}
