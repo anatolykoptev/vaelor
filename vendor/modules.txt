@@ -4,6 +4,7 @@ github.com/anatolykoptev/go-kit/cache
 github.com/anatolykoptev/go-kit/embed
 github.com/anatolykoptev/go-kit/env
 github.com/anatolykoptev/go-kit/llm
+github.com/anatolykoptev/go-kit/rerank
 # github.com/anatolykoptev/go-mcpserver v0.11.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
