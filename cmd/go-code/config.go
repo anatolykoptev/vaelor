@@ -119,6 +119,11 @@ type Config struct {
 	// CodegraphSurpriseIndex enables per-edge and per-symbol surprise persistence
 	// at index time (CODEGRAPH_SURPRISE_INDEX=1). Default off.
 	CodegraphSurpriseIndex bool
+
+	// EmbedPipelineCache toggles the per-file symbol-entry cache wrapped around
+	// the embed pipeline (Stream 4). Default true. Set EMBED_PIPELINE_CACHE=false
+	// to fall back to the byte-identical v0.32.0 indexer behavior.
+	EmbedPipelineCache bool
 }
 
 const (
@@ -191,6 +196,7 @@ func loadConfig() Config {
 		DesignEmbedModel:       env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
 		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
+		EmbedPipelineCache:     env.Bool("EMBED_PIPELINE_CACHE", true),
 	}
 }
 
