@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
@@ -31,20 +30,18 @@ import (
 // validator returns false, kitcache evicts the entry, and we fall through to
 // the parse path. This caps the blast radius even if a producer renames a
 // file under a stable path.
-
-// gokitCacheHitTotal mirrors the metric named in the Stream 4 plan
-// (gokit_cache_hit_total{cache="embed_pipeline",result="hit|miss"}). go-kit
-// cache exposes hit/miss via Stats() (atomic counters) but does NOT auto-emit
-// per-cache Prometheus counters, so the embed pipeline emits its own scoped
-// counter to avoid relying on the global Stats() snapshot for per-cache
-// dashboards.
-var gokitCacheHitTotal = promauto.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "gokit_cache_hit_total",
-		Help: "Total cache lookups labelled by cache name and outcome (hit|miss).",
-	},
-	[]string{"cache", "result"},
-)
+//
+// Metrics: published via go-kit cache.WithMetrics (v0.33.0+). Standard names:
+//
+//	gokit_cache_hits_total{cache="embed_pipeline",tier="L1"}
+//	gokit_cache_misses_total{cache="embed_pipeline",tier="L1"}
+//	gokit_cache_evictions_total{cache="embed_pipeline"}
+//	gokit_cache_size{cache="embed_pipeline"}
+//
+// NOTE: dashboards that tracked the old hand-rolled counter
+// gokit_cache_hit_total{cache="embed_pipeline",result="hit|miss"}
+// must be updated to the new names above (plural "hits"/"misses", no
+// "result" label; tier label added for L1/L2 split).
 
 const cacheLabelEmbedPipeline = "embed_pipeline"
 
@@ -75,14 +72,12 @@ func (p *Pipeline) collectSymbolsCached(
 		}
 		entries, ok := p.lookupCachedEntries(ctx, repoKey, f)
 		if ok {
-			gokitCacheHitTotal.WithLabelValues(cacheLabelEmbedPipeline, "hit").Inc()
 			for i := range entries {
 				symbols = append(symbols, entries[i].sym)
 				files = append(files, entries[i].file)
 			}
 			continue
 		}
-		gokitCacheHitTotal.WithLabelValues(cacheLabelEmbedPipeline, "miss").Inc()
 
 		built, err := p.buildSymbolEntriesForFile(f)
 		if err != nil {
@@ -193,10 +188,14 @@ func pipelineCacheKey(repoKey, relPath string) string {
 // NewPipelineCache constructs a *kitcache.Cache pre-tuned for the embed
 // pipeline (15-minute L1 TTL, modest item ceiling). Lives here rather than in
 // register.go so wiring code stays free of cache-policy details.
+//
+// Prometheus metrics are published via go-kit cache.WithMetrics using
+// prometheus.DefaultRegisterer and the "embed_pipeline" cache name.
 func NewPipelineCache() *kitcache.Cache {
 	return kitcache.New(kitcache.Config{
 		L1MaxItems:    1024,
 		L1TTL:         15 * time.Minute,
 		JitterPercent: 0.1,
+		Metrics:       kitcache.WithMetrics(prometheus.DefaultRegisterer, cacheLabelEmbedPipeline),
 	})
 }
