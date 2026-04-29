@@ -154,7 +154,12 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
-		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor)
+		opts := embeddings.AutoIndexOpts{
+			Concurrency: cfg.AutoIndexConcurrency,
+			RetryMax:    cfg.AutoIndexRetryMax,
+			RetryBase:   cfg.AutoIndexRetryBase,
+		}
+		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor, opts)
 	}
 
 	return deps
