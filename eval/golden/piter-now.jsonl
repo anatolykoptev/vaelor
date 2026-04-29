@@ -1,0 +1,8 @@
+# Seed golden records for piter-now (Astro + WordPress polyglot).
+# Replace `expected_top_3` with real symbol paths after first harness run.
+{"query": "Astro SSR page handler for place detail", "repo": "/home/krolik/src/piter-now", "expected_top_3": ["GET"], "notes": "seed: src/pages/place/[slug].astro"}
+{"query": "fetch place data from Directus REST", "repo": "/home/krolik/src/piter-now", "expected_top_3": ["fetchPlace"], "notes": "seed: directus client"}
+{"query": "WordPress migration from places to Directus collections", "repo": "/home/krolik/src/piter-now", "expected_top_3": ["migratePlaces"], "notes": "seed: go-wp wp_migrate"}
+{"query": "render block content for advert page", "repo": "/home/krolik/src/piter-now", "expected_top_3": ["renderBlocks"], "notes": "seed: render_blocks helper"}
+{"query": "ACF custom fields exporter", "repo": "/home/krolik/src/piter-now", "expected_top_3": ["exportACF"], "notes": "seed: WP-CLI script"}
+{"query": "build sitemap from place collection", "repo": "/home/krolik/src/piter-now", "expected_top_3": ["buildSitemap"], "notes": "seed: SEO helper"}
