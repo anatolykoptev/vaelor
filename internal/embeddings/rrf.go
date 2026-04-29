@@ -23,11 +23,32 @@ type HybridResult struct {
 	RRFScore float64 // combined reciprocal rank fusion score
 }
 
+// RRFWeights are per-retriever weights for the WeightedRRF fusion in MergeRRF.
+// Both fields must be ≥ 0 (negative values panic in go-kit/rerank.WeightedRRF
+// — programmer error, not runtime). Weights == (1.0, 1.0) is mathematically
+// identical to plain RRF (Cormack-Clarke 2009); use that for byte-identical
+// rollback.
+type RRFWeights struct {
+	Semantic float64
+	Keyword  float64
+}
+
+// DefaultRRFWeights returns the (1.0, 1.0) baseline that reproduces the
+// pre-Stream-1 unweighted rerank.RRF behavior. Tests and callers that don't
+// thread per-deployment config should use this.
+func DefaultRRFWeights() RRFWeights {
+	return RRFWeights{Semantic: 1.0, Keyword: 1.0}
+}
+
 // MergeRRF combines semantic and keyword results using Reciprocal Rank Fusion.
-// Backed by go-kit/rerank.RRF (Cormack-Clarke 2009, k=60). Key = FilePath +
-// ":" + SymbolName for dedup; results in both lists get boosted ("hybrid"
-// source). Returns at most topK results.
-func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int) []HybridResult {
+// Backed by go-kit/rerank.WeightedRRF (Cormack-Clarke 2009 with per-list
+// weights, k=60). Key = FilePath + ":" + SymbolName for dedup; results in both
+// lists get boosted ("hybrid" source). Returns at most topK results.
+//
+// weights are env-driven (RRF_WEIGHT_SEMANTIC / RRF_WEIGHT_KEYWORD) and
+// surfaced via Prometheus gauge gocode_rrf_weights{retriever}. Pass
+// DefaultRRFWeights() for byte-identical legacy behavior.
+func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int, weights RRFWeights) []HybridResult {
 	if len(semantic) == 0 && len(keyword) == 0 {
 		return nil
 	}
@@ -63,7 +84,7 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int) []HybridR
 		kwIDs = append(kwIDs, key)
 	}
 
-	fused := rerank.RRF(rrfK, semIDs, kwIDs)
+	fused := rerank.WeightedRRF(rrfK, []float64{weights.Semantic, weights.Keyword}, semIDs, kwIDs)
 
 	results := make([]HybridResult, 0, len(fused))
 	for _, f := range fused {
@@ -87,9 +108,9 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int) []HybridR
 		})
 	}
 
-	// rerank.RRF returns sorted by score desc with stable tie-break, but the
-	// existing test contract checks topK truncation independently; preserve
-	// explicit sort for byte-identical fallback if upstream ever changes.
+	// rerank.WeightedRRF returns sorted by score desc with stable tie-break,
+	// but the existing test contract checks topK truncation independently;
+	// preserve explicit sort for byte-identical fallback if upstream changes.
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].RRFScore > results[j].RRFScore
 	})
