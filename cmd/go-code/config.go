@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-kit/env"
 )
 
@@ -124,6 +125,17 @@ type Config struct {
 	// the embed pipeline (Stream 4). Default true. Set EMBED_PIPELINE_CACHE=false
 	// to fall back to the byte-identical v0.32.0 indexer behavior.
 	EmbedPipelineCache bool
+
+	// RRFWeightSemantic is the per-list weight applied to the semantic ranked
+	// list inside MergeRRF (Stream 1). Default 1.0 — combined with
+	// RRFWeightKeyword=1.0 reproduces byte-identical unweighted rerank.RRF.
+	// Operators tune via RRF_WEIGHT_SEMANTIC env. Must be ≥ 0; negative values
+	// panic (programmer error per go-kit/rerank.WeightedRRF contract).
+	RRFWeightSemantic float64
+
+	// RRFWeightKeyword is the per-list weight applied to the keyword ranked
+	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
+	RRFWeightKeyword float64
 }
 
 const (
@@ -157,6 +169,13 @@ const (
 	defaultAutoIndexConcurrency = 2
 	defaultAutoIndexRetryMax    = 3
 	defaultAutoIndexRetryBase   = 5 * time.Second
+
+	// RRF defaults: (1.0, 1.0) is the v0.32.0 baseline (mathematically
+	// identical to plain rerank.RRF). Stream 1 makes them tunable; defaults
+	// stay 1.0 so deploys are byte-identical until weights are grid-searched
+	// via the offline harness.
+	defaultRRFWeightSemantic = 1.0
+	defaultRRFWeightKeyword  = 1.0
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -197,6 +216,17 @@ func loadConfig() Config {
 		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
 		EmbedPipelineCache:     env.Bool("EMBED_PIPELINE_CACHE", true),
+		RRFWeightSemantic:      env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
+		RRFWeightKeyword:       env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
+	}
+}
+
+// RRFWeights returns the configured per-retriever weights for embeddings.MergeRRF.
+// Defaults to (1.0, 1.0) which is byte-identical to the unweighted RRF baseline.
+func (c Config) RRFWeights() embeddings.RRFWeights {
+	return embeddings.RRFWeights{
+		Semantic: c.RRFWeightSemantic,
+		Keyword:  c.RRFWeightKeyword,
 	}
 }
 

@@ -32,6 +32,9 @@ type SemanticDeps struct {
 	AnalyzeDeps analyze.Deps
 	Expander    *embeddings.Expander
 	OxCodes     *oxcodes.Client
+	// RRFWeights are the per-retriever weights threaded into MergeRRF.
+	// Defaults to (1.0, 1.0) — byte-identical to unweighted RRF.
+	RRFWeights embeddings.RRFWeights
 }
 
 const (
@@ -175,7 +178,7 @@ func handleSemanticHits(
 		matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
 		if matchErr == nil && len(matched) > 0 {
 			// Merge with an enlarged pool so CE reranker can pick the best topK.
-			hybrid := embeddings.MergeRRF(results, matched, rerankCap)
+			hybrid := embeddings.MergeRRF(results, matched, rerankCap, deps.RRFWeights)
 			// Flatten HybridResult → SearchResult for CE reranker.
 			flat := make([]embeddings.SearchResult, len(hybrid))
 			for i, h := range hybrid {
