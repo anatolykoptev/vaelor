@@ -123,6 +123,22 @@ func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexR
 func (p *Pipeline) indexRepo(
 	ctx context.Context, repoKey, root string, prog *indexProgress,
 ) (*IndexResult, error) {
+	// Fast path: skip the entire parse + embed cycle when the repo's main
+	// branch has not moved since the last successful index. Cuts boot-time
+	// embed-server load from "48 repos × N symbols" to zero for unchanged
+	// repos. A repo with no main/master/HEAD ref (non-git path) returns
+	// sha="" and falls through to the full path.
+	currentSHA, _ := repoMainBranchSHA(root)
+	if currentSHA != "" {
+		prevSHA, err := p.store.GetRepoState(ctx, repoKey)
+		if err == nil && prevSHA == currentSHA {
+			slog.Debug("indexRepo: skip — main branch unchanged",
+				slog.String("repo", repoKey),
+				slog.String("sha", currentSHA[:min(8, len(currentSHA))]))
+			return &IndexResult{Total: 0, Indexed: 0, Skipped: 0}, nil
+		}
+	}
+
 	symbols, files, err := p.collectSymbolsCached(ctx, repoKey, root)
 	if err != nil {
 		return nil, err
@@ -157,6 +173,15 @@ func (p *Pipeline) indexRepo(
 	}
 
 	if len(toEmbed) == 0 {
+		// Even the no-embed path advances the repo fingerprint so the next
+		// boot can short-circuit. Without this we'd fall back to the parse
+		// path forever on stable repos.
+		if currentSHA != "" {
+			if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
+				slog.Debug("indexRepo: SetRepoState failed",
+					slog.String("repo", repoKey), slog.Any("error", err))
+			}
+		}
 		return result, nil
 	}
 
@@ -180,6 +205,13 @@ func (p *Pipeline) indexRepo(
 
 		if prog != nil {
 			atomic.StoreInt64(&prog.done, int64(end))
+		}
+	}
+
+	if currentSHA != "" {
+		if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
+			slog.Debug("indexRepo: SetRepoState failed",
+				slog.String("repo", repoKey), slog.Any("error", err))
 		}
 	}
 
