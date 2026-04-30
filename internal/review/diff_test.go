@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -36,7 +37,7 @@ func setupGitRepo(t *testing.T) string {
 
 func TestChangedFiles(t *testing.T) {
 	dir := setupGitRepo(t)
-	files, err := ChangedFiles(context.Background(), dir, "HEAD~1")
+	files, err := ChangedFiles(context.Background(), dir, "HEAD~1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,12 +46,64 @@ func TestChangedFiles(t *testing.T) {
 	}
 }
 
+// TestChangedFilesExplicitHead verifies the head parameter routes diffs to a
+// non-HEAD ref. Mirrors the PR-review scenario where head="FETCH_HEAD" — if
+// the parameter is silently ignored, the diff falls back to HEAD and returns
+// stale results across repeated PR queries against the same warm clone.
+func TestChangedFilesExplicitHead(t *testing.T) {
+	dir := setupGitRepo(t)
+	run := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com")
+		out, _ := cmd.Output()
+		return string(out)
+	}
+	// Capture the initial branch (main or master, depending on git defaults).
+	mainBranch := strings.TrimSpace(run("rev-parse", "--abbrev-ref", "HEAD"))
+	// Branch off, add a commit only on the side branch.
+	run("checkout", "-b", "side")
+	os.WriteFile(filepath.Join(dir, "side.go"), []byte("package main\n"), 0o644)
+	run("add", ".")
+	run("commit", "-m", "side change")
+	// Return to main — HEAD now does NOT contain side.go.
+	run("checkout", mainBranch)
+
+	// Default head=HEAD: diff HEAD~1..HEAD = the original "second" commit
+	// (main.go + util.go), no side.go.
+	defaultDiff, err := ChangedFiles(context.Background(), dir, "HEAD~1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range defaultDiff {
+		if f.Path == "side.go" {
+			t.Fatalf("default head=HEAD should NOT include side.go (it's on side branch)")
+		}
+	}
+
+	// Explicit head=side: diff HEAD..side picks up the side-only commit.
+	sideDiff, err := ChangedFiles(context.Background(), dir, "HEAD", "side")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range sideDiff {
+		if f.Path == "side.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("explicit head=side should include side.go, got: %v", sideDiff)
+	}
+}
+
 func TestChangedFilesStagedFallback(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0o644)
 	exec.Command("git", "-C", dir, "add", "new.go").Run()
 
-	files, err := ChangedFiles(context.Background(), dir, "")
+	files, err := ChangedFiles(context.Background(), dir, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
