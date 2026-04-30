@@ -16,6 +16,7 @@ import (
 type DeltaInput struct {
 	Root            string // repo root (absolute path)
 	Base            string // base ref (default "HEAD~1")
+	Head            string // head ref (default "HEAD"; PR reviews pass "FETCH_HEAD")
 	Depth           int    // impact traversal depth (default 2)
 	Language        string // optional language filter
 	IncludeSnippets bool   // include source code snippets around changed symbols
@@ -54,7 +55,7 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 	}
 
 	// Step 1: Git diff.
-	diffs, err := ChangedFiles(ctx, input.Root, input.Base)
+	diffs, err := ChangedFiles(ctx, input.Root, input.Base, input.Head)
 	if err != nil {
 		return nil, fmt.Errorf("changed files: %w", err)
 	}
