@@ -74,6 +74,26 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 		head = "HEAD"
 	}
 
+	// Worktree-isolated checkout at FETCH_HEAD. Without this the call graph
+	// is built from the warm clone's working tree (usually main), so impact
+	// analysis on PR-only symbols (new functions in the PR) misses callers.
+	// Falls back gracefully to the warm clone if worktree creation fails —
+	// diff still works (it operates on git refs, not files), only call
+	// graph signal is reduced.
+	analysisRoot := root
+	if head == "FETCH_HEAD" {
+		if wt, wtErr := review.CreatePRWorktree(ctx, root, head); wtErr == nil {
+			defer wt.Cleanup()
+			analysisRoot = wt.Path
+			// Inside the worktree, FETCH_HEAD is now the working tree —
+			// downstream diff should compare base..HEAD.
+			head = "HEAD"
+		} else {
+			// Stay on warm clone; diff will use FETCH_HEAD as before.
+			fmt.Fprintf(os.Stderr, "review_pr: worktree fallback (warm clone): %s\n", wtErr)
+		}
+	}
+
 	depth := input.Depth
 	if depth <= 0 {
 		depth = defaultReviewDepth
@@ -83,7 +103,7 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 	}
 
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
-		Root:     root,
+		Root:     analysisRoot,
 		Base:     base,
 		Head:     head,
 		Depth:    depth,
