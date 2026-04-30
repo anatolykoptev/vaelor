@@ -28,7 +28,11 @@ CREATE TABLE IF NOT EXISTS code_embeddings (
     PRIMARY KEY (repo_key, file_path, symbol_name));
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_repo ON code_embeddings (repo_key);
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw ON code_embeddings
-    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)`
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE TABLE IF NOT EXISTS code_repo_state (
+    repo_key TEXT PRIMARY KEY,
+    head_sha TEXT NOT NULL,
+    indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
 
 // EmbeddingRecord holds a single symbol embedding for storage.
 type EmbeddingRecord struct {
