@@ -15,7 +15,15 @@ import (
 )
 
 const (
-	maxEmbedText      = 2000
+	// maxEmbedText: 2000 chars exceeds jina-code-v2's 512-token cap.
+	// embed-server silently truncates (AUTO_TRUNCATE=true), losing the tail
+	// of long function bodies from the embedding signal. Cap at 1500 chars
+	// (~450 tokens) so the full pre-truncation text reaches the model and
+	// the line-boundary cut in buildEmbedText is the truncation policy
+	// instead of a hidden token-cap chop. Verified 2026-04-29:
+	// embed_batch_tokens p99 stuck at 256 (= cap) under prior 256 setting,
+	// indicating saturation; 1500 chars maps to ~450 tokens for typical code.
+	maxEmbedText      = 1500
 	maxIndexFileBytes = 512 * 1024
 	indexChunkSize    = 100
 )
