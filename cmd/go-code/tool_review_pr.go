@@ -68,9 +68,10 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 	}
 	defer cleanup()
 
-	base, err := fetchPRBase(ctx, root, input.PR)
+	base, head, err := fetchPRBase(ctx, root, input.PR)
 	if err != nil {
 		base = "origin/main"
+		head = "HEAD"
 	}
 
 	depth := input.Depth
@@ -84,6 +85,7 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
 		Root:     root,
 		Base:     base,
+		Head:     head,
 		Depth:    depth,
 		Language: input.Language,
 		OxCodes:  deps.OxCodes,
@@ -198,18 +200,22 @@ func deriveVerdict(r *review.DeltaResult) *xmlVerdict {
 	}
 }
 
-func fetchPRBase(ctx context.Context, root string, prNumber int) (string, error) {
+// fetchPRBase fetches PR head into FETCH_HEAD and computes the merge-base
+// with main/master. Returns (base, head). Head is always "FETCH_HEAD" on
+// success — callers must pass it through to ChangedFiles, otherwise diffs
+// fall back to the warm-clone HEAD (which is main/master, not the PR) and
+// review_pr returns a stale or empty diff.
+func fetchPRBase(ctx context.Context, root string, prNumber int) (base, head string, err error) {
 	ref := fmt.Sprintf("pull/%d/head", prNumber)
-	_, err := review.GitExec(ctx, root, "fetch", "origin", ref)
-	if err != nil {
-		return "", fmt.Errorf("fetch PR ref: %w", err)
+	if _, err := review.GitExec(ctx, root, "fetch", "origin", ref); err != nil {
+		return "", "", fmt.Errorf("fetch PR ref: %w", err)
 	}
 	out, err := review.GitExec(ctx, root, "merge-base", "FETCH_HEAD", "origin/main")
 	if err != nil {
 		out, err = review.GitExec(ctx, root, "merge-base", "FETCH_HEAD", "origin/master")
 		if err != nil {
-			return "", fmt.Errorf("merge-base: %w", err)
+			return "", "", fmt.Errorf("merge-base: %w", err)
 		}
 	}
-	return strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), "FETCH_HEAD", nil
 }

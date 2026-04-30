@@ -23,23 +23,30 @@ type LineRange struct {
 	End   int
 }
 
-// ChangedFiles returns files changed between base ref and HEAD.
+// ChangedFiles returns files changed between base ref and head.
 // If base is empty, falls back to staged changes (git diff --cached).
-func ChangedFiles(ctx context.Context, repoRoot, base string) ([]FileDiff, error) {
+// If head is empty, "HEAD" is used (back-compat for delta reviews of the
+// current checkout). For PR reviews, callers pass "FETCH_HEAD" after a
+// `git fetch origin pull/N/head` so the diff reflects PR contents instead
+// of the warm-clone HEAD (which usually points at main).
+func ChangedFiles(ctx context.Context, repoRoot, base, head string) ([]FileDiff, error) {
 	if base == "" {
 		return diffCached(ctx, repoRoot)
 	}
-	return diffBase(ctx, repoRoot, base)
+	if head == "" {
+		head = "HEAD"
+	}
+	return diffBase(ctx, repoRoot, base, head)
 }
 
-func diffBase(ctx context.Context, root, base string) ([]FileDiff, error) {
-	out, err := GitExec(ctx, root, "diff", "--numstat", base, "HEAD")
+func diffBase(ctx context.Context, root, base, head string) ([]FileDiff, error) {
+	out, err := GitExec(ctx, root, "diff", "--numstat", base, head)
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w", err)
 	}
 	files := parseNumstat(out)
 
-	uniOut, err := GitExec(ctx, root, "diff", "--unified=0", base, "HEAD")
+	uniOut, err := GitExec(ctx, root, "diff", "--unified=0", base, head)
 	if err != nil {
 		return nil, fmt.Errorf("git diff unified: %w", err)
 	}
