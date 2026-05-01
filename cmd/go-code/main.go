@@ -19,6 +19,9 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/designmd"
+	"github.com/anatolykoptev/go-kit/env"
+	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
+	"github.com/anatolykoptev/go-kit/metrics/mcpmw"
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -70,6 +73,9 @@ func main() {
 		slog.String("llm_model", cfg.LLMModel),
 		slog.String("llm_url", cfg.LLMURL),
 	)
+
+	reg := kitmetrics.NewPrometheusRegistry("gocode")
+	startPrometheusScrape(context.Background(), slog.Default())
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serviceName,
@@ -128,7 +134,7 @@ func main() {
 		Port:                   cfg.Port,
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
-		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware()},
+		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
 		RESTBridge:             true,
 		Routes:                 webhookRoutes,
 		ToolTimeouts: map[string]time.Duration{
@@ -141,6 +147,32 @@ func main() {
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
+}
+
+// startPrometheusScrape runs an HTTP server exposing /metrics on PROM_PORT
+// (default 9897 = MCP_PORT+1000) for prometheus scrape. Separate port avoids
+// BearerAuth on scrape traffic; bound to all interfaces for container scrape.
+func startPrometheusScrape(ctx context.Context, logger *slog.Logger) {
+	promPort := env.Str("PROM_PORT", "9897")
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", kitmetrics.MetricsHandler())
+	srv := &http.Server{
+		Addr:              ":" + promPort,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		logger.Info("prometheus scrape endpoint", slog.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("prom endpoint", slog.Any("error", err))
+		}
+	}()
+	go func() {
+		<-ctx.Done()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
 }
 
 func runIndexDesigns(cfg Config, dir string) {
