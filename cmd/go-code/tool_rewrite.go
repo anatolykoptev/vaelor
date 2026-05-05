@@ -38,9 +38,9 @@ type xmlRewriteSummary struct {
 }
 
 type xmlRewriteFile struct {
-	Path    string   `xml:"path,attr"`
-	Matches int      `xml:"matches,attr"`
-	Diff    xmlCDATA `xml:"diff"`
+	Path    string    `xml:"path,attr"`
+	Matches int       `xml:"matches,attr"`
+	Diff    *xmlCDATA `xml:"diff,omitempty"`
 }
 
 func registerRewrite(server *mcp.Server, cfg Config, deps analyze.Deps) {
@@ -109,7 +109,9 @@ func formatRewriteXML(input RewriteInput, result *oxcodes.RewriteResponse) xmlRe
 		files[i] = xmlRewriteFile{
 			Path:    f.File,
 			Matches: f.Matches,
-			Diff:    xmlCDATA{Inner: wrapCDATA(f.Diff)},
+		}
+		if f.Diff != "" {
+			files[i].Diff = &xmlCDATA{Inner: wrapCDATA(f.Diff)}
 		}
 	}
 	return xmlRewriteResponse{
