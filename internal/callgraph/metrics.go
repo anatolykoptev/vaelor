@@ -37,7 +37,7 @@ var calleesEmittedTotal = promauto.NewCounterVec(
 //
 // Outcomes (cardinality 3, no repo label to keep cardinality bounded):
 //   - started   — goroutine kicked off for a repo
-//   - completed — go build returned without error and packages.Load succeeded
+//   - completed — go build returned without error
 //   - failed    — go build or packages.Load returned an error (non-fatal)
 var eagerWarmTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{

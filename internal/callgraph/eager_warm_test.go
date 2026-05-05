@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestDiscoverGoRepos_FiltersNonGoDirs builds a tmp tree with three
@@ -58,10 +59,13 @@ func TestDiscoverGoRepos_TrimsAndIgnoresEmpty(t *testing.T) {
 
 // TestEagerWarmRepos_DispatchesPerRepo stubs the prewarm function and asserts
 // it is invoked once per discovered Go repo, and that the started/completed
-// counters move in lockstep when warmups succeed.
+// counters move in lockstep when warmups succeed. It also verifies that the
+// cap=2 parallelism limit is never exceeded.
 func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 	tmp := t.TempDir()
-	for _, name := range []string{"a", "b", "c"} {
+	// Use 5 repos so the cap=2 semaphore is actually exercised.
+	repoNames := []string{"a", "b", "c", "d", "e"}
+	for _, name := range repoNames {
 		dir := filepath.Join(tmp, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", name, err)
@@ -72,9 +76,11 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 	}
 
 	var (
-		mu     sync.Mutex
-		called []string
-		count  atomic.Int64
+		mu             sync.Mutex
+		called         []string
+		count          atomic.Int64
+		concurrent     atomic.Int32
+		maxConcurrent  atomic.Int32
 	)
 	orig := warmGoBuildFn
 	warmGoBuildFn = func(_ context.Context, root string) error {
@@ -82,25 +88,39 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 		mu.Lock()
 		called = append(called, root)
 		mu.Unlock()
+
+		// Track peak concurrency.
+		cur := concurrent.Add(1)
+		defer concurrent.Add(-1)
+		for {
+			m := maxConcurrent.Load()
+			if cur <= m || maxConcurrent.CompareAndSwap(m, cur) {
+				break
+			}
+		}
+
+		time.Sleep(20 * time.Millisecond)
 		return nil
 	}
 	t.Cleanup(func() { warmGoBuildFn = orig })
 
 	EagerWarmRepos(context.Background(), []string{tmp})
 
-	if got := count.Load(); got != 3 {
-		t.Fatalf("warmGoBuildFn calls = %d; want 3", got)
+	if got := count.Load(); got != int64(len(repoNames)) {
+		t.Fatalf("warmGoBuildFn calls = %d; want %d", got, len(repoNames))
 	}
 	sort.Strings(called)
-	want := []string{
-		filepath.Join(tmp, "a"),
-		filepath.Join(tmp, "b"),
-		filepath.Join(tmp, "c"),
+	want := make([]string, len(repoNames))
+	for i, name := range repoNames {
+		want[i] = filepath.Join(tmp, name)
 	}
 	for i := range want {
 		if called[i] != want[i] {
 			t.Fatalf("called[%d]=%s; want %s", i, called[i], want[i])
 		}
+	}
+	if got := maxConcurrent.Load(); got > eagerWarmParallelism {
+		t.Fatalf("parallelism cap violated: max concurrent = %d, want <= %d", got, eagerWarmParallelism)
 	}
 }
 
