@@ -84,13 +84,21 @@ func WithRequestID(ctx context.Context, id string) context.Context {
 
 // RequestLog returns middleware that logs method, path, status, duration,
 // and request_id for every request.
+//
+// Requests to /health* and /metrics are logged at Debug level to avoid
+// flooding logs with scrape and probe traffic (probes every 15s = 240
+// lines/hr per service at Info level).
 func RequestLog(logger *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
-			logger.Info("request",
+			level := slog.LevelInfo
+			if strings.HasPrefix(r.URL.Path, "/health") || r.URL.Path == "/metrics" {
+				level = slog.LevelDebug
+			}
+			logger.LogAttrs(r.Context(), level, "request",
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", rw.status),
