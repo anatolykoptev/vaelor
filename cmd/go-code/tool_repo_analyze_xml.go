@@ -37,8 +37,8 @@ if limits.maxFiles != 0 || depth == analyze.DepthDeep {
 resp.Files = buildXMLFiles(r.Files, limits)
 }
 
-if r.FileTree != "" {
-resp.Tree = xmlCDATA{Inner: wrapCDATA(truncateTree(r.FileTree, limits.treeLines))}
+if treeStr := truncateTree(r.FileTree, limits.treeLines); treeStr != "" {
+resp.Tree = &xmlCDATA{Inner: wrapCDATA(treeStr)}
 }
 
 if resp.Files == nil {
