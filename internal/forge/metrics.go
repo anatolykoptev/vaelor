@@ -3,6 +3,7 @@ package forge
 import (
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/slugparse"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -37,11 +38,20 @@ func forgeLabel(k ForgeKind) string {
 // resolveOutcome classifies a failed ExtractSlug call into its outcome label.
 // It distinguishes the SSH-unknown-host case (git@evil.com:…) from other
 // invalid-form rejections.
+//
+// Decision tree:
+//   - SSH form (git@…) with a colon but an unrecognised host → reject_unknown_host
+//   - SSH form without a colon, or any non-SSH input           → invalid_form
 func resolveOutcome(input string) string {
-	// SSH form with an unrecognised host is a distinct security rejection.
-	if strings.HasPrefix(input, "git@") && !strings.HasPrefix(input, "git@github.com:") &&
-		!strings.HasPrefix(input, "git@gitlab.com:") {
-		return "reject_unknown_host"
+	if strings.HasPrefix(input, "git@") {
+		// SSHHostKind returns false for both "no colon" and "unknown host".
+		// Distinguish them by checking for the colon ourselves.
+		_, ok := slugparse.SSHHostKind(input)
+		if !ok && strings.Contains(input, ":") {
+			// Has colon but host is not in the known-host allowlist.
+			return "reject_unknown_host"
+		}
+		return "invalid_form"
 	}
 	return "invalid_form"
 }

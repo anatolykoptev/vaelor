@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/anatolykoptev/go-code/internal/ingest"
 )
 
 func TestTraceRepo_Integration(t *testing.T) {
@@ -361,6 +363,22 @@ func TestBuildPrewarmEnv_ContainsCGODisabled(t *testing.T) {
 	}
 	if !slices.Contains(env, "GIT_TERMINAL_PROMPT=0") {
 		t.Errorf("buildPrewarmEnv() missing GIT_TERMINAL_PROMPT=0; got: %v", env)
+	}
+}
+
+// TestTrySCIPResolution_GoIsNoop asserts that trySCIPResolution returns nil for
+// a Go-dominant file set. Go analysis is handled by go/types (goanalysis package)
+// so scip-go was removed from the indexer registry. DetectIndexer("go") now
+// returns false, causing trySCIPResolution to return nil without invoking any
+// external binary.
+func TestTrySCIPResolution_GoIsNoop(t *testing.T) {
+	files := []*ingest.File{
+		{Path: "/tmp/main.go", Language: "go"},
+		{Path: "/tmp/util.go", Language: "go"},
+	}
+	result := trySCIPResolution(context.Background(), t.TempDir(), files, nil)
+	if result != nil {
+		t.Errorf("trySCIPResolution for Go files returned non-nil %+v; expected no-op", result)
 	}
 }
 

@@ -13,7 +13,8 @@ func TestDetectIndexer(t *testing.T) {
 		wantName  string
 		wantArgs  []string
 	}{
-		{"go", true, "scip-go", nil},
+		// "go" is intentionally absent from the registry; Go uses go/types instead.
+		{"go", false, "", nil},
 		{"typescript", true, "scip-typescript", []string{"index"}},
 		{"javascript", true, "scip-typescript", []string{"index", "--infer-tsconfig"}},
 		{"python", true, "scip-python", []string{"index", "."}},
