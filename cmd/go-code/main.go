@@ -15,9 +15,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-kit/env"
 	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
@@ -74,8 +78,15 @@ func main() {
 		slog.String("llm_url", cfg.LLMURL),
 	)
 
+	// Lifecycle context: cancelled on SIGINT/SIGTERM. Passed to mcpserver.Run
+	// (so it owns shutdown) and to EagerWarmRepos (so in-flight `go build`
+	// subprocesses are cancelled on graceful shutdown instead of running to
+	// the per-repo 5-min timeout).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	reg := kitmetrics.NewPrometheusRegistry("gocode")
-	startPrometheusScrape(context.Background(), slog.Default())
+	startPrometheusScrape(ctx, slog.Default())
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serviceName,
@@ -84,6 +95,24 @@ func main() {
 
 	deps := registerTools(server, cfg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
+
+	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a
+	// background goroutine so it does not block MCP serve. Eliminates the
+	// cold-cache `tier: basic` window on the first call_trace per repo.
+	// Default-on when AUTO_INDEX_DIRS is set (the explicit indexing signal);
+	// set EAGER_WARM=false to disable. Accepts "false", "0", "f", "FALSE",
+	// etc. via strconv.ParseBool; invalid values warn and default to true.
+	eager := true
+	if v := os.Getenv("EAGER_WARM"); v != "" {
+		if parsed, err := strconv.ParseBool(v); err == nil {
+			eager = parsed
+		} else {
+			slog.Warn("invalid EAGER_WARM value, defaulting to true", "value", v)
+		}
+	}
+	if len(cfg.AutoIndexDirs) > 0 && eager {
+		go callgraph.EagerWarmRepos(ctx, cfg.AutoIndexDirs)
+	}
 
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares
 	// the server's mux (http.DefaultServeMux is unused by mcpserver).
@@ -132,6 +161,7 @@ func main() {
 		Name:                   serviceName,
 		Version:                version,
 		Port:                   cfg.Port,
+		Context:                ctx,
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
