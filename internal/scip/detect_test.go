@@ -20,10 +20,10 @@ func TestDetectIndexer(t *testing.T) {
 		{"python", true, "scip-python", []string{"index", "."}},
 		{"java", true, "scip-java", []string{"index"}},
 		{"rust", true, "rust-analyzer", []string{"scip", "."}},
-		{"ruby", true, "scip-ruby", nil},
-		{"csharp", true, "scip-dotnet", nil},
-		{"c", true, "scip-clang", nil},
-		{"cpp", true, "scip-clang", nil},
+		{"ruby", true, "scip-ruby", nil},   // deferred: no linux/aarch64 prebuilt
+		{"csharp", true, "scip-dotnet", nil}, // deferred: Docker-image-only distribution
+		{"c", true, "scip-clang", nil},      // deferred: no linux/aarch64 prebuilt
+		{"cpp", true, "scip-clang", nil},    // deferred: no linux/aarch64 prebuilt
 		{"php", false, "", nil},
 		{"unknown", false, "", nil},
 		{"", false, "", nil},
