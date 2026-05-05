@@ -41,7 +41,10 @@ if r.FileTree != "" {
 resp.Tree = xmlCDATA{Inner: wrapCDATA(truncateTree(r.FileTree, limits.treeLines))}
 }
 
-resp.Symbols = buildTopSymbols(r.Symbols, limits.topSymbols, depth)
+if resp.Files == nil {
+top := buildTopSymbols(r.Symbols, limits.topSymbols, depth)
+resp.Symbols = &top
+}
 
 applyExtras(&resp, extras)
 
@@ -74,7 +77,7 @@ Name: sym.Name,
 File: sym.File,
 Line: sym.StartLine,
 }
-if sym.Signature != "" {
+if !signatureIsTrivial(string(sym.Kind), sym.Name, sym.Signature) {
 xs.Signature = xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
 }
 symbols = append(symbols, xs)
@@ -175,7 +178,7 @@ xs.Complexity = sym.Complexity
 if limits.includeDoc && sym.DocComment != "" {
 xs.Doc = truncateDoc(sym.DocComment)
 }
-if sym.Signature != "" {
+if !signatureIsTrivial(string(sym.Kind), sym.Name, sym.Signature) {
 xs.Signature = xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
 }
 syms = append(syms, xs)
@@ -188,4 +191,17 @@ const roundPrecision = 100 // 10^N for N decimal places
 // roundScore rounds a float to 2 decimal places.
 func roundScore(f float64) float64 {
 return math.Round(f*roundPrecision) / roundPrecision
+}
+
+// signatureIsTrivial returns true when the signature only restates
+// kind+name (e.g. "type X struct", "type X interface") -- those facts
+// are already in the kind/name attributes, so emitting the signature
+// wastes bytes without adding agent-usable information. Function and
+// method signatures, and consts/vars with values, are kept.
+func signatureIsTrivial(kind, name, sig string) bool {
+sig = strings.TrimSpace(sig)
+if sig == "" {
+return true
+}
+return sig == "type "+name+" "+kind
 }
