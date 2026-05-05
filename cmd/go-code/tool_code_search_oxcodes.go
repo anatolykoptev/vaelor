@@ -107,16 +107,21 @@ func formatExpandedSearchXML(input CodeSearchInput, matches []oxcodes.SearchMatc
 			Text: xmlCDATA{Inner: wrapCDATA(m.Text)},
 		}
 		for _, c := range m.Context {
-			item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+			if c != "" {
+				item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+			}
 		}
 		if m.Expanded != nil {
-			item.Expanded = &xmlExpandedBlock{
+			exp := &xmlExpandedBlock{
 				SymbolName: m.Expanded.SymbolName,
 				SymbolKind: m.Expanded.SymbolKind,
 				LineStart:  m.Expanded.LineStart,
 				LineEnd:    m.Expanded.LineEnd,
-				Body:       xmlCDATA{Inner: wrapCDATA(m.Expanded.Body)},
 			}
+			if m.Expanded.Body != "" {
+				exp.Body = &xmlCDATA{Inner: wrapCDATA(m.Expanded.Body)}
+			}
+			item.Expanded = exp
 		}
 		resp.Search.Items[i] = item
 	}
