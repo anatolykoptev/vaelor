@@ -2,6 +2,7 @@ package forge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 )
 
 // testRSAPEM is a 2048-bit RSA key generated for testing only.
@@ -133,10 +137,12 @@ func TestAppTokenSource_GeneratesJWT(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
+	before := time.Now().Unix()
 	jwt, err := src.signJWT()
 	if err != nil {
 		t.Fatalf("signJWT: %v", err)
 	}
+	after := time.Now().Unix()
 
 	// JWT is header.payload.signature — three dot-separated segments.
 	parts := strings.Split(jwt, ".")
@@ -147,6 +153,40 @@ func TestAppTokenSource_GeneratesJWT(t *testing.T) {
 		if p == "" {
 			t.Errorf("JWT segment %d is empty", i)
 		}
+	}
+
+	// Decode payload and assert the claims.
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var claims struct {
+		Iss int64 `json:"iss"`
+		Iat int64 `json:"iat"`
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		t.Fatalf("unmarshal claims: %v", err)
+	}
+
+	if claims.Iss != 42 {
+		t.Errorf("iss = %d, want 42", claims.Iss)
+	}
+	// iat is now-60s ± wall-clock between before/after measurements.
+	wantIatLow := before - 60 - 1
+	wantIatHigh := after - 60 + 1
+	if claims.Iat < wantIatLow || claims.Iat > wantIatHigh {
+		t.Errorf("iat = %d, want in [%d, %d]", claims.Iat, wantIatLow, wantIatHigh)
+	}
+	// exp must be ≤ iat + 9 minutes + 60s iat-backdate tolerance.
+	// Equivalently: exp - iat must equal 9*60 + 60 = 600 seconds.
+	delta := claims.Exp - claims.Iat
+	if delta > 9*60+60 {
+		t.Errorf("exp-iat = %d s, want ≤ %d (GitHub rejects > 10min)", delta, 9*60+60)
+	}
+	// And must leave ≥ a few minutes of validity from now.
+	if claims.Exp-time.Now().Unix() < 5*60 {
+		t.Errorf("exp - now = %d s, want at least 5min validity", claims.Exp-time.Now().Unix())
 	}
 }
 
@@ -286,10 +326,87 @@ func TestAppTokenSource_ConcurrentSafe(t *testing.T) {
 	got := callCount
 	mu.Unlock()
 
-	// Due to the mutex in Token(), only one fetch should reach the server.
-	// Allow ≤2 in case goroutines enter simultaneously before cache is warm.
-	if got > 2 {
-		t.Errorf("server called %d times under concurrency, want ≤2", got)
+	// singleflight guarantees exactly one fetch even when N goroutines race.
+	if got != 1 {
+		t.Errorf("server called %d times under concurrency, want exactly 1 (singleflight)", got)
+	}
+}
+
+// counterValue reads the current value of a labelled CounterVec sample.
+func counterValue(t *testing.T, cv *prometheus.CounterVec, labels ...string) float64 {
+	t.Helper()
+	c, err := cv.GetMetricWithLabelValues(labels...)
+	if err != nil {
+		t.Fatalf("GetMetricWithLabelValues: %v", err)
+	}
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if m.Counter == nil || m.Counter.Value == nil {
+		return 0
+	}
+	return *m.Counter.Value
+}
+
+func TestAppRoundTripper_EmitsMetric(t *testing.T) {
+	const installationToken = "ghs_metric_test"
+	expiry := time.Now().Add(time.Hour)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/app/installations/2/access_tokens", accessTokenHandler(installationToken, expiry))
+	mux.HandleFunc("GET /repos/foo/bar", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"full_name": "foo/bar", "default_branch": "main"})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	g := newGitHubForgeWithBase("", AppConfig{
+		AppID:          1,
+		InstallationID: 2,
+		KeyPEM:         []byte(testRSAPEM),
+	}, srv.URL)
+
+	before := counterValue(t, githubAPICallsTotal, "repos", "200", "app")
+	if _, err := g.FetchRepoMeta(context.Background(), "foo/bar"); err != nil {
+		t.Fatalf("FetchRepoMeta: %v", err)
+	}
+	after := counterValue(t, githubAPICallsTotal, "repos", "200", "app")
+
+	if after-before != 1 {
+		t.Errorf("counter delta = %v, want 1", after-before)
+	}
+}
+
+func TestAppRoundTripper_TransportError_EmitsMetric(t *testing.T) {
+	// Server that hijacks and immediately closes the connection — produces a
+	// transport-level error with resp == nil.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+	}))
+	// Take URL but close server so dial fails (deterministic transport error).
+	addr := srv.URL
+	srv.Close()
+
+	pat := "ghp_x"
+	g := newGitHubForgeWithBase(pat, AppConfig{}, addr)
+
+	before := counterValue(t, githubAPICallsTotal, "repos", statusTransportError, "pat")
+	_, _ = g.FetchRepoMeta(context.Background(), "foo/bar")
+	after := counterValue(t, githubAPICallsTotal, "repos", statusTransportError, "pat")
+
+	if after-before < 1 {
+		t.Errorf("transport_error counter delta = %v, want ≥ 1", after-before)
 	}
 }
 
@@ -410,7 +527,8 @@ func TestNewGitHubForge_AppAuthInjectsInstallationToken(t *testing.T) {
 		t.Fatalf("FetchRepoMeta: %v", err)
 	}
 
-	wantAuth := "token " + installationToken
+	// App auth uses "Bearer " (modern); "token " is legacy/PAT-only.
+	wantAuth := "Bearer " + installationToken
 	if gotAuth != wantAuth {
 		t.Errorf("Authorization = %q, want %q (PAT must NOT appear)", gotAuth, wantAuth)
 	}

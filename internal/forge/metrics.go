@@ -9,18 +9,19 @@ import (
 )
 
 // githubAPICallsTotal counts every GitHub API call made through the forge
-// HTTP client, labelled by endpoint and HTTP status code.
+// HTTP client, labelled by endpoint, HTTP status, and auth mode.
 //
-//   - endpoint: bounded first-path-segment label (pulls, issues, search, app, other, …)
-//   - status:   HTTP response code as decimal string (200, 404, 429, …)
+//   - endpoint:  bounded first-path-segment label (pulls, issues, search, app, other, …)
+//   - status:    HTTP response code as decimal string (200, 404, 429, …) or "transport_error"
+//   - auth_mode: app | app_jwt | pat | none — bounded enum, 4 values
 //
-// Cardinality: ~15 endpoint values × ~10 status values = ~150 series.
+// Cardinality: ~15 endpoint × ~11 status × 4 auth_mode ≈ 660 series.
 var githubAPICallsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_github_api_calls_total",
-		Help: "GitHub API calls by endpoint and HTTP status. Bounded enums only.",
+		Help: "GitHub API calls by endpoint, HTTP status, and auth mode. Bounded enums only.",
 	},
-	[]string{"endpoint", "status"},
+	[]string{"endpoint", "status", "auth_mode"},
 )
 
 // forgeResolveTotal counts every ExtractSlug invocation labelled by the

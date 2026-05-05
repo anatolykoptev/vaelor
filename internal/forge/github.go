@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -91,9 +92,10 @@ func newGitHubForgeWithBase(token string, app AppConfig, base string) *GitHubFor
 }
 
 // logGitHubAppFallback emits a warning when App auth is requested but fails
-// to initialise. Defined as a var so tests can capture it.
+// to initialise. Uses slog so MCP servers running over stdio JSON-RPC don't
+// have stdout polluted with log lines. Defined as a var so tests can capture it.
 var logGitHubAppFallback = func(err error) {
-	fmt.Printf("WARN: github app auth init failed, falling back to PAT: %v\n", err)
+	slog.Warn("github app init failed; falling back to PAT", slog.Any("error", err))
 }
 
 // Kind implements Forge.
