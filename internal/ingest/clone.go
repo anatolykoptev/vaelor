@@ -110,7 +110,7 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 		}
 	}
 
-	args := []string{"clone", "--depth=1", "--single-branch", "--filter=blob:none"}
+	args := []string{"clone", "--depth=2", "--single-branch", "--filter=blob:none"}
 	if opts.Ref != "" {
 		args = append(args, "--branch", opts.Ref)
 	}
@@ -138,7 +138,7 @@ func refreshClone(ctx context.Context, localPath, ref string) error {
 		branch = "HEAD"
 	}
 	fetch := exec.CommandContext(ctx, "git", "-C", localPath,
-		"fetch", "--depth=1", "origin", branch)
+		"fetch", "--depth=2", "origin", branch)
 	fetch.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := fetch.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch: %w\n%s", err, string(out))
