@@ -35,6 +35,11 @@ type SymbolSearchInput struct {
 
 	// Limit caps the number of results returned.
 	Limit int `json:"limit,omitempty" jsonschema_description:"Maximum number of results to return. Default 100, max 500."`
+
+	// Pattern is an ast-grep structural pattern for shape-based search.
+	// Required to run via ox-codes; mutually exclusive with name-based query
+	// (Pattern wins when both are set). Requires Language.
+	Pattern string `json:"pattern,omitempty" jsonschema_description:"ast-grep structural pattern (e.g. 'func $NAME($CTX context.Context, $$$) error' to find error-returning funcs taking context). Requires language. When set, name-based query is ignored."`
 }
 
 type xmlSymbolSearchResponse struct {
@@ -70,6 +75,7 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 		Description: "Search for functions, types, methods, constants, or variables across a repository. " +
 			"Uses tree-sitter AST parsing for accurate symbol extraction (no grep heuristics). " +
 			"Supports wildcard patterns (Auth*, *Handler), kind filtering, and language filtering. " +
+			"Set 'pattern' for shape-based ast-grep search (requires language) — finds symbols by code shape rather than name, e.g. 'func $N($$$) error' or 'class $C extends $B'. " +
 			"Optionally returns full source bodies for matched symbols. " +
 			"Falls back to semantic search when no AST matches found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, error) {
@@ -81,11 +87,23 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 		if input.Repo == "" {
 			return errResult("repo is required"), nil
 		}
+
+		// Shape-based search via ast-grep (ox-codes).
+		if input.Pattern != "" {
+			if input.Language == "" {
+				return errResult("pattern requires language (ast-grep is per-language)"), nil
+			}
+			if deps.OxCodes == nil {
+				return errResult("pattern requires ox-codes backend (OX_CODES_URL not configured)"), nil
+			}
+			return handleStructuralSymbolSearch(ctx, input, deps, outputDir)
+		}
+
 		if input.Query == "" && input.Kind != "" {
 			input.Query = "*"
 		}
 		if input.Query == "" {
-			return errResult("query (or symbol) is required"), nil
+			return errResult("query (or symbol or pattern) is required"), nil
 		}
 
 		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
