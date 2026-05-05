@@ -133,12 +133,6 @@ if extras == nil {
 extras = &repoAnalysisExtras{}
 }
 extras.ArchCentral = archCentral
-} else {
-archCentral := &xmlArchCentral{Available: false}
-if extras == nil {
-extras = &repoAnalysisExtras{}
-}
-extras.ArchCentral = archCentral
 }
 }
 
