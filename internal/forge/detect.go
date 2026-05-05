@@ -64,10 +64,13 @@ func DetectForge(input string) ForgeKind {
 // the full slug ("group/sub/repo").  For strict two-segment enforcement use
 // slugparse.Parse directly.
 func ExtractSlug(input string) (string, bool) {
+	kind := DetectForge(input)
 	slug, err := slugparse.ParseWithOptions(input, slugparse.Options{AllowSubgroups: true})
 	if err != nil {
+		forgeResolveTotal.WithLabelValues(forgeLabel(kind), resolveOutcome(input)).Inc()
 		return "", false
 	}
+	forgeResolveTotal.WithLabelValues(forgeLabel(kind), "success").Inc()
 	return slug, true
 }
 
