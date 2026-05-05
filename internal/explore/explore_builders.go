@@ -114,9 +114,15 @@ func buildTopSymbols(symbols []*parser.Symbol, callCounts map[*parser.Symbol]int
 }
 
 // buildPackageList collects unique directory paths relative to root.
+// Only directories containing at least one recognised source file (non-empty
+// Language) are returned — pure-doc/config/CI directories pollute the list
+// without signalling code structure.
 func buildPackageList(files []*ingest.File, root string) []string {
 	seen := make(map[string]struct{})
 	for _, f := range files {
+		if f.Language == "" {
+			continue
+		}
 		dir := filepath.Dir(f.Path)
 		rel, err := filepath.Rel(root, dir)
 		if err != nil {

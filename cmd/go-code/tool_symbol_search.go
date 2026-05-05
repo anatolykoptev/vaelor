@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+	"path/filepath"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -53,9 +55,9 @@ type xmlSymSearchItem struct {
 	Line       uint32 `xml:"line,attr"`
 	End        uint32 `xml:"end,attr"`
 	Complexity int    `xml:"complexity,attr,omitempty"`
-	Signature  xmlCDATA `xml:"signature,omitempty"`
+	Signature  *xmlCDATA `xml:"signature,omitempty"`
 	Doc        string   `xml:"doc,omitempty"`
-	Body       xmlCDATA `xml:"body,omitempty"`
+	Body       *xmlCDATA `xml:"body,omitempty"`
 }
 
 // registerSymbolSearch registers the symbol_search MCP tool.
@@ -112,12 +114,12 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 			}
 			return textResult(fmt.Sprintf("No symbols found matching %q.", input.Query)), nil
 		}
-		return largeTextResult(formatSymbolSearchXML(input.Query, symbols), "symbol_search", outputDir), nil
+		return largeTextResult(formatSymbolSearchXML(input.Query, symbols, root), "symbol_search", outputDir), nil
 	})
 }
 
 // formatSymbolSearchXML formats matched symbols as XML output.
-func formatSymbolSearchXML(query string, symbols []*parser.Symbol) string {
+func formatSymbolSearchXML(query string, symbols []*parser.Symbol, root string) string {
 	resp := xmlSymbolSearchResponse{
 		Symbols: xmlSymbolResults{
 			Query: query,
@@ -126,20 +128,24 @@ func formatSymbolSearchXML(query string, symbols []*parser.Symbol) string {
 		},
 	}
 	for i, sym := range symbols {
+		file := sym.File
+		if rel, err := filepath.Rel(root, file); err == nil && !strings.HasPrefix(rel, "..") {
+			file = rel
+		}
 		item := xmlSymSearchItem{
 			Kind:       string(sym.Kind),
 			Name:       sym.Name,
-			File:       sym.File,
+			File:       file,
 			Line:       sym.StartLine,
 			End:        sym.EndLine,
 			Complexity: sym.Complexity,
 			Doc:        sym.DocComment,
 		}
 		if sym.Signature != "" {
-			item.Signature = xmlCDATA{Inner: wrapCDATA(sym.Signature)}
+			item.Signature = &xmlCDATA{Inner: wrapCDATA(sym.Signature)}
 		}
 		if sym.Body != "" {
-			item.Body = xmlCDATA{Inner: wrapCDATA(sym.Body)}
+			item.Body = &xmlCDATA{Inner: wrapCDATA(sym.Body)}
 		}
 		resp.Symbols.Items[i] = item
 	}

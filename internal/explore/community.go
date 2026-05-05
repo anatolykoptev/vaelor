@@ -12,6 +12,11 @@ import (
 const maxCommunitySymbols = 5
 const maxClusters = 10
 
+// minCommunitySize filters out trivial Louvain singletons/pairs that pollute
+// the cluster list — they are an artefact of disconnected nodes in the call
+// graph rather than meaningful structural groups.
+const minCommunitySize = 3
+
 // CommunityOverview summarizes Louvain community detection results.
 type CommunityOverview struct {
 	Count    int                `json:"count"`
@@ -85,14 +90,27 @@ func buildCommunityOverview(cg *callgraph.CallGraph, root string) *CommunityOver
 		return len(entries[i].members) > len(entries[j].members)
 	})
 
+	// Drop singletons/pairs — they pollute the cluster list without
+	// signalling structure. Both Count and Clusters reflect the
+	// non-trivial groups so the agent sees a consistent picture.
+	nonTrivial := entries[:0]
+	for _, e := range entries {
+		if len(e.members) >= minCommunitySize {
+			nonTrivial = append(nonTrivial, e)
+		}
+	}
+	if len(nonTrivial) < 2 {
+		return nil
+	}
+
 	limit := maxClusters
-	if len(entries) < limit {
-		limit = len(entries)
+	if len(nonTrivial) < limit {
+		limit = len(nonTrivial)
 	}
 
 	clusters := make([]CommunityCluster, limit)
 	for i := range limit {
-		e := entries[i]
+		e := nonTrivial[i]
 		syms := e.members
 		if len(syms) > maxCommunitySymbols {
 			syms = syms[:maxCommunitySymbols]
@@ -105,7 +123,7 @@ func buildCommunityOverview(cg *callgraph.CallGraph, root string) *CommunityOver
 	}
 
 	return &CommunityOverview{
-		Count:    len(groups),
+		Count:    len(nonTrivial),
 		Clusters: clusters,
 	}
 }
