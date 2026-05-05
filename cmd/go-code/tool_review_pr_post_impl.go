@@ -44,7 +44,7 @@ func reviewPRPost(
 	}
 
 	body, comments := renderReview(result, findings)
-	g := forge.NewGitHubForge(token)
+	g := forge.NewGitHubForge(token, forge.AppConfig{})
 	event := input.Event
 	url, err := g.PostReview(ctx, input.Repo, input.PR, forge.ReviewPayload{
 		Body: body, Event: event, Comments: comments,

@@ -23,7 +23,7 @@ func TestGitHubPostReview(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	g := newGitHubForgeWithBase("tok", srv.URL)
+	g := newGitHubForgeWithBase("tok", AppConfig{}, srv.URL)
 	url, err := g.PostReview(context.Background(), "foo/bar", 42, ReviewPayload{
 		Body:  "summary",
 		Event: "COMMENT",
@@ -57,7 +57,7 @@ func TestGitHubPostIssueComment(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	g := newGitHubForgeWithBase("tok", srv.URL)
+	g := newGitHubForgeWithBase("tok", AppConfig{}, srv.URL)
 	if _, err := g.PostIssueComment(context.Background(), "foo/bar", 7, "hi"); err != nil {
 		t.Fatalf("PostIssueComment: %v", err)
 	}
