@@ -11,11 +11,11 @@ import (
 // two tool schemas.
 func TestFieldAccessDescParity(t *testing.T) {
 	understandTag := reflect.TypeOf(UnderstandInput{}).
-		Field(indexOf(reflect.TypeOf(UnderstandInput{}), "FieldAccess")).
+		Field(indexOf(t, reflect.TypeOf(UnderstandInput{}), "FieldAccess")).
 		Tag.Get("jsonschema_description")
 
 	callTraceTag := reflect.TypeOf(CallTraceInput{}).
-		Field(indexOf(reflect.TypeOf(CallTraceInput{}), "FieldAccess")).
+		Field(indexOf(t, reflect.TypeOf(CallTraceInput{}), "FieldAccess")).
 		Tag.Get("jsonschema_description")
 
 	if understandTag != fieldAccessDesc {
@@ -29,11 +29,15 @@ func TestFieldAccessDescParity(t *testing.T) {
 }
 
 // indexOf returns the struct field index for the given field name.
-func indexOf(t reflect.Type, name string) int {
-	for i := range t.NumField() {
-		if t.Field(i).Name == name {
+// Uses t.Fatalf (not panic) so a missing field produces a proper FAIL line
+// and does not crash the entire test binary.
+func indexOf(t *testing.T, rt reflect.Type, name string) int {
+	t.Helper()
+	for i := range rt.NumField() {
+		if rt.Field(i).Name == name {
 			return i
 		}
 	}
-	panic("field not found: " + name)
+	t.Fatalf("field %q not found in %v", name, rt)
+	return -1
 }

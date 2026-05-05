@@ -514,11 +514,11 @@ void f(int arg) {
 			argArgRef++
 		}
 	}
-	if helperPrimary == 0 {
-		t.Errorf("C: helper missing as primary (non-argref) call")
+	if helperPrimary != 1 {
+		t.Errorf("C: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
 	}
-	if argArgRef == 0 {
-		t.Errorf("C: arg missing as argref")
+	if argArgRef != 1 {
+		t.Errorf("C: expected arg as argref exactly once, got %d", argArgRef)
 	}
 }
 
@@ -545,11 +545,11 @@ int f(int arg) {
 			argArgRef++
 		}
 	}
-	if helperPrimary == 0 {
-		t.Errorf("C++: helper missing as primary (non-argref) call")
+	if helperPrimary != 1 {
+		t.Errorf("C++: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
 	}
-	if argArgRef == 0 {
-		t.Errorf("C++: arg missing as argref")
+	if argArgRef != 1 {
+		t.Errorf("C++: expected arg as argref exactly once, got %d", argArgRef)
 	}
 }
 
@@ -581,11 +581,11 @@ end
 			argArgRef++
 		}
 	}
-	if helperPrimary == 0 {
-		t.Errorf("Ruby: helper missing as primary (non-argref) call")
+	if helperPrimary != 1 {
+		t.Errorf("Ruby: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
 	}
-	if argArgRef == 0 {
-		t.Errorf("Ruby: arg missing as argref")
+	if argArgRef != 1 {
+		t.Errorf("Ruby: expected arg as argref exactly once, got %d", argArgRef)
 	}
 }
 
@@ -616,11 +616,11 @@ function f() {
 			callbackArgRef++
 		}
 	}
-	if helperPrimary == 0 {
-		t.Errorf("PHP: helper missing as primary (non-argref) call")
+	if helperPrimary != 1 {
+		t.Errorf("PHP: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
 	}
-	if callbackArgRef == 0 {
-		t.Errorf("PHP: callback missing as argref (bare function name passed as argument)")
+	if callbackArgRef != 1 {
+		t.Errorf("PHP: expected callback as argref exactly once, got %d", callbackArgRef)
 	}
 }
 
@@ -649,11 +649,11 @@ class X {
 			argArgRef++
 		}
 	}
-	if helperPrimary == 0 {
-		t.Errorf("C#: Helper missing as primary (non-argref) call")
+	if helperPrimary != 1 {
+		t.Errorf("C#: expected Helper as primary (non-argref) call exactly once, got %d", helperPrimary)
 	}
-	if argArgRef == 0 {
-		t.Errorf("C#: arg missing as argref")
+	if argArgRef != 1 {
+		t.Errorf("C#: expected arg as argref exactly once, got %d", argArgRef)
 	}
 }
 
