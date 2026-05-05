@@ -26,13 +26,32 @@ FROM golang:1.26-alpine
 # git: shallow cloning of repositories for analysis.
 # tzdata: proper timezone handling in logs.
 # nodejs/npm: SCIP indexers for TypeScript and Python.
-RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-analyzer && \
+# rust/cargo/rust-analyzer: rust-analyzer ships a `scip` subcommand.
+# openjdk17-jre-headless: required by the scip-java launcher (JAR with embedded coursier bootstrap).
+# curl: download scip-java release asset during the next layer.
+RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-analyzer openjdk17-jre-headless curl && \
     git config --global --add safe.directory '*'
 
 # SCIP indexers for multi-language type-aware analysis.
-# Note: scip-go is intentionally absent — Go uses internal go/types analysis instead.
+#
+# Installed (ARM64 + x86_64):
+#   - scip-typescript / scip-python via npm — TS, JS, Python.
+#   - rust-analyzer via apk — Rust (`rust-analyzer scip .`).
+#   - scip-java prebuilt launcher — Java/Kotlin/Scala (single arch-independent JAR launcher, runs on JVM).
+#
+# Intentionally absent (P3.F5 audit, 2026-05-05) — registry entries remain so
+# IndexerAvailable() returns false at runtime and callers cleanly fall back to
+# the basic tier instead of erroring:
+#   - scip-go      : Go uses internal go/types analysis (PR #33).
+#   - scip-ruby    : upstream ships only x86_64-linux + arm64-darwin (no linux/aarch64).
+#   - scip-clang   : upstream ships only x86_64-linux + arm64-darwin (no linux/aarch64).
+#   - scip-dotnet  : upstream distributes only as a Docker image (no release asset binaries).
 RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
-    npm cache clean --force
+    npm cache clean --force && \
+    SCIP_JAVA_VERSION=v0.12.3 && \
+    curl -fsSL "https://github.com/sourcegraph/scip-java/releases/download/${SCIP_JAVA_VERSION}/scip-java-${SCIP_JAVA_VERSION}" \
+        -o /usr/local/bin/scip-java && \
+    chmod +x /usr/local/bin/scip-java
 
 WORKDIR /app
 COPY --from=builder /build/go-code .
