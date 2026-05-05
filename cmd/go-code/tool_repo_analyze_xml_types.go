@@ -17,7 +17,7 @@ type xmlResponse struct {
 	Imports       *xmlImports          `xml:"imports,omitempty"`
 	Files         *xmlFiles            `xml:"files,omitempty"`
 	Tree          xmlCDATA             `xml:"tree,omitempty"`
-	Symbols       xmlSymbols           `xml:"symbols"`
+	Symbols       *xmlSymbols          `xml:"symbols,omitempty"`
 	APISurface    *xmlAPISummary       `xml:"apiSurface,omitempty"`
 	Freshness     *xmlFreshnessSummary `xml:"freshness,omitempty"`
 	ArchCentral   *xmlArchCentral      `xml:"arch_central,omitempty"`
