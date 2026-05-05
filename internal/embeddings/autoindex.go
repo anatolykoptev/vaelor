@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+
+	"github.com/anatolykoptev/go-code/internal/gitutil"
 )
 
 // RepoKeyFunc generates a graph key from a repo root path.
@@ -126,7 +128,7 @@ func discoverRepos(dirs []string, keyFn RepoKeyFunc) []repo {
 				continue
 			}
 			root := filepath.Join(dir, e.Name())
-			if isGitRepo(root) {
+			if gitutil.IsGitRepo(root) {
 				repos = append(repos, repo{key: keyFn(root), root: root})
 			}
 		}
@@ -223,7 +225,3 @@ func normalizeOpts(opts AutoIndexOpts) AutoIndexOpts {
 	return opts
 }
 
-func isGitRepo(path string) bool {
-	info, err := os.Stat(filepath.Join(path, ".git"))
-	return err == nil && info.IsDir()
-}
