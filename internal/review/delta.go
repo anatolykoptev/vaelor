@@ -21,6 +21,12 @@ type DeltaInput struct {
 	Language        string // optional language filter
 	IncludeSnippets bool   // include source code snippets around changed symbols
 	OxCodes         *oxcodes.Client
+
+	// PathRewrite, when non-nil, is applied to gitdir paths extracted from
+	// worktree .git pointer files. Use this when git commands run inside a
+	// container where filesystem paths differ from host paths embedded in
+	// .git files (e.g. PATH_MAPPINGS=/home/user:/host remaps /home/user→/host).
+	PathRewrite func(string) string
 }
 
 // DeltaResult is the output of a delta review.
@@ -55,7 +61,7 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 	}
 
 	// Step 1: Git diff.
-	diffs, err := ChangedFiles(ctx, input.Root, input.Base, input.Head)
+	diffs, err := ChangedFilesRewrite(ctx, input.Root, input.PathRewrite, input.Base, input.Head)
 	if err != nil {
 		return nil, fmt.Errorf("changed files: %w", err)
 	}
