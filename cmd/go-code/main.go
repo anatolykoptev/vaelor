@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-kit/env"
 	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
@@ -84,6 +85,15 @@ func main() {
 
 	deps := registerTools(server, cfg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
+
+	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a
+	// background goroutine so it does not block MCP serve. Eliminates the
+	// cold-cache `tier: basic` window on the first call_trace per repo.
+	// Default-on when AUTO_INDEX_DIRS is set (the explicit indexing signal);
+	// set EAGER_WARM=false to disable.
+	if len(cfg.AutoIndexDirs) > 0 && env.Str("EAGER_WARM", "true") != "false" {
+		go callgraph.EagerWarmRepos(context.Background(), cfg.AutoIndexDirs)
+	}
 
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares
 	// the server's mux (http.DefaultServeMux is unused by mcpserver).
