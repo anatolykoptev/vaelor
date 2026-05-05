@@ -72,7 +72,7 @@ type xmlFileSym struct {
 	End        uint32   `xml:"end,attr,omitempty"`
 	Complexity int      `xml:"complexity,attr,omitempty"`
 	Doc        string   `xml:"doc,attr,omitempty"`
-	Signature  xmlCDATA `xml:"signature,omitempty"`
+	Signature  *xmlCDATA `xml:"signature,omitempty"`
 }
 
 type xmlSymbol struct {
@@ -80,7 +80,7 @@ type xmlSymbol struct {
 	Name      string   `xml:"name,attr"`
 	File      string   `xml:"file,attr"`
 	Line      uint32   `xml:"line,attr"`
-	Signature xmlCDATA `xml:"signature,omitempty"`
+	Signature *xmlCDATA `xml:"signature,omitempty"`
 }
 
 type xmlSymbols struct {

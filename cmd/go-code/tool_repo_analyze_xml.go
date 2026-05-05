@@ -78,7 +78,7 @@ File: sym.File,
 Line: sym.StartLine,
 }
 if !signatureIsTrivial(string(sym.Kind), sym.Name, sym.Signature) {
-xs.Signature = xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
+xs.Signature = &xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
 }
 symbols = append(symbols, xs)
 }
@@ -179,7 +179,7 @@ if limits.includeDoc && sym.DocComment != "" {
 xs.Doc = truncateDoc(sym.DocComment)
 }
 if !signatureIsTrivial(string(sym.Kind), sym.Name, sym.Signature) {
-xs.Signature = xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
+xs.Signature = &xmlCDATA{Inner: wrapCDATA(truncateSignature(sym.Signature))}
 }
 syms = append(syms, xs)
 }
