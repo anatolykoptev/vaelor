@@ -1,6 +1,7 @@
 package explore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -71,6 +72,12 @@ func collectRecentCommits(ctx context.Context, root string, limit int) ([]Commit
 // when called without --root, because there is no parent to diff against.  We
 // detect the empty-but-success case and retry with --root, which instructs git
 // to diff against the empty tree.
+//
+// For shallow clones (--depth=N) a commit at the shallow boundary has no parent
+// object available locally; diff-tree also returns empty.  We disambiguate via
+// isShallowBoundary: if the repo is shallow AND the commit has no visible parent
+// we are at the boundary — returning 0 without the --root retry (which would
+// incorrectly count every file in the tree as "changed").
 func countDiffTreeFiles(ctx context.Context, root, sha string) (int, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "diff-tree",
 		"--no-commit-id",
@@ -86,9 +93,17 @@ func countDiffTreeFiles(ctx context.Context, root, sha string) (int, error) {
 
 	trimmed := strings.TrimSpace(string(out))
 	if trimmed == "" {
-		// Empty output with a successful exit means this is the initial
-		// commit (no parent).  Re-run with --root to diff against the
-		// empty tree.
+		// Empty output with a successful exit: either (a) a true initial
+		// commit with no parent, or (b) a commit at a shallow-clone boundary
+		// where the parent object is absent.  The two cases look identical to
+		// diff-tree, but --root must NOT be used for (b) because it would
+		// diff against the empty tree and return ALL files in the checkout.
+		if isShallowBoundary(ctx, root, sha) {
+			exploreFilesChangedMethodTotal.WithLabelValues("shallow_boundary").Inc()
+			return 0, nil
+		}
+
+		// True initial commit (or regular repo): diff against the empty tree.
 		cmd2 := exec.CommandContext(ctx, "git", "-C", root, "diff-tree",
 			"--no-commit-id",
 			"--name-only",
@@ -112,4 +127,57 @@ func countDiffTreeFiles(ctx context.Context, root, sha string) (int, error) {
 
 	exploreFilesChangedMethodTotal.WithLabelValues("diff_tree").Inc()
 	return len(strings.Split(trimmed, "\n")), nil
+}
+
+// isShallowBoundary returns true when two conditions both hold:
+//  1. The repository at root is a shallow clone
+//     ("git rev-parse --is-shallow-repository" prints "true").
+//  2. The commit sha is a shallow boundary: it declares a parent in its commit
+//     object but the parent object is absent from the local store.
+//
+// When both are true the empty diff-tree output is caused by the missing parent
+// object, not by sha being the true root commit of the project history.
+//
+// A true root commit (no parent anywhere, not just locally) has no "parent"
+// line in its raw commit object; a shallow-boundary commit does.  This raw
+// object check reliably distinguishes the two cases even in a depth-1 clone
+// where rev-list traversal is blocked by the shallow graft.
+func isShallowBoundary(ctx context.Context, root, sha string) bool {
+	shallowOut, err := exec.CommandContext(ctx, "git", "-C", root,
+		"rev-parse", "--is-shallow-repository").Output()
+	if err != nil {
+		return false
+	}
+	if !bytes.Equal(bytes.TrimSpace(shallowOut), []byte("true")) {
+		return false
+	}
+
+	// Read the raw commit object and look for a "parent" header line.
+	// A true root commit has no parent line at all; a shallow-boundary commit
+	// has one (the parent SHA is recorded in the object even though the parent
+	// object itself was not downloaded).
+	catOut, err := exec.CommandContext(ctx, "git", "-C", root,
+		"cat-file", "commit", sha).Output()
+	if err != nil {
+		return false
+	}
+
+	// The commit object format is a sequence of "key value\n" header lines
+	// followed by a blank line and the commit message.  We only need to scan
+	// the headers.
+	for _, line := range strings.Split(string(catOut), "\n") {
+		if line == "" {
+			// Blank line marks the end of headers.
+			break
+		}
+		if strings.HasPrefix(line, "parent ") {
+			// sha has a declared parent — missing locally because of the
+			// shallow graft.  This is a genuine shallow boundary.
+			return true
+		}
+	}
+
+	// No "parent" header: sha is a true root commit.  The empty diff-tree
+	// output should be handled by the --root fallback.
+	return false
 }
