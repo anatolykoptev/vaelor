@@ -491,6 +491,172 @@ fn f(ctx: i32) -> i32 { helper(ctx) }
 	}
 }
 
+// TestExtractCalls_CArgRefTagging verifies that the C call query correctly tags
+// the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
+func TestExtractCalls_CArgRefTagging(t *testing.T) {
+	source := []byte(`
+void helper(int x) {}
+
+void f(int arg) {
+	helper(arg);
+}
+`)
+	calls, err := ExtractCalls("x.c", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, argArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "arg" && c.IsArgRef {
+			argArgRef++
+		}
+	}
+	if helperPrimary != 1 {
+		t.Errorf("C: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
+	}
+	if argArgRef != 1 {
+		t.Errorf("C: expected arg as argref exactly once, got %d", argArgRef)
+	}
+}
+
+// TestExtractCalls_CppArgRefTagging verifies that the C++ call query correctly
+// tags the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
+func TestExtractCalls_CppArgRefTagging(t *testing.T) {
+	source := []byte(`
+int helper(int x) { return x; }
+
+int f(int arg) {
+	return helper(arg);
+}
+`)
+	calls, err := ExtractCalls("x.cpp", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, argArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "arg" && c.IsArgRef {
+			argArgRef++
+		}
+	}
+	if helperPrimary != 1 {
+		t.Errorf("C++: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
+	}
+	if argArgRef != 1 {
+		t.Errorf("C++: expected arg as argref exactly once, got %d", argArgRef)
+	}
+}
+
+// TestExtractCalls_RubyArgRefTagging verifies that the Ruby call query tags
+// the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
+// In Ruby, a bare method call like helper(arg) is a `call` node; tree-sitter
+// maps it to call.method (not call.function), so helper appears with IsArgRef=false
+// via the @call.method capture.
+func TestExtractCalls_RubyArgRefTagging(t *testing.T) {
+	source := []byte(`
+def helper(x)
+  x
+end
+
+def f(arg)
+  helper(arg)
+end
+`)
+	calls, err := ExtractCalls("x.rb", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, argArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "arg" && c.IsArgRef {
+			argArgRef++
+		}
+	}
+	if helperPrimary != 1 {
+		t.Errorf("Ruby: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
+	}
+	if argArgRef != 1 {
+		t.Errorf("Ruby: expected arg as argref exactly once, got %d", argArgRef)
+	}
+}
+
+// TestExtractCalls_PHPArgRefTagging verifies that the PHP call query tags the
+// callee (helper) as IsArgRef=false and a bare function-name argument (callback)
+// as IsArgRef=true. PHP argref captures (name) nodes (bare identifiers, i.e.
+// function references) in argument position — not $variables, which are
+// variable_name nodes and thus not captured as argrefs.
+func TestExtractCalls_PHPArgRefTagging(t *testing.T) {
+	source := []byte(`<?php
+function helper($fn) { $fn(); }
+function callback() {}
+
+function f() {
+	helper(callback);
+}
+`)
+	calls, err := ExtractCalls("x.php", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, callbackArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "callback" && c.IsArgRef {
+			callbackArgRef++
+		}
+	}
+	if helperPrimary != 1 {
+		t.Errorf("PHP: expected helper as primary (non-argref) call exactly once, got %d", helperPrimary)
+	}
+	if callbackArgRef != 1 {
+		t.Errorf("PHP: expected callback as argref exactly once, got %d", callbackArgRef)
+	}
+}
+
+// TestExtractCalls_CSharpArgRefTagging verifies that the C# call query tags
+// the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
+func TestExtractCalls_CSharpArgRefTagging(t *testing.T) {
+	source := []byte(`
+class X {
+    int Helper(int x) { return x; }
+
+    int F(int arg) {
+        return Helper(arg);
+    }
+}
+`)
+	calls, err := ExtractCalls("x.cs", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, argArgRef int
+	for _, c := range calls {
+		if c.Name == "Helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "arg" && c.IsArgRef {
+			argArgRef++
+		}
+	}
+	if helperPrimary != 1 {
+		t.Errorf("C#: expected Helper as primary (non-argref) call exactly once, got %d", helperPrimary)
+	}
+	if argArgRef != 1 {
+		t.Errorf("C#: expected arg as argref exactly once, got %d", argArgRef)
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {

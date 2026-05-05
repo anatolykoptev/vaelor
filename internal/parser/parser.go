@@ -124,13 +124,6 @@ type ParseOpts struct {
 	// IncludeImports includes import declarations in the result.
 	IncludeImports bool
 
-	// IncludeFieldAccess keeps heuristic argument-reference call sites
-	// (struct field access, identifier args, JSX attribute refs) even when
-	// they don't resolve to a known function symbol. Default false — the
-	// call graph drops unresolved CallSite.IsArgRef entries to avoid
-	// reporting member access (e.g. `opts.Slug`) and locals (e.g. `ctx`)
-	// as callees. Set to true for the legacy permissive behaviour.
-	IncludeFieldAccess bool
 }
 
 // ParseFile parses a single source file and returns its symbol table.
