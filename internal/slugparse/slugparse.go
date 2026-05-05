@@ -121,18 +121,23 @@ func Parse(input string) (string, error) {
 // the slug (e.g. "group/sub/repo").  The minimum of two segments is always
 // required.
 func ParseWithOptions(input string, opts Options) (string, error) {
+	form := classifyForm(input)
+
 	if input == "" || isLocalPath(input) {
+		slugNormalizeTotal.WithLabelValues(form, "reject").Inc()
 		return "", fmt.Errorf("invalid repo slug or url: %q", input)
 	}
 
 	s, err := stripPrefix(input)
 	if err != nil {
+		slugNormalizeTotal.WithLabelValues(form, "reject").Inc()
 		return "", err
 	}
 
 	// Strip trailing .git — but reject double-suffix like owner/repo.git.git.
 	s = strings.TrimSuffix(s, ".git")
 	if strings.HasSuffix(s, ".git") {
+		slugNormalizeTotal.WithLabelValues(form, "reject").Inc()
 		return "", fmt.Errorf("invalid repo slug or url: %q", input)
 	}
 
@@ -140,17 +145,21 @@ func ParseWithOptions(input string, opts Options) (string, error) {
 	minSegments := 2
 	if opts.AllowSubgroups {
 		if len(parts) < minSegments {
+			slugNormalizeTotal.WithLabelValues(form, "reject").Inc()
 			return "", fmt.Errorf("invalid repo slug or url: %q", input)
 		}
 	} else {
 		if len(parts) != 2 {
+			slugNormalizeTotal.WithLabelValues(form, "reject").Inc()
 			return "", fmt.Errorf("invalid repo slug or url: %q", input)
 		}
 	}
 	for _, seg := range parts {
 		if !ownerRepoSegRe.MatchString(seg) {
+			slugNormalizeTotal.WithLabelValues(form, "reject").Inc()
 			return "", fmt.Errorf("invalid repo slug or url: %q", input)
 		}
 	}
+	slugNormalizeTotal.WithLabelValues(form, "accept").Inc()
 	return strings.Join(parts, "/"), nil
 }

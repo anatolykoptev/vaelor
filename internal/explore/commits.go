@@ -80,6 +80,7 @@ func countDiffTreeFiles(ctx context.Context, root, sha string) (int, error) {
 	)
 	out, err := cmd.Output()
 	if err != nil {
+		exploreFilesChangedMethodTotal.WithLabelValues("error").Inc()
 		return 0, err
 	}
 
@@ -97,13 +98,18 @@ func countDiffTreeFiles(ctx context.Context, root, sha string) (int, error) {
 		)
 		out2, err2 := cmd2.Output()
 		if err2 != nil {
+			exploreFilesChangedMethodTotal.WithLabelValues("error").Inc()
 			return 0, err2
 		}
 		trimmed = strings.TrimSpace(string(out2))
 		if trimmed == "" {
+			exploreFilesChangedMethodTotal.WithLabelValues("empty_repo").Inc()
 			return 0, nil
 		}
+		exploreFilesChangedMethodTotal.WithLabelValues("root_fallback").Inc()
+		return len(strings.Split(trimmed, "\n")), nil
 	}
 
+	exploreFilesChangedMethodTotal.WithLabelValues("diff_tree").Inc()
 	return len(strings.Split(trimmed, "\n")), nil
 }
