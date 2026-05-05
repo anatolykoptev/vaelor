@@ -3,6 +3,8 @@ package forge
 import (
 	"net/url"
 	"strings"
+
+	"github.com/anatolykoptev/go-code/internal/slugparse"
 )
 
 // DetectForge infers the ForgeKind from a repository identifier.
@@ -13,7 +15,10 @@ import (
 //  3. URL with host github.com → GitHub.
 //  4. URL with host gitlab.com → GitLab.
 //  5. Other URL → Unknown.
-//  6. Bare slug with 2+ "/"-separated parts → GitHub (default forge).
+//  6. SSH form git@github.com:… → GitHub.
+//  7. SSH form git@gitlab.com:… → GitLab.
+//  8. Bare slug with host prefix (github.com/… or gitlab.com/…) → appropriate forge.
+//  9. Bare owner/repo slug (no host prefix) → GitHub (default forge).
 func DetectForge(input string) ForgeKind {
 	if input == "" {
 		return Unknown
@@ -21,12 +26,29 @@ func DetectForge(input string) ForgeKind {
 	if isLocalPath(input) {
 		return Unknown
 	}
+	// URL with explicit scheme — use hostname.
 	if u, err := url.Parse(input); err == nil && u.Scheme != "" {
 		return kindFromHost(u.Hostname())
 	}
-	// Bare slug: must contain at least one "/" and no spaces.
+	// SSH form: git@<host>:owner/repo[.git] — use slugparse as single source of truth.
+	if strings.HasPrefix(input, "git@") {
+		host, ok := slugparse.SSHHostKind(input)
+		if !ok {
+			return Unknown
+		}
+		return kindFromHost(host)
+	}
+	// Bare slug, possibly with forge-host prefix.
 	if strings.Contains(input, "/") && !strings.Contains(input, " ") {
-		parts := strings.Split(strings.Trim(input, "/"), "/")
+		s := input
+		for _, pfx := range []string{"github.com/", "gitlab.com/"} {
+			if strings.HasPrefix(s, pfx) {
+				host := strings.TrimSuffix(pfx, "/")
+				return kindFromHost(host)
+			}
+		}
+		// Plain owner/repo — default to GitHub.
+		parts := strings.Split(strings.Trim(s, "/"), "/")
 		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
 			return GitHub
 		}
@@ -34,36 +56,19 @@ func DetectForge(input string) ForgeKind {
 	return Unknown
 }
 
-// ExtractSlug returns the "owner/repo[/sub…]" portion of a repository
-// identifier. Returns ("", false) for local paths, empty input, or inputs
-// that do not contain at least two path segments.
+// ExtractSlug returns the canonical slug from any of the standard repository
+// identifier forms (bare slug, HTTPS URL, SSH URL, bare host-prefix form).
+// Returns ("", false) for any input that cannot be parsed as a valid slug.
+//
+// GitLab subgroup paths (e.g. "group/sub/repo") are accepted and returned as
+// the full slug ("group/sub/repo").  For strict two-segment enforcement use
+// slugparse.Parse directly.
 func ExtractSlug(input string) (string, bool) {
-	if input == "" || isLocalPath(input) {
+	slug, err := slugparse.ParseWithOptions(input, slugparse.Options{AllowSubgroups: true})
+	if err != nil {
 		return "", false
 	}
-
-	var rawPath string
-	if u, err := url.Parse(input); err == nil && u.Scheme != "" {
-		rawPath = u.Path
-	} else {
-		rawPath = input
-	}
-
-	rawPath = strings.Trim(rawPath, "/")
-	rawPath = strings.TrimSuffix(rawPath, ".git")
-
-	parts := strings.Split(rawPath, "/")
-	// Filter empty segments that can appear after trimming.
-	var clean []string
-	for _, p := range parts {
-		if p != "" {
-			clean = append(clean, p)
-		}
-	}
-	if len(clean) < 2 {
-		return "", false
-	}
-	return strings.Join(clean, "/"), true
+	return slug, true
 }
 
 // ExtractOwnerRepo parses a full repository URL and splits it into owner and
