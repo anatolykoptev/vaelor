@@ -77,6 +77,10 @@ func NormalizeSlug(input string) (string, error) {
 		if colon < 0 {
 			return "", fmt.Errorf("invalid github slug or url: %q", input)
 		}
+		host := s[len("git@"):colon]
+		if host != "github.com" && host != "gitlab.com" {
+			return "", fmt.Errorf("invalid github slug or url: %q", input)
+		}
 		s = s[colon+1:]
 	} else {
 		// Strip scheme.
@@ -95,8 +99,11 @@ func NormalizeSlug(input string) (string, error) {
 		}
 	}
 
-	// Strip trailing .git.
+	// Strip trailing .git — but reject double-suffix like owner/repo.git.git.
 	s = strings.TrimSuffix(s, ".git")
+	if strings.HasSuffix(s, ".git") {
+		return "", fmt.Errorf("invalid github slug or url: %q", input)
+	}
 
 	parts := strings.Split(s, "/")
 	if len(parts) != 2 {

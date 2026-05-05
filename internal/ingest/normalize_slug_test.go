@@ -61,6 +61,26 @@ func TestNormalizeSlug(t *testing.T) {
 			input:   "owner/repo/extra",
 			wantErr: true,
 		},
+		{
+			name:    "SSH unknown host rejected",
+			input:   "git@evil.com:owner/repo.git",
+			wantErr: true,
+		},
+		{
+			name:  "git@gitlab.com SSH form",
+			input: "git@gitlab.com:owner/repo.git",
+			want:  "owner/repo",
+		},
+		{
+			name:    "double .git suffix rejected",
+			input:   "owner/repo.git.git",
+			wantErr: true,
+		},
+		{
+			name:    "SSH no colon",
+			input:   "git@github.com",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range tests {
