@@ -199,7 +199,7 @@ func buildOxCodesClient(cfg Config) *oxcodes.Client {
 // buildForgeRegistry creates a forge registry from config.
 func buildForgeRegistry(cfg Config) *forge.Registry {
 	reg := forge.NewRegistry()
-	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken))
+	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken, cfg.GithubAppConfig))
 	if cfg.GitLabToken != "" || cfg.GitLabURL != "" {
 		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
 	}

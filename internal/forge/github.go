@@ -6,10 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// AppConfig carries optional GitHub App credentials. When all three fields are
+// non-zero, App authentication is used in place of a static PAT.
+type AppConfig struct {
+	AppID          int64
+	InstallationID int64
+	// KeyPEM is the PEM-encoded RSA private key. Empty means App auth disabled.
+	KeyPEM []byte
+}
 
 const (
 	ghDefaultAPIBase = "https://api.github.com"
@@ -36,22 +46,56 @@ type GitHubForge struct {
 }
 
 // NewGitHubForge creates a GitHubForge targeting api.github.com.
-// token may be empty for unauthenticated requests (lower rate limits).
-func NewGitHubForge(token string) *GitHubForge {
-	return newGitHubForgeWithBase(token, ghDefaultAPIBase)
+//
+// Authentication priority (first match wins):
+//  1. App auth — when app.AppID, app.InstallationID, and app.KeyPEM are all
+//     non-zero. Uses installation access tokens (separate 5000/h pool from the
+//     user's gh CLI PAT). Falls back to PAT on key-parse error (logged as warning).
+//  2. PAT — when token is non-empty.
+//  3. Unauthenticated — 60 req/h rate limit.
+func NewGitHubForge(token string, app AppConfig) *GitHubForge {
+	return newGitHubForgeWithBase(token, app, ghDefaultAPIBase)
 }
 
 // newGitHubForgeWithBase creates a GitHubForge with an explicit API base URL.
 // Used in tests to point at an httptest server.
-func newGitHubForgeWithBase(token, base string) *GitHubForge {
+func newGitHubForgeWithBase(token string, app AppConfig, base string) *GitHubForge {
 	if base == "" {
 		base = ghDefaultAPIBase
 	}
+
+	// Try App auth first when all three credentials are present.
+	var transport http.RoundTripper
+	if app.AppID != 0 && app.InstallationID != 0 && len(app.KeyPEM) > 0 {
+		src, err := newAppTokenSourceWithBase(AppAuthConfig{
+			AppID:          app.AppID,
+			InstallationID: app.InstallationID,
+			PrivateKeyPEM:  app.KeyPEM,
+		}, base)
+		if err == nil {
+			transport = &appRoundTripper{src: src, next: http.DefaultTransport}
+		} else {
+			// Key parse failed — fall through to PAT, warn loudly.
+			// This matches the spec: "log warning, fall back to PAT, don't crash".
+			logGitHubAppFallback(err)
+			transport = &patRoundTripper{token: token, next: http.DefaultTransport}
+		}
+	} else {
+		transport = &patRoundTripper{token: token, next: http.DefaultTransport}
+	}
+
 	return &GitHubForge{
 		token:   token,
 		apiBase: base,
-		http:    &http.Client{Timeout: ghDefaultTimeout},
+		http:    &http.Client{Timeout: ghDefaultTimeout, Transport: transport},
 	}
+}
+
+// logGitHubAppFallback emits a warning when App auth is requested but fails
+// to initialise. Uses slog so MCP servers running over stdio JSON-RPC don't
+// have stdout polluted with log lines. Defined as a var so tests can capture it.
+var logGitHubAppFallback = func(err error) {
+	slog.Warn("github app init failed; falling back to PAT", slog.Any("error", err))
 }
 
 // Kind implements Forge.
@@ -107,9 +151,7 @@ func (g *GitHubForge) FetchREADME(ctx context.Context, slug string) (_ string, e
 
 	req.Header.Set(ghHeaderAccept, ghMediaTypeRaw)
 	req.Header.Set(ghHeaderAPIVersion, ghAPIVersion)
-	if g.token != "" {
-		req.Header.Set(ghHeaderAuth, "Bearer "+g.token)
-	}
+	// Authorization is injected by the transport (appRoundTripper / patRoundTripper).
 
 	resp, err := g.http.Do(req) //nolint:gosec // URL constructed from validated slug
 	if err != nil {
@@ -142,13 +184,11 @@ func (g *GitHubForge) FetchREADME(ctx context.Context, slug string) (_ string, e
 	return sb.String(), nil
 }
 
-// setHeaders sets common Accept/Auth/Version headers for GitHub API requests.
+// setHeaders sets common Accept/Version headers for GitHub API requests.
+// Authorization is injected by the transport (appRoundTripper / patRoundTripper).
 func (g *GitHubForge) setHeaders(req *http.Request) {
 	req.Header.Set(ghHeaderAccept, ghMediaTypeJSON)
 	req.Header.Set(ghHeaderAPIVersion, ghAPIVersion)
-	if g.token != "" {
-		req.Header.Set(ghHeaderAuth, "Bearer "+g.token)
-	}
 }
 
 // Post* write methods live in poster_github.go.

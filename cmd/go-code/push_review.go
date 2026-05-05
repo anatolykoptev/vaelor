@@ -47,7 +47,7 @@ func handlePushReview(slug, before, after string, deps analyze.Deps) error {
 	if token == "" {
 		return fmt.Errorf("GITHUB_TOKEN not set")
 	}
-	g := forge.NewGitHubForge(token)
+	g := forge.NewGitHubForge(token, forge.AppConfig{})
 	_, err = g.PostCommitComment(ctx, slug, after, body)
 	return err
 }
