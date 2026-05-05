@@ -7,6 +7,65 @@ import (
 	"github.com/anatolykoptev/go-code/internal/forge"
 )
 
+// TestResolverCloneURL_GitLabSubgroup verifies the end-to-end resolver pipeline
+// for GitLab repos with subgroup nesting.  This is the regression introduced
+// when ExtractSlug delegated to strict slugparse.Parse (2-segment only):
+// forge.ExtractSlug("https://gitlab.com/group/sub/repo") returned ("", false)
+// and resolveRoot failed at the ExtractSlug call.
+func TestResolverCloneURL_GitLabSubgroup(t *testing.T) {
+	inputs := []struct {
+		name      string
+		input     string
+		wantSlug  string
+		wantClone string
+	}{
+		{
+			name:      "gitlab 3-segment https",
+			input:     "https://gitlab.com/group/sub/repo",
+			wantSlug:  "group/sub/repo",
+			wantClone: "https://gitlab.com/group/sub/repo.git",
+		},
+		{
+			name:      "gitlab 4-segment https",
+			input:     "https://gitlab.com/group/sub/sub2/repo",
+			wantSlug:  "group/sub/sub2/repo",
+			wantClone: "https://gitlab.com/group/sub/sub2/repo.git",
+		},
+		{
+			name:      "gitlab ssh 3-segment",
+			input:     "git@gitlab.com:group/sub/repo.git",
+			wantSlug:  "group/sub/repo",
+			wantClone: "https://gitlab.com/group/sub/repo.git",
+		},
+	}
+
+	for _, tc := range inputs {
+		t.Run(tc.name, func(t *testing.T) {
+			if !forge.IsRemote(tc.input) {
+				t.Fatalf("IsRemote(%q) = false, want true", tc.input)
+			}
+
+			slug, ok := forge.ExtractSlug(tc.input)
+			if !ok {
+				t.Fatalf("ExtractSlug(%q): ok = false, want true", tc.input)
+			}
+			if slug != tc.wantSlug {
+				t.Fatalf("ExtractSlug(%q) = %q, want %q", tc.input, slug, tc.wantSlug)
+			}
+
+			kind := forge.DetectForge(tc.input)
+			if kind != forge.GitLab {
+				t.Fatalf("DetectForge(%q) = %v, want GitLab", tc.input, kind)
+			}
+
+			cloneURL := forge.CloneURL(kind, slug, "", "")
+			if cloneURL != tc.wantClone {
+				t.Fatalf("CloneURL = %q, want %q", cloneURL, tc.wantClone)
+			}
+		})
+	}
+}
+
 // TestResolverCloneURL is an integration guard for the resolver pipeline.
 // It verifies the chain forge.IsRemote → ExtractSlug → DetectForge → CloneURL
 // for the bare-host form "github.com/owner/repo" that caused the double-host

@@ -30,14 +30,13 @@ func DetectForge(input string) ForgeKind {
 	if u, err := url.Parse(input); err == nil && u.Scheme != "" {
 		return kindFromHost(u.Hostname())
 	}
-	// SSH form: git@<host>:owner/repo[.git]
+	// SSH form: git@<host>:owner/repo[.git] — use slugparse as single source of truth.
 	if strings.HasPrefix(input, "git@") {
-		colon := strings.Index(input, ":")
-		if colon > 0 {
-			host := input[len("git@"):colon]
-			return kindFromHost(host)
+		host, ok := slugparse.SSHHostKind(input)
+		if !ok {
+			return Unknown
 		}
-		return Unknown
+		return kindFromHost(host)
 	}
 	// Bare slug, possibly with forge-host prefix.
 	if strings.Contains(input, "/") && !strings.Contains(input, " ") {
@@ -57,14 +56,15 @@ func DetectForge(input string) ForgeKind {
 	return Unknown
 }
 
-// ExtractSlug returns the canonical "owner/repo" slug from any of the
-// standard repository identifier forms (bare slug, HTTPS URL, SSH URL,
-// bare host-prefix form).  Returns ("", false) for any input that cannot be
-// parsed as a valid slug.
+// ExtractSlug returns the canonical slug from any of the standard repository
+// identifier forms (bare slug, HTTPS URL, SSH URL, bare host-prefix form).
+// Returns ("", false) for any input that cannot be parsed as a valid slug.
 //
-// Accepted forms — see slugparse.Parse for the full list.
+// GitLab subgroup paths (e.g. "group/sub/repo") are accepted and returned as
+// the full slug ("group/sub/repo").  For strict two-segment enforcement use
+// slugparse.Parse directly.
 func ExtractSlug(input string) (string, bool) {
-	slug, err := slugparse.Parse(input)
+	slug, err := slugparse.ParseWithOptions(input, slugparse.Options{AllowSubgroups: true})
 	if err != nil {
 		return "", false
 	}

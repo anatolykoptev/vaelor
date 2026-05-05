@@ -72,9 +72,14 @@ func TestExtractSlug(t *testing.T) {
 		// Plain bare slug.
 		{name: "bare owner/repo", input: "owner/repo", wantSlug: "owner/repo", wantOK: true},
 		{name: "bare owner/repo.git", input: "owner/repo.git", wantSlug: "owner/repo", wantOK: true},
+		// GitLab subgroup forms (regression: these were silently dropped).
+		{name: "gitlab subgroup 3-segment", input: "https://gitlab.com/group/sub/repo", wantSlug: "group/sub/repo", wantOK: true},
+		{name: "gitlab subgroup 4-segment", input: "https://gitlab.com/group/sub/sub2/repo", wantSlug: "group/sub/sub2/repo", wantOK: true},
+		{name: "gitlab subgroup ssh", input: "git@gitlab.com:group/sub/repo.git", wantSlug: "group/sub/repo", wantOK: true},
+		{name: "gitlab 2-segment still ok", input: "https://gitlab.com/group/sub", wantSlug: "group/sub", wantOK: true},
+		{name: "gitlab 1-segment rejected", input: "https://gitlab.com/group", wantSlug: "", wantOK: false},
 		// Rejection cases.
 		{name: "single segment", input: "single", wantSlug: "", wantOK: false},
-		{name: "owner/repo/extra too many segments", input: "owner/repo/extra", wantSlug: "", wantOK: false},
 		{name: "double .git suffix", input: "owner/repo.git.git", wantSlug: "", wantOK: false},
 	}
 	for _, tc := range tests {

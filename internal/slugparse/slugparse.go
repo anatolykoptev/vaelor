@@ -37,14 +37,11 @@ func isLocalPath(s string) bool {
 func stripPrefix(s string) (string, error) {
 	// SSH form: git@<host>:owner/repo[.git]
 	if strings.HasPrefix(s, "git@") {
+		_, ok := SSHHostKind(s)
+		if !ok {
+			return "", fmt.Errorf("invalid repo slug or url: %q", s)
+		}
 		colon := strings.Index(s, ":")
-		if colon < 0 {
-			return "", fmt.Errorf("invalid repo slug or url: %q", s)
-		}
-		host := s[len("git@"):colon]
-		if !knownSSHHosts[host] {
-			return "", fmt.Errorf("invalid repo slug or url: %q", s)
-		}
 		return s[colon+1:], nil
 	}
 	// Strip scheme (https:// or http://).
@@ -61,6 +58,37 @@ func stripPrefix(s string) (string, error) {
 		}
 	}
 	return s, nil
+}
+
+// Options controls optional behaviour of ParseWithOptions.
+type Options struct {
+	// AllowSubgroups, when true, accepts GitLab-style paths with more than two
+	// segments (e.g. "group/subgroup/repo") and returns the full path as the
+	// slug.  The strict two-segment contract is still enforced when this field
+	// is false (the default, and the behaviour of Parse).
+	AllowSubgroups bool
+}
+
+// SSHHostKind returns the SSH host when input starts with the "git@" SSH
+// prefix, e.g. "git@gitlab.com:group/repo.git" → "gitlab.com", true.
+// Returns ("", false) for any other input form.
+//
+// This is the single source of truth for SSH-host extraction; both
+// DetectForge and stripPrefix rely on it so that extending knownSSHHosts
+// propagates automatically.
+func SSHHostKind(input string) (host string, ok bool) {
+	if !strings.HasPrefix(input, "git@") {
+		return "", false
+	}
+	colon := strings.Index(input, ":")
+	if colon < 0 {
+		return "", false
+	}
+	h := input[len("git@"):colon]
+	if !knownSSHHosts[h] {
+		return "", false
+	}
+	return h, true
 }
 
 // Parse extracts the canonical "owner/repo" slug from any of the following
@@ -81,7 +109,18 @@ func stripPrefix(s string) (string, error) {
 //   - Double-suffix inputs (owner/repo.git.git)
 //   - Inputs with wrong segment count (owner alone, owner/repo/extra)
 //   - Segments that don't match [A-Za-z0-9._-]+
+//
+// Use ParseWithOptions for GitLab subgroup support.
 func Parse(input string) (string, error) {
+	return ParseWithOptions(input, Options{})
+}
+
+// ParseWithOptions is like Parse but respects the given Options.
+// With Options{AllowSubgroups: true}, paths of the form
+// "group/sub1/sub2/repo" (2+ segments) are accepted and returned verbatim as
+// the slug (e.g. "group/sub/repo").  The minimum of two segments is always
+// required.
+func ParseWithOptions(input string, opts Options) (string, error) {
 	if input == "" || isLocalPath(input) {
 		return "", fmt.Errorf("invalid repo slug or url: %q", input)
 	}
@@ -98,12 +137,20 @@ func Parse(input string) (string, error) {
 	}
 
 	parts := strings.Split(s, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid repo slug or url: %q", input)
+	minSegments := 2
+	if opts.AllowSubgroups {
+		if len(parts) < minSegments {
+			return "", fmt.Errorf("invalid repo slug or url: %q", input)
+		}
+	} else {
+		if len(parts) != 2 {
+			return "", fmt.Errorf("invalid repo slug or url: %q", input)
+		}
 	}
-	owner, repo := parts[0], parts[1]
-	if !ownerRepoSegRe.MatchString(owner) || !ownerRepoSegRe.MatchString(repo) {
-		return "", fmt.Errorf("invalid repo slug or url: %q", input)
+	for _, seg := range parts {
+		if !ownerRepoSegRe.MatchString(seg) {
+			return "", fmt.Errorf("invalid repo slug or url: %q", input)
+		}
 	}
-	return owner + "/" + repo, nil
+	return strings.Join(parts, "/"), nil
 }
