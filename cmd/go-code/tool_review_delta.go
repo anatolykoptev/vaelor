@@ -121,6 +121,7 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 		Language:        input.Language,
 		IncludeSnippets: !input.ExcludeSnippets,
 		OxCodes:         deps.OxCodes,
+		PathRewrite:     makePathRewrite(deps.PathMappings),
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("delta review: %s", err)), nil
