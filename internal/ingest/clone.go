@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// ownerRepoRe matches GitHub slugs of the form "owner/repo" or full HTTPS URLs.
-var ownerRepoRe = regexp.MustCompile(`^(?:https://github\.com/)?([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$`)
+// ownerRepoSegRe validates a single owner or repo segment: alphanumeric, dash, underscore, dot.
+var ownerRepoSegRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // dirPerm is the permission mode for created workspace directories.
 const dirPerm = 0o750
@@ -57,24 +57,67 @@ func IsRemote(input string) bool {
 	if strings.HasPrefix(input, "/") || strings.HasPrefix(input, "./") || strings.HasPrefix(input, "../") {
 		return false
 	}
-	return ownerRepoRe.MatchString(input)
+	_, err := NormalizeSlug(input)
+	return err == nil
 }
 
-// NormalizeSlug extracts the canonical "owner/repo" form from a slug or URL.
-// Returns an error if the input does not match the expected format.
+// NormalizeSlug extracts the canonical "owner/repo" form from any of:
+//   - owner/repo
+//   - github.com/owner/repo[.git]
+//   - https?://github.com/owner/repo[.git]
+//   - git@github.com:owner/repo[.git]
+//
+// Returns an error if the input does not match any recognised form.
 func NormalizeSlug(input string) (string, error) {
-	m := ownerRepoRe.FindStringSubmatch(input)
-	if m == nil {
+	s := input
+
+	// Strip SSH form: git@github.com:owner/repo[.git]
+	if strings.HasPrefix(s, "git@") {
+		colon := strings.Index(s, ":")
+		if colon < 0 {
+			return "", fmt.Errorf("invalid github slug or url: %q", input)
+		}
+		host := s[len("git@"):colon]
+		if host != "github.com" && host != "gitlab.com" {
+			return "", fmt.Errorf("invalid github slug or url: %q", input)
+		}
+		s = s[colon+1:]
+	} else {
+		// Strip scheme.
+		for _, pfx := range []string{"https://", "http://"} {
+			if strings.HasPrefix(s, pfx) {
+				s = s[len(pfx):]
+				break
+			}
+		}
+		// Strip known forge hosts.
+		for _, host := range []string{"github.com/", "gitlab.com/"} {
+			if strings.HasPrefix(s, host) {
+				s = s[len(host):]
+				break
+			}
+		}
+	}
+
+	// Strip trailing .git — but reject double-suffix like owner/repo.git.git.
+	s = strings.TrimSuffix(s, ".git")
+	if strings.HasSuffix(s, ".git") {
 		return "", fmt.Errorf("invalid github slug or url: %q", input)
 	}
-	return m[1], nil
+
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid github slug or url: %q", input)
+	}
+	owner, repo := parts[0], parts[1]
+	if !ownerRepoSegRe.MatchString(owner) || !ownerRepoSegRe.MatchString(repo) {
+		return "", fmt.Errorf("invalid github slug or url: %q", input)
+	}
+	return owner + "/" + repo, nil
 }
 
 // CloneRepo performs a shallow git clone of the given repository into DestDir.
 // If Ref is specified, it checks out that ref after cloning.
-//
-// TODO: implement full clone logic with auth token injection, ref checkout,
-// depth limiting, and cleanup on error.
 func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	slug, err := NormalizeSlug(opts.Slug)
 	if err != nil {
