@@ -335,12 +335,9 @@ func TestTryGoTypesResolution_WarnOnFailure(t *testing.T) {
 	slog.SetDefault(logger)
 	defer slog.SetDefault(prev)
 
-	// Create a context that is already cancelled to force packages.Load to fail
-	// immediately without spawning real go toolchain work.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	result := tryGoTypesResolution(ctx, dir, nil)
+	// tempdir has no go.mod — LoadPackages errors immediately on missing module
+	// file, before any context check is reached.
+	result := tryGoTypesResolution(context.Background(), dir, nil)
 	if result != nil {
 		t.Error("expected nil result for failing packages.Load")
 	}

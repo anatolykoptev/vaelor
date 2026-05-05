@@ -147,7 +147,7 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {
 	lr, err := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{})
 	if err != nil {
-		slog.Warn("go/packages load failed; falling back to tree-sitter", slog.Any("error", err))
+		slog.Warn("go/packages load failed; falling back to tree-sitter", "err", err)
 		return nil
 	}
 	typedEdges := goanalysis.Resolve(lr.Packages)
@@ -184,6 +184,9 @@ var goTypesWarmingSet sync.Map
 // GOCACHE stays empty. With CGO_ENABLED=0 the pure-Go packages still produce
 // typed object files — exactly what packages.Load needs to skip its cold-start work.
 func buildPrewarmEnv() []string {
+	// CGO_ENABLED=0 must come AFTER os.Environ() — append order matters in
+	// exec.Cmd.Env (later entries win), and ambient CGO_ENABLED=1 must be
+	// shadowed so the prewarm builds without the missing tree_sitter headers.
 	return append(os.Environ(),
 		"CGO_ENABLED=0",
 		"GOCACHE=/tmp/go-build-cache",
