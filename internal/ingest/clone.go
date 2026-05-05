@@ -84,9 +84,17 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	repoName := filepath.Base(slug)
 	localPath := filepath.Join(opts.DestDir, strings.ReplaceAll(slug, "/", "_"))
 
-	// Check if already cloned (cache hit).
+	// Cache hit — refresh to remote HEAD instead of trusting on-disk state.
+	// Without this, the race window between concurrent calls' defer cleanup()
+	// (cmd/go-code/resolve.go) and the lack of webhook-driven invalidation
+	// can leave the workspace stale relative to a recent push.
 	if _, statErr := os.Stat(localPath); statErr == nil {
-		return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
+		if err := refreshClone(ctx, localPath, opts.Ref); err == nil {
+			return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
+		}
+		// Refresh failed (corrupt repo, network blip, missing ref) — wipe
+		// and fall through to a fresh shallow clone below.
+		_ = os.RemoveAll(localPath)
 	}
 
 	if err := os.MkdirAll(opts.DestDir, dirPerm); err != nil {
@@ -116,6 +124,30 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	}
 
 	return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
+}
+
+
+// refreshClone updates an existing shallow clone at localPath to match
+// remote origin's tip of ref (or default HEAD when ref is empty).
+// Returns an error if any git operation fails so the caller can wipe
+// and re-clone instead of trusting potentially stale state.
+func refreshClone(ctx context.Context, localPath, ref string) error {
+	branch := ref
+	if branch == "" {
+		branch = "HEAD"
+	}
+	fetch := exec.CommandContext(ctx, "git", "-C", localPath,
+		"fetch", "--depth=1", "origin", branch)
+	fetch.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := fetch.CombinedOutput(); err != nil {
+		return fmt.Errorf("git fetch: %w\n%s", err, string(out))
+	}
+	reset := exec.CommandContext(ctx, "git", "-C", localPath,
+		"reset", "--hard", "FETCH_HEAD")
+	if out, err := reset.CombinedOutput(); err != nil {
+		return fmt.Errorf("git reset: %w\n%s", err, string(out))
+	}
+	return nil
 }
 
 // CleanupCloneDir removes a cloned repository directory from disk.
