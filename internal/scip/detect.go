@@ -13,7 +13,7 @@ type IndexerConfig struct {
 // - astro has no SCIP indexer
 // - svelte uses svelte-language-tools which emits LSIF (not SCIP)
 var indexerRegistry = map[string]IndexerConfig{
-	"go":         {Name: "scip-go"},
+	// "go" is intentionally absent: Go uses go/types (internal/goanalysis) instead of scip-go.
 	"typescript": {Name: "scip-typescript", Args: []string{"index"}},
 	"javascript": {Name: "scip-typescript", Args: []string{"index", "--infer-tsconfig"}},
 	"python":     {Name: "scip-python", Args: []string{"index", "."}},

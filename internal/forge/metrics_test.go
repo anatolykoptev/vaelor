@@ -103,3 +103,56 @@ func TestForgeResolveCounter_GitHubSSHSuccess(t *testing.T) {
 		t.Errorf("github/success (SSH) counter delta = %v, want 1", after-before)
 	}
 }
+
+// TestResolveOutcome_SSHEdgeCases verifies the three-way distinction that
+// resolveOutcome must make for SSH-like inputs.
+func TestResolveOutcome_SSHEdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		outcome string
+	}{
+		{
+			// git@github.com without a colon: not a valid SSH URL.
+			// SSHHostKind returns false (no colon), so this must be invalid_form,
+			// NOT reject_unknown_host.
+			name:    "github_no_colon",
+			input:   "git@github.com",
+			outcome: "invalid_form",
+		},
+		{
+			// Unknown SSH host with a proper colon-separated path.
+			name:    "evil_host",
+			input:   "git@evil.com:owner/repo.git",
+			outcome: "reject_unknown_host",
+		},
+		{
+			// Valid github.com SSH URL must produce a success counter (no failure label).
+			// We test via ExtractSlug to confirm the success path is taken.
+			name:    "github_valid_ssh",
+			input:   "git@github.com:owner/repo.git",
+			outcome: "success",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.outcome == "success" {
+				before := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "github", "outcome": "success"})
+				slug, ok := ExtractSlug(tt.input)
+				if !ok || slug == "" {
+					t.Fatalf("ExtractSlug(%q) should succeed: ok=%v slug=%q", tt.input, ok, slug)
+				}
+				after := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "github", "outcome": "success"})
+				if after-before != 1 {
+					t.Errorf("github/success counter delta = %v, want 1", after-before)
+				}
+				return
+			}
+			got := resolveOutcome(tt.input)
+			if got != tt.outcome {
+				t.Errorf("resolveOutcome(%q) = %q, want %q", tt.input, got, tt.outcome)
+			}
+		})
+	}
+}
