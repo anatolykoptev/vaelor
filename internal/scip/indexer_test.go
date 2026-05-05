@@ -3,7 +3,6 @@ package scip_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -69,35 +68,5 @@ func contains(s, substr string) bool {
 		}())
 }
 
-func TestRunIndexer_ScipGo(t *testing.T) {
-	if _, err := exec.LookPath("scip-go"); err != nil {
-		t.Skip("scip-go not in PATH, skipping integration test")
-	}
-
-	// Create a minimal Go module in a temp directory.
-	dir := t.TempDir()
-
-	goMod := []byte("module example.com/testmod\n\ngo 1.21\n")
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), goMod, 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-
-	mainGo := []byte("package main\n\nfunc main() {}\n")
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), mainGo, 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-
-	cfg := gocodescip.IndexerConfig{
-		Name: "scip-go",
-		Args: nil,
-	}
-
-	indexPath, err := gocodescip.RunIndexer(context.Background(), cfg, dir)
-	if err != nil {
-		t.Fatalf("RunIndexer: %v", err)
-	}
-
-	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
-		t.Errorf("index.scip not found at %s", indexPath)
-	}
-}
+// TestRunIndexer_ScipGo was removed: scip-go is no longer installed in the
+// Docker image because Go analysis is handled by internal/goanalysis (go/types).

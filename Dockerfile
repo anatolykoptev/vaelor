@@ -19,12 +19,7 @@ COPY . .
 RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
     CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o go-code ./cmd/go-code
 
-# ── Stage 2: SCIP indexer binaries ───────────────────────────────────────────
-# Reuse scip-go from the previously built image to avoid re-downloading.
-# To update: replace FROM with golang:1.26-alpine and restore the RUN go install line.
-FROM krolik-server-go-code:latest AS scip-builder
-
-# ── Stage 3: Runtime ─────────────────────────────────────────────────────────
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM golang:1.26-alpine
 
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
@@ -35,12 +30,12 @@ RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-ana
     git config --global --add safe.directory '*'
 
 # SCIP indexers for multi-language type-aware analysis.
+# Note: scip-go is intentionally absent — Go uses internal go/types analysis instead.
 RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
     npm cache clean --force
 
 WORKDIR /app
 COPY --from=builder /build/go-code .
-COPY --from=scip-builder /usr/local/bin/scip-go /usr/local/bin/scip-go
 
 EXPOSE 8897
 

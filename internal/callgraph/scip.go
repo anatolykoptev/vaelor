@@ -15,8 +15,8 @@ const maxSCIPSourceFiles = 2000
 // the resulting index into a typed call graph. Returns nil on any failure.
 func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, tsSymbols []*parser.Symbol) *CallGraph {
 	lang := dominantLang(files)
-	if lang == "" || lang == "go" {
-		return nil // Go already handled by go/types
+	if lang == "" {
+		return nil
 	}
 
 	cfg, ok := gocodescip.DetectIndexer(lang)
