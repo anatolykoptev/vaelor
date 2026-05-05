@@ -111,6 +111,9 @@ extras = &repoAnalysisExtras{
 APISurfaceSize: len(apiSurface),
 FreshnessStats: freshnessStats,
 }
+if qs := collectQualityStats(ctx, root, result.Language, deps); qs != nil {
+extras.QualityStats = qs
+}
 }
 
 // Fetch architecturally central symbols from the AGE graph (any depth).

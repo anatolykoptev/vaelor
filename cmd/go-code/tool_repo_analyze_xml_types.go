@@ -18,6 +18,7 @@ type xmlResponse struct {
 	Files         *xmlFiles            `xml:"files,omitempty"`
 	Tree          xmlCDATA             `xml:"tree,omitempty"`
 	Symbols       *xmlSymbols          `xml:"symbols,omitempty"`
+	Quality       *xmlQualitySummary   `xml:"quality,omitempty"`
 	APISurface    *xmlAPISummary       `xml:"apiSurface,omitempty"`
 	Freshness     *xmlFreshnessSummary `xml:"freshness,omitempty"`
 	ArchCentral   *xmlArchCentral      `xml:"arch_central,omitempty"`
@@ -87,6 +88,17 @@ type xmlSymbols struct {
 	Items []xmlSymbol `xml:"symbol"`
 }
 
+// xmlQualitySummary summarises ox-codes dataflow signals at deep mode:
+// dead stores / unused variables (quality) and taint findings
+// (security). Only counts are surfaced — for per-finding details the
+// agent should call dataflow_analyze, which is purpose-built.
+type xmlQualitySummary struct {
+	QualityFindings  int    `xml:"qualityFindings,attr"`
+	SecurityFindings int    `xml:"securityFindings,attr"`
+	FilesAnalyzed    int    `xml:"filesAnalyzed,attr,omitempty"`
+	Language         string `xml:"language,attr,omitempty"`
+}
+
 // xmlAPISummary summarises the public/exported API surface of the repo.
 type xmlAPISummary struct {
 	ExportedCount int `xml:"exported,attr"`
@@ -118,6 +130,7 @@ type repoAnalysisExtras struct {
 	APISurfaceSize int
 	FreshnessStats *compare.FreshnessStats
 	ArchCentral    *xmlArchCentral
+	QualityStats   *xmlQualitySummary
 }
 
 // applyExtras populates APISurface, Freshness, and ArchCentral fields on resp from extras.
@@ -138,6 +151,9 @@ func applyExtras(resp *xmlResponse, extras *repoAnalysisExtras) {
 	}
 	if extras.ArchCentral != nil {
 		resp.ArchCentral = extras.ArchCentral
+	}
+	if extras.QualityStats != nil {
+		resp.Quality = extras.QualityStats
 	}
 }
 
