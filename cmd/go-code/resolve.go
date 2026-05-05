@@ -22,6 +22,18 @@ func rewritePath(path string, mappings []analyze.PathMapping) string {
 	return path
 }
 
+// makePathRewrite returns a func that applies mappings to a path, or nil when
+// mappings is empty. The nil case signals callers that no rewriting is needed
+// so they can skip worktree .git file parsing entirely.
+func makePathRewrite(mappings []analyze.PathMapping) func(string) string {
+	if len(mappings) == 0 {
+		return nil
+	}
+	return func(path string) string {
+		return rewritePath(path, mappings)
+	}
+}
+
 // resolveRoot returns the local root path for the given repo input.
 // For remote repos, it clones into the workspace (at the given ref) and returns
 // the clone dir along with a cleanup function. For local paths, it validates the
