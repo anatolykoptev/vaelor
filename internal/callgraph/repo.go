@@ -147,6 +147,7 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {
 	lr, err := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{})
 	if err != nil {
+		slog.Warn("go/packages load failed; falling back to tree-sitter", "err", err)
 		return nil
 	}
 	typedEdges := goanalysis.Resolve(lr.Packages)
@@ -177,6 +178,25 @@ func buildUsesIndex(results []parseResult, root string) map[string][]string {
 // goTypesWarmingSet tracks repos currently being warmed to avoid duplicate goroutines.
 var goTypesWarmingSet sync.Map
 
+// buildPrewarmEnv returns the environment for the go build pre-warm subprocess.
+// CGO_ENABLED=0 is required: tree-sitter grammars need C headers that are absent
+// outside the container build context. Without it the build fails instantly and
+// GOCACHE stays empty. With CGO_ENABLED=0 the pure-Go packages still produce
+// typed object files — exactly what packages.Load needs to skip its cold-start work.
+func buildPrewarmEnv() []string {
+	// CGO_ENABLED=0 must come AFTER os.Environ() — append order matters in
+	// exec.Cmd.Env (later entries win), and ambient CGO_ENABLED=1 must be
+	// shadowed so the prewarm builds without the missing tree_sitter headers.
+	return append(os.Environ(),
+		"CGO_ENABLED=0",
+		"GOCACHE=/tmp/go-build-cache",
+		"GOPATH=/tmp/gopath",
+		"GOWORK=off",
+		"GOFLAGS=-mod=vendor",
+		"GIT_TERMINAL_PROMPT=0",
+	)
+}
+
 // warmGoTypesCache runs go/types analysis in background to warm GOCACHE.
 // When complete, it upgrades the cached CallGraph from basic to enhanced tier.
 func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
@@ -196,12 +216,7 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 	slog.Info("go/types: pre-warming GOCACHE via go build", "root", root)
 	buildCmd := exec.CommandContext(ctx, "go", "build", "-mod=vendor", "./...")
 	buildCmd.Dir = root
-	buildCmd.Env = append(os.Environ(),
-		"GOCACHE=/tmp/go-build-cache",
-		"GOPATH=/tmp/gopath",
-		"GOWORK=off",
-		"GOFLAGS=-mod=vendor",
-	)
+	buildCmd.Env = buildPrewarmEnv()
 	if berr := buildCmd.Run(); berr != nil {
 		slog.Warn("go/types: go build pre-warm failed (non-fatal)", "err", berr)
 		// Continue anyway -- packages.Load may still succeed from partial cache.
