@@ -2,12 +2,26 @@ package explore
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
+
+// cloneShallow makes a file-protocol shallow clone of src into dst with the
+// given depth.  t.Fatal is called on any error.
+func cloneShallow(t *testing.T, src, dst string, depth int) {
+	t.Helper()
+	out, err := exec.Command("git", "clone",
+		"--depth", fmt.Sprint(depth),
+		"file://"+src, dst,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git clone --depth %d: %v: %s", depth, err, out)
+	}
+}
 
 // exploreCounterValue reads the current value of the named counter for the
 // given label set from the default Prometheus registry.  Returns 0 when no
@@ -121,4 +135,90 @@ func latestSHA(t *testing.T, dir string) string {
 		out = out[:len(out)-1]
 	}
 	return out
+}
+
+// TestCountDiffTreeFiles_ShallowClone_Depth1 is the regression test for the
+// prod bug: with --depth=1 every commit looks like the shallow boundary because
+// there is no parent object.  countDiffTreeFiles must return 0 (not the
+// all-files count) and increment the shallow_boundary metric.
+//
+// Empirical evidence: before this fix, `explore` on anatolykoptev/go-code
+// reported files_changed=2397 for a 6-file squash commit (c995fdb) because
+// the --root fallback fired against the empty tree and counted every file.
+func TestCountDiffTreeFiles_ShallowClone_Depth1(t *testing.T) {
+	// Build a source repo with 3 commits touching different files.
+	src := t.TempDir()
+	initGitRepo(t, src)
+	commitFiles(t, src, "first", map[string]string{"a.go": "package main\n"})
+	commitFiles(t, src, "second", map[string]string{"b.go": "package main\n"})
+	commitFiles(t, src, "third", map[string]string{"c.go": "package main\n"})
+
+	// Shallow clone with depth=1: no commit has a visible parent.
+	dst := t.TempDir()
+	cloneShallow(t, src, dst, 1)
+
+	sha := latestSHA(t, dst)
+	t.Logf("shallow-depth-1 HEAD sha=%s", sha)
+
+	before := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	count, err := countDiffTreeFiles(context.Background(), dst, sha)
+	if err != nil {
+		t.Fatalf("countDiffTreeFiles: %v", err)
+	}
+	after := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+
+	t.Logf("shallow clone (depth=1) HEAD diff-tree -r returns %d files (want 0, not all-files count)", count)
+
+	// Must return 0, not the total file count of the repo.
+	if count != 0 {
+		t.Errorf("shallow boundary: count = %d, want 0 (total files in repo would be 3)", count)
+	}
+	if after-before != 1 {
+		t.Errorf("shallow_boundary counter delta = %v, want 1", after-before)
+	}
+}
+
+// TestCountDiffTreeFiles_ShallowClone_Depth2 verifies that with depth=2 (the
+// fixed clone depth) non-initial commits have a visible parent and diff-tree
+// returns the correct per-commit file count, not 0 and not all-files.
+func TestCountDiffTreeFiles_ShallowClone_Depth2(t *testing.T) {
+	// Build a source repo: init + 3 data commits, each touching exactly 1 file.
+	src := t.TempDir()
+	initGitRepo(t, src)
+	commitFiles(t, src, "seed", map[string]string{"seed.go": "package main\n"})
+	commitFiles(t, src, "first", map[string]string{"a.go": "package main\n"})
+	commitFiles(t, src, "second", map[string]string{"b.go": "package main\n"})
+	commitFiles(t, src, "third", map[string]string{"c.go": "package main\n"})
+
+	// Shallow clone with depth=2: HEAD has its parent available.
+	dst := t.TempDir()
+	cloneShallow(t, src, dst, 2)
+
+	sha := latestSHA(t, dst)
+	t.Logf("shallow-depth-2 HEAD sha=%s", sha)
+
+	beforeDiffTree := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "diff_tree"})
+	beforeBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+
+	count, err := countDiffTreeFiles(context.Background(), dst, sha)
+	if err != nil {
+		t.Fatalf("countDiffTreeFiles: %v", err)
+	}
+
+	afterDiffTree := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "diff_tree"})
+	afterBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+
+	t.Logf("shallow clone (depth=2) HEAD diff-tree -r returns %d files (want 1)", count)
+
+	// HEAD ("third") touches exactly 1 file.
+	const wantFiles = 1
+	if count != wantFiles {
+		t.Errorf("depth=2 HEAD: count = %d, want %d (must use real diff, not all-files or 0)", count, wantFiles)
+	}
+	if afterDiffTree-beforeDiffTree != 1 {
+		t.Errorf("diff_tree counter delta = %v, want 1", afterDiffTree-beforeDiffTree)
+	}
+	if afterBoundary != beforeBoundary {
+		t.Errorf("shallow_boundary counter should not increment for depth=2, delta = %v", afterBoundary-beforeBoundary)
+	}
 }
