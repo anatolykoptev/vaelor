@@ -12,11 +12,11 @@ func newTestGitHubForge(t *testing.T, mux *http.ServeMux) *GitHubForge {
 	t.Helper()
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return newGitHubForgeWithBase("test-token", srv.URL)
+	return newGitHubForgeWithBase("test-token", AppConfig{}, srv.URL)
 }
 
 func TestGitHubForgeKind(t *testing.T) {
-	g := NewGitHubForge("")
+	g := NewGitHubForge("", AppConfig{})
 	if got := g.Kind(); got != GitHub {
 		t.Errorf("Kind() = %v, want GitHub", got)
 	}
