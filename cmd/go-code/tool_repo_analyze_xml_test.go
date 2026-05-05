@@ -78,6 +78,12 @@ func TestFormatAnalysisXML_DropsTrivialSignature(t *testing.T) {
 	if strings.Contains(out, "type User struct") {
 		t.Fatalf("trivial struct signature should be dropped:\n%s", out)
 	}
+	// Also reject the empty <signature></signature> tag — the original bug
+	// was that the field was set to a zero-value xmlCDATA, which omitempty
+	// on a value type does not catch. Pointer + nil is the correct fix.
+	if strings.Contains(out, "<signature></signature>") || strings.Contains(out, "<signature/>") {
+		t.Fatalf("empty <signature> tag must be omitted entirely:\n%s", out)
+	}
 	if !strings.Contains(out, "func Login(ctx context.Context, name string) error") {
 		t.Fatalf("real function signature must be kept:\n%s", out)
 	}
