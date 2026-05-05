@@ -160,12 +160,14 @@ func TestCountDiffTreeFiles_ShallowClone_Depth1(t *testing.T) {
 	sha := latestSHA(t, dst)
 	t.Logf("shallow-depth-1 HEAD sha=%s", sha)
 
-	before := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	beforeBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	beforeRootFallback := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "root_fallback"})
 	count, err := countDiffTreeFiles(context.Background(), dst, sha)
 	if err != nil {
 		t.Fatalf("countDiffTreeFiles: %v", err)
 	}
-	after := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	afterBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	afterRootFallback := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "root_fallback"})
 
 	t.Logf("shallow clone (depth=1) HEAD diff-tree -r returns %d files (want 0, not all-files count)", count)
 
@@ -173,8 +175,12 @@ func TestCountDiffTreeFiles_ShallowClone_Depth1(t *testing.T) {
 	if count != 0 {
 		t.Errorf("shallow boundary: count = %d, want 0 (total files in repo would be 3)", count)
 	}
-	if after-before != 1 {
-		t.Errorf("shallow_boundary counter delta = %v, want 1", after-before)
+	if afterBoundary-beforeBoundary != 1 {
+		t.Errorf("shallow_boundary counter delta = %v, want 1", afterBoundary-beforeBoundary)
+	}
+	// root_fallback must NOT fire for a true shallow boundary.
+	if afterRootFallback != beforeRootFallback {
+		t.Errorf("root_fallback must not fire for shallow boundary, delta = %v", afterRootFallback-beforeRootFallback)
 	}
 }
 
@@ -199,6 +205,7 @@ func TestCountDiffTreeFiles_ShallowClone_Depth2(t *testing.T) {
 
 	beforeDiffTree := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "diff_tree"})
 	beforeBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	beforeRootFallback := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "root_fallback"})
 
 	count, err := countDiffTreeFiles(context.Background(), dst, sha)
 	if err != nil {
@@ -207,6 +214,7 @@ func TestCountDiffTreeFiles_ShallowClone_Depth2(t *testing.T) {
 
 	afterDiffTree := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "diff_tree"})
 	afterBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+	afterRootFallback := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "root_fallback"})
 
 	t.Logf("shallow clone (depth=2) HEAD diff-tree -r returns %d files (want 1)", count)
 
@@ -220,5 +228,60 @@ func TestCountDiffTreeFiles_ShallowClone_Depth2(t *testing.T) {
 	}
 	if afterBoundary != beforeBoundary {
 		t.Errorf("shallow_boundary counter should not increment for depth=2, delta = %v", afterBoundary-beforeBoundary)
+	}
+	// root_fallback must not fire for a non-initial commit with a visible parent.
+	if afterRootFallback != beforeRootFallback {
+		t.Errorf("root_fallback must not fire for depth=2 non-initial commit, delta = %v", afterRootFallback-beforeRootFallback)
+	}
+}
+
+// TestCountDiffTreeFiles_ShallowClone_SingleCommitRepo is the regression test
+// for the edge case where a shallow clone happens to contain exactly 1 commit
+// (because the repo itself has only 1 commit total).  isShallowBoundary must
+// return false in this case so that the --root fallback fires and the actual
+// file count is returned instead of 0.
+func TestCountDiffTreeFiles_ShallowClone_SingleCommitRepo(t *testing.T) {
+	// Source repo with exactly 1 commit touching 4 files.
+	src := t.TempDir()
+	initGitRepo(t, src)
+	commitFiles(t, src, "initial", map[string]string{
+		"a.go": "package main\n",
+		"b.go": "package main\n",
+		"c.go": "package main\n",
+		"d.go": "package main\n",
+	})
+
+	// Shallow clone with depth=1 — the clone is shallow yet contains the true
+	// root of the repo (single commit history).
+	dst := t.TempDir()
+	cloneShallow(t, src, dst, 1)
+
+	sha := latestSHA(t, dst)
+	t.Logf("single-commit shallow clone HEAD sha=%s", sha)
+
+	beforeRootFallback := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "root_fallback"})
+	beforeBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+
+	count, err := countDiffTreeFiles(context.Background(), dst, sha)
+	if err != nil {
+		t.Fatalf("countDiffTreeFiles: %v", err)
+	}
+
+	afterRootFallback := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "root_fallback"})
+	afterBoundary := exploreCounterValue(t, metricFilesChangedMethod, map[string]string{"method": "shallow_boundary"})
+
+	t.Logf("single-commit shallow clone: countDiffTreeFiles returned %d (want 4)", count)
+
+	const wantFiles = 4
+	if count != wantFiles {
+		t.Errorf("single-commit shallow clone: count = %d, want %d", count, wantFiles)
+	}
+	// root_fallback must fire because this is a true initial commit.
+	if afterRootFallback-beforeRootFallback != 1 {
+		t.Errorf("root_fallback counter delta = %v, want 1", afterRootFallback-beforeRootFallback)
+	}
+	// shallow_boundary must NOT fire — this is the true root, not a truncation.
+	if afterBoundary != beforeBoundary {
+		t.Errorf("shallow_boundary must not fire for true initial commit, delta = %v", afterBoundary-beforeBoundary)
 	}
 }

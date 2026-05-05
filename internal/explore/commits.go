@@ -132,11 +132,16 @@ func countDiffTreeFiles(ctx context.Context, root, sha string) (int, error) {
 // isShallowBoundary returns true when two conditions both hold:
 //  1. The repository at root is a shallow clone
 //     ("git rev-parse --is-shallow-repository" prints "true").
-//  2. The commit sha has no parent visible in the local object store
-//     ("git rev-list --max-count=1 --skip=1 sha" returns empty output).
+//  2. The commit sha is a shallow boundary: it declares a parent in its commit
+//     object but the parent object is absent from the local store.
 //
 // When both are true the empty diff-tree output is caused by the missing parent
 // object, not by sha being the true root commit of the project history.
+//
+// A true root commit (no parent anywhere, not just locally) has no "parent"
+// line in its raw commit object; a shallow-boundary commit does.  This raw
+// object check reliably distinguishes the two cases even in a depth-1 clone
+// where rev-list traversal is blocked by the shallow graft.
 func isShallowBoundary(ctx context.Context, root, sha string) bool {
 	shallowOut, err := exec.CommandContext(ctx, "git", "-C", root,
 		"rev-parse", "--is-shallow-repository").Output()
@@ -147,13 +152,32 @@ func isShallowBoundary(ctx context.Context, root, sha string) bool {
 		return false
 	}
 
-	// Check whether there is a parent commit object available locally.
-	// --skip=1 skips sha itself; if there is at least one parent, output is
-	// non-empty.
-	parentOut, err := exec.CommandContext(ctx, "git", "-C", root,
-		"rev-list", "--max-count=1", "--skip=1", sha).Output()
+	// Read the raw commit object and look for a "parent" header line.
+	// A true root commit has no parent line at all; a shallow-boundary commit
+	// has one (the parent SHA is recorded in the object even though the parent
+	// object itself was not downloaded).
+	catOut, err := exec.CommandContext(ctx, "git", "-C", root,
+		"cat-file", "commit", sha).Output()
 	if err != nil {
 		return false
 	}
-	return len(bytes.TrimSpace(parentOut)) == 0
+
+	// The commit object format is a sequence of "key value\n" header lines
+	// followed by a blank line and the commit message.  We only need to scan
+	// the headers.
+	for _, line := range strings.Split(string(catOut), "\n") {
+		if line == "" {
+			// Blank line marks the end of headers.
+			break
+		}
+		if strings.HasPrefix(line, "parent ") {
+			// sha has a declared parent — missing locally because of the
+			// shallow graft.  This is a genuine shallow boundary.
+			return true
+		}
+	}
+
+	// No "parent" header: sha is a true root commit.  The empty diff-tree
+	// output should be handled by the --root fallback.
+	return false
 }
