@@ -7,7 +7,9 @@ import (
 )
 
 // assertNoEmptyTag fails if the XML output contains an empty element for tagName
-// in any of the three forms: <tag></tag>, <tag/>, or a bare open tag <tag>.
+// in either of two forms: <tag></tag> or <tag/>. The bare <tag> form is
+// intentionally NOT checked because it false-positives on legitimate tags with
+// content (e.g. <tag><![CDATA[...]]></tag> where content follows immediately).
 func assertNoEmptyTag(t *testing.T, out, tagName string) {
 	t.Helper()
 	if strings.Contains(out, "<"+tagName+"></"+tagName+">") {

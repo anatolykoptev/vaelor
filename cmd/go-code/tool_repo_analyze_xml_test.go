@@ -110,3 +110,32 @@ func TestFormatAnalysisXML_SizeRegression(t *testing.T) {
 		t.Fatalf("module-depth fixture exceeded slim budget: got %d bytes\n%s", len(out), out)
 	}
 }
+
+// TestRepoAnalyze_EmptyTreeOmitted asserts that when FileTree is empty the
+// <tree> element is absent entirely. This is the value-type xmlCDATA footgun:
+// omitempty on a struct value type does not work in encoding/xml — the zero
+// xmlCDATA{} would be marshalled as <tree></tree>. The fix is *xmlCDATA so
+// the nil pointer is properly omitted (same pattern as PR #19/#20).
+func TestRepoAnalyze_EmptyTreeOmitted(t *testing.T) {
+	r := fixtureResult()
+	r.FileTree = "" // explicitly empty — no tree available
+	out := formatAnalysisXML(r, analyze.DepthModule, nil)
+	assertNoEmptyTag(t, out, "tree")
+	if strings.Contains(out, "<tree>") {
+		t.Fatalf("empty FileTree must produce no <tree> element:\n%s", out)
+	}
+}
+
+// TestRepoAnalyze_TreePresentWhenSet asserts the <tree> element is emitted
+// when FileTree is non-empty, and that its content survives round-trip.
+func TestRepoAnalyze_TreePresentWhenSet(t *testing.T) {
+	r := fixtureResult()
+	r.FileTree = ".\n└── user.go"
+	out := formatAnalysisXML(r, analyze.DepthModule, nil)
+	if !strings.Contains(out, "<tree>") {
+		t.Fatalf("non-empty FileTree must produce a <tree> element:\n%s", out)
+	}
+	if !strings.Contains(out, "user.go") {
+		t.Fatalf("tree content must appear inside <tree>:\n%s", out)
+	}
+}
