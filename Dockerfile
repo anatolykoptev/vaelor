@@ -46,11 +46,15 @@ RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-ana
 #   - scip-ruby    : upstream ships only x86_64-linux + arm64-darwin (no linux/aarch64).
 #   - scip-clang   : upstream ships only x86_64-linux + arm64-darwin (no linux/aarch64).
 #   - scip-dotnet  : upstream distributes only as a Docker image (no release asset binaries).
+ARG SCIP_JAVA_VERSION=v0.12.3
+ARG SCIP_JAVA_SHA256=2d4d8a31333dfa0daf3aa0381a51de465e40b0dac5622e49363786a65f743f34
+
 RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
     npm cache clean --force && \
-    SCIP_JAVA_VERSION=v0.12.3 && \
-    curl -fsSL "https://github.com/sourcegraph/scip-java/releases/download/${SCIP_JAVA_VERSION}/scip-java-${SCIP_JAVA_VERSION}" \
+    curl -fsSL --retry 3 --retry-delay 5 \
+        "https://github.com/sourcegraph/scip-java/releases/download/${SCIP_JAVA_VERSION}/scip-java-${SCIP_JAVA_VERSION}" \
         -o /usr/local/bin/scip-java && \
+    echo "${SCIP_JAVA_SHA256}  /usr/local/bin/scip-java" | sha256sum -c - && \
     chmod +x /usr/local/bin/scip-java
 
 WORKDIR /app
