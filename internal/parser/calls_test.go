@@ -331,6 +331,166 @@ func setup() {
 	}
 }
 
+// TestExtractCalls_GoArgRefTagging asserts that identifier arguments and
+// member-access selectors inside a call (e.g. `opts.Slug`, `ctx`) are emitted
+// as CallSite entries tagged IsArgRef=true, while the actual call target
+// (`helper`) is tagged IsArgRef=false. The call graph uses this to drop
+// unresolved argref entries (vars / member access) from callee lists.
+func TestExtractCalls_GoArgRefTagging(t *testing.T) {
+	source := []byte(`package x
+
+type Opts struct{ Slug string }
+
+func helper(int) int { return 0 }
+
+func f(opts Opts, ctx int) int {
+	_ = opts.Slug // selector_expression on its own — no call_expression context
+	return helper(ctx) + helper(opts.Slug)
+}
+`)
+	calls, err := ExtractCalls("x.go", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	var helperPrimary, ctxArgRef, slugArgRef int
+	for _, c := range calls {
+		switch c.Name {
+		case "helper":
+			if !c.IsArgRef {
+				helperPrimary++
+			}
+		case "ctx":
+			if c.IsArgRef {
+				ctxArgRef++
+			}
+		case "Slug":
+			if c.IsArgRef {
+				slugArgRef++
+			}
+		}
+		// `Slug` from the bare `_ = opts.Slug` line MUST NOT appear at all —
+		// it is a selector_expression outside any call_expression.
+		if c.Name == "Slug" && c.Line == 8 {
+			t.Errorf("bare member access leaked as CallSite: %+v", c)
+		}
+	}
+	if helperPrimary < 2 {
+		t.Errorf("expected helper as primary (non-argref) call >=2, got %d", helperPrimary)
+	}
+	if ctxArgRef == 0 {
+		t.Errorf("expected ctx captured as argref, got 0")
+	}
+	if slugArgRef == 0 {
+		t.Errorf("expected opts.Slug captured as argref, got 0")
+	}
+}
+
+// TestExtractCalls_PythonArgRefTagging mirrors the Go test for Python.
+func TestExtractCalls_PythonArgRefTagging(t *testing.T) {
+	source := []byte(`
+def helper(x):
+    return x
+
+def f(opts, ctx):
+    return helper(ctx)
+`)
+	calls, err := ExtractCalls("x.py", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, ctxArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "ctx" && c.IsArgRef {
+			ctxArgRef++
+		}
+	}
+	if helperPrimary == 0 {
+		t.Errorf("helper missing as primary call")
+	}
+	if ctxArgRef == 0 {
+		t.Errorf("ctx missing as argref")
+	}
+}
+
+// TestExtractCalls_TypeScriptArgRefTagging covers TS argument-position refs.
+func TestExtractCalls_TypeScriptArgRefTagging(t *testing.T) {
+	source := []byte(`
+function helper(x: number): number { return x; }
+function f(ctx: number) { return helper(ctx); }
+`)
+	calls, err := ExtractCalls("x.ts", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, ctxArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "ctx" && c.IsArgRef {
+			ctxArgRef++
+		}
+	}
+	if helperPrimary == 0 {
+		t.Errorf("helper missing as primary call")
+	}
+	if ctxArgRef == 0 {
+		t.Errorf("ctx missing as argref")
+	}
+}
+
+// TestExtractCalls_JavaArgRefTagging covers Java method_invocation argrefs.
+func TestExtractCalls_JavaArgRefTagging(t *testing.T) {
+	source := []byte(`
+class X {
+    int helper(int x) { return x; }
+    int f(int ctx) { return helper(ctx); }
+}
+`)
+	calls, err := ExtractCalls("X.java", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	var helperPrimary, ctxArgRef int
+	for _, c := range calls {
+		if c.Name == "helper" && !c.IsArgRef {
+			helperPrimary++
+		}
+		if c.Name == "ctx" && c.IsArgRef {
+			ctxArgRef++
+		}
+	}
+	if helperPrimary == 0 {
+		t.Errorf("helper missing as primary call")
+	}
+	if ctxArgRef == 0 {
+		t.Errorf("ctx missing as argref")
+	}
+}
+
+// TestExtractCalls_RustNoArgRefNoise — Rust's call query has no argument-list
+// wildcard, so plain identifier args (`ctx`) MUST NOT appear as CallSites.
+// Acts as a regression guard against importing the noisy heuristic to Rust.
+func TestExtractCalls_RustNoArgRefNoise(t *testing.T) {
+	source := []byte(`
+fn helper(x: i32) -> i32 { x }
+fn f(ctx: i32) -> i32 { helper(ctx) }
+`)
+	calls, err := ExtractCalls("x.rs", source, ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+	for _, c := range calls {
+		if c.Name == "ctx" {
+			t.Errorf("Rust extracted bare identifier arg as call: %+v", c)
+		}
+	}
+}
+
 func TestExtractCalls_Unsupported(t *testing.T) {
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {

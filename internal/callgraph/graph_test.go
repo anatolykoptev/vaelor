@@ -164,6 +164,64 @@ func TestInjectHookEdges_NoClients(t *testing.T) {
 	}
 }
 
+// TestBuildCallGraph_DropUnresolvedArgRef covers the noise filter:
+// IsArgRef CallSites that don't resolve to a function symbol must be
+// dropped (vars, member access). Resolved argrefs (real function refs
+// passed by name) must be kept.
+func TestBuildCallGraph_DropUnresolvedArgRef(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 10},
+		{Name: "renderHeading", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 12, EndLine: 14},
+	}
+	calls := []parser.CallSite{
+		// Primary call — always kept.
+		{Name: "Register", File: "/src/main.go", Line: 5},
+		// Argref that resolves to a real symbol — kept.
+		{Name: "renderHeading", File: "/src/main.go", Line: 5, IsArgRef: true},
+		// Argref that does NOT resolve — dropped (this is `ctx`, `opts.Slug` etc.).
+		{Name: "ctx", File: "/src/main.go", Line: 5, IsArgRef: true},
+		{Name: "Slug", Receiver: "opts", File: "/src/main.go", Line: 5, IsArgRef: true},
+	}
+
+	g := BuildCallGraph(symbols, calls)
+
+	if len(g.Edges) != 2 {
+		t.Fatalf("expected 2 edges (Register + renderHeading), got %d: %+v", len(g.Edges), g.Edges)
+	}
+	names := map[string]bool{}
+	for _, e := range g.Edges {
+		names[e.CalleeName] = true
+	}
+	if !names["Register"] {
+		t.Error("primary call Register dropped")
+	}
+	if !names["renderHeading"] {
+		t.Error("resolved argref renderHeading dropped")
+	}
+	if names["ctx"] || names["Slug"] {
+		t.Errorf("unresolved argref leaked: %+v", g.Edges)
+	}
+}
+
+// TestBuildCallGraph_KeepUnresolvedArgRef_LegacyOptIn covers the
+// IncludeFieldAccess opt-in: with field_access=true, unresolved argrefs
+// are kept (legacy permissive behaviour).
+func TestBuildCallGraph_KeepUnresolvedArgRef_LegacyOptIn(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 10},
+	}
+	calls := []parser.CallSite{
+		{Name: "Register", File: "/src/main.go", Line: 5},
+		{Name: "ctx", File: "/src/main.go", Line: 5, IsArgRef: true},
+	}
+
+	g := BuildCallGraphWithOpts(symbols, calls, BuildOpts{IncludeFieldAccess: true})
+
+	if len(g.Edges) != 2 {
+		t.Fatalf("expected 2 edges with IncludeFieldAccess=true, got %d", len(g.Edges))
+	}
+}
+
 func TestBuildCallGraph_FindCaller(t *testing.T) {
 	// outer spans lines 1-20, inner spans lines 5-8.
 	// A call at line 15 is inside outer but outside inner → caller should be outer.

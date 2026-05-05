@@ -14,6 +14,12 @@ type CallSite struct {
 	Receiver string // qualifier for method calls (e.g. "fmt" in "fmt.Println"), empty for plain calls
 	Line     uint32 // 1-based line number
 	File     string // absolute file path
+	// IsArgRef is true when this site comes from a heuristic argument-position
+	// or struct-literal-value capture (e.g. `Register("x", handler)` —
+	// `handler`). Most of these are plain values, not function references, so
+	// the call graph drops unresolved IsArgRef sites unless the caller opts in
+	// via ParseOpts.IncludeFieldAccess / MCP field_access=true.
+	IsArgRef bool
 }
 
 // ExtractCalls parses a source file and returns all function/method call sites.
@@ -71,6 +77,21 @@ func runCallQuery(q *sitter.Query, root *sitter.Node, source []byte, path string
 					Receiver: extractCallReceiver(node, source),
 					Line:     node.StartPoint().Row + 1,
 					File:     path,
+				})
+			case captureCallArgRef:
+				calls = append(calls, CallSite{
+					Name:     node.Content(source),
+					Line:     node.StartPoint().Row + 1,
+					File:     path,
+					IsArgRef: true,
+				})
+			case captureCallArgRefMethod:
+				calls = append(calls, CallSite{
+					Name:     node.Content(source),
+					Receiver: extractCallReceiver(node, source),
+					Line:     node.StartPoint().Row + 1,
+					File:     path,
+					IsArgRef: true,
 				})
 			}
 		}

@@ -13,11 +13,11 @@
 (scoped_call_expression
   name: (name) @call.method)
 
-; Function references passed as arguments
+; Function references passed as arguments — heuristic argref.
 (function_call_expression
   arguments: (arguments
     (argument
-      (name) @call.function)))
+      (name) @call.argref)))
 
 ; Constructor calls: new \Namespace\ClassName()
 (object_creation_expression
