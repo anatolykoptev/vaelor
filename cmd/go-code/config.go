@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-kit/env"
 )
 
@@ -25,6 +27,11 @@ type Config struct {
 
 	// GitHub API token for cloning private repos and higher rate limits.
 	GithubToken string
+
+	// GithubAppConfig holds optional GitHub App credentials. When all three
+	// fields are set, App auth is used in place of GithubToken for GitHub API
+	// calls (separate 5000/h rate-limit pool, independent from the gh CLI PAT).
+	GithubAppConfig forge.AppConfig
 
 	// Workspace directory for cloning repos.
 	WorkspaceDir string
@@ -225,6 +232,7 @@ func loadConfig() (Config, error) {
 		LLMModel:               env.Str("LLM_MODEL", defaultLLMModel),
 		LLMMaxTokens:           env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
 		GithubToken:            env.Str("GITHUB_TOKEN", ""),
+		GithubAppConfig:        loadGithubAppConfig(),
 		WorkspaceDir:           env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
 		RedisURL:               env.Str("REDIS_URL", ""),
 		LLMFallbackKeys:        env.List("LLM_API_KEY_FALLBACK", ""),
@@ -303,6 +311,50 @@ func parseNonNegFloat(key string, def float64) (float64, error) {
 		return 0, fmt.Errorf("invalid %s %g: must be ≥ 0 (omit a retriever rather than negating it)", key, v)
 	}
 	return v, nil
+}
+
+// loadGithubAppConfig reads GO_CODE_GITHUB_APP_ID, GO_CODE_GITHUB_APP_INSTALLATION_ID,
+// and GO_CODE_GITHUB_APP_KEY_PATH from the environment. Returns a zero-value
+// AppConfig (App auth disabled) when:
+//   - any required env var is missing or empty
+//   - the key file does not exist or cannot be read
+//
+// A warning is logged so operators know App auth is inactive.
+func loadGithubAppConfig() forge.AppConfig {
+	appID, err := strconv.ParseInt(os.Getenv("GO_CODE_GITHUB_APP_ID"), 10, 64)
+	if err != nil || appID == 0 {
+		return forge.AppConfig{}
+	}
+	installID, err := strconv.ParseInt(os.Getenv("GO_CODE_GITHUB_APP_INSTALLATION_ID"), 10, 64)
+	if err != nil || installID == 0 {
+		slog.Warn("GO_CODE_GITHUB_APP_ID set but GO_CODE_GITHUB_APP_INSTALLATION_ID missing; App auth disabled")
+		return forge.AppConfig{}
+	}
+
+	keyPath := os.Getenv("GO_CODE_GITHUB_APP_KEY_PATH")
+	if keyPath == "" {
+		keyPath = "/run/secrets/go-code-app-key"
+	}
+
+	pem, err := os.ReadFile(keyPath) //nolint:gosec // path from operator-controlled env var
+	if err != nil {
+		slog.Warn("github app key file unreadable, App auth disabled", //nolint:gosec // G706: path is operator-supplied env var, not user input
+			slog.String("path", keyPath),
+			slog.Any("error", err),
+		)
+		return forge.AppConfig{}
+	}
+
+	slog.Info("github app auth configured", //nolint:gosec // G706: app_id/key_path from operator env, not user input
+		slog.Int64("app_id", appID),
+		slog.Int64("installation_id", installID),
+		slog.String("key_path", keyPath),
+	)
+	return forge.AppConfig{
+		AppID:          appID,
+		InstallationID: installID,
+		KeyPEM:         pem,
+	}
 }
 
 func parsePathMappings(raw string) []analyze.PathMapping {
