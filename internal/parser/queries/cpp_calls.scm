@@ -21,7 +21,7 @@
 (new_expression
   type: (type_identifier) @call.function)
 
-; Function references passed as arguments
+; Function references passed as arguments — heuristic argref.
 (call_expression
   arguments: (argument_list
-    (identifier) @call.function))
+    (identifier) @call.argref))

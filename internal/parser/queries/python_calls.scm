@@ -5,10 +5,11 @@
   function: (attribute
     attribute: (identifier) @call.method))
 
-; Function references passed as arguments
+; Function references passed as arguments — heuristic. Tagged as argref so
+; the call graph drops unresolved ones by default (vars, locals, attrs).
 (call
   arguments: (argument_list
-    (identifier) @call.function))
+    (identifier) @call.argref))
 
 ; Decorator references (the decorator itself is a "call" to the function)
 (decorator (identifier) @call.function)

@@ -76,6 +76,8 @@ type CallTraceInput struct {
 	Focus     string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth), or space-separated keywords (e.g. 'auth handler')"`
 	Language  string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
 	Compact   bool   `json:"compact,omitempty" jsonschema_description:"When true, return only the call tree without LLM narrative (faster, fewer tokens)"`
+
+	FieldAccess bool `json:"field_access,omitempty" jsonschema_description:"When true, include heuristic argument-reference call sites (struct field accesses, identifier args) as callees even when they don't resolve to a known function — legacy permissive behaviour. Default false: only true call expressions and resolved function references are reported."`
 }
 
 type callTraceOutput struct {
@@ -139,10 +141,11 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	}
 
 	result, err := callgraph.TraceRepo(ctx, callgraph.TraceRepoInput{
-		Root:     root,
-		Symbol:   input.Symbol,
-		Focus:    input.Focus,
-		Language: input.Language,
+		Root:               root,
+		Symbol:             input.Symbol,
+		Focus:              input.Focus,
+		Language:           input.Language,
+		IncludeFieldAccess: input.FieldAccess,
 		Opts: callgraph.TraceOpts{
 			Direction: direction,
 			MaxDepth:  depth,
