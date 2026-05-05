@@ -6,12 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
-)
 
-// ownerRepoSegRe validates a single owner or repo segment: alphanumeric, dash, underscore, dot.
-var ownerRepoSegRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	"github.com/anatolykoptev/go-code/internal/slugparse"
+)
 
 // dirPerm is the permission mode for created workspace directories.
 const dirPerm = 0o750
@@ -64,56 +62,16 @@ func IsRemote(input string) bool {
 // NormalizeSlug extracts the canonical "owner/repo" form from any of:
 //   - owner/repo
 //   - github.com/owner/repo[.git]
+//   - gitlab.com/owner/repo[.git]
 //   - https?://github.com/owner/repo[.git]
+//   - https?://gitlab.com/owner/repo[.git]
 //   - git@github.com:owner/repo[.git]
+//   - git@gitlab.com:owner/repo[.git]
 //
 // Returns an error if the input does not match any recognised form.
+// This is a thin wrapper around slugparse.Parse.
 func NormalizeSlug(input string) (string, error) {
-	s := input
-
-	// Strip SSH form: git@github.com:owner/repo[.git]
-	if strings.HasPrefix(s, "git@") {
-		colon := strings.Index(s, ":")
-		if colon < 0 {
-			return "", fmt.Errorf("invalid github slug or url: %q", input)
-		}
-		host := s[len("git@"):colon]
-		if host != "github.com" && host != "gitlab.com" {
-			return "", fmt.Errorf("invalid github slug or url: %q", input)
-		}
-		s = s[colon+1:]
-	} else {
-		// Strip scheme.
-		for _, pfx := range []string{"https://", "http://"} {
-			if strings.HasPrefix(s, pfx) {
-				s = s[len(pfx):]
-				break
-			}
-		}
-		// Strip known forge hosts.
-		for _, host := range []string{"github.com/", "gitlab.com/"} {
-			if strings.HasPrefix(s, host) {
-				s = s[len(host):]
-				break
-			}
-		}
-	}
-
-	// Strip trailing .git — but reject double-suffix like owner/repo.git.git.
-	s = strings.TrimSuffix(s, ".git")
-	if strings.HasSuffix(s, ".git") {
-		return "", fmt.Errorf("invalid github slug or url: %q", input)
-	}
-
-	parts := strings.Split(s, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid github slug or url: %q", input)
-	}
-	owner, repo := parts[0], parts[1]
-	if !ownerRepoSegRe.MatchString(owner) || !ownerRepoSegRe.MatchString(repo) {
-		return "", fmt.Errorf("invalid github slug or url: %q", input)
-	}
-	return owner + "/" + repo, nil
+	return slugparse.Parse(input)
 }
 
 // CloneRepo performs a shallow git clone of the given repository into DestDir.

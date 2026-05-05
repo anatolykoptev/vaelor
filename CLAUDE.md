@@ -21,6 +21,7 @@
 | `internal/freshness/` | Dependency freshness + CVE/vulnerability checking via OSV.dev API |
 | `internal/polyglot/` | Multi-language repo structure detection |
 | `internal/routes/` | HTTP route extraction (7 languages, used for cross-language edges) |
+| `internal/slugparse/` | Canonical slug parser shared by `forge` and `ingest`; stdlib-only leaf package |
 | `internal/forge/` | Multi-forge abstraction: `Forge` interface, GitHub + GitLab implementations, URL detection, registry |
 | `internal/websearch/` | HTTP client for go-search MCP (smart_search depth=fast), used by repo_search |
 | `internal/llm/` | CLIProxyAPI client with retry + fallback |
@@ -140,7 +141,8 @@ make deploy  # docker compose build --no-cache + up -d
 
 - Dependency direction: `ingest → parser → clean → analyze → llm`
 - `compare`, `analyze`, `callgraph` are peers — none imports the others (except `callgraph` imports `goanalysis` for type-aware resolution)
-- `forge` package has no dependencies on other internal packages
+- `forge` package depends only on `slugparse` (no other internal packages)
+- `slugparse` is a leaf — depends only on stdlib
 - Tool handlers (`cmd/go-code/tool_*.go`) import `internal/analyze` only — no direct internal package access
 - Error messages: lowercase, `fmt.Errorf("context: %w", err)`
 - Context always first param; never stored in structs
