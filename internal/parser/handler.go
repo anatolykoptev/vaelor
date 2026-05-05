@@ -26,6 +26,15 @@ const (
 	captureCallFunction = "call.function"
 	captureCallMethod   = "call.method"
 
+	// captureCallArgRef / captureCallArgRefMethod mark identifiers / selector fields
+	// captured in argument-list (or struct-literal value) positions inside a call.
+	// They are heuristic function references — most are plain values (variables,
+	// member access on local vars), so the call graph filters out unresolved ones
+	// by default. Set ParseOpts.IncludeFieldAccess (or the MCP field_access=true
+	// flag) to keep them anyway (legacy behaviour).
+	captureCallArgRef       = "call.argref"
+	captureCallArgRefMethod = "call.argref_method"
+
 	captureRelSubject    = "rel.subject"
 	captureRelTarget     = "rel.target"
 	captureRelImplTarget = "rel.impl_target"

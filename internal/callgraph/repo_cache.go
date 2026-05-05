@@ -77,9 +77,10 @@ func (c *callGraphCache) removeFromOrder(key string) {
 }
 
 // cgCacheKey produces a stable cache key from TraceRepoInput fields
-// that affect the result: root path, language filter, and focus path.
+// that affect the result: root path, language filter, focus path, and
+// the field-access opt-in (changes which edges land in the graph).
 func cgCacheKey(input TraceRepoInput) string {
-	return fmt.Sprintf("%s::%s::%s", input.Root, input.Language, input.Focus)
+	return fmt.Sprintf("%s::%s::%s::fa=%t", input.Root, input.Language, input.Focus, input.IncludeFieldAccess)
 }
 
 // InvalidateBuildCache clears the entire BuildFromRepo cache.
