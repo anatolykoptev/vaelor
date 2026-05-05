@@ -30,8 +30,8 @@ const (
 	// captured in argument-list (or struct-literal value) positions inside a call.
 	// They are heuristic function references — most are plain values (variables,
 	// member access on local vars), so the call graph filters out unresolved ones
-	// by default. Set ParseOpts.IncludeFieldAccess (or the MCP field_access=true
-	// flag) to keep them anyway (legacy behaviour).
+	// by default. Set the MCP field_access=true flag to keep them (legacy behaviour);
+	// filtering happens in the callgraph layer, not the parser.
 	captureCallArgRef       = "call.argref"
 	captureCallArgRefMethod = "call.argref_method"
 

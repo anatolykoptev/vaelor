@@ -18,7 +18,7 @@ type CallSite struct {
 	// or struct-literal-value capture (e.g. `Register("x", handler)` —
 	// `handler`). Most of these are plain values, not function references, so
 	// the call graph drops unresolved IsArgRef sites unless the caller opts in
-	// via ParseOpts.IncludeFieldAccess / MCP field_access=true.
+	// via the MCP field_access=true flag (filtered in the callgraph layer).
 	IsArgRef bool
 }
 
