@@ -24,6 +24,13 @@ type TraceRepoInput struct {
 	Focus    string
 	Language string
 	Opts     TraceOpts
+
+	// IncludeFieldAccess keeps heuristic argref/field-access call sites even
+	// when they don't resolve to a known function symbol. Default false —
+	// unresolved argref captures (`opts.Slug`, `ctx`, `localPath`) are
+	// dropped. Set via the `field_access=true` MCP tool flag for legacy
+	// permissive behaviour.
+	IncludeFieldAccess bool
 }
 
 type parseResult struct {
@@ -71,7 +78,9 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 		allRels = append(allRels, r.rels...)
 	}
 
-	cg := BuildCallGraph(allSymbols, allCalls)
+	cg := BuildCallGraphWithOpts(allSymbols, allCalls, BuildOpts{
+		IncludeFieldAccess: input.IncludeFieldAccess,
+	})
 	cg.TypeRels = allRels
 	cg.Tier = "basic"
 	cg.Backend = "tree-sitter"

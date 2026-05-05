@@ -22,6 +22,7 @@ type UnderstandInput struct {
 	Focus          string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope"`
 	Language       string `json:"language,omitempty" jsonschema_description:"Limit to files of this language"`
 	IncludeCallers bool   `json:"include_callers,omitempty" jsonschema_description:"Include who calls this symbol (default: false)"`
+	FieldAccess    bool   `json:"field_access,omitempty" jsonschema_description:"When true, include heuristic argument-reference call sites (struct field accesses, identifier args) as callees even when they don't resolve to a known function — legacy permissive behaviour. Default false: only true call expressions and resolved function references are reported."`
 }
 
 func registerUnderstand(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps, graphStore *codegraph.Store) {
@@ -53,8 +54,9 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	defer cleanup()
 
 	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
-		Root:     root,
-		Language: input.Language,
+		Root:               root,
+		Language:           input.Language,
+		IncludeFieldAccess: input.FieldAccess,
 	})
 	if err != nil {
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil

@@ -32,9 +32,29 @@ type CallGraph struct {
 	UsesIndex map[string][]string
 }
 
+// BuildOpts controls how parser.CallSite entries are converted into call
+// graph edges.
+type BuildOpts struct {
+	// IncludeFieldAccess keeps heuristic argref/field-access call sites even
+	// when they don't resolve to a known function symbol. Default false —
+	// unresolved CallSite.IsArgRef entries are dropped to avoid reporting
+	// vars (`ctx`, `localPath`) and member access (`opts.Slug`) as callees.
+	IncludeFieldAccess bool
+}
+
 // BuildCallGraph resolves call sites against the symbol table.
 // Resolution: same-file -> same-package (directory) -> global name match.
+//
+// Heuristic argref sites (parser.CallSite.IsArgRef==true) are dropped when
+// they don't resolve to a function/method symbol — this filters noise like
+// member access (`opts.Slug`) and local variable references (`ctx`,
+// `localPath`) that the parser captures inside argument lists.
 func BuildCallGraph(symbols []*parser.Symbol, calls []parser.CallSite) *CallGraph {
+	return BuildCallGraphWithOpts(symbols, calls, BuildOpts{})
+}
+
+// BuildCallGraphWithOpts is BuildCallGraph with explicit options.
+func BuildCallGraphWithOpts(symbols []*parser.Symbol, calls []parser.CallSite, opts BuildOpts) *CallGraph {
 	byName := indexByName(symbols)
 	byFile := indexByFile(symbols)
 	byDir := indexByDir(symbols)
@@ -44,6 +64,22 @@ func BuildCallGraph(symbols []*parser.Symbol, calls []parser.CallSite) *CallGrap
 		cs := &calls[i]
 		caller := findCaller(byFile[cs.File], cs.Line)
 		callee := resolveCall(cs, byFile, byDir, byName)
+
+		if cs.IsArgRef {
+			if callee != nil {
+				recordCallee(cs.File, "argref_kept")
+			} else if opts.IncludeFieldAccess {
+				recordCallee(cs.File, "argref_kept_legacy")
+			} else {
+				// Unresolved argref — drop to avoid reporting member access
+				// and locals as callees. This is the noise filter.
+				recordCallee(cs.File, "argref_dropped_unresolved")
+				continue
+			}
+		} else {
+			recordCallee(cs.File, "call")
+		}
+
 		edges = append(edges, CallEdge{
 			Caller:     caller,
 			Callee:     callee,
