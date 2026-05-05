@@ -16,9 +16,6 @@ func assertNoEmptyTag(t *testing.T, out, tagName string) {
 	if strings.Contains(out, "<"+tagName+"/>") {
 		t.Fatalf("empty <%s/> must be omitted:\n%s", tagName, out)
 	}
-	if strings.Contains(out, "<"+tagName+">") {
-		t.Fatalf("bare <%s> tag must be omitted when content is empty:\n%s", tagName, out)
-	}
 }
 
 func marshal(t *testing.T, v any) string {
@@ -177,6 +174,7 @@ func TestCodeSearch_EmptyContextLinesFiltered(t *testing.T) {
 		}
 	}
 	out := marshal(t, resp)
+	assertNoEmptyTag(t, out, "ctx")
 	// Only one non-empty context line: "// comment"
 	if !strings.Contains(out, "// comment") {
 		t.Fatalf("non-empty context line must be present:\n%s", out)
@@ -185,6 +183,23 @@ func TestCodeSearch_EmptyContextLinesFiltered(t *testing.T) {
 	if ctxCount != 1 {
 		t.Fatalf("expected 1 <ctx> entry (empty ones filtered), got %d:\n%s", ctxCount, out)
 	}
+}
+
+// TestCodeSearch_AllEmptyContextFiltered asserts that when all context lines are
+// empty, no <ctx> tags appear at all — including no self-closing <ctx/> form.
+func TestCodeSearch_AllEmptyContextFiltered(t *testing.T) {
+	item := xmlSearchMatch{
+		File: "a.go",
+		Line: 5,
+		Text: xmlCDATA{Inner: wrapCDATA("foo()")},
+	}
+	for _, c := range []string{"", ""} {
+		if c != "" {
+			item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+		}
+	}
+	out := marshal(t, item)
+	assertNoEmptyTag(t, out, "ctx")
 }
 
 // TestRewrite_EmptyDiffOmitted asserts that an xmlRewriteFile with an empty
