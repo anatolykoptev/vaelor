@@ -4,7 +4,7 @@ import "testing"
 
 func TestRegistryGet(t *testing.T) {
 	r := NewRegistry()
-	r.Register(GitHub, NewGitHubForge(""))
+	r.Register(GitHub, NewGitHubForge("", AppConfig{}))
 	r.Register(GitLab, NewGitLabForge("", ""))
 
 	if f := r.Get(GitHub); f == nil || f.Kind() != GitHub {
@@ -20,7 +20,7 @@ func TestRegistryGet(t *testing.T) {
 
 func TestRegistryForURL(t *testing.T) {
 	r := NewRegistry()
-	r.Register(GitHub, NewGitHubForge(""))
+	r.Register(GitHub, NewGitHubForge("", AppConfig{}))
 	r.Register(GitLab, NewGitLabForge("", ""))
 
 	tests := []struct {
@@ -48,7 +48,7 @@ func TestRegistryForURL(t *testing.T) {
 
 func TestRegistryDefault(t *testing.T) {
 	r := NewRegistry()
-	r.Register(GitHub, NewGitHubForge(""))
+	r.Register(GitHub, NewGitHubForge("", AppConfig{}))
 
 	// Bare slug resolves to GitHub.
 	if f := r.ForURL("foo/bar"); f == nil || f.Kind() != GitHub {
