@@ -1,10 +1,13 @@
 package callgraph
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -313,6 +316,54 @@ func main() { F(Opts{}) }
 	}
 	if !hasSlug {
 		t.Errorf("with IncludeFieldAccess=true, expected `Slug` argref edge from F; edges=%+v", cg.Edges)
+	}
+}
+
+// TestTryGoTypesResolution_WarnOnFailure verifies that tryGoTypesResolution
+// emits a slog.Warn when packages.Load fails (e.g. no go.mod present).
+// This gives operators a "why is my repo stuck at basic tier" signal.
+func TestTryGoTypesResolution_WarnOnFailure(t *testing.T) {
+	// A bare directory with no go.mod forces packages.Load to fail.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	prev := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(prev)
+
+	// Create a context that is already cancelled to force packages.Load to fail
+	// immediately without spawning real go toolchain work.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := tryGoTypesResolution(ctx, dir, nil)
+	if result != nil {
+		t.Error("expected nil result for failing packages.Load")
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "go/packages load failed") {
+		t.Errorf("expected warn log containing 'go/packages load failed'; got: %q", got)
+	}
+}
+
+// TestBuildPrewarmEnv_ContainsCGODisabled verifies that buildPrewarmEnv includes
+// CGO_ENABLED=0, which is required to prevent the prewarm go build from failing
+// on missing tree-sitter C headers.
+func TestBuildPrewarmEnv_ContainsCGODisabled(t *testing.T) {
+	env := buildPrewarmEnv()
+	if !slices.Contains(env, "CGO_ENABLED=0") {
+		t.Errorf("buildPrewarmEnv() missing CGO_ENABLED=0; got: %v", env)
+	}
+	if !slices.Contains(env, "GOWORK=off") {
+		t.Errorf("buildPrewarmEnv() missing GOWORK=off; got: %v", env)
+	}
+	if !slices.Contains(env, "GIT_TERMINAL_PROMPT=0") {
+		t.Errorf("buildPrewarmEnv() missing GIT_TERMINAL_PROMPT=0; got: %v", env)
 	}
 }
 
