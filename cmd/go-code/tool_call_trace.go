@@ -27,7 +27,7 @@ type xmlTrace struct {
 	ResolvedRatio float64        `xml:"resolvedRatio,attr"`
 	Tier          string         `xml:"tier,attr,omitempty"`
 	Nodes         []xmlTraceNode `xml:"node"`
-	Narrative     xmlCDATA       `xml:"narrative,omitempty"`
+	Narrative     *xmlCDATA      `xml:"narrative,omitempty"`
 }
 
 type xmlTraceNode struct {
@@ -38,7 +38,7 @@ type xmlTraceNode struct {
 	End       uint32         `xml:"end,attr,omitempty"`
 	CallLine  uint32         `xml:"callLine,attr,omitempty"`
 	Cycle     bool           `xml:"cycle,attr,omitempty"`
-	Signature xmlCDATA       `xml:"signature,omitempty"`
+	Signature *xmlCDATA      `xml:"signature,omitempty"`
 	Children  []xmlTraceNode `xml:"node,omitempty"`
 }
 
@@ -56,7 +56,7 @@ func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
 			xn.Line = n.Symbol.StartLine
 			xn.End = n.Symbol.EndLine
 			if n.Symbol.Signature != "" {
-				xn.Signature = xmlCDATA{Inner: wrapCDATA(n.Symbol.Signature)}
+				xn.Signature = &xmlCDATA{Inner: wrapCDATA(n.Symbol.Signature)}
 			}
 		}
 		if len(n.Children) > 0 {
@@ -184,7 +184,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		},
 	}
 	if output.Narrative != "" {
-		resp.Trace.Narrative = xmlCDATA{Inner: wrapCDATA(output.Narrative)}
+		resp.Trace.Narrative = &xmlCDATA{Inner: wrapCDATA(output.Narrative)}
 	}
 
 	return xmlMarshalResult(resp, "call_trace", outputDir), nil
