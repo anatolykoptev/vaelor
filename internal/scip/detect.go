@@ -9,11 +9,16 @@ type IndexerConfig struct {
 }
 
 // indexerRegistry maps language names to their SCIP indexer configurations.
-// Note: svelte and astro are intentionally absent:
-// - astro has no SCIP indexer
-// - svelte uses svelte-language-tools which emits LSIF (not SCIP)
+//
+// Notes on what is and isn't shipped in the runtime image (Dockerfile is the source of truth):
+//   - "go" is intentionally absent: Go uses go/types (internal/goanalysis) instead of scip-go.
+//   - svelte/astro are absent: astro has no SCIP indexer, svelte's language tools emit LSIF.
+//   - ruby/csharp/c/cpp keep entries here so language detection still resolves a known
+//     indexer name, but the binaries are NOT installed in the runtime image (P3.F5 audit,
+//     2026-05-05): scip-ruby and scip-clang ship no linux/aarch64 release binary, and
+//     scip-dotnet has no release-asset binary at all (Docker-image-only). At runtime,
+//     IndexerAvailable() returns false for these and callers fall back to the basic tier.
 var indexerRegistry = map[string]IndexerConfig{
-	// "go" is intentionally absent: Go uses go/types (internal/goanalysis) instead of scip-go.
 	"typescript": {Name: "scip-typescript", Args: []string{"index"}},
 	"javascript": {Name: "scip-typescript", Args: []string{"index", "--infer-tsconfig"}},
 	"python":     {Name: "scip-python", Args: []string{"index", "."}},
