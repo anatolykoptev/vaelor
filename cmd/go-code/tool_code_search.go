@@ -53,11 +53,11 @@ type xmlSearchMatch struct {
 }
 
 type xmlExpandedBlock struct {
-	SymbolName string   `xml:"symbol,attr"`
-	SymbolKind string   `xml:"kind,attr"`
-	LineStart  int      `xml:"lineStart,attr"`
-	LineEnd    int      `xml:"lineEnd,attr"`
-	Body       xmlCDATA `xml:"body"`
+	SymbolName string    `xml:"symbol,attr"`
+	SymbolKind string    `xml:"kind,attr"`
+	LineStart  int       `xml:"lineStart,attr"`
+	LineEnd    int       `xml:"lineEnd,attr"`
+	Body       *xmlCDATA `xml:"body,omitempty"`
 }
 
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
@@ -248,7 +248,9 @@ func formatCodeSearchXML(input CodeSearchInput, matches []codesearch.SearchMatch
 			Text: xmlCDATA{Inner: wrapCDATA(m.Text)},
 		}
 		for _, c := range m.Context {
-			item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+			if c != "" {
+				item.Context = append(item.Context, xmlCDATA{Inner: wrapCDATA(c)})
+			}
 		}
 		resp.Search.Items[i] = item
 	}

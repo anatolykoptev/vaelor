@@ -30,7 +30,7 @@ type xmlDeadCode struct {
 	DeadStores int             `xml:"dataflowDeadStores,attr,omitempty"`
 	UnusedVars int             `xml:"dataflowUnusedVars,attr,omitempty"`
 	Symbols    []xmlDeadSymbol `xml:"symbol"`
-	Narrative  xmlCDATA        `xml:"narrative,omitempty"`
+	Narrative  *xmlCDATA       `xml:"narrative,omitempty"`
 }
 
 type xmlDeadSymbol struct {
@@ -166,7 +166,7 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 			prefix = fmt.Sprintf("Focus area: %s\n\n%s", input.Focus, prefix)
 		}
 		if n := generateNarrative(ctx, deps.LLM, prompts.SystemPromptDeadCode, result, prefix); n != "" {
-			resp.DeadCode.Narrative = xmlCDATA{Inner: wrapCDATA(n)}
+			resp.DeadCode.Narrative = &xmlCDATA{Inner: wrapCDATA(n)}
 		}
 	}
 
