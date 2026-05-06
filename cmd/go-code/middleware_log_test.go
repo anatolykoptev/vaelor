@@ -29,7 +29,7 @@ func applyRequestLog(t *testing.T, path string) []slog.Record {
 	t.Helper()
 	th := &testHandler{}
 	logger := slog.New(th)
-	mw := mcpserver.RequestLog(logger)
+	mw := mcpserver.RequestLogWithSkip(logger, []string{"/health", "/health/live", "/health/ready", "/metrics"})
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
