@@ -167,6 +167,7 @@ func main() {
 		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
 		RESTBridge:             true,
 		Routes:                 webhookRoutes,
+		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
 		ToolTimeouts: map[string]time.Duration{
 			"code_research": 90 * time.Second,
 			"repo_analyze":  90 * time.Second,
