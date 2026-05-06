@@ -7,7 +7,7 @@ github.com/anatolykoptev/go-kit/llm
 github.com/anatolykoptev/go-kit/metrics
 github.com/anatolykoptev/go-kit/metrics/mcpmw
 github.com/anatolykoptev/go-kit/rerank
-# github.com/anatolykoptev/go-mcpserver v0.11.0
+# github.com/anatolykoptev/go-mcpserver v0.13.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
 # github.com/beorn7/perks v1.0.1
