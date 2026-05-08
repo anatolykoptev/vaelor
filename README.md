@@ -193,7 +193,7 @@ make deploy     # Docker build + deploy
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 Anatoly Koptev
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) Apache 2.0 — Copyright 2026 Anatoly Koptev
 
 ## Contributing
 
