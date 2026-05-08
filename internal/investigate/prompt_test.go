@@ -2,6 +2,7 @@
 package investigate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -30,10 +31,12 @@ func TestBuildSystemPrompt_IncludesGroundTruth(t *testing.T) {
 func TestBuildSystemPrompt_TruncatesLongMetricList(t *testing.T) {
 	metrics := make([]string, 200)
 	for i := range metrics {
-		metrics[i] = "metric_" + string(rune('a'+i%26))
+		metrics[i] = fmt.Sprintf("metric_%03d", i)
 	}
 	out := BuildSystemPrompt(PromptContext{Service: "x", AvailableMetrics: metrics})
-	if len(out) > 12000 {
-		t.Errorf("prompt too long: %d chars", len(out))
+
+	count := strings.Count(out, "  - metric_")
+	if count != 80 {
+		t.Errorf("expected exactly 80 metrics in prompt, got %d", count)
 	}
 }

@@ -27,7 +27,7 @@ func BuildSystemPrompt(c PromptContext) string {
 	b.WriteString("You are a debug-investigation assistant for the go-code MCP server.\n")
 	b.WriteString("Goal: given Prometheus metrics + Jaeger traces + code-symbol findings, identify the most likely buggy file:function and rank hypotheses by evidence strength.\n\n")
 
-	b.WriteString(fmt.Sprintf("Service under investigation: %s\n\n", c.Service))
+	fmt.Fprintf(&b, "Service under investigation: %s\n\n", c.Service)
 
 	if len(c.AvailableMetrics) > 0 {
 		metrics := c.AvailableMetrics

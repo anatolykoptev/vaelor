@@ -9,3 +9,8 @@ package investigate
 
 // InvestigationResult is a stub. Real definition lands with Task 6.
 type InvestigationResult struct{}
+
+// Compile-time signal: this stub must be replaced when the real type lands.
+var _ stubMarker = stubMarker{}
+
+type stubMarker struct{}
