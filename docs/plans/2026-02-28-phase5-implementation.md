@@ -1306,7 +1306,7 @@ git commit -m "feat: add repo_search tool (migrated from go-search)"
 ### Task 10: Deploy + Verify go-code
 
 **Files:**
-- Modify: `deploy/go-code.env` (add new env vars)
+- Modify: `deploy/go-code.env.example` (add new env vars)
 - Modify: `Dockerfile` if needed (add redis dependency)
 
 **Step 1: Update docker-compose env**

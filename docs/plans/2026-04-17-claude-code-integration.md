@@ -276,11 +276,11 @@ exit 0
 ### Task 6: Add `AUTO_INDEX_DIRS` to deploy env
 
 **Files:**
-- Modify: `$REPO_ROOT/deploy/go-code.env` (on `ssh krolik`)
+- Modify: `$REPO_ROOT/deploy/go-code.env.example` (on `ssh krolik`)
 
 **Step 1: Inspect current env**
 
-Run on krolik: `grep -E 'AUTO_INDEX|PATH_MAPPING' $REPO_ROOT/deploy/go-code.env`
+Run on krolik: `grep -E 'AUTO_INDEX|PATH_MAPPING' $REPO_ROOT/deploy/go-code.env.example`
 If absent, proceed.
 
 **Step 2: Append**
