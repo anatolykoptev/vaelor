@@ -94,6 +94,19 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 }
 
 func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, start, end time.Time) {
+	finished := false
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("debug_investigate panic", "service", input.Service, "recover", r)
+			debugInvestigateStore.Fail(input.Service, start, end, fmt.Sprintf("panic: %v", r))
+			return
+		}
+		if !finished {
+			// Covers any future early-return that misses Finish/Fail.
+			debugInvestigateStore.Fail(input.Service, start, end, "investigation did not complete")
+		}
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -107,6 +120,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	services, err := jaeger.ListServices(ctx)
 	if err != nil {
 		debugInvestigateStore.Fail(input.Service, start, end, fmt.Sprintf("jaeger list services: %v", err))
+		finished = true
 		return
 	}
 	knownService := false
@@ -292,6 +306,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	res.FinishedAt = time.Now()
 
 	debugInvestigateStore.Finish(input.Service, start, end, res)
+	finished = true
 }
 
 // formatInvestigationResult renders the result as XML for the MCP caller.

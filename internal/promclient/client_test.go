@@ -38,7 +38,9 @@ func TestClient_GetJSON_DecodesResponse(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, 5*time.Second)
-	var dest struct{ Status string `json:"status"` }
+	var dest struct {
+		Status string `json:"status"`
+	}
 	if err := c.GetJSON(t.Context(), "/test", &dest); err != nil {
 		t.Fatalf("getJSON: %v", err)
 	}
