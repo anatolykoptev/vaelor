@@ -1,6 +1,8 @@
 package jaegerclient
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -152,5 +154,90 @@ func TestGetTrace_NotFound(t *testing.T) {
 	_, err := c.GetTrace(t.Context(), "nonexistent")
 	if err == nil {
 		t.Error("expected error for empty data, got nil")
+	}
+}
+
+func TestFindTraces_TagsWithSpecialChars_ProducesValidJSON(t *testing.T) {
+	var capturedTags string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedTags = r.URL.Query().Get("tags")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"total":0}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	_, err := c.FindTraces(t.Context(), FindTracesParams{
+		Service: "go-code",
+		Tags: map[string]string{
+			`key with "quotes"`: `value with \backslash`,
+			`unicode_ключ`:      `unicode_значение`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("FindTraces: %v", err)
+	}
+	// Verify we get back valid JSON that can be re-parsed
+	var roundTrip map[string]string
+	if err := json.Unmarshal([]byte(capturedTags), &roundTrip); err != nil {
+		t.Fatalf("captured tags is invalid JSON: %v\ntags=%q", err, capturedTags)
+	}
+	if got := roundTrip[`key with "quotes"`]; got != `value with \backslash` {
+		t.Errorf("round-trip lost data: got %q", got)
+	}
+}
+
+func TestGetTrace_NotFound_IsSentinelError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"total":0}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	_, err := c.GetTrace(t.Context(), "nonexistent")
+	if !errors.Is(err, ErrTraceNotFound) {
+		t.Errorf("expected ErrTraceNotFound, got %v", err)
+	}
+}
+
+func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"errorMessage":"bad query"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	_, err := c.ListServices(t.Context())
+	if err == nil {
+		t.Fatal("expected 4xx error")
+	}
+	if !strings.Contains(err.Error(), "400") || !strings.Contains(err.Error(), "bad query") {
+		t.Errorf("error should include status + body preview, got: %v", err)
+	}
+}
+
+func TestFindTraces_DecodesProcessesAsTypedStruct(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{
+            "data": [{
+                "traceID": "abc",
+                "spans": [],
+                "processes": {"p1": {"serviceName": "go-code"}}
+            }],
+            "total": 1
+        }`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	traces, err := c.FindTraces(t.Context(), FindTracesParams{Service: "go-code"})
+	if err != nil {
+		t.Fatalf("FindTraces: %v", err)
+	}
+	if got := traces[0].Processes["p1"].ServiceName; got != "go-code" {
+		t.Errorf("Process.ServiceName: got %q", got)
 	}
 }

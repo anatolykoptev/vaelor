@@ -2,11 +2,17 @@ package jaegerclient
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"time"
 )
+
+// ErrTraceNotFound is returned by GetTrace when Jaeger returns an empty
+// data array for the given trace ID. Callers can check via errors.Is.
+var ErrTraceNotFound = errors.New("trace not found")
 
 // SpanTag is a key-value pair attached to a span.
 type SpanTag struct {
@@ -23,11 +29,17 @@ type Span struct {
 	Tags          []SpanTag `json:"tags"`
 }
 
+// Process is one Jaeger process metadata (per-trace).
+type Process struct {
+	ServiceName string    `json:"serviceName"`
+	Tags        []SpanTag `json:"tags,omitempty"`
+}
+
 // Trace is a Jaeger distributed trace containing one or more spans.
 type Trace struct {
-	TraceID   string                    `json:"traceID"`
-	Spans     []Span                    `json:"spans"`
-	Processes map[string]map[string]any `json:"processes,omitempty"`
+	TraceID   string             `json:"traceID"`
+	Spans     []Span             `json:"spans"`
+	Processes map[string]Process `json:"processes,omitempty"`
 }
 
 type tracesResponse struct {
@@ -46,7 +58,7 @@ type FindTracesParams struct {
 	// StartTime and EndTime define the time window (zero = omit).
 	StartTime time.Time
 	EndTime   time.Time
-	// Limit caps the number of traces returned (zero = omit, server default applies).
+	// Limit caps the number of traces returned (0 = server default applies).
 	Limit int
 }
 
@@ -71,7 +83,12 @@ func (c *Client) FindTraces(ctx context.Context, p FindTracesParams) ([]Trace, e
 		v.Set("end", strconv.FormatInt(p.EndTime.UnixMicro(), 10))
 	}
 	if len(p.Tags) > 0 {
-		v.Set("tags", buildTagsJSON(p.Tags))
+		tagsJSON, err := json.Marshal(p.Tags)
+		if err != nil {
+			// Cannot happen for map[string]string but check defensively.
+			return nil, fmt.Errorf("encode tags: %w", err)
+		}
+		v.Set("tags", string(tagsJSON))
 	}
 
 	var resp tracesResponse
@@ -82,7 +99,7 @@ func (c *Client) FindTraces(ctx context.Context, p FindTracesParams) ([]Trace, e
 }
 
 // GetTrace fetches a single trace by its ID from /api/traces/{id}.
-// Returns an error when the trace is not found.
+// Returns ErrTraceNotFound (wrapped) when the trace is not found.
 func (c *Client) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
 	if traceID == "" {
 		return nil, fmt.Errorf("traceID is required")
@@ -92,29 +109,7 @@ func (c *Client) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
 		return nil, fmt.Errorf("get trace: %w", err)
 	}
 	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("trace %q not found", traceID)
+		return nil, fmt.Errorf("trace %q: %w", traceID, ErrTraceNotFound)
 	}
 	return &resp.Data[0], nil
-}
-
-// buildTagsJSON serialises a string map into the compact JSON object shape
-// Jaeger expects for its ?tags= query parameter, e.g. {"error":"true"}.
-// It avoids importing encoding/json to keep the dependency minimal.
-func buildTagsJSON(tags map[string]string) string {
-	var sb []byte
-	sb = append(sb, '{')
-	first := true
-	for k, val := range tags {
-		if !first {
-			sb = append(sb, ',')
-		}
-		first = false
-		sb = append(sb, '"')
-		sb = append(sb, k...)
-		sb = append(sb, '"', ':', '"')
-		sb = append(sb, val...)
-		sb = append(sb, '"')
-	}
-	sb = append(sb, '}')
-	return string(sb)
 }
