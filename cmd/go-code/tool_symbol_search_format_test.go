@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -40,6 +41,19 @@ func TestFormatSymbolSearchXML_DropsEmptyBodyAndRelpath(t *testing.T) {
 	}
 	if !strings.Contains(out, "func Login(ctx context.Context) error") {
 		t.Fatalf("function signature must be present:\n%s", out)
+	}
+}
+
+// TestSymbolSearch_ZeroResult_IncludesIgnoredPathsHint asserts that the
+// zero-result message (built from indexedPathsHint) includes the "excluded"
+// keyword and mentions known ignored directories.
+func TestSymbolSearch_ZeroResult_IncludesIgnoredPathsHint(t *testing.T) {
+	hint := indexedPathsHint()
+	msg := fmt.Sprintf("No symbols found matching %q.\n\n%s", "MyMissingSym", hint)
+	for _, want := range []string{"excluded", ".claude", "vendor", "testdata"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("zero-result message missing %q; got:\n%s", want, msg)
+		}
 	}
 }
 

@@ -166,12 +166,3 @@ func formatDesignResults(query string, hits []brandHit, meta map[string]designmd
 	return sb.String()
 }
 
-// reversePathMapping converts container-internal paths back to host paths.
-func reversePathMapping(path string, mappings []analyze.PathMapping) string {
-	for _, m := range mappings {
-		if strings.HasPrefix(path, m.Internal) {
-			return m.External + path[len(m.Internal):]
-		}
-	}
-	return path
-}

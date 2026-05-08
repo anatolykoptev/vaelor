@@ -93,10 +93,10 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 
 	// Route to ox-codes for scoped or structural search (no Go fallback for new features).
 	if input.Scope != "" && deps.OxCodes != nil {
-		return handleScopedSearch(ctx, input, root, deps.OxCodes, outputDir)
+		return handleScopedSearch(ctx, input, root, deps.OxCodes, outputDir, deps.PathMappings)
 	}
 	if input.Structural && deps.OxCodes != nil {
-		return handleStructuralSearch(ctx, input, root, deps.OxCodes, outputDir)
+		return handleStructuralSearch(ctx, input, root, deps.OxCodes, outputDir, deps.PathMappings)
 	}
 
 	// When expand is requested, use ox-codes directly and return expanded format.
@@ -122,7 +122,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		}
 	}
 
-	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
+	return xmlMarshalResult(formatCodeSearchXML(input, matches, deps.PathMappings), "code_search", outputDir), nil
 }
 
 // grepSearch runs grep via ox-codes with fallback to Go codesearch.
@@ -232,7 +232,8 @@ func buildCodeSearchInput(input CodeSearchInput, root string) codesearch.SearchI
 }
 
 // formatCodeSearchXML builds the XML response for code_search results.
-func formatCodeSearchXML(input CodeSearchInput, matches []codesearch.SearchMatch) xmlSearchResponse {
+// mappings is used to reverse-translate container-internal paths to host paths.
+func formatCodeSearchXML(input CodeSearchInput, matches []codesearch.SearchMatch, mappings []analyze.PathMapping) xmlSearchResponse {
 	resp := xmlSearchResponse{
 		Search: xmlSearch{
 			Pattern: input.Pattern,
@@ -243,7 +244,7 @@ func formatCodeSearchXML(input CodeSearchInput, matches []codesearch.SearchMatch
 	}
 	for i, m := range matches {
 		item := xmlSearchMatch{
-			File: m.File,
+			File: reverseToHost(m.File, mappings),
 			Line: m.Line,
 			Text: xmlCDATA{Inner: wrapCDATA(m.Text)},
 		}
