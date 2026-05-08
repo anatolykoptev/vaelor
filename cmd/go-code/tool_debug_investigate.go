@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,19 @@ import (
 
 // debugInvestigateTraceLimit caps the number of traces fetched per investigation.
 const debugInvestigateTraceLimit = 20
+
+// Anomaly score buckets — Prometheus baseline ratio thresholds.
+const (
+	ratioCritical      = 5.0
+	ratioElevated      = 2.0
+	ratioMild          = 1.2
+	scoreCritical      = 1.0
+	scoreElevated      = 0.8
+	scoreMild          = 0.6
+	scoreNominal       = 0.3
+	scoreBaselineEmpty = 0.7
+	scoreDefault       = 0.5
+)
 
 // DebugInvestigateInput is the user-facing tool input.
 type DebugInvestigateInput struct {
@@ -83,6 +97,8 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 			return textResult(formatInvestigationResult(st.Result())), nil
 		case investigate.StatusFailed:
 			return errResult(fmt.Sprintf("Previous investigation failed: %s", st.Error())), nil
+		default:
+			return errResult(fmt.Sprintf("unknown status: %v", st.Status())), nil
 		}
 	}
 
@@ -163,25 +179,25 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	baseSeries, berr := prom.QueryRange(ctx, errMetricQuery, baselineStart, baselineEnd, 60*time.Second)
 	res.Diagnostics.MetricsQueried = 2
 
-	anomalyScore := 0.5 // default if metric data missing
+	anomalyScore := scoreDefault // default if metric data missing
 	if werr == nil && berr == nil {
 		wMax := maxSampleValue(windowSeries)
 		bMax := maxSampleValue(baseSeries)
 		if bMax > 0 {
 			ratio := wMax / bMax
 			switch {
-			case ratio > 5:
-				anomalyScore = 1.0
-			case ratio > 2:
-				anomalyScore = 0.8
-			case ratio > 1.2:
-				anomalyScore = 0.6
+			case ratio > ratioCritical:
+				anomalyScore = scoreCritical
+			case ratio > ratioElevated:
+				anomalyScore = scoreElevated
+			case ratio > ratioMild:
+				anomalyScore = scoreMild
 			default:
-				anomalyScore = 0.3
+				anomalyScore = scoreNominal
 			}
 		} else if wMax > 0 {
 			// Baseline empty but window has errors — modest anomaly.
-			anomalyScore = 0.7
+			anomalyScore = scoreBaselineEmpty
 		}
 	} else {
 		if werr != nil {
@@ -266,7 +282,11 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning for top hypothesis.
 	if deps.LLM != nil && len(res.Hypotheses) > 0 {
 		// Gather ground-truth context.
-		availMetrics, _ := listLabelValues(ctx, prom, "__name__")
+		availMetrics, llvErr := listLabelValues(ctx, prom, "__name__")
+		if llvErr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+				fmt.Sprintf("list label values: %v", llvErr))
+		}
 		operationsSeen := make([]string, 0, len(ops))
 		for op := range ops {
 			operationsSeen = append(operationsSeen, op)
@@ -291,69 +311,27 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 			"diagnostics": res.Diagnostics,
 			"user_hint":   input.Hint,
 		}
-		userJSON, _ := json.Marshal(userPayload)
-
-		// Bounded LLM call (10s timeout — non-blocking on overall investigation).
-		llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer llmCancel()
-		summary, err := deps.LLM.Complete(llmCtx, sysPrompt, string(userJSON))
-		if err != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("llm: %v", err))
+		userJSON, marshalErr := json.Marshal(userPayload)
+		if marshalErr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+				fmt.Sprintf("marshal llm payload: %v", marshalErr))
+			// Skip LLM call — sending an empty payload produces meaningless output.
 		} else {
-			res.LLMSummary = summary
+			// Bounded LLM call (10s timeout — non-blocking on overall investigation).
+			llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
+			defer llmCancel()
+			summary, err := deps.LLM.Complete(llmCtx, sysPrompt, string(userJSON))
+			if err != nil {
+				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("llm: %v", err))
+			} else {
+				res.LLMSummary = summary
+			}
 		}
 	}
 	res.FinishedAt = time.Now()
 
 	debugInvestigateStore.Finish(input.Service, start, end, res)
 	finished = true
-}
-
-// formatInvestigationResult renders the result as XML for the MCP caller.
-func formatInvestigationResult(r *investigate.InvestigationResult) string {
-	var b strings.Builder
-	b.WriteString(`<response tool="debug_investigate">`)
-	b.WriteString("\n  ")
-	b.WriteString(fmt.Sprintf(`<investigation service=%q started_at=%q finished_at=%q>`,
-		r.Service, r.StartedAt.Format(time.RFC3339), r.FinishedAt.Format(time.RFC3339)))
-
-	if r.LLMSummary != "" {
-		b.WriteString("\n    <summary>")
-		b.WriteString(escapeXML(r.LLMSummary))
-		b.WriteString("</summary>")
-	}
-
-	for i, h := range r.Hypotheses {
-		b.WriteString(fmt.Sprintf("\n    <hypothesis rank=\"%d\" confidence=%q>", i+1, h.Confidence))
-		b.WriteString("\n      <subject>")
-		b.WriteString(escapeXML(h.Subject))
-		b.WriteString("</subject>")
-		if h.File != "" {
-			b.WriteString(fmt.Sprintf("\n      <location file=%q line=\"%d\"/>", h.File, h.Line))
-		}
-		b.WriteString(fmt.Sprintf("\n      <signals span_count=\"%d\" anomaly_score=\"%.3f\"/>",
-			h.SpanCount, h.AnomalyScore))
-		for _, link := range h.EvidenceLinks {
-			b.WriteString("\n      <evidence>")
-			b.WriteString(escapeXML(link))
-			b.WriteString("</evidence>")
-		}
-		for _, nc := range h.NextChecks {
-			b.WriteString("\n      <next_check>")
-			b.WriteString(escapeXML(nc))
-			b.WriteString("</next_check>")
-		}
-		b.WriteString("\n    </hypothesis>")
-	}
-
-	d, _ := json.Marshal(r.Diagnostics)
-	b.WriteString("\n    <diagnostics>")
-	b.WriteString(string(d))
-	b.WriteString("</diagnostics>")
-
-	b.WriteString("\n  </investigation>")
-	b.WriteString("\n</response>")
-	return b.String()
 }
 
 // maxSampleValue returns the maximum sample value across all series in a
@@ -385,10 +363,20 @@ func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
 	return max
 }
 
+// validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
+// Labels that deviate are rejected by listLabelValues to prevent path injection.
+var validPromLabel = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // listLabelValues fetches the values of a Prometheus label (e.g. "__name__"
 // to get all metric names). Returns up to 200 values; failures are
 // non-fatal — empty slice is returned with the error.
+//
+// label must match Prometheus label naming rules ([A-Za-z_][A-Za-z0-9_]*);
+// invalid labels are rejected immediately to prevent path construction issues.
 func listLabelValues(ctx context.Context, prom *promclient.Client, label string) ([]string, error) {
+	if !validPromLabel.MatchString(label) {
+		return nil, fmt.Errorf("listLabelValues: invalid label name %q (must match [A-Za-z_][A-Za-z0-9_]*)", label)
+	}
 	type resp struct {
 		Status string   `json:"status"`
 		Data   []string `json:"data"`
