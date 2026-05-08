@@ -50,7 +50,7 @@
 - [ ] **Step 0: Add dependency and verify SCIP API surface**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 go get github.com/sourcegraph/scip/bindings/go/scip@latest
 go doc github.com/sourcegraph/scip/bindings/go/scip | head -100
 go doc github.com/sourcegraph/scip/bindings/go/scip IndexVisitor
@@ -62,7 +62,7 @@ go doc github.com/sourcegraph/scip/bindings/go/scip Occurrence
 
 - [ ] **Step 1: Verify dependency added**
 
-Run: `cd /path/to/repos/src/go-code && grep sourcegraph/scip go.mod`
+Run: `cd $REPO_ROOT && grep sourcegraph/scip go.mod`
 Expected: go.mod updated with scip dependency
 
 - [ ] **Step 2: Write failing test for ReadIndex**
@@ -105,7 +105,7 @@ func TestReadIndex_NotFound(t *testing.T) {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestReadIndex`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestReadIndex`
 Expected: FAIL — package doesn't exist
 
 - [ ] **Step 4: Write minimal implementation**
@@ -173,13 +173,13 @@ func (idx *Index) DocumentCount() int {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestReadIndex`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestReadIndex`
 Expected: PASS
 
 - [ ] **Step 6: Run go mod tidy and commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 go mod tidy
 go mod vendor
 git add internal/scip/ go.mod go.sum vendor/
@@ -251,7 +251,7 @@ func TestConvertToEdges_Empty(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestConvertToEdges`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestConvertToEdges`
 Expected: FAIL — functions not defined
 
 - [ ] **Step 3: Write implementation**
@@ -492,13 +492,13 @@ func RefOccurrence(symbol string, line, startCol, endCol int) testOccurrence { .
 
 - [ ] **Step 5: Run all tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v`
 Expected: All PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/scip/convert.go internal/scip/convert_test.go
 git commit -m "feat(scip): convert SCIP occurrences to TypedEdge call edges"
 ```
@@ -561,7 +561,7 @@ func TestDetectIndexer(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestDetectIndexer`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestDetectIndexer`
 Expected: FAIL
 
 - [ ] **Step 3: Write implementation**
@@ -600,7 +600,7 @@ func DetectIndexer(lang string) (IndexerConfig, bool) {
 
 - [ ] **Step 4: Run test**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestDetectIndexer`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestDetectIndexer`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -678,7 +678,7 @@ func TestRunIndexer_ScipGo(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestRunIndexer`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestRunIndexer`
 Expected: FAIL — RunIndexer not defined
 
 - [ ] **Step 3: Write implementation**
@@ -740,7 +740,7 @@ func IndexerAvailable(lang string) bool {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestRunIndexer`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestRunIndexer`
 Expected: TestRunIndexer_MissingBinary PASS, TestRunIndexer_ScipGo SKIP (unless scip-go is installed)
 
 - [ ] **Step 5: Commit**
@@ -818,7 +818,7 @@ main();
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -v -run TestBuildFromRepo_SCIP -timeout 120s`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -v -run TestBuildFromRepo_SCIP -timeout 120s`
 Expected: FAIL or tier="basic" (SCIP not wired yet)
 
 - [ ] **Step 3: Modify BuildFromRepo to try SCIP resolution**
@@ -900,12 +900,12 @@ Add import: `gocodescip "github.com/anatolykoptev/go-code/internal/scip"`
 
 - [ ] **Step 4: Run integration test**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -v -run TestBuildFromRepo_SCIP -timeout 120s`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -v -run TestBuildFromRepo_SCIP -timeout 120s`
 Expected: PASS (if scip-typescript installed) or SKIP
 
 - [ ] **Step 5: Run full test suite to ensure no regressions**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -v -timeout 120s`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -v -timeout 120s`
 Expected: All existing tests PASS
 
 - [ ] **Step 6: Commit**
@@ -954,7 +954,7 @@ func TestProvenanceIncludesSCIP(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/tier/ -v -run TestDetectSCIP`
+Run: `cd $REPO_ROOT && go test ./internal/tier/ -v -run TestDetectSCIP`
 Expected: FAIL — SCIP field doesn't exist
 
 - [ ] **Step 3: Update tier.go**
@@ -995,7 +995,7 @@ if d.backends.SCIP {
 
 - [ ] **Step 4: Run tier tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/tier/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/tier/ -v`
 Expected: All PASS
 
 - [ ] **Step 5: Commit**
@@ -1056,7 +1056,7 @@ Also add `NODE_OPTIONS=--max-old-space-size=512` to environment to cap Node.js m
 
 - [ ] **Step 2: Test Docker build**
 
-Run: `cd /path/to/repos/src/go-code && docker build -t go-code-scip-test .`
+Run: `cd $REPO_ROOT && docker build -t go-code-scip-test .`
 Expected: Build succeeds. Image size increase ~100-150MB (Node.js + npm packages).
 
 - [ ] **Step 3: Test indexer availability inside container**
@@ -1223,7 +1223,7 @@ func RunIndexer(ctx context.Context, cfg IndexerConfig, dir string) (string, err
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v`
 Expected: All PASS
 
 - [ ] **Step 5: Commit**
@@ -1378,12 +1378,12 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 - [ ] **Step 2: Run e2e tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/scip/ -v -run TestE2E -timeout 120s`
+Run: `cd $REPO_ROOT && go test ./internal/scip/ -v -run TestE2E -timeout 120s`
 Expected: Tests PASS for installed indexers, SKIP for missing ones.
 
 - [ ] **Step 3: Run full repo test suite**
 
-Run: `cd /path/to/repos/src/go-code && go test ./... -timeout 300s`
+Run: `cd $REPO_ROOT && go test ./... -timeout 300s`
 Expected: All PASS, no regressions.
 
 - [ ] **Step 4: Commit**
@@ -1397,12 +1397,12 @@ git commit -m "test(scip): end-to-end integration tests for TypeScript and Pytho
 
 - [ ] **Step 1: Build Docker image**
 
-Run: `cd ~/deploy/example-server && docker compose build --no-cache go-code`
+Run: `cd ~/deploy/my-server && docker compose build --no-cache go-code`
 Expected: Build succeeds.
 
 - [ ] **Step 2: Deploy**
 
-Run: `cd ~/deploy/example-server && docker compose up -d --no-deps --force-recreate go-code`
+Run: `cd ~/deploy/my-server && docker compose up -d --no-deps --force-recreate go-code`
 Expected: Container healthy.
 
 - [ ] **Step 3: Verify with real repo**
@@ -1416,7 +1416,7 @@ Expected: tier="enhanced" in output.
 - [ ] **Step 4: Tag release**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git tag v1.19.0
 git push origin v1.19.0
 ```

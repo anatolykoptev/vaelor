@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-27
 **Status**: Approved
-**Author**: example + Claude
+**Author**: Anatoly Koptev + Claude
 
 ## Problem Statement
 

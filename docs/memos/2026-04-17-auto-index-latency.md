@@ -2,7 +2,7 @@
 
 **Context:** Task 7 of the Claude Code × go-code integration plan. Verifying that `AUTO_INDEX_DIRS` delivers zero-cold-start semantic_search for our active repos.
 
-**Runtime config:** `~/deploy/example-server/compose/search.yml:269` sets `AUTO_INDEX_DIRS=/host/src` (broader than the plan proposed — covers everything under `/path/to/repos/src/`). `PATH_MAPPINGS=/path/to/repos:/host` already on line 259.
+**Runtime config:** `~/deploy/my-server/compose/search.yml:269` sets `AUTO_INDEX_DIRS=/host/src` (broader than the plan proposed — covers everything under `/home/user/src/`). `PATH_MAPPINGS=/home/user:/host` already on line 259.
 
 ## Observation
 

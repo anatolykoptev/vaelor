@@ -12,14 +12,14 @@ import (
 // TestAnalyticsAdapter_SatisfiesInterface is a compile-time + runtime check.
 func TestAnalyticsAdapter_SatisfiesInterface(t *testing.T) {
 	t.Run("compile_time", func(t *testing.T) {
-		var _ graphx.Analytics = NewAnalyticsAdapter(nil)
+		var _ graphx.Analytics = NewAnalyticsAdapter(nil, nil)
 	})
 }
 
 // TestCrossRefsAdapter_SatisfiesInterface is a compile-time + runtime check.
 func TestCrossRefsAdapter_SatisfiesInterface(t *testing.T) {
 	t.Run("compile_time", func(t *testing.T) {
-		var _ graphx.CrossRefs = NewCrossRefsAdapter(nil)
+		var _ graphx.CrossRefs = NewCrossRefsAdapter(nil, nil)
 	})
 }
 
@@ -27,7 +27,7 @@ func TestCrossRefsAdapter_SatisfiesInterface(t *testing.T) {
 // returns safe zero values instead of panicking.
 func TestAnalyticsAdapter_NilStore_ReturnsZero(t *testing.T) {
 	ctx := context.Background()
-	a := NewAnalyticsAdapter(nil)
+	a := NewAnalyticsAdapter(nil, nil)
 
 	t.Run("Symbol", func(t *testing.T) {
 		sig, err := a.Symbol(ctx, "/some/repo", "MyFunc", "internal/foo/foo.go")
@@ -57,7 +57,7 @@ func TestAnalyticsAdapter_NilStore_ReturnsZero(t *testing.T) {
 // returns safe zero values instead of panicking.
 func TestCrossRefsAdapter_NilStore_ReturnsZero(t *testing.T) {
 	ctx := context.Background()
-	c := NewCrossRefsAdapter(nil)
+	c := NewCrossRefsAdapter(nil, nil)
 
 	t.Run("HandlesRoute", func(t *testing.T) {
 		route, found, err := c.HandlesRoute(ctx, "/some/repo", "MyHandler", "internal/foo/foo.go")
@@ -109,9 +109,13 @@ func TestAnalyticsAdapter_LiveGraph(t *testing.T) {
 	defer pool.Close()
 
 	store := NewStore(pool)
-	a := NewAnalyticsAdapter(store)
+	a := NewAnalyticsAdapter(store, nil)
 
-	const repoKey = "/path/to/repos/src/go-code"
+	// repoKey is set to the path this repo is checked out at on the test host.
+	repoKey := "/srv/src/repos/go-code"
+	if v := os.Getenv("GOCODE_REPO_PATH"); v != "" {
+		repoKey = v
+	}
 
 	// TopPageRank — rely on whatever graph is already cached.
 	// If the graph is cold, we get an empty slice (acceptable per contract).
@@ -158,4 +162,52 @@ func TestAnalyticsAdapter_LiveGraph(t *testing.T) {
 		t.Logf("QueryGraph: pagerank=%.6f community=%s surprise=%.4f",
 			sig.PageRank, sig.Community, sig.Surprise)
 	})
+}
+
+// TestRepoKeyToHostPath_UsesMapping verifies that repoKeyToHostPath replaces
+// the longest-matching prefix from mappings, with fallback to identity.
+func TestRepoKeyToHostPath_UsesMapping(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		repoKey  string
+		mappings map[string]string
+		want     string
+	}{
+		{
+			name:     "matching prefix",
+			repoKey:  "/srv/repos/my-repo",
+			mappings: map[string]string{"/srv/repos": "/host"},
+			want:     "/host/my-repo",
+		},
+		{
+			name:     "no match returns identity",
+			repoKey:  "/other/path",
+			mappings: map[string]string{"/srv/repos": "/host"},
+			want:     "/other/path",
+		},
+		{
+			name:     "empty mappings returns identity",
+			repoKey:  "/home/user/src/repo",
+			mappings: map[string]string{},
+			want:     "/home/user/src/repo",
+		},
+		{
+			name:     "exact prefix match",
+			repoKey:  "/home/user",
+			mappings: map[string]string{"/home/user": "/host"},
+			want:     "/host",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := repoKeyToHostPath(tc.repoKey, tc.mappings)
+			if got != tc.want {
+				t.Errorf("repoKeyToHostPath(%q, %v) = %q; want %q", tc.repoKey, tc.mappings, got, tc.want)
+			}
+		})
+	}
 }

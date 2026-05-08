@@ -132,7 +132,7 @@ if len(manifests) > 0 {
 
 **Step 3:** Deploy: `docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code`
 
-**Step 4:** Verify via MCP: call `code_health` on `/path/to/repos/src/go-code` and confirm `<vulnerabilities>` section appears.
+**Step 4:** Verify via MCP: call `code_health` on `$REPO_ROOT` and confirm `<vulnerabilities>` section appears.
 
 ---
 

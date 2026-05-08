@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 )
 
@@ -20,13 +21,20 @@ var _ graphx.CrossRefs = (*crossRefsAdapter)(nil)
 
 // analyticsAdapter bridges *Store to graphx.Analytics.
 type analyticsAdapter struct {
-	store *Store
+	store    *Store
+	mappings map[string]string // host->container prefix mappings from PATH_MAPPINGS
 }
 
 // NewAnalyticsAdapter wraps a Store as a graphx.Analytics.
+// mappings converts []analyze.PathMapping (External->Internal) into a simple
+// map used by repoKeyToHostPath for host<->container path rewriting.
 // The returned value is safe to use concurrently; it inherits the pool's concurrency.
-func NewAnalyticsAdapter(s *Store) graphx.Analytics {
-	return &analyticsAdapter{store: s}
+func NewAnalyticsAdapter(s *Store, mappings []analyze.PathMapping) graphx.Analytics {
+	m := make(map[string]string, len(mappings))
+	for _, pm := range mappings {
+		m[pm.External] = pm.Internal
+	}
+	return &analyticsAdapter{store: s, mappings: m}
 }
 
 // Symbol returns the pagerank, community, and surprise signals for a single
@@ -38,7 +46,7 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	}
 
 	graphName := GraphNameFor(repoKey)
-	relFile := toRelativeFile(repoKey, file)
+	relFile := toRelativeFile(repoKey, file, a.mappings)
 
 	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
 	// The IsGraphMissingError guard below remains as a race fallback.
@@ -140,27 +148,37 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 	return signals, nil
 }
 
+// repoKeyToHostPath rewrites a repo key using the first matching prefix in
+// mappings (External->Internal). Returns repoKey unchanged when no prefix matches.
+// This replaces the former hardcoded host-path substitution.
+func repoKeyToHostPath(repoKey string, mappings map[string]string) string {
+	for src, dst := range mappings {
+		if strings.HasPrefix(repoKey, src) {
+			return dst + strings.TrimPrefix(repoKey, src)
+		}
+	}
+	return repoKey
+}
+
 // toRelativeFile normalises an incoming file path into the repo-root-relative
 // form AGE actually stores.
 //
 // Tool callers typically pass absolute container paths
 // ("/host/src/repo/crates/x/y.rs"), but AGE stores Symbol.file as relative
 // ("crates/x/y.rs"). We try three strategies in order:
-//  1. filepath.Rel(repoKey, file) — works when both sides share the same prefix.
-//  2. filepath.Rel(mapToContainer(repoKey), file) — host↔container rewrite
-//     ("/path/to/repos/src/repo" ↔ "/host/src/repo"), matching our PATH_MAPPINGS
-//     convention documented in CLAUDE.md.
-//  3. Give up and return the input unchanged — the Cypher lookup will miss,
+//  1. filepath.Rel(repoKey, file) -- works when both sides share the same prefix.
+//  2. filepath.Rel(repoKeyToHostPath(repoKey, mappings), file) -- host<->container
+//     rewrite driven by PATH_MAPPINGS (e.g. /path/to/repos:/host).
+//  3. Give up and return the input unchanged -- the Cypher lookup will miss,
 //     which is the safe failure mode (Found=false, no incorrect enrichment).
-func toRelativeFile(repoKey, file string) string {
+func toRelativeFile(repoKey, file string, mappings map[string]string) string {
 	if file == "" || !filepath.IsAbs(file) {
 		return file
 	}
 	if rel, err := filepath.Rel(repoKey, file); err == nil && !strings.HasPrefix(rel, "..") {
 		return rel
 	}
-	// PATH_MAPPINGS convention: host path /path/to/repos/… is mounted as /host/… inside the container.
-	containerKey := strings.Replace(repoKey, "/path/to/repos", "/host", 1)
+	containerKey := repoKeyToHostPath(repoKey, mappings)
 	if containerKey != repoKey {
 		if rel, err := filepath.Rel(containerKey, file); err == nil && !strings.HasPrefix(rel, "..") {
 			return rel
@@ -168,4 +186,3 @@ func toRelativeFile(repoKey, file string) string {
 	}
 	return file
 }
-

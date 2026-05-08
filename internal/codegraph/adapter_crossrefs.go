@@ -7,17 +7,24 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 )
 
 // crossRefsAdapter bridges *Store to graphx.CrossRefs.
 type crossRefsAdapter struct {
-	store *Store
+	store    *Store
+	mappings map[string]string // host->container prefix mappings from PATH_MAPPINGS
 }
 
 // NewCrossRefsAdapter wraps a Store as a graphx.CrossRefs.
-func NewCrossRefsAdapter(s *Store) graphx.CrossRefs {
-	return &crossRefsAdapter{store: s}
+// mappings converts []analyze.PathMapping into a simple map for path rewriting.
+func NewCrossRefsAdapter(s *Store, mappings []analyze.PathMapping) graphx.CrossRefs {
+	m := make(map[string]string, len(mappings))
+	for _, pm := range mappings {
+		m[pm.External] = pm.Internal
+	}
+	return &crossRefsAdapter{store: s, mappings: m}
 }
 
 // HandlesRoute returns the HTTP Route served by a handler symbol.
@@ -28,7 +35,7 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 	}
 
 	graphName := GraphNameFor(repoKey)
-	relFile := toRelativeFile(repoKey, file)
+	relFile := toRelativeFile(repoKey, file, c.mappings)
 
 	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
 	// The IsGraphMissingError guard below remains as a race fallback.
@@ -126,7 +133,7 @@ func (c *crossRefsAdapter) TestedBy(ctx context.Context, repoKey, symbolName, fi
 	}
 
 	graphName := GraphNameFor(repoKey)
-	relFile := toRelativeFile(repoKey, file)
+	relFile := toRelativeFile(repoKey, file, c.mappings)
 
 	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
 	// The IsGraphMissingError guard below remains as a race fallback.

@@ -285,7 +285,7 @@ Commit: `refactor(review): consolidate review_pr + review_pr_post into a single 
 
 1. `git push origin main` → dozor redeploys (background, timeout 600000).
 2. Wait for `docker logs go-code --since 2m | grep ready`.
-3. Run each enriched tool twice: once on a cold-graph repo (e.g. a newly cloned external repo), once on a warm-graph repo (`/path/to/repos/src/go-code` itself):
+3. Run each enriched tool twice: once on a cold-graph repo (e.g. a newly cloned external repo), once on a warm-graph repo (`$REPO_ROOT` itself):
    - `understand` — confirm `<graph_analytics>` appears only when warm.
    - `prepare_change` — confirm `communities_crossed` appears only when warm.
    - `call_trace` — with and without CrossRefs.
