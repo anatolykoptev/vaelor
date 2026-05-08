@@ -1,3 +1,11 @@
+// Package investigate provides types and helpers for correlating Prometheus
+// metrics, Jaeger traces, and code symbols into a ranked list of root-cause
+// hypotheses for the debug_investigate MCP tool.
+//
+// Pure package: no HTTP, no database, no external state. Ranking is delegated
+// to go-kit/rerank (LinearMinMax fusion). The MCP tool layer
+// (cmd/go-code/tool_debug_investigate.go) wires it to live data sources and
+// may inject LLM-derived Confidence labels before passing through RankHypotheses.
 package investigate
 
 import "strings"
@@ -28,7 +36,7 @@ func OperationToFuncName(op string) string {
 	}
 
 	// HTTP shape: starts with HTTP method.
-	for _, verb := range []string{"GET ", "POST ", "PUT ", "DELETE ", "PATCH ", "HEAD ", "OPTIONS "} {
+	for _, verb := range []string{"GET ", "POST ", "PUT ", "DELETE ", "PATCH ", "HEAD ", "OPTIONS ", "CONNECT ", "TRACE "} {
 		if strings.HasPrefix(op, verb) {
 			path := strings.TrimPrefix(op, verb)
 			path = strings.SplitN(path, "?", 2)[0]

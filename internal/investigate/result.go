@@ -1,8 +1,10 @@
 package investigate
 
 import (
-	"sort"
+	"strconv"
 	"time"
+
+	"github.com/anatolykoptev/go-kit/rerank"
 )
 
 // ConfidenceLevel buckets a continuous score into a human-readable label.
@@ -39,6 +41,10 @@ type Hypothesis struct {
 	SpanCount    int     `json:"span_count"`
 	AnomalyScore float64 `json:"anomaly_score"`
 
+	// Confidence is a bucketed label (low/medium/high). Populated by
+	// RankHypotheses ONLY if caller left it empty — caller-set values
+	// (typically by the LLM correlate step which weighs evidence holistically)
+	// are preserved. To force the heuristic, leave this zero on input.
 	Confidence ConfidenceLevel `json:"confidence"`
 
 	EvidenceLinks []string `json:"evidence_links,omitempty"`
@@ -46,14 +52,20 @@ type Hypothesis struct {
 }
 
 // InvestigationResult is the final tool output.
+//
+// Time fields:
+//   - StartedAt / FinishedAt: wall-clock — when this investigation
+//     started and finished executing.
+//   - Range: the *data* window the investigation analysed (Prometheus
+//     query range, Jaeger trace search range). Independent of wall-clock.
 type InvestigationResult struct {
-	Service    string       `json:"service"`
-	Range      TimeRange    `json:"range"`
-	StartedAt  time.Time    `json:"started_at"`
-	FinishedAt time.Time    `json:"finished_at"`
-	Hypotheses []Hypothesis `json:"hypotheses"`
-	LLMSummary string       `json:"llm_summary,omitempty"`
-	Diagnostics Diagnostics `json:"diagnostics"`
+	Service     string       `json:"service"`
+	Range       TimeRange    `json:"range"`
+	StartedAt   time.Time    `json:"started_at"`
+	FinishedAt  time.Time    `json:"finished_at"`
+	Hypotheses  []Hypothesis `json:"hypotheses"`
+	LLMSummary  string       `json:"llm_summary,omitempty"`
+	Diagnostics Diagnostics  `json:"diagnostics"`
 }
 
 // TimeRange is the [Start, End] window the investigation covered.
@@ -71,24 +83,48 @@ type Diagnostics struct {
 	Warnings       []string `json:"warnings,omitempty"`
 }
 
-// compositeLess orders hypotheses by (span_count*anomaly) descending, stable.
-func compositeLess(h []Hypothesis) func(i, j int) bool {
-	return func(i, j int) bool {
-		si := float64(h[i].SpanCount) * h[i].AnomalyScore
-		sj := float64(h[j].SpanCount) * h[j].AnomalyScore
-		return si > sj
-	}
-}
-
-// RankHypotheses returns a copy of h sorted by composite score descending.
-// Stable — equal scores preserve input order. Confidence label is recomputed
-// from composite score / 10 (heuristic normalisation).
+// RankHypotheses returns a copy of h sorted by fused score (descending).
+// Fusion: rerank.LinearMinMax with equal weights on SpanCount and
+// AnomalyScore signals. Both signals are MinMax-normalised to [0,1] within
+// the input set, summed (weights 1:1), resulting score is in [0,2].
+//
+// Confidence policy: caller-set values are PRESERVED; empty Confidence is
+// filled via ConfidenceFromScore on the fused score. The LLM correlate step
+// (Task 13) populates Confidence based on holistic evidence and survives.
+//
+// Stable: equal scores preserve input order (rerank.LinearMinMax guarantees).
+//
+// Empty input → nil. Single-element input → that element with Confidence
+// filled from heuristic on fused=0 (degenerate; LLM step typically produces
+// meaningful labels in real flows).
 func RankHypotheses(h []Hypothesis) []Hypothesis {
-	out := make([]Hypothesis, len(h))
-	copy(out, h)
-	sort.SliceStable(out, compositeLess(out))
-	for i := range out {
-		out[i].Confidence = ConfidenceFromScore(float64(out[i].SpanCount) * out[i].AnomalyScore / 10.0)
+	if len(h) == 0 {
+		return nil
+	}
+	spanList := make(rerank.ScoredIDList, len(h))
+	anomalyList := make(rerank.ScoredIDList, len(h))
+	for i := range h {
+		id := strconv.Itoa(i)
+		spanList[i] = rerank.ScoredID{ID: id, Score: float64(h[i].SpanCount)}
+		anomalyList[i] = rerank.ScoredID{ID: id, Score: h[i].AnomalyScore}
+	}
+
+	// Equal weights — both signals matter symmetrically. Future calibration
+	// (e.g. weight=2.0 on anomaly when traces sparse) can be exposed as
+	// RankHypothesesWithWeights without breaking this default API.
+	fused := rerank.LinearMinMax([]float64{1.0, 1.0}, spanList, anomalyList)
+
+	out := make([]Hypothesis, 0, len(h))
+	for _, f := range fused {
+		idx, err := strconv.Atoi(f.ID)
+		if err != nil || idx < 0 || idx >= len(h) {
+			continue // defensive — should not happen given how IDs are built
+		}
+		hyp := h[idx]
+		if hyp.Confidence == "" {
+			hyp.Confidence = ConfidenceFromScore(f.Score)
+		}
+		out = append(out, hyp)
 	}
 	return out
 }
