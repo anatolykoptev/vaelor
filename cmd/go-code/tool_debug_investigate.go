@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,13 +87,13 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 	}
 
 	// Fresh — kick off background goroutine.
-	go runInvestigation(input, deps, jaeger, start, end)
+	go runInvestigation(input, deps, prom, jaeger, start, end)
 
 	return textResult(fmt.Sprintf("Investigation started for service=%q range=[%s, %s]. Re-run this call in 30s to fetch the result.",
 		input.Service, start.Format(time.RFC3339), end.Format(time.RFC3339))), nil
 }
 
-func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *jaegerclient.Client, start, end time.Time) {
+func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, start, end time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -133,6 +134,50 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *ja
 	}
 	res.Diagnostics.TracesFetched = len(traces)
 
+	// Phase 4: query Prometheus for the error-rate ratio between the
+	// investigation window and a baseline (same duration, 1h earlier).
+	// The composite anomaly score weights metric-confirmed operations higher.
+	windowDur := end.Sub(start)
+	baselineEnd := start.Add(-1 * time.Hour)
+	baselineStart := baselineEnd.Add(-windowDur)
+
+	errMetricQuery := fmt.Sprintf(
+		`sum(rate(http_requests_total{service=%q,code=~"5..|4.."}[1m]))`,
+		input.Service)
+
+	windowSeries, werr := prom.QueryRange(ctx, errMetricQuery, start, end, 60*time.Second)
+	baseSeries, berr := prom.QueryRange(ctx, errMetricQuery, baselineStart, baselineEnd, 60*time.Second)
+	res.Diagnostics.MetricsQueried = 2
+
+	anomalyScore := 0.5 // default if metric data missing
+	if werr == nil && berr == nil {
+		wMax := maxSampleValue(windowSeries)
+		bMax := maxSampleValue(baseSeries)
+		if bMax > 0 {
+			ratio := wMax / bMax
+			switch {
+			case ratio > 5:
+				anomalyScore = 1.0
+			case ratio > 2:
+				anomalyScore = 0.8
+			case ratio > 1.2:
+				anomalyScore = 0.6
+			default:
+				anomalyScore = 0.3
+			}
+		} else if wMax > 0 {
+			// Baseline empty but window has errors — modest anomaly.
+			anomalyScore = 0.7
+		}
+	} else {
+		if werr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("prom window: %v", werr))
+		}
+		if berr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("prom baseline: %v", berr))
+		}
+	}
+
 	// Phase 3: count unique operations across all failed spans.
 	ops := map[string]int{}
 	for _, tr := range traces {
@@ -170,7 +215,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *ja
 				h := investigate.Hypothesis{
 					Subject:       fmt.Sprintf("operation %q", op),
 					SpanCount:     count,
-					AnomalyScore:  0.5,
+					AnomalyScore:  anomalyScore,
 					EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
 				}
 				if cg != nil && funcName != "" {
@@ -197,7 +242,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *ja
 			res.Hypotheses = append(res.Hypotheses, investigate.Hypothesis{
 				Subject:       fmt.Sprintf("operation %q", op),
 				SpanCount:     count,
-				AnomalyScore:  0.5,
+				AnomalyScore:  anomalyScore,
 				EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
 			})
 		}
@@ -254,4 +299,33 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	b.WriteString("\n  </investigation>")
 	b.WriteString("\n</response>")
 	return b.String()
+}
+
+// maxSampleValue returns the maximum sample value across all series in a
+// Prometheus matrix response. Returns 0 if the response is empty or all
+// values fail to parse.
+func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
+	if resp == nil {
+		return 0
+	}
+	var max float64
+	for _, series := range resp.Data.Result {
+		for _, v := range series.Values {
+			if len(v) < 2 {
+				continue
+			}
+			s, ok := v[1].(string)
+			if !ok {
+				continue
+			}
+			f, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				continue
+			}
+			if f > max {
+				max = f
+			}
+		}
+	}
+	return max
 }
