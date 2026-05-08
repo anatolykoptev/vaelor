@@ -2,6 +2,8 @@ package compare
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 )
@@ -45,6 +47,23 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 
 	graph := codegraph.GraphNameFor(root)
 	m := &ArchMetrics{}
+
+	// Preflight: check graph existence before issuing any Cypher queries.
+	// Avoids postgres ERROR logs for repos that were never indexed.
+	// The existing IsGraphMissingError guards in each sub-query remain as
+	// race fallbacks (graph dropped between preflight and query).
+	if err := store.EnsureGraphExistsForRead(ctx, graph); err != nil {
+		if errors.Is(err, codegraph.ErrGraphNotIndexed) {
+			slog.Debug("archgraph: graph absent (preflight)", "graph", graph)
+			m.NotIndexed = true
+			m.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
+				"Call the `code_graph` tool with the same repo path first to populate the graph, " +
+				"then re-run code_compare."
+			return m
+		}
+		slog.Warn("archgraph: preflight check failed", "graph", graph, "err", err)
+		// Fall through — let sub-queries attempt and log their own errors.
+	}
 
 	// Package count doubles as an indexed-graph probe (fastest query).
 	m.PackageCount = queryPackageCount(ctx, store, graph)
