@@ -2,6 +2,7 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -38,6 +39,19 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 
 	graphName := GraphNameFor(repoKey)
 	relFile := toRelativeFile(repoKey, file)
+
+	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
+	// The IsGraphMissingError guard below remains as a race fallback.
+	if err := a.store.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("adapter_symbol")
+			slog.Debug("codegraph.analyticsAdapter.Symbol: graph absent (preflight)",
+				slog.String("repo", repoKey), slog.String("symbol", symbolName))
+			return graphx.Signals{}, nil
+		}
+		return graphx.Signals{}, err
+	}
+
 	cypher := fmt.Sprintf(
 		"MATCH (s:Symbol {name: '%s', file: '%s'}) RETURN s.pagerank, s.community, s.surprise LIMIT 1",
 		escapeCypher(symbolName), escapeCypher(relFile),
@@ -47,6 +61,7 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, symbolQueryCols)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			a.store.existsCache.Forget(graphName)
 			recordGraphMissing("adapter_symbol")
 			slog.Debug("codegraph.analyticsAdapter.Symbol: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))
@@ -82,6 +97,19 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 	}
 
 	graphName := GraphNameFor(repoKey)
+
+	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
+	// The IsGraphMissingError guard below remains as a race fallback.
+	if err := a.store.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("adapter_callers")
+			slog.Debug("codegraph.analyticsAdapter.TopPageRank: graph absent (preflight)",
+				slog.String("repo", repoKey))
+			return nil, nil
+		}
+		return nil, err
+	}
+
 	cypher := fmt.Sprintf(
 		"MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.file, s.pagerank ORDER BY s.pagerank DESC LIMIT %d",
 		k,
@@ -90,6 +118,7 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, 3)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			a.store.existsCache.Forget(graphName)
 			recordGraphMissing("adapter_callers")
 			slog.Debug("codegraph.analyticsAdapter.TopPageRank: graph absent",
 				slog.String("repo", repoKey))

@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// graphExistsCacheTTL is the positive-cache duration for graph-existence preflight
+// checks. Negative results are never cached — a graph may be created at any moment.
+const graphExistsCacheTTL = 30 * time.Second
 
 // ageSetup runs per-connection AGE initialization.
 // LOAD 'age' must be called on each connection before using AGE types/operators.
@@ -50,14 +55,18 @@ CREATE TABLE IF NOT EXISTS code_dead_code_scores (
 
 // Store wraps a pgxpool for Apache AGE graph operations on code repositories.
 type Store struct {
-	pool     *pgxpool.Pool
-	ageMu    sync.Mutex
-	ageState int8 // 0 = unknown, 1 = available, -1 = unavailable
+	pool        *pgxpool.Pool
+	ageMu       sync.Mutex
+	ageState    int8 // 0 = unknown, 1 = available, -1 = unavailable
+	existsCache *graphExistsCache
 }
 
 // NewStore creates a Store backed by the given pool.
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return &Store{
+		pool:        pool,
+		existsCache: newGraphExistsCache(graphExistsCacheTTL),
+	}
 }
 
 // Pool returns the underlying connection pool (for testing and diagnostics).
@@ -268,4 +277,41 @@ func (bw *BulkWriter) Close(ctx context.Context) {
 	_, _ = bw.conn.Exec(ctx, "RESET synchronous_commit")
 	_, _ = bw.conn.Exec(ctx, "RESET statement_timeout")
 	bw.conn.Release()
+}
+
+// GraphExists returns true if the named AGE graph exists.
+// Used as preflight before cypher queries on read-path to avoid
+// generating "graph does not exist" errors in postgres logs when
+// the repo was never indexed.
+func (s *Store) GraphExists(ctx context.Context, graphName string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1)`,
+		graphName).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("graph_exists check: %w", err)
+	}
+	return exists, nil
+}
+
+// EnsureGraphExistsForRead is the cheap preflight for read-path callers.
+// Returns ErrGraphNotIndexed without hitting AGE if the graph is known to be
+// absent. Returns nil if the graph exists.
+//
+// Cache: positive checks are valid for graphExistsCacheTTL (30s); on cache miss
+// it hits ag_catalog.ag_graph via SELECT EXISTS (cheap). Negative results are
+// NOT cached — a graph may be created by IndexRepo at any moment.
+func (s *Store) EnsureGraphExistsForRead(ctx context.Context, graphName string) error {
+	if s.existsCache.Hit(graphName) {
+		return nil
+	}
+	exists, err := s.GraphExists(ctx, graphName)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrGraphNotIndexed
+	}
+	s.existsCache.Mark(graphName)
+	return nil
 }
