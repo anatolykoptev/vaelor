@@ -25,17 +25,21 @@ import (
 // debugInvestigateTraceLimit caps the number of traces fetched per investigation.
 const debugInvestigateTraceLimit = 20
 
-// Anomaly score buckets — Prometheus baseline ratio thresholds.
+// Anomaly score buckets — highest to lowest.
 const (
-	ratioCritical      = 5.0
-	ratioElevated      = 2.0
-	ratioMild          = 1.2
-	scoreCritical      = 1.0
-	scoreElevated      = 0.8
-	scoreMild          = 0.6
-	scoreNominal       = 0.3
-	scoreBaselineEmpty = 0.7
-	scoreDefault       = 0.5
+	scoreCritical      = 1.0 // ratio > 5x baseline
+	scoreElevated      = 0.8 // ratio > 2x baseline
+	scoreBaselineEmpty = 0.7 // baseline empty, window has errors
+	scoreMild          = 0.6 // ratio > 1.2x baseline
+	scoreDefault       = 0.5 // metric data missing or both queries failed
+	scoreNominal       = 0.3 // ratio close to baseline (default healthy)
+)
+
+// Anomaly ratio thresholds — Prometheus window/baseline comparisons.
+const (
+	ratioCritical = 5.0
+	ratioElevated = 2.0
+	ratioMild     = 1.2
 )
 
 // DebugInvestigateInput is the user-facing tool input.
