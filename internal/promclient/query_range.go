@@ -26,10 +26,14 @@ type SeriesResult struct {
 }
 
 // QueryRange executes a range query against the Prometheus HTTP API v1.
-// step must be > 0 and end must be after start.
+// step must be >= 1µs and end must be after start.
 func (c *Client) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (*QueryRangeResponse, error) {
 	if step <= 0 {
 		return nil, fmt.Errorf("step must be > 0")
+	}
+	// Reject sub-microsecond steps that would round to 0 in seconds-float encoding.
+	if step < time.Microsecond {
+		return nil, fmt.Errorf("step too small: %v", step)
 	}
 	if !end.After(start) {
 		return nil, fmt.Errorf("end (%v) must be after start (%v)", end, start)
@@ -39,7 +43,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 	v.Set("query", query)
 	v.Set("start", strconv.FormatInt(start.Unix(), 10))
 	v.Set("end", strconv.FormatInt(end.Unix(), 10))
-	v.Set("step", strconv.FormatInt(int64(step.Seconds()), 10))
+	v.Set("step", strconv.FormatFloat(step.Seconds(), 'f', -1, 64))
 
 	path := "/api/v1/query_range?" + v.Encode()
 	var resp QueryRangeResponse

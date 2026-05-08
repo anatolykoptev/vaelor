@@ -3,6 +3,7 @@ package promclient
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -93,9 +94,65 @@ func TestQueryRange_EncodesParamsCorrectly(t *testing.T) {
 	_, _ = c.QueryRange(t.Context(), `rate(http_requests_total{code="500"}[5m])`,
 		time.Unix(1700000000, 0), time.Unix(1700000300, 0), 30*time.Second)
 
-	for _, want := range []string{"query=rate", "start=1700000000", "end=1700000300", "step=30"} {
-		if !strings.Contains(capturedQuery, want) {
-			t.Errorf("missing %q in query string %q", want, capturedQuery)
-		}
+	parsed, _ := url.ParseQuery(capturedQuery)
+	if got := parsed.Get("query"); got != `rate(http_requests_total{code="500"}[5m])` {
+		t.Errorf("query: got %q, want exact match", got)
+	}
+	if got := parsed.Get("start"); got != "1700000000" {
+		t.Errorf("start: got %q", got)
+	}
+	if got := parsed.Get("end"); got != "1700000300" {
+		t.Errorf("end: got %q", got)
+	}
+	if got := parsed.Get("step"); got != "30" {
+		t.Errorf("step: got %q", got)
+	}
+}
+
+func TestQueryRange_RejectsSubMicrosecondStep(t *testing.T) {
+	c := NewClient("http://x", 5*time.Second)
+	_, err := c.QueryRange(t.Context(), "up",
+		time.Unix(1700000000, 0), time.Unix(1700000060, 0), 100*time.Nanosecond)
+	if err == nil {
+		t.Error("expected error for sub-microsecond step")
+	}
+}
+
+func TestQueryRange_AcceptsSubSecondStep(t *testing.T) {
+	var captured string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = r.URL.RawQuery
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	_, err := c.QueryRange(t.Context(), "up",
+		time.Unix(1700000000, 0), time.Unix(1700000060, 0), 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("expected success for 500ms step, got %v", err)
+	}
+	parsed, _ := url.ParseQuery(captured)
+	if got := parsed.Get("step"); got != "0.5" {
+		t.Errorf("step encoding: got %q, want %q", got, "0.5")
+	}
+}
+
+func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"status":"error","errorType":"bad_data","error":"parse error"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	var dest struct{}
+	err := c.getJSON(t.Context(), "/test", &dest)
+	if err == nil {
+		t.Fatal("expected 4xx error")
+	}
+	if !strings.Contains(err.Error(), "400") || !strings.Contains(err.Error(), "parse error") {
+		t.Errorf("error should include status + body preview, got: %v", err)
 	}
 }

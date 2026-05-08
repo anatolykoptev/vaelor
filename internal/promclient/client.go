@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -35,16 +36,21 @@ func (c *Client) getJSON(ctx context.Context, path string, dest any) error {
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
-	req.Header.Set("accept", "application/json")
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("prometheus HTTP %d", resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Include first 256 bytes of body for debug visibility.
+		bodyPreview, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("prometheus HTTP %d: %s", resp.StatusCode, string(bodyPreview))
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
