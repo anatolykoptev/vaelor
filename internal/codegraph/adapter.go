@@ -47,6 +47,7 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, symbolQueryCols)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			recordGraphMissing("adapter_symbol")
 			slog.Debug("codegraph.analyticsAdapter.Symbol: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))
 			return graphx.Signals{}, nil
@@ -89,6 +90,7 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, 3)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			recordGraphMissing("adapter_callers")
 			slog.Debug("codegraph.analyticsAdapter.TopPageRank: graph absent",
 				slog.String("repo", repoKey))
 			return nil, nil

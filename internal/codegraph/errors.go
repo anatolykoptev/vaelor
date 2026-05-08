@@ -32,11 +32,14 @@ func IsGraphMissingError(err error) bool {
 		}
 	}
 	// Fallback: some AGE versions emit the code only in the message string.
+	// The "does not exist" substring is intentionally scoped to messages that also
+	// mention "graph" — otherwise column-not-found / FK-not-found / type-not-found
+	// errors (which share the same suffix) would be silently suppressed.
 	msg := err.Error()
-	for _, sub := range []string{"3F000", "42P01", "42704", "does not exist", "invalid schema name"} {
+	for _, sub := range []string{"3F000", "42P01", "42704", "invalid schema name"} {
 		if strings.Contains(msg, sub) {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(msg, "graph") && strings.Contains(msg, "does not exist")
 }

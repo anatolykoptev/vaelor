@@ -59,6 +59,30 @@ func TestIsGraphMissingError(t *testing.T) {
 	})
 }
 
+// TestIsGraphMissingError_FallbackTightening verifies that the "does not exist"
+// substring fallback requires "graph" to also be present, preventing unrelated
+// postgres errors (column-not-found, FK-not-found) from being silently swallowed.
+func TestIsGraphMissingError_FallbackTightening(t *testing.T) {
+	t.Run("column does not exist → false (regression guard)", func(t *testing.T) {
+		// Was incorrectly true before tightening.
+		if IsGraphMissingError(errors.New(`column "x" does not exist`)) {
+			t.Error(`expected false: "column does not exist" must not match graph-missing`)
+		}
+	})
+
+	t.Run("graph does not exist → true", func(t *testing.T) {
+		if !IsGraphMissingError(errors.New(`graph "code_abc" does not exist`)) {
+			t.Error(`expected true: "graph does not exist" must match graph-missing`)
+		}
+	})
+
+	t.Run("relation does not exist → false", func(t *testing.T) {
+		if IsGraphMissingError(errors.New(`relation "y" does not exist`)) {
+			t.Error(`expected false: "relation does not exist" must not match graph-missing`)
+		}
+	})
+}
+
 // TestErrGraphNotIndexed verifies the sentinel error value.
 func TestErrGraphNotIndexed(t *testing.T) {
 	if ErrGraphNotIndexed == nil {
