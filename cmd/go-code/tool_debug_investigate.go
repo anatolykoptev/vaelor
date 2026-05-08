@@ -170,7 +170,8 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// Phase 4: query Prometheus for the error-rate ratio between the
 	// investigation window and a baseline (same duration, 1h earlier).
 	// The composite anomaly score weights metric-confirmed operations higher.
-	anomalyScore := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
+	anomalyScore, spikes := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
+	res.MetricSpikes = spikes
 
 	// Phase 3: count unique operations across all failed spans.
 	ops := map[string]int{}

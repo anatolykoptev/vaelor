@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -13,13 +14,8 @@ import (
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
-// MetricSpike captures a single failure-metric showing anomaly above baseline.
-type MetricSpike struct {
-	MetricName string  // full Prometheus metric name (e.g. signaling_call_outcome_total)
-	Labels     string  // label-set rendered for human reading: {outcome="failed"}
-	Ratio      float64 // window_max / baseline_max
-	Score      float64 // bucketed anomaly score 0..1
-}
+// MetricSpike is re-exported from investigate for use within this package.
+type MetricSpike = investigate.MetricSpike
 
 // failureMetricRegex matches metric names that strongly suggest a failure
 // counter. Patterns: *_failed_total, *_error*, *_dropped_total, *_failure*,
@@ -59,11 +55,85 @@ func rankSpikes(spikes []MetricSpike, k int) []MetricSpike {
 	return spikes
 }
 
-// computeAnomalyScore queries Prometheus for the error-rate ratio between the
-// investigation window and a baseline (same duration, 1h earlier) using the
+// bucketRatio buckets w/b ratio into anomaly score. Returns (score, ratio).
+// If baseline is empty but window has data, returns scoreBaselineEmpty.
+func bucketRatio(window, baseline float64) (float64, float64) {
+	if baseline <= 0 {
+		if window > 0 {
+			return scoreBaselineEmpty, math.Inf(1)
+		}
+		return scoreNominal, 0
+	}
+	ratio := window / baseline
+	switch {
+	case ratio > ratioCritical:
+		return scoreCritical, ratio
+	case ratio > ratioElevated:
+		return scoreElevated, ratio
+	case ratio > ratioMild:
+		return scoreMild, ratio
+	default:
+		return scoreNominal, ratio
+	}
+}
+
+// computeAnomalyScore queries Prometheus for discovered failure metrics,
+// comparing the investigation window against a baseline 1h earlier.
+// Returns the top spike score and the full spike slice.
+// Falls back to computeAnomalyScoreLegacy when no failure metrics are discovered.
+func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) (float64, []MetricSpike) {
+	candidates, err := discoverFailureMetrics(ctx, prom, service)
+	if err != nil {
+		diags.Warnings = append(diags.Warnings, fmt.Sprintf("discover failure metrics: %v", err))
+		return scoreDefault, nil
+	}
+	if len(candidates) == 0 {
+		// nothing matched — fall back to legacy http_requests_total path.
+		return computeAnomalyScoreLegacy(ctx, prom, service, start, end, diags), nil
+	}
+
+	windowDur := end.Sub(start)
+	baselineEnd := start.Add(-1 * time.Hour)
+	baselineStart := baselineEnd.Add(-windowDur)
+
+	var spikes []MetricSpike
+	for _, name := range candidates {
+		// Query with service label filter; if metric has no service label,
+		// the result will be empty and we silently skip.
+		query := fmt.Sprintf(`sum(rate(%s{service=%q}[1m]))`, name, service)
+		windowSeries, werr := prom.QueryRange(ctx, query, start, end, 60*time.Second)
+		if werr != nil {
+			continue
+		}
+		baseSeries, berr := prom.QueryRange(ctx, query, baselineStart, baselineEnd, 60*time.Second)
+		if berr != nil {
+			continue
+		}
+		score, ratio := bucketRatio(maxSampleValue(windowSeries), maxSampleValue(baseSeries))
+		if score <= scoreNominal {
+			continue // not anomalous
+		}
+		spikes = append(spikes, MetricSpike{
+			MetricName: name,
+			Labels:     fmt.Sprintf(`{service=%q}`, service),
+			Ratio:      ratio,
+			Score:      score,
+		})
+	}
+	diags.MetricsQueried += 2 * len(candidates)
+
+	if len(spikes) == 0 {
+		return scoreDefault, nil
+	}
+	top := rankSpikes(spikes, 5)
+	return top[0].Score, top
+}
+
+// computeAnomalyScoreLegacy queries Prometheus for the error-rate ratio between
+// the investigation window and a baseline (same duration, 1h earlier) using the
 // hardcoded http_requests_total metric.
-// It is the fallback path for Phase 4; auto-discovery is wired in Phase A3.
-func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) float64 {
+// Used as fallback when discoverFailureMetrics returns 0 results.
+func computeAnomalyScoreLegacy(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) float64 {
 	windowDur := end.Sub(start)
 	baselineEnd := start.Add(-1 * time.Hour)
 	baselineStart := baselineEnd.Add(-windowDur)

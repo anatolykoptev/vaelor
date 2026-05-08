@@ -45,6 +45,14 @@ type Hypothesis struct {
 	NextChecks    []string `json:"next_checks,omitempty"`
 }
 
+// MetricSpike captures a single failure-metric showing anomaly above baseline.
+type MetricSpike struct {
+	MetricName string  `json:"metric_name"` // full Prometheus metric name
+	Labels     string  `json:"labels"`      // label-set rendered for human reading
+	Ratio      float64 `json:"ratio"`       // window_max / baseline_max
+	Score      float64 `json:"score"`       // bucketed anomaly score 0..1
+}
+
 // InvestigationResult is the final tool output.
 //
 // Time fields:
@@ -53,13 +61,14 @@ type Hypothesis struct {
 //   - Range: the *data* window the investigation analysed (Prometheus
 //     query range, Jaeger trace search range). Independent of wall-clock.
 type InvestigationResult struct {
-	Service     string       `json:"service"`
-	Range       TimeRange    `json:"range"`
-	StartedAt   time.Time    `json:"started_at"`
-	FinishedAt  time.Time    `json:"finished_at"`
-	Hypotheses  []Hypothesis `json:"hypotheses"`
-	LLMSummary  string       `json:"llm_summary,omitempty"`
-	Diagnostics Diagnostics  `json:"diagnostics"`
+	Service      string        `json:"service"`
+	Range        TimeRange     `json:"range"`
+	StartedAt    time.Time     `json:"started_at"`
+	FinishedAt   time.Time     `json:"finished_at"`
+	Hypotheses   []Hypothesis  `json:"hypotheses"`
+	LLMSummary   string        `json:"llm_summary,omitempty"`
+	MetricSpikes []MetricSpike `json:"metric_spikes,omitempty"`
+	Diagnostics  Diagnostics   `json:"diagnostics"`
 }
 
 // TimeRange is the [Start, End] window the investigation covered.

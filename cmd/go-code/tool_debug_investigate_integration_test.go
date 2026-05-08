@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -108,10 +109,49 @@ func newPromFake(sampleVal float64) *httptest.Server {
 	}))
 }
 
+// newPromFakeWithLabels builds a Prometheus fake that serves label discovery
+// and query_range with window vs baseline values distinguished by the start
+// parameter. start > pivot → window query (returns windowVal);
+// start <= pivot → baseline query (returns baselineVal).
+func newPromFakeWithLabels(metricNames []string, pivot time.Time, windowVal, baselineVal float64) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/label/__name__/values":
+			type labelResp struct {
+				Status string   `json:"status"`
+				Data   []string `json:"data"`
+			}
+			json.NewEncoder(w).Encode(labelResp{Status: "success", Data: metricNames})
+		case "/api/v1/query_range":
+			startStr := r.URL.Query().Get("start")
+			startF, _ := strconv.ParseFloat(startStr, 64)
+			val := baselineVal
+			if startF >= float64(pivot.Unix()) {
+				val = windowVal
+			}
+			ts := float64(time.Now().Unix())
+			valStr := fmt.Sprintf("%g", val)
+			json.NewEncoder(w).Encode(map[string]any{
+				"status": "success",
+				"data": map[string]any{
+					"resultType": "matrix",
+					"result": []any{
+						map[string]any{
+							"metric": map[string]string{},
+							"values": [][2]any{{ts, valStr}},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
 // TestIntegration_HappyPath verifies that a single trace with one span and an
-// equal window/baseline Prometheus error rate produces a non-empty Hypotheses
-// list with an anomaly score in the scoreNominal bucket (ratio==1 → not above
-// any threshold → default-healthy path).
+// elevated window rate (vs baseline) produces a non-empty Hypotheses list and
+// a non-empty MetricSpikes slice with the correct top metric name.
 func TestIntegration_HappyPath(t *testing.T) {
 	t.Cleanup(func() { debugInvestigateStore = investigate.NewInvestigationStore() })
 
@@ -125,13 +165,19 @@ func TestIntegration_HappyPath(t *testing.T) {
 	)
 	defer jaegerSrv.Close()
 
-	// Both queries return the same high value → ratio=1.0 (fake returns the same
-	// value for every call). ratio=1 is not > ratioMild (1.2), so the switch falls
-	// through to the default case → scoreNominal (0.3).
-	promSrv := newPromFake(100.0)
+	// Prometheus fake: serves signaling_call_outcome_total in label values,
+	// returns windowVal=100 for window queries and baselineVal=10 for baseline
+	// queries → ratio=10 > ratioCritical(5) → scoreCritical(1.0).
+	// pivot = fixedWindow start; queries after pivot are window, before are baseline.
+	start, end := fixedWindow()
+	promSrv := newPromFakeWithLabels(
+		[]string{"signaling_call_outcome_total"},
+		start, // pivot: queries with start > this are window queries
+		100.0, // windowVal
+		10.0,  // baselineVal
+	)
 	defer promSrv.Close()
 
-	start, end := fixedWindow()
 	prom := promclient.NewClient(promSrv.URL, 5*time.Second)
 	jaeger := jaegerclient.NewClient(jaegerSrv.URL, 5*time.Second)
 
@@ -161,8 +207,16 @@ func TestIntegration_HappyPath(t *testing.T) {
 	if len(r.Hypotheses) == 0 {
 		t.Fatal("expected non-empty Hypotheses, got none")
 	}
-	if got := r.Hypotheses[0].AnomalyScore; got != scoreNominal {
-		t.Errorf("ratio==1 should bucket as scoreNominal=%v, got %v", scoreNominal, got)
+	// ratio=10 > ratioCritical(5) → scoreCritical(1.0)
+	if got := r.Hypotheses[0].AnomalyScore; got != scoreCritical {
+		t.Errorf("ratio=10 should bucket as scoreCritical=%v, got %v", scoreCritical, got)
+	}
+	// MetricSpikes must be non-empty with the correct top metric.
+	if len(r.MetricSpikes) == 0 {
+		t.Fatal("expected non-empty MetricSpikes, got none")
+	}
+	if r.MetricSpikes[0].MetricName != "signaling_call_outcome_total" {
+		t.Errorf("expected top spike metric=signaling_call_outcome_total, got %q", r.MetricSpikes[0].MetricName)
 	}
 }
 
@@ -267,15 +321,16 @@ func TestIntegration_PromDown(t *testing.T) {
 		t.Errorf("expected default anomaly score %.3f, got %.3f", scoreDefault, r.Hypotheses[0].AnomalyScore)
 	}
 	// At least one Prometheus-related warning must be present.
+	// New code path emits "discover failure metrics: ..." warning when Prom is down.
 	hasPromWarn := false
 	for _, w := range r.Diagnostics.Warnings {
-		if strings.Contains(w, "prom") {
+		if strings.Contains(w, "prom") || strings.Contains(w, "discover failure metrics") {
 			hasPromWarn = true
 			break
 		}
 	}
 	if !hasPromWarn {
-		t.Errorf("expected a 'prom' warning, got: %v", r.Diagnostics.Warnings)
+		t.Errorf("expected a prometheus-related warning, got: %v", r.Diagnostics.Warnings)
 	}
 }
 

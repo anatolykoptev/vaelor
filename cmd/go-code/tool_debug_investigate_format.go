@@ -47,6 +47,16 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		b.WriteString("\n    </hypothesis>")
 	}
 
+	if len(r.MetricSpikes) > 0 {
+		b.WriteString("\n    <metric_spikes>")
+		for _, s := range r.MetricSpikes {
+			b.WriteString(fmt.Sprintf(
+				"\n      <spike metric=%q labels=%q ratio=\"%.2f\" score=\"%.3f\"/>",
+				s.MetricName, s.Labels, s.Ratio, s.Score))
+		}
+		b.WriteString("\n    </metric_spikes>")
+	}
+
 	// Diagnostics is a plain struct — Marshal cannot fail in practice.
 	d, _ := json.Marshal(r.Diagnostics)
 	b.WriteString("\n    <diagnostics>")
