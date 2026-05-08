@@ -5,31 +5,25 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-kit/rerank"
+	"github.com/anatolykoptev/go-kit/score"
 )
 
-// ConfidenceLevel buckets a continuous score into a human-readable label.
-type ConfidenceLevel string
+// ConfidenceLevel is re-exported from go-kit/score so callers of the
+// investigate package don't need to import score directly. The underlying
+// type is identical — investigate.ConfidenceLevel == score.ConfidenceLevel.
+type ConfidenceLevel = score.ConfidenceLevel
 
+// Re-exported confidence labels — identical to the score package consts.
 const (
-	ConfidenceLow    ConfidenceLevel = "low"
-	ConfidenceMedium ConfidenceLevel = "medium"
-	ConfidenceHigh   ConfidenceLevel = "high"
+	ConfidenceLow    = score.ConfidenceLow
+	ConfidenceMedium = score.ConfidenceMedium
+	ConfidenceHigh   = score.ConfidenceHigh
 )
 
-// ConfidenceFromScore maps a [0, ∞) score to a 3-bucket confidence label.
-//
-//	score < 0.2  → low
-//	0.2 ≤ x < 0.7 → medium
-//	x ≥ 0.7      → high
-func ConfidenceFromScore(score float64) ConfidenceLevel {
-	switch {
-	case score < 0.2:
-		return ConfidenceLow
-	case score < 0.7:
-		return ConfidenceMedium
-	default:
-		return ConfidenceHigh
-	}
+// ConfidenceFromScore is re-exported as a thin wrapper around score.ConfidenceFromScore.
+// Defaults: <0.2 → low, <0.7 → medium, ≥0.7 → high.
+func ConfidenceFromScore(s float64) ConfidenceLevel {
+	return score.ConfidenceFromScore(s)
 }
 
 // Hypothesis is one candidate root-cause site.
