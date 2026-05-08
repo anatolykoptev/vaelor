@@ -38,8 +38,10 @@ func TestClient_GetJSON_DecodesResponse(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, 5*time.Second)
-	var dest struct{ Status string `json:"status"` }
-	if err := c.getJSON(t.Context(), "/test", &dest); err != nil {
+	var dest struct {
+		Status string `json:"status"`
+	}
+	if err := c.GetJSON(t.Context(), "/test", &dest); err != nil {
 		t.Fatalf("getJSON: %v", err)
 	}
 	if dest.Status != "success" {
@@ -148,7 +150,7 @@ func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
 
 	c := NewClient(srv.URL, 5*time.Second)
 	var dest struct{}
-	err := c.getJSON(t.Context(), "/test", &dest)
+	err := c.GetJSON(t.Context(), "/test", &dest)
 	if err == nil {
 		t.Fatal("expected 4xx error")
 	}
