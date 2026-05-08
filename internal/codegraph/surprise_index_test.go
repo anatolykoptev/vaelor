@@ -122,3 +122,63 @@ func TestIndexSurprise_Integration(t *testing.T) {
 		})
 	}
 }
+
+// TestIndexSurpriseEdges_GraphMissing_NoOp verifies that IndexSurpriseEdges
+// returns nil (not an error) when the AGE graph does not exist. This exercises
+// the IsGraphMissingError guard on the write-path fetch.
+//
+// Skipped when DATABASE_URL is unset — requires a live PostgreSQL + AGE instance.
+func TestIndexSurpriseEdges_GraphMissing_NoOp(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	// Use a graph name that does not exist.
+	const testGraph = "code_surpedge_missing_test"
+	_ = store.DropGraph(ctx, testGraph, testGraph) // ignore error (may not exist)
+
+	if err := IndexSurpriseEdges(ctx, store, testGraph); err != nil {
+		t.Errorf("expected nil error for missing graph, got: %v", err)
+	}
+}
+
+// TestIndexSurpriseNodes_GraphMissing_NoOp verifies that IndexSurpriseNodes
+// returns nil (not an error) when the AGE graph does not exist. This exercises
+// the IsGraphMissingError guard on the node-fetch path.
+//
+// Skipped when DATABASE_URL is unset — requires a live PostgreSQL + AGE instance.
+func TestIndexSurpriseNodes_GraphMissing_NoOp(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	// Use a graph name that does not exist.
+	const testGraph = "code_surpnode_missing_test"
+	_ = store.DropGraph(ctx, testGraph, testGraph) // ignore error (may not exist)
+
+	if err := IndexSurpriseNodes(ctx, store, testGraph); err != nil {
+		t.Errorf("expected nil error for missing graph, got: %v", err)
+	}
+}
