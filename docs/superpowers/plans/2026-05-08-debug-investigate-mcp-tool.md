@@ -15,6 +15,24 @@
 
 ---
 
+## Progress
+
+| Phase | Tasks | Status | PRs / SHAs |
+|-------|-------|--------|------------|
+| **1 — HTTP foundations** | 1, 2, 3, 4 | ✅ DONE (2026-05-08) | #46 promclient `838d3a9` · #47 jaegerclient `4937910` · #48 vendor headers `7825cde` |
+| **2 — investigate package** | 5, 6, 7, 8 | ⏳ pending | — |
+| **3 — config + tool skeleton** | 9, 10 | ⏳ pending | — |
+| **4 — correlate + metrics** | 11, 12 | ⏳ pending | — |
+| **5 — LLM + docs + ship** | 13, 14, 15 | ⏳ pending | — |
+
+**Phase 1 deviations from plan (all closed):**
+- Task 3+4 merged into one commit (single RED batch — TDD discipline preserved). Reviewer noted as MINOR.
+- Both PRs returned CHANGES_REQUESTED on first review — closed in fix commits before merge:
+  - PR #46: body-drain on Close, sub-second step encoding (`int64(seconds)` truncated 500ms→0), explicit 2xx range, 4xx body-preview in errors, exact-match URL params test, sub-microsecond step rejection, "Accept" canonical header. 6 → 9 tests.
+  - PR #47 (BLOCKER): manual byte-append tag JSON did not escape `"`/`\\` (would produce invalid JSON for tag values with quotes); replaced with `json.Marshal`. Plus body-drain, ErrTraceNotFound sentinel, typed `Process{ServiceName, Tags}` struct (was `map[string]map[string]any`), 4xx body-preview, "Accept" canonical. 8 → 12 tests.
+
+---
+
 ## File Structure
 
 ```
@@ -58,7 +76,7 @@ docs/
 
 ---
 
-## Task 1: Bootstrap promclient package — HTTP client skeleton
+## ✅ Task 1: Bootstrap promclient package — HTTP client skeleton (DONE — PR #46 `838d3a9`)
 
 **Files:**
 - Create: `internal/promclient/client.go`
@@ -206,7 +224,7 @@ Foundation for QueryRange (next task)."
 
 ---
 
-## Task 2: promclient.QueryRange — fetch metrics over time range
+## ✅ Task 2: promclient.QueryRange — fetch metrics over time range (DONE — PR #46 `838d3a9`)
 
 **Files:**
 - Create: `internal/promclient/query_range.go`
@@ -360,7 +378,7 @@ and end > start. Returns wrapped Prometheus matrix response."
 
 ---
 
-## Task 3: Bootstrap jaegerclient package — HTTP client + ListServices
+## ✅ Task 3: Bootstrap jaegerclient package — HTTP client + ListServices (DONE — PR #47 `4937910`)
 
 **Files:**
 - Create: `internal/jaegerclient/client.go`
@@ -551,7 +569,7 @@ FindTraces/GetTrace (next task)."
 
 ---
 
-## Task 4: jaegerclient.FindTraces + GetTrace — fetch failed traces and span trees
+## ✅ Task 4: jaegerclient.FindTraces + GetTrace — fetch failed traces and span trees (DONE — PR #47 `4937910`)
 
 **Files:**
 - Create: `internal/jaegerclient/traces.go`
