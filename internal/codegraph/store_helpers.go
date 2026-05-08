@@ -3,6 +3,7 @@ package codegraph
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -243,11 +244,22 @@ func (s *Store) SymbolStructuralRank(ctx context.Context, repoKey, name, file st
 
 	graphName := GraphNameFor(repoKey)
 
+	// Preflight: avoid postgres ERROR logs when the graph was never indexed.
+	// IsGraphMissingError guard below remains as a race fallback.
+	if err := s.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if IsGraphMissingError(err) || errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("understand")
+			slog.Debug("codegraph: structural rank skipped — graph absent (preflight)", slog.String("graph", graphName))
+		}
+		return ""
+	}
+
 	// Query 1: total symbols with pagerank.
 	totalCypher := `MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN count(s)`
 	totalRows, err := s.ExecCypher(ctx, graphName, totalCypher, 1)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			s.existsCache.Forget(graphName)
 			recordGraphMissing("understand")
 			slog.Debug("codegraph: structural rank skipped — graph absent", slog.String("graph", graphName))
 		}
