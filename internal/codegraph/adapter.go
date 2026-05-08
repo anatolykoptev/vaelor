@@ -46,7 +46,7 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 	const symbolQueryCols = 3
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, symbolQueryCols)
 	if err != nil {
-		if isGraphMissingError(err) {
+		if IsGraphMissingError(err) {
 			slog.Debug("codegraph.analyticsAdapter.Symbol: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))
 			return graphx.Signals{}, nil
@@ -88,7 +88,7 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 
 	rows, err := a.store.ExecCypher(ctx, graphName, cypher, 3)
 	if err != nil {
-		if isGraphMissingError(err) {
+		if IsGraphMissingError(err) {
 			slog.Debug("codegraph.analyticsAdapter.TopPageRank: graph absent",
 				slog.String("repo", repoKey))
 			return nil, nil
@@ -138,15 +138,3 @@ func toRelativeFile(repoKey, file string) string {
 	return file
 }
 
-// isGraphMissingError returns true if the error indicates a missing AGE graph.
-// PostgreSQL SQLSTATE 3F000 = "invalid schema name" (raised by AGE when the
-// graph does not exist yet).
-func isGraphMissingError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "3F000") ||
-		strings.Contains(msg, "does not exist") ||
-		strings.Contains(msg, "invalid schema name")
-}

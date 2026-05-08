@@ -73,6 +73,12 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	query := buildDeadCodeScoringQuery(limit)
 	rows, err := s.ExecCypher(ctx, gname, query, 1)
 	if err != nil {
+		// Graph may have been dropped between EnsureGraph and here; treat as no-op.
+		if IsGraphMissingError(err) {
+			recordGraphMissing("dead_code")
+			slog.Debug("codegraph: dead_code scoring skipped — graph absent", slog.String("graph", gname))
+			return nil
+		}
 		return fmt.Errorf("query orphans: %w", err)
 	}
 	if len(rows) == 0 {

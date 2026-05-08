@@ -138,6 +138,14 @@ func execWithRetry(ctx context.Context, store *Store, llmClient *llm.Client, gra
 		return rows, cypher, nil
 	}
 
+	// Return the clean sentinel instead of a raw postgres error so callers can
+	// surface "run code_graph first" to the user without parsing error strings.
+	if IsGraphMissingError(execErr) {
+		recordGraphMissing("code_graph")
+		slog.Debug("execWithRetry: graph absent", slog.String("graph", graphName))
+		return nil, cypher, ErrGraphNotIndexed
+	}
+
 	if template != templateFreeform {
 		return nil, cypher, fmt.Errorf("cypher exec: %w", execErr)
 	}

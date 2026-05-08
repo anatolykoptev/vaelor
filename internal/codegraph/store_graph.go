@@ -2,9 +2,12 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // EnsureGraph creates the AGE graph if it does not exist and ensures the
@@ -24,9 +27,9 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		return fmt.Errorf("AGE setup: %w", err)
 	}
 
-	// create_graph raises an error if the graph already exists; suppress it.
+	// create_graph raises SQLSTATE 42710 (duplicate_object) if the graph already exists.
 	_, err = conn.Exec(ctx, fmt.Sprintf(`SELECT ag_catalog.create_graph('%s')`, name))
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
+	if err != nil && !isDuplicateObjectError(err) {
 		return fmt.Errorf("create graph %q: %w", name, err)
 	}
 
@@ -164,17 +167,33 @@ func (s *Store) EnsureLabels(ctx context.Context, gname string) error {
 
 	for _, label := range knownVLabels {
 		sql := fmt.Sprintf("SELECT ag_catalog.create_vlabel('%s', '%s')", gname, label)
-		if _, err := conn.Exec(ctx, sql); err != nil && !strings.Contains(err.Error(), "already exists") {
+		if _, err := conn.Exec(ctx, sql); err != nil && !isDuplicateObjectError(err) {
 			return fmt.Errorf("create vlabel %q: %w", label, err)
 		}
 	}
 
 	for _, label := range knownELabels {
 		sql := fmt.Sprintf("SELECT ag_catalog.create_elabel('%s', '%s')", gname, label)
-		if _, err := conn.Exec(ctx, sql); err != nil && !strings.Contains(err.Error(), "already exists") {
+		if _, err := conn.Exec(ctx, sql); err != nil && !isDuplicateObjectError(err) {
 			return fmt.Errorf("create elabel %q: %w", label, err)
 		}
 	}
 
 	return nil
+}
+
+// isDuplicateObjectError reports whether err is SQLSTATE 42710 (duplicate_object),
+// which AGE raises when create_graph, create_vlabel, or create_elabel is called
+// for an object that already exists. This replaces the fragile strings.Contains
+// "already exists" check.
+func isDuplicateObjectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42710" {
+		return true
+	}
+	// Fallback: some AGE versions embed the code only in the message.
+	return strings.Contains(err.Error(), "already exists")
 }
