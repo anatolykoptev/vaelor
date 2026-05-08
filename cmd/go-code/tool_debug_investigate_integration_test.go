@@ -109,8 +109,9 @@ func newPromFake(sampleVal float64) *httptest.Server {
 }
 
 // TestIntegration_HappyPath verifies that a single trace with one span and an
-// elevated Prometheus error rate produces a non-empty Hypotheses list with an
-// anomaly score consistent with elevated/critical thresholds.
+// equal window/baseline Prometheus error rate produces a non-empty Hypotheses
+// list with an anomaly score in the scoreNominal bucket (ratio==1 → not above
+// any threshold → default-healthy path).
 func TestIntegration_HappyPath(t *testing.T) {
 	t.Cleanup(func() { debugInvestigateStore = investigate.NewInvestigationStore() })
 
@@ -124,10 +125,9 @@ func TestIntegration_HappyPath(t *testing.T) {
 	)
 	defer jaegerSrv.Close()
 
-	// Both queries return the same high value → ratio=1 (same window and baseline).
-	// To get an elevated ratio we'd need window >> baseline, but the fake returns
-	// the same value for every call. ratio=1 → scoreNominal.
-	// Test asserts Hypotheses non-empty and score > 0; exact bucket is secondary.
+	// Both queries return the same high value → ratio=1.0 (fake returns the same
+	// value for every call). ratio=1 is not > ratioMild (1.2), so the switch falls
+	// through to the default case → scoreNominal (0.3).
 	promSrv := newPromFake(100.0)
 	defer promSrv.Close()
 
@@ -161,8 +161,8 @@ func TestIntegration_HappyPath(t *testing.T) {
 	if len(r.Hypotheses) == 0 {
 		t.Fatal("expected non-empty Hypotheses, got none")
 	}
-	if r.Hypotheses[0].AnomalyScore <= 0 {
-		t.Errorf("expected positive anomaly score, got %.3f", r.Hypotheses[0].AnomalyScore)
+	if got := r.Hypotheses[0].AnomalyScore; got != scoreNominal {
+		t.Errorf("ratio==1 should bucket as scoreNominal=%v, got %v", scoreNominal, got)
 	}
 }
 
@@ -276,6 +276,27 @@ func TestIntegration_PromDown(t *testing.T) {
 	}
 	if !hasPromWarn {
 		t.Errorf("expected a 'prom' warning, got: %v", r.Diagnostics.Warnings)
+	}
+}
+
+// TestUnit_ListLabelValues_500 exercises the warning-emission path in
+// listLabelValues when the Prometheus label-values endpoint returns HTTP 500.
+// This targets the code path at Phase 5 (listLabelValues call) without
+// requiring a live LLM; deps.LLM is concrete *llm.Client so Phase 5 is
+// unreachable in integration tests — this unit test covers the gap directly.
+func TestUnit_ListLabelValues_500(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "injected failure", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	_, err := listLabelValues(context.Background(), prom, "__name__")
+	if err == nil {
+		t.Fatal("expected error from listLabelValues on HTTP 500, got nil")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("expected error to contain HTTP status, got: %v", err)
 	}
 }
 

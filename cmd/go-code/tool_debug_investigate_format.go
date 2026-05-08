@@ -47,6 +47,7 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		b.WriteString("\n    </hypothesis>")
 	}
 
+	// Diagnostics is a plain struct — Marshal cannot fail in practice.
 	d, _ := json.Marshal(r.Diagnostics)
 	b.WriteString("\n    <diagnostics>")
 	b.WriteString(string(d))
