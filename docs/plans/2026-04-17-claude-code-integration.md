@@ -13,7 +13,7 @@
 **Execution mode:** Subagent-driven. Each task is self-contained and has explicit acceptance criteria.
 
 **Cross-session paths:**
-- Client: `~/.claude/{commands,hooks,settings.json}` on mac.
+- Client: `/path/to/home/.claude/{commands,hooks,settings.json}` on mac.
 - Server: `ssh example` → `cd $REPO_ROOT` → `GOWORK=off make test` → `make deploy`.
 
 ---
@@ -25,7 +25,7 @@ Each task below runs in the user's main mac session. No git worktree required �
 ### Task 1: Slash command `/gc:understand`
 
 **Files:**
-- Create: `~/.claude/commands/gc-understand.md`
+- Create: `/path/to/home/.claude/commands/gc-understand.md`
 
 **Step 1: Write the command file**
 
@@ -63,10 +63,10 @@ Expected: file exists.
 ### Task 2: Slash commands `/gc:impact`, `/gc:pr`, `/gc:graph`, `/gc:rewrite`
 
 **Files:**
-- Create: `~/.claude/commands/gc-impact.md`
-- Create: `~/.claude/commands/gc-pr.md`
-- Create: `~/.claude/commands/gc-graph.md`
-- Create: `~/.claude/commands/gc-rewrite.md`
+- Create: `/path/to/home/.claude/commands/gc-impact.md`
+- Create: `/path/to/home/.claude/commands/gc-pr.md`
+- Create: `/path/to/home/.claude/commands/gc-graph.md`
+- Create: `/path/to/home/.claude/commands/gc-rewrite.md`
 
 **Step 1: `gc-impact.md`**
 
@@ -130,8 +130,8 @@ Expected: `5`.
 ### Task 3: PreToolUse hook — `prepare_change` before Edit on Go files
 
 **Files:**
-- Create: `~/.claude/hooks/go-code-prepare-change.sh`
-- Modify: `~/.claude/settings.json` (register hook)
+- Create: `/path/to/home/.claude/hooks/go-code-prepare-change.sh`
+- Modify: `/path/to/home/.claude/settings.json` (register hook)
 
 **Step 1: Write the hook script**
 
@@ -186,7 +186,7 @@ Add under `hooks.PreToolUse`:
 {
   "matcher": "Edit|Write|MultiEdit",
   "hooks": [
-    { "type": "command", "command": "~/.claude/hooks/go-code-prepare-change.sh" }
+    { "type": "command", "command": "/path/to/home/.claude/hooks/go-code-prepare-change.sh" }
   ]
 }
 ```
@@ -200,8 +200,8 @@ Trigger an Edit on any `*.go` file under `~/src/`. Confirm stderr shows a blast-
 ### Task 4: PostToolUse hook — self-review after `gh pr create`
 
 **Files:**
-- Create: `~/.claude/hooks/go-code-auto-review-pr.sh`
-- Modify: `~/.claude/settings.json`
+- Create: `/path/to/home/.claude/hooks/go-code-auto-review-pr.sh`
+- Modify: `/path/to/home/.claude/settings.json`
 
 **Step 1: Write the script**
 
@@ -246,7 +246,7 @@ exit 0
 {
   "matcher": "Bash",
   "hooks": [
-    { "type": "command", "command": "~/.claude/hooks/go-code-auto-review-pr.sh" }
+    { "type": "command", "command": "/path/to/home/.claude/hooks/go-code-auto-review-pr.sh" }
   ]
 }
 ```
@@ -258,7 +258,7 @@ exit 0
 ### Task 5: Update MCP catalog memory
 
 **Files:**
-- Modify: `~/.claude/projects/-Users-anatoliikoptev/memory/mcp-tools-catalog.md`
+- Modify: `/path/to/home/.claude/projects/-Users-anatoliikoptev/memory/mcp-tools-catalog.md`
 
 **Step 1:** Replace the **go-code** section with an updated version that highlights:
 - Compound tools (`understand`, `prepare_change`) — prefer over manual combinations.
