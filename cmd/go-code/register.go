@@ -84,7 +84,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	}
 
 	// Wire graph signals — always non-nil (Noop when no store available).
-	deps.Graph, deps.Refs = buildGraphDeps(graphStore)
+	deps.Graph, deps.Refs = buildGraphDeps(graphStore, cfg.PathMappings)
 
 	// RRF weights: published once at startup so /metrics records the deployed
 	// values, and threaded into SemanticDeps so MergeRRF picks them up. Logged
@@ -209,12 +209,12 @@ func buildForgeRegistry(cfg Config) *forge.Registry {
 // buildGraphDeps wires graphx.Analytics and graphx.CrossRefs from an optional
 // codegraph.Store. Returns Noop{} for both when the store is nil (no DATABASE_URL
 // or pool construction failed).
-func buildGraphDeps(store *codegraph.Store) (graphx.Analytics, graphx.CrossRefs) {
+func buildGraphDeps(store *codegraph.Store, mappings []analyze.PathMapping) (graphx.Analytics, graphx.CrossRefs) {
 	if store == nil {
 		return graphx.Noop{}, graphx.Noop{}
 	}
 	slog.Info("graph signals enabled via codegraph.Store")
-	return codegraph.NewAnalyticsAdapter(store), codegraph.NewCrossRefsAdapter(store)
+	return codegraph.NewAnalyticsAdapter(store, mappings), codegraph.NewCrossRefsAdapter(store, mappings)
 }
 
 // buildLearningsStore opens a learnings.Store if configured.

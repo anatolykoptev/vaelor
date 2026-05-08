@@ -88,7 +88,7 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 			}
 		}, nil
 	}
-	// Local path — apply path mappings (e.g. /home/krolik/src → /host-src).
+	// Local path — apply path mappings (e.g. /path/to/repos:/host) from PATH_MAPPINGS.
 	repo = rewritePath(repo, deps.PathMappings)
 	fi, err := os.Stat(repo)
 	if err != nil {
