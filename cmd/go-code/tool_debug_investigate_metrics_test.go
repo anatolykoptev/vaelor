@@ -1,7 +1,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
@@ -33,5 +40,38 @@ func TestMaxSampleValue_IgnoresUnparseable(t *testing.T) {
 	}
 	if got := maxSampleValue(resp); got != 5.0 {
 		t.Errorf("got %v, want 5.0", got)
+	}
+}
+
+func TestDiscoverFailureMetrics_FiltersByPattern(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
+			fmt.Fprint(w, `{"status":"success","data":["http_requests_total","signaling_call_outcome_total","ws_handshake_failed_total","sfu_chat_relay_dropped_total","go_goroutines","process_cpu_seconds_total"]}`)
+			return
+		}
+		http.Error(w, "not found", 404)
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	got, err := discoverFailureMetrics(context.Background(), prom, "any-service")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	want := []string{"signaling_call_outcome_total", "ws_handshake_failed_total", "sfu_chat_relay_dropped_total"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestRankSpikes_TopK(t *testing.T) {
+	got := rankSpikes([]MetricSpike{
+		{MetricName: "a", Score: 0.6},
+		{MetricName: "b", Score: 0.95},
+		{MetricName: "c", Score: 0.3},
+		{MetricName: "d", Score: 0.8},
+	}, 2)
+	if len(got) != 2 || got[0].MetricName != "b" || got[1].MetricName != "d" {
+		t.Errorf("unexpected: %+v", got)
 	}
 }

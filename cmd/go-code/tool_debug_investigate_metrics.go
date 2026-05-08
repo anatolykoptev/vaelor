@@ -4,6 +4,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"time"
 
@@ -17,6 +19,44 @@ type MetricSpike struct {
 	Labels     string  // label-set rendered for human reading: {outcome="failed"}
 	Ratio      float64 // window_max / baseline_max
 	Score      float64 // bucketed anomaly score 0..1
+}
+
+// failureMetricRegex matches metric names that strongly suggest a failure
+// counter. Patterns: *_failed_total, *_error*, *_dropped_total, *_failure*,
+// *_outcome*. Hand-curated; expand as new conventions appear.
+var failureMetricRegex = regexp.MustCompile(`(?i)(_failed_total|_failures?_total|_errors?_total|_dropped_total|_failure(_|$)|_outcome($|_total))`)
+
+// discoverFailureMetrics returns Prometheus metric names matching common
+// failure-counter naming conventions. Service-name filtering happens at
+// query time (we don't filter by service here — metric NAME is global).
+func discoverFailureMetrics(ctx context.Context, prom *promclient.Client, _ string) ([]string, error) {
+	type resp struct {
+		Status string   `json:"status"`
+		Data   []string `json:"data"`
+	}
+	var r resp
+	if err := prom.GetJSON(ctx, "/api/v1/label/__name__/values", &r); err != nil {
+		return nil, err
+	}
+	if r.Status != "success" {
+		return nil, fmt.Errorf("label values status %q", r.Status)
+	}
+	var out []string
+	for _, name := range r.Data {
+		if failureMetricRegex.MatchString(name) {
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
+
+// rankSpikes returns the top-k spikes by score, descending. Stable for ties.
+func rankSpikes(spikes []MetricSpike, k int) []MetricSpike {
+	sort.SliceStable(spikes, func(i, j int) bool { return spikes[i].Score > spikes[j].Score })
+	if k > 0 && len(spikes) > k {
+		return spikes[:k]
+	}
+	return spikes
 }
 
 // computeAnomalyScore queries Prometheus for the error-rate ratio between the
