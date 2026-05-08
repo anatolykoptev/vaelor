@@ -31,7 +31,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Skeleton mode with `...` placeholders (v1.3)
 
 ### 1.4 LLM analysis ✅
-- [x] LLM client via CLIProxyAPI (OpenAI-compatible)
+- [x] LLM client via OpenAI-compatible proxy
 - [x] System prompts for repo analysis, code comparison, dep graph
 - [x] LLM context builder with 150K char budget
 - [x] File prioritization by query relevance + import frequency + symbol count
