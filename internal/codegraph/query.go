@@ -2,6 +2,7 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -133,16 +134,30 @@ func classifyAndBuildCypher(ctx context.Context, llmClient *llm.Client, query st
 
 // execWithRetry executes Cypher, retrying once for freeform queries with self-correction.
 func execWithRetry(ctx context.Context, store *Store, llmClient *llm.Client, graphName, query, cypher string, cols int, template string) ([][]string, string, error) {
+	// Preflight: check graph existence before issuing Cypher to AGE.
+	// This prevents postgres from logging ERROR entries for repos that have
+	// never been indexed. The existing IsGraphMissingError guard below remains
+	// as a race fallback (graph dropped between preflight and ExecCypher).
+	if err := store.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("cypher_exec")
+			slog.Debug("execWithRetry: graph absent (preflight)", slog.String("graph", graphName))
+			return nil, cypher, ErrGraphNotIndexed
+		}
+		return nil, cypher, err
+	}
+
 	rows, execErr := store.ExecCypher(ctx, graphName, cypher, cols)
 	if execErr == nil {
 		return rows, cypher, nil
 	}
 
-	// Return the clean sentinel instead of a raw postgres error so callers can
-	// surface "run code_graph first" to the user without parsing error strings.
+	// Race fallback: graph was dropped between preflight and ExecCypher.
+	// Invalidate the stale cache entry and return the clean sentinel.
 	if IsGraphMissingError(execErr) {
+		store.existsCache.Forget(graphName)
 		recordGraphMissing("cypher_exec")
-		slog.Debug("execWithRetry: graph absent", slog.String("graph", graphName))
+		slog.Debug("execWithRetry: graph absent (race fallback)", slog.String("graph", graphName))
 		return nil, cypher, ErrGraphNotIndexed
 	}
 
