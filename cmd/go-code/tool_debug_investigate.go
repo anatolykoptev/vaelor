@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/compound"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
 	"github.com/anatolykoptev/go-code/internal/promclient"
@@ -51,8 +53,6 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 }
 
 func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client) (*mcp.CallToolResult, error) {
-	_ = ctx // context reserved for future use (e.g. request cancellation checks)
-	_ = prom
 
 	if input.Service == "" {
 		return errResult("service is required"), nil
@@ -93,8 +93,6 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 }
 
 func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *jaegerclient.Client, start, end time.Time) {
-	_ = deps // reserved for Phase 3 symbol lookup
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -135,8 +133,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *ja
 	}
 	res.Diagnostics.TracesFetched = len(traces)
 
-	// Phase 3 (placeholder until Task 11): would correlate traces → operations → symbols.
-	// For skeleton, count unique operations across all failed spans.
+	// Phase 3: count unique operations across all failed spans.
 	ops := map[string]int{}
 	for _, tr := range traces {
 		for _, sp := range tr.Spans {
@@ -144,14 +141,68 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, jaeger *ja
 			res.Diagnostics.SpansAnalyzed++
 		}
 	}
-	for op, count := range ops {
-		res.Hypotheses = append(res.Hypotheses, investigate.Hypothesis{
-			Subject:       fmt.Sprintf("operation %q", op),
-			SpanCount:     count,
-			AnomalyScore:  0.5, // placeholder until metrics correlation in Task 11
-			EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
-		})
+
+	// Phase 3: span → operation → symbol correlation.
+	//
+	// For each unique operation we attempt to extract a Go function name and
+	// resolve it against the repo's symbol table. Successful resolutions
+	// produce a Hypothesis with file:line; unresolved operations remain
+	// Hypotheses with empty File (still useful — caller sees "operation X
+	// failed N times even though no symbol matched").
+	repo := input.Repo
+	if repo != "" {
+		resolvedRoot, cleanup, resolveErr := resolveRoot(ctx, repo, "", deps)
+		if resolveErr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+				fmt.Sprintf("resolve root %q: %v", repo, resolveErr))
+		} else {
+			defer cleanup()
+			cg, cgErr := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
+				Root:     resolvedRoot,
+				Language: "go",
+			})
+			if cgErr != nil {
+				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+					fmt.Sprintf("build callgraph: %v", cgErr))
+			}
+			for op, count := range ops {
+				funcName := investigate.OperationToFuncName(op)
+				h := investigate.Hypothesis{
+					Subject:       fmt.Sprintf("operation %q", op),
+					SpanCount:     count,
+					AnomalyScore:  0.5,
+					EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
+				}
+				if cg != nil && funcName != "" {
+					matches := compound.FindSymbol(cg.Symbols, funcName)
+					if len(matches) > 0 {
+						sym := matches[0]
+						h.File = reverseToHost(sym.File, deps.PathMappings)
+						h.Line = int(sym.StartLine)
+						h.Subject = fmt.Sprintf("%s in %s", funcName, h.File)
+						h.NextChecks = append(h.NextChecks,
+							fmt.Sprintf("understand symbol=%q repo=%q", funcName, repo))
+						res.Diagnostics.SymbolsTouched++
+					}
+				}
+				res.Hypotheses = append(res.Hypotheses, h)
+			}
+		}
 	}
+
+	if len(res.Hypotheses) == 0 {
+		// No symbol resolution (empty repo or no callgraph) — fall back to
+		// frequency-only hypotheses so callers always get something useful.
+		for op, count := range ops {
+			res.Hypotheses = append(res.Hypotheses, investigate.Hypothesis{
+				Subject:       fmt.Sprintf("operation %q", op),
+				SpanCount:     count,
+				AnomalyScore:  0.5,
+				EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
+			})
+		}
+	}
+
 	res.Hypotheses = investigate.RankHypotheses(res.Hypotheses)
 	res.FinishedAt = time.Now()
 
