@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -171,46 +170,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// Phase 4: query Prometheus for the error-rate ratio between the
 	// investigation window and a baseline (same duration, 1h earlier).
 	// The composite anomaly score weights metric-confirmed operations higher.
-	windowDur := end.Sub(start)
-	baselineEnd := start.Add(-1 * time.Hour)
-	baselineStart := baselineEnd.Add(-windowDur)
-
-	errMetricQuery := fmt.Sprintf(
-		`sum(rate(http_requests_total{service=%q,code=~"5..|4.."}[1m]))`,
-		input.Service)
-
-	windowSeries, werr := prom.QueryRange(ctx, errMetricQuery, start, end, 60*time.Second)
-	baseSeries, berr := prom.QueryRange(ctx, errMetricQuery, baselineStart, baselineEnd, 60*time.Second)
-	res.Diagnostics.MetricsQueried = 2
-
-	anomalyScore := scoreDefault // default if metric data missing
-	if werr == nil && berr == nil {
-		wMax := maxSampleValue(windowSeries)
-		bMax := maxSampleValue(baseSeries)
-		if bMax > 0 {
-			ratio := wMax / bMax
-			switch {
-			case ratio > ratioCritical:
-				anomalyScore = scoreCritical
-			case ratio > ratioElevated:
-				anomalyScore = scoreElevated
-			case ratio > ratioMild:
-				anomalyScore = scoreMild
-			default:
-				anomalyScore = scoreNominal
-			}
-		} else if wMax > 0 {
-			// Baseline empty but window has errors — modest anomaly.
-			anomalyScore = scoreBaselineEmpty
-		}
-	} else {
-		if werr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("prom window: %v", werr))
-		}
-		if berr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("prom baseline: %v", berr))
-		}
-	}
+	anomalyScore := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
 
 	// Phase 3: count unique operations across all failed spans.
 	ops := map[string]int{}
@@ -336,35 +296,6 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 
 	debugInvestigateStore.Finish(input.Service, start, end, res)
 	finished = true
-}
-
-// maxSampleValue returns the maximum sample value across all series in a
-// Prometheus matrix response. Returns 0 if the response is empty or all
-// values fail to parse.
-func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
-	if resp == nil {
-		return 0
-	}
-	var max float64
-	for _, series := range resp.Data.Result {
-		for _, v := range series.Values {
-			if len(v) < 2 {
-				continue
-			}
-			s, ok := v[1].(string)
-			if !ok {
-				continue
-			}
-			f, err := strconv.ParseFloat(s, 64)
-			if err != nil {
-				continue
-			}
-			if f > max {
-				max = f
-			}
-		}
-	}
-	return max
 }
 
 // validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
