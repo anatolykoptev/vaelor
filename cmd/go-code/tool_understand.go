@@ -74,7 +74,7 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	}
 
 	if len(matches) > 1 {
-		return understandAmbiguousResult(input.Symbol, matches)
+		return understandAmbiguousResult(input.Symbol, matches, deps.PathMappings)
 	}
 
 	opts := compound.UnderstandOpts{
@@ -99,6 +99,18 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		opts.SymbolRanker = graphStore
 	}
 	result := compound.Understand(ctx, matches[0], cg, opts)
+
+	// Reverse-map container-internal paths back to host-side paths so callers
+	// see clickable file locations matching their local checkout.
+	if len(deps.PathMappings) > 0 {
+		result.Symbol.File = reverseToHost(result.Symbol.File, deps.PathMappings)
+		for i := range result.Callees {
+			result.Callees[i].File = reverseToHost(result.Callees[i].File, deps.PathMappings)
+		}
+		for i := range result.Callers {
+			result.Callers[i].File = reverseToHost(result.Callers[i].File, deps.PathMappings)
+		}
+	}
 
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -141,13 +153,14 @@ func filterByFocus(symbols []*parser.Symbol, focus string) []*parser.Symbol {
 }
 
 // understandAmbiguousResult returns a JSON response listing ambiguous symbol matches.
-func understandAmbiguousResult(name string, symbols []*parser.Symbol) (*mcp.CallToolResult, error) {
+// mappings is used to reverse-translate container-internal paths to host paths.
+func understandAmbiguousResult(name string, symbols []*parser.Symbol, mappings []analyze.PathMapping) (*mcp.CallToolResult, error) {
 	refs := make([]*compound.MatchRef, 0, len(symbols))
 	for _, sym := range symbols {
 		refs = append(refs, &compound.MatchRef{
 			Name:     sym.Name,
 			Kind:     string(sym.Kind),
-			File:     sym.File,
+			File:     reverseToHost(sym.File, mappings),
 			Line:     sym.StartLine,
 			Receiver: sym.Receiver,
 		})
