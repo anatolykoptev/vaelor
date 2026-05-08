@@ -1,0 +1,10 @@
+go-code
+Copyright 2026 Anatoly Koptev
+
+This product includes software developed by Anatoly Koptev.
+
+This product includes the following third-party software:
+
+* tree-sitter (https://github.com/tree-sitter/tree-sitter) — MIT
+* smacker/go-tree-sitter (https://github.com/smacker/go-tree-sitter) — MIT
+* sourcegraph/scip (https://github.com/sourcegraph/scip) — Apache 2.0
