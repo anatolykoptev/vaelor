@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codesearch"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // handleScopedSearch routes to ox-codes /search/scoped.
-func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string) (*mcp.CallToolResult, error) {
+func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string, mappings []analyze.PathMapping) (*mcp.CallToolResult, error) {
 	maxResults := clampMaxResults(input.MaxResults)
 	caseSensitive := true
 	if input.CaseSensitive != nil {
@@ -43,11 +44,11 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 		return xmlMarshalResult(formatExpandedSearchXML(input, result.Matches), "code_search", outputDir), nil
 	}
 	matches := convertOxMatches(result.Matches)
-	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
+	return xmlMarshalResult(formatCodeSearchXML(input, matches, mappings), "code_search", outputDir), nil
 }
 
 // handleStructuralSearch routes to ox-codes /search/structural.
-func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string) (*mcp.CallToolResult, error) {
+func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string, mappings []analyze.PathMapping) (*mcp.CallToolResult, error) {
 	maxResults := clampMaxResults(input.MaxResults)
 
 	// Only request markdown when expand is active — otherwise body is empty.
@@ -73,7 +74,7 @@ func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root str
 		return xmlMarshalResult(formatExpandedSearchXML(input, result.Matches), "code_search", outputDir), nil
 	}
 	matches := convertOxMatches(result.Matches)
-	return xmlMarshalResult(formatCodeSearchXML(input, matches), "code_search", outputDir), nil
+	return xmlMarshalResult(formatCodeSearchXML(input, matches, mappings), "code_search", outputDir), nil
 }
 
 // convertOxMatches converts ox-codes matches to codesearch.SearchMatch.

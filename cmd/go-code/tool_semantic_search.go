@@ -189,7 +189,7 @@ func handleSemanticHits(
 			reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, flat, topK)
 			// Annotate with PageRank for architectural awareness.
 			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
-			return textResult(formatSemanticResults(input, reranked)), nil
+			return textResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)), nil
 		}
 	}
 	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
@@ -204,7 +204,7 @@ func handleSemanticHits(
 	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, filtered, topK)
 	// Annotate with PageRank for architectural awareness.
 	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
-	return textResult(formatSemanticResults(input, reranked)), nil
+	return textResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)), nil
 }
 
 // annotateWithPageRank adds PageRank signals to results for architectural awareness.
@@ -240,7 +240,7 @@ func annotateWithPageRank(ctx context.Context, results []embeddings.SearchResult
 	return annotated
 }
 
-func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult) string {
+func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult, mappings []analyze.PathMapping) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "<response tool=\"semantic_search\">\n")
 	fmt.Fprintf(&sb, "  <query>%s</query>\n", escapeXML(input.Query))
@@ -257,7 +257,7 @@ func formatSemanticResults(input SemanticSearchInput, results []embeddings.Searc
 		} else {
 			fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\">\n", i+1, r.Distance, escapeXML(source))
 		}
-		fmt.Fprintf(&sb, "      <file>%s</file>\n", escapeXML(r.FilePath))
+		fmt.Fprintf(&sb, "      <file>%s</file>\n", escapeXML(reverseToHost(r.FilePath, mappings)))
 		fmt.Fprintf(&sb, "      <symbol kind=\"%s\">%s</symbol>\n",
 			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))
 		fmt.Fprintf(&sb, "      <line>%d</line>\n", r.StartLine)
