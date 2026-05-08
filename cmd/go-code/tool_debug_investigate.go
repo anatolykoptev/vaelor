@@ -41,13 +41,35 @@ const (
 	ratioMild     = 1.2
 )
 
+// HintKind disambiguates investigation focus when caller knows the bug class.
+// Empty value preserves current "auto-detect everything" behavior.
+type HintKind string
+
+const (
+	HintKindAuto                  HintKind = ""
+	HintKindFrontendReactiveCycle HintKind = "frontend_reactive_cycle"
+	HintKindPanicAtHandler        HintKind = "panic_at_handler"
+	HintKindMetricSpikeUnknown    HintKind = "metric_spike_unknown_source"
+	HintKindLatencySpike          HintKind = "latency_spike"
+)
+
+// IsValid reports whether k is a known HintKind value.
+func (k HintKind) IsValid() bool {
+	switch k {
+	case HintKindAuto, HintKindFrontendReactiveCycle, HintKindPanicAtHandler, HintKindMetricSpikeUnknown, HintKindLatencySpike:
+		return true
+	}
+	return false
+}
+
 // DebugInvestigateInput is the user-facing tool input.
 type DebugInvestigateInput struct {
-	Service   string `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'oxpulse-chat')."`
-	StartUnix int64  `json:"start_unix" jsonschema_description:"Investigation window start, unix seconds. If 0, defaults to now-15m."`
-	EndUnix   int64  `json:"end_unix" jsonschema_description:"Investigation window end, unix seconds. If 0, defaults to now."`
-	Hint      string `json:"hint,omitempty" jsonschema_description:"Optional free-text hint about the suspected behaviour."`
-	Repo      string `json:"repo,omitempty" jsonschema_description:"Repo path for symbol lookup. Defaults to the service's resolved repo when known."`
+	Service   string   `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'oxpulse-chat')."`
+	StartUnix int64    `json:"start_unix" jsonschema_description:"Investigation window start, unix seconds. If 0, defaults to now-15m."`
+	EndUnix   int64    `json:"end_unix" jsonschema_description:"Investigation window end, unix seconds. If 0, defaults to now."`
+	Hint      string   `json:"hint,omitempty" jsonschema_description:"Optional free-text hint about the suspected behaviour."`
+	HintKind  HintKind `json:"hint_kind,omitempty" jsonschema_description:"Optional structured hint kind: frontend_reactive_cycle | panic_at_handler | metric_spike_unknown_source | latency_spike. Empty = auto-detect (default)."`
+	Repo      string   `json:"repo,omitempty" jsonschema_description:"Repo path for symbol lookup. Defaults to the service's resolved repo when known."`
 }
 
 // debugInvestigateStore is module-scoped — survives across calls in the same process.
@@ -71,6 +93,10 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 }
 
 func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client) (*mcp.CallToolResult, error) {
+
+	if !input.HintKind.IsValid() {
+		return errResult(fmt.Sprintf("invalid hint_kind %q; expected one of: frontend_reactive_cycle, panic_at_handler, metric_spike_unknown_source, latency_spike", input.HintKind)), nil
+	}
 
 	if input.Service == "" {
 		return errResult("service is required"), nil
@@ -129,10 +155,12 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// TODO(phase-beta): route to specialized data sources per hint_kind
 	res := &investigate.InvestigationResult{
 		Service:   input.Service,
 		Range:     investigate.TimeRange{Start: start, End: end},
 		StartedAt: time.Now(),
+		HintKind:  string(input.HintKind),
 	}
 
 	// Phase 1: list services to confirm Jaeger has data for this service.

@@ -15,8 +15,13 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	var b strings.Builder
 	b.WriteString(`<response tool="debug_investigate">`)
 	b.WriteString("\n  ")
-	b.WriteString(fmt.Sprintf(`<investigation service=%q started_at=%q finished_at=%q>`,
-		r.Service, r.StartedAt.Format(time.RFC3339), r.FinishedAt.Format(time.RFC3339)))
+	if r.HintKind != "" {
+		b.WriteString(fmt.Sprintf(`<investigation service=%q hint_kind=%q started_at=%q finished_at=%q>`,
+			r.Service, r.HintKind, r.StartedAt.Format(time.RFC3339), r.FinishedAt.Format(time.RFC3339)))
+	} else {
+		b.WriteString(fmt.Sprintf(`<investigation service=%q started_at=%q finished_at=%q>`,
+			r.Service, r.StartedAt.Format(time.RFC3339), r.FinishedAt.Format(time.RFC3339)))
+	}
 
 	if r.LLMSummary != "" {
 		b.WriteString("\n    <summary>")

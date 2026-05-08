@@ -68,6 +68,7 @@ type InvestigationResult struct {
 	Hypotheses   []Hypothesis  `json:"hypotheses"`
 	LLMSummary   string        `json:"llm_summary,omitempty"`
 	MetricSpikes []MetricSpike `json:"metric_spikes,omitempty"`
+	HintKind     string        `json:"hint_kind,omitempty"`
 	Diagnostics  Diagnostics   `json:"diagnostics"`
 }
 

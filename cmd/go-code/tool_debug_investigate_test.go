@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
@@ -72,5 +74,30 @@ func TestListLabelValues_TruncatesAt200(t *testing.T) {
 	}
 	if len(vals) != 200 {
 		t.Errorf("got %d values, want 200", len(vals))
+	}
+}
+
+func TestHintKind_IsValid(t *testing.T) {
+	for _, k := range []HintKind{HintKindAuto, HintKindFrontendReactiveCycle, HintKindPanicAtHandler, HintKindMetricSpikeUnknown, HintKindLatencySpike} {
+		if !k.IsValid() {
+			t.Errorf("%q should be valid", k)
+		}
+	}
+	for _, k := range []HintKind{"bogus", "PANIC", "frontendreactive"} {
+		if k.IsValid() {
+			t.Errorf("%q should NOT be valid", k)
+		}
+	}
+}
+
+func TestHandleDebugInvestigate_RejectsInvalidHintKind(t *testing.T) {
+	res, err := handleDebugInvestigate(context.Background(), DebugInvestigateInput{
+		Service: "x", StartUnix: 1, EndUnix: 2, HintKind: HintKind("bogus"),
+	}, analyze.Deps{}, nil, nil)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(resultText(res), "invalid hint_kind") {
+		t.Errorf("expected rejection, got: %s", resultText(res))
 	}
 }
