@@ -43,6 +43,13 @@ func IndexSurpriseEdges(ctx context.Context, store *Store, graphName string) err
 	)
 	edgeRows, err := store.ExecCypher(ctx, graphName, edgeCypher, 8) //nolint:mnd // 8 projected cols
 	if err != nil {
+		if IsGraphMissingError(err) {
+			store.existsCache.Forget(graphName)
+			recordGraphMissing("surprise_edges")
+			slog.Debug("codegraph: IndexSurpriseEdges: graph absent (write-path race) — skipping",
+				slog.String("graph", graphName))
+			return nil
+		}
 		return fmt.Errorf("IndexSurpriseEdges fetch edges: %w", err)
 	}
 	slog.Info("codegraph: IndexSurpriseEdges fetched edges", slog.Int("count", len(edgeRows)))
@@ -51,6 +58,15 @@ func IndexSurpriseEdges(ctx context.Context, store *Store, graphName string) err
 	degCypher := `MATCH (s:Symbol)-[:CALLS]-() RETURN s.name, count(*)`
 	degRows, err := store.ExecCypher(ctx, graphName, degCypher, 2) //nolint:mnd // 2 projected cols
 	if err != nil {
+		if IsGraphMissingError(err) {
+			// existsCache already Forgotten after Phase 1 succeeded, so graph
+			// was dropped in the window between the two queries (rare race).
+			store.existsCache.Forget(graphName)
+			recordGraphMissing("surprise_edges")
+			slog.Debug("codegraph: IndexSurpriseEdges: graph absent on degree query — skipping",
+				slog.String("graph", graphName))
+			return nil
+		}
 		// Degree info is optional — fall back to 0 for all, which just disables
 		// the peripheral→hub heuristic without failing the whole pass.
 		slog.Warn("codegraph: IndexSurpriseEdges degree query failed (non-fatal), proceeding without degree data",
@@ -140,6 +156,13 @@ func IndexSurpriseNodes(ctx context.Context, store *Store, graphName string) err
 
 	rows, err := store.ExecCypher(ctx, graphName, fetchCypher, 3) //nolint:mnd // 3 projected cols
 	if err != nil {
+		if IsGraphMissingError(err) {
+			store.existsCache.Forget(graphName)
+			recordGraphMissing("surprise_nodes")
+			slog.Debug("codegraph: IndexSurpriseNodes: graph absent (write-path race) — skipping",
+				slog.String("graph", graphName))
+			return nil
+		}
 		return fmt.Errorf("IndexSurpriseNodes fetch: %w", err)
 	}
 
