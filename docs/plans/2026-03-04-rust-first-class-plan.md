@@ -33,13 +33,13 @@ In `internal/parser/parser.go`, add after the `BodyHash` field (line 72):
 
 **Step 2: Run existing tests to verify no regressions**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -v -count=1 2>&1 | tail -5`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1 2>&1 | tail -5`
 Expected: all existing tests PASS (new fields are zero-value)
 
 **Step 3: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/parser/parser.go
 git commit -m "feat(parser): add Receiver, IsPublic, Attributes to Symbol struct"
 ```
@@ -107,13 +107,13 @@ Note: The .scm stays essentially the same for method capture — receiver/trait 
 
 **Step 2: Run parser tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestParseRust -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestParseRust -v -count=1`
 Expected: PASS
 
 **Step 3: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/parser/queries/rust.scm
 git commit -m "refactor(parser): clarify rust.scm comments for impl context"
 ```
@@ -167,7 +167,7 @@ fn example() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestRustCallExtraction -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestRustCallExtraction -v -count=1`
 Expected: FAIL — `some_var` is currently extracted, scoped_func/println/vec are missing
 
 **Step 3: Replace rust_calls.scm**
@@ -199,18 +199,18 @@ Expected: FAIL — `some_var` is currently extracted, scoped_func/println/vec ar
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestRustCallExtraction -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestRustCallExtraction -v -count=1`
 Expected: PASS
 
 **Step 5: Run all parser tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -v -count=1 2>&1 | tail -5`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1 2>&1 | tail -5`
 Expected: all PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/parser/queries/rust_calls.scm internal/parser/
 git commit -m "fix(parser): remove false positive calls in Rust, add scoped + macro calls"
 ```
@@ -274,7 +274,7 @@ impl Serializable for MyHandler {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestRustRelationships -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestRustRelationships -v -count=1`
 Expected: FAIL — Rust handler doesn't implement RelationshipQueryProvider
 
 **Step 3: Create rust_rels.scm**
@@ -345,13 +345,13 @@ func (h *rustHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestRustRelationships -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestRustRelationships -v -count=1`
 Expected: PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/parser/queries/rust_rels.scm internal/parser/handler_rust.go
 git commit -m "feat(parser): add Rust type relationship extraction (trait impl)"
 ```
@@ -484,7 +484,7 @@ impl Handler for Config {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestRustVisibilityAndAttributes -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestRustVisibilityAndAttributes -v -count=1`
 Expected: FAIL — IsPublic, Attributes, Receiver all empty
 
 **Step 3: Add helper functions to handler_rust.go**
@@ -700,18 +700,18 @@ func (h *rustHandler) mapVar(node *sitter.Node, source []byte) *Symbol {
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestRustVisibilityAndAttributes -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestRustVisibilityAndAttributes -v -count=1`
 Expected: PASS
 
 **Step 6: Run all parser tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -v -count=1 2>&1 | tail -5`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1 2>&1 | tail -5`
 Expected: all PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/parser/handler_rust.go internal/parser/
 git commit -m "feat(parser): enrich Rust symbols with visibility, attributes, receiver"
 ```
@@ -878,7 +878,7 @@ func TestAnalyze_RustTestFileRs(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/deadcode/ -run "TestAnalyze_Rust" -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/deadcode/ -run "TestAnalyze_Rust" -v -count=1`
 Expected: FAIL — multiple tests fail
 
 **Step 3: Implement Rust-aware dead code filtering**
@@ -1001,13 +1001,13 @@ f) Update `isTestFile` — add `_test.rs`:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/deadcode/ -v -count=1 2>&1 | tail -10`
+Run: `cd $REPO_ROOT && go test ./internal/deadcode/ -v -count=1 2>&1 | tail -10`
 Expected: all PASS (existing + new Rust tests)
 
 **Step 5: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/deadcode/
 git commit -m "feat(deadcode): Rust-aware filtering — test attrs, pub visibility, trait methods"
 ```
@@ -1160,13 +1160,13 @@ func isStdlibImport(imp string) bool {
 
 **Step 3: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/analyze/ -v -count=1 2>&1 | tail -10`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -v -count=1 2>&1 | tail -10`
 Expected: all PASS
 
 **Step 4: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/analyze/ internal/explore/
 git commit -m "feat(analyze): Rust import resolution for dep_graph — crate/std/external"
 ```
@@ -1244,7 +1244,7 @@ func TestParseCargoToml_Empty(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/polyglot/ -run TestParseCargo -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/polyglot/ -run TestParseCargo -v -count=1`
 Expected: FAIL — function doesn't exist
 
 **Step 3: Implement Cargo.toml parser**
@@ -1352,7 +1352,7 @@ func parseTomlArray(line string) []string {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/polyglot/ -run TestParseCargo -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/polyglot/ -run TestParseCargo -v -count=1`
 Expected: PASS
 
 **Step 5: Wire into explore's dep highlights**
@@ -1364,7 +1364,7 @@ The simplest integration: in the explore tool handler, after file walking, find 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/polyglot/cargo.go internal/polyglot/cargo_test.go
 git commit -m "feat(polyglot): add Cargo.toml parser for Rust dependency extraction"
 ```
@@ -1379,9 +1379,9 @@ git commit -m "feat(polyglot): add Cargo.toml parser for Rust dependency extract
 **Step 1: Build and deploy**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 make build
-cd /path/to/repos/deploy/example-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -1397,13 +1397,13 @@ Test each improved tool:
 **Step 3: Run all go-code tests**
 
 ```bash
-cd /path/to/repos/src/go-code && make test
+cd $REPO_ROOT && make test
 ```
 
 **Step 4: Commit any fixes**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add -A
 git commit -m "test: verify Rust first-class support with ox-browser integration"
 ```

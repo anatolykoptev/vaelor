@@ -6,7 +6,7 @@
 
 **Architecture:**
 - **Client side** (user mac `~/.claude/`): slash commands + PreToolUse/PostToolUse hooks that call the go-code MCP over the existing HTTP endpoint.
-- **Server side** (`ssh example`, `/path/to/repos/src/go-code/`): enable `AUTO_INDEX_DIRS` for zero-cold-start semantic search; wire the dormant `internal/learnings` package into `understand` (read) and `review_pr_post` (write); add vector similarity to `Nearest`.
+- **Server side** (`ssh example`, `$REPO_ROOT/`): enable `AUTO_INDEX_DIRS` for zero-cold-start semantic search; wire the dormant `internal/learnings` package into `understand` (read) and `review_pr_post` (write); add vector similarity to `Nearest`.
 
 **Tech Stack:** bash + jq (hooks), markdown (slash commands), Go 1.24 + pgx + pgvector (server), Apache AGE (existing graph), `make deploy` (docker compose) for rollout.
 
@@ -14,7 +14,7 @@
 
 **Cross-session paths:**
 - Client: `~/.claude/{commands,hooks,settings.json}` on mac.
-- Server: `ssh example` → `cd /path/to/repos/src/go-code` → `GOWORK=off make test` → `make deploy`.
+- Server: `ssh example` → `cd $REPO_ROOT` → `GOWORK=off make test` → `make deploy`.
 
 ---
 
@@ -276,11 +276,11 @@ exit 0
 ### Task 6: Add `AUTO_INDEX_DIRS` to deploy env
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/deploy/go-code.env` (on `ssh example`)
+- Modify: `$REPO_ROOT/deploy/go-code.env.example` (on `ssh example`)
 
 **Step 1: Inspect current env**
 
-Run on example: `grep -E 'AUTO_INDEX|PATH_MAPPING' /path/to/repos/src/go-code/deploy/go-code.env`
+Run on example: `grep -E 'AUTO_INDEX|PATH_MAPPING' $REPO_ROOT/deploy/go-code.env.example`
 If absent, proceed.
 
 **Step 2: Append**
@@ -288,12 +288,12 @@ If absent, proceed.
 ```
 # Proactive indexing — warm caches for our active repos.
 AUTO_INDEX_DIRS=/host/src/go-code,/host/src/acme-guide,/host/src/memdb,/host/src/go-wowa,/host/src/ox-billing
-PATH_MAPPINGS=/path/to/repos:/host
+PATH_MAPPINGS=/home/user:/host
 ```
 
 **Step 3: Redeploy**
 
-Run: `ssh example "cd /path/to/repos/src/go-code && GOWORK=off make deploy"`
+Run: `ssh example "cd $REPO_ROOT && GOWORK=off make deploy"`
 Expected: `docker compose ... up -d` completes.
 
 **Step 4: Verify**
@@ -311,7 +311,7 @@ Expected: one "indexed /host/src/..." line per AUTO_INDEX_DIRS entry.
 **Files:** none — verification only.
 
 **Step 1:** From mac, call `mcp__go-code__semantic_search` with:
-- `repo: "/path/to/repos/src/acme-guide"`
+- `repo: "/home/user/src/acme-guide"`
 - `query: "publish article"`
 - `top_k: 3`
 
@@ -328,13 +328,13 @@ Expected: 3 results in <2s.
 ### Task 8: Add `learnings.Store` to `analyze.Deps`
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/internal/analyze/deps.go`
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/register.go`
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/config.go`
+- Modify: `$REPO_ROOT/internal/analyze/deps.go`
+- Modify: `$REPO_ROOT/cmd/go-code/register.go`
+- Modify: `$REPO_ROOT/cmd/go-code/config.go`
 
 **Step 1: Failing test**
 
-Create `/path/to/repos/src/go-code/internal/analyze/deps_learnings_test.go`:
+Create `$REPO_ROOT/internal/analyze/deps_learnings_test.go`:
 
 ```go
 package analyze
@@ -349,7 +349,7 @@ func TestDeps_HasLearnings(t *testing.T) {
 
 **Step 2: Run → fails**
 
-Run: `ssh example "cd /path/to/repos/src/go-code && GOWORK=off go test ./internal/analyze/..."`
+Run: `ssh example "cd $REPO_ROOT && GOWORK=off go test ./internal/analyze/..."`
 Expected: `d.Learnings undefined`.
 
 **Step 3: Add the field**
@@ -397,7 +397,7 @@ c.LearningsDSN = env.String("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL"))
 **Step 6: Run tests + build**
 
 ```
-ssh example "cd /path/to/repos/src/go-code && GOWORK=off go test ./... && GOWORK=off go build ./..."
+ssh example "cd $REPO_ROOT && GOWORK=off go test ./... && GOWORK=off go build ./..."
 ```
 Expected: pass.
 
@@ -412,12 +412,12 @@ feat(learnings): wire Store into analyze.Deps
 ### Task 9: Surface prior learnings in `understand` output
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/tool_understand.go`
-- Modify: `/path/to/repos/src/go-code/internal/compound/understand.go` (extend result with `PriorLearnings []learnings.Record`)
+- Modify: `$REPO_ROOT/cmd/go-code/tool_understand.go`
+- Modify: `$REPO_ROOT/internal/compound/understand.go` (extend result with `PriorLearnings []learnings.Record`)
 
 **Step 1: Failing test**
 
-Create `/path/to/repos/src/go-code/cmd/go-code/tool_understand_learnings_test.go` — seed a fake Store with one Record for `(repo="r", symbol="Foo")`, call `handleUnderstand`, assert the output contains the Note text under `<prior_learnings>`.
+Create `$REPO_ROOT/cmd/go-code/tool_understand_learnings_test.go` — seed a fake Store with one Record for `(repo="r", symbol="Foo")`, call `handleUnderstand`, assert the output contains the Note text under `<prior_learnings>`.
 
 **Step 2: Run → fails** (`PriorLearnings` undefined).
 
@@ -447,7 +447,7 @@ feat(understand): surface up to 3 prior learnings per symbol
 ### Task 10: Persist verdicts from `review_pr_post`
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/tool_review_pr_post.go`
+- Modify: `$REPO_ROOT/cmd/go-code/tool_review_pr_post.go`
 
 **Step 1: Failing test**
 
@@ -482,12 +482,12 @@ feat(review): persist verdicts to learnings store after PR post
 ### Task 11: Implement pgvector similarity in `Nearest`
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/internal/learnings/store.go`
-- Modify: `/path/to/repos/src/go-code/internal/learnings/schema.sql`
+- Modify: `$REPO_ROOT/internal/learnings/store.go`
+- Modify: `$REPO_ROOT/internal/learnings/schema.sql`
 
 **Step 1: Inspect schema**
 
-Run: `ssh example "cat /path/to/repos/src/go-code/internal/learnings/schema.sql"`
+Run: `ssh example "cat $REPO_ROOT/internal/learnings/schema.sql"`
 If no vector column/index, add:
 
 ```sql
@@ -512,7 +512,7 @@ Keep existing exact-match `Nearest(repo, symbol)` for the fast path.
 **Step 4: Test against real pgvector on example**
 
 ```
-ssh example "cd /path/to/repos/src/go-code && GOWORK=off go test ./internal/learnings/... -tags=integration"
+ssh example "cd $REPO_ROOT && GOWORK=off go test ./internal/learnings/... -tags=integration"
 ```
 If the `integration` build tag doesn't exist yet, gate with `t.Skip` when `DATABASE_URL` is empty.
 
@@ -527,7 +527,7 @@ feat(learnings): add pgvector similarity search
 ### Task 12: End-to-end integration test
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/cmd/go-code/learnings_e2e_test.go`
+- Create: `$REPO_ROOT/cmd/go-code/learnings_e2e_test.go`
 
 **Step 1:** Write a test that:
 1. Starts the MCP server in-process with a test Postgres (or `t.Skip` when `DATABASE_URL` unset).
@@ -551,8 +551,8 @@ test(learnings): e2e verification of review→understand loop
 ### Task 13: Update `CLAUDE.md` + `README.md`
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/CLAUDE.md` — add env row `LEARNINGS_DATABASE_URL`; one paragraph on the learnings loop.
-- Modify: `/path/to/repos/src/go-code/README.md` — under Features: "Learnings — prior review verdicts auto-surface in `understand`".
+- Modify: `$REPO_ROOT/CLAUDE.md` — add env row `LEARNINGS_DATABASE_URL`; one paragraph on the learnings loop.
+- Modify: `$REPO_ROOT/README.md` — under Features: "Learnings — prior review verdicts auto-surface in `understand`".
 
 Run `make lint`; commit:
 
@@ -566,9 +566,9 @@ docs: document learnings loop + AUTO_INDEX_DIRS
 
 **Files:** none.
 
-**Step 1:** `ssh example "cd /path/to/repos/src/go-code && GOWORK=off make deploy"`
+**Step 1:** `ssh example "cd $REPO_ROOT && GOWORK=off make deploy"`
 
-**Step 2:** From mac: `/gc:understand /path/to/repos/src/go-code handleReviewPRPost`
+**Step 2:** From mac: `/gc:understand $REPO_ROOT handleReviewPRPost`
 Expected: output includes `<prior_learnings>` (tag present even if empty).
 
 **Step 3:** Post a dry-run review on an existing PR; re-run step 2; prior learnings count should go up by at least 1.

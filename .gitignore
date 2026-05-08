@@ -4,7 +4,9 @@ bin/
 
 # Environment files with real secrets
 *.env
-!deploy/go-code.env
+# deploy/go-code.env is now deploy/go-code.env.example (tracked)
+deploy/go-code.env
+!deploy/go-code.env.example
 
 # Go test artifacts
 *.test

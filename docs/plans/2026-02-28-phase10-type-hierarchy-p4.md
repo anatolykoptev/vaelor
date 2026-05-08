@@ -15,15 +15,15 @@
 **Context:** This task adds the core `TypeRelationship` type and the Go extraction query. Go has two type relationship patterns: (1) struct embedding (`type Foo struct { Bar }`) and (2) interface method sets (implicit — Go doesn't have `implements` keyword, but we can extract embedded interfaces from interface definitions). For Go structs, we extract embedded type names from the struct body.
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/internal/parser/relationships.go`
-- Create: `/path/to/repos/src/go-code/internal/parser/relationships_test.go`
-- Create: `/path/to/repos/src/go-code/internal/parser/queries/go_rels.scm`
-- Modify: `/path/to/repos/src/go-code/internal/parser/handler.go` (add interface + capture constants)
-- Modify: `/path/to/repos/src/go-code/internal/parser/handler_go.go` (implement RelationshipQueryProvider)
+- Create: `$REPO_ROOT/internal/parser/relationships.go`
+- Create: `$REPO_ROOT/internal/parser/relationships_test.go`
+- Create: `$REPO_ROOT/internal/parser/queries/go_rels.scm`
+- Modify: `$REPO_ROOT/internal/parser/handler.go` (add interface + capture constants)
+- Modify: `$REPO_ROOT/internal/parser/handler_go.go` (implement RelationshipQueryProvider)
 
 **Step 1: Add capture constants and RelationshipQueryProvider interface**
 
-In `/path/to/repos/src/go-code/internal/parser/handler.go`, add after the existing capture constants:
+In `$REPO_ROOT/internal/parser/handler.go`, add after the existing capture constants:
 
 ```go
 const (
@@ -48,7 +48,7 @@ type RelationshipQueryProvider interface {
 
 **Step 2: Write the failing test**
 
-Create `/path/to/repos/src/go-code/internal/parser/relationships_test.go`:
+Create `$REPO_ROOT/internal/parser/relationships_test.go`:
 
 ```go
 package parser
@@ -118,12 +118,12 @@ func TestExtractRelationships_Unsupported(t *testing.T) {
 
 **Step 3: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestExtractRelationships -v`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestExtractRelationships -v`
 Expected: FAIL — `ExtractRelationships` undefined
 
 **Step 4: Create the Go relationship query file**
 
-Create `/path/to/repos/src/go-code/internal/parser/queries/go_rels.scm`:
+Create `$REPO_ROOT/internal/parser/queries/go_rels.scm`:
 
 ```lisp
 ; Go type relationship extraction.
@@ -156,7 +156,7 @@ Create `/path/to/repos/src/go-code/internal/parser/queries/go_rels.scm`:
 
 **Step 5: Implement relationships.go**
 
-Create `/path/to/repos/src/go-code/internal/parser/relationships.go`:
+Create `$REPO_ROOT/internal/parser/relationships.go`:
 
 ```go
 package parser
@@ -303,7 +303,7 @@ func deduplicateRels(rels []TypeRelationship) []TypeRelationship {
 
 **Step 6: Wire Go handler to compile and expose the query**
 
-In `/path/to/repos/src/go-code/internal/parser/handler_go.go`:
+In `$REPO_ROOT/internal/parser/handler_go.go`:
 
 Add embed directive after existing ones:
 
@@ -356,18 +356,18 @@ func (h *goHandler) RelationshipsQuery() *sitter.Query { return h.relsQuery }
 
 **Step 7: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestExtractRelationships -v`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestExtractRelationships -v`
 Expected: PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1`
 Expected: All PASS
 
 **Step 8: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
-sudo -u example git add internal/parser/relationships.go internal/parser/relationships_test.go internal/parser/queries/go_rels.scm internal/parser/handler.go internal/parser/handler_go.go
-sudo -u example git commit -m "feat(parser): add TypeRelationship extraction for Go struct/interface embedding
+cd $REPO_ROOT
+sudo -u $USER git add internal/parser/relationships.go internal/parser/relationships_test.go internal/parser/queries/go_rels.scm internal/parser/handler.go internal/parser/handler_go.go
+sudo -u $USER git commit -m "feat(parser): add TypeRelationship extraction for Go struct/interface embedding
 
 New RelationshipQueryProvider interface (parallel to CallQueryProvider).
 Go handler extracts embedded types from struct and interface definitions.
@@ -383,17 +383,17 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 **Context:** Python uses `class Foo(Bar, Baz)` for inheritance. TypeScript uses `class Foo extends Bar implements IBaz`. Java uses `class Foo extends Bar implements IBaz`. Each needs a dedicated `.scm` query file and handler wiring.
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/internal/parser/queries/python_rels.scm`
-- Create: `/path/to/repos/src/go-code/internal/parser/queries/typescript_rels.scm`
-- Create: `/path/to/repos/src/go-code/internal/parser/queries/java_rels.scm`
-- Modify: `/path/to/repos/src/go-code/internal/parser/handler_python.go` (implement RelationshipQueryProvider)
-- Modify: `/path/to/repos/src/go-code/internal/parser/handler_typescript.go` (implement RelationshipQueryProvider)
-- Modify: `/path/to/repos/src/go-code/internal/parser/handler_java.go` (implement RelationshipQueryProvider)
-- Modify: `/path/to/repos/src/go-code/internal/parser/relationships_test.go` (add tests)
+- Create: `$REPO_ROOT/internal/parser/queries/python_rels.scm`
+- Create: `$REPO_ROOT/internal/parser/queries/typescript_rels.scm`
+- Create: `$REPO_ROOT/internal/parser/queries/java_rels.scm`
+- Modify: `$REPO_ROOT/internal/parser/handler_python.go` (implement RelationshipQueryProvider)
+- Modify: `$REPO_ROOT/internal/parser/handler_typescript.go` (implement RelationshipQueryProvider)
+- Modify: `$REPO_ROOT/internal/parser/handler_java.go` (implement RelationshipQueryProvider)
+- Modify: `$REPO_ROOT/internal/parser/relationships_test.go` (add tests)
 
 **Step 1: Write the failing tests**
 
-Add to `/path/to/repos/src/go-code/internal/parser/relationships_test.go`:
+Add to `$REPO_ROOT/internal/parser/relationships_test.go`:
 
 ```go
 func TestExtractRelationships_Python(t *testing.T) {
@@ -508,12 +508,12 @@ public class Dog extends Animal implements Runnable {
 
 **Step 2: Run test to verify they fail**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run "TestExtractRelationships_(Python|TypeScript|Java)" -v`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run "TestExtractRelationships_(Python|TypeScript|Java)" -v`
 Expected: FAIL — no relationships extracted (handlers don't implement RelationshipQueryProvider yet)
 
 **Step 3: Create query files**
 
-Create `/path/to/repos/src/go-code/internal/parser/queries/python_rels.scm`:
+Create `$REPO_ROOT/internal/parser/queries/python_rels.scm`:
 
 ```lisp
 ; Python class inheritance: class Foo(Bar, Baz)
@@ -531,7 +531,7 @@ Create `/path/to/repos/src/go-code/internal/parser/queries/python_rels.scm`:
       attribute: (identifier) @rel.target)))
 ```
 
-Create `/path/to/repos/src/go-code/internal/parser/queries/typescript_rels.scm`:
+Create `$REPO_ROOT/internal/parser/queries/typescript_rels.scm`:
 
 ```lisp
 ; Class extends: class Foo extends Bar
@@ -555,7 +555,7 @@ Create `/path/to/repos/src/go-code/internal/parser/queries/typescript_rels.scm`:
     (type_identifier) @rel.target))
 ```
 
-Create `/path/to/repos/src/go-code/internal/parser/queries/java_rels.scm`:
+Create `$REPO_ROOT/internal/parser/queries/java_rels.scm`:
 
 ```lisp
 ; Java class extends: class Dog extends Animal
@@ -590,7 +590,7 @@ For each handler (`handler_python.go`, `handler_typescript.go`, `handler_java.go
 
 **Step 5: Update inferRelKind for TypeScript and Java**
 
-In `/path/to/repos/src/go-code/internal/parser/relationships.go`, update `runRelationshipQuery` to pass capture context to `inferRelKind`. For TypeScript and Java, the query file captures distinguish extends vs implements via different patterns that produce different match indices.
+In `$REPO_ROOT/internal/parser/relationships.go`, update `runRelationshipQuery` to pass capture context to `inferRelKind`. For TypeScript and Java, the query file captures distinguish extends vs implements via different patterns that produce different match indices.
 
 However, since tree-sitter queries don't carry metadata per-capture, we need a different approach. The simplest: use a **second capture name** to signal the kind. Change the TypeScript and Java query files to use `@rel.extends` and `@rel.implements` instead of `@rel.target`, then handle both in the extraction loop.
 
@@ -721,18 +721,18 @@ Remove the old `inferRelKind` function (no longer needed).
 
 **Step 6: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestExtractRelationships -v`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestExtractRelationships -v`
 Expected: All PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
-sudo -u example git add internal/parser/queries/python_rels.scm internal/parser/queries/typescript_rels.scm internal/parser/queries/java_rels.scm internal/parser/handler_python.go internal/parser/handler_typescript.go internal/parser/handler_java.go internal/parser/relationships.go internal/parser/relationships_test.go internal/parser/handler.go
-sudo -u example git commit -m "feat(parser): add type relationship extraction for Python, TypeScript, Java
+cd $REPO_ROOT
+sudo -u $USER git add internal/parser/queries/python_rels.scm internal/parser/queries/typescript_rels.scm internal/parser/queries/java_rels.scm internal/parser/handler_python.go internal/parser/handler_typescript.go internal/parser/handler_java.go internal/parser/relationships.go internal/parser/relationships_test.go internal/parser/handler.go
+sudo -u $USER git commit -m "feat(parser): add type relationship extraction for Python, TypeScript, Java
 
 Python: class inheritance via argument_list (supports multiple bases).
 TypeScript: extends + implements clauses for classes and interfaces.
@@ -749,14 +749,14 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 **Context:** The codegraph pipeline currently extracts symbols, calls, and imports in `parse.go`. We need to add relationship extraction and build graph edges from them. The edge types: EMBEDS (Go), EXTENDS (Python/TS/Java class inheritance), IMPLEMENTS (TS/Java interface implementation). For simplicity in the graph schema, we'll use two edge labels: INHERITS (for extends + embeds) and IMPLEMENTS.
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/internal/codegraph/parse.go` (extract relationships in parallel)
-- Modify: `/path/to/repos/src/go-code/internal/codegraph/graph_build.go` (build INHERITS/IMPLEMENTS edges)
-- Modify: `/path/to/repos/src/go-code/internal/codegraph/schema.go` (update schema text)
-- Modify: `/path/to/repos/src/go-code/internal/codegraph/index.go` (pass relationships through)
+- Modify: `$REPO_ROOT/internal/codegraph/parse.go` (extract relationships in parallel)
+- Modify: `$REPO_ROOT/internal/codegraph/graph_build.go` (build INHERITS/IMPLEMENTS edges)
+- Modify: `$REPO_ROOT/internal/codegraph/schema.go` (update schema text)
+- Modify: `$REPO_ROOT/internal/codegraph/index.go` (pass relationships through)
 
 **Step 1: Update indexParseResult and ingestAndParse**
 
-In `/path/to/repos/src/go-code/internal/codegraph/parse.go`:
+In `$REPO_ROOT/internal/codegraph/parse.go`:
 
 Add `rels` field to `indexParseResult`:
 
@@ -800,7 +800,7 @@ In `indexParseFile`, extract relationships:
 
 **Step 2: Add relationship edges to buildGraph**
 
-In `/path/to/repos/src/go-code/internal/codegraph/graph_build.go`:
+In `$REPO_ROOT/internal/codegraph/graph_build.go`:
 
 Update `buildGraph` signature to accept relationships:
 
@@ -892,7 +892,7 @@ func commonPrefixLen(a, b string) int {
 
 **Step 3: Update schema.go**
 
-In `/path/to/repos/src/go-code/internal/codegraph/schema.go`, add after the FETCHES line:
+In `$REPO_ROOT/internal/codegraph/schema.go`, add after the FETCHES line:
 
 ```go
 	b.WriteString("  - INHERITS (Symbol->Symbol) — struct embedding (Go), class extends (Python/Java/TS)\n")
@@ -901,7 +901,7 @@ In `/path/to/repos/src/go-code/internal/codegraph/schema.go`, add after the FETC
 
 **Step 4: Update index.go callers**
 
-In `/path/to/repos/src/go-code/internal/codegraph/index.go`, update the `ingestAndParse` call to receive `rels`:
+In `$REPO_ROOT/internal/codegraph/index.go`, update the `ingestAndParse` call to receive `rels`:
 
 ```go
 files, symbols, calls, rels, fileImports, err := ingestAndParse(ctx, root)
@@ -915,18 +915,18 @@ vertices, edges := buildGraph(root, files, symbols, cg, fileImports, rels)
 
 **Step 5: Run all tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/codegraph/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -count=1`
 Expected: All PASS (compilation + existing tests)
 
-Run: `cd /path/to/repos/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
-sudo -u example git add internal/codegraph/parse.go internal/codegraph/graph_build.go internal/codegraph/schema.go internal/codegraph/index.go
-sudo -u example git commit -m "feat(codegraph): build INHERITS and IMPLEMENTS edges from type relationships
+cd $REPO_ROOT
+sudo -u $USER git add internal/codegraph/parse.go internal/codegraph/graph_build.go internal/codegraph/schema.go internal/codegraph/index.go
+sudo -u $USER git commit -m "feat(codegraph): build INHERITS and IMPLEMENTS edges from type relationships
 
 Extracts TypeRelationship data in parallel during indexing.
 Resolves target types against symbol table with closest-directory heuristic.
@@ -943,12 +943,12 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 **Context:** Add 4 new Cypher templates that leverage INHERITS/IMPLEMENTS edges: `implements`, `implementors`, `type_hierarchy`, `subtypes`. Also improve `dead_code` to exclude interface-required methods.
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/internal/codegraph/templates.go`
-- Modify: `/path/to/repos/src/go-code/internal/codegraph/templates_test.go` (if exists, else create)
+- Modify: `$REPO_ROOT/internal/codegraph/templates.go`
+- Modify: `$REPO_ROOT/internal/codegraph/templates_test.go` (if exists, else create)
 
 **Step 1: Write failing test**
 
-Create or add to `/path/to/repos/src/go-code/internal/codegraph/templates_test.go`:
+Create or add to `$REPO_ROOT/internal/codegraph/templates_test.go`:
 
 ```go
 package codegraph
@@ -993,12 +993,12 @@ func TestDeadCodeTemplate_ExcludesInterfaceMethods(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/codegraph/ -run "TestNewTemplatesExist|TestTemplateList" -v`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -run "TestNewTemplatesExist|TestTemplateList" -v`
 Expected: FAIL — templates not found
 
 **Step 3: Add templates**
 
-In `/path/to/repos/src/go-code/internal/codegraph/templates.go`, add to the `templates` map:
+In `$REPO_ROOT/internal/codegraph/templates.go`, add to the `templates` map:
 
 ```go
 	"implements": {
@@ -1045,18 +1045,18 @@ Also update the `dead_code` template to exclude methods on types that implement 
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/codegraph/ -run "TestNewTemplatesExist|TestTemplateList" -v`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -run "TestNewTemplatesExist|TestTemplateList" -v`
 Expected: PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/codegraph/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -count=1`
 Expected: All PASS
 
 **Step 5: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
-sudo -u example git add internal/codegraph/templates.go internal/codegraph/templates_test.go
-sudo -u example git commit -m "feat(codegraph): add Cypher templates for type hierarchy queries
+cd $REPO_ROOT
+sudo -u $USER git add internal/codegraph/templates.go internal/codegraph/templates_test.go
+sudo -u $USER git commit -m "feat(codegraph): add Cypher templates for type hierarchy queries
 
 4 new templates: implements, implementors, type_hierarchy, subtypes.
 Updated dead_code to exclude methods on types with INHERITS/IMPLEMENTS edges.
@@ -1071,15 +1071,15 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 **Context:** When comparing two repos, type hierarchy data adds value: show which repo has richer interface usage, more inheritance depth, etc. Add relationship counts to `CompareResult` and include in LLM context.
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/internal/compare/relstats.go`
-- Create: `/path/to/repos/src/go-code/internal/compare/relstats_test.go`
-- Modify: `/path/to/repos/src/go-code/internal/compare/compare.go` (add RelStats to CompareResult)
-- Modify: `/path/to/repos/src/go-code/internal/compare/snapshot.go` (extract relationships during snapshot)
-- Modify: `/path/to/repos/src/go-code/internal/compare/context.go` (include RelStats in LLM context)
+- Create: `$REPO_ROOT/internal/compare/relstats.go`
+- Create: `$REPO_ROOT/internal/compare/relstats_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go` (add RelStats to CompareResult)
+- Modify: `$REPO_ROOT/internal/compare/snapshot.go` (extract relationships during snapshot)
+- Modify: `$REPO_ROOT/internal/compare/context.go` (include RelStats in LLM context)
 
 **Step 1: Write the failing test**
 
-Create `/path/to/repos/src/go-code/internal/compare/relstats_test.go`:
+Create `$REPO_ROOT/internal/compare/relstats_test.go`:
 
 ```go
 package compare
@@ -1127,7 +1127,7 @@ func TestComputeRelStats_Empty(t *testing.T) {
 
 **Step 2: Implement relstats.go**
 
-Create `/path/to/repos/src/go-code/internal/compare/relstats.go`:
+Create `$REPO_ROOT/internal/compare/relstats.go`:
 
 ```go
 package compare
@@ -1174,14 +1174,14 @@ func ComputeRelStats(rels []parser.TypeRelationship) *RelStats {
 
 **Step 3: Add RelStats to CompareResult and snapshot**
 
-In `/path/to/repos/src/go-code/internal/compare/compare.go`, add to `CompareResult`:
+In `$REPO_ROOT/internal/compare/compare.go`, add to `CompareResult`:
 
 ```go
 	RelStatsA     *RelStats      `json:"rel_stats_a,omitempty"`
 	RelStatsB     *RelStats      `json:"rel_stats_b,omitempty"`
 ```
 
-In `/path/to/repos/src/go-code/internal/compare/snapshot.go`, add `Rels` field to `RepoSnapshot`:
+In `$REPO_ROOT/internal/compare/snapshot.go`, add `Rels` field to `RepoSnapshot`:
 
 ```go
 	// Rels holds type relationships extracted from the repository.
@@ -1218,7 +1218,7 @@ Add to result struct: `RelStatsA: relStatsA, RelStatsB: relStatsB,`
 
 **Step 4: Add to LLM context**
 
-In `/path/to/repos/src/go-code/internal/compare/context.go`, add a `writeRelStats` section in `BuildCompareContextV2` after the hotspots section:
+In `$REPO_ROOT/internal/compare/context.go`, add a `writeRelStats` section in `BuildCompareContextV2` after the hotspots section:
 
 ```go
 	if relStatsA != nil || relStatsB != nil {
@@ -1258,18 +1258,18 @@ func writeRelStats(sb *strings.Builder, statsA, statsB *RelStats) {
 
 **Step 5: Run all tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
-sudo -u example git add internal/compare/relstats.go internal/compare/relstats_test.go internal/compare/compare.go internal/compare/snapshot.go internal/compare/context.go
-sudo -u example git commit -m "feat(compare): add type hierarchy stats to code comparison
+cd $REPO_ROOT
+sudo -u $USER git add internal/compare/relstats.go internal/compare/relstats_test.go internal/compare/compare.go internal/compare/snapshot.go internal/compare/context.go
+sudo -u $USER git commit -m "feat(compare): add type hierarchy stats to code comparison
 
 Extract type relationships during snapshot building.
 RelStats counts extends/implements/embeds per repo.
@@ -1286,22 +1286,22 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 **Step 1: Run all tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/codegraph/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /path/to/repos/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS
 
 **Step 2: Deploy**
 
 ```bash
-cd ~/deploy/example-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -1324,8 +1324,8 @@ Test 2 — Verify `code_compare` has `rel_stats_a`/`rel_stats_b`:
 **Step 5: Push to origin**
 
 ```bash
-cd /path/to/repos/src/go-code
-sudo -u example git push origin main
+cd $REPO_ROOT
+sudo -u $USER git push origin main
 ```
 
 ---

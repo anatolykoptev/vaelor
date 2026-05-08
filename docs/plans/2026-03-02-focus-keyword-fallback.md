@@ -54,7 +54,7 @@ func TestIngestRepoFocusKeywords(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/ingest/ -run TestIngestRepoFocusKeywords -v`
+Run: `cd $REPO_ROOT && go test ./internal/ingest/ -run TestIngestRepoFocusKeywords -v`
 Expected: FAIL — 0 files returned (current path-based focus can't match "auth middleware")
 
 **Step 3: Implement keyword focus in handleFile**
@@ -101,13 +101,13 @@ func matchKeywords(focus, relPath string) bool {
 
 **Step 4: Run tests to verify**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/ingest/ -run TestIngestRepo -v`
+Run: `cd $REPO_ROOT && go test ./internal/ingest/ -run TestIngestRepo -v`
 Expected: ALL pass — keyword test passes, existing Focus test still passes
 
 **Step 5: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/ingest/ingest.go internal/ingest/ingest_test.go
 git commit -m "feat(ingest): keyword fallback for focus parameter
 
@@ -179,13 +179,13 @@ func TestIngestRepoFocusPathUnchanged(t *testing.T) {
 
 **Step 2: Run all ingest tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/ingest/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/ingest/ -v`
 Expected: ALL pass
 
 **Step 3: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/ingest/ingest_test.go
 git commit -m "test(ingest): edge cases for keyword focus
 
@@ -230,13 +230,13 @@ Dead_code: keep current description ("Optional focus area for the LLM narrative"
 
 **Step 2: Verify build compiles**
 
-Run: `cd /path/to/repos/src/go-code && go build ./cmd/go-code/`
+Run: `cd $REPO_ROOT && go build ./cmd/go-code/`
 Expected: success
 
 **Step 3: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add cmd/go-code/tool_explore.go cmd/go-code/tool_repo_analyze.go \
   cmd/go-code/tool_call_trace.go cmd/go-code/tool_impact.go \
   cmd/go-code/tool_code_health.go cmd/go-code/tool_dep_graph.go \
@@ -255,27 +255,27 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 **Step 1: Run full test suite**
 
-Run: `cd /path/to/repos/src/go-code && go test ./... 2>&1 | tail -20`
+Run: `cd $REPO_ROOT && go test ./... 2>&1 | tail -20`
 Expected: all packages PASS
 
 **Step 2: Deploy**
 
 ```bash
-cd ~/deploy/example-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
 **Step 3: Verify the fix**
 
 ```
-explore repo=/path/to/repos/src/go-billing focus="mcpserver auth middleware"
+explore repo=/home/user/src/go-billing focus="mcpserver auth middleware"
 ```
 
 Expected: file_count > 0 (files with "auth" and "middleware" in path should match)
 
 Also verify path-based focus still works:
 ```
-explore repo=/path/to/repos/src/go-code focus=internal
+explore repo=$REPO_ROOT focus=internal
 ```
 
 Expected: only files under `internal/` returned

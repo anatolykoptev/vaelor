@@ -142,7 +142,7 @@ func TestFilterFiles_ByMatchSet(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/ingest/ -run "TestContentFilter|TestFilterFiles_ByMatchSet" -v`
+Run: `cd $REPO_ROOT && go test ./internal/ingest/ -run "TestContentFilter|TestFilterFiles_ByMatchSet" -v`
 Expected: FAIL — `ContentFilter` and `FilterFiles` not defined
 
 **Step 3: Write `internal/ingest/focus.go`**
@@ -257,13 +257,13 @@ func kwInCalls(calls []parser.CallSite, kw string) bool {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/ingest/ -run "TestContentFilter|TestFilterFiles_ByMatchSet" -v`
+Run: `cd $REPO_ROOT && go test ./internal/ingest/ -run "TestContentFilter|TestFilterFiles_ByMatchSet" -v`
 Expected: ALL pass
 
 **Step 5: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/ingest/focus.go internal/ingest/focus_test.go
 git commit -m "feat(ingest): extract reusable ContentFilter for content-based focus
 
@@ -316,18 +316,18 @@ Then delete `internal/explore/focus.go` entirely.
 
 **Step 2: Run explore tests to verify no regression**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/explore/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/explore/ -v`
 Expected: ALL pass
 
 **Step 3: Run full test suite**
 
-Run: `cd /path/to/repos/src/go-code && go test ./... 2>&1 | tail -20`
+Run: `cd $REPO_ROOT && go test ./... 2>&1 | tail -20`
 Expected: ALL pass
 
 **Step 4: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/explore/explore.go
 git rm internal/explore/focus.go
 git commit -m "refactor(explore): switch to shared ingest.ContentFilter
@@ -395,7 +395,7 @@ func TestBuildSnapshot_PathFocusNoFallback(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run "TestBuildSnapshot_ContentFallback|TestBuildSnapshot_PathFocusNoFallback" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestBuildSnapshot_ContentFallback|TestBuildSnapshot_PathFocusNoFallback" -v`
 Expected: FAIL — `FocusMode` field doesn't exist, no content fallback
 
 **Step 3: Add `FocusMode` to `RepoSnapshot`**
@@ -504,13 +504,13 @@ func parseForContentFilter(ctx context.Context, files []*ingest.File) ([]*parser
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestBuildSnapshot -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildSnapshot -v`
 Expected: ALL pass including new content fallback tests
 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/compare/snapshot.go internal/compare/compare.go internal/compare/snapshot_test.go
 git commit -m "feat(compare): content-based fallback for focus in BuildSnapshot
 
@@ -529,13 +529,13 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 **Step 1: Run full test suite**
 
-Run: `cd /path/to/repos/src/go-code && go test ./... 2>&1 | tail -30`
+Run: `cd $REPO_ROOT && go test ./... 2>&1 | tail -30`
 Expected: ALL packages pass
 
 **Step 2: Deploy**
 
 ```bash
-cd ~/deploy/example-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -549,14 +549,14 @@ curl http://127.0.0.1:8897/health
 
 Test content fallback works in code_compare:
 ```
-code_compare repo_a=/path/to/repos/src/go-kit repo_b=/path/to/repos/src/go-engine focus="llm metrics retry" query="Compare llm, metrics, and retry packages"
+code_compare repo_a=/home/user/src/go-kit repo_b=/home/user/src/go-engine focus="llm metrics retry" query="Compare llm, metrics, and retry packages"
 ```
 
 Expected: matchedSymbols > 0, real file-level analysis with symbol bodies, not abstract LLM fluff.
 
 Test path focus still works:
 ```
-code_compare repo_a=/path/to/repos/src/go-kit repo_b=/path/to/repos/src/go-engine focus="pkg/llm"
+code_compare repo_a=/home/user/src/go-kit repo_b=/home/user/src/go-engine focus="pkg/llm"
 ```
 
 Expected: only files under `pkg/llm/` compared.
@@ -564,6 +564,6 @@ Expected: only files under `pkg/llm/` compared.
 **Step 5: Commit and push**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git push origin HEAD
 ```

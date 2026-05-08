@@ -59,7 +59,7 @@ func TestRepoMetricsZero(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestSymbolMatch -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestSymbolMatch -v`
 Expected: FAIL — `SymbolMatch`, `MatchExact`, `IsGap`, `MissingIn` not defined.
 
 **Step 3: Rewrite `compare.go` with new types**
@@ -189,7 +189,7 @@ type CompareResult struct {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -281,7 +281,7 @@ func findRepoRoot(t *testing.T) string {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestBuildSnapshot -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildSnapshot -v`
 Expected: FAIL — `BuildSnapshot`, `SnapshotOpts` not defined.
 
 **Step 3: Implement `snapshot.go`**
@@ -442,13 +442,13 @@ func dominantLang(files []*ingest.File) string {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestBuildSnapshot -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildSnapshot -v`
 Expected: PASS
 
 **Step 5: Lint and commit**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 git add internal/compare/snapshot.go internal/compare/snapshot_test.go
 git commit -m "feat(compare): add BuildSnapshot — ingest+parse into RepoSnapshot"
 ```
@@ -528,7 +528,7 @@ func TestComputeMetrics(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestComputeMetrics -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeMetrics -v`
 Expected: FAIL — `ComputeMetrics` not defined.
 
 **Step 3: Implement `metrics.go`**
@@ -662,13 +662,13 @@ func isStdlib(path string) bool {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestComputeMetrics -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeMetrics -v`
 Expected: PASS
 
 **Step 5: Lint and commit**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 git add internal/compare/metrics.go internal/compare/metrics_test.go
 git commit -m "feat(compare): add ComputeMetrics — quality signals from RepoSnapshot"
 ```
@@ -775,7 +775,7 @@ func TestLevenshteinDistance(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run "TestMatch|TestLevenshtein" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestMatch|TestLevenshtein" -v`
 Expected: FAIL — `MatchSymbols`, `levenshtein` not defined.
 
 **Step 3: Implement `match.go`**
@@ -953,13 +953,13 @@ func levenshtein(a, b string) int {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run "TestMatch|TestLevenshtein" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestMatch|TestLevenshtein" -v`
 Expected: PASS
 
 **Step 5: Lint and commit**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 git add internal/compare/match.go internal/compare/match_test.go
 git commit -m "feat(compare): add MatchSymbols — exact + fuzzy + semantic matching"
 ```
@@ -1038,7 +1038,7 @@ func TestBuildCompareContextBudget(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext -v`
 Expected: FAIL — `BuildCompareContext` not defined.
 
 **Step 3: Implement `context.go`**
@@ -1160,13 +1160,13 @@ Note: Add `import "github.com/anatolykoptev/go-code/internal/parser"` to context
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext -v`
 Expected: PASS
 
 **Step 5: Lint and commit**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 git add internal/compare/context.go internal/compare/context_test.go
 git commit -m "feat(compare): add BuildCompareContext — LLM context with matched pairs and gaps"
 ```
@@ -1216,7 +1216,7 @@ func TestCompareReposIntegration(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestCompareReposIntegration -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCompareReposIntegration -v`
 Expected: FAIL — `CompareRepos`, `CompareInput` not defined.
 
 **Step 3: Add `CompareRepos` to `compare.go` and update LLM prompt**
@@ -1402,13 +1402,13 @@ Focus on:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/compare/ -run TestCompareReposIntegration -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCompareReposIntegration -v`
 Expected: PASS
 
 **Step 5: Lint and commit**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 git add internal/compare/compare.go internal/compare/compare_test.go internal/llm/llm.go
 git commit -m "feat(compare): add CompareRepos orchestrator + quality-focused LLM prompt"
 ```
@@ -1508,13 +1508,13 @@ registerCodeCompare(server, cfg, deps)
 
 **Step 3: Build and verify**
 
-Run: `cd /path/to/repos/src/go-code && go build ./cmd/go-code/`
+Run: `cd $REPO_ROOT && go build ./cmd/go-code/`
 Expected: compiles without errors.
 
 **Step 4: Lint and commit**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 git add cmd/go-code/tool_code_compare.go cmd/go-code/register.go
 git commit -m "feat: wire code_compare MCP tool — replace Phase 3 stub with full implementation"
 ```
@@ -1530,7 +1530,7 @@ git commit -m "feat: wire code_compare MCP tool — replace Phase 3 stub with fu
 **Step 1: Run all tests**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./... -v -count=1
+cd $REPO_ROOT && go test ./... -v -count=1
 ```
 
 Expected: all pass.
@@ -1538,7 +1538,7 @@ Expected: all pass.
 **Step 2: Run linter**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 ```
 
 Expected: no errors. Fix any issues.
@@ -1546,7 +1546,7 @@ Expected: no errors. Fix any issues.
 **Step 3: Deploy**
 
 ```bash
-cd ~/deploy/example-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
+cd ~/deploy/my-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
 **Step 4: Smoke test via MCP**

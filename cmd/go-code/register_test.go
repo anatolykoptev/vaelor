@@ -9,7 +9,7 @@ import (
 // TestBuildGraphDeps_NoStore verifies that buildGraphDeps returns graphx.Noop{}
 // for both Analytics and CrossRefs when no store is available (empty DATABASE_URL).
 func TestBuildGraphDeps_NoStore(t *testing.T) {
-	analytics, refs := buildGraphDeps(nil)
+	analytics, refs := buildGraphDeps(nil, nil)
 
 	if analytics == nil {
 		t.Fatal("Graph must be non-nil")

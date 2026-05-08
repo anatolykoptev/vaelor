@@ -40,7 +40,7 @@ func TestManifestInfoEmpty(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/freshness/ -v -run TestDependency`
+Run: `cd $REPO_ROOT && go test ./internal/freshness/ -v -run TestDependency`
 Expected: FAIL — package does not exist
 
 **Step 3: Write minimal implementation**
@@ -85,7 +85,7 @@ type OutdatedDep struct {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/freshness/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/freshness/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -160,7 +160,7 @@ func TestParseGoModMinimal(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/freshness/ -v -run TestParseGoMod`
+Run: `cd $REPO_ROOT && go test ./internal/freshness/ -v -run TestParseGoMod`
 Expected: FAIL — ParseGoMod undefined
 
 **Step 3: Write minimal implementation**
@@ -225,7 +225,7 @@ func ParseGoMod(data []byte) ManifestInfo {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/freshness/ -v -run TestParseGoMod`
+Run: `cd $REPO_ROOT && go test ./internal/freshness/ -v -run TestParseGoMod`
 Expected: PASS
 
 **Step 5: Commit**
@@ -284,7 +284,7 @@ func TestParsePackageJSONEmpty(t *testing.T) {
 
 **Step 2: Run test, verify fail**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/freshness/ -v -run TestParsePackageJSON`
+Run: `cd $REPO_ROOT && go test ./internal/freshness/ -v -run TestParsePackageJSON`
 
 **Step 3: Write implementation**
 
@@ -801,7 +801,7 @@ type xmlDepFreshness struct {
 
 **Step 3: Run full test suite**
 
-Run: `cd /path/to/repos/src/go-code && make test`
+Run: `cd $REPO_ROOT && make test`
 Expected: PASS
 
 **Step 4: Commit**
@@ -853,7 +853,7 @@ git commit -m "test(freshness): add integration test"
 1. Update description string
 2. `make lint && make test`
 3. `make deploy` (docker compose build + up)
-4. Verify via MCP: `code_health repo=/path/to/repos/src/go-code`
+4. Verify via MCP: `code_health repo=$REPO_ROOT`
 
 ```bash
 git commit -m "docs: update code_health description with dep freshness"
