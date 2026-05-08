@@ -11,6 +11,13 @@ func buildSnapshotFromAGE(ctx context.Context, store *Store, graphName string) (
 	symRows, err := store.ExecCypher(ctx, graphName,
 		"MATCH (s:Symbol) RETURN s.name, s.kind, s.file, s.community, s.complexity", 5)
 	if err != nil {
+		if IsGraphMissingError(err) {
+			store.existsCache.Forget(graphName)
+			recordGraphMissing("snapshot_age")
+			slog.Debug("codegraph: buildSnapshotFromAGE: graph absent — returning empty snapshot",
+				slog.String("graph", graphName))
+			return Snapshot{}, nil
+		}
 		return Snapshot{}, fmt.Errorf("read symbols: %w", err)
 	}
 
@@ -31,6 +38,15 @@ func buildSnapshotFromAGE(ctx context.Context, store *Store, graphName string) (
 	edgeRows, err := store.ExecCypher(ctx, graphName,
 		"MATCH (a:Symbol)-[r]->(b:Symbol) RETURN a.name + ':' + a.file, b.name + ':' + b.file, type(r)", 3)
 	if err != nil {
+		if IsGraphMissingError(err) {
+			// existsCache already Forgotten above if symbols query also failed;
+			// safe to call again — Forget is idempotent.
+			store.existsCache.Forget(graphName)
+			recordGraphMissing("snapshot_age")
+			slog.Debug("codegraph: buildSnapshotFromAGE: graph absent on edges query — returning partial snapshot",
+				slog.String("graph", graphName))
+			return Snapshot{Symbols: syms}, nil
+		}
 		return Snapshot{}, fmt.Errorf("read edges: %w", err)
 	}
 

@@ -149,11 +149,32 @@ func TestTemplateRenderEscaping(t *testing.T) {
 	}
 }
 
-func TestTemplateCount(t *testing.T) {
-	const want = 28
+// TestTemplatesPresent verifies the registry contains a non-trivial set of
+// templates. Replaces the previous hardcoded count (28) which became a
+// fragile canary — every new template addition required a paired test
+// update, easy to forget. Lower bound (20) catches accidental wholesale
+// removal without flagging legitimate additions.
+func TestTemplatesPresent(t *testing.T) {
 	got := len(templates)
-	if got != want {
-		t.Errorf("expected %d templates, got %d", want, got)
+	const minExpected = 20
+	if got < minExpected {
+		t.Errorf("templates registry too small: got %d, want at least %d", got, minExpected)
+	}
+}
+
+// TestTemplatesContainsCoreSet verifies a stable subset of templates is
+// always registered. Catches accidental removal of foundational templates
+// without locking the test to the exact full count.
+func TestTemplatesContainsCoreSet(t *testing.T) {
+	core := []string{
+		"who_calls", "calls_of", "imports_of", "importers_of",
+		"symbols_in", "call_chain", "most_connected", "dead_code",
+		"depends_on", "dependents_of", "api_routes",
+	}
+	for _, name := range core {
+		if _, ok := templates[name]; !ok {
+			t.Errorf("core template %q missing from registry", name)
+		}
 	}
 }
 
