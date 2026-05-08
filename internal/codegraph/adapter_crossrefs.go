@@ -2,6 +2,7 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -28,6 +29,19 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 
 	graphName := GraphNameFor(repoKey)
 	relFile := toRelativeFile(repoKey, file)
+
+	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
+	// The IsGraphMissingError guard below remains as a race fallback.
+	if err := c.store.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("crossrefs_handles_route")
+			slog.Debug("codegraph.crossRefsAdapter.HandlesRoute: graph absent (preflight)",
+				slog.String("repo", repoKey), slog.String("symbol", symbolName))
+			return graphx.Route{}, false, nil
+		}
+		return graphx.Route{}, false, err
+	}
+
 	cypher := fmt.Sprintf(
 		"MATCH (s:Symbol {name: '%s', file: '%s'})-[:HANDLES]->(r:Route) RETURN r.method, r.path LIMIT 1",
 		escapeCypher(symbolName), escapeCypher(relFile),
@@ -36,6 +50,7 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			c.store.existsCache.Forget(graphName)
 			recordGraphMissing("crossrefs_handles_route")
 			slog.Debug("codegraph.crossRefsAdapter.HandlesRoute: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))
@@ -63,6 +78,19 @@ func (c *crossRefsAdapter) FetchedBy(ctx context.Context, repoKey string, route 
 	}
 
 	graphName := GraphNameFor(repoKey)
+
+	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
+	// The IsGraphMissingError guard below remains as a race fallback.
+	if err := c.store.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("crossrefs_fetched_by")
+			slog.Debug("codegraph.crossRefsAdapter.FetchedBy: graph absent (preflight)",
+				slog.String("repo", repoKey))
+			return nil, nil
+		}
+		return nil, err
+	}
+
 	cypher := fmt.Sprintf(
 		"MATCH (client:Symbol)-[:FETCHES]->(r:Route {method: '%s', path: '%s'}) RETURN client.name, client.file",
 		escapeCypher(route.Method), escapeCypher(route.Path),
@@ -71,6 +99,7 @@ func (c *crossRefsAdapter) FetchedBy(ctx context.Context, repoKey string, route 
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			c.store.existsCache.Forget(graphName)
 			recordGraphMissing("crossrefs_fetched_by")
 			slog.Debug("codegraph.crossRefsAdapter.FetchedBy: graph absent",
 				slog.String("repo", repoKey))
@@ -98,6 +127,19 @@ func (c *crossRefsAdapter) TestedBy(ctx context.Context, repoKey, symbolName, fi
 
 	graphName := GraphNameFor(repoKey)
 	relFile := toRelativeFile(repoKey, file)
+
+	// Preflight: avoid postgres ERROR logs for repos that were never indexed.
+	// The IsGraphMissingError guard below remains as a race fallback.
+	if err := c.store.EnsureGraphExistsForRead(ctx, graphName); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("crossrefs_tested_by")
+			slog.Debug("codegraph.crossRefsAdapter.TestedBy: graph absent (preflight)",
+				slog.String("repo", repoKey), slog.String("symbol", symbolName))
+			return nil, nil
+		}
+		return nil, err
+	}
+
 	cypher := fmt.Sprintf(
 		"MATCH (test:Symbol)-[:TESTED_BY]->(s:Symbol {name: '%s', file: '%s'}) RETURN test.name, test.file",
 		escapeCypher(symbolName), escapeCypher(relFile),
@@ -106,6 +148,7 @@ func (c *crossRefsAdapter) TestedBy(ctx context.Context, repoKey, symbolName, fi
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
 	if err != nil {
 		if IsGraphMissingError(err) {
+			c.store.existsCache.Forget(graphName)
 			recordGraphMissing("crossrefs_tested_by")
 			slog.Debug("codegraph.crossRefsAdapter.TestedBy: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))

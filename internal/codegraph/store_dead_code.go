@@ -1,11 +1,12 @@
 package codegraph
 
 import (
-	"math"
-	"net/http"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"net/http"
 	"sort"
 	"time"
 )
@@ -68,6 +69,17 @@ func ceScoreToProbability(rawScore float64) float32 {
 // Non-fatal: logging only on any error. Scores are available immediately
 // for the next dead_code query on this repo.
 func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey string, symbolCount int) error {
+	// Preflight: short-circuit when graph was never indexed, avoiding postgres ERROR logs.
+	// IsGraphMissingError guard below remains as a race fallback.
+	if err := s.EnsureGraphExistsForRead(ctx, gname); err != nil {
+		if errors.Is(err, ErrGraphNotIndexed) {
+			recordGraphMissing("dead_code")
+			slog.Debug("codegraph: dead_code scoring skipped — graph absent (preflight)", slog.String("graph", gname))
+			return nil
+		}
+		return err
+	}
+
 	// Step 1: Query orphan functions with pre-scored ordering.
 	limit := orphanCandidateLimit(symbolCount)
 	query := buildDeadCodeScoringQuery(limit)
@@ -75,6 +87,7 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	if err != nil {
 		// Graph may have been dropped between EnsureGraph and here; treat as no-op.
 		if IsGraphMissingError(err) {
+			s.existsCache.Forget(gname)
 			recordGraphMissing("dead_code")
 			slog.Debug("codegraph: dead_code scoring skipped — graph absent", slog.String("graph", gname))
 			return nil

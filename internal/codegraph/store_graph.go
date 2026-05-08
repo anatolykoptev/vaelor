@@ -53,6 +53,10 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		return fmt.Errorf("ensure dead_code_scores table: %w", err)
 	}
 
+	// Seed the exists-cache so subsequent read-path preflight calls don't hit
+	// ag_catalog.ag_graph immediately after a build.
+	s.existsCache.Mark(name)
+
 	return nil
 }
 
