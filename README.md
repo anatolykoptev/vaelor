@@ -26,6 +26,9 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 | `call_trace` | Trace call chains — callees (forward) or callers (reverse) with depth control |
 | `code_graph` | Query a persistent code knowledge graph in Apache AGE via natural language |
 
+
+> **Optional:** `dead_code` and `code_health` tools integrate with [ox-codes](https://github.com/anatolykoptev/ox-codes), an internal Rust code analysis service. Without it, these tools degrade to AST-only heuristics and still produce useful results.
+
 ## Quick Start
 
 ### Docker (recommended)
@@ -190,4 +193,10 @@ make deploy     # Docker build + deploy
 
 ## License
 
-MIT
+[MIT](LICENSE) — Copyright (c) 2026 Anatoly Koptev
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add new tools and languages.
+
+For security vulnerabilities, see [SECURITY.md](SECURITY.md).

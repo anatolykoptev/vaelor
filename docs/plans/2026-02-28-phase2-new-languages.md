@@ -266,7 +266,7 @@ Expected imports: `std::io`, `std::collections::HashMap`
 **Step 5: Run tests**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseRustFile
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseRustFile
 ```
 
 **Step 6: Commit**
@@ -384,7 +384,7 @@ Note: The `static final` constant query may not work out of the box. The subagen
 **Step 5: Run tests, fix, commit**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseJavaFile
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseJavaFile
 git add internal/parser/queries/java.scm internal/parser/handler_java.go internal/parser/testdata/sample.java internal/parser/parser_test.go
 git commit -m "feat(parser): add Java language handler with tree-sitter"
 ```
@@ -488,7 +488,7 @@ Expected imports: `<stdio.h>`, `"config.h"`
 **Step 5: Run tests, fix, commit**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseCFile
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseCFile
 git add internal/parser/queries/c.scm internal/parser/handler_c.go internal/parser/testdata/sample.c internal/parser/parser_test.go
 git commit -m "feat(parser): add C language handler with tree-sitter"
 ```
@@ -630,7 +630,7 @@ Note: Some symbols may appear twice (declaration + definition). The dedup by `ki
 **Step 5: Run tests, fix, commit**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseCppFile
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseCppFile
 git add internal/parser/queries/cpp.scm internal/parser/handler_cpp.go internal/parser/testdata/sample.cpp internal/parser/parser_test.go
 git commit -m "feat(parser): add C++ language handler with tree-sitter"
 ```
@@ -747,7 +747,7 @@ Expected imports: `json`, `config`
 **Step 5: Run tests, fix, commit**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseRubyFile
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseRubyFile
 git add internal/parser/queries/ruby.scm internal/parser/handler_ruby.go internal/parser/testdata/sample.rb internal/parser/parser_test.go
 git commit -m "feat(parser): add Ruby language handler with tree-sitter"
 ```
@@ -875,7 +875,7 @@ Expected imports: `System`, `System.Collections.Generic`
 **Step 5: Run tests, fix, commit**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseCSharpFile
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v ./internal/parser/ -run TestParseCSharpFile
 git add internal/parser/queries/csharp.scm internal/parser/handler_csharp.go internal/parser/testdata/sample.cs internal/parser/parser_test.go
 git commit -m "feat(parser): add C# language handler with tree-sitter"
 ```
@@ -887,7 +887,7 @@ git commit -m "feat(parser): add C# language handler with tree-sitter"
 **Step 1: Run all parser tests**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -v -race ./internal/parser/
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -v -race ./internal/parser/
 ```
 
 All tests must pass including existing Go/Python/TS tests.
@@ -895,13 +895,13 @@ All tests must pass including existing Go/Python/TS tests.
 **Step 2: Run full test suite**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go test -race ./...
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go test -race ./...
 ```
 
 **Step 3: Lint**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH make lint
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH make lint
 ```
 
 Zero issues.
@@ -909,13 +909,13 @@ Zero issues.
 **Step 4: Build binary**
 
 ```bash
-cd /path/to/repos/src/go-code && PATH=/usr/local/go/bin:$PATH go build ./cmd/go-code/
+cd $REPO_ROOT && PATH=/usr/local/go/bin:$PATH go build ./cmd/go-code/
 ```
 
 **Step 5: Docker build and deploy**
 
 ```bash
-cd /path/to/repos/deploy/example-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code
 docker compose up -d --no-deps --force-recreate go-code
 sleep 3

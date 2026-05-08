@@ -76,7 +76,7 @@ func TestForgeKindString(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -run TestForgeKindString -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -run TestForgeKindString -v`
 Expected: FAIL — package doesn't exist yet
 
 **Step 3: Create the forge package**
@@ -180,7 +180,7 @@ type Forge interface {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -run TestForgeKindString -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -run TestForgeKindString -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -347,7 +347,7 @@ func TestCloneURL(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -v`
 Expected: FAIL — functions don't exist yet
 
 **Step 3: Implement detect.go**
@@ -486,7 +486,7 @@ func CloneURL(kind ForgeKind, slug, host, token string) string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -631,7 +631,7 @@ func TestGitHubSearchRepos(t *testing.T) {
 
 **Step 2: Run tests — FAIL**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -run TestGitHub -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -run TestGitHub -v`
 
 **Step 3: Implement `forge/github.go`**
 
@@ -664,7 +664,7 @@ func (g *GitHubForge) SearchRepos(...) ([]RepoSearchResult, error) { ... }
 
 **Step 4: Run tests — PASS**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -v`
 
 **Step 5: Commit**
 
@@ -842,7 +842,7 @@ func TestGitLabAuthHeader(t *testing.T) {
 
 **Step 2: Run tests — FAIL**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -run TestGitLab -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -run TestGitLab -v`
 
 **Step 3: Implement `forge/gitlab.go`**
 
@@ -873,7 +873,7 @@ func (g *GitLabForge) SearchRepos(...) ([]RepoSearchResult, error) { ... }
 
 **Step 4: Run tests — PASS**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -v`
 
 **Step 5: Commit**
 
@@ -998,7 +998,7 @@ func (r *Registry) ForURL(input string) Forge {
 
 **Step 4: Run tests — PASS**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/forge/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/forge/ -v`
 
 **Step 5: Commit**
 
@@ -1074,12 +1074,12 @@ func buildForgeRegistry(cfg Config) *forge.Registry {
 
 **Step 4: Build to verify compilation**
 
-Run: `cd /path/to/repos/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: FAIL — tool handlers still reference `deps.GitHub`
 
 This is expected. Do NOT fix tool handlers yet — that's Task 7. Just ensure the core packages compile:
 
-Run: `cd /path/to/repos/src/go-code && go build ./internal/...`
+Run: `cd $REPO_ROOT && go build ./internal/...`
 Expected: PASS
 
 **Step 5: Commit**
@@ -1174,7 +1174,7 @@ type CloneOpts struct {
 
 **Step 4: Build and run full test suite**
 
-Run: `cd /path/to/repos/src/go-code && go build ./... && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go build ./... && go test ./... -count=1`
 Expected: PASS
 
 **Step 5: Commit**
@@ -1197,7 +1197,7 @@ Now that everything uses `internal/forge/`, remove the old package.
 
 **Step 1: Verify no imports remain**
 
-Run: `cd /path/to/repos/src/go-code && grep -r '"github.com/anatolykoptev/go-code/internal/github"' --include='*.go'`
+Run: `cd $REPO_ROOT && grep -r '"github.com/anatolykoptev/go-code/internal/github"' --include='*.go'`
 Expected: no output
 
 **Step 2: Delete the package**
@@ -1208,7 +1208,7 @@ rm -rf internal/github/
 
 **Step 3: Build and test**
 
-Run: `cd /path/to/repos/src/go-code && go build ./... && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go build ./... && go test ./... -count=1`
 Expected: PASS
 
 **Step 4: Commit**
@@ -1225,7 +1225,7 @@ git commit -m "refactor(forge): remove deprecated internal/github package"
 Update the project's CLAUDE.md to reflect the new forge architecture.
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/CLAUDE.md`
+- Modify: `$REPO_ROOT/CLAUDE.md`
 
 **Step 1: Update package table**
 

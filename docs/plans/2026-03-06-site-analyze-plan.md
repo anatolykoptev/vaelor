@@ -13,17 +13,17 @@
 ## Task 1: ox-browser — Fingerprint Database Loader
 
 **Files:**
-- Create: `/path/to/repos/src/ox-browser/crates/security/src/fingerprint.rs`
-- Modify: `/path/to/repos/src/ox-browser/crates/security/src/lib.rs`
-- Modify: `/path/to/repos/src/ox-browser/crates/security/Cargo.toml`
+- Create: `/home/user/src/ox-browser/crates/security/src/fingerprint.rs`
+- Modify: `/home/user/src/ox-browser/crates/security/src/lib.rs`
+- Modify: `/home/user/src/ox-browser/crates/security/Cargo.toml`
 - Test: inline `#[cfg(test)]` in `fingerprint.rs`
-- Create: `/path/to/repos/src/ox-browser/crates/security/src/fingerprints.json`
+- Create: `/home/user/src/ox-browser/crates/security/src/fingerprints.json`
 
 **Context:** The `security` crate exists but is empty. We'll use it for tech fingerprinting. The fingerprint DB is a simplified Wappalyzer-compatible JSON embedded at build time.
 
 **Step 1: Add serde dependencies to security crate**
 
-Edit `/path/to/repos/src/ox-browser/crates/security/Cargo.toml`:
+Edit `/home/user/src/ox-browser/crates/security/Cargo.toml`:
 ```toml
 [package]
 name = "ox-security"
@@ -39,7 +39,7 @@ tracing.workspace = true
 
 **Step 2: Create fingerprints.json with 30 key technologies**
 
-Create `/path/to/repos/src/ox-browser/crates/security/src/fingerprints.json`. This is a subset of Wappalyzer format covering the most common technologies:
+Create `/home/user/src/ox-browser/crates/security/src/fingerprints.json`. This is a subset of Wappalyzer format covering the most common technologies:
 
 ```json
 {
@@ -199,7 +199,7 @@ Create `/path/to/repos/src/ox-browser/crates/security/src/fingerprints.json`. Th
 
 **Step 3: Write fingerprint.rs with tests**
 
-Create `/path/to/repos/src/ox-browser/crates/security/src/fingerprint.rs`:
+Create `/home/user/src/ox-browser/crates/security/src/fingerprint.rs`:
 
 ```rust
 //! Wappalyzer-compatible technology fingerprinting.
@@ -424,14 +424,14 @@ pub mod fingerprint;
 **Step 5: Run tests**
 
 ```bash
-cd /path/to/repos/src/ox-browser && cargo test -p ox-security
+cd /home/user/src/ox-browser && cargo test -p ox-security
 ```
 Expected: 8 tests pass.
 
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/ox-browser
+cd /home/user/src/ox-browser
 git add crates/security/
 git commit -m "feat(security): add Wappalyzer-compatible tech fingerprinting
 
@@ -446,16 +446,16 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ## Task 2: ox-browser — POST /analyze Endpoint
 
 **Files:**
-- Create: `/path/to/repos/src/ox-browser/crates/js/src/analyze.rs`
-- Modify: `/path/to/repos/src/ox-browser/crates/js/src/lib.rs`
-- Modify: `/path/to/repos/src/ox-browser/crates/js/Cargo.toml`
+- Create: `/home/user/src/ox-browser/crates/js/src/analyze.rs`
+- Modify: `/home/user/src/ox-browser/crates/js/src/lib.rs`
+- Modify: `/home/user/src/ox-browser/crates/js/Cargo.toml`
 - Test: inline `#[cfg(test)]` in `analyze.rs`
 
 **Context:** The `js` crate has `/fetch` and `/fetch-smart` endpoints. We add `/analyze` which uses `fetch-smart` internally, then runs fingerprinting + asset discovery on the response.
 
 **Step 1: Add ox-security + ox-core dependencies to js crate**
 
-Edit `/path/to/repos/src/ox-browser/crates/js/Cargo.toml` — add to `[dependencies]`:
+Edit `/home/user/src/ox-browser/crates/js/Cargo.toml` — add to `[dependencies]`:
 ```toml
 ox-security = { path = "../security" }
 ox-core = { path = "../core" }
@@ -463,7 +463,7 @@ ox-core = { path = "../core" }
 
 **Step 2: Write analyze.rs**
 
-Create `/path/to/repos/src/ox-browser/crates/js/src/analyze.rs`:
+Create `/home/user/src/ox-browser/crates/js/src/analyze.rs`:
 
 ```rust
 //! POST /analyze — fetch page, detect technologies, discover assets.
@@ -626,7 +626,7 @@ mod tests {
 
 **Step 3: Register route in lib.rs**
 
-Edit `/path/to/repos/src/ox-browser/crates/js/src/lib.rs` — add `mod analyze;` and the route:
+Edit `/home/user/src/ox-browser/crates/js/src/lib.rs` — add `mod analyze;` and the route:
 
 ```rust
 mod analyze;
@@ -649,13 +649,13 @@ pub fn router(state: AppState) -> Router {
 **Step 4: Run tests**
 
 ```bash
-cd /path/to/repos/src/ox-browser && cargo test -p ox-js
+cd /home/user/src/ox-browser && cargo test -p ox-js
 ```
 
 **Step 5: Build and deploy ox-browser**
 
 ```bash
-cd /path/to/repos/deploy/example-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache ox-browser && docker compose up -d --no-deps --force-recreate ox-browser
 ```
 
@@ -670,7 +670,7 @@ curl -s -X POST http://127.0.0.1:8901/analyze \
 **Step 7: Commit**
 
 ```bash
-cd /path/to/repos/src/ox-browser
+cd /home/user/src/ox-browser
 git add crates/js/
 git commit -m "feat(js): add POST /analyze endpoint for tech detection
 
@@ -685,8 +685,8 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ## Task 3: go-code — ox-browser HTTP Client
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/internal/webanalyze/client.go`
-- Create: `/path/to/repos/src/go-code/internal/webanalyze/client_test.go`
+- Create: `$REPO_ROOT/internal/webanalyze/client.go`
+- Create: `$REPO_ROOT/internal/webanalyze/client_test.go`
 
 **Context:** Simple HTTP client that calls ox-browser `/analyze` and `/fetch` endpoints. No external dependencies — uses stdlib `net/http` + `encoding/json`.
 
@@ -768,7 +768,7 @@ func TestAnalyze_Error(t *testing.T) {
 **Step 2: Run tests — verify they fail**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./internal/webanalyze/ -v
+cd $REPO_ROOT && go test ./internal/webanalyze/ -v
 ```
 Expected: compilation error (package doesn't exist yet).
 
@@ -891,14 +891,14 @@ func (c *Client) Fetch(ctx context.Context, url string) (*FetchResponse, error) 
 **Step 4: Run tests**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./internal/webanalyze/ -v
+cd $REPO_ROOT && go test ./internal/webanalyze/ -v
 ```
 Expected: 3 tests pass.
 
 **Step 5: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/webanalyze/
 git commit -m "feat(webanalyze): add ox-browser HTTP client
 
@@ -913,8 +913,8 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ## Task 4: go-code — Source Map Extractor
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/internal/webanalyze/sourcemap.go`
-- Create: `/path/to/repos/src/go-code/internal/webanalyze/sourcemap_test.go`
+- Create: `$REPO_ROOT/internal/webanalyze/sourcemap.go`
+- Create: `$REPO_ROOT/internal/webanalyze/sourcemap_test.go`
 
 **Step 1: Write sourcemap_test.go**
 
@@ -1016,7 +1016,7 @@ func TestFindSourceMapURL(t *testing.T) {
 **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./internal/webanalyze/ -run TestParse -v
+cd $REPO_ROOT && go test ./internal/webanalyze/ -run TestParse -v
 ```
 
 **Step 3: Write sourcemap.go**
@@ -1125,14 +1125,14 @@ func findSourceMapURL(body string) string {
 **Step 4: Run tests**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./internal/webanalyze/ -v
+cd $REPO_ROOT && go test ./internal/webanalyze/ -v
 ```
 Expected: all tests pass.
 
 **Step 5: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/webanalyze/sourcemap.go internal/webanalyze/sourcemap_test.go
 git commit -m "feat(webanalyze): add source map parser and file extractor
 
@@ -1147,9 +1147,9 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ## Task 5: go-code — site_analyze MCP Tool
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/cmd/go-code/tool_site_analyze.go`
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/config.go`
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/register.go`
+- Create: `$REPO_ROOT/cmd/go-code/tool_site_analyze.go`
+- Modify: `$REPO_ROOT/cmd/go-code/config.go`
+- Modify: `$REPO_ROOT/cmd/go-code/register.go`
 
 **Step 1: Add OxBrowserURL to config.go**
 
@@ -1375,14 +1375,14 @@ In `go-code` environment section:
 **Step 6: Build and test**
 
 ```bash
-cd /path/to/repos/src/go-code && go build ./cmd/go-code/
+cd $REPO_ROOT && go build ./cmd/go-code/
 go test ./internal/webanalyze/ ./cmd/go-code/ -v
 ```
 
 **Step 7: Deploy**
 
 ```bash
-cd /path/to/repos/deploy/example-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 curl -s http://127.0.0.1:8897/health
 ```
@@ -1390,7 +1390,7 @@ curl -s http://127.0.0.1:8897/health
 **Step 8: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add cmd/go-code/tool_site_analyze.go cmd/go-code/config.go cmd/go-code/register.go internal/webanalyze/
 git commit -m "feat: add site_analyze MCP tool
 

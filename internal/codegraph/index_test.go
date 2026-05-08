@@ -14,14 +14,14 @@ func TestRelPath(t *testing.T) {
 	}{
 		{
 			name: "absolute path with root prefix",
-			abs:  "/path/to/repos/src/go-code/internal/parser/parser.go",
-			root: "/path/to/repos/src/go-code",
+			abs:  "/srv/src/repos/go-code/internal/parser/parser.go",
+			root: "/srv/src/repos/go-code",
 			want: "internal/parser/parser.go",
 		},
 		{
 			name: "absolute path without root prefix",
 			abs:  "/tmp/other/file.go",
-			root: "/path/to/repos/src/go-code",
+			root: "/srv/src/repos/go-code",
 			want: "../../../../tmp/other/file.go",
 		},
 		{
@@ -32,14 +32,14 @@ func TestRelPath(t *testing.T) {
 		},
 		{
 			name: "already relative path with root",
-			abs:  "/path/to/repos/src/go-code/cmd/main.go",
-			root: "/path/to/repos/src/go-code",
+			abs:  "/srv/src/repos/go-code/cmd/main.go",
+			root: "/srv/src/repos/go-code",
 			want: "cmd/main.go",
 		},
 		{
 			name: "root equal to abs directory",
-			abs:  "/path/to/repos/src/go-code",
-			root: "/path/to/repos/src/go-code",
+			abs:  "/srv/src/repos/go-code",
+			root: "/srv/src/repos/go-code",
 			want: ".",
 		},
 	}

@@ -8,20 +8,20 @@
 
 **Tech Stack:** `smacker/go-tree-sitter` (CGo), `modelcontextprotocol/go-sdk` (MCP), Go 1.24
 
-**Current state:** Project scaffolded at `/path/to/repos/src/go-code/` with stub implementations (all TODOs). go.mod has no dependencies yet, project does not compile.
+**Current state:** Project scaffolded at `$REPO_ROOT/` with stub implementations (all TODOs). go.mod has no dependencies yet, project does not compile.
 
 ---
 
 ### Task 1: Resolve dependencies and make the project compile
 
 **Files:**
-- Modify: `/path/to/repos/src/go-code/go.mod`
-- Create: `/path/to/repos/src/go-code/go.sum`
+- Modify: `$REPO_ROOT/go.mod`
+- Create: `$REPO_ROOT/go.sum`
 
 **Step 1: Initialize dependencies**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 go get github.com/modelcontextprotocol/go-sdk@latest
 go get github.com/smacker/go-tree-sitter@latest
 go mod tidy
@@ -30,7 +30,7 @@ go mod tidy
 **Step 2: Verify the project compiles**
 
 ```bash
-cd /path/to/repos/src/go-code && CGO_ENABLED=1 go build ./cmd/go-code/
+cd $REPO_ROOT && CGO_ENABLED=1 go build ./cmd/go-code/
 ```
 
 Expected: compiles without errors, produces `go-code` binary.
@@ -38,7 +38,7 @@ Expected: compiles without errors, produces `go-code` binary.
 **Step 3: Verify tests pass (trivially)**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./...
+cd $REPO_ROOT && go test ./...
 ```
 
 Expected: `ok` for each package (no tests yet, but packages must parse).
@@ -46,7 +46,7 @@ Expected: `ok` for each package (no tests yet, but packages must parse).
 **Step 4: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add go.mod go.sum
 git commit -m "feat: add tree-sitter and MCP SDK dependencies"
 ```
@@ -56,12 +56,12 @@ git commit -m "feat: add tree-sitter and MCP SDK dependencies"
 ### Task 2: Implement tree-sitter parser — Go language handler
 
 **Files:**
-- Rewrite: `/path/to/repos/src/go-code/internal/parser/parser.go`
-- Modify: `/path/to/repos/src/go-code/internal/parser/queries/go.scm` (verify/fix queries)
-- Create: `/path/to/repos/src/go-code/internal/parser/handler_go.go`
-- Create: `/path/to/repos/src/go-code/internal/parser/handler.go` (interface + registry)
-- Create: `/path/to/repos/src/go-code/internal/parser/parser_test.go`
-- Create: `/path/to/repos/src/go-code/internal/parser/testdata/sample.go`
+- Rewrite: `$REPO_ROOT/internal/parser/parser.go`
+- Modify: `$REPO_ROOT/internal/parser/queries/go.scm` (verify/fix queries)
+- Create: `$REPO_ROOT/internal/parser/handler_go.go`
+- Create: `$REPO_ROOT/internal/parser/handler.go` (interface + registry)
+- Create: `$REPO_ROOT/internal/parser/parser_test.go`
+- Create: `$REPO_ROOT/internal/parser/testdata/sample.go`
 
 **Step 1: Create the LanguageHandler interface and registry**
 
@@ -496,7 +496,7 @@ func TestDetectLanguage(t *testing.T) {
 **Step 5: Run tests**
 
 ```bash
-cd /path/to/repos/src/go-code && CGO_ENABLED=1 go test ./internal/parser/ -v
+cd $REPO_ROOT && CGO_ENABLED=1 go test ./internal/parser/ -v
 ```
 
 Expected: PASS — all symbols extracted, imports found, signatures non-empty.
@@ -504,7 +504,7 @@ Expected: PASS — all symbols extracted, imports found, signatures non-empty.
 **Step 6: Commit**
 
 ```bash
-cd /path/to/repos/src/go-code
+cd $REPO_ROOT
 git add internal/parser/
 git commit -m "feat(parser): implement tree-sitter Go parsing with symbol extraction"
 ```
@@ -514,13 +514,13 @@ git commit -m "feat(parser): implement tree-sitter Go parsing with symbol extrac
 ### Task 3: Add Python and TypeScript language handlers
 
 **Files:**
-- Create: `/path/to/repos/src/go-code/internal/parser/handler_python.go`
-- Create: `/path/to/repos/src/go-code/internal/parser/handler_typescript.go`
-- Modify: `/path/to/repos/src/go-code/internal/parser/queries/python.scm` (verify/fix)
-- Modify: `/path/to/repos/src/go-code/internal/parser/queries/typescript.scm` (verify/fix)
-- Create: `/path/to/repos/src/go-code/internal/parser/testdata/sample.py`
-- Create: `/path/to/repos/src/go-code/internal/parser/testdata/sample.ts`
-- Modify: `/path/to/repos/src/go-code/internal/parser/parser_test.go`
+- Create: `$REPO_ROOT/internal/parser/handler_python.go`
+- Create: `$REPO_ROOT/internal/parser/handler_typescript.go`
+- Modify: `$REPO_ROOT/internal/parser/queries/python.scm` (verify/fix)
+- Modify: `$REPO_ROOT/internal/parser/queries/typescript.scm` (verify/fix)
+- Create: `$REPO_ROOT/internal/parser/testdata/sample.py`
+- Create: `$REPO_ROOT/internal/parser/testdata/sample.ts`
+- Modify: `$REPO_ROOT/internal/parser/parser_test.go`
 
 **Step 1: Implement Python handler**
 
@@ -546,7 +546,7 @@ Query captures: `symbol.function`, `symbol.class`, `symbol.interface`, `import.p
 **Step 5: Run tests**
 
 ```bash
-cd /path/to/repos/src/go-code && CGO_ENABLED=1 go test ./internal/parser/ -v -count=1
+cd $REPO_ROOT && CGO_ENABLED=1 go test ./internal/parser/ -v -count=1
 ```
 
 **Step 6: Commit**
@@ -561,11 +561,11 @@ git commit -m "feat(parser): add Python and TypeScript language handlers"
 ### Task 4: Implement repository ingestion
 
 **Files:**
-- Rewrite: `/path/to/repos/src/go-code/internal/ingest/ingest.go`
-- Create: `/path/to/repos/src/go-code/internal/ingest/ignore.go` (gitignore + defaults)
-- Create: `/path/to/repos/src/go-code/internal/ingest/tree.go` (file tree rendering)
-- Create: `/path/to/repos/src/go-code/internal/ingest/ingest_test.go`
-- Create: `/path/to/repos/src/go-code/internal/ingest/testdata/` (test fixtures)
+- Rewrite: `$REPO_ROOT/internal/ingest/ingest.go`
+- Create: `$REPO_ROOT/internal/ingest/ignore.go` (gitignore + defaults)
+- Create: `$REPO_ROOT/internal/ingest/tree.go` (file tree rendering)
+- Create: `$REPO_ROOT/internal/ingest/ingest_test.go`
+- Create: `$REPO_ROOT/internal/ingest/testdata/` (test fixtures)
 
 **Step 1: Implement ignore rules**
 
@@ -611,7 +611,7 @@ Tests:
 **Step 5: Run tests**
 
 ```bash
-cd /path/to/repos/src/go-code && go test ./internal/ingest/ -v
+cd $REPO_ROOT && go test ./internal/ingest/ -v
 ```
 
 **Step 6: Commit**
@@ -626,9 +626,9 @@ git commit -m "feat(ingest): implement filesystem walk with gitignore and binary
 ### Task 5: Implement smart cleaning
 
 **Files:**
-- Rewrite: `/path/to/repos/src/go-code/internal/clean/clean.go`
-- Create: `/path/to/repos/src/go-code/internal/clean/comments.go` (per-language comment stripping)
-- Create: `/path/to/repos/src/go-code/internal/clean/clean_test.go`
+- Rewrite: `$REPO_ROOT/internal/clean/clean.go`
+- Create: `$REPO_ROOT/internal/clean/comments.go` (per-language comment stripping)
+- Create: `$REPO_ROOT/internal/clean/clean_test.go`
 
 **Step 1: Implement per-language comment stripping**
 
@@ -662,9 +662,9 @@ git commit -m "feat(clean): implement per-language comment stripping and cleanin
 ### Task 6: Wire up the analysis pipeline
 
 **Files:**
-- Rewrite: `/path/to/repos/src/go-code/internal/analyze/analyze.go`
-- Create: `/path/to/repos/src/go-code/internal/analyze/context.go` (LLM context builder)
-- Create: `/path/to/repos/src/go-code/internal/analyze/analyze_test.go`
+- Rewrite: `$REPO_ROOT/internal/analyze/analyze.go`
+- Create: `$REPO_ROOT/internal/analyze/context.go` (LLM context builder)
+- Create: `$REPO_ROOT/internal/analyze/analyze_test.go`
 
 **Step 1: Implement AnalyzeRepo**
 
@@ -729,10 +729,10 @@ git commit -m "feat(analyze): wire ingest → parser → clean → llm pipeline"
 ### Task 7: Wire MCP tool handlers
 
 **Files:**
-- Rewrite: `/path/to/repos/src/go-code/cmd/go-code/tool_repo_analyze.go`
-- Rewrite: `/path/to/repos/src/go-code/cmd/go-code/tool_file_parse.go`
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/register.go`
-- Modify: `/path/to/repos/src/go-code/cmd/go-code/main.go` (init workspace dir)
+- Rewrite: `$REPO_ROOT/cmd/go-code/tool_repo_analyze.go`
+- Rewrite: `$REPO_ROOT/cmd/go-code/tool_file_parse.go`
+- Modify: `$REPO_ROOT/cmd/go-code/register.go`
+- Modify: `$REPO_ROOT/cmd/go-code/main.go` (init workspace dir)
 
 **Step 1: Wire repo_analyze handler**
 
@@ -756,7 +756,7 @@ Pass `analyze.Deps` with LLM client and config values from `Config`.
 **Step 4: Test manually**
 
 ```bash
-cd /path/to/repos/src/go-code && CGO_ENABLED=1 go build -o bin/go-code ./cmd/go-code
+cd $REPO_ROOT && CGO_ENABLED=1 go build -o bin/go-code ./cmd/go-code
 LLM_API_KEY=$LLM_API_KEY ./bin/go-code
 ```
 
@@ -776,7 +776,7 @@ git commit -m "feat: wire repo_analyze and file_parse MCP tool handlers"
 **Step 1: Run linter**
 
 ```bash
-cd /path/to/repos/src/go-code && make lint
+cd $REPO_ROOT && make lint
 ```
 
 Fix any issues.
@@ -784,23 +784,23 @@ Fix any issues.
 **Step 2: Run all tests**
 
 ```bash
-cd /path/to/repos/src/go-code && CGO_ENABLED=1 make test
+cd $REPO_ROOT && CGO_ENABLED=1 make test
 ```
 
 **Step 3: Build Docker image**
 
 ```bash
-cd /path/to/repos/src/go-code && docker build -t go-code:test .
+cd $REPO_ROOT && docker build -t go-code:test .
 ```
 
 **Step 4: Add to docker-compose**
 
-Add `go-code` service to `/path/to/repos/deploy/example-server/docker-compose.yml`.
+Add `go-code` service to `/home/user/deploy/my-server/docker-compose.yml`.
 
 **Step 5: Deploy**
 
 ```bash
-cd /path/to/repos/deploy/example-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code
 docker compose up -d --no-deps --force-recreate go-code
 ```

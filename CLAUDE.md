@@ -24,7 +24,7 @@
 | `internal/slugparse/` | Canonical slug parser shared by `forge` and `ingest`; stdlib-only leaf package |
 | `internal/forge/` | Multi-forge abstraction: `Forge` interface, GitHub + GitLab implementations, URL detection, registry |
 | `internal/websearch/` | HTTP client for go-search MCP (smart_search depth=fast), used by repo_search |
-| `internal/llm/` | CLIProxyAPI client with retry + fallback |
+| `internal/llm/` | OpenAI-compatible LLM proxy client with retry + fallback |
 | `internal/clean/` | Symbol post-processing between parser and analyze |
 | `internal/cache/` | Parse/LLM/tool caches (in-mem L1 + optional Redis L2) |
 | `internal/compare/` | Repo structural comparison (backs `code_compare`) |
@@ -73,7 +73,7 @@
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `MCP_PORT` | `8897` | |
-| `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | CLIProxyAPI |
+| `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | Local OpenAI-compatible proxy (e.g. LiteLLM, CLIProxyAPI) |
 | `LLM_API_KEY` | required | |
 | `LLM_API_KEY_FALLBACK` | optional | Comma-separated, used on 429/5xx |
 | `LLM_MODEL` | `gemini-2.5-flash` | |

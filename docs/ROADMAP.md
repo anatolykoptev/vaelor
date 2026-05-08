@@ -31,7 +31,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Skeleton mode with `...` placeholders (v1.3)
 
 ### 1.4 LLM analysis ✅
-- [x] LLM client via CLIProxyAPI (OpenAI-compatible)
+- [x] LLM client via OpenAI-compatible proxy
 - [x] System prompts for repo analysis, code comparison, dep graph
 - [x] LLM context builder with 150K char budget
 - [x] File prioritization by query relevance + import frequency + symbol count
@@ -698,7 +698,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 
 **Deliverable**: code_graph first-build <15s for memdb. Zero Cypher writes. Full Cypher readability preserved.
 
-**Plan**: `~/deploy/example-server/plans/go-code/2026-04-24-age-direct-copy-insert.md`
+**Plan**: `~/deploy/my-server/plans/go-code/2026-04-24-age-direct-copy-insert.md`
 
 ---
 

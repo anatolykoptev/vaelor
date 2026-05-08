@@ -170,7 +170,7 @@ Append to `internal/parser/queries/csharp.scm`:
 
 **Step 10: Verify queries compile**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestParse -count=1 -v 2>&1 | tail -20`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestParse -count=1 -v 2>&1 | tail -20`
 Expected: All existing parser tests PASS. If a `.scm` query has a syntax error, the handler's `init()` panics with "query compile error".
 
 **Step 11: Commit**
@@ -290,7 +290,7 @@ func TestExtractCalls_Unsupported(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestExtractCalls -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestExtractCalls -v -count=1`
 Expected: FAIL — `ExtractCalls` undefined.
 
 **Step 3: Add call capture constants and CallQueryProvider interface**
@@ -581,11 +581,11 @@ func (h *goHandler) CallsQuery() *sitter.Query { return h.callQuery }
 
 **Step 6: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -run TestExtractCalls -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -run TestExtractCalls -v -count=1`
 Expected: PASS — all 3 test functions pass.
 
 Also verify existing tests still pass:
-Run: `cd /path/to/repos/src/go-code && go test ./internal/parser/ -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -count=1`
 Expected: All PASS.
 
 **Step 7: Commit**
@@ -704,7 +704,7 @@ func TestBuildCallGraph_FindCaller(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -run TestBuildCallGraph -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -run TestBuildCallGraph -v -count=1`
 Expected: FAIL — package doesn't exist.
 
 **Step 3: Implement CallGraph types and BuildCallGraph**
@@ -912,7 +912,7 @@ func indexByDir(symbols []*parser.Symbol) map[string][]*parser.Symbol {
 
 **Step 4: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -run TestBuildCallGraph -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -run TestBuildCallGraph -v -count=1`
 Expected: All 4 tests PASS.
 
 **Step 5: Commit**
@@ -1061,7 +1061,7 @@ func TestTrace_NotFound(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -run TestTrace -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -run TestTrace -v -count=1`
 Expected: FAIL — `Trace`, `TraceOpts` undefined.
 
 **Step 3: Implement Trace**
@@ -1251,7 +1251,7 @@ func buildCallerIndex(edges []CallEdge) map[*parser.Symbol][]CallEdge {
 
 **Step 4: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -run TestTrace -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -run TestTrace -v -count=1`
 Expected: All 5 tests PASS.
 
 **Step 5: Commit**
@@ -1397,7 +1397,7 @@ func TestTraceRepo_SymbolNotFound(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -run TestTraceRepo -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -run TestTraceRepo -v -count=1`
 Expected: FAIL — `TraceRepo`, `TraceRepoInput` undefined.
 
 **Step 3: Implement TraceRepo**
@@ -1540,11 +1540,11 @@ func parseFileForCalls(file *ingest.File) parseResult {
 
 **Step 4: Run tests**
 
-Run: `cd /path/to/repos/src/go-code && go test ./internal/callgraph/ -run TestTraceRepo -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/callgraph/ -run TestTraceRepo -v -count=1`
 Expected: All 3 tests PASS.
 
 Run full test suite:
-Run: `cd /path/to/repos/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS.
 
 **Step 5: Commit**
@@ -1736,10 +1736,10 @@ Change `toolCount = 5` to `toolCount = 6` in `cmd/go-code/main.go:29`.
 
 **Step 5: Build and verify**
 
-Run: `cd /path/to/repos/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Clean build, no errors.
 
-Run: `cd /path/to/repos/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All tests PASS.
 
 **Step 6: Commit**
@@ -1761,7 +1761,7 @@ git commit -m "feat(mcp): add call_trace tool with LLM narrative"
 
 Run:
 ```bash
-cd ~/deploy/example-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
+cd ~/deploy/my-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 Expected: Container starts, health check OK.
 
