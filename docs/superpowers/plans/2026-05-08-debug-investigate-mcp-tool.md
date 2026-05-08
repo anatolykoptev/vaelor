@@ -20,7 +20,7 @@
 | Phase | Tasks | Status | PRs / SHAs |
 |-------|-------|--------|------------|
 | **1 — HTTP foundations** | 1, 2, 3, 4 | ✅ DONE (2026-05-08) | #46 promclient `838d3a9` · #47 jaegerclient `4937910` · #48 vendor headers `7825cde` |
-| **2 — investigate package** | 5, 6, 7, 8 | ⏳ pending | — |
+| **2 — investigate package** | 5, 6, 7, 8 | ✅ DONE (2026-05-08) | #51 correlate+result `8218fb8` · #52 lifecycle+prompt `c72d17d` · #53 go-kit bump `d32515e` · #54 score adoption `e4cbe8d` |
 | **3 — config + tool skeleton** | 9, 10 | ⏳ pending | — |
 | **4 — correlate + metrics** | 11, 12 | ⏳ pending | — |
 | **5 — LLM + docs + ship** | 13, 14, 15 | ⏳ pending | — |
@@ -30,6 +30,14 @@
 - Both PRs returned CHANGES_REQUESTED on first review — closed in fix commits before merge:
   - PR #46: body-drain on Close, sub-second step encoding (`int64(seconds)` truncated 500ms→0), explicit 2xx range, 4xx body-preview in errors, exact-match URL params test, sub-microsecond step rejection, "Accept" canonical header. 6 → 9 tests.
   - PR #47 (BLOCKER): manual byte-append tag JSON did not escape `"`/`\\` (would produce invalid JSON for tag values with quotes); replaced with `json.Marshal`. Plus body-drain, ErrTraceNotFound sentinel, typed `Process{ServiceName, Tags}` struct (was `map[string]map[string]any`), 4xx body-preview, "Accept" canonical. 8 → 12 tests.
+
+**Phase 2 deviations from plan (all closed):**
+- **Task 6 ranking** went through 4 design pivots: custom `/10.0` heuristic → `log10(spans)*anomaly` → drop-and-defer-to-LLM → `go-kit/rerank.LinearMinMax` (final). Final uses Elasticsearch-style MinMax fusion of `(SpanCount, AnomalyScore)` signals. Calibration automatic, no magic divisors.
+- **Task 7 BLOCKER**: original had data race on `State` fields — `sync.Map.LoadOrStore` is safe for pointer swap but not struct field mutation. Fixed via `sync.RWMutex` + accessor methods (`Status()`, `Result()`, `Error()`, `StartedAt()`, `UpdatedAt()`). Plus `stateKey` switched from string-concat to struct (avoid `|` collision). Plus `atomic.Int32` exact-one-fresh assertion in concurrent test.
+- **Task 8** caught by reviewer: `b.WriteString(fmt.Sprintf(...))` → `fmt.Fprintf(&b, ...)` per staticcheck QF1012; truncation test asserted `len(out) > 12000` (always-pass regardless of truncation) → switched to exact `strings.Count(out, "  - metric_") == 80`.
+- **go-kit bumped** during Phase 2: v0.37.1 → v0.46.0 (PR #53) to unlock `rerank.LinearMinMax` for Task 6.
+- **score package extracted to go-kit** as side-effect of Task 6 redesign. 5 services (go-code, MemDB, dozor, vaelor, go-pentest) independently rolled own confidence/severity enums — rule-of-five extraction. PR #45 + PR #46 in go-kit, tagged v0.47.0 + v0.48.0. Adopted in go-code PR #54 (alias + wrapper, backward-compat) and dozor PR #31 (`7131888` — Nuclei severity parsing via `score.ParseSeverity`, gain case-insensitive + alias normalisation as side-benefit).
+- Merge mechanics: PR #51 needed cherry-pick onto fresh main (rebase conflicts with operator's release-prep commits). PR #52 needed `result_stub.go` cleanup after PR #51 brought real `result.go`.
 
 ---
 
@@ -825,7 +833,7 @@ Jaeger's expected shape."
 
 ---
 
-## Task 5: investigate.spanToSymbol — operation-name → symbol mapping
+## ✅ Task 5: investigate.OperationToFuncName — operation-name → symbol mapping (DONE — PR #51 `8218fb8`)
 
 **Files:**
 - Create: `internal/investigate/correlate.go`
@@ -985,7 +993,7 @@ Best-effort, feeds into compound.FindSymbol."
 
 ---
 
-## Task 6: investigate.Hypothesis types + ranking
+## ✅ Task 6: investigate.Hypothesis + ranking via go-kit/rerank (DONE — PR #51 `8218fb8`)
 
 **Files:**
 - Create: `internal/investigate/result.go`
@@ -1212,7 +1220,7 @@ of normalised score)."
 
 ---
 
-## Task 7: investigate.InvestigationStore — sync.Map dedup lifecycle
+## ✅ Task 7: investigate.InvestigationStore — sync.Map + RWMutex State (DONE — PR #52 `c72d17d`)
 
 **Files:**
 - Create: `internal/investigate/lifecycle.go`
@@ -1432,7 +1440,7 @@ include concurrent Start (-race clean)."
 
 ---
 
-## Task 8: investigate.systemPromptDebugInvestigate — LLM ground-truth template
+## ✅ Task 8: investigate.BuildSystemPrompt — LLM ground-truth template (DONE — PR #52 `c72d17d`)
 
 **Files:**
 - Create: `internal/investigate/prompt.go`
