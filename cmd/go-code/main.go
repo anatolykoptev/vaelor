@@ -174,6 +174,7 @@ func main() {
 			"code_compare":  90 * time.Second,
 			"call_trace":    60 * time.Second,
 			"code_health":   60 * time.Second,
+			"debug_investigate": 5 * time.Minute,
 		},
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
