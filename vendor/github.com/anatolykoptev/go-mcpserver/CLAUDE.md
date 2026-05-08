@@ -40,7 +40,7 @@ go vet ./... # additional checks
 - `go-nerv` — multi-tenant intelligence engine
 - `go-billing` — license & billing service
 - `go-code` — code intelligence MCP server
-- `go-example` — crypto twitter intelligence
+- `go-hully` — crypto twitter intelligence
 - `go-search` — web search MCP server
 - `go-job` — job search MCP server
 - `go-startup` — startup tools MCP server
