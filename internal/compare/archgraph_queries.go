@@ -13,7 +13,11 @@ func queryPackageCount(ctx context.Context, store *codegraph.Store, graph string
 	rows, err := store.ExecCypher(ctx, graph,
 		`MATCH (p:Package) RETURN count(p)`, 1)
 	if err != nil {
-		slog.Warn("archgraph: package count query failed", "graph", graph, "err", err)
+		if codegraph.IsGraphMissingError(err) {
+			slog.Debug("archgraph: graph absent for package count", "graph", graph)
+		} else {
+			slog.Warn("archgraph: package count query failed", "graph", graph, "err", err)
+		}
 		return 0
 	}
 	if len(rows) == 0 {
@@ -27,7 +31,11 @@ func queryCommunityCount(ctx context.Context, store *codegraph.Store, graph stri
 	rows, err := store.ExecCypher(ctx, graph,
 		`MATCH (s:Symbol) WHERE s.community IS NOT NULL RETURN count(DISTINCT s.community)`, 1)
 	if err != nil {
-		slog.Warn("archgraph: community count query failed", "graph", graph, "err", err)
+		if codegraph.IsGraphMissingError(err) {
+			slog.Debug("archgraph: graph absent for community count", "graph", graph)
+		} else {
+			slog.Warn("archgraph: community count query failed", "graph", graph, "err", err)
+		}
 		return 0
 	}
 	if len(rows) == 0 {
