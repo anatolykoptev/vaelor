@@ -96,6 +96,8 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 			return textResult(formatInvestigationResult(st.Result())), nil
 		case investigate.StatusFailed:
 			return errResult(fmt.Sprintf("Previous investigation failed: %s", st.Error())), nil
+		default:
+			return errResult(fmt.Sprintf("unknown status: %v", st.Status())), nil
 		}
 	}
 
@@ -279,7 +281,11 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning for top hypothesis.
 	if deps.LLM != nil && len(res.Hypotheses) > 0 {
 		// Gather ground-truth context.
-		availMetrics, _ := listLabelValues(ctx, prom, "__name__")
+		availMetrics, llvErr := listLabelValues(ctx, prom, "__name__")
+		if llvErr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+				fmt.Sprintf("list label values: %v", llvErr))
+		}
 		operationsSeen := make([]string, 0, len(ops))
 		for op := range ops {
 			operationsSeen = append(operationsSeen, op)
@@ -304,16 +310,21 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 			"diagnostics": res.Diagnostics,
 			"user_hint":   input.Hint,
 		}
-		userJSON, _ := json.Marshal(userPayload)
-
-		// Bounded LLM call (10s timeout — non-blocking on overall investigation).
-		llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer llmCancel()
-		summary, err := deps.LLM.Complete(llmCtx, sysPrompt, string(userJSON))
-		if err != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("llm: %v", err))
+		userJSON, marshalErr := json.Marshal(userPayload)
+		if marshalErr != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+				fmt.Sprintf("marshal llm payload: %v", marshalErr))
+			// Skip LLM call — sending an empty payload produces meaningless output.
 		} else {
-			res.LLMSummary = summary
+			// Bounded LLM call (10s timeout — non-blocking on overall investigation).
+			llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
+			defer llmCancel()
+			summary, err := deps.LLM.Complete(llmCtx, sysPrompt, string(userJSON))
+			if err != nil {
+				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("llm: %v", err))
+			} else {
+				res.LLMSummary = summary
+			}
 		}
 	}
 	res.FinishedAt = time.Now()
