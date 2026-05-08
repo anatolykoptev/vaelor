@@ -159,6 +159,11 @@ type Config struct {
 	// (handler returns "configuration missing" instead of running).
 	PrometheusURL string
 	JaegerURL     string
+
+	// SourcemapAllowedHosts is the list of JS bundle hosts from which source
+	// maps may be fetched. Empty means resolve_frame tool and POST /resolve are
+	// disabled. Set via SOURCEMAP_ALLOWED_HOSTS env var (CSV).
+	SourcemapAllowedHosts []string
 }
 
 const (
@@ -179,7 +184,7 @@ const (
 	// Graph defaults.
 	defaultGraphTTLLocal  = 3600  // 1 hour
 	defaultGraphTTLRemote = 86400 // 24 hours
-	defaultGraphBatchSize = 500 // AGE UNWIND is stable to 5000+; was 5 for legacy multi-MERGE
+	defaultGraphBatchSize = 500   // AGE UNWIND is stable to 5000+; was 5 for legacy multi-MERGE
 
 	// Cache defaults.
 	defaultToolCacheSize = 200
@@ -273,10 +278,11 @@ func loadConfig() (Config, error) {
 		AnalyzeRankWeightPageRank: wPR,
 		AnalyzeRankWeightSeed:     wSeed,
 
-		RRFWeightSemantic: env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
-		RRFWeightKeyword:  env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
-		PrometheusURL:     env.Str("PROMETHEUS_URL", ""),
-		JaegerURL:         env.Str("JAEGER_URL", ""),
+		RRFWeightSemantic:     env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
+		RRFWeightKeyword:      env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
+		PrometheusURL:         env.Str("PROMETHEUS_URL", ""),
+		JaegerURL:             env.Str("JAEGER_URL", ""),
+		SourcemapAllowedHosts: env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
 	}, nil
 }
 
