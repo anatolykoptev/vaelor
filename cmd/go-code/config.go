@@ -154,6 +154,11 @@ type Config struct {
 	// RRFWeightKeyword is the per-list weight applied to the keyword ranked
 	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
 	RRFWeightKeyword float64
+
+	// Debug-investigate tool dependencies. Empty values disable the tool
+	// (handler returns "configuration missing" instead of running).
+	PrometheusURL string
+	JaegerURL     string
 }
 
 const (
@@ -270,6 +275,8 @@ func loadConfig() (Config, error) {
 
 		RRFWeightSemantic: env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
 		RRFWeightKeyword:  env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
+		PrometheusURL:     env.Str("PROMETHEUS_URL", ""),
+		JaegerURL:         env.Str("JAEGER_URL", ""),
 	}, nil
 }
 
