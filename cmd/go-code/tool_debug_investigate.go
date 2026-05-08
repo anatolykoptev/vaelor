@@ -24,6 +24,19 @@ import (
 // debugInvestigateTraceLimit caps the number of traces fetched per investigation.
 const debugInvestigateTraceLimit = 20
 
+// Anomaly score buckets — Prometheus baseline ratio thresholds.
+const (
+	ratioCritical      = 5.0
+	ratioElevated      = 2.0
+	ratioMild          = 1.2
+	scoreCritical      = 1.0
+	scoreElevated      = 0.8
+	scoreMild          = 0.6
+	scoreNominal       = 0.3
+	scoreBaselineEmpty = 0.7
+	scoreDefault       = 0.5
+)
+
 // DebugInvestigateInput is the user-facing tool input.
 type DebugInvestigateInput struct {
 	Service   string `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'oxpulse-chat')."`
@@ -163,25 +176,25 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	baseSeries, berr := prom.QueryRange(ctx, errMetricQuery, baselineStart, baselineEnd, 60*time.Second)
 	res.Diagnostics.MetricsQueried = 2
 
-	anomalyScore := 0.5 // default if metric data missing
+	anomalyScore := scoreDefault // default if metric data missing
 	if werr == nil && berr == nil {
 		wMax := maxSampleValue(windowSeries)
 		bMax := maxSampleValue(baseSeries)
 		if bMax > 0 {
 			ratio := wMax / bMax
 			switch {
-			case ratio > 5:
-				anomalyScore = 1.0
-			case ratio > 2:
-				anomalyScore = 0.8
-			case ratio > 1.2:
-				anomalyScore = 0.6
+			case ratio > ratioCritical:
+				anomalyScore = scoreCritical
+			case ratio > ratioElevated:
+				anomalyScore = scoreElevated
+			case ratio > ratioMild:
+				anomalyScore = scoreMild
 			default:
-				anomalyScore = 0.3
+				anomalyScore = scoreNominal
 			}
 		} else if wMax > 0 {
 			// Baseline empty but window has errors — modest anomaly.
-			anomalyScore = 0.7
+			anomalyScore = scoreBaselineEmpty
 		}
 	} else {
 		if werr != nil {
