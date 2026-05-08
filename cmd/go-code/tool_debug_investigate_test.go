@@ -76,6 +76,15 @@ func TestListLabelValues_HTTP404ReturnsError(t *testing.T) {
 	}
 }
 
+func TestListLabelValues_RejectsInvalidLabel(t *testing.T) {
+	cases := []string{"../etc", "label/values", "name space", ""}
+	for _, c := range cases {
+		if _, err := listLabelValues(context.Background(), nil, c); err == nil {
+			t.Errorf("expected error for %q", c)
+		}
+	}
+}
+
 func TestListLabelValues_TruncatesAt200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data := make([]string, 250)
