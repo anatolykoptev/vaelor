@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -362,10 +363,20 @@ func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
 	return max
 }
 
+// validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
+// Labels that deviate are rejected by listLabelValues to prevent path injection.
+var validPromLabel = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // listLabelValues fetches the values of a Prometheus label (e.g. "__name__"
 // to get all metric names). Returns up to 200 values; failures are
 // non-fatal — empty slice is returned with the error.
+//
+// label must match Prometheus label naming rules ([A-Za-z_][A-Za-z0-9_]*);
+// invalid labels are rejected immediately to prevent path construction issues.
 func listLabelValues(ctx context.Context, prom *promclient.Client, label string) ([]string, error) {
+	if !validPromLabel.MatchString(label) {
+		return nil, fmt.Errorf("listLabelValues: invalid label name %q (must match [A-Za-z_][A-Za-z0-9_]*)", label)
+	}
 	type resp struct {
 		Status string   `json:"status"`
 		Data   []string `json:"data"`
