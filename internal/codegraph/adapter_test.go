@@ -111,7 +111,11 @@ func TestAnalyticsAdapter_LiveGraph(t *testing.T) {
 	store := NewStore(pool)
 	a := NewAnalyticsAdapter(store, nil)
 
-	const repoKey = "/home/krolik/src/go-code"
+	// repoKey is set to the path this repo is checked out at on the test host.
+	repoKey := "/srv/src/repos/go-code"
+	if v := os.Getenv("GOCODE_REPO_PATH"); v != "" {
+		repoKey = v
+	}
 
 	// TopPageRank — rely on whatever graph is already cached.
 	// If the graph is cold, we get an empty slice (acceptable per contract).

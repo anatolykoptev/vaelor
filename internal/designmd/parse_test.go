@@ -78,7 +78,10 @@ Best for: developer tools, dark dashboards
 }
 
 func TestRealLinearDesignMD(t *testing.T) {
-	path := "/home/krolik/tools/awesome-design-md/design-md/linear.app/DESIGN.md"
+	path := os.Getenv("DESIGN_MD_LINEAR_PATH")
+	if path == "" {
+		path = "testdata/linear.app/DESIGN.md"
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Skipf("DESIGN.md not found: %v", err)

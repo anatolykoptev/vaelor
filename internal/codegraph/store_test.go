@@ -105,7 +105,7 @@ func TestGraphName(t *testing.T) {
 	})
 
 	t.Run("exported GraphNameFor matches graphName", func(t *testing.T) {
-		path := "/home/krolik/src/go-code"
+		path := "/srv/src/repos/go-code"
 		if GraphNameFor(path) != graphName(path) {
 			t.Errorf("GraphNameFor and graphName diverge for %q", path)
 		}
