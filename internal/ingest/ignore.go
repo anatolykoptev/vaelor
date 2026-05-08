@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -138,6 +139,22 @@ var ignoreFiles = map[string]bool{
 
 // binarySniffLen is how many bytes we read to detect binary content.
 const binarySniffLen = 512
+
+// IgnoredDirNames returns the alphabetically sorted list of directory names
+// that the indexer skips. Used by tool handlers to surface a hint to callers
+// when a symbol search returns zero results — the symbol may live in an
+// excluded path on disk.
+func IgnoredDirNames() []string {
+	names := make([]string, 0, len(defaultIgnoreDirs)+len(generatedDirs))
+	for name := range defaultIgnoreDirs {
+		names = append(names, name)
+	}
+	for name := range generatedDirs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 func shouldIgnoreDir(name string) bool {
 	return defaultIgnoreDirs[name] || generatedDirs[name]
