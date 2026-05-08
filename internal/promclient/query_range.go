@@ -47,7 +47,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 
 	path := "/api/v1/query_range?" + v.Encode()
 	var resp QueryRangeResponse
-	if err := c.getJSON(ctx, path, &resp); err != nil {
+	if err := c.GetJSON(ctx, path, &resp); err != nil {
 		return nil, fmt.Errorf("query_range: %w", err)
 	}
 	if resp.Status != "success" {

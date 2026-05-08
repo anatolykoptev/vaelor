@@ -249,6 +249,46 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	}
 
 	res.Hypotheses = investigate.RankHypotheses(res.Hypotheses)
+	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning for top hypothesis.
+	if deps.LLM != nil && len(res.Hypotheses) > 0 {
+		// Gather ground-truth context.
+		availMetrics, _ := listLabelValues(ctx, prom, "__name__")
+		operationsSeen := make([]string, 0, len(ops))
+		for op := range ops {
+			operationsSeen = append(operationsSeen, op)
+		}
+
+		sysPrompt := investigate.BuildSystemPrompt(investigate.PromptContext{
+			Service:           input.Service,
+			AvailableMetrics:  availMetrics,
+			AvailableServices: services,
+			OperationsSeen:    operationsSeen,
+		})
+
+		// Compact user-side payload: top 5 hypotheses + diagnostics + hint.
+		topN := res.Hypotheses
+		if len(topN) > 5 {
+			topN = topN[:5]
+		}
+		userPayload := map[string]any{
+			"service":     input.Service,
+			"window":      map[string]string{"start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)},
+			"hypotheses":  topN,
+			"diagnostics": res.Diagnostics,
+			"user_hint":   input.Hint,
+		}
+		userJSON, _ := json.Marshal(userPayload)
+
+		// Bounded LLM call (10s timeout — non-blocking on overall investigation).
+		llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer llmCancel()
+		summary, err := deps.LLM.Complete(llmCtx, sysPrompt, string(userJSON))
+		if err != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("llm: %v", err))
+		} else {
+			res.LLMSummary = summary
+		}
+	}
 	res.FinishedAt = time.Now()
 
 	debugInvestigateStore.Finish(input.Service, start, end, res)
@@ -328,4 +368,26 @@ func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
 		}
 	}
 	return max
+}
+
+// listLabelValues fetches the values of a Prometheus label (e.g. "__name__"
+// to get all metric names). Returns up to 200 values; failures are
+// non-fatal — empty slice is returned with the error.
+func listLabelValues(ctx context.Context, prom *promclient.Client, label string) ([]string, error) {
+	type resp struct {
+		Status string   `json:"status"`
+		Data   []string `json:"data"`
+	}
+	var r resp
+	path := "/api/v1/label/" + label + "/values"
+	if err := prom.GetJSON(ctx, path, &r); err != nil {
+		return nil, err
+	}
+	if r.Status != "success" {
+		return nil, fmt.Errorf("label values status %q", r.Status)
+	}
+	if len(r.Data) > 200 {
+		return r.Data[:200], nil
+	}
+	return r.Data, nil
 }
