@@ -5,10 +5,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"math"
 	"math/rand/v2"
-	"strconv"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -245,7 +246,14 @@ func (s *Store) SymbolStructuralRank(ctx context.Context, repoKey, name, file st
 	// Query 1: total symbols with pagerank.
 	totalCypher := `MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN count(s)`
 	totalRows, err := s.ExecCypher(ctx, graphName, totalCypher, 1)
-	if err != nil || len(totalRows) == 0 {
+	if err != nil {
+		if IsGraphMissingError(err) {
+			recordGraphMissing("understand")
+			slog.Debug("codegraph: structural rank skipped — graph absent", slog.String("graph", graphName))
+		}
+		return ""
+	}
+	if len(totalRows) == 0 {
 		return ""
 	}
 	total, err := strconv.Atoi(strings.Trim(totalRows[0][0], `"`))

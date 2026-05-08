@@ -35,7 +35,8 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
 	if err != nil {
-		if isGraphMissingError(err) {
+		if IsGraphMissingError(err) {
+			recordGraphMissing("crossrefs_handles_route")
 			slog.Debug("codegraph.crossRefsAdapter.HandlesRoute: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))
 			return graphx.Route{}, false, nil
@@ -69,7 +70,8 @@ func (c *crossRefsAdapter) FetchedBy(ctx context.Context, repoKey string, route 
 
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
 	if err != nil {
-		if isGraphMissingError(err) {
+		if IsGraphMissingError(err) {
+			recordGraphMissing("crossrefs_fetched_by")
 			slog.Debug("codegraph.crossRefsAdapter.FetchedBy: graph absent",
 				slog.String("repo", repoKey))
 			return nil, nil
@@ -103,7 +105,8 @@ func (c *crossRefsAdapter) TestedBy(ctx context.Context, repoKey, symbolName, fi
 
 	rows, err := c.store.ExecCypher(ctx, graphName, cypher, 2)
 	if err != nil {
-		if isGraphMissingError(err) {
+		if IsGraphMissingError(err) {
+			recordGraphMissing("crossrefs_tested_by")
 			slog.Debug("codegraph.crossRefsAdapter.TestedBy: graph absent",
 				slog.String("repo", repoKey), slog.String("symbol", symbolName))
 			return nil, nil
