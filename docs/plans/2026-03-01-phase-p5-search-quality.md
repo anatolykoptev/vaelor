@@ -15,14 +15,14 @@
 **Context:** Currently go-code has `symbol_search` (symbols by name pattern) and `repo_analyze` (deep analysis), but no tool to search for arbitrary code patterns (string literals, regex, error messages, TODO comments). This is the most-requested missing capability — users need grep-like search within repositories accessible via MCP.
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/codesearch/search.go`
-- Create: `/home/krolik/src/go-code/internal/codesearch/search_test.go`
-- Create: `/home/krolik/src/go-code/cmd/go-code/tool_code_search.go`
-- Modify: `/home/krolik/src/go-code/cmd/go-code/register.go` (add registration)
+- Create: `$REPO_ROOT/internal/codesearch/search.go`
+- Create: `$REPO_ROOT/internal/codesearch/search_test.go`
+- Create: `$REPO_ROOT/cmd/go-code/tool_code_search.go`
+- Modify: `$REPO_ROOT/cmd/go-code/register.go` (add registration)
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/codesearch/search_test.go`:
+Create `$REPO_ROOT/internal/codesearch/search_test.go`:
 
 ```go
 package codesearch
@@ -159,12 +159,12 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codesearch/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/codesearch/ -v`
 Expected: FAIL — package does not exist
 
 **Step 3: Implement search.go**
 
-Create `/home/krolik/src/go-code/internal/codesearch/search.go`:
+Create `$REPO_ROOT/internal/codesearch/search.go`:
 
 ```go
 package codesearch
@@ -312,12 +312,12 @@ func searchFile(absPath, relPath string, re *regexp.Regexp, contextLines int) []
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codesearch/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codesearch/ -v -count=1`
 Expected: All PASS
 
 **Step 5: Create MCP tool**
 
-Create `/home/krolik/src/go-code/cmd/go-code/tool_code_search.go`:
+Create `$REPO_ROOT/cmd/go-code/tool_code_search.go`:
 
 ```go
 package main
@@ -426,7 +426,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 
 **Step 6: Register the tool**
 
-In `/home/krolik/src/go-code/cmd/go-code/register.go`, find the registration block and add:
+In `$REPO_ROOT/cmd/go-code/register.go`, find the registration block and add:
 
 ```go
 	registerCodeSearch(server, cfg, deps)
@@ -436,18 +436,18 @@ Add it after the existing `registerDeadCode` (or whichever is last). You'll need
 
 **Step 7: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Success
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codesearch/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codesearch/ -v -count=1`
 Expected: All PASS
 
 **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/codesearch/search.go internal/codesearch/search_test.go cmd/go-code/tool_code_search.go cmd/go-code/register.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add internal/codesearch/search.go internal/codesearch/search_test.go cmd/go-code/tool_code_search.go cmd/go-code/register.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat: add code_search MCP tool for grep-like code search
 
 New codesearch package with regex/literal pattern matching, file glob
@@ -466,13 +466,13 @@ EOF
 **Context:** The classifier prompt (`SystemPromptClassifyGraphQuery`) lists templates but doesn't include the graph schema. When queries mention INHERITS/IMPLEMENTS edges, the LLM doesn't know these exist and misroutes to `freeform`. Adding schema text and example queries to the classifier prompt improves template selection accuracy.
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/codegraph/classify.go`
-- Modify: `/home/krolik/src/go-code/internal/prompts/prompts.go`
-- Create: `/home/krolik/src/go-code/internal/codegraph/classify_test.go` (add classification tests if doesn't exist, or extend)
+- Modify: `$REPO_ROOT/internal/codegraph/classify.go`
+- Modify: `$REPO_ROOT/internal/prompts/prompts.go`
+- Create: `$REPO_ROOT/internal/codegraph/classify_test.go` (add classification tests if doesn't exist, or extend)
 
 **Step 1: Write failing test**
 
-Add to or create `/home/krolik/src/go-code/internal/codegraph/classify_test.go`:
+Add to or create `$REPO_ROOT/internal/codegraph/classify_test.go`:
 
 ```go
 func TestClassify_SchemaAwarePrompt(t *testing.T) {
@@ -492,7 +492,7 @@ func TestClassify_SchemaAwarePrompt(t *testing.T) {
 
 **Step 2: Update classifier prompt**
 
-In `/home/krolik/src/go-code/internal/prompts/prompts.go`, update `SystemPromptClassifyGraphQuery`:
+In `$REPO_ROOT/internal/prompts/prompts.go`, update `SystemPromptClassifyGraphQuery`:
 
 Change the `%s` placeholder to accept two format args — templates list AND schema text:
 
@@ -524,7 +524,7 @@ Rules:
 
 **Step 3: Update Classify to inject schema**
 
-In `/home/krolik/src/go-code/internal/codegraph/classify.go`, update the `Classify` function:
+In `$REPO_ROOT/internal/codegraph/classify.go`, update the `Classify` function:
 
 ```go
 func Classify(ctx context.Context, client llmCompleter, query string) (*Classification, error) {
@@ -541,18 +541,18 @@ func classifierSystemPrompt() string {
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Success
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -run TestClassify -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -run TestClassify -v -count=1`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/codegraph/classify.go internal/codegraph/classify_test.go internal/prompts/prompts.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add internal/codegraph/classify.go internal/codegraph/classify_test.go internal/prompts/prompts.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat(codegraph): inject graph schema into classifier prompt
 
 Classifier LLM now sees vertex labels, edge labels, and their properties.
@@ -571,12 +571,12 @@ EOF
 **Context:** The current dead_code analysis has high false-positive rate for HTTP handler functions (registered via Chi/Gin/Echo routers), interface method implementations, and wire-injected functions. These functions have zero CALLS edges but ARE used via reflection/routing registration. Adding framework detection heuristics reduces noise.
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/deadcode/deadcode.go`
-- Modify: `/home/krolik/src/go-code/internal/deadcode/deadcode_test.go`
+- Modify: `$REPO_ROOT/internal/deadcode/deadcode.go`
+- Modify: `$REPO_ROOT/internal/deadcode/deadcode_test.go`
 
 **Step 1: Write failing tests**
 
-Add to `/home/krolik/src/go-code/internal/deadcode/deadcode_test.go`:
+Add to `$REPO_ROOT/internal/deadcode/deadcode_test.go`:
 
 ```go
 func TestAnalyze_HTTPHandlerNotDead(t *testing.T) {
@@ -622,7 +622,7 @@ func TestAnalyze_InterfaceMethodNotDead(t *testing.T) {
 
 **Step 2: Implement framework heuristics**
 
-In `/home/krolik/src/go-code/internal/deadcode/deadcode.go`, add heuristic functions:
+In `$REPO_ROOT/internal/deadcode/deadcode.go`, add heuristic functions:
 
 ```go
 // httpHandlerSignatures are patterns that identify HTTP handler functions.
@@ -671,15 +671,15 @@ Then update the `Analyze` function to skip these in the dead code list (or mark 
 
 **Step 3: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/deadcode/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/deadcode/ -v -count=1`
 Expected: All PASS
 
 **Step 4: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/deadcode/deadcode.go internal/deadcode/deadcode_test.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add internal/deadcode/deadcode.go internal/deadcode/deadcode_test.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat(deadcode): add framework-aware heuristics to reduce false positives
 
 Skip HTTP handlers (net/http, Gin, Echo, Fiber, Chi signature patterns).
@@ -699,12 +699,12 @@ EOF
 **Context:** When the classifier falls back to `freeform`, the `GenerateCypher` function uses `SystemPromptGenerateCypher` which has the schema but no example queries. Adding concrete Cypher examples for the newer edge types (INHERITS, IMPLEMENTS) and property names (complexity, pagerank, lines) helps the LLM generate correct queries. Also, Apache AGE doesn't support `|` pipe syntax in edge types — the examples teach the LLM to use `WHERE type(r)` instead.
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/prompts/prompts.go`
-- Modify: `/home/krolik/src/go-code/internal/codegraph/generate_test.go` (add test)
+- Modify: `$REPO_ROOT/internal/prompts/prompts.go`
+- Modify: `$REPO_ROOT/internal/codegraph/generate_test.go` (add test)
 
 **Step 1: Write failing test**
 
-Add to `/home/krolik/src/go-code/internal/codegraph/generate_test.go`:
+Add to `$REPO_ROOT/internal/codegraph/generate_test.go`:
 
 ```go
 func TestCypherSystemPrompt_ContainsExamples(t *testing.T) {
@@ -724,7 +724,7 @@ func TestCypherSystemPrompt_ContainsExamples(t *testing.T) {
 
 **Step 2: Update the Cypher generation prompt**
 
-In `/home/krolik/src/go-code/internal/prompts/prompts.go`, update `SystemPromptGenerateCypher`:
+In `$REPO_ROOT/internal/prompts/prompts.go`, update `SystemPromptGenerateCypher`:
 
 ```go
 const SystemPromptGenerateCypher = `You are a Cypher query generator for a code knowledge graph stored in Apache AGE.
@@ -753,18 +753,18 @@ Respond with ONLY the Cypher query, no explanation.`
 
 **Step 3: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Success
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -run TestCypherSystemPrompt -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -run TestCypherSystemPrompt -v -count=1`
 Expected: PASS
 
 **Step 4: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/prompts/prompts.go internal/codegraph/generate_test.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add internal/prompts/prompts.go internal/codegraph/generate_test.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat(codegraph): add example queries and AGE constraints to freeform prompt
 
 Freeform Cypher generation now includes concrete examples for INHERITS,
@@ -785,23 +785,23 @@ EOF
 **Step 1: Run all tests**
 
 ```bash
-cd /home/krolik/src/go-code && go test ./internal/codesearch/ -v -count=1
-cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -count=1
-cd /home/krolik/src/go-code && go test ./internal/deadcode/ -v -count=1
-cd /home/krolik/src/go-code && go test ./... -count=1
+cd $REPO_ROOT && go test ./internal/codesearch/ -v -count=1
+cd $REPO_ROOT && go test ./internal/codegraph/ -v -count=1
+cd $REPO_ROOT && go test ./internal/deadcode/ -v -count=1
+cd $REPO_ROOT && go test ./... -count=1
 ```
 Expected: All PASS
 
 **Step 2: Build**
 
 ```bash
-cd /home/krolik/src/go-code && go build ./...
+cd $REPO_ROOT && go build ./...
 ```
 
 **Step 3: Deploy**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -828,8 +828,8 @@ Test 3 — Verify deadcode improvements:
 **Step 6: Push to origin**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git push origin main
+cd $REPO_ROOT
+sudo -u $USER git push origin main
 ```
 
 ---

@@ -75,7 +75,7 @@ func TestExtractQueryTerms_MixedIdentifiers(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -run TestExtractQueryTerms_ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -run TestExtractQueryTerms_ -v`
 Expected: FAIL — "missing term" errors because camelCase is not split
 
 **Step 3: Implement camelCase/snake_case splitting**
@@ -175,18 +175,18 @@ Note: add `"unicode"` to the imports at the top of the file.
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -run TestExtractQueryTerms -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -run TestExtractQueryTerms -v`
 Expected: PASS
 
 **Step 5: Run all analyze tests to check no regressions**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -v`
 Expected: ALL PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/analyze/context.go internal/analyze/analyze_test.go
 git commit -m "feat(analyze): add camelCase/snake_case splitting to query term extraction
 
@@ -297,7 +297,7 @@ func TestBM25F_IDF_CommonTermLowerScore(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/ranking/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/ranking/ -v`
 Expected: FAIL — package doesn't exist yet
 
 **Step 3: Implement BM25F scorer**
@@ -446,7 +446,7 @@ func allTerms(doc Document) []string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/ranking/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/ranking/ -v`
 Expected: ALL PASS
 
 **Step 5: Wire BM25F into context.go**
@@ -518,13 +518,13 @@ Remove the old `scoreFile()`, `computeSymbolCounts()` functions since they're re
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ ./internal/ranking/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ ./internal/ranking/ -v`
 Expected: ALL PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/ranking/bm25.go internal/ranking/bm25_test.go internal/analyze/context.go internal/analyze/analyze_test.go
 git commit -m "feat(ranking): add BM25F field-weighted file scoring
 
@@ -650,7 +650,7 @@ func TestPageRank_Normalized(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/ranking/ -run TestPageRank -v`
+Run: `cd $REPO_ROOT && go test ./internal/ranking/ -run TestPageRank -v`
 Expected: FAIL — function doesn't exist
 
 **Step 3: Implement PageRank**
@@ -715,7 +715,7 @@ func PageRank(graph map[string][]string, iterations int, damping float64) map[st
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/ranking/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/ranking/ -v`
 Expected: ALL PASS
 
 **Step 5: Wire PageRank into prioritizeFiles**
@@ -795,13 +795,13 @@ Remove the old `computeImportCounts` function.
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ ./internal/ranking/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ ./internal/ranking/ -v`
 Expected: ALL PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/ranking/pagerank.go internal/ranking/pagerank_test.go internal/analyze/context.go
 git commit -m "feat(ranking): add PageRank for import graph importance scoring
 
@@ -857,7 +857,7 @@ func TestFormatFileBlock_XML(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -run TestBuildLLMContext_XML -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -run TestBuildLLMContext_XML -v`
 Expected: FAIL — still using `=== File:` format
 
 **Step 3: Convert to XML format**
@@ -949,13 +949,13 @@ func TestBuildLLMContext_ContainsSections(t *testing.T) {
 
 **Step 5: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -v`
 Expected: ALL PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/analyze/context.go internal/analyze/analyze_test.go
 git commit -m "feat(analyze): switch LLM context to XML tag format
 
@@ -1005,7 +1005,7 @@ func TestRenderFile_Skeleton_LinePrefix(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/render/ -run TestRenderFile_Skeleton_Ellipsis -v`
+Run: `cd $REPO_ROOT && go test ./internal/render/ -run TestRenderFile_Skeleton_Ellipsis -v`
 Expected: FAIL — still using `// ...`
 
 **Step 3: Update skeleton markers**
@@ -1059,18 +1059,18 @@ The `TestRenderFile_NestedFunctions_Skeleton` test similarly.
 
 **Step 5: Run all render tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/render/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/render/ -v`
 Expected: ALL PASS
 
 **Step 6: Run full test suite**
 
-Run: `cd /home/krolik/src/go-code && go test ./... 2>&1 | tail -30`
+Run: `cd $REPO_ROOT && go test ./... 2>&1 | tail -30`
 Expected: ALL PASS (analyze tests should still work since they don't check skeleton markers directly)
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/render/render.go internal/render/render_test.go
 git commit -m "feat(render): use ⋮... ellipsis markers and │ line prefix in skeleton mode
 
@@ -1111,7 +1111,7 @@ func TestBuildLLMContext_FileAnnotations(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -run TestBuildLLMContext_FileAnnotations -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -run TestBuildLLMContext_FileAnnotations -v`
 Expected: FAIL
 
 **Step 3: Implement file annotations**
@@ -1179,13 +1179,13 @@ Note: we need to bring back `computeImportCounts` and `computeSymbolCounts` as t
 
 **Step 4: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ -v`
 Expected: ALL PASS
 
 **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/analyze/context.go internal/analyze/analyze_test.go
 git commit -m "feat(analyze): add contextual annotations before each file in LLM context
 
@@ -1305,7 +1305,7 @@ func TestClassifyIntent_Default(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/llm/ -run TestClassifyIntent -v`
+Run: `cd $REPO_ROOT && go test ./internal/llm/ -run TestClassifyIntent -v`
 Expected: FAIL — type and function don't exist
 
 **Step 3: Implement intent classification**
@@ -1423,7 +1423,7 @@ Be direct — answer with locations first, context second.`
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/llm/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/llm/ -v`
 Expected: ALL PASS
 
 **Step 5: Wire intent classification into AnalyzeRepo**
@@ -1440,13 +1440,13 @@ In `internal/analyze/analyze.go`, update `AnalyzeRepo`:
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/analyze/ ./internal/llm/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/analyze/ ./internal/llm/ -v`
 Expected: ALL PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/llm/intent.go internal/llm/intent_test.go internal/analyze/analyze.go
 git commit -m "feat(llm): add intent-aware system prompt selection
 
@@ -1551,7 +1551,7 @@ func findSubstring(s, substr string) bool {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./cmd/go-code/ -run TestFormatAnalysisResult -v`
+Run: `cd $REPO_ROOT && go test ./cmd/go-code/ -run TestFormatAnalysisResult -v`
 Expected: FAIL — `formatAnalysisResult` doesn't accept format parameter
 
 **Step 3: Add format parameter and envelope**
@@ -1641,18 +1641,18 @@ return textResult(formatAnalysisResult(result, input.Format)), nil, nil
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./cmd/go-code/ -run TestFormatAnalysisResult -v`
+Run: `cd $REPO_ROOT && go test ./cmd/go-code/ -run TestFormatAnalysisResult -v`
 Expected: ALL PASS
 
 **Step 5: Run full test suite**
 
-Run: `cd /home/krolik/src/go-code && go test ./... 2>&1 | tail -30`
+Run: `cd $REPO_ROOT && go test ./... 2>&1 | tail -30`
 Expected: ALL PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add cmd/go-code/tool_repo_analyze.go cmd/go-code/tool_repo_analyze_test.go internal/analyze/analyze.go
 git commit -m "feat(tool): add format=json structured response envelope for repo_analyze
 
@@ -1672,12 +1672,12 @@ Enables machine consumption by downstream MCP agents."
 
 **Step 1: Run linter**
 
-Run: `cd /home/krolik/src/go-code && make lint`
+Run: `cd $REPO_ROOT && make lint`
 Expected: PASS (fix any issues found)
 
 **Step 2: Run full test suite**
 
-Run: `cd /home/krolik/src/go-code && make test`
+Run: `cd $REPO_ROOT && make test`
 Expected: ALL PASS
 
 **Step 3: Update CLAUDE.md toolCount if needed**
@@ -1691,7 +1691,7 @@ Mark 6.1-6.6, 6.7, 6.9 as ✅ in `docs/ROADMAP.md`.
 **Step 5: Final commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add -A
 git commit -m "chore: lint fixes and Phase 6 roadmap updates"
 ```

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.26, existing internal packages (callgraph, deadcode, tier, goanalysis, scip)
 
-**All commands:** prefix with `GOWORK=off`. Working dir: `/home/krolik/src/go-code/`.
+**All commands:** prefix with `GOWORK=off`. Working dir: `$REPO_ROOT/`.
 
 ---
 
@@ -106,7 +106,7 @@ if scipCG := trySCIPResolution(...); scipCG != nil {
 
 - [ ] **Step 4: Build and test**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go build ./... && GOWORK=off go test ./internal/callgraph/ -count=1 -timeout 120s`
+Run: `cd $REPO_ROOT && GOWORK=off go build ./... && GOWORK=off go test ./internal/callgraph/ -count=1 -timeout 120s`
 Expected: All pass, no regressions.
 
 - [ ] **Step 5: Commit**
@@ -369,17 +369,17 @@ git commit -m "test(deadcode): verify cross-type interface method exclusion"
 
 - [ ] **Step 1: Run full test suite**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./... -timeout 300s -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./... -timeout 300s -count=1`
 Expected: All 30+ packages pass.
 
 - [ ] **Step 2: Build Docker image**
 
-Run: `cd ~/deploy/krolik-server && docker compose build go-code`
+Run: `cd ~/deploy/my-server && docker compose build go-code`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Deploy**
 
-Run: `cd ~/deploy/krolik-server && docker compose up -d --no-deps --force-recreate go-code`
+Run: `cd ~/deploy/my-server && docker compose up -d --no-deps --force-recreate go-code`
 Expected: Container healthy.
 
 - [ ] **Step 4: Verify dead_code improvement**

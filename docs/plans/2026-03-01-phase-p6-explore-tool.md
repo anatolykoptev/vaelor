@@ -15,14 +15,14 @@
 **Context:** Users currently need 3-5 separate tool calls to understand a new codebase (repo_analyze overview, dead_code, code_graph stats, dep_graph). The `explore` tool combines these into one call returning a comprehensive dossier. It does NOT use the LLM — it's a fast, structured summary.
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/explore/explore.go`
-- Create: `/home/krolik/src/go-code/internal/explore/explore_test.go`
-- Create: `/home/krolik/src/go-code/cmd/go-code/tool_explore.go`
-- Modify: `/home/krolik/src/go-code/cmd/go-code/register.go`
+- Create: `$REPO_ROOT/internal/explore/explore.go`
+- Create: `$REPO_ROOT/internal/explore/explore_test.go`
+- Create: `$REPO_ROOT/cmd/go-code/tool_explore.go`
+- Modify: `$REPO_ROOT/cmd/go-code/register.go`
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/explore/explore_test.go`:
+Create `$REPO_ROOT/internal/explore/explore_test.go`:
 
 ```go
 package explore
@@ -163,12 +163,12 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/explore/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/explore/ -v`
 Expected: FAIL — package does not exist
 
 **Step 3: Implement explore.go**
 
-Create `/home/krolik/src/go-code/internal/explore/explore.go`:
+Create `$REPO_ROOT/internal/explore/explore.go`:
 
 ```go
 package explore
@@ -391,14 +391,14 @@ func lastSlash(s string) int {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/explore/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/explore/ -v -count=1`
 Expected: All PASS
 
-NOTE: If the `callgraph.Build` function signature doesn't exist, look at how `callgraph.BuildFromRepo` works in `tool_dead_code.go`. You may need to use `callgraph.BuildFromRepo` with a `TraceRepoInput` instead, or build the call graph via `callgraph.Build(symbols)`. Read `/home/krolik/src/go-code/internal/callgraph/` to find the correct function. The `deadcode.Analyze` function takes `*callgraph.CallGraph` — check its signature too.
+NOTE: If the `callgraph.Build` function signature doesn't exist, look at how `callgraph.BuildFromRepo` works in `tool_dead_code.go`. You may need to use `callgraph.BuildFromRepo` with a `TraceRepoInput` instead, or build the call graph via `callgraph.Build(symbols)`. Read `$REPO_ROOT/internal/callgraph/` to find the correct function. The `deadcode.Analyze` function takes `*callgraph.CallGraph` — check its signature too.
 
 **Step 5: Create MCP tool**
 
-Create `/home/krolik/src/go-code/cmd/go-code/tool_explore.go`:
+Create `$REPO_ROOT/cmd/go-code/tool_explore.go`:
 
 ```go
 package main
@@ -466,7 +466,7 @@ func handleExplore(ctx context.Context, input ExploreInput, deps analyze.Deps) (
 
 **Step 6: Register the tool**
 
-In `/home/krolik/src/go-code/cmd/go-code/register.go`, add after the last `register*` call:
+In `$REPO_ROOT/cmd/go-code/register.go`, add after the last `register*` call:
 
 ```go
 	registerExplore(server, cfg, deps)
@@ -474,18 +474,18 @@ In `/home/krolik/src/go-code/cmd/go-code/register.go`, add after the last `regis
 
 **Step 7: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Success
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/explore/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/explore/ -v -count=1`
 Expected: All PASS
 
 **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/explore/explore.go internal/explore/explore_test.go cmd/go-code/tool_explore.go cmd/go-code/register.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add internal/explore/explore.go internal/explore/explore_test.go cmd/go-code/tool_explore.go cmd/go-code/register.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat: add explore MCP tool for quick repository overview
 
 Compound tool combining file stats, language breakdown, top symbols
@@ -504,8 +504,8 @@ EOF
 **Context:** The `code_search` tool currently always searches case-sensitive. Users often need case-insensitive search (e.g. finding TODO/todo/Todo). Add a `case_sensitive` parameter to the MCP input (default true for backwards compat).
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/cmd/go-code/tool_code_search.go`
-- Modify: `/home/krolik/src/go-code/internal/codesearch/search_test.go` (add test if not present)
+- Modify: `$REPO_ROOT/cmd/go-code/tool_code_search.go`
+- Modify: `$REPO_ROOT/internal/codesearch/search_test.go` (add test if not present)
 
 **Step 1: Write failing test**
 
@@ -532,7 +532,7 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 
 **Step 2: Update MCP tool input**
 
-In `/home/krolik/src/go-code/cmd/go-code/tool_code_search.go`, add field to `CodeSearchInput`:
+In `$REPO_ROOT/cmd/go-code/tool_code_search.go`, add field to `CodeSearchInput`:
 
 ```go
 	CaseSensitive *bool `json:"case_sensitive,omitempty" jsonschema_description:"Case-sensitive matching (default: true). Set false for case-insensitive."`
@@ -553,18 +553,18 @@ And pass `caseSensitive` to `codesearch.Search`.
 
 **Step 3: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codesearch/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/codesearch/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Success
 
 **Step 4: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add cmd/go-code/tool_code_search.go internal/codesearch/search_test.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add cmd/go-code/tool_code_search.go internal/codesearch/search_test.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat(codesearch): expose case_sensitive parameter in code_search MCP tool
 
 Defaults to true for backwards compat. Set false for case-insensitive
@@ -582,7 +582,7 @@ EOF
 **Context:** The `code_graph` tool description still says "CONTAINS and CALLS edges" — it's missing INHERITS, IMPLEMENTS, HANDLES, FETCHES, BELONGS_TO, IMPORTS. This causes users to not know they can query type hierarchies or API routes.
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/cmd/go-code/tool_code_graph.go`
+- Modify: `$REPO_ROOT/cmd/go-code/tool_code_graph.go`
 
 **Step 1: Update the description**
 
@@ -600,15 +600,15 @@ In `registerCodeGraph`, change the `Description` field:
 
 **Step 2: Build**
 
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: Success
 
 **Step 3: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add cmd/go-code/tool_code_graph.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add cmd/go-code/tool_code_graph.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 fix(code_graph): update tool description with all vertex and edge types
 
 Description now lists all 5 vertex types and 8 edge types. Mentions
@@ -626,16 +626,16 @@ EOF
 **Context:** The `file_parse` tool returns symbols with name/kind/signature/lines but NOT complexity. Complexity is already computed in `codegraph/graph_build.go` via `symbolComplexity()`. Extract that function to a shared location and use it in `file_parse` output.
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/parser/symbol.go` (or wherever Symbol struct is defined) — add Complexity field
-- Modify: `/home/krolik/src/go-code/internal/codegraph/graph_build.go` — extract symbolComplexity to parser package
-- Modify: `/home/krolik/src/go-code/cmd/go-code/tool_file_parse.go` — include complexity in output
+- Modify: `$REPO_ROOT/internal/parser/symbol.go` (or wherever Symbol struct is defined) — add Complexity field
+- Modify: `$REPO_ROOT/internal/codegraph/graph_build.go` — extract symbolComplexity to parser package
+- Modify: `$REPO_ROOT/cmd/go-code/tool_file_parse.go` — include complexity in output
 
 **Step 1: Read current code**
 
 Read:
-- `/home/krolik/src/go-code/internal/parser/types.go` (or wherever Symbol is defined)
-- `/home/krolik/src/go-code/internal/codegraph/graph_build.go` (find `symbolComplexity`)
-- `/home/krolik/src/go-code/cmd/go-code/tool_file_parse.go`
+- `$REPO_ROOT/internal/parser/types.go` (or wherever Symbol is defined)
+- `$REPO_ROOT/internal/codegraph/graph_build.go` (find `symbolComplexity`)
+- `$REPO_ROOT/cmd/go-code/tool_file_parse.go`
 
 **Step 2: Add Complexity to Symbol**
 
@@ -643,7 +643,7 @@ In the parser package, add `Complexity int` field to the `Symbol` struct.
 
 **Step 3: Move symbolComplexity to parser package**
 
-Create `/home/krolik/src/go-code/internal/parser/complexity.go`:
+Create `$REPO_ROOT/internal/parser/complexity.go`:
 
 ```go
 package parser
@@ -685,16 +685,16 @@ In `tool_file_parse.go`, if the render format includes symbols, add complexity t
 
 **Step 6: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/parser/ -v -count=1`
-Run: `cd /home/krolik/src/go-code && go build ./...`
+Run: `cd $REPO_ROOT && go test ./internal/parser/ -v -count=1`
+Run: `cd $REPO_ROOT && go build ./...`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/parser/complexity.go internal/parser/types.go internal/codegraph/graph_build.go cmd/go-code/tool_file_parse.go
-sudo -u krolik git commit -m "$(cat <<'EOF'
+cd $REPO_ROOT
+sudo -u $USER git add internal/parser/complexity.go internal/parser/types.go internal/codegraph/graph_build.go cmd/go-code/tool_file_parse.go
+sudo -u $USER git commit -m "$(cat <<'EOF'
 feat(parser): add cyclomatic complexity to symbol output
 
 Extract symbolComplexity to parser.Complexity(). Populate on functions
@@ -714,20 +714,20 @@ EOF
 **Step 1: Run all tests**
 
 ```bash
-cd /home/krolik/src/go-code && go test ./... -count=1
+cd $REPO_ROOT && go test ./... -count=1
 ```
 Expected: All PASS
 
 **Step 2: Build**
 
 ```bash
-cd /home/krolik/src/go-code && go build ./...
+cd $REPO_ROOT && go build ./...
 ```
 
 **Step 3: Deploy**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -749,8 +749,8 @@ Test 2 — Verify `code_search` case-insensitive:
 **Step 6: Push to origin**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git push origin main
+cd $REPO_ROOT
+sudo -u $USER git push origin main
 ```
 
 ---

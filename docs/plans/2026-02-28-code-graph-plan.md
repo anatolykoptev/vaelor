@@ -22,7 +22,7 @@
 
 Run:
 ```bash
-cd /home/krolik/src/go-code && go get github.com/jackc/pgx/v5
+cd $REPO_ROOT && go get github.com/jackc/pgx/v5
 ```
 
 Expected: `go.mod` updated with `pgx/v5` in require block.
@@ -64,7 +64,7 @@ GraphBatchSize: envInt("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 
 **Step 3: Run `go mod tidy`**
 
-Run: `cd /home/krolik/src/go-code && go mod tidy`
+Run: `cd $REPO_ROOT && go mod tidy`
 
 Expected: clean exit, no errors.
 
@@ -118,7 +118,7 @@ func TestEscapeCypher(t *testing.T) {
 }
 
 func TestGraphName(t *testing.T) {
-	name := graphName("/home/krolik/src/go-code")
+	name := graphName("$REPO_ROOT")
 	if name == "" {
 		t.Fatal("graphName returned empty")
 	}
@@ -127,11 +127,11 @@ func TestGraphName(t *testing.T) {
 		t.Errorf("graphName = %q, want prefix 'code_'", name)
 	}
 	// Same input → same output (deterministic)
-	if graphName("/home/krolik/src/go-code") != name {
+	if graphName("$REPO_ROOT") != name {
 		t.Error("graphName not deterministic")
 	}
 	// Different input → different output
-	if graphName("/home/krolik/src/go-search") == name {
+	if graphName("/home/user/src/go-search") == name {
 		t.Error("graphName collision")
 	}
 }
@@ -165,7 +165,7 @@ func TestIsReadOnly(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestEscape|TestGraph|TestIsRead'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestEscape|TestGraph|TestIsRead'`
 
 Expected: FAIL — package doesn't exist.
 
@@ -403,7 +403,7 @@ func isReadOnly(cypher string) bool {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestEscape|TestGraph|TestIsRead'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestEscape|TestGraph|TestIsRead'`
 
 Expected: 3 tests PASS.
 
@@ -498,7 +498,7 @@ func stringContains(s, sub string) bool {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run TestTemplate`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run TestTemplate`
 
 Expected: FAIL — `templates` not defined.
 
@@ -638,7 +638,7 @@ func TemplateList() string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run TestTemplate`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run TestTemplate`
 
 Expected: 3 tests PASS.
 
@@ -749,7 +749,7 @@ func TestClassificationJSON(t *testing.T) {
 
 **Step 3: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run TestParseClas`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run TestParseClas`
 
 Expected: FAIL — `parseClassification` not defined.
 
@@ -833,7 +833,7 @@ func parseClassification(raw string) (*Classification, error) {
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestParseClas|TestClassif'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestParseClas|TestClassif'`
 
 Expected: PASS.
 
@@ -931,7 +931,7 @@ func TestExtractCypher(t *testing.T) {
 
 **Step 3: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestIsReadOnlyGuard|TestExtractCypher'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestIsReadOnlyGuard|TestExtractCypher'`
 
 Expected: FAIL — `extractCypher` not defined.
 
@@ -1009,7 +1009,7 @@ func extractCypher(raw string) string {
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestIsReadOnlyGuard|TestExtractCypher'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestIsReadOnlyGuard|TestExtractCypher'`
 
 Expected: PASS.
 
@@ -1102,7 +1102,7 @@ func TestBuildEdgeBatchCypher(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestIsFresh|TestBuildBatch|TestBuildEdge'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestIsFresh|TestBuildBatch|TestBuildEdge'`
 
 Expected: FAIL — functions not defined.
 
@@ -1549,7 +1549,7 @@ func readFileBytes(path string) ([]byte, error) {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/codegraph/ -v -run 'TestIsFresh|TestBuildBatch|TestBuildEdge'`
+Run: `cd $REPO_ROOT && go test ./internal/codegraph/ -v -run 'TestIsFresh|TestBuildBatch|TestBuildEdge'`
 
 Expected: PASS.
 
@@ -1857,7 +1857,7 @@ Also update the package doc comment to include `code_graph`:
 
 **Step 5: Verify it compiles**
 
-Run: `cd /home/krolik/src/go-code && go build ./cmd/go-code/`
+Run: `cd $REPO_ROOT && go build ./cmd/go-code/`
 
 Expected: clean build.
 
@@ -1873,7 +1873,7 @@ git commit -m "feat: add code_graph MCP tool with lazy indexing and NL→Cypher 
 ## Task 9: Docker + deploy
 
 **Files:**
-- Modify: `~/deploy/krolik-server/docker-compose.yml` (add DATABASE_URL to go-code)
+- Modify: `~/deploy/my-server/docker-compose.yml` (add DATABASE_URL to go-code)
 
 **Step 1: Add DATABASE_URL env var to go-code service in docker-compose.yml**
 
@@ -1887,7 +1887,7 @@ Find the `go-code` service `environment:` section and add:
 
 Run:
 ```bash
-cd ~/deploy/krolik-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
+cd ~/deploy/my-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
 **Step 3: Verify**
@@ -1899,7 +1899,7 @@ Expected: `tools registered count=7` and `AGE availability available=true`.
 **Step 4: Commit docker-compose change**
 
 ```bash
-cd ~/deploy/krolik-server && git add docker-compose.yml
+cd ~/deploy/my-server && git add docker-compose.yml
 git commit -m "feat: add DATABASE_URL to go-code for code_graph tool"
 ```
 
@@ -1913,7 +1913,7 @@ git commit -m "feat: add DATABASE_URL to go-code for code_graph tool"
 
 Call `code_graph` MCP tool:
 ```
-repo: "/home/krolik/src/go-code"
+repo: "$REPO_ROOT"
 query: "who calls ParseFile?"
 ```
 

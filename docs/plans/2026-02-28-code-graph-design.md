@@ -198,7 +198,7 @@ Integration tests tagged `//go:build integration` — not run in CI without PG+A
 ## Decisions
 
 - **One MCP tool** (`code_graph`) — keeps the interface simple
-- **Shared PostgreSQL** from krolik-server — no new infrastructure
+- **Shared PostgreSQL** from my-server — no new infrastructure
 - **Package + File + Symbol granularity** — full hierarchy for all query types
 - **Hybrid NL→Cypher** — templates for reliability, LLM freeform for flexibility
 - **No IMPLEMENTS edges** for now — tree-sitter can't reliably extract interface implementations

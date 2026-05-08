@@ -79,7 +79,7 @@ func TestTierString(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/tier/ -v -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/tier/ -v -count=1`
 Expected: FAIL — package does not exist
 
 - [ ] **Step 3: Write implementation**
@@ -180,13 +180,13 @@ func (d *Detector) ProvenanceFor(used ...string) Provenance {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/tier/ -v -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/tier/ -v -count=1`
 Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/tier/ && git commit -m "feat: add tier detection system for 3-level analysis capabilities"
+cd $REPO_ROOT && git add internal/tier/ && git commit -m "feat: add tier detection system for 3-level analysis capabilities"
 ```
 
 ---
@@ -306,7 +306,7 @@ func writeFile(t *testing.T, path, content string) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/goanalysis/ -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/goanalysis/ -v -count=1 -timeout 60s`
 Expected: FAIL — package does not exist
 
 - [ ] **Step 3: Write implementation**
@@ -412,13 +412,13 @@ func HasGoModule(dir string) bool {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/goanalysis/ -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/goanalysis/ -v -count=1 -timeout 60s`
 Expected: PASS (4 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/goanalysis/ && git commit -m "feat: add Go package loader with go/types support"
+cd $REPO_ROOT && git add internal/goanalysis/ && git commit -m "feat: add Go package loader with go/types support"
 ```
 
 ---
@@ -549,7 +549,7 @@ func main() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/goanalysis/ -run TestResolve -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/goanalysis/ -run TestResolve -v -count=1 -timeout 60s`
 Expected: FAIL — Resolve not defined
 
 - [ ] **Step 3: Write implementation**
@@ -773,13 +773,13 @@ func posFile(fset *token.FileSet, pos token.Pos) string {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/goanalysis/ -run TestResolve -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/goanalysis/ -run TestResolve -v -count=1 -timeout 60s`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/goanalysis/ && git commit -m "feat: add type-aware call resolver using go/types"
+cd $REPO_ROOT && git add internal/goanalysis/ && git commit -m "feat: add type-aware call resolver using go/types"
 ```
 
 ---
@@ -870,7 +870,7 @@ func TestMergeCallGraphs(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/goanalysis/ -run TestConvert -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/goanalysis/ -run TestConvert -v -count=1 -timeout 60s`
 Expected: FAIL — ConvertToCallGraph not defined
 
 - [ ] **Step 3: Write implementation**
@@ -1012,13 +1012,13 @@ func mergeSymbols(a, b []*parser.Symbol) []*parser.Symbol {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/goanalysis/ -run "TestConvert|TestMerge" -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/goanalysis/ -run "TestConvert|TestMerge" -v -count=1 -timeout 60s`
 Expected: PASS (2 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/goanalysis/ && git commit -m "feat: add TypedEdge to CallGraph converter and graph merger"
+cd $REPO_ROOT && git add internal/goanalysis/ && git commit -m "feat: add TypedEdge to CallGraph converter and graph merger"
 ```
 
 ---
@@ -1124,7 +1124,7 @@ func writeTestFile(t *testing.T, path, content string) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/callgraph/ -run "TestBuildFromRepo_Go|TestBuildFromRepo_Fallback" -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/callgraph/ -run "TestBuildFromRepo_Go|TestBuildFromRepo_Fallback" -v -count=1 -timeout 60s`
 Expected: FAIL — cg.Tier undefined (field not yet added)
 
 - [ ] **Step 3: Modify CallGraph struct and BuildFromRepo**
@@ -1210,18 +1210,18 @@ func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/callgraph/ -run "TestBuildFromRepo" -v -count=1 -timeout 60s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/callgraph/ -run "TestBuildFromRepo" -v -count=1 -timeout 60s`
 Expected: PASS (2 tests)
 
 - [ ] **Step 5: Run all existing tests to verify no regressions**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./... -count=1 -timeout 120s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./... -count=1 -timeout 120s`
 Expected: All existing tests pass
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/callgraph/ && git commit -m "feat: integrate go/types resolution into BuildFromRepo with graceful fallback"
+cd $REPO_ROOT && git add internal/callgraph/ && git commit -m "feat: integrate go/types resolution into BuildFromRepo with graceful fallback"
 ```
 
 ---
@@ -1293,13 +1293,13 @@ Populate from `cg.Tier` in `handleDeadCode`.
 
 - [ ] **Step 5: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./... -count=1 -timeout 120s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./... -count=1 -timeout 120s`
 Expected: All tests pass
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add cmd/go-code/ internal/callgraph/ && git commit -m "feat: add tier and provenance metadata to call_trace, impact, dead_code outputs"
+cd $REPO_ROOT && git add cmd/go-code/ internal/callgraph/ && git commit -m "feat: add tier and provenance metadata to call_trace, impact, dead_code outputs"
 ```
 
 ---
@@ -1387,7 +1387,7 @@ func TestUnderstand_WithCallers(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/compound/ -v -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/compound/ -v -count=1`
 Expected: FAIL — package does not exist
 
 - [ ] **Step 3: Write implementation**
@@ -1512,7 +1512,7 @@ func Understand(sym *parser.Symbol, cg *callgraph.CallGraph, opts UnderstandOpts
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/compound/ -v -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/compound/ -v -count=1`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Create MCP tool handler**
@@ -1630,13 +1630,13 @@ Add `registerUnderstand(server, cfg, deps, &semDeps)` after `registerImpact` in 
 
 - [ ] **Step 7: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./... -count=1 -timeout 120s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./... -count=1 -timeout 120s`
 Expected: All tests pass
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/compound/ cmd/go-code/tool_understand.go cmd/go-code/register.go && git commit -m "feat: add understand compound tool — aggregates symbol info, callees, callers"
+cd $REPO_ROOT && git add internal/compound/ cmd/go-code/tool_understand.go cmd/go-code/register.go && git commit -m "feat: add understand compound tool — aggregates symbol info, callees, callers"
 ```
 
 ---
@@ -1718,7 +1718,7 @@ func TestPrepareChange_IsDead(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/compound/ -run TestPrepareChange -v -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/compound/ -run TestPrepareChange -v -count=1`
 Expected: FAIL — PrepareChange not defined
 
 - [ ] **Step 3: Write implementation**
@@ -1801,7 +1801,7 @@ func PrepareChange(cg *callgraph.CallGraph, symbolName string, opts PrepareChang
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./internal/compound/ -run TestPrepareChange -v -count=1`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./internal/compound/ -run TestPrepareChange -v -count=1`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Create MCP tool handler**
@@ -1894,13 +1894,13 @@ Add `registerPrepareChange(server, cfg, deps, &semDeps)` after `registerUndersta
 
 - [ ] **Step 7: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./... -count=1 -timeout 120s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./... -count=1 -timeout 120s`
 Expected: All tests pass
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/compound/ cmd/go-code/tool_prepare_change.go cmd/go-code/register.go && git commit -m "feat: add prepare_change compound tool — aggregates impact analysis + dead code check"
+cd $REPO_ROOT && git add internal/compound/ cmd/go-code/tool_prepare_change.go cmd/go-code/register.go && git commit -m "feat: add prepare_change compound tool — aggregates impact analysis + dead code check"
 ```
 
 ---
@@ -1918,16 +1918,16 @@ cd /home/krolik/src/go-code && git add internal/compound/ cmd/go-code/tool_prepa
 
 - [ ] **Step 1: Tidy go.mod and update go.sum**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go mod tidy`
+Run: `cd $REPO_ROOT && GOWORK=off go mod tidy`
 
 - [ ] **Step 2: Run lint**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off make lint`
+Run: `cd $REPO_ROOT && GOWORK=off make lint`
 Expected: Clean or fix any issues
 
 - [ ] **Step 3: Run full test suite**
 
-Run: `cd /home/krolik/src/go-code && GOWORK=off go test ./... -count=1 -race -timeout 120s`
+Run: `cd $REPO_ROOT && GOWORK=off go test ./... -count=1 -race -timeout 120s`
 Expected: All tests pass with race detector
 
 - [ ] **Step 4: Update CLAUDE.md**
@@ -1941,7 +1941,7 @@ Mark v1.18 as complete. Update the dependency graph. Add release entry.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add -A && git commit -m "chore: lint, tidy, update docs for v1.18"
+cd $REPO_ROOT && git add -A && git commit -m "chore: lint, tidy, update docs for v1.18"
 ```
 
 ---
@@ -1954,12 +1954,12 @@ cd /home/krolik/src/go-code && git add -A && git commit -m "chore: lint, tidy, u
 
 - [ ] **Step 1: Build Docker image**
 
-Run: `cd ~/deploy/krolik-server && docker compose build --no-cache go-code`
+Run: `cd ~/deploy/my-server && docker compose build --no-cache go-code`
 Expected: Build succeeds
 
 - [ ] **Step 2: Deploy**
 
-Run: `cd ~/deploy/krolik-server && docker compose up -d --no-deps --force-recreate go-code`
+Run: `cd ~/deploy/my-server && docker compose up -d --no-deps --force-recreate go-code`
 Expected: Container starts, health check passes
 
 - [ ] **Step 3: Verify health**
@@ -1969,17 +1969,17 @@ Expected: `{"status":"ok"}`
 
 - [ ] **Step 4: E2E test — understand tool on local repo**
 
-Test via MCP: `understand` tool with `repo=/home/krolik/src/go-code`, `symbol=BuildCallGraph`
+Test via MCP: `understand` tool with `repo=$REPO_ROOT`, `symbol=BuildCallGraph`
 Expected: Returns symbol info + callees + tier
 
 - [ ] **Step 5: E2E test — prepare_change tool**
 
-Test via MCP: `prepare_change` tool with `repo=/home/krolik/src/go-code`, `symbol=ParseFile`
+Test via MCP: `prepare_change` tool with `repo=$REPO_ROOT`, `symbol=ParseFile`
 Expected: Returns impact analysis + dead code status + tier
 
 - [ ] **Step 6: E2E test — call_trace with tier info**
 
-Test via MCP: `call_trace` with `repo=/home/krolik/src/go-code`, `symbol=BuildCallGraph`, `compact=true`
+Test via MCP: `call_trace` with `repo=$REPO_ROOT`, `symbol=BuildCallGraph`, `compact=true`
 Expected: Response includes `tier="enhanced"` (since go-code has go.mod)
 
 ---

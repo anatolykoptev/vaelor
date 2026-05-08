@@ -12,9 +12,9 @@
 
 ## Context
 
-**go-code** is at `/home/krolik/src/go-code/` — a code intelligence MCP server.
+**go-code** is at `$REPO_ROOT/` — a code intelligence MCP server.
 
-**go-kit** is at `/home/krolik/src/go-kit/` — shared infrastructure module (`github.com/anatolykoptev/go-kit` v0.1.0) with packages: env, llm, retry, metrics, strutil, cache.
+**go-kit** is at `/home/user/src/go-kit/` — shared infrastructure module (`github.com/anatolykoptev/go-kit` v0.1.0) with packages: env, llm, retry, metrics, strutil, cache.
 
 **What we're replacing:**
 
@@ -45,7 +45,7 @@
 **Step 1: Add go-kit dependency**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 go get github.com/anatolykoptev/go-kit@v0.1.0
 ```
 
@@ -733,7 +733,7 @@ Removes ~545 LOC of duplicated infrastructure."
 **Step 1: Full test suite**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 go test ./... -v -count=1
 ```
 

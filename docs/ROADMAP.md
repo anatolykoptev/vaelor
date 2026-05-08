@@ -698,7 +698,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 
 **Deliverable**: code_graph first-build <15s for memdb. Zero Cypher writes. Full Cypher readability preserved.
 
-**Plan**: `~/deploy/krolik-server/plans/go-code/2026-04-24-age-direct-copy-insert.md`
+**Plan**: `~/deploy/my-server/plans/go-code/2026-04-24-age-direct-copy-insert.md`
 
 ---
 

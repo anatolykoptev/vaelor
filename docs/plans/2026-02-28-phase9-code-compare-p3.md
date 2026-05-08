@@ -13,13 +13,13 @@
 ### Task 1: Add smacker/gum dependency + multi-language ToTree converter
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/go.mod` (add gum dependency)
-- Create: `/home/krolik/src/go-code/internal/compare/astconv.go`
-- Create: `/home/krolik/src/go-code/internal/compare/astconv_test.go`
+- Modify: `$REPO_ROOT/go.mod` (add gum dependency)
+- Create: `$REPO_ROOT/internal/compare/astconv.go`
+- Create: `$REPO_ROOT/internal/compare/astconv_test.go`
 
 **Step 1: Add the gum dependency**
 
-Run: `cd /home/krolik/src/go-code && go get github.com/smacker/gum`
+Run: `cd $REPO_ROOT && go get github.com/smacker/gum`
 
 If this fails due to old go.mod in gum (it was last updated 2019), the fallback is to vendor the core algorithm. The core `gum` package is ~500 lines with no external dependencies. If vendoring is needed:
 1. Copy `gum.go` and `tree.go` from github.com/smacker/gum into `internal/compare/gum/`
@@ -28,7 +28,7 @@ If this fails due to old go.mod in gum (it was last updated 2019), the fallback 
 
 **Step 2: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/astconv_test.go`:
+Create `$REPO_ROOT/internal/compare/astconv_test.go`:
 
 ```go
 package compare
@@ -121,12 +121,12 @@ func collectLeaves(t *gum.Tree) []*gum.Tree {
 
 **Step 3: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestToGumTree -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestToGumTree -v`
 Expected: FAIL — `ToGumTree` undefined
 
 **Step 4: Implement astconv.go**
 
-Create `/home/krolik/src/go-code/internal/compare/astconv.go`:
+Create `$REPO_ROOT/internal/compare/astconv.go`:
 
 ```go
 package compare
@@ -175,20 +175,20 @@ func toGumTreeRec(node *sitter.Node, source []byte) *gum.Tree {
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestToGumTree -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestToGumTree -v`
 Expected: PASS
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add go.mod go.sum internal/compare/astconv.go internal/compare/astconv_test.go
-sudo -u krolik git commit -m "feat(compare): add gum dependency and ToGumTree converter
+cd $REPO_ROOT
+sudo -u $USER git add go.mod go.sum internal/compare/astconv.go internal/compare/astconv_test.go
+sudo -u $USER git commit -m "feat(compare): add gum dependency and ToGumTree converter
 
 Multi-language tree-sitter to gum.Tree conversion for AST diffing.
 Sets Value on all leaf named nodes (language-agnostic).
@@ -201,12 +201,12 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ### Task 2: DiffSummary type + ComputeASTDiff function
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/astdiff.go`
-- Create: `/home/krolik/src/go-code/internal/compare/astdiff_test.go`
+- Create: `$REPO_ROOT/internal/compare/astdiff.go`
+- Create: `$REPO_ROOT/internal/compare/astdiff_test.go`
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/astdiff_test.go`:
+Create `$REPO_ROOT/internal/compare/astdiff_test.go`:
 
 ```go
 package compare
@@ -290,12 +290,12 @@ func TestSummarizeActions_Empty(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeASTDiff -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeASTDiff -v`
 Expected: FAIL — `ComputeASTDiff` undefined
 
 **Step 3: Implement astdiff.go**
 
-Create `/home/krolik/src/go-code/internal/compare/astdiff.go`:
+Create `$REPO_ROOT/internal/compare/astdiff.go`:
 
 ```go
 package compare
@@ -505,20 +505,20 @@ func truncateValue(s string) string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeASTDiff -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeASTDiff -v`
 Expected: All PASS
 
 **Step 5: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/compare/astdiff.go internal/compare/astdiff_test.go
-sudo -u krolik git commit -m "feat(compare): add AST diff for modified symbol pairs
+cd $REPO_ROOT
+sudo -u $USER git add internal/compare/astdiff.go internal/compare/astdiff_test.go
+sudo -u $USER git commit -m "feat(compare): add AST diff for modified symbol pairs
 
 GumTree-based structural diff: re-parses symbol bodies with tree-sitter,
 computes edit script (Insert/Delete/Update/Move), generates human-readable
@@ -532,13 +532,13 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ### Task 3: Wire AST diff into SymbolMatch + CompareRepos
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:44-52` (add DiffSummary to SymbolMatch)
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:217-264` (compute AST diff for modified matches)
-- Modify: `/home/krolik/src/go-code/internal/compare/compare_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go:44-52` (add DiffSummary to SymbolMatch)
+- Modify: `$REPO_ROOT/internal/compare/compare.go:217-264` (compute AST diff for modified matches)
+- Modify: `$REPO_ROOT/internal/compare/compare_test.go`
 
 **Step 1: Write the failing test**
 
-Add to `/home/krolik/src/go-code/internal/compare/compare_test.go`:
+Add to `$REPO_ROOT/internal/compare/compare_test.go`:
 
 ```go
 func TestAnnotateASTDiffs(t *testing.T) {
@@ -592,12 +592,12 @@ func TestAnnotateASTDiffs(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestAnnotateASTDiffs -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestAnnotateASTDiffs -v`
 Expected: FAIL — `annotateASTDiffs` undefined, `Diff` field doesn't exist
 
 **Step 3: Add Diff field to SymbolMatch**
 
-In `/home/krolik/src/go-code/internal/compare/compare.go`, add to `SymbolMatch`:
+In `$REPO_ROOT/internal/compare/compare.go`, add to `SymbolMatch`:
 
 ```go
 type SymbolMatch struct {
@@ -612,7 +612,7 @@ type SymbolMatch struct {
 
 **Step 4: Add annotateASTDiffs and DiffStats**
 
-In `/home/krolik/src/go-code/internal/compare/compare.go`:
+In `$REPO_ROOT/internal/compare/compare.go`:
 
 ```go
 // annotateASTDiffs computes AST diffs for modified symbol matches.
@@ -687,18 +687,18 @@ Include `DiffStats: diffStats` in the result struct.
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestAnnotateASTDiffs -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestAnnotateASTDiffs -v`
 Expected: PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/compare/compare.go internal/compare/compare_test.go
-sudo -u krolik git commit -m "feat(compare): wire AST diff into SymbolMatch and CompareResult
+cd $REPO_ROOT
+sudo -u $USER git add internal/compare/compare.go internal/compare/compare_test.go
+sudo -u $USER git commit -m "feat(compare): wire AST diff into SymbolMatch and CompareResult
 
 Modified matches now carry DiffSummary with edit operation counts and
 human-readable change descriptions. DiffStats aggregates across all
@@ -712,12 +712,12 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ### Task 4: Wire AST diff into LLM context
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/context.go:151-166` (writePair — include diff summary)
-- Modify: `/home/krolik/src/go-code/internal/compare/context_test.go`
+- Modify: `$REPO_ROOT/internal/compare/context.go:151-166` (writePair — include diff summary)
+- Modify: `$REPO_ROOT/internal/compare/context_test.go`
 
 **Step 1: Write the failing test**
 
-Add to `/home/krolik/src/go-code/internal/compare/context_test.go`:
+Add to `$REPO_ROOT/internal/compare/context_test.go`:
 
 ```go
 func TestBuildCompareContext_IncludesDiffSummary(t *testing.T) {
@@ -759,12 +759,12 @@ func TestBuildCompareContext_IncludesDiffSummary(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext_IncludesDiffSummary -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext_IncludesDiffSummary -v`
 Expected: FAIL — no "Structural changes" in output
 
 **Step 3: Update writePair to include diff summary**
 
-In `/home/krolik/src/go-code/internal/compare/context.go`, modify the `writePair` function to add a diff section at the end:
+In `$REPO_ROOT/internal/compare/context.go`, modify the `writePair` function to add a diff section at the end:
 
 ```go
 func writePair(sb *strings.Builder, m *SymbolMatch) {
@@ -803,18 +803,18 @@ func writeDiffSummary(sb *strings.Builder, diff *DiffSummary) {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext_IncludesDiffSummary -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext_IncludesDiffSummary -v`
 Expected: PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
 **Step 5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/compare/context.go internal/compare/context_test.go
-sudo -u krolik git commit -m "feat(compare): show AST diff in LLM context for modified pairs
+cd $REPO_ROOT
+sudo -u $USER git add internal/compare/context.go internal/compare/context_test.go
+sudo -u $USER git commit -m "feat(compare): show AST diff in LLM context for modified pairs
 
 writePair now includes a Structural changes section when a modified
 match has a DiffSummary, showing edit operation counts and change
@@ -828,15 +828,15 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ### Task 5: Import categorization
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/importcat.go`
-- Create: `/home/krolik/src/go-code/internal/compare/importcat_test.go`
-- Modify: `/home/krolik/src/go-code/internal/compare/importdiff.go` (add categories to ImportDiff)
-- Modify: `/home/krolik/src/go-code/internal/compare/importdiff_test.go`
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go` (pass language to ComputeImportDiff)
+- Create: `$REPO_ROOT/internal/compare/importcat.go`
+- Create: `$REPO_ROOT/internal/compare/importcat_test.go`
+- Modify: `$REPO_ROOT/internal/compare/importdiff.go` (add categories to ImportDiff)
+- Modify: `$REPO_ROOT/internal/compare/importdiff_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go` (pass language to ComputeImportDiff)
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/importcat_test.go`:
+Create `$REPO_ROOT/internal/compare/importcat_test.go`:
 
 ```go
 package compare
@@ -948,12 +948,12 @@ func TestDetectFrameworks(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run "TestCategorizeImport|TestDetectFrameworks" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestCategorizeImport|TestDetectFrameworks" -v`
 Expected: FAIL — `CategorizeImport` undefined
 
 **Step 3: Implement importcat.go**
 
-Create `/home/krolik/src/go-code/internal/compare/importcat.go`:
+Create `$REPO_ROOT/internal/compare/importcat.go`:
 
 ```go
 package compare
@@ -1141,12 +1141,12 @@ func DetectFrameworks(imports []string, language string) []string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run "TestCategorizeImport|TestDetectFrameworks" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestCategorizeImport|TestDetectFrameworks" -v`
 Expected: All PASS
 
 **Step 5: Add categories to ImportDiff**
 
-In `/home/krolik/src/go-code/internal/compare/importdiff.go`, add fields to `ImportDiff`:
+In `$REPO_ROOT/internal/compare/importdiff.go`, add fields to `ImportDiff`:
 
 ```go
 type ImportDiff struct {
@@ -1208,7 +1208,7 @@ Add category counting and framework detection before the return statement:
 
 **Step 6: Update callers**
 
-In `/home/krolik/src/go-code/internal/compare/compare.go`, update:
+In `$REPO_ROOT/internal/compare/compare.go`, update:
 
 ```go
 	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports, snapA.Language)
@@ -1216,7 +1216,7 @@ In `/home/krolik/src/go-code/internal/compare/compare.go`, update:
 
 **Step 7: Update existing tests**
 
-In `/home/krolik/src/go-code/internal/compare/importdiff_test.go`, update all `ComputeImportDiff` calls to pass `"go"` as the third argument:
+In `$REPO_ROOT/internal/compare/importdiff_test.go`, update all `ComputeImportDiff` calls to pass `"go"` as the third argument:
 
 ```go
 ComputeImportDiff(importsA, importsB, "go")
@@ -1250,18 +1250,18 @@ func TestComputeImportDiff_WithCategories(t *testing.T) {
 
 **Step 8: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS
 
 **Step 9: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add internal/compare/importcat.go internal/compare/importcat_test.go internal/compare/importdiff.go internal/compare/importdiff_test.go internal/compare/compare.go
-sudo -u krolik git commit -m "feat(compare): add import categorization and framework detection
+cd $REPO_ROOT
+sudo -u $USER git add internal/compare/importcat.go internal/compare/importcat_test.go internal/compare/importdiff.go internal/compare/importdiff_test.go internal/compare/compare.go
+sudo -u $USER git commit -m "feat(compare): add import categorization and framework detection
 
 Categorize imports as stdlib/internal/external for Go, Python, JS/TS.
 Detect common frameworks (gin, flask, react, etc.) from import lists.
@@ -1278,16 +1278,16 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 **Step 1: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS
 
 **Step 2: Deploy**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -1306,16 +1306,16 @@ Use the MCP tool to compare two repos and verify new fields appear:
 **Step 5: Push to origin**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git push origin main
+cd $REPO_ROOT
+sudo -u $USER git push origin main
 ```
 
 **Step 6: Commit any lint/build fixes if needed**
 
 ```bash
-cd /home/krolik/src/go-code
-sudo -u krolik git add -A
-sudo -u krolik git commit -m "chore: lint fixes for code_compare P3
+cd $REPO_ROOT
+sudo -u $USER git add -A
+sudo -u $USER git commit -m "chore: lint fixes for code_compare P3
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ```

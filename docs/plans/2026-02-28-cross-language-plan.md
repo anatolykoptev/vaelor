@@ -32,7 +32,7 @@
 
 **Build & test:**
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 go test ./internal/polyglot/ -v      # polyglot tests
 go test ./internal/routes/ -v        # route tests
 go test ./internal/codegraph/ -v     # codegraph tests
@@ -41,7 +41,7 @@ go test ./... 2>&1 | tail -20        # full suite
 
 **Deploy:**
 ```bash
-cd /home/krolik/deploy/krolik-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -1945,7 +1945,7 @@ Expected: All PASS
 **Step 2: Build and deploy**
 
 ```bash
-cd /home/krolik/deploy/krolik-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code
 docker compose up -d --no-deps --force-recreate go-code
 ```

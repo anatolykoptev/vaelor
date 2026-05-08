@@ -13,13 +13,13 @@
 ### Task 1: Composite Quality Grade (A-F)
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/grade.go`
-- Create: `/home/krolik/src/go-code/internal/compare/grade_test.go`
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:108-120` (RepoMetrics → add Grade field)
+- Create: `$REPO_ROOT/internal/compare/grade.go`
+- Create: `$REPO_ROOT/internal/compare/grade_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go:108-120` (RepoMetrics → add Grade field)
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/grade_test.go`:
+Create `$REPO_ROOT/internal/compare/grade_test.go`:
 
 ```go
 package compare
@@ -113,12 +113,12 @@ func TestGradeScore_Range(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeGrade -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeGrade -v`
 Expected: FAIL — `ComputeGrade` undefined
 
 **Step 3: Implement grade.go**
 
-Create `/home/krolik/src/go-code/internal/compare/grade.go`:
+Create `$REPO_ROOT/internal/compare/grade.go`:
 
 ```go
 package compare
@@ -211,15 +211,15 @@ func clamp01(v float64) float64 {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeGrade -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeGrade -v`
 Expected: PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestGradeScore_Range -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestGradeScore_Range -v`
 Expected: PASS
 
 **Step 5: Add Grade field to RepoMetrics**
 
-In `/home/krolik/src/go-code/internal/compare/compare.go`, add to `RepoMetrics`:
+In `$REPO_ROOT/internal/compare/compare.go`, add to `RepoMetrics`:
 
 ```go
 type RepoMetrics struct {
@@ -238,7 +238,7 @@ type RepoMetrics struct {
 }
 ```
 
-In `/home/krolik/src/go-code/internal/compare/metrics.go`, add at end of `ComputeMetrics` before `return`:
+In `$REPO_ROOT/internal/compare/metrics.go`, add at end of `ComputeMetrics` before `return`:
 
 ```go
 	result := RepoMetrics{
@@ -250,13 +250,13 @@ In `/home/krolik/src/go-code/internal/compare/metrics.go`, add at end of `Comput
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/grade.go internal/compare/grade_test.go internal/compare/compare.go internal/compare/metrics.go
 git commit -m "feat(compare): add composite quality grade (A-F) to RepoMetrics
 
@@ -270,13 +270,13 @@ mapped to A/B/C/D/F letter grades."
 ### Task 2: Import Diff
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/importdiff.go`
-- Create: `/home/krolik/src/go-code/internal/compare/importdiff_test.go`
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:164-176` (CompareResult → add ImportDiff)
+- Create: `$REPO_ROOT/internal/compare/importdiff.go`
+- Create: `$REPO_ROOT/internal/compare/importdiff_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go:164-176` (CompareResult → add ImportDiff)
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/importdiff_test.go`:
+Create `$REPO_ROOT/internal/compare/importdiff_test.go`:
 
 ```go
 package compare
@@ -340,12 +340,12 @@ func containsStr(slice []string, s string) bool {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeImportDiff -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeImportDiff -v`
 Expected: FAIL — `ComputeImportDiff` undefined
 
 **Step 3: Implement importdiff.go**
 
-Create `/home/krolik/src/go-code/internal/compare/importdiff.go`:
+Create `$REPO_ROOT/internal/compare/importdiff.go`:
 
 ```go
 package compare
@@ -415,12 +415,12 @@ func ComputeImportDiff(importsA, importsB []string) ImportDiff {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeImportDiff -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeImportDiff -v`
 Expected: All PASS
 
 **Step 5: Wire into CompareResult**
 
-In `/home/krolik/src/go-code/internal/compare/compare.go`, add `ImportDiff` field to `CompareResult`:
+In `$REPO_ROOT/internal/compare/compare.go`, add `ImportDiff` field to `CompareResult`:
 
 ```go
 type CompareResult struct {
@@ -456,7 +456,7 @@ And include in the result:
 
 **Step 6: Add integration test**
 
-Add to `/home/krolik/src/go-code/internal/compare/compare_test.go`:
+Add to `$REPO_ROOT/internal/compare/compare_test.go`:
 
 ```go
 func TestCompareRepos_ImportDiff(t *testing.T) {
@@ -491,13 +491,13 @@ func TestCompareRepos_ImportDiff(t *testing.T) {
 
 **Step 7: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/importdiff.go internal/compare/importdiff_test.go internal/compare/compare.go internal/compare/compare_test.go
 git commit -m "feat(compare): add import diff to CompareResult
 
@@ -510,12 +510,12 @@ Helps identify dependency strategy differences between repos."
 ### Task 3: Git Churn Analysis
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/churn.go`
-- Create: `/home/krolik/src/go-code/internal/compare/churn_test.go`
+- Create: `$REPO_ROOT/internal/compare/churn.go`
+- Create: `$REPO_ROOT/internal/compare/churn_test.go`
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/churn_test.go`:
+Create `$REPO_ROOT/internal/compare/churn_test.go`:
 
 ```go
 package compare
@@ -600,12 +600,12 @@ func TestCollectChurn_RealRepo(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestParseNumstatLine -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestParseNumstatLine -v`
 Expected: FAIL — `parseNumstatLine` undefined
 
 **Step 3: Implement churn.go**
 
-Create `/home/krolik/src/go-code/internal/compare/churn.go`:
+Create `$REPO_ROOT/internal/compare/churn.go`:
 
 ```go
 package compare
@@ -784,21 +784,21 @@ func resolveRenamePath(path string) string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestParseNumstatLine -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestParseNumstatLine -v`
 Expected: PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestCollectChurn_RealRepo -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCollectChurn_RealRepo -v`
 Expected: PASS
 
 **Step 5: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/churn.go internal/compare/churn_test.go
 git commit -m "feat(compare): add git churn analysis
 
@@ -812,12 +812,12 @@ Handles renames, binary files, non-git repos gracefully."
 ### Task 4: Hotspot Scoring
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/hotspot.go`
-- Create: `/home/krolik/src/go-code/internal/compare/hotspot_test.go`
+- Create: `$REPO_ROOT/internal/compare/hotspot.go`
+- Create: `$REPO_ROOT/internal/compare/hotspot_test.go`
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/hotspot_test.go`:
+Create `$REPO_ROOT/internal/compare/hotspot_test.go`:
 
 ```go
 package compare
@@ -890,12 +890,12 @@ func TestPercentileRank(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestComputeHotspots -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestComputeHotspots -v`
 Expected: FAIL — `ComputeHotspots` undefined
 
 **Step 3: Implement hotspot.go**
 
-Create `/home/krolik/src/go-code/internal/compare/hotspot.go`:
+Create `$REPO_ROOT/internal/compare/hotspot.go`:
 
 ```go
 package compare
@@ -1060,18 +1060,18 @@ func classifyRisk(score float64) string {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run "TestComputeHotspots|TestPercentileRank" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestComputeHotspots|TestPercentileRank" -v`
 Expected: All PASS
 
 **Step 5: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/hotspot.go internal/compare/hotspot_test.go
 git commit -m "feat(compare): add hotspot scoring (churn × complexity)
 
@@ -1085,14 +1085,14 @@ FileComplexityFromSnapshot extracts per-file avg complexity."
 ### Task 5: Wire Hotspots into CompareRepos and LLM Context
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:164-274` (add hotspot fields + collection)
-- Modify: `/home/krolik/src/go-code/internal/compare/context.go` (add hotspot section)
-- Modify: `/home/krolik/src/go-code/internal/compare/context_test.go`
-- Modify: `/home/krolik/src/go-code/internal/compare/compare_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go:164-274` (add hotspot fields + collection)
+- Modify: `$REPO_ROOT/internal/compare/context.go` (add hotspot section)
+- Modify: `$REPO_ROOT/internal/compare/context_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare_test.go`
 
 **Step 1: Write the failing test for context**
 
-Add to `/home/krolik/src/go-code/internal/compare/context_test.go`:
+Add to `$REPO_ROOT/internal/compare/context_test.go`:
 
 ```go
 func TestBuildCompareContext_IncludesHotspots(t *testing.T) {
@@ -1127,12 +1127,12 @@ func TestBuildCompareContext_IncludesHotspots(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext_IncludesHotspots -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext_IncludesHotspots -v`
 Expected: FAIL — `BuildCompareContextV2` undefined
 
 **Step 3: Update BuildCompareContext to accept hotspots**
 
-In `/home/krolik/src/go-code/internal/compare/context.go`:
+In `$REPO_ROOT/internal/compare/context.go`:
 
 1. Rename `BuildCompareContext` → keep it as a backward-compat wrapper, add `BuildCompareContextV2`:
 
@@ -1213,7 +1213,7 @@ func writeHotspots(sb *strings.Builder, hotspotsA, hotspotsB []HotspotFile) {
 
 **Step 4: Wire hotspots into CompareRepos**
 
-In `/home/krolik/src/go-code/internal/compare/compare.go`:
+In `$REPO_ROOT/internal/compare/compare.go`:
 
 Add fields to `CompareResult`:
 
@@ -1262,12 +1262,12 @@ Update the LLM context call to use V2:
 
 **Step 5: Run context test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext_IncludesHotspots -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext_IncludesHotspots -v`
 Expected: PASS
 
 **Step 6: Add integration test**
 
-Add to `/home/krolik/src/go-code/internal/compare/compare_test.go`:
+Add to `$REPO_ROOT/internal/compare/compare_test.go`:
 
 ```go
 func TestCompareRepos_Hotspots(t *testing.T) {
@@ -1295,13 +1295,13 @@ func TestCompareRepos_Hotspots(t *testing.T) {
 
 **Step 7: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/compare.go internal/compare/context.go internal/compare/context_test.go internal/compare/compare_test.go
 git commit -m "feat(compare): wire hotspots into CompareResult and LLM context
 
@@ -1318,16 +1318,16 @@ Non-fatal: skipped gracefully for non-git repos."
 
 **Step 1: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v -count=1`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v -count=1`
 Expected: All PASS
 
-Run: `cd /home/krolik/src/go-code && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go test ./... -count=1`
 Expected: All PASS
 
 **Step 2: Deploy**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
@@ -1339,7 +1339,7 @@ Expected: healthy response
 **Step 4: Commit any lint fixes if needed**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add -A
 git commit -m "chore: lint fixes for code_compare P2"
 ```

@@ -49,7 +49,7 @@ In `handleCodeSearch`, after the `query→pattern` alias block (line ~68-70), ad
 
 **Step 3: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && make build`
+Run: `cd $REPO_ROOT && make build`
 Expected: compiles without errors.
 
 **Step 4: Commit**
@@ -123,7 +123,7 @@ Note: `analyze.DepGraphInput.MaxDepth` keeps its name (internal, not exposed to 
 
 **Step 3: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && make build`
+Run: `cd $REPO_ROOT && make build`
 
 **Step 4: Commit**
 
@@ -184,7 +184,7 @@ Replace the `query` required check:
 
 **Step 3: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && make build`
+Run: `cd $REPO_ROOT && make build`
 
 **Step 4: Commit**
 
@@ -315,7 +315,7 @@ Keep `formatParseResult`, `formatSymbolsTable`, `formatSymbolsAST` unchanged.
 
 **Step 3: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && make build`
+Run: `cd $REPO_ROOT && make build`
 
 **Step 4: Commit**
 
@@ -359,7 +359,7 @@ Add `"sort"` to imports.
 
 **Step 2: Build and verify**
 
-Run: `cd /home/krolik/src/go-code && make build`
+Run: `cd $REPO_ROOT && make build`
 
 **Step 3: Commit**
 
@@ -447,7 +447,7 @@ func TestFileParseInput_RepoField(t *testing.T) {
 
 **Step 2: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./cmd/go-code/ -run TestCodeSearch\|TestDepGraph\|TestSymbol\|TestFileParse -v`
+Run: `cd $REPO_ROOT && go test ./cmd/go-code/ -run TestCodeSearch\|TestDepGraph\|TestSymbol\|TestFileParse -v`
 Expected: all PASS.
 
 **Step 3: Commit**
@@ -463,7 +463,7 @@ git commit -m "test: add alias parameter unit tests"
 
 **Step 1: Build Docker image**
 
-Run: `cd ~/deploy/krolik-server && docker compose build --no-cache go-code`
+Run: `cd ~/deploy/my-server && docker compose build --no-cache go-code`
 
 **Step 2: Restart service**
 
@@ -476,5 +476,5 @@ Test with curl or MCP client that `file_parse` accepts `repo`, `code_search` acc
 **Step 4: Final commit tag (optional)**
 
 ```bash
-cd /home/krolik/src/go-code && git tag v1.16.0
+cd $REPO_ROOT && git tag v1.16.0
 ```

@@ -13,9 +13,9 @@
 ## Task 1: Add BodyHash to parser.Symbol
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/parser/parser.go:36-65`
-- Modify: `/home/krolik/src/go-code/internal/compare/snapshot.go:99-117`
-- Test: `/home/krolik/src/go-code/internal/compare/snapshot_test.go`
+- Modify: `$REPO_ROOT/internal/parser/parser.go:36-65`
+- Modify: `$REPO_ROOT/internal/compare/snapshot.go:99-117`
+- Test: `$REPO_ROOT/internal/compare/snapshot_test.go`
 
 **Step 1: Write the failing test**
 
@@ -49,12 +49,12 @@ func TestBuildSnapshot_BodyHash(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildSnapshot_BodyHash -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildSnapshot_BodyHash -v`
 Expected: FAIL — `sym.BodyHash undefined (type *parser.Symbol has no field or method BodyHash)`
 
 **Step 3: Add BodyHash field to parser.Symbol**
 
-In `/home/krolik/src/go-code/internal/parser/parser.go`, add after the `DocComment` field:
+In `$REPO_ROOT/internal/parser/parser.go`, add after the `DocComment` field:
 
 ```go
 	// BodyHash is a content hash of the normalized symbol body.
@@ -64,7 +64,7 @@ In `/home/krolik/src/go-code/internal/parser/parser.go`, add after the `DocComme
 
 **Step 4: Compute BodyHash in snapshot.go**
 
-In `/home/krolik/src/go-code/internal/compare/snapshot.go`, add import `"github.com/cespare/xxhash/v2"` and a helper function:
+In `$REPO_ROOT/internal/compare/snapshot.go`, add import `"github.com/cespare/xxhash/v2"` and a helper function:
 
 ```go
 // computeBodyHashes sets BodyHash on each symbol that has a non-empty Body.
@@ -87,18 +87,18 @@ Call it in `buildSnapshotResult` right before the return statement:
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildSnapshot_BodyHash -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildSnapshot_BodyHash -v`
 Expected: PASS
 
 **Step 6: Run all existing tests to check for regressions**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/parser/parser.go internal/compare/snapshot.go internal/compare/snapshot_test.go
 git commit -m "feat(compare): add BodyHash to parser.Symbol for content-based matching
 
@@ -112,9 +112,9 @@ without string comparison."
 ## Task 2: Use BodyHash in symbol matching — detect identical vs modified
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:20-35` (MatchType constants)
-- Modify: `/home/krolik/src/go-code/internal/compare/match.go:66-93` (matchExact)
-- Test: `/home/krolik/src/go-code/internal/compare/match_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go:20-35` (MatchType constants)
+- Modify: `$REPO_ROOT/internal/compare/match.go:66-93` (matchExact)
+- Test: `$REPO_ROOT/internal/compare/match_test.go`
 
 **Step 1: Write the failing test**
 
@@ -154,7 +154,7 @@ func TestMatchExact_DistinguishIdenticalFromModified(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestMatchExact_DistinguishIdenticalFromModified -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestMatchExact_DistinguishIdenticalFromModified -v`
 Expected: FAIL — `MatchModified` undefined
 
 **Step 3: Add MatchModified constant**
@@ -188,18 +188,18 @@ In `match.go`, update the match creation inside `matchExact` (the block where `i
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestMatchExact_DistinguishIdenticalFromModified -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestMatchExact_DistinguishIdenticalFromModified -v`
 Expected: PASS
 
 **Step 6: Run all match tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestMatch -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestMatch -v`
 Expected: All PASS (existing tests still pass because BodyHash=0 means skip the check)
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/compare.go internal/compare/match.go internal/compare/match_test.go
 git commit -m "feat(compare): distinguish identical vs modified symbols via BodyHash
 
@@ -213,8 +213,8 @@ consumers see which matched symbols actually changed."
 ## Task 3: Add signature-based matching (catch renames)
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/match.go`
-- Test: `/home/krolik/src/go-code/internal/compare/match_test.go`
+- Modify: `$REPO_ROOT/internal/compare/match.go`
+- Test: `$REPO_ROOT/internal/compare/match_test.go`
 
 **Step 1: Write the failing test**
 
@@ -269,7 +269,7 @@ func TestMatchSignature_DifferentSignature_NoMatch(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestMatchSignature -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestMatchSignature -v`
 Expected: FAIL — `MatchRenamed` undefined
 
 **Step 3: Add MatchRenamed constant and signature matching pass**
@@ -375,18 +375,18 @@ Replace the section after `matchFuzzy` (line ~36-44):
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestMatchSignature -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestMatchSignature -v`
 Expected: PASS
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/compare.go internal/compare/match.go internal/compare/match_test.go
 git commit -m "feat(compare): add signature-based matching to detect renames
 
@@ -400,13 +400,13 @@ with score based on signature similarity + body hash agreement."
 ## Task 4: Add cyclomatic complexity to RepoMetrics
 
 **Files:**
-- Create: `/home/krolik/src/go-code/internal/compare/complexity.go`
-- Create: `/home/krolik/src/go-code/internal/compare/complexity_test.go`
-- Modify: `/home/krolik/src/go-code/internal/compare/metrics.go:101-115`
+- Create: `$REPO_ROOT/internal/compare/complexity.go`
+- Create: `$REPO_ROOT/internal/compare/complexity_test.go`
+- Modify: `$REPO_ROOT/internal/compare/metrics.go:101-115`
 
 **Step 1: Write the failing test**
 
-Create `/home/krolik/src/go-code/internal/compare/complexity_test.go`:
+Create `$REPO_ROOT/internal/compare/complexity_test.go`:
 
 ```go
 package compare
@@ -476,12 +476,12 @@ func TestCyclomaticComplexity(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestCyclomaticComplexity -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCyclomaticComplexity -v`
 Expected: FAIL — `cyclomaticComplexity` undefined
 
 **Step 3: Implement complexity.go**
 
-Create `/home/krolik/src/go-code/internal/compare/complexity.go`:
+Create `$REPO_ROOT/internal/compare/complexity.go`:
 
 ```go
 package compare
@@ -539,7 +539,7 @@ func cyclomaticComplexity(body string) int {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestCyclomaticComplexity -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCyclomaticComplexity -v`
 Expected: PASS
 
 **Step 5: Wire complexity into RepoMetrics**
@@ -657,13 +657,13 @@ func TestComputeMetrics_Complexity(t *testing.T) {
 
 **Step 7: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 8: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/complexity.go internal/compare/complexity_test.go internal/compare/metrics.go internal/compare/metrics_test.go
 git commit -m "feat(compare): add cyclomatic complexity to RepoMetrics
 
@@ -677,8 +677,8 @@ Covers Go, Python, JS/TS, Java, Ruby patterns."
 ## Task 5: Prioritize most-different symbols for LLM context
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/context.go`
-- Test: `/home/krolik/src/go-code/internal/compare/context_test.go`
+- Modify: `$REPO_ROOT/internal/compare/context.go`
+- Test: `$REPO_ROOT/internal/compare/context_test.go`
 
 **Step 1: Write the failing test**
 
@@ -731,7 +731,7 @@ func TestBuildCompareContext_PrioritizesModified(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext_PrioritizesModified -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext_PrioritizesModified -v`
 Expected: FAIL — identical symbols appear before modified ones
 
 **Step 3: Add prioritization logic**
@@ -802,18 +802,18 @@ func writeMatchedPairs(sb *strings.Builder, matches []SymbolMatch) {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext_PrioritizesModified -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext_PrioritizesModified -v`
 Expected: PASS
 
 **Step 5: Run all context tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestBuildCompareContext -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestBuildCompareContext -v`
 Expected: All PASS
 
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/context.go internal/compare/context_test.go
 git commit -m "feat(compare): prioritize modified/renamed symbols in LLM context
 
@@ -827,8 +827,8 @@ the 80-pair budget."
 ## Task 6: Add match breakdown to CompareResult
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/compare/compare.go:147-158`
-- Test: `/home/krolik/src/go-code/internal/compare/compare_test.go`
+- Modify: `$REPO_ROOT/internal/compare/compare.go:147-158`
+- Test: `$REPO_ROOT/internal/compare/compare_test.go`
 
 **Step 1: Write the failing test**
 
@@ -867,7 +867,7 @@ func TestCompareRepos_MatchBreakdown(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestCompareRepos_MatchBreakdown -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCompareRepos_MatchBreakdown -v`
 Expected: FAIL — `MatchBreakdown` field not found
 
 **Step 3: Add MatchBreakdown struct and field**
@@ -944,18 +944,18 @@ And include in the result:
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run TestCompareRepos_MatchBreakdown -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run TestCompareRepos_MatchBreakdown -v`
 Expected: PASS
 
 **Step 6: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add internal/compare/compare.go internal/compare/compare_test.go
 git commit -m "feat(compare): add MatchBreakdown to CompareResult
 
@@ -971,17 +971,17 @@ renamed, or semantic — without parsing all match entries."
 
 **Step 1: Run linter**
 
-Run: `cd /home/krolik/src/go-code && make lint`
+Run: `cd $REPO_ROOT && make lint`
 Expected: PASS with no errors. If errors appear, fix them before proceeding.
 
 **Step 2: Run all tests**
 
-Run: `cd /home/krolik/src/go-code && make test`
+Run: `cd $REPO_ROOT && make test`
 Expected: All PASS
 
 **Step 3: Deploy**
 
-Run: `cd /home/krolik/src/go-code && make deploy`
+Run: `cd $REPO_ROOT && make deploy`
 Expected: go-code container rebuilt and restarted.
 
 **Step 4: Smoke test**
@@ -992,7 +992,7 @@ Expected: healthy response
 **Step 5: Commit any lint fixes if needed**
 
 ```bash
-cd /home/krolik/src/go-code
+cd $REPO_ROOT
 git add -A
 git commit -m "chore: lint fixes for code_compare v2"
 ```

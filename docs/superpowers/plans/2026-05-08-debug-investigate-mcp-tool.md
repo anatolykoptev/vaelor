@@ -137,7 +137,7 @@ func TestClient_GetJSON_DecodesResponse(t *testing.T) {
 - [ ] **Step 1.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/promclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/promclient/...
 ```
 
 Expected: FAIL with "package promclient does not exist" or similar.
@@ -204,7 +204,7 @@ func (c *Client) getJSON(ctx context.Context, path string, dest any) error {
 - [ ] **Step 1.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/promclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/promclient/...
 ```
 
 Expected: PASS — 4 tests OK.
@@ -212,7 +212,7 @@ Expected: PASS — 4 tests OK.
 - [ ] **Step 1.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/promclient/
+cd $REPO_ROOT && git add internal/promclient/
 git commit -m "feat(promclient): bootstrap HTTP client skeleton
 
 Pure-HTTP wrapper for Prometheus query API. Timeout-configurable
@@ -295,7 +295,7 @@ Add `"strings"` to imports if not already present.
 - [ ] **Step 2.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/promclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/promclient/...
 ```
 
 Expected: FAIL — `c.QueryRange` undefined.
@@ -360,7 +360,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 - [ ] **Step 2.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/promclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/promclient/...
 ```
 
 Expected: PASS.
@@ -368,7 +368,7 @@ Expected: PASS.
 - [ ] **Step 2.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/promclient/
+cd $REPO_ROOT && git add internal/promclient/
 git commit -m "feat(promclient): QueryRange — fetch Prometheus matrix over time
 
 QueryRange(ctx, promql, start, end, step) → matrix response.
@@ -454,7 +454,7 @@ func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
 - [ ] **Step 3.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/jaegerclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/jaegerclient/...
 ```
 
 Expected: FAIL — package not found.
@@ -551,7 +551,7 @@ func (c *Client) ListServices(ctx context.Context) ([]string, error) {
 - [ ] **Step 3.5: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/jaegerclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/jaegerclient/...
 ```
 
 Expected: PASS.
@@ -559,7 +559,7 @@ Expected: PASS.
 - [ ] **Step 3.6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/jaegerclient/
+cd $REPO_ROOT && git add internal/jaegerclient/
 git commit -m "feat(jaegerclient): bootstrap HTTP client + ListServices
 
 Pure-HTTP wrapper for Jaeger query API. ListServices returns the
@@ -680,7 +680,7 @@ func TestGetTrace_NotFound(t *testing.T) {
 - [ ] **Step 4.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/jaegerclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/jaegerclient/...
 ```
 
 Expected: FAIL — `FindTraces`, `GetTrace`, `FindTracesParams`, `Trace`, `Span` undefined.
@@ -806,7 +806,7 @@ func (c *Client) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
 - [ ] **Step 4.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/jaegerclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/jaegerclient/...
 ```
 
 Expected: PASS — 6 tests.
@@ -814,7 +814,7 @@ Expected: PASS — 6 tests.
 - [ ] **Step 4.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/jaegerclient/
+cd $REPO_ROOT && git add internal/jaegerclient/
 git commit -m "feat(jaegerclient): FindTraces + GetTrace
 
 FindTraces(ctx, params) → []Trace filtered by service/operation/tags
@@ -891,7 +891,7 @@ func TestOperationToFuncName_Empty(t *testing.T) {
 - [ ] **Step 5.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: FAIL — `OperationToFuncName` undefined.
@@ -963,7 +963,7 @@ func OperationToFuncName(op string) string {
 - [ ] **Step 5.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: PASS — 4 test groups.
@@ -971,7 +971,7 @@ Expected: PASS — 4 test groups.
 - [ ] **Step 5.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/investigate/
+cd $REPO_ROOT && git add internal/investigate/
 git commit -m "feat(investigate): OperationToFuncName — span op → symbol name
 
 Maps Jaeger operation names to Go function identifiers:
@@ -1070,7 +1070,7 @@ func TestInvestigationResult_StableSortPreserved(t *testing.T) {
 - [ ] **Step 6.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: FAIL — `Hypothesis`, `RankHypotheses`, `ConfidenceFromScore`, `InvestigationResult`, `compositeLess` undefined.
@@ -1190,7 +1190,7 @@ func RankHypotheses(h []Hypothesis) []Hypothesis {
 - [ ] **Step 6.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: PASS.
@@ -1198,7 +1198,7 @@ Expected: PASS.
 - [ ] **Step 6.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/investigate/
+cd $REPO_ROOT && git add internal/investigate/
 git commit -m "feat(investigate): Hypothesis + InvestigationResult + ranking
 
 Hypothesis: candidate root-cause site (subject, file:line, span_count,
@@ -1312,7 +1312,7 @@ func TestInvestigationStore_ConcurrentStartIsRaceFree(t *testing.T) {
 - [ ] **Step 7.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: FAIL — `NewInvestigationStore`, `StatusRunning`, `StatusDone`, `StatusFailed` undefined.
@@ -1413,7 +1413,7 @@ func stateKey(service string, start, end time.Time) string {
 - [ ] **Step 7.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test -race ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test -race ./internal/investigate/...
 ```
 
 Expected: PASS — including the concurrent test under `-race`.
@@ -1421,7 +1421,7 @@ Expected: PASS — including the concurrent test under `-race`.
 - [ ] **Step 7.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/investigate/
+cd $REPO_ROOT && git add internal/investigate/
 git commit -m "feat(investigate): InvestigationStore — sync.Map dedup lifecycle
 
 State machine running → done|failed, dedup on (service, range) key.
@@ -1481,7 +1481,7 @@ func TestBuildSystemPrompt_TruncatesLongMetricList(t *testing.T) {
 - [ ] **Step 8.2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: FAIL — `BuildSystemPrompt` and `PromptContext` undefined.
@@ -1582,7 +1582,7 @@ Output schema (JSON, exactly):
 - [ ] **Step 8.4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/...
 ```
 
 Expected: PASS.
@@ -1590,7 +1590,7 @@ Expected: PASS.
 - [ ] **Step 8.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add internal/investigate/
+cd $REPO_ROOT && git add internal/investigate/
 git commit -m "feat(investigate): LLM ground-truth system prompt builder
 
 BuildSystemPrompt injects real metric names + trace service names
@@ -1612,7 +1612,7 @@ rule, and a strict JSON output schema."
 
 Run:
 ```bash
-cd /home/krolik/src/go-code && grep -n "type Config" cmd/go-code/config.go
+cd $REPO_ROOT && grep -n "type Config" cmd/go-code/config.go
 ```
 
 Locate the `Config` struct field block and `Load`/`LoadConfig` function (whichever the file uses) — needed for next step.
@@ -1652,7 +1652,7 @@ JAEGER_URL=http://jaeger:16686
 - [ ] **Step 9.4: Verify build**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go build ./cmd/go-code/
+cd $REPO_ROOT && GOWORK=off go build ./cmd/go-code/
 ```
 
 Expected: clean exit.
@@ -1660,7 +1660,7 @@ Expected: clean exit.
 - [ ] **Step 9.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add cmd/go-code/config.go .env.example
+cd $REPO_ROOT && git add cmd/go-code/config.go .env.example
 git commit -m "feat(config): PROMETHEUS_URL + JAEGER_URL for debug_investigate
 
 Two new env vars feed the upcoming debug_investigate tool.
@@ -1681,7 +1681,7 @@ Empty values disable the tool gracefully (handler returns
 
 Run:
 ```bash
-cd /home/krolik/src/go-code && head -120 cmd/go-code/tool_understand.go
+cd $REPO_ROOT && head -120 cmd/go-code/tool_understand.go
 ```
 
 Note the file's exact patterns: registerX function signature, handler function signature, mcpserver.AddTool call, Input struct + jsonschema_description tags. Match these EXACTLY in the new file.
@@ -1920,7 +1920,7 @@ Open `cmd/go-code/main.go`. Find the `ToolTimeouts` map (search for `"code_healt
 - [ ] **Step 10.5: Build verify**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go build ./cmd/go-code/
+cd $REPO_ROOT && GOWORK=off go build ./cmd/go-code/
 ```
 
 Expected: clean. If errors point at mismatched `mcp.Tool` / `mcpserver.AddTool` signatures, re-read `tool_understand.go` and align.
@@ -1928,7 +1928,7 @@ Expected: clean. If errors point at mismatched `mcp.Tool` / `mcpserver.AddTool` 
 - [ ] **Step 10.6: Run unit tests**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/investigate/... ./internal/promclient/... ./internal/jaegerclient/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/investigate/... ./internal/promclient/... ./internal/jaegerclient/...
 ```
 
 Expected: PASS — all unit tests still green.
@@ -1936,7 +1936,7 @@ Expected: PASS — all unit tests still green.
 - [ ] **Step 10.7: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add cmd/go-code/tool_debug_investigate.go cmd/go-code/register.go cmd/go-code/main.go
+cd $REPO_ROOT && git add cmd/go-code/tool_debug_investigate.go cmd/go-code/register.go cmd/go-code/main.go
 git commit -m "feat(tools): debug_investigate skeleton (no LLM, no metrics)
 
 Wire promclient + jaegerclient + InvestigationStore into a new MCP
@@ -1958,7 +1958,7 @@ XML result depending on lifecycle state."
 
 Run:
 ```bash
-cd /home/krolik/src/go-code && grep -n "compound.FindSymbol\|callgraph.BuildFromRepo" cmd/go-code/tool_understand.go
+cd $REPO_ROOT && grep -n "compound.FindSymbol\|callgraph.BuildFromRepo" cmd/go-code/tool_understand.go
 ```
 
 Note the exact arguments and types — needed below.
@@ -1979,7 +1979,7 @@ repo := input.Repo
 if repo == "" {
 	// Use the running process's go-code repo as fallback — the tool is
 	// usable on go-code itself; for other services the caller must pass repo.
-	repo = "/home/krolik/src/go-code"
+	repo = "$REPO_ROOT"
 }
 
 resolvedRoot, err := resolveRoot(repo, deps.PathMappings)
@@ -2033,7 +2033,7 @@ Add the imports needed at the top of the file (preserve alphabetical order in th
 - [ ] **Step 11.3: Build verify**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go build ./cmd/go-code/
+cd $REPO_ROOT && GOWORK=off go build ./cmd/go-code/
 ```
 
 Expected: clean. If `cg.Symbols` field name differs, run `go doc internal/callgraph.CallGraph` to find the actual field name and adjust.
@@ -2041,7 +2041,7 @@ Expected: clean. If `cg.Symbols` field name differs, run `go doc internal/callgr
 - [ ] **Step 11.4: Run all tests**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./internal/...
+cd $REPO_ROOT && GOWORK=off go test ./internal/...
 ```
 
 Expected: PASS. Pre-existing failures (`internal/compare` network test) — ignore.
@@ -2049,7 +2049,7 @@ Expected: PASS. Pre-existing failures (`internal/compare` network test) — igno
 - [ ] **Step 11.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add cmd/go-code/tool_debug_investigate.go
+cd $REPO_ROOT && git add cmd/go-code/tool_debug_investigate.go
 git commit -m "feat(debug_investigate): Phase 3 — span→symbol correlation
 
 For each unique span operation, OperationToFuncName extracts a Go
@@ -2170,7 +2170,7 @@ Add to the import block:
 - [ ] **Step 12.4: Build verify**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go build ./cmd/go-code/
+cd $REPO_ROOT && GOWORK=off go build ./cmd/go-code/
 ```
 
 Expected: clean.
@@ -2221,7 +2221,7 @@ func TestMaxSampleValue_IgnoresUnparseable(t *testing.T) {
 
 Run:
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go test ./cmd/go-code/...
+cd $REPO_ROOT && GOWORK=off go test ./cmd/go-code/...
 ```
 
 Expected: PASS.
@@ -2229,7 +2229,7 @@ Expected: PASS.
 - [ ] **Step 12.6: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add cmd/go-code/tool_debug_investigate.go cmd/go-code/tool_debug_investigate_test.go
+cd $REPO_ROOT && git add cmd/go-code/tool_debug_investigate.go cmd/go-code/tool_debug_investigate_test.go
 git commit -m "feat(debug_investigate): Phase 4 — Prometheus baseline anomaly score
 
 Query rate(http_requests_total{service,code=~5..|4..}[1m]) over the
@@ -2327,7 +2327,7 @@ func listLabelValues(ctx context.Context, prom *promclient.Client, label string)
 
 Verify:
 ```bash
-cd /home/krolik/src/go-code && grep -n "getJSON\|GetJSON" internal/promclient/
+cd $REPO_ROOT && grep -n "getJSON\|GetJSON" internal/promclient/
 ```
 
 Expected: all references to the new uppercase form.
@@ -2335,7 +2335,7 @@ Expected: all references to the new uppercase form.
 - [ ] **Step 13.4: Build + test**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go build ./... && GOWORK=off go test ./internal/promclient/... ./cmd/go-code/...
+cd $REPO_ROOT && GOWORK=off go build ./... && GOWORK=off go test ./internal/promclient/... ./cmd/go-code/...
 ```
 
 Expected: clean build, all tests PASS.
@@ -2343,7 +2343,7 @@ Expected: clean build, all tests PASS.
 - [ ] **Step 13.5: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add cmd/go-code/tool_debug_investigate.go internal/promclient/
+cd $REPO_ROOT && git add cmd/go-code/tool_debug_investigate.go internal/promclient/
 git commit -m "feat(debug_investigate): Phase 5 — LLM correlate summary
 
 Pulls Prometheus metric names + Jaeger services + observed operations
@@ -2415,11 +2415,11 @@ The tool is **long-running** (5-minute budget). First call returns `"investigati
   <investigation service="go-code" started_at="..." finished_at="...">
     <summary>One-paragraph LLM summary.</summary>
     <hypothesis rank="1" confidence="high">
-      <subject>HandleMessage in /home/krolik/src/go-code/cmd/server.go</subject>
-      <location file="/home/krolik/src/go-code/cmd/server.go" line="42"/>
+      <subject>HandleMessage in $REPO_ROOT/cmd/server.go</subject>
+      <location file="$REPO_ROOT/cmd/server.go" line="42"/>
       <signals span_count="17" anomaly_score="0.800"/>
       <evidence>operation=/api.Service/HandleMessage; spans=17</evidence>
-      <next_check>understand symbol="HandleMessage" repo="/home/krolik/src/go-code"</next_check>
+      <next_check>understand symbol="HandleMessage" repo="$REPO_ROOT"</next_check>
     </hypothesis>
     ...
     <diagnostics>{"metrics_queried":2,"traces_fetched":20,"spans_analyzed":143,"symbols_touched":3}</diagnostics>
@@ -2438,7 +2438,7 @@ The tool is **long-running** (5-minute budget). First call returns `"investigati
 - [ ] **Step 14.2: Commit**
 
 ```bash
-cd /home/krolik/src/go-code && git add docs/debug-investigate.md
+cd $REPO_ROOT && git add docs/debug-investigate.md
 git commit -m "docs(debug_investigate): user-facing tool documentation
 
 Configuration env vars, input schema, lifecycle (poll-based),
@@ -2455,7 +2455,7 @@ phase breakdown, output XML schema, reference architecture
 - [ ] **Step 15.1: Verify final build + tests**
 
 ```bash
-cd /home/krolik/src/go-code && GOWORK=off go build ./... && GOWORK=off go test ./internal/promclient/... ./internal/jaegerclient/... ./internal/investigate/... ./cmd/go-code/...
+cd $REPO_ROOT && GOWORK=off go build ./... && GOWORK=off go test ./internal/promclient/... ./internal/jaegerclient/... ./internal/investigate/... ./cmd/go-code/...
 ```
 
 Expected: clean build, all tests PASS.
@@ -2463,7 +2463,7 @@ Expected: clean build, all tests PASS.
 - [ ] **Step 15.2: Push branch**
 
 ```bash
-cd /home/krolik/src/go-code && git push -u origin <branch>
+cd $REPO_ROOT && git push -u origin <branch>
 ```
 
 - [ ] **Step 15.3: Open PR**

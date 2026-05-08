@@ -106,7 +106,7 @@ func TestRRFMergeTopK(t *testing.T) {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd /home/krolik/src/go-code && go test ./internal/embeddings/ -run TestRRF -v
+cd $REPO_ROOT && go test ./internal/embeddings/ -run TestRRF -v
 ```
 
 Expected: FAIL — `MergeRRF` undefined, `KeywordHit` undefined, `Source` field missing.
@@ -253,7 +253,7 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int) []HybridR
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd /home/krolik/src/go-code && go test ./internal/embeddings/ -run TestRRF -v
+cd $REPO_ROOT && go test ./internal/embeddings/ -run TestRRF -v
 ```
 
 Expected: PASS (all 4 tests).
@@ -384,7 +384,7 @@ func (s *Store) MatchKeywordHits(ctx context.Context, repoKey string, hits []Fil
 **Step 2: Build and verify**
 
 ```bash
-cd /home/krolik/src/go-code && go build ./...
+cd $REPO_ROOT && go build ./...
 ```
 
 Expected: compiles clean.
@@ -495,7 +495,7 @@ Actually simpler: just always do hybrid. Remove the `Hybrid` field and `noHybrid
 **Step 6: Build**
 
 ```bash
-cd /home/krolik/src/go-code && go build ./...
+cd $REPO_ROOT && go build ./...
 ```
 
 **Step 7: Commit**
@@ -808,7 +808,7 @@ fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\">\n",
 **Step 4: Build**
 
 ```bash
-cd /home/krolik/src/go-code && go build ./...
+cd $REPO_ROOT && go build ./...
 ```
 
 **Step 5: Commit**
@@ -973,18 +973,18 @@ if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
 
 **Step 4: Add env var to docker-compose.yml**
 
-In `/home/krolik/deploy/krolik-server/docker-compose.yml`, add to `go-code` service environment:
+In `/home/user/deploy/my-server/docker-compose.yml`, add to `go-code` service environment:
 
 ```yaml
 AUTO_INDEX_DIRS: "/host-src"
 ```
 
-This maps to the existing volume mount `/home/krolik/src:/host-src:ro`.
+This maps to the existing volume mount `/home/user/src:/host-src:ro`.
 
 **Step 5: Build**
 
 ```bash
-cd /home/krolik/src/go-code && go build ./...
+cd $REPO_ROOT && go build ./...
 ```
 
 **Step 6: Commit**
@@ -1003,7 +1003,7 @@ git commit -m "feat(semantic): auto-index local repos at startup"
 **Step 1: Build and deploy**
 
 ```bash
-cd /home/krolik/deploy/krolik-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code
 docker compose up -d --no-deps --force-recreate go-code
 ```
@@ -1021,7 +1021,7 @@ Expected: "autoindex: started background indexing" with repo count matching `~/s
 Use Claude Code MCP tool `semantic_search` with a query that has both semantic meaning AND keyword matches:
 
 ```
-semantic_search repo=/home/krolik/src/go-code query="parse file" top_k=10
+semantic_search repo=$REPO_ROOT query="parse file" top_k=10
 ```
 
 Expected: Results should include both semantically similar functions AND functions containing "parse file" as text. Results with `source="hybrid"` appear in both lists.
@@ -1029,7 +1029,7 @@ Expected: Results should include both semantically similar functions AND functio
 **Step 4: Test graph expansion**
 
 ```
-semantic_search repo=/home/krolik/src/go-code query="embedding client" top_k=5
+semantic_search repo=$REPO_ROOT query="embedding client" top_k=5
 ```
 
 Expected: Primary results + additional results with `source="graph"` showing callers/callees of matched functions.

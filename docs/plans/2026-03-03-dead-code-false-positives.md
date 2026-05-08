@@ -602,7 +602,7 @@ cd ~/src/go-code && go build ./...
 **Step 2: Deploy**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 curl http://127.0.0.1:8897/health
 ```

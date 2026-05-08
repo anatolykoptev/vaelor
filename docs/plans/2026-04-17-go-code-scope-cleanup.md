@@ -43,7 +43,7 @@ Before drafting this plan we did a full read-through of every candidate tool + p
 
 **Execution mode:** Subagent-driven, strictly sequential (backend — per `feedback_backend_subagents_serial.md`). Two-stage review per coding task: spec adherence → code quality.
 
-**Repo:** `/home/krolik/src/go-code` (branch `main`, dozor auto-deploys on push).
+**Repo:** `$REPO_ROOT` (branch `main`, dozor auto-deploys on push).
 
 ---
 
@@ -93,7 +93,7 @@ Before drafting this plan we did a full read-through of every candidate tool + p
 
 **Acceptance:**
 - Test passes.
-- `mcp__go-code__symbol_search repo=/home/krolik/src/go-code query=formatDetectResponse` → 0 hits.
+- `mcp__go-code__symbol_search repo=$REPO_ROOT query=formatDetectResponse` → 0 hits.
 - `mcp__go-code__symbol_search ... query=extractSources` → still present.
 - Lint + build green.
 
@@ -201,9 +201,9 @@ Commit: `docs: refocus site_analyze story, drop site_crawl references`.
 1. `git push origin main` (run in background per `feedback_deploy_background.md`, timeout 600000) → dozor redeploys.
 2. Wait; verify `docker logs go-code --since 2m | grep -i ready`.
 3. Post-deploy smoke:
-   - `mcp__go-code__explore repo=/home/krolik/src/go-code` → `packages` list must not contain `internal/webanalyze`; should contain `internal/sourcemap`. File count is down by ~3.
-   - `mcp__go-code__symbol_search repo=/home/krolik/src/go-code query=site_crawl` → 0 hits.
-   - `mcp__go-code__symbol_search repo=/home/krolik/src/go-code query=site_analyze` → still 1 hit.
+   - `mcp__go-code__explore repo=$REPO_ROOT` → `packages` list must not contain `internal/webanalyze`; should contain `internal/sourcemap`. File count is down by ~3.
+   - `mcp__go-code__symbol_search repo=$REPO_ROOT query=site_crawl` → 0 hits.
+   - `mcp__go-code__symbol_search repo=$REPO_ROOT query=site_analyze` → still 1 hit.
    - `mcp__go-code__site_analyze url=https://react.dev` against a known source-mapped site — should either return `<sources files="N">` with N>0 or the "No source maps found" fallback (both acceptable; we only check that the tool is callable and doesn't 500).
 4. Append findings to `docs/memos/2026-04-17-scope-cleanup-release.md` under **## Verification**.
 

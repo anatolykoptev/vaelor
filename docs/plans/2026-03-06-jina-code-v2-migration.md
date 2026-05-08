@@ -18,8 +18,8 @@
 ## Task 1: Download Jina Code V2 ONNX Model
 
 **Files:**
-- Create: `/home/krolik/deploy/krolik-server/models/jina-code-v2/model_quantized.onnx`
-- Create: `/home/krolik/deploy/krolik-server/models/jina-code-v2/tokenizer.json`
+- Create: `/home/user/deploy/my-server/models/jina-code-v2/model_quantized.onnx`
+- Create: `/home/user/deploy/my-server/models/jina-code-v2/tokenizer.json`
 
 **Step 1: Export Jina Code V2 to ONNX**
 
@@ -32,7 +32,7 @@ optimum-cli export onnx \
   --task feature-extraction \
   --trust-remote-code \
   --opset 14 \
-  /home/krolik/deploy/krolik-server/models/jina-code-v2/
+  /home/user/deploy/my-server/models/jina-code-v2/
 ```
 
 **Step 2: Quantize to INT8 (smaller, faster on CPU)**
@@ -41,9 +41,9 @@ optimum-cli export onnx \
 python3 -c "
 from optimum.onnxruntime import ORTQuantizer
 from optimum.onnxruntime.configuration import AutoQuantizationConfig
-q = ORTQuantizer.from_pretrained('/home/krolik/deploy/krolik-server/models/jina-code-v2')
+q = ORTQuantizer.from_pretrained('/home/user/deploy/my-server/models/jina-code-v2')
 qconfig = AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
-q.quantize(save_dir='/home/krolik/deploy/krolik-server/models/jina-code-v2/', quantization_config=qconfig)
+q.quantize(save_dir='/home/user/deploy/my-server/models/jina-code-v2/', quantization_config=qconfig)
 "
 # Rename: model_quantized.onnx should exist after quantization
 ```
@@ -53,7 +53,7 @@ q.quantize(save_dir='/home/krolik/deploy/krolik-server/models/jina-code-v2/', qu
 ```bash
 python3 -c "
 import onnxruntime as ort
-s = ort.InferenceSession('/home/krolik/deploy/krolik-server/models/jina-code-v2/model_quantized.onnx')
+s = ort.InferenceSession('/home/user/deploy/my-server/models/jina-code-v2/model_quantized.onnx')
 print('Inputs:', [(i.name, i.shape) for i in s.get_inputs()])
 print('Outputs:', [(o.name, o.shape) for o in s.get_outputs()])
 "
@@ -67,7 +67,7 @@ Expected:
 
 ```bash
 # tokenizer.json should already be in the export dir
-ls -la /home/krolik/deploy/krolik-server/models/jina-code-v2/
+ls -la /home/user/deploy/my-server/models/jina-code-v2/
 # Expect: model_quantized.onnx (~150-300MB), tokenizer.json (~17MB)
 ```
 
@@ -76,9 +76,9 @@ ls -la /home/krolik/deploy/krolik-server/models/jina-code-v2/
 ## Task 2: Make ONNX Embedder Model-Agnostic in memdb-go
 
 **Files:**
-- Modify: `/home/krolik/src/MemDB/memdb-go/internal/embedder/onnx.go`
-- Modify: `/home/krolik/src/MemDB/memdb-go/internal/embedder/onnx_stub.go`
-- Test: `/home/krolik/src/MemDB/memdb-go/internal/embedder/onnx_test.go`
+- Modify: `/home/user/src/MemDB/memdb-go/internal/embedder/onnx.go`
+- Modify: `/home/user/src/MemDB/memdb-go/internal/embedder/onnx_stub.go`
+- Test: `/home/user/src/MemDB/memdb-go/internal/embedder/onnx_test.go`
 
 Currently hardcoded constants:
 ```go
@@ -153,7 +153,7 @@ case "onnx", "":
 **Step 5: Run existing tests**
 
 ```bash
-cd /home/krolik/src/MemDB/memdb-go && go test ./internal/embedder/ -v
+cd /home/user/src/MemDB/memdb-go && go test ./internal/embedder/ -v
 ```
 
 Expected: All tests pass (config is backward-compatible with defaults).
@@ -161,7 +161,7 @@ Expected: All tests pass (config is backward-compatible with defaults).
 **Step 6: Commit**
 
 ```bash
-cd /home/krolik/src/MemDB/memdb-go
+cd /home/user/src/MemDB/memdb-go
 git add internal/embedder/onnx.go internal/embedder/onnx_stub.go internal/embedder/factory.go
 git commit -m "feat: make ONNX embedder model-agnostic with configurable dim/padID/maxLen"
 ```
@@ -171,10 +171,10 @@ git commit -m "feat: make ONNX embedder model-agnostic with configurable dim/pad
 ## Task 3: Multi-Model Support in memdb-go `/v1/embeddings`
 
 **Files:**
-- Modify: `/home/krolik/src/MemDB/memdb-go/internal/embedder/factory.go` (add Config field)
-- Modify: `/home/krolik/src/MemDB/memdb-go/internal/handlers/embeddings.go`
-- Modify: `/home/krolik/src/MemDB/memdb-go/internal/server/server.go` (or wherever Handler is constructed)
-- Create: `/home/krolik/src/MemDB/memdb-go/internal/embedder/registry.go`
+- Modify: `/home/user/src/MemDB/memdb-go/internal/embedder/factory.go` (add Config field)
+- Modify: `/home/user/src/MemDB/memdb-go/internal/handlers/embeddings.go`
+- Modify: `/home/user/src/MemDB/memdb-go/internal/server/server.go` (or wherever Handler is constructed)
+- Create: `/home/user/src/MemDB/memdb-go/internal/embedder/registry.go`
 
 The `/v1/embeddings` endpoint currently uses a single `h.embedder`. We need a model registry so that `model` field in the request selects the right embedder.
 
@@ -299,7 +299,7 @@ func TestOpenAIEmbeddings_ModelSelection(t *testing.T) {
 **Step 5: Run tests**
 
 ```bash
-cd /home/krolik/src/MemDB/memdb-go && go test ./internal/handlers/ -v -run TestOpenAI
+cd /home/user/src/MemDB/memdb-go && go test ./internal/handlers/ -v -run TestOpenAI
 ```
 
 **Step 6: Commit**
@@ -314,15 +314,15 @@ git commit -m "feat: multi-model embedder registry for /v1/embeddings endpoint"
 ## Task 4: Update Docker Compose for Dual Models
 
 **Files:**
-- Modify: `/home/krolik/deploy/krolik-server/docker-compose.yml`
+- Modify: `/home/user/deploy/my-server/docker-compose.yml`
 
 **Step 1: Add second model volume and env var to memdb-go**
 
 ```yaml
 memdb-go:
   volumes:
-    - /home/krolik/deploy/krolik-server/models/multilingual-e5-large:/models:ro
-    - /home/krolik/deploy/krolik-server/models/jina-code-v2:/models-code:ro
+    - /home/user/deploy/my-server/models/multilingual-e5-large:/models:ro
+    - /home/user/deploy/my-server/models/jina-code-v2:/models-code:ro
   environment:
     MEMDB_ONNX_MODEL_DIR: "/models"
     MEMDB_ONNX_MODEL_DIR_CODE: "/models-code"
@@ -352,7 +352,7 @@ memdb-go:
 **Step 4: Commit**
 
 ```bash
-cd /home/krolik/deploy/krolik-server
+cd /home/user/deploy/my-server
 git add docker-compose.yml
 git commit -m "feat: add jina-code-v2 model volume and env for memdb-go multi-model"
 ```
@@ -362,10 +362,10 @@ git commit -m "feat: add jina-code-v2 model volume and env for memdb-go multi-mo
 ## Task 5: Update go-code Embedding Dimension (1024 → 768)
 
 **Files:**
-- Modify: `/home/krolik/src/go-code/internal/embeddings/store.go` (dimSize, schemaSQL)
-- Modify: `/home/krolik/src/go-code/internal/embeddings/store_test.go` (dimSize ref)
-- Modify: `/home/krolik/src/go-code/internal/embeddings/client.go` (remove "passage: " prefix)
-- Modify: `/home/krolik/src/go-code/cmd/go-code/config.go` (default model name)
+- Modify: `$REPO_ROOT/internal/embeddings/store.go` (dimSize, schemaSQL)
+- Modify: `$REPO_ROOT/internal/embeddings/store_test.go` (dimSize ref)
+- Modify: `$REPO_ROOT/internal/embeddings/client.go` (remove "passage: " prefix)
+- Modify: `$REPO_ROOT/cmd/go-code/config.go` (default model name)
 
 **Step 1: Update store.go constants and schema**
 
@@ -424,7 +424,7 @@ EmbedModel: env.Str("EMBED_MODEL", "jina-code-v2"),
 The test references `dimSize` — will auto-update since it's a constant. But verify:
 
 ```bash
-cd /home/krolik/src/go-code && go test ./internal/embeddings/ -v
+cd $REPO_ROOT && go test ./internal/embeddings/ -v
 ```
 
 **Step 5: Update client_test.go prefix tests**
@@ -458,7 +458,7 @@ func TestEmbedQuery_NoPrefix(t *testing.T) {
 **Step 6: Run all tests**
 
 ```bash
-cd /home/krolik/src/go-code && go test ./... -v
+cd $REPO_ROOT && go test ./... -v
 ```
 
 **Step 7: Commit**
@@ -487,7 +487,7 @@ DROP TABLE IF EXISTS code_embeddings;
 **Step 2: Rebuild and deploy memdb-go**
 
 ```bash
-cd /home/krolik/deploy/krolik-server
+cd /home/user/deploy/my-server
 docker compose build --no-cache memdb-go
 docker compose up -d --no-deps --force-recreate memdb-go
 ```
@@ -503,8 +503,8 @@ Expected: two "onnx embedder loaded" lines (e5-large at /models, jina-code-v2 at
 **Step 4: Rebuild and deploy go-code**
 
 ```bash
-cd /home/krolik/src/go-code && make vendor
-cd /home/krolik/deploy/krolik-server
+cd $REPO_ROOT && make vendor
+cd /home/user/deploy/my-server
 docker compose build --no-cache go-code
 docker compose up -d --no-deps --force-recreate go-code
 ```
@@ -532,7 +532,7 @@ SID=$(echo "$RESP" | grep -oP 'Mcp-Session-Id: \K\S+')
 curl -s -X POST http://127.0.0.1:8897/mcp \
   -H "Content-Type: application/json" \
   -H "Mcp-Session-Id: $SID" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"semantic_search","arguments":{"repo":"/home/krolik/src/go-mcpserver","query":"middleware handler chain"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"semantic_search","arguments":{"repo":"/home/user/src/go-mcpserver","query":"middleware handler chain"}}}'
 ```
 
 Expected: "indexing" status (first run).
@@ -564,7 +564,7 @@ Expected: count=95, dim=768.
 curl -s -X POST http://127.0.0.1:8897/mcp \
   -H "Content-Type: application/json" \
   -H "Mcp-Session-Id: $SID" \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"semantic_search","arguments":{"repo":"/home/krolik/src/go-mcpserver","query":"middleware handler chain"}}}'
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"semantic_search","arguments":{"repo":"/home/user/src/go-mcpserver","query":"middleware handler chain"}}}'
 ```
 
 Expected: 10 results with file paths, symbol names, distances.

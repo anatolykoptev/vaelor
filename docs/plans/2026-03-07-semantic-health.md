@@ -62,7 +62,7 @@ func TestSimilarPairOpts(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/embeddings/ -run TestSimilarPair -v`
+Run: `cd $REPO_ROOT && go test ./internal/embeddings/ -run TestSimilarPair -v`
 Expected: FAIL — `SimilarPair` type undefined
 
 **Step 3: Write minimal implementation**
@@ -164,7 +164,7 @@ func (s *Store) FindSimilarPairs(ctx context.Context, opts SimilarPairOpts) ([]S
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/embeddings/ -run TestSimilarPair -v`
+Run: `cd $REPO_ROOT && go test ./internal/embeddings/ -run TestSimilarPair -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -291,7 +291,7 @@ func TestSemanticResult(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/semhealth/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/semhealth/ -v`
 Expected: FAIL — package doesn't exist
 
 **Step 3: Write minimal implementation**
@@ -462,7 +462,7 @@ func FormatDupGroupMessage(g DupGroup) string {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/semhealth/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/semhealth/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -537,7 +537,7 @@ func TestSemanticDupRecommendation(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run "TestSemanticDup" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestSemanticDup" -v`
 Expected: FAIL — `SemanticDupRatio` field undefined
 
 **Step 3: Write minimal implementation**
@@ -558,11 +558,11 @@ Add to `internal/compare/recommend.go`:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -run "TestSemanticDup" -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -run "TestSemanticDup" -v`
 Expected: PASS
 
 Also run full compare tests:
-Run: `cd /home/krolik/src/go-code && go test ./internal/compare/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/compare/ -v`
 Expected: All PASS
 
 **Step 5: Commit**
@@ -627,7 +627,7 @@ if semDeps != nil && semDeps.Store != nil {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./cmd/go-code/ -run TestCodeHealthXML -v`
+Run: `cd $REPO_ROOT && go test ./cmd/go-code/ -run TestCodeHealthXML -v`
 Expected: PASS
 
 Also: `go build ./cmd/go-code/` to verify compilation.
@@ -710,7 +710,7 @@ if input.Focus == "semantic_duplicates" {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/krolik/src/go-code && go test ./cmd/go-code/ -run TestSemanticDup -v`
+Run: `cd $REPO_ROOT && go test ./cmd/go-code/ -run TestSemanticDup -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -729,7 +729,7 @@ Run full test suite, lint, build, and deploy.
 **Step 1: Run full test suite**
 
 ```bash
-cd /home/krolik/src/go-code && go test ./...
+cd $REPO_ROOT && go test ./...
 ```
 
 Expected: All PASS
@@ -737,7 +737,7 @@ Expected: All PASS
 **Step 2: Run linter**
 
 ```bash
-cd /home/krolik/src/go-code && make lint
+cd $REPO_ROOT && make lint
 ```
 
 Expected: PASS
@@ -745,7 +745,7 @@ Expected: PASS
 **Step 3: Build**
 
 ```bash
-cd /home/krolik/src/go-code && make build
+cd $REPO_ROOT && make build
 ```
 
 Expected: SUCCESS
@@ -753,7 +753,7 @@ Expected: SUCCESS
 **Step 4: Deploy**
 
 ```bash
-cd ~/deploy/krolik-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
+cd ~/deploy/my-server && docker compose build --no-cache go-code && docker compose up -d --no-deps --force-recreate go-code
 ```
 
 **Step 5: Commit any remaining fixes**

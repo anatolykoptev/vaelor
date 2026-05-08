@@ -112,7 +112,7 @@ func TestRetryHTTP_Retries429(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/retry/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/retry/ -v`
 Expected: FAIL — package doesn't exist
 
 **Step 3: Write minimal implementation**
@@ -216,7 +216,7 @@ func (e *HTTPError) Error() string {
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/retry/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/retry/ -v`
 Expected: PASS (5 tests)
 
 **Step 5: Commit**
@@ -274,7 +274,7 @@ func TestTrackOperation(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/metrics/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/metrics/ -v`
 Expected: FAIL
 
 **Step 3: Write implementation**
@@ -339,7 +339,7 @@ Note: needs `import "sync"` — add `sync` to imports alongside `sync/atomic`.
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/metrics/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/metrics/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -361,7 +361,7 @@ git commit -m "feat: add internal/metrics package with atomic counters"
 
 **Step 1: Add go-redis dependency**
 
-Run: `cd /home/krolik/src/go-code && go get github.com/redis/go-redis/v9`
+Run: `cd $REPO_ROOT && go get github.com/redis/go-redis/v9`
 
 **Step 2: Write the failing test**
 
@@ -582,7 +582,7 @@ func (c *GenericCache[T]) Stats() Stats {
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/cache/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/cache/ -v`
 Expected: PASS (existing + new tests)
 
 **Step 5: Commit**
@@ -672,7 +672,7 @@ func TestComplete_FallbackKey(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/llm/ -v -run TestComplete`
+Run: `cd $REPO_ROOT && go test ./internal/llm/ -v -run TestComplete`
 Expected: FAIL (Config struct missing FallbackKeys, MaxRetries)
 
 **Step 3: Modify llm.go**
@@ -709,7 +709,7 @@ func (c *Client) CompleteRaw(ctx context.Context, prompt string) (string, error)
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/llm/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/llm/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -842,7 +842,7 @@ func TestSearchRepos(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/github/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/github/ -v`
 Expected: FAIL
 
 **Step 3: Write search.go**
@@ -902,7 +902,7 @@ Update `NewClient` to set `apiBase` to the const. Update `FetchRepoMeta` and `Fe
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/github/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/github/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -1117,7 +1117,7 @@ func DedupByDomain(results []Result, maxPerDomain int) []Result {
 
 **Step 4: Run tests**
 
-Run: `cd /home/krolik/src/go-code && go test ./internal/search/ -v`
+Run: `cd $REPO_ROOT && go test ./internal/search/ -v`
 Expected: PASS
 
 **Step 5: Commit**
@@ -1191,7 +1191,7 @@ Change `toolCount = 8` (was 6). Add health endpoint info about SearXNG/Redis con
 
 **Step 5: Run `go build`**
 
-Run: `cd /home/krolik/src/go-code && go build ./cmd/go-code/`
+Run: `cd $REPO_ROOT && go build ./cmd/go-code/`
 Expected: builds without errors
 
 **Step 6: Commit**
@@ -1250,7 +1250,7 @@ const SystemPromptIssuesAnalysis = `You are analyzing GitHub issues/PRs. Summari
 
 **Step 6: Run build + test**
 
-Run: `cd /home/krolik/src/go-code && go build ./cmd/go-code/ && go test ./... -count=1`
+Run: `cd $REPO_ROOT && go build ./cmd/go-code/ && go test ./... -count=1`
 Expected: builds and all tests pass
 
 **Step 7: Commit**
@@ -1291,7 +1291,7 @@ Add `registerRepoSearch(server, cfg, deps)` call.
 
 **Step 3: Run build**
 
-Run: `cd /home/krolik/src/go-code && go build ./cmd/go-code/`
+Run: `cd $REPO_ROOT && go build ./cmd/go-code/`
 Expected: builds
 
 **Step 4: Commit**
@@ -1311,7 +1311,7 @@ git commit -m "feat: add repo_search tool (migrated from go-search)"
 
 **Step 1: Update docker-compose env**
 
-Add to `~/deploy/krolik-server/.env`:
+Add to `~/deploy/my-server/.env`:
 ```
 GO_CODE_SEARXNG_URL=http://searxng:8888
 GO_CODE_REDIS_URL=redis://redis:6379/6
@@ -1320,7 +1320,7 @@ GO_CODE_REDIS_URL=redis://redis:6379/6
 **Step 2: Build and deploy**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-code
 docker compose up -d --no-deps --force-recreate go-code
 ```
@@ -1375,7 +1375,7 @@ cd ~/src/go-search && go build . && go test ./... -count=1
 **Step 6: Deploy go-search**
 
 ```bash
-cd ~/deploy/krolik-server
+cd ~/deploy/my-server
 docker compose build --no-cache go-search
 docker compose up -d --no-deps --force-recreate go-search
 ```

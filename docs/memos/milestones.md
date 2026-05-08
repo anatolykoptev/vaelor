@@ -1,6 +1,6 @@
 # go-code Milestones
 
-Performance and capability milestones tracked empirically on krolik (ARM 24GB, Oracle Cloud).
+Performance and capability milestones tracked empirically on a dedicated ARM server.
 
 ## code_graph Build Performance
 
@@ -50,7 +50,7 @@ Performance and capability milestones tracked empirically on krolik (ARM 24GB, O
 
 | Component | Status | Notes |
 |---|---|---|
-| PostgreSQL + AGE | ✅ | krolik-postgres-age:17, AGE 1.7.0 |
+| PostgreSQL + AGE | ✅ | postgres-age:17, AGE 1.7.0 |
 | AGE UNWIND inserts | ✅ | Stable to 5000+ vertices, adaptive batch sizing |
 | AGE direct COPY INSERT | ✅ | v1.20 — bypass Cypher, **14s total build** (was ~6 min) |
 | Qdrant (vector search) | ✅ | Used for semantic_search |
