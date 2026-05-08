@@ -24,7 +24,7 @@
 | `internal/slugparse/` | Canonical slug parser shared by `forge` and `ingest`; stdlib-only leaf package |
 | `internal/forge/` | Multi-forge abstraction: `Forge` interface, GitHub + GitLab implementations, URL detection, registry |
 | `internal/websearch/` | HTTP client for go-search MCP (smart_search depth=fast), used by repo_search |
-| `internal/llm/` | CLIProxyAPI client with retry + fallback |
+| `internal/llm/` | OpenAI-compatible LLM proxy client with retry + fallback |
 | `internal/clean/` | Symbol post-processing between parser and analyze |
 | `internal/cache/` | Parse/LLM/tool caches (in-mem L1 + optional Redis L2) |
 | `internal/compare/` | Repo structural comparison (backs `code_compare`) |
@@ -73,7 +73,7 @@
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `MCP_PORT` | `8897` | |
-| `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | CLIProxyAPI |
+| `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | Local OpenAI-compatible proxy (e.g. LiteLLM, CLIProxyAPI) |
 | `LLM_API_KEY` | required | |
 | `LLM_API_KEY_FALLBACK` | optional | Comma-separated, used on 429/5xx |
 | `LLM_MODEL` | `gemini-2.5-flash` | |
@@ -94,7 +94,7 @@
 | `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `jina-code-v2` | Model name for OpenAI-compatible embed API |
 | `AUTO_INDEX_DIRS` | optional | Comma-separated dirs eligible for auto-indexing (e.g. `/host/src`). Indexing is lazy per-repo on first semantic query, not eager at boot. Runtime compose sets `/host/src` |
-| `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/home/krolik:/host`) |
+| `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/path/to/repos:/host`) |
 | `OUTPUT_DIR` | optional | Output dir for generated files (e.g. `/tmp/go-code-output`) |
 | `GITHUB_WEBHOOK_SECRET` | optional | When set, enables `/webhook/github` PR-review receiver |
 | `REVIEW_POST_ENABLED` | `false` | When `true`, webhook posts reviews; otherwise dry-log |
@@ -153,7 +153,7 @@ make deploy  # docker compose build --no-cache + up -d
 - **Apache AGE**: no `ON CREATE SET` / `ON MATCH SET` — use separate `CREATE` then `SET` statements
 - **AGE batch size**: `GRAPH_BATCH_SIZE=5` — larger batches cause parse errors in AGE Cypher
 - **code_graph DB name**: always `gocode` (not the service name, not configurable at runtime)
-- **Local repo paths**: Docker mounts `/home/krolik:/host:ro`; `PATH_MAPPINGS=/home/krolik:/host` translates paths automatically
+- **Local repo paths**: Docker mounts `/path/to/repos:/host:ro`; `PATH_MAPPINGS=/path/to/repos:/host` translates paths automatically
 - **Partial clone**: `--filter=blob:none` reduces memory for large repos (no blob download during clone)
 - **Semantic search stack**: embed-server (jina-code-v2, 768 dim via `EMBED_MODELS` multi-model) → pgvector (HNSW cosine) → hybrid RRF (semantic + keyword) → graph expansion (1-hop AGE)
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
