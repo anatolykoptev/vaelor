@@ -19,6 +19,7 @@ type PromptContext struct {
 
 const maxMetricsInPrompt = 80
 const maxOpsInPrompt = 30
+const maxAlertsInPrompt = 20
 
 // BuildSystemPrompt assembles the LLM correlation prompt with hard constraints
 // against hallucination. Layout: role + ground truth + reasoning rules + output schema.
@@ -69,8 +70,12 @@ func BuildSystemPrompt(c PromptContext) string {
 	}
 
 	if len(c.FiringAlerts) > 0 {
+		firing := c.FiringAlerts
+		if len(firing) > maxAlertsInPrompt {
+			firing = firing[:maxAlertsInPrompt]
+		}
 		b.WriteString("Firing Prometheus alerts for this service (invariant violations — DO NOT dismiss these as noise):\n")
-		for _, a := range c.FiringAlerts {
+		for _, a := range firing {
 			b.WriteString("  - ")
 			b.WriteString(a)
 			b.WriteString("\n")

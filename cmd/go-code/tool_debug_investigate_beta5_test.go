@@ -194,3 +194,148 @@ func TestBuildSystemPrompt_IncludesFiringAlerts(t *testing.T) {
 		t.Errorf("expected HighLatency in system prompt, got:\n%s", out)
 	}
 }
+
+// β5 follow-up: mixed top-K budget, anomalyScore decoupling, prompt cap ------
+
+// TestIntegration_MixedBudget_AlertsAndMetrics verifies that when both alerts
+// and metric spikes are present, the result contains spikes of both kinds —
+// alerts do not displace all metric spikes.
+func TestIntegration_MixedBudget_AlertsAndMetrics(t *testing.T) {
+	t.Cleanup(func() { debugInvestigateStore = investigate.NewInvestigationStore() })
+
+	svc := "test-svc-mixed-budget"
+	jaegerSrv := newJaegerFake([]string{svc}, nil)
+	defer jaegerSrv.Close()
+
+	// 6 firing alerts — would saturate a shared top-5 budget.
+	var alertEntries []string
+	for i := 0; i < 6; i++ {
+		alertEntries = append(alertEntries, fmt.Sprintf(
+			`{"labels":{"alertname":"Alert%d","service":%q,"severity":"critical"},"annotations":{"summary":"alert %d"},"state":"firing","activeAt":"2026-05-08T10:00:00Z","value":"0"}`,
+			i, svc, i))
+	}
+	alertsBody := fmt.Sprintf(`{"status":"success","data":{"alerts":[%s]}}`, strings.Join(alertEntries, ","))
+
+	start, end := fixedWindow()
+	// windowVal=10, baselineVal=1 → ratio=10 → scoreCritical metric spikes.
+	promSrv := newPromFakeWithAlerts(start, 10.0, 1.0, alertsBody)
+	defer promSrv.Close()
+
+	prom := promclient.NewClient(promSrv.URL, 5*time.Second)
+	jaeger := jaegerclient.NewClient(jaegerSrv.URL, 5*time.Second)
+
+	_, callErr := handleDebugInvestigate(
+		context.Background(),
+		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
+		analyze.Deps{}, prom, jaeger,
+	)
+	if callErr != nil {
+		t.Fatalf("handleDebugInvestigate: %v", callErr)
+	}
+
+	st := pollStore(svc, start, end, 10*time.Second)
+	if st == nil {
+		t.Fatal("investigation did not complete within 10s")
+	}
+	if st.Status() != investigate.StatusDone {
+		t.Fatalf("expected StatusDone, got %v: %s", st.Status(), st.Error())
+	}
+
+	r := st.Result()
+	var hasInvariant, hasNonInvariant bool
+	for _, s := range r.MetricSpikes {
+		if s.Kind == "invariant" {
+			hasInvariant = true
+		} else {
+			hasNonInvariant = true
+		}
+	}
+	if !hasInvariant {
+		t.Error("expected at least one Kind=invariant spike from alerts")
+	}
+	if !hasNonInvariant {
+		t.Errorf("expected at least one non-invariant metric spike (metrics displaced by alerts); spikes: %v", r.MetricSpikes)
+	}
+}
+
+// TestIntegration_OnlyAlerts_AnomalyScoreFallback verifies that when there are
+// no metric spikes (flat metric, no anomaly) but alerts fire, the investigation
+// completes and includes invariant spikes.
+func TestIntegration_OnlyAlerts_AnomalyScoreFallback(t *testing.T) {
+	t.Cleanup(func() { debugInvestigateStore = investigate.NewInvestigationStore() })
+
+	svc := "test-svc-only-alerts"
+	jaegerSrv := newJaegerFake([]string{svc}, nil)
+	defer jaegerSrv.Close()
+
+	alertsBody := fmt.Sprintf(`{"status":"success","data":{"alerts":[
+		{"labels":{"alertname":"FlatRatio","service":%q,"severity":"critical"},
+		 "annotations":{"summary":"ratio stuck"},"state":"firing","activeAt":"2026-05-08T10:00:00Z","value":"0"}
+	]}}`, svc)
+
+	start, end := fixedWindow()
+	// windowVal=baselineVal → no metric spikes; only alert spikes.
+	promSrv := newPromFakeWithAlerts(start, 1.0, 1.0, alertsBody)
+	defer promSrv.Close()
+
+	prom := promclient.NewClient(promSrv.URL, 5*time.Second)
+	jaeger := jaegerclient.NewClient(jaegerSrv.URL, 5*time.Second)
+
+	_, callErr := handleDebugInvestigate(
+		context.Background(),
+		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
+		analyze.Deps{}, prom, jaeger,
+	)
+	if callErr != nil {
+		t.Fatalf("handleDebugInvestigate: %v", callErr)
+	}
+
+	st := pollStore(svc, start, end, 10*time.Second)
+	if st == nil {
+		t.Fatal("investigation did not complete within 10s")
+	}
+	if st.Status() != investigate.StatusDone {
+		t.Fatalf("expected StatusDone, got %v: %s", st.Status(), st.Error())
+	}
+
+	r := st.Result()
+	hasInvariant := false
+	for _, s := range r.MetricSpikes {
+		if s.Kind == "invariant" {
+			hasInvariant = true
+			break
+		}
+	}
+	if !hasInvariant {
+		t.Error("expected Kind=invariant spike when only alerts fire (no metric spikes)")
+	}
+}
+
+// TestBuildSystemPrompt_TruncatesToMaxAlertsInPrompt verifies that when more
+// than maxAlertsInPrompt alerts are provided, BuildSystemPrompt truncates output
+// to at most maxAlertsInPrompt entries.
+func TestBuildSystemPrompt_TruncatesToMaxAlertsInPrompt(t *testing.T) {
+	var alerts []string
+	for i := 0; i < 30; i++ {
+		alerts = append(alerts, fmt.Sprintf("Alert%d", i))
+	}
+	c := investigate.PromptContext{
+		Service:      "test-svc",
+		FiringAlerts: alerts,
+	}
+	out := investigate.BuildSystemPrompt(c)
+
+	// All first maxAlertsInPrompt should appear; Alert20+ should not.
+	const maxAlertsInPrompt = 20
+	for i := 0; i < maxAlertsInPrompt; i++ {
+		if !strings.Contains(out, fmt.Sprintf("Alert%d", i)) {
+			t.Errorf("expected Alert%d in prompt (within cap), got:\n%s", i, out)
+		}
+	}
+	// Alert20 through Alert29 should be truncated.
+	for i := maxAlertsInPrompt; i < 30; i++ {
+		if strings.Contains(out, fmt.Sprintf("Alert%d", i)) {
+			t.Errorf("Alert%d should be truncated (cap=%d), but found in prompt", i, maxAlertsInPrompt)
+		}
+	}
+}

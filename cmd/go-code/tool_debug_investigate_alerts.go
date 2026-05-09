@@ -24,7 +24,7 @@ func runAlertsPhase(ctx context.Context, prom *promclient.Client, service string
 		diags.Warnings = append(diags.Warnings, fmt.Sprintf("alerts: %v", err))
 		return nil, nil
 	}
-	diags.AlertsQueried = 1
+	diags.AlertsQueried += 1
 
 	var spikes []investigate.MetricSpike
 	var violations []investigate.AlertViolation
@@ -48,9 +48,12 @@ func runAlertsPhase(ctx context.Context, prom *promclient.Client, service string
 		spikes = append(spikes, investigate.MetricSpike{
 			Kind:       "invariant",
 			MetricName: a.Labels["alertname"],
-			Labels:     fmt.Sprintf("{service=%q,severity=%q}", service, a.Labels["severity"]),
-			Score:      scoreCritical,
-			Ratio:      0,
+			// Use plain %s (no inner quotes) to avoid double-escaping when the
+			// Labels string is later rendered via labels=%q in _format.go.
+			// Matches the convention used by computeFailureSpikes for service-only labels.
+			Labels: fmt.Sprintf("{service=%s,severity=%s}", service, a.Labels["severity"]),
+			Score:  scoreCritical,
+			Ratio:  0,
 		})
 	}
 	return spikes, violations
