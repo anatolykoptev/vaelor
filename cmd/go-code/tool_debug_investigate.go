@@ -242,7 +242,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	}
 
 	// Phase 3: span → symbol correlation.
-	ops := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)
+	ops, investigateCG := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)
 
 	// Phase γ.D: multi-signal fusion + recent diff embedding.
 	// Best-effort: runs only when there are hypotheses to rank; gitutil calls
@@ -255,6 +255,9 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 			recentCommits = gitutil.CommitsSince(ctx, repoRoot, 30*24*time.Hour)
 		}
 		historicalSubjects := historicalSubjectsFromIncidents(res.HistoricalIncidents)
+		// Sprint B2: walk upstream callers for top-3 span hypotheses before fusion rank.
+		// Best-effort: investigateCG=nil for Tier-1/Tier-2 paths — no-op.
+		res.Hypotheses = runUpstreamPhase(ctx, investigateCG, res.Hypotheses, 3, 2)
 		res.Hypotheses = runFusionRank(res.Hypotheses, recentCommits, historicalSubjects)
 
 		// Embed recent diff for top-1 hypothesis.
