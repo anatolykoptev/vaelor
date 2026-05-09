@@ -26,9 +26,13 @@ import (
 	"github.com/anatolykoptev/go-kit/env"
 	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	"github.com/anatolykoptev/go-kit/metrics/mcpmw"
+	"github.com/anatolykoptev/go-kit/tracing"
+	"github.com/anatolykoptev/go-kit/tracing/httpmw"
+	tracemcpmw "github.com/anatolykoptev/go-kit/tracing/mcpmw"
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -84,6 +88,20 @@ func main() {
 	// the per-repo 5-min timeout).
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	shutdownTracing, err := tracing.Setup(ctx, serviceName,
+		tracing.WithSampleRatio(1.0),
+		tracing.WithAttributes(attribute.String("version", version)),
+	)
+	if err != nil {
+		slog.Warn("otel tracing setup failed; continuing without traces", "err", err)
+	} else {
+		defer func() {
+			sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer scancel()
+			_ = shutdownTracing(sctx)
+		}()
+	}
 
 	reg := kitmetrics.NewPrometheusRegistry("gocode")
 	startPrometheusScrape(ctx, slog.Default())
@@ -178,7 +196,8 @@ func main() {
 		Context:                ctx,
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
-		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
+		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool"), tracemcpmw.Middleware(serviceName)},
+		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
 		RESTBridge:             true,
 		Routes:                 combinedRoutes,
 		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
