@@ -201,7 +201,7 @@ func main() {
 		Context:                ctx,
 		SessionTimeout:         10 * time.Minute,
 		MCPLogger:              slog.Default(),
-		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool"), tracemcpmw.Middleware(serviceName)},
+		MCPReceivingMiddleware: []mcp.Middleware{tracemcpmw.Middleware(serviceName), hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
 		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
 		RESTBridge:             true,
 		Routes:                 combinedRoutes,
