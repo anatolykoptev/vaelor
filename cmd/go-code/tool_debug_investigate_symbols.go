@@ -142,7 +142,7 @@ func runSymbolsPhase(
 	traces []jaegerclient.Trace,
 	anomalyScore float64,
 	res *investigate.InvestigationResult,
-) map[string]*investigate.OperationInfo {
+) (map[string]*investigate.OperationInfo, *callgraph.CallGraph) {
 	// Aggregate unique operations and their OTEL tags across all spans.
 	ops := buildOpsMap(traces)
 	for _, tr := range traces {
@@ -152,6 +152,10 @@ func runSymbolsPhase(
 	// symMap tracks the parser.Symbol for each hypothesis index so
 	// Phase γ.B.3 (AnalyzeBody) can access the full symbol struct.
 	symMap := make(map[int]*parser.Symbol)
+
+	// retCG is the callgraph built in PASS 2 (nil for Tier-1/Tier-2 paths).
+	// Returned to the orchestrator so runUpstreamPhase can walk callers.
+	var retCG *callgraph.CallGraph
 
 	// resolvedFromCodeTags tracks operations resolved via code.* or http.route
 	// so the callgraph fallback (PASS 2) skips them.
@@ -243,6 +247,10 @@ func runSymbolsPhase(
 				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
 					fmt.Sprintf("build callgraph: %v", cgErr))
 			}
+			// Expose cg to the orchestrator regardless of build error — it may be
+			// partially populated and still usable for upstream walking.
+			retCG = cg
+
 			for op, info := range ops {
 				if resolvedFromCodeTags[op] {
 					continue // already resolved via code.* or http.route path
@@ -347,7 +355,7 @@ func runSymbolsPhase(
 	if !isRanked(res.Hypotheses) {
 		res.Hypotheses = investigate.RankHypotheses(res.Hypotheses)
 	}
-	return ops
+	return ops, retCG
 }
 
 // buildRankedSymMap maps ranked hypothesis position → *parser.Symbol by
