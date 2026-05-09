@@ -350,7 +350,9 @@ func TestRunBodyExtractionPhase_OTELLineOnly_ReadsHandlerBody(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "handler.rs")
 	content := "#[tracing::instrument(name = \"foo\", skip_all)]\nfn handle() {\n    let x = 1;\n    let y = 2;\n    return x + y;\n}\n"
-	if err := os.WriteFile(file, []byte(content), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 	hyps := []investigate.Hypothesis{{File: file, Line: 1, EndLine: 0}}
 	out := runBodyExtractionPhase(hyps, 1, nil)
 	if out[0].BodySource == "" {
@@ -361,5 +363,83 @@ func TestRunBodyExtractionPhase_OTELLineOnly_ReadsHandlerBody(t *testing.T) {
 	}
 	if !strings.Contains(out[0].BodySource, "return x + y") {
 		t.Fatalf("expected full body inc. return, got: %q", out[0].BodySource)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Fix 2: /build/ prefix path mapping for host filesystem
+// ────────────────────────────────────────────────────────────────────
+
+// TestBuildBodyPathCandidates_BuildPrefix_StripsAndPrependsHostService verifies
+// that /build/<rel> absolute paths generate a /host/src/<service>/<rel>
+// candidate when /host mount is in mappings.
+func TestBuildBodyPathCandidates_BuildPrefix_StripsAndPrependsHostService(t *testing.T) {
+	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
+	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings)
+
+	// Must contain the /host/src/go-code/... candidate.
+	want := "/host/src/go-code/cmd/go-code/webhook_github.go"
+	found := false
+	for _, p := range got {
+		if p == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected %q in candidates, got %v", want, got)
+	}
+}
+
+// TestBuildBodyPathCandidates_BuildPrefix_MappingInternal verifies that
+// /build/<rel> also generates <mapping.Internal>/src/<service>/<rel>.
+func TestBuildBodyPathCandidates_BuildPrefix_MappingInternal(t *testing.T) {
+	mappings := []analyze.PathMapping{{External: "/repos", Internal: "/mnt/repos"}}
+	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings)
+
+	want := "/mnt/repos/src/go-code/cmd/go-code/webhook_github.go"
+	found := false
+	for _, p := range got {
+		if p == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected %q in candidates, got %v", want, got)
+	}
+}
+
+// TestRunBodyExtractionPhaseWithMappings_BuildPath_ReadsHostFile verifies
+// end-to-end: given code.filepath=/build/... and a mapping pointing to a
+// tempdir, BodySource is populated.
+func TestRunBodyExtractionPhaseWithMappings_BuildPath_ReadsHostFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create file at <tmpdir>/src/go-code/cmd/go-code/webhook_github.go
+	rel := "cmd/go-code/webhook_github.go"
+	fullPath := filepath.Join(dir, "src", "go-code", rel)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "package main\n\nfunc (h *githubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {\n\t// stub\n}\n"
+	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mappings := []analyze.PathMapping{{External: dir, Internal: dir}}
+
+	hyps := []investigate.Hypothesis{
+		{Subject: "webhook", File: "/build/" + rel, Line: 3, EndLine: 5},
+	}
+
+	var diags investigate.Diagnostics
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "go-code", mappings, &diags)
+
+	if result[0].BodySource == "" {
+		t.Errorf("expected BodySource populated, got empty; warnings: %v", diags.Warnings)
+	}
+	if !strings.Contains(result[0].BodySource, "ServeHTTP") {
+		t.Errorf("BodySource = %q, want it to contain 'ServeHTTP'", result[0].BodySource)
 	}
 }
