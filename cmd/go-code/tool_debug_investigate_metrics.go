@@ -146,9 +146,9 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 		if score <= scoreNominal {
 			continue // not anomalous
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "failure",
@@ -330,9 +330,9 @@ func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service 
 		if score == 0 {
 			continue
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "latency",
@@ -430,9 +430,9 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 		if score == 0 {
 			continue
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "saturation",
@@ -458,9 +458,9 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 		if score == 0 {
 			continue
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "saturation",

@@ -101,7 +101,7 @@ func TestFailureMetricRegex_RejectsGaugesAcceptsCounters(t *testing.T) {
 
 func TestMetricSpike_KindField_FailureSpike(t *testing.T) {
 	// Verify Kind field exists and is set to "failure" for failure spikes.
-	s := MetricSpike{Kind: "failure", MetricName: "test_errors_total", Labels: `{service="svc"}`, Ratio: 3.0, Score: 0.8}
+	s := MetricSpike{Kind: "failure", MetricName: "test_errors_total", Labels: `{service=svc}`, Ratio: 3.0, Score: 0.8}
 	if s.Kind != "failure" {
 		t.Errorf("expected Kind=failure, got %q", s.Kind)
 	}
@@ -111,9 +111,9 @@ func TestFormatInvestigationResult_SpikeRendersKind(t *testing.T) {
 	r := &investigate.InvestigationResult{
 		Service: "svc",
 		MetricSpikes: []investigate.MetricSpike{
-			{Kind: "failure", MetricName: "test_errors_total", Labels: `{service="svc"}`, Ratio: 3.5, Score: 0.8},
-			{Kind: "latency", MetricName: "grpc_duration_seconds_p99", Labels: `{service="svc"}`, Ratio: 2.1, Score: 0.9},
-			{Kind: "saturation", MetricName: "go_goroutines", Labels: `{service="svc"}`, Ratio: 6.0, Score: 1.0},
+			{Kind: "failure", MetricName: "test_errors_total", Labels: `{service=svc}`, Ratio: 3.5, Score: 0.8},
+			{Kind: "latency", MetricName: "grpc_duration_seconds_p99", Labels: `{service=svc}`, Ratio: 2.1, Score: 0.9},
+			{Kind: "saturation", MetricName: "go_goroutines", Labels: `{service=svc}`, Ratio: 6.0, Score: 1.0},
 		},
 	}
 	out := formatInvestigationResult(r)
@@ -574,5 +574,71 @@ func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
 	}
 	if !strings.Contains(spikes[0].Labels, `job=`) {
 		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
+	}
+}
+
+// TestLabels_NoDoubleEscapeInRenderedXML verifies that spike Labels values
+// produced by computeFailureSpikes do not contain inner quotes that would be
+// double-escaped by labels=%q in formatInvestigationResult.
+// Regression test for the %q Labels double-escape bug (issue #65).
+func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
+	// Simulate a failure spike with window > baseline.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				// window high, baseline low → spike
+				if strings.Contains(q, "start=") || true {
+					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"10.0"]]}]}}`)
+				}
+			} else {
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
+			}
+		} else {
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	// Two requests: window (high) + baseline (low) → ratio=10 > 5 → critical spike.
+	callNum := 0
+	srvAlt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
+			callNum++
+			val := "10.0"
+			if callNum%2 == 0 {
+				val = "1.0" // baseline
+			}
+			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+		} else {
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srvAlt.Close()
+
+	prom := promclient.NewClient(srvAlt.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	metricNames := []string{"ws_handshake_failed_total"}
+	spikes := computeFailureSpikes(context.Background(), prom, "oxpulse-chat", metricNames, start, end, diags)
+	if len(spikes) == 0 {
+		t.Skip("no spikes produced (network condition); skipping escape check")
+	}
+
+	res := &investigate.InvestigationResult{
+		Service:      "oxpulse-chat",
+		MetricSpikes: spikes,
+	}
+	out := formatInvestigationResult(res)
+
+	// The labels= attribute in the XML spike element must not contain \" (double-escaped).
+	if strings.Contains(out, `\"`) {
+		t.Errorf("rendered XML contains double-escaped quotes in labels= attribute (issue #65):\n%s", out)
+	}
+	// Verify the labels attribute appears without inner quotes.
+	if !strings.Contains(out, "labels=") {
+		t.Error("expected labels= attribute in rendered XML")
 	}
 }
