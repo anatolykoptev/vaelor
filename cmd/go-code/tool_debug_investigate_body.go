@@ -123,7 +123,7 @@ func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int, diags *inve
 // File read errors append a warning to diags.Warnings when diags is non-nil,
 // giving operators a clear signal on /host mount mis-config or PATH_MAPPINGS
 // drift instead of a silent empty body block.
-func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int, mappings []analyze.PathMapping, diags *investigate.Diagnostics) []investigate.Hypothesis {
+func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int, service string, mappings []analyze.PathMapping, diags *investigate.Diagnostics) []investigate.Hypothesis {
 	out := make([]investigate.Hypothesis, len(hyps))
 	copy(out, hyps)
 
@@ -141,7 +141,7 @@ func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int,
 		// and /host fallback. Rust tracing-opentelemetry emits relative
 		// code.filepath (file!() macro from CARGO_MANIFEST_DIR), which
 		// fails as-is; prepending repo or /host gives a working absolute.
-		candidates := buildBodyPathCandidates(h.File, mappings)
+		candidates := buildBodyPathCandidates(h.File, service, mappings)
 		var body string
 		var lastErr error
 		for _, p := range candidates {
@@ -171,7 +171,7 @@ func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int,
 //  4. <m.Container>/<file> for each PathMapping when file is relative
 //
 // Dedup-protected via filepath.Clean.
-func buildBodyPathCandidates(file string, mappings []analyze.PathMapping) []string {
+func buildBodyPathCandidates(file string, service string, mappings []analyze.PathMapping) []string {
 	seen := make(map[string]struct{})
 	var out []string
 	add := func(p string) {
@@ -191,6 +191,14 @@ func buildBodyPathCandidates(file string, mappings []analyze.PathMapping) []stri
 		for _, m := range mappings {
 			if m.External == "/host" {
 				add(filepath.Join("/host", file))
+				// Service-aware: /host/src/<service>/<rel> covers our
+				// convention where each service repo lives under
+				// /home/user/src/<service-name>/. Rust file!() emits
+				// CARGO_MANIFEST_DIR-relative; we need to anchor it to
+				// the actual on-disk repo path inside the /host mount.
+				if service != "" {
+					add(filepath.Join("/host", "src", service, file))
+				}
 				break
 			}
 		}
@@ -198,6 +206,9 @@ func buildBodyPathCandidates(file string, mappings []analyze.PathMapping) []stri
 		for _, m := range mappings {
 			if m.Internal != "" {
 				add(filepath.Join(m.Internal, file))
+				if service != "" {
+					add(filepath.Join(m.Internal, "src", service, file))
+				}
 			}
 		}
 	}

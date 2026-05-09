@@ -277,7 +277,7 @@ func TestRunBodyExtractionPhaseWithMappings_AppliesPathMapping(t *testing.T) {
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, mappings, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "", mappings, &diags)
 
 	if result[0].BodySource == "" {
 		t.Errorf("expected BodySource to be populated via path mapping, got empty")
@@ -295,7 +295,7 @@ func TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError(t *testing.T) 
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, nil, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "", nil, &diags)
 
 	if result[0].BodySource != "" {
 		t.Errorf("expected empty BodySource on error, got %q", result[0].BodySource)
@@ -307,7 +307,7 @@ func TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError(t *testing.T) 
 
 func TestBuildBodyPathCandidates_RelativePathPrefersHostMount(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
-	got := buildBodyPathCandidates("crates/server/src/main.rs", mappings)
+	got := buildBodyPathCandidates("crates/server/src/main.rs", "", mappings)
 	// Must include /host/<relative> candidate
 	found := false
 	for _, p := range got {
@@ -322,7 +322,7 @@ func TestBuildBodyPathCandidates_RelativePathPrefersHostMount(t *testing.T) {
 }
 
 func TestBuildBodyPathCandidates_AbsoluteUnchanged(t *testing.T) {
-	got := buildBodyPathCandidates("/abs/path/foo.rs", nil)
+	got := buildBodyPathCandidates("/abs/path/foo.rs", "", nil)
 	if len(got) != 1 || got[0] != "/abs/path/foo.rs" {
 		t.Fatalf("expected single absolute candidate, got %v", got)
 	}
