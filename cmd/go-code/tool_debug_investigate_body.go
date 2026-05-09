@@ -224,6 +224,24 @@ func buildBodyPathCandidates(file string, service string, mappings []analyze.Pat
 			}
 		}
 	}
+	// /build/<rel> paths are docker BUILD-time absolute paths (Go CGO builds
+	// emit code.filepath=/build/... because that is the container build CWD).
+	// When go-code runs on the host, strip the /build prefix and try the
+	// host-side repo path via PATH_MAPPINGS or the /host mount.
+	if strings.HasPrefix(file, "/build/") && service != "" {
+		rel := strings.TrimPrefix(file, "/build/")
+		for _, m := range mappings {
+			if m.External == "/host" {
+				add(filepath.Join("/host", "src", service, rel))
+				break
+			}
+		}
+		for _, m := range mappings {
+			if m.Internal != "" {
+				add(filepath.Join(m.Internal, "src", service, rel))
+			}
+		}
+	}
 	return out
 }
 

@@ -425,3 +425,199 @@ func TestPhase3_HTTPRouteFallback_EmptyRepo_OmitsRepoArg(t *testing.T) {
 		t.Errorf("code_search pattern = %q, want it to contain route", codeSearchNC.Args["pattern"])
 	}
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Fix 1: code.function / code.function.name in subject (joinSymbol)
+// ────────────────────────────────────────────────────────────────────
+
+// buildTraceWithFunction returns a trace with both code.namespace and code.function.
+func buildTraceWithFunction(op, fpath, namespace, function string, lineno float64) jaegerclient.Trace {
+	return jaegerclient.Trace{
+		TraceID: "tf1",
+		Spans: []jaegerclient.Span{{
+			OperationName: op,
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: fpath},
+				{Key: "code.lineno", Value: lineno},
+				{Key: "code.namespace", Value: namespace},
+				{Key: "code.function", Value: function},
+			},
+		}},
+	}
+}
+
+// TestBuildOpsMap_ParsesCodeFunction verifies that code.function is captured
+// into OperationInfo.CodeFunction.
+func TestBuildOpsMap_ParsesCodeFunction(t *testing.T) {
+	traces := []jaegerclient.Trace{
+		buildTraceWithFunction(
+			"webhook",
+			"/build/cmd/go-code/webhook_github.go",
+			"main",
+			"(*githubWebhookHandler).ServeHTTP",
+			float64(25),
+		),
+	}
+	ops := buildOpsMap(traces)
+	info, ok := ops["webhook"]
+	if !ok {
+		t.Fatal("operation 'webhook' not found")
+	}
+	if info.CodeFunction != "(*githubWebhookHandler).ServeHTTP" {
+		t.Errorf("CodeFunction = %q, want %q", info.CodeFunction, "(*githubWebhookHandler).ServeHTTP")
+	}
+}
+
+// TestBuildOpsMap_ParsesCodeFunctionName verifies that the renamed OTel v0.32+
+// attribute code.function.name is treated identically to code.function.
+func TestBuildOpsMap_ParsesCodeFunctionName(t *testing.T) {
+	tr := jaegerclient.Trace{
+		TraceID: "tf2",
+		Spans: []jaegerclient.Span{{
+			OperationName: "op",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/build/x.go"},
+				{Key: "code.lineno", Value: float64(1)},
+				{Key: "code.function.name", Value: "NewHandler"},
+			},
+		}},
+	}
+	ops := buildOpsMap([]jaegerclient.Trace{tr})
+	info := ops["op"]
+	if info.CodeFunction != "NewHandler" {
+		t.Errorf("CodeFunction = %q, want %q", info.CodeFunction, "NewHandler")
+	}
+}
+
+// TestBuildOpsMap_CodeFunction_FirstSeenWins verifies that code.function
+// obeys first-seen semantics like other tags.
+func TestBuildOpsMap_CodeFunction_FirstSeenWins(t *testing.T) {
+	tr := jaegerclient.Trace{
+		TraceID: "tf3",
+		Spans: []jaegerclient.Span{{
+			OperationName: "op",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/build/x.go"},
+				{Key: "code.lineno", Value: float64(1)},
+				{Key: "code.function", Value: "First"},
+				{Key: "code.function.name", Value: "Second"}, // must NOT overwrite
+			},
+		}},
+	}
+	ops := buildOpsMap([]jaegerclient.Trace{tr})
+	info := ops["op"]
+	if info.CodeFunction != "First" {
+		t.Errorf("CodeFunction = %q, want %q (first-seen wins)", info.CodeFunction, "First")
+	}
+}
+
+// TestJoinSymbol verifies joinSymbol helper edge cases.
+func TestJoinSymbol(t *testing.T) {
+	cases := []struct {
+		ns, fn, want string
+	}{
+		{"", "", ""},
+		{"main", "", "main"},
+		{"", "Handler", "Handler"},
+		{"main", "(*githubWebhookHandler).ServeHTTP", "main.(*githubWebhookHandler).ServeHTTP"},
+		{"oxpulse_sfu::client_ws", "", "oxpulse_sfu::client_ws"}, // Rust: no dot appended
+	}
+	for _, tc := range cases {
+		got := joinSymbol(tc.ns, tc.fn)
+		if got != tc.want {
+			t.Errorf("joinSymbol(%q, %q) = %q, want %q", tc.ns, tc.fn, got, tc.want)
+		}
+	}
+}
+
+// TestPhase3_SubjectContainsFunction verifies that when code.namespace and
+// code.function are both present, the hypothesis subject is "ns.fn in file:line".
+func TestPhase3_SubjectContainsFunction(t *testing.T) {
+	traces := []jaegerclient.Trace{
+		buildTraceWithFunction(
+			"webhook",
+			"/build/cmd/go-code/webhook_github.go",
+			"main",
+			"(*githubWebhookHandler).ServeHTTP",
+			float64(25),
+		),
+	}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	input := DebugInvestigateInput{Service: "go-code", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, traces, 0.8, res) //nolint:staticcheck
+
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis")
+	}
+	h := res.Hypotheses[0]
+	if !strings.Contains(h.Subject, "(*githubWebhookHandler).ServeHTTP") {
+		t.Errorf("Subject = %q, want it to contain function name", h.Subject)
+	}
+	if !strings.Contains(h.Subject, "main.(*githubWebhookHandler).ServeHTTP") {
+		t.Errorf("Subject = %q, want ns.fn form 'main.(*githubWebhookHandler).ServeHTTP'", h.Subject)
+	}
+}
+
+// TestPhase3_SubjectFunctionOnly verifies that when namespace is empty but
+// function is present, subject uses function name directly.
+func TestPhase3_SubjectFunctionOnly(t *testing.T) {
+	tr := jaegerclient.Trace{
+		TraceID: "tf4",
+		Spans: []jaegerclient.Span{{
+			OperationName: "op",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/build/x.go"},
+				{Key: "code.lineno", Value: float64(1)},
+				{Key: "code.namespace", Value: ""},
+				{Key: "code.function", Value: "Handler"},
+			},
+		}},
+	}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	input := DebugInvestigateInput{Service: "svc", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, []jaegerclient.Trace{tr}, 0.5, res) //nolint:staticcheck
+
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis")
+	}
+	h := res.Hypotheses[0]
+	if !strings.Contains(h.Subject, "Handler") {
+		t.Errorf("Subject = %q, want it to contain 'Handler'", h.Subject)
+	}
+}
+
+// TestPhase3_BothEmpty_FallsBackToOp verifies that when both namespace and
+// function are empty, subject falls back to the operation name.
+func TestPhase3_BothEmpty_FallsBackToOp(t *testing.T) {
+	tr := jaegerclient.Trace{
+		TraceID: "tf5",
+		Spans: []jaegerclient.Span{{
+			OperationName: "my-op",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/build/x.go"},
+				{Key: "code.lineno", Value: float64(1)},
+				// no namespace, no function
+			},
+		}},
+	}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	input := DebugInvestigateInput{Service: "svc", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, []jaegerclient.Trace{tr}, 0.5, res) //nolint:staticcheck
+
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis")
+	}
+	h := res.Hypotheses[0]
+	if !strings.Contains(h.Subject, "my-op") {
+		t.Errorf("Subject = %q, want it to contain operation name 'my-op'", h.Subject)
+	}
+}
