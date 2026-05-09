@@ -37,8 +37,8 @@ type cacheEntry struct {
 	at     time.Time
 }
 
-// NewResolver creates a Resolver. maxSize is the LRU bound (entries evicted by
-// oldest-first when full), ttl is per-entry expiry duration.
+// NewResolver creates a Resolver. maxSize is the FIFO-by-insertion-time bound
+// (entries evicted oldest-first when full), ttl is per-entry expiry duration.
 func NewResolver(client *http.Client, maxSize int, ttl time.Duration) *Resolver {
 	return &Resolver{
 		client:  client,
@@ -108,15 +108,17 @@ func stripBase(resolved, mapURL string) string {
 
 func (r *Resolver) consumerFor(ctx context.Context, mapURL string) (*gosourcemap.Consumer, error) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if e, ok := r.cache[mapURL]; ok {
 		if time.Since(e.at) < r.ttl {
-			r.mu.Unlock()
 			return e.parsed, nil
 		}
 		delete(r.cache, mapURL)
 	}
-	r.mu.Unlock()
 
+	// Fetch and parse inside the lock. The cache is small (N=64) and misses are
+	// infrequent, so holding the lock through the network round-trip is cheaper
+	// than the TOCTOU window introduced by a double-checked unlock pattern.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mapURL, nil)
 	if err != nil {
 		return nil, err
@@ -139,8 +141,6 @@ func (r *Resolver) consumerFor(ctx context.Context, mapURL string) (*gosourcemap
 		return nil, fmt.Errorf("parse: %w", err)
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if len(r.cache) >= r.maxSize {
 		// Evict oldest entry.
 		var oldestKey string

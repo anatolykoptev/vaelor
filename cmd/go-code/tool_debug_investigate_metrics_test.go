@@ -46,7 +46,7 @@ func TestMaxSampleValue_IgnoresUnparseable(t *testing.T) {
 func TestDiscoverFailureMetrics_FiltersByPattern(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
-			fmt.Fprint(w, `{"status":"success","data":["http_requests_total","signaling_call_outcome_total","ws_handshake_failed_total","sfu_chat_relay_dropped_total","go_goroutines","process_cpu_seconds_total"]}`)
+			fmt.Fprint(w, `{"status":"success","data":["http_requests_total","signaling_call_outcome_total","ws_handshake_failed_total","sfu_chat_relay_dropped_total","go_goroutines","process_cpu_seconds_total","auth_outcome"]}`)
 			return
 		}
 		http.Error(w, "not found", 404)
@@ -73,5 +73,28 @@ func TestRankSpikes_TopK(t *testing.T) {
 	}, 2)
 	if len(got) != 2 || got[0].MetricName != "b" || got[1].MetricName != "d" {
 		t.Errorf("unexpected: %+v", got)
+	}
+}
+
+func TestFailureMetricRegex_RejectsGaugesAcceptsCounters(t *testing.T) {
+	// Gauges without _total suffix must NOT match.
+	rejected := []string{"auth_outcome", "connection_state", "http_errors_gauge"}
+	for _, name := range rejected {
+		if failureMetricRegex.MatchString(name) {
+			t.Errorf("regex should NOT match gauge %q", name)
+		}
+	}
+	// Counters with proper _total suffix must match.
+	accepted := []string{
+		"signaling_call_outcome_total",
+		"ws_handshake_failed_total",
+		"sfu_chat_relay_dropped_total",
+		"grpc_server_failures_total",
+		"api_errors_total",
+	}
+	for _, name := range accepted {
+		if !failureMetricRegex.MatchString(name) {
+			t.Errorf("regex should match counter %q", name)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/anatolykoptev/go-code/internal/sourcemap"
@@ -44,6 +45,8 @@ func resolveHTTPHandler(allowedHosts []string, resolver *sourcemap.Resolver) htt
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(frame)
+		if err := json.NewEncoder(w).Encode(frame); err != nil {
+			slog.Warn("resolve: encode response", "err", err, "url", req.URL)
+		}
 	}
 }

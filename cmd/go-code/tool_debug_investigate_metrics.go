@@ -18,9 +18,10 @@ import (
 type MetricSpike = investigate.MetricSpike
 
 // failureMetricRegex matches metric names that strongly suggest a failure
-// counter. Patterns: *_failed_total, *_error*, *_dropped_total, *_failure*,
-// *_outcome*. Hand-curated; expand as new conventions appear.
-var failureMetricRegex = regexp.MustCompile(`(?i)(_failed_total|_failures?_total|_errors?_total|_dropped_total|_failure(_|$)|_outcome($|_total))`)
+// counter. All alternatives require a _total suffix to avoid matching gauges
+// (e.g. auth_outcome is a gauge; signaling_call_outcome_total is a counter).
+// Hand-curated; expand as new counter conventions appear.
+var failureMetricRegex = regexp.MustCompile(`(?i)(_failed_total|_failures_total|_failure_total|_errors?_total|_dropped_total|_outcome_total)$`)
 
 // discoverFailureMetrics returns Prometheus metric names matching common
 // failure-counter naming conventions. Service-name filtering happens at
