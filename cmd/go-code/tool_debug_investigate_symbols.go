@@ -260,6 +260,7 @@ func runSymbolsPhase(
 						sym := matches[0]
 						h.File = reverseToHost(sym.File, deps.PathMappings)
 						h.Line = int(sym.StartLine)
+						h.EndLine = int(sym.EndLine)
 						h.Subject = fmt.Sprintf("%s in %s", funcName, h.File)
 						h.NextChecks = append(h.NextChecks,
 							investigate.NextCheck{

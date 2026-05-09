@@ -48,6 +48,10 @@ type Hypothesis struct {
 	Subject string `json:"subject"`
 	File    string `json:"file,omitempty"`
 	Line    int    `json:"line,omitempty"`
+	// EndLine is the last line of the function body (1-based, inclusive).
+	// Populated from parser.Symbol.EndLine in Tier-3 callgraph path.
+	// For Tier-1 (OTEL code.* tags) it equals Line (single attribution point).
+	EndLine int `json:"end_line,omitempty"`
 
 	SpanCount    int     `json:"span_count"`
 	AnomalyScore float64 `json:"anomaly_score"`
@@ -78,6 +82,12 @@ type Hypothesis struct {
 	// RecentChange embeds a recent git diff for the hypothesis file (Phase γ.D).
 	// Set for top-1 hypothesis only when a repo path is available.
 	RecentChange *RecentChange `json:"recent_change,omitempty"`
+
+	// BodySource is the raw source text of the function body (Sprint B1).
+	// Populated for top-3 hypotheses after FusionRank. Enables LLM to
+	// reason about the code rather than just its metadata.
+	// Empty when file read fails or EndLine == 0.
+	BodySource string `json:"body_source,omitempty"`
 }
 
 // RecentChange captures a recent git diff for a hypothesis file.

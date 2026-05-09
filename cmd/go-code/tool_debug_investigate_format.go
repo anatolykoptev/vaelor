@@ -101,6 +101,19 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 			b.WriteString("\n      </recent_change>")
 		}
 
+		// Sprint B1: body excerpt block — rendered when BodySource is non-empty.
+		if h.BodySource != "" {
+			lines := fmt.Sprintf("%d-%d", h.Line, h.EndLine)
+			if h.EndLine == 0 || h.EndLine == h.Line {
+				lines = fmt.Sprintf("%d", h.Line)
+			}
+			b.WriteString(fmt.Sprintf("\n      <body_excerpt file=%q lines=%q>", h.File, lines))
+			b.WriteString("\n        <![CDATA[\n")
+			b.WriteString(escapeCDATA(h.BodySource))
+			b.WriteString("\n        ]]>")
+			b.WriteString("\n      </body_excerpt>")
+		}
+
 		for _, link := range h.EvidenceLinks {
 			b.WriteString("\n      <evidence>")
 			b.WriteString(escapeXML(link))

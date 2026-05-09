@@ -262,6 +262,14 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 			diff := gitutil.FileDiffSince(ctx, repoRoot, res.Hypotheses[0].File, 30*24*time.Hour, 60)
 			res.Hypotheses[0].RecentChange = recentChangeForHypothesis(res.Hypotheses[0].File, diff)
 		}
+
+		// Sprint B1: populate BodySource for top-3 hypotheses.
+		// Runs after FusionRank so we know the definitive top-3.
+		// Files are read via host-side paths (Hypothesis.File is already reversed
+		// to host by reverseToHost in Tier-1/Tier-3 symbol resolution). Inside the
+		// container, host paths are accessible under /host via PATH_MAPPINGS mount.
+		// rewritePath translates host → container for the disk read.
+		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, 3, deps.PathMappings)
 	}
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
