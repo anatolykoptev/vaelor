@@ -251,3 +251,17 @@ type HistoricalIncident struct {
 	Flag      string `json:"flag,omitempty"`
 	Note      string `json:"note,omitempty"`
 }
+
+// OperationInfo aggregates per-operation context from a service's spans.
+// Used by Phase 3 (runSymbolsPhase) to feed symbol resolution with both span
+// counts and OTEL semantic-convention attributes. When code.* tags are present,
+// Phase 3 resolves directly to file:line without needing a callgraph.
+type OperationInfo struct {
+	Operation     string // span operation name
+	Count         int    // number of spans seen for this op in window
+	HTTPRoute     string // http.route tag — first seen
+	HTTPMethod    string // http.method tag — first seen
+	CodeFilepath  string // OTEL code.filepath tag (absolute path inside container)
+	CodeLineno    int    // OTEL code.lineno tag
+	CodeNamespace string // OTEL code.namespace tag (e.g. Rust module path)
+}

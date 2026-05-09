@@ -230,3 +230,120 @@ func TestPhase2_BaselineFetchError_StillReturnsErrorTraces(t *testing.T) {
 		t.Errorf("expected a warning containing %q; warnings: %v", "baseline", res.Diagnostics.Warnings)
 	}
 }
+
+// TestPhase2_AggregatesCodeTags verifies that when a span carries OTEL
+// code.* tags, runSymbolsPhase aggregates them into OperationInfo.
+//
+// Note: runTracesPhase only fetches raw traces. The aggregation into
+// OperationInfo happens in runSymbolsPhase (where the span-count loop lives).
+// This test validates the helpers used by that loop via a constructed ops map,
+// since runSymbolsPhase is tested in tool_debug_investigate_symbols_test.go.
+func TestPhase2_AggregatesCodeTags_SpanTags(t *testing.T) {
+	span := jaegerclient.Span{
+		OperationName: "request",
+		Tags: []jaegerclient.SpanTag{
+			{Key: "http.route", Value: "/api/x"},
+			{Key: "http.method", Value: "GET"},
+			{Key: "code.filepath", Value: "/src/foo.rs"},
+			{Key: "code.lineno", Value: float64(42)},
+			{Key: "code.namespace", Value: "crate::module"},
+		},
+	}
+	traces := []jaegerclient.Trace{{
+		TraceID: "t1",
+		Spans:   []jaegerclient.Span{span},
+	}}
+
+	// Build ops map using the same logic as runSymbolsPhase.
+	ops := buildOpsMap(traces)
+
+	info, ok := ops["request"]
+	if !ok {
+		t.Fatal("expected ops[\"request\"] to exist")
+	}
+	if info.HTTPRoute != "/api/x" {
+		t.Errorf("HTTPRoute = %q, want %q", info.HTTPRoute, "/api/x")
+	}
+	if info.HTTPMethod != "GET" {
+		t.Errorf("HTTPMethod = %q, want %q", info.HTTPMethod, "GET")
+	}
+	if info.CodeFilepath != "/src/foo.rs" {
+		t.Errorf("CodeFilepath = %q, want %q", info.CodeFilepath, "/src/foo.rs")
+	}
+	if info.CodeLineno != 42 {
+		t.Errorf("CodeLineno = %d, want 42", info.CodeLineno)
+	}
+	if info.CodeNamespace != "crate::module" {
+		t.Errorf("CodeNamespace = %q, want %q", info.CodeNamespace, "crate::module")
+	}
+	if info.Count != 1 {
+		t.Errorf("Count = %d, want 1", info.Count)
+	}
+}
+
+// TestPhase2_FirstSeenTagWins verifies that when multiple spans share the same
+// operation name, the first-seen tag values are preserved (stable).
+func TestPhase2_FirstSeenTagWins(t *testing.T) {
+	traces := []jaegerclient.Trace{
+		{TraceID: "t1", Spans: []jaegerclient.Span{{
+			OperationName: "request",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/src/first.rs"},
+			},
+		}}},
+		{TraceID: "t2", Spans: []jaegerclient.Span{{
+			OperationName: "request",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/src/second.rs"},
+			},
+		}}},
+	}
+
+	ops := buildOpsMap(traces)
+
+	info, ok := ops["request"]
+	if !ok {
+		t.Fatal("expected ops[\"request\"] to exist")
+	}
+	if info.CodeFilepath != "/src/first.rs" {
+		t.Errorf("CodeFilepath = %q, want %q (first-seen wins)", info.CodeFilepath, "/src/first.rs")
+	}
+	if info.Count != 2 {
+		t.Errorf("Count = %d, want 2", info.Count)
+	}
+}
+
+// TestPhase2_TagTypeVariants verifies that code.lineno is parsed correctly
+// when it arrives as float64, int64, or string (all legal JSON/OTEL variants).
+func TestPhase2_TagTypeVariants(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		want  int
+	}{
+		{"float64", float64(99), 99},
+		{"int64", int64(77), 77},
+		{"string", "55", 55},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			traces := []jaegerclient.Trace{{
+				TraceID: "t1",
+				Spans: []jaegerclient.Span{{
+					OperationName: "op",
+					Tags: []jaegerclient.SpanTag{
+						{Key: "code.lineno", Value: tc.value},
+					},
+				}},
+			}}
+			ops := buildOpsMap(traces)
+			info := ops["op"]
+			if info == nil {
+				t.Fatal("expected ops[\"op\"] to exist")
+			}
+			if info.CodeLineno != tc.want {
+				t.Errorf("CodeLineno = %d, want %d (input type %T)", info.CodeLineno, tc.want, tc.value)
+			}
+		})
+	}
+}
