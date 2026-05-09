@@ -327,3 +327,39 @@ func TestBuildBodyPathCandidates_AbsoluteUnchanged(t *testing.T) {
 		t.Fatalf("expected single absolute candidate, got %v", got)
 	}
 }
+
+func TestResolveEndLine_KnownEndLine_Returns(t *testing.T) {
+	h := &investigate.Hypothesis{Line: 10, EndLine: 50}
+	if got := resolveEndLine(h); got != 50 {
+		t.Fatalf("want 50, got %d", got)
+	}
+}
+
+func TestResolveEndLine_ZeroEndLine_AddsWindow(t *testing.T) {
+	// Sprint B3: when EndLine is unknown (Tier-1 OTEL code.*), expand
+	// to defaultBodyWindow lines so body excerpt covers the function
+	// body, not just the annotation line.
+	h := &investigate.Hypothesis{Line: 100, EndLine: 0}
+	if got := resolveEndLine(h); got != 100+defaultBodyWindow {
+		t.Fatalf("want %d, got %d", 100+defaultBodyWindow, got)
+	}
+}
+
+func TestRunBodyExtractionPhase_OTELLineOnly_ReadsHandlerBody(t *testing.T) {
+	// Simulate Rust handler file: line 1 is annotation, lines 2-10 are body.
+	dir := t.TempDir()
+	file := filepath.Join(dir, "handler.rs")
+	content := "#[tracing::instrument(name = \"foo\", skip_all)]\nfn handle() {\n    let x = 1;\n    let y = 2;\n    return x + y;\n}\n"
+	if err := os.WriteFile(file, []byte(content), 0644); err != nil { t.Fatal(err) }
+	hyps := []investigate.Hypothesis{{File: file, Line: 1, EndLine: 0}}
+	out := runBodyExtractionPhase(hyps, 1, nil)
+	if out[0].BodySource == "" {
+		t.Fatal("expected body extracted, got empty")
+	}
+	if !strings.Contains(out[0].BodySource, "fn handle()") {
+		t.Fatalf("expected handler body, got: %q", out[0].BodySource)
+	}
+	if !strings.Contains(out[0].BodySource, "return x + y") {
+		t.Fatalf("expected full body inc. return, got: %q", out[0].BodySource)
+	}
+}
