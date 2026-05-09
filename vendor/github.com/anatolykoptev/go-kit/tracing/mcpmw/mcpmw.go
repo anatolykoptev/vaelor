@@ -100,16 +100,24 @@ func Middleware(scope string) mcp.Middleware {
 	}
 }
 
-// extractToolName pulls the tool identifier from a CallToolParamsRaw payload.
-// Returns "" when the request shape is unexpected — span name then falls back
-// to "mcp.tools.call ".
+// extractToolName pulls the tool identifier from the request parameters.
+// Handles both server-side CallToolParamsRaw (the canonical shape for
+// mcp.MethodHandler) and the client-side CallToolParams (defensive guard for
+// future SDK changes or unexpected wrapping). Returns "" when the shape is
+// unrecognised — span name then falls back to "mcp.tools.call ".
 func extractToolName(req mcp.Request) string {
 	if req == nil {
 		return ""
 	}
-	p, ok := req.GetParams().(*mcp.CallToolParamsRaw)
-	if !ok || p == nil {
-		return ""
+	switch p := req.GetParams().(type) {
+	case *mcp.CallToolParamsRaw:
+		if p != nil {
+			return p.Name
+		}
+	case *mcp.CallToolParams:
+		if p != nil {
+			return p.Name
+		}
 	}
-	return p.Name
+	return ""
 }
