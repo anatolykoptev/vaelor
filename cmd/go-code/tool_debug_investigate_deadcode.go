@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/investigate"
@@ -10,7 +11,8 @@ import (
 // filterDeadHypotheses removes hypotheses whose resolved subject name matches
 // a dead-code symbol. Only hypotheses with File != "" are eligible for removal
 // (unresolved hypotheses have no symbol to match). Increments
-// diag.HypothesesDroppedAsDead for each dropped hypothesis.
+// diag.HypothesesDroppedAsDead for each dropped hypothesis, and appends a
+// Warning entry so operators can detect overaggressive filtering in prod.
 //
 // deadSet is keyed by symbol name (e.g. "DeadFn"). The subject field of a
 // resolved hypothesis is typically "FuncName in /path/to/file.go" — we match
@@ -23,8 +25,7 @@ func filterDeadHypotheses(
 	if len(deadSet) == 0 {
 		return hyps
 	}
-	out := hyps[:0:0] // reuse underlying array type but new header
-	out = make([]investigate.Hypothesis, 0, len(hyps))
+	out := make([]investigate.Hypothesis, 0, len(hyps))
 	for _, h := range hyps {
 		// Only filter hypotheses that have been resolved to a file location.
 		if h.File == "" {
@@ -34,6 +35,8 @@ func filterDeadHypotheses(
 		name := subjectFuncName(h.Subject)
 		if deadSet[name] {
 			diag.HypothesesDroppedAsDead++
+			diag.Warnings = append(diag.Warnings,
+				fmt.Sprintf("dropped %q as dead-code candidate (file=%s)", h.Subject, h.File))
 			continue
 		}
 		out = append(out, h)

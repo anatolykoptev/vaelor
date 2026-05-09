@@ -72,6 +72,29 @@ func TestDeadCodeFilter_AllAlive(t *testing.T) {
 	}
 }
 
+// TestFilterDeadHypotheses_EmitsWarning asserts that each dropped hypothesis
+// produces a Warning entry in Diagnostics with subject and file info.
+func TestFilterDeadHypotheses_EmitsWarning(t *testing.T) {
+	input := []investigate.Hypothesis{
+		{Subject: "DeadFn in some/file.go", File: "some/file.go", Line: 10},
+		{Subject: "LiveFn in other.go", File: "other.go", Line: 20},
+	}
+	deadSet := map[string]bool{"DeadFn": true}
+	diag := &investigate.Diagnostics{}
+
+	_ = filterDeadHypotheses(input, deadSet, diag)
+
+	if len(diag.Warnings) != 1 {
+		t.Fatalf("expected 1 Warning, got %d: %v", len(diag.Warnings), diag.Warnings)
+	}
+	if !strings.Contains(diag.Warnings[0], "DeadFn") {
+		t.Errorf("Warning should mention subject, got %q", diag.Warnings[0])
+	}
+	if !strings.Contains(diag.Warnings[0], "some/file.go") {
+		t.Errorf("Warning should mention file, got %q", diag.Warnings[0])
+	}
+}
+
 // ---------- γ.B.2 impact enrichment ----------
 
 // TestImpactPhase_EnrichesTopThree asserts that runImpactPhase fills Impact

@@ -87,7 +87,8 @@ func runSymbolsPhase(
 						h.NextChecks = append(h.NextChecks,
 							fmt.Sprintf("understand symbol=%q repo=%q", funcName, repo))
 						res.Diagnostics.SymbolsTouched++
-						// Record original symbol index (pre-ranking) for body analysis.
+						// Invariant: key == index of hypothesis about to be appended at line ~94.
+						// Reordering the append below would silently desync this map.
 						symMap[len(res.Hypotheses)] = sym
 					}
 				}
@@ -96,7 +97,16 @@ func runSymbolsPhase(
 
 			// γ.B.1: Dead-code filter — build dead set and drop false-positive hypotheses.
 			if cg != nil {
-				dcResult := deadcode.Analyze(cg, deadcode.Options{})
+				dcResult := deadcode.Analyze(cg, deadcode.Options{
+					OxCodes:       deps.OxCodes, // second-pass string-reference scan reduces false positives
+					Root:          resolvedRoot, // required for ox-codes queries
+					Language:      "go",
+					Relationships: cg.TypeRels, // interface-aware filtering: prevents concrete methods
+					// from being marked dead when they satisfy an interface
+					// with no direct callgraph edge.
+					IncludeExported: false, // conservative: exported symbols are not dead by definition
+					Ctx:             ctx,
+				})
 				deadSet := make(map[string]bool, dcResult.DeadCount)
 				for _, ds := range dcResult.DeadSymbols {
 					deadSet[ds.Name] = true

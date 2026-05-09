@@ -181,11 +181,19 @@ type LogExcerpt struct {
 	Raw   string `json:"raw,omitempty"`
 }
 
+// BlastRadius enum values for ImpactInfo.BlastRadius.
+const (
+	BlastRadiusNone   = "none"
+	BlastRadiusLow    = "low"
+	BlastRadiusMedium = "medium"
+	BlastRadiusHigh   = "high"
+)
+
 // ImpactInfo captures blast-radius data from impact.Analyze for a hypothesis.
 type ImpactInfo struct {
 	DirectCallers int     `json:"direct_callers"`
 	TotalAffected int     `json:"total_affected"`
-	BlastRadius   string  `json:"blast_radius,omitempty"` // "none"|"low"|"medium"|"high"
+	BlastRadius   string  `json:"blast_radius,omitempty"` // BlastRadiusNone | BlastRadiusLow | BlastRadiusMedium | BlastRadiusHigh
 	RiskScore     float64 `json:"risk_score,omitempty"`
 }
 
