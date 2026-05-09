@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -126,6 +127,25 @@ func runSymbolsPhase(
 			// We match by Subject prefix to find the original symbol.
 			rankedSymMap := buildRankedSymMap(res.Hypotheses, symMap)
 			res.Hypotheses = runSymbolBodyPhase(ctx, res.Hypotheses, rankedSymMap, deps.OxCodes, resolvedRoot, &res.Diagnostics)
+
+			// γ.C.3: Hint-driven codesearch — append hint_match hypotheses and re-rank.
+			// Re-rank is mandatory: at this point existing hypotheses already have
+			// Confidence set by the first RankHypotheses call above, so isRanked()
+			// returns true and the final guard below would skip ranking entirely,
+			// leaving hint_match hypotheses unordered at the tail.
+			if input.Hint != "" {
+				hintCtx, hintCancel := context.WithTimeout(ctx, 5*time.Second)
+				hintMatches := runHintSearch(hintCtx, input.Hint, resolvedRoot)
+				hintCancel() // synchronous — purpose-bounded scope, not deferred
+				if len(hintMatches) > 0 {
+					res.Hypotheses = applyHintMatches(res.Hypotheses, hintMatches)
+					// Clear Confidence so RankHypotheses re-fills all entries uniformly.
+					for i := range res.Hypotheses {
+						res.Hypotheses[i].Confidence = ""
+					}
+					res.Hypotheses = investigate.RankHypotheses(res.Hypotheses)
+				}
+			}
 		}
 	}
 

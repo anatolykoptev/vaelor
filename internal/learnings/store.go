@@ -63,6 +63,42 @@ func New(ctx context.Context, dsn string, emb Embedder) (*Store, error) {
 // Close releases the pool.
 func (s *Store) Close() { s.pool.Close() }
 
+// HasEmbedder reports whether this store has a configured Embedder for
+// vector similarity search. When false, NearestVector calls will error.
+func (s *Store) HasEmbedder() bool { return s.emb != nil }
+
+// NearestByRepo returns up to k prior learnings for the given repo,
+// ordered by creation time descending. It matches any symbol.
+func (s *Store) NearestByRepo(ctx context.Context, repo string, k int) ([]Record, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT repo, symbol, risk_level, review_outcome, flag, note, pr_url
+		FROM review_learnings
+		WHERE repo = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, repo, k)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		var r Record
+		var risk, outcome *string
+		if err := rows.Scan(&r.Repo, &r.Symbol, &risk, &outcome, &r.Flag, &r.Note, &r.PRURL); err != nil {
+			return nil, err
+		}
+		if risk != nil {
+			r.RiskLevel = *risk
+		}
+		if outcome != nil {
+			r.ReviewOutcome = *outcome
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // Upsert inserts a learning. If an embedder is configured, the flag+note is
 // embedded for future similarity search.
 func (s *Store) Upsert(ctx context.Context, r Record) error {
