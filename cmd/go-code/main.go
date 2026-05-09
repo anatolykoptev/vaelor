@@ -160,6 +160,9 @@ func main() {
 			})
 		}
 		handler := newGitHubWebhook(secret, sink)
+		// Register at startup so Handler middleware can emit code.* OTEL attrs.
+		// handler.ServeHTTP is a method value; -fm suffix is stripped by RegisterRoute.
+		httpmw.RegisterRoute("POST", "/webhook/github", handler.ServeHTTP)
 		webhookRoutes = func(mux *http.ServeMux) {
 			mux.Handle("/webhook/github", handler)
 		}
