@@ -268,3 +268,39 @@ func TestFormatHypothesis_RendersSourceField(t *testing.T) {
 		t.Errorf("expected source attribute in hypothesis, got:\n%s", out)
 	}
 }
+
+// TestHintDrivenSearch_RankingIntegration verifies that a hint_match hypothesis
+// with high AnomalyScore outranks a prior low-score span hypothesis after merging
+// and re-ranking. This guards against the bug where hint hypotheses bypass ranking.
+func TestHintDrivenSearch_RankingIntegration(t *testing.T) {
+	// Simulate a previously-ranked set: one span hyp with low anomaly score
+	// and SpanCount=0 so it does not compete on the span-count dimension.
+	prevRanked := []investigate.Hypothesis{
+		{Subject: "LowScoreSpan", Source: "span", AnomalyScore: 0.1, SpanCount: 0,
+			Confidence: investigate.ConfidenceLow},
+	}
+
+	// Hint match has default SpanCount=0 and AnomalyScore=0.5 (from applyHintMatches).
+	// With equal SpanCount, higher AnomalyScore wins after re-rank.
+	hintMatches := []hintSearchMatch{
+		{File: "hot/path.go", Line: 99, Text: "func HotPath("},
+	}
+
+	// applyHintMatches merges them.
+	merged := applyHintMatches(prevRanked, hintMatches)
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 hypotheses, got %d", len(merged))
+	}
+
+	// Simulate the re-rank: clear Confidence and re-rank.
+	for i := range merged {
+		merged[i].Confidence = ""
+	}
+	ranked := investigate.RankHypotheses(merged)
+
+	// hint_match has AnomalyScore=0.5 vs 0.1 for span — should rank first.
+	if ranked[0].Source != investigate.HypothesisSourceHintMatch {
+		t.Errorf("hint_match should rank first; got Source=%q Subject=%q",
+			ranked[0].Source, ranked[0].Subject)
+	}
+}
