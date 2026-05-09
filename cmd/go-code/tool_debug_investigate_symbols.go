@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -126,6 +127,14 @@ func runSymbolsPhase(
 			// We match by Subject prefix to find the original symbol.
 			rankedSymMap := buildRankedSymMap(res.Hypotheses, symMap)
 			res.Hypotheses = runSymbolBodyPhase(ctx, res.Hypotheses, rankedSymMap, deps.OxCodes, resolvedRoot, &res.Diagnostics)
+
+			// γ.C.3: Hint-driven codesearch — append hint_match hypotheses before ranking.
+			if input.Hint != "" {
+				hintCtx, hintCancel := context.WithTimeout(ctx, 5*time.Second)
+				defer hintCancel()
+				hintMatches := runHintSearch(hintCtx, input.Hint, resolvedRoot)
+				res.Hypotheses = applyHintMatches(res.Hypotheses, hintMatches)
+			}
 		}
 	}
 

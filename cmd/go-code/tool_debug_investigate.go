@@ -190,6 +190,10 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		return
 	}
 
+	// γ.C.2: Retrieve historical incidents for this service before analysis begins.
+	// Best-effort: errors append a warning and return empty slice.
+	retrieveHistoricalIncidents(ctx, deps.Learnings, input.Service, input.Hint, res)
+
 	// Phase 4 pre-fetch: fetch the full metric name list once. All discover*
 	// functions are pure filters over this slice — avoids 3 redundant Prometheus
 	// /api/v1/label/__name__/values round-trips in Phase 4. Also reused in Phase 5
@@ -250,6 +254,11 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	}
 
 	res.FinishedAt = time.Now()
+
+	// γ.C.1: Persist investigation outcome. Best-effort: nil store and errors
+	// append a warning but do not abort. Must run before Finish so
+	// LearningsPersisted is visible in the polled result.
+	runHistoryPersist(ctx, deps.Learnings, input.Service, topAnomalyScore(res), res)
 
 	debugInvestigateStore.Finish(input.Service, start, end, res)
 	finished = true
