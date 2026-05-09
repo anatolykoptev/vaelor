@@ -23,6 +23,11 @@ var validPromLabel = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 //
 // label must match Prometheus label naming rules ([A-Za-z_][A-Za-z0-9_]*);
 // invalid labels are rejected immediately to prevent path construction issues.
+//
+// For the "__name__" label specifically, prefer promclient.Client.MetricNames
+// which is fetched once per investigation in runInvestigation and passed through
+// the call chain. listLabelValues remains for other label lookups (e.g. service=,
+// job=) that may be needed in future phases.
 func listLabelValues(ctx context.Context, prom *promclient.Client, label string) ([]string, error) {
 	if !validPromLabel.MatchString(label) {
 		return nil, fmt.Errorf("listLabelValues: invalid label name %q (must match [A-Za-z_][A-Za-z0-9_]*)", label)
@@ -48,6 +53,9 @@ func listLabelValues(ctx context.Context, prom *promclient.Client, label string)
 // runLLMPhase executes Phase 5: produce an LLM-generated one-paragraph summary
 // and reasoning for the top hypothesis.
 //
+// metricNames is the pre-fetched list from promclient.Client.MetricNames (fetched
+// once in runInvestigation) — avoids a redundant __name__ round-trip here.
+//
 // Skipped when deps.LLM is nil or res.Hypotheses is empty.
 //
 // Note: llmCtx (10s deadline) is deferred inside this function; it fires when
@@ -55,7 +63,7 @@ func listLabelValues(ctx context.Context, prom *promclient.Client, label string)
 func runLLMPhase(
 	ctx context.Context,
 	deps analyze.Deps,
-	prom *promclient.Client,
+	metricNames []string,
 	input DebugInvestigateInput,
 	services []string,
 	ops map[string]int,
@@ -66,12 +74,12 @@ func runLLMPhase(
 		return
 	}
 
-	// Gather ground-truth context.
-	availMetrics, llvErr := listLabelValues(ctx, prom, "__name__")
-	if llvErr != nil {
-		res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-			fmt.Sprintf("list label values: %v", llvErr))
+	// Cap metricNames to 200 for the system prompt (matches prior listLabelValues cap).
+	availMetrics := metricNames
+	if len(availMetrics) > 200 {
+		availMetrics = availMetrics[:200]
 	}
+
 	operationsSeen := make([]string, 0, len(ops))
 	for op := range ops {
 		operationsSeen = append(operationsSeen, op)

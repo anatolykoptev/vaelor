@@ -25,28 +25,17 @@ type MetricSpike = investigate.MetricSpike
 // Hand-curated; expand as new counter conventions appear.
 var failureMetricRegex = regexp.MustCompile(`(?i)(_failed_total|_failures_total|_failure_total|_errors?_total|_dropped_total|_outcome_total)$`)
 
-// discoverFailureMetrics returns Prometheus metric names matching common
-// failure-counter naming conventions. Service-name filtering happens at
-// query time (we don't filter by service here — metric NAME is global).
-func discoverFailureMetrics(ctx context.Context, prom *promclient.Client, _ string) ([]string, error) {
-	type resp struct {
-		Status string   `json:"status"`
-		Data   []string `json:"data"`
-	}
-	var r resp
-	if err := prom.GetJSON(ctx, "/api/v1/label/__name__/values", &r); err != nil {
-		return nil, err
-	}
-	if r.Status != "success" {
-		return nil, fmt.Errorf("label values status %q", r.Status)
-	}
+// discoverFailureMetrics is a pure filter — it returns names from metricNames
+// that match failure-counter naming conventions. No network call; callers must
+// pass the result of promclient.Client.MetricNames.
+func discoverFailureMetrics(metricNames []string) []string {
 	var out []string
-	for _, name := range r.Data {
+	for _, name := range metricNames {
 		if failureMetricRegex.MatchString(name) {
 			out = append(out, name)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // rankSpikes returns the top-k spikes by score, descending. Stable for ties.
@@ -131,12 +120,9 @@ func queryRangeWithJobFallback(ctx context.Context, prom *promclient.Client, que
 
 // computeFailureSpikes returns MetricSpike entries for discovered failure-counter
 // metrics showing anomalous window vs baseline ratios.
-func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
-	candidates, err := discoverFailureMetrics(ctx, prom, service)
-	if err != nil {
-		diags.Warnings = append(diags.Warnings, fmt.Sprintf("discover failure metrics: %v", err))
-		return nil
-	}
+// metricNames is the pre-fetched list from promclient.Client.MetricNames.
+func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
+	candidates := discoverFailureMetrics(metricNames)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -160,9 +146,9 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 		if score <= scoreNominal {
 			continue // not anomalous
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "failure",
@@ -179,10 +165,11 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 // computeAnomalyScore merges failure, latency, and saturation spikes,
 // returns the top score and top-5 spikes across all kinds.
 // Falls back to computeAnomalyScoreLegacy only when ALL three axes are empty.
-func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) (float64, []MetricSpike) {
-	fail := computeFailureSpikes(ctx, prom, service, start, end, diags)
-	lat := computeLatencySpikes(ctx, prom, service, start, end, diags)
-	sat := computeSaturationSpikes(ctx, prom, service, start, end, diags)
+// metricNames is the pre-fetched list from promclient.Client.MetricNames.
+func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) (float64, []MetricSpike) {
+	fail := computeFailureSpikes(ctx, prom, service, metricNames, start, end, diags)
+	lat := computeLatencySpikes(ctx, prom, service, metricNames, start, end, diags)
+	sat := computeSaturationSpikes(ctx, prom, service, metricNames, start, end, diags)
 
 	all := slices.Concat(fail, lat, sat)
 	if len(all) == 0 {
@@ -196,7 +183,7 @@ func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service s
 // computeAnomalyScoreLegacy queries Prometheus for the error-rate ratio between
 // the investigation window and a baseline (same duration, 1h earlier) using the
 // hardcoded http_requests_total metric.
-// Used as fallback when discoverFailureMetrics returns 0 results.
+// Used as fallback when no failure/latency/saturation spikes are discovered.
 func computeAnomalyScoreLegacy(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) float64 {
 	windowDur := end.Sub(start)
 	baselineEnd := start.Add(-1 * time.Hour)
@@ -277,27 +264,17 @@ func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
 // non-histogram counters (e.g. request_parse_ms_bucket).
 var latencyHistogramRegex = regexp.MustCompile(`(?i)(_seconds_bucket|_duration_seconds_bucket|_duration_ms_bucket|_latency_seconds_bucket)$`)
 
-// discoverLatencyHistograms returns Prometheus metric names that represent
-// histogram buckets with latency semantics.
-func discoverLatencyHistograms(ctx context.Context, prom *promclient.Client) ([]string, error) {
-	type resp struct {
-		Status string   `json:"status"`
-		Data   []string `json:"data"`
-	}
-	var r resp
-	if err := prom.GetJSON(ctx, "/api/v1/label/__name__/values", &r); err != nil {
-		return nil, err
-	}
-	if r.Status != "success" {
-		return nil, fmt.Errorf("label values status %q", r.Status)
-	}
+// discoverLatencyHistograms is a pure filter — it returns names from metricNames
+// that represent histogram buckets with latency semantics.
+// No network call; callers must pass the result of promclient.Client.MetricNames.
+func discoverLatencyHistograms(metricNames []string) []string {
 	var out []string
-	for _, name := range r.Data {
+	for _, name := range metricNames {
 		if latencyHistogramRegex.MatchString(name) {
 			out = append(out, name)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // bucketLatencyRatio buckets a window/baseline ratio for latency spikes.
@@ -315,9 +292,10 @@ func bucketLatencyRatio(ratio float64) (float64, float64) {
 
 // computeLatencySpikes queries histogram_quantile(0.99, ...) for discovered
 // histogram metrics, comparing window vs baseline.
-func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
-	candidates, err := discoverLatencyHistograms(ctx, prom)
-	if err != nil || len(candidates) == 0 {
+// metricNames is the pre-fetched list from promclient.Client.MetricNames.
+func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
+	candidates := discoverLatencyHistograms(metricNames)
+	if len(candidates) == 0 {
 		return nil
 	}
 
@@ -352,9 +330,9 @@ func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service 
 		if score == 0 {
 			continue
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "latency",
@@ -380,27 +358,17 @@ var sentinelSaturationMetrics = []string{
 	"go_goroutines",
 }
 
-// discoverQueueMetrics returns Prometheus metric names matching common
-// queue / active-worker saturation patterns.
-func discoverQueueMetrics(ctx context.Context, prom *promclient.Client) ([]string, error) {
-	type resp struct {
-		Status string   `json:"status"`
-		Data   []string `json:"data"`
-	}
-	var r resp
-	if err := prom.GetJSON(ctx, "/api/v1/label/__name__/values", &r); err != nil {
-		return nil, err
-	}
-	if r.Status != "success" {
-		return nil, fmt.Errorf("label values status %q", r.Status)
-	}
+// discoverQueueMetrics is a pure filter — it returns names from metricNames
+// that match queue / active-worker saturation patterns.
+// No network call; callers must pass the result of promclient.Client.MetricNames.
+func discoverQueueMetrics(metricNames []string) []string {
 	var out []string
-	for _, name := range r.Data {
+	for _, name := range metricNames {
 		if saturationQueueRegex.MatchString(name) {
 			out = append(out, name)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // bucketSaturationRatio buckets a window/baseline max ratio for saturation
@@ -440,8 +408,9 @@ func queryMaxValueWithFallback(ctx context.Context, prom *promclient.Client, que
 
 // computeSaturationSpikes detects memory / goroutine / queue saturation by
 // comparing window max vs baseline max. Sentinels are queried unconditionally;
-// wildcard queue metrics are discovered via Prometheus label API.
-func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
+// wildcard queue metrics are filtered from metricNames.
+// metricNames is the pre-fetched list from promclient.Client.MetricNames.
+func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
 	windowDur := end.Sub(start)
 	baselineEnd := start.Add(-1 * time.Hour)
 	baselineStart := baselineEnd.Add(-windowDur)
@@ -461,9 +430,9 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 		if score == 0 {
 			continue
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "saturation",
@@ -475,11 +444,8 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 	}
 	diags.MetricsQueried += 2 * len(sentinelSaturationMetrics)
 
-	// Wildcard queue/active metrics.
-	wildcards, err := discoverQueueMetrics(ctx, prom)
-	if err != nil {
-		wildcards = nil
-	}
+	// Wildcard queue/active metrics — filtered from pre-fetched metricNames.
+	wildcards := discoverQueueMetrics(metricNames)
 	for _, metricName := range wildcards {
 		query := fmt.Sprintf(`%s{service=%q}`, metricName, service)
 		wMax, usedJob := queryMaxValueWithFallback(ctx, prom, query, service, start, end)
@@ -492,9 +458,9 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 		if score == 0 {
 			continue
 		}
-		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		labelStr := fmt.Sprintf(`{service=%s}`, service)
 		if usedJob {
-			labelStr = fmt.Sprintf(`{job=%q}`, service)
+			labelStr = fmt.Sprintf(`{job=%s}`, service)
 		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "saturation",

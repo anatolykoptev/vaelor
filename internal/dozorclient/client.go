@@ -2,12 +2,13 @@ package dozorclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/httputil"
 )
 
 // LogLine is a single parsed log entry from the dozor /api/logs response.
@@ -65,24 +66,16 @@ func (c *Client) GetLogs(ctx context.Context, service string, since, until time.
 		q.Set("limit", strconv.Itoa(limit))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/logs?"+q.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
+	// Build per-call options: conditionally add auth header.
+	opts := []httputil.Option{}
 	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		opts = append(opts, httputil.WithHeader("Authorization", "Bearer "+c.token))
 	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("dozor /api/logs status %d", resp.StatusCode)
-	}
+	hc := httputil.NewWithHTTPClient(c.baseURL, c.http, opts...)
+
 	var out LogsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+	if err := hc.GetJSON(ctx, "/api/logs?"+q.Encode(), &out); err != nil {
+		return nil, err
 	}
 	return &out, nil
 }

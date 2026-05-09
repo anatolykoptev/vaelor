@@ -26,6 +26,23 @@ func ConfidenceFromScore(s float64) ConfidenceLevel {
 	return score.ConfidenceFromScore(s)
 }
 
+// Score type conventions (γ.A.5 audit):
+//
+//   - ConfidenceLevel (Hypothesis.Confidence): uses go-kit/score.ConfidenceLevel —
+//     a strong type with bucketed labels (low/medium/high). Use when displaying
+//     or serialising confidence to humans or LLMs.
+//
+//   - Hypothesis.AnomalyScore float64: raw 0..1 multiplier. Fed directly into
+//     rerank.ScoredID.Score (expects float64). Converting to score.Score would
+//     require un-boxing at the rerank call site — no net benefit. Keep as float64.
+//
+//   - MetricSpike.Score float64: raw 0..1 bucket value (scoreCritical=1.0, etc.).
+//     Used for ranking spikes within an investigation; not surfaced as a typed
+//     confidence label. Keep as float64.
+//
+// Rule: use go-kit/score types for values shown to humans/LLMs (ConfidenceLevel).
+// Keep float64 for raw numeric multipliers consumed internally by rerank or math.
+
 // Hypothesis is one candidate root-cause site.
 type Hypothesis struct {
 	Subject string `json:"subject"`

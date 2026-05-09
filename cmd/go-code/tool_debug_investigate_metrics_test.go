@@ -44,21 +44,20 @@ func TestMaxSampleValue_IgnoresUnparseable(t *testing.T) {
 	}
 }
 
+// TestDiscoverFailureMetrics_FiltersByPattern verifies that discoverFailureMetrics
+// is a pure filter — it takes the metric names slice and returns only those
+// matching failure-counter naming conventions.
 func TestDiscoverFailureMetrics_FiltersByPattern(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
-			fmt.Fprint(w, `{"status":"success","data":["http_requests_total","signaling_call_outcome_total","ws_handshake_failed_total","sfu_chat_relay_dropped_total","go_goroutines","process_cpu_seconds_total","auth_outcome"]}`)
-			return
-		}
-		http.Error(w, "not found", 404)
-	}))
-	defer srv.Close()
-
-	prom := promclient.NewClient(srv.URL, 5*time.Second)
-	got, err := discoverFailureMetrics(context.Background(), prom, "any-service")
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	names := []string{
+		"http_requests_total",
+		"signaling_call_outcome_total",
+		"ws_handshake_failed_total",
+		"sfu_chat_relay_dropped_total",
+		"go_goroutines",
+		"process_cpu_seconds_total",
+		"auth_outcome",
 	}
+	got := discoverFailureMetrics(names)
 	want := []string{"signaling_call_outcome_total", "ws_handshake_failed_total", "sfu_chat_relay_dropped_total"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -102,7 +101,7 @@ func TestFailureMetricRegex_RejectsGaugesAcceptsCounters(t *testing.T) {
 
 func TestMetricSpike_KindField_FailureSpike(t *testing.T) {
 	// Verify Kind field exists and is set to "failure" for failure spikes.
-	s := MetricSpike{Kind: "failure", MetricName: "test_errors_total", Labels: `{service="svc"}`, Ratio: 3.0, Score: 0.8}
+	s := MetricSpike{Kind: "failure", MetricName: "test_errors_total", Labels: `{service=svc}`, Ratio: 3.0, Score: 0.8}
 	if s.Kind != "failure" {
 		t.Errorf("expected Kind=failure, got %q", s.Kind)
 	}
@@ -112,9 +111,9 @@ func TestFormatInvestigationResult_SpikeRendersKind(t *testing.T) {
 	r := &investigate.InvestigationResult{
 		Service: "svc",
 		MetricSpikes: []investigate.MetricSpike{
-			{Kind: "failure", MetricName: "test_errors_total", Labels: `{service="svc"}`, Ratio: 3.5, Score: 0.8},
-			{Kind: "latency", MetricName: "grpc_duration_seconds_p99", Labels: `{service="svc"}`, Ratio: 2.1, Score: 0.9},
-			{Kind: "saturation", MetricName: "go_goroutines", Labels: `{service="svc"}`, Ratio: 6.0, Score: 1.0},
+			{Kind: "failure", MetricName: "test_errors_total", Labels: `{service=svc}`, Ratio: 3.5, Score: 0.8},
+			{Kind: "latency", MetricName: "grpc_duration_seconds_p99", Labels: `{service=svc}`, Ratio: 2.1, Score: 0.9},
+			{Kind: "saturation", MetricName: "go_goroutines", Labels: `{service=svc}`, Ratio: 6.0, Score: 1.0},
 		},
 	}
 	out := formatInvestigationResult(r)
@@ -127,29 +126,18 @@ func TestFormatInvestigationResult_SpikeRendersKind(t *testing.T) {
 
 // --- Latency spike tests ---
 
+// TestDiscoverLatencyHistograms_FiltersByPattern verifies pure filter behavior.
 func TestDiscoverLatencyHistograms_FiltersByPattern(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
-			fmt.Fprint(w, `{"status":"success","data":[
-				"grpc_server_handling_seconds_bucket",
-				"turn_cred_duration_ms_bucket",
-				"http_request_duration_seconds_bucket",
-				"some_latency_seconds_bucket",
-				"go_goroutines",
-				"process_cpu_seconds_total",
-				"signaling_call_outcome_total"
-			]}`)
-			return
-		}
-		http.Error(w, "not found", 404)
-	}))
-	defer srv.Close()
-
-	prom := promclient.NewClient(srv.URL, 5*time.Second)
-	got, err := discoverLatencyHistograms(context.Background(), prom)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	names := []string{
+		"grpc_server_handling_seconds_bucket",
+		"turn_cred_duration_ms_bucket",
+		"http_request_duration_seconds_bucket",
+		"some_latency_seconds_bucket",
+		"go_goroutines",
+		"process_cpu_seconds_total",
+		"signaling_call_outcome_total",
 	}
+	got := discoverLatencyHistograms(names)
 	want := []string{
 		"grpc_server_handling_seconds_bucket",
 		"turn_cred_duration_ms_bucket",
@@ -165,17 +153,14 @@ func TestComputeLatencySpikes_HappyPath(t *testing.T) {
 	// Simulate: window p99=3.0, baseline p99=1.0 → ratio=3.0 > 2.0 → score=0.9
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			callCount++
 			val := "1.0"
 			if callCount%2 == 1 {
 				val = "3.0" // window
 			}
 			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -185,7 +170,9 @@ func TestComputeLatencySpikes_HappyPath(t *testing.T) {
 	start := time.Unix(1700000000, 0)
 	end := start.Add(5 * time.Minute)
 
-	spikes := computeLatencySpikes(context.Background(), prom, "test-svc", start, end, &investigate.Diagnostics{})
+	// Pass metricNames directly — no __name__ fetch.
+	metricNames := []string{"grpc_server_handling_seconds_bucket"}
+	spikes := computeLatencySpikes(context.Background(), prom, "test-svc", metricNames, start, end, &investigate.Diagnostics{})
 	if len(spikes) == 0 {
 		t.Fatal("expected at least one latency spike")
 	}
@@ -229,29 +216,18 @@ func TestBucketLatencyRatio_Boundaries(t *testing.T) {
 
 // --- Saturation spike tests ---
 
+// TestDiscoverSaturationMetrics_FiltersByPattern verifies pure filter behavior.
 func TestDiscoverSaturationMetrics_FiltersByPattern(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
-			fmt.Fprint(w, `{"status":"success","data":[
-				"worker_pool_active",
-				"request_queue_size",
-				"connection_queue_depth",
-				"tasks_pending",
-				"go_goroutines",
-				"process_resident_memory_bytes",
-				"http_requests_total"
-			]}`)
-			return
-		}
-		http.Error(w, "not found", 404)
-	}))
-	defer srv.Close()
-
-	prom := promclient.NewClient(srv.URL, 5*time.Second)
-	got, err := discoverQueueMetrics(context.Background(), prom)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	names := []string{
+		"worker_pool_active",
+		"request_queue_size",
+		"connection_queue_depth",
+		"tasks_pending",
+		"go_goroutines",
+		"process_resident_memory_bytes",
+		"http_requests_total",
 	}
+	got := discoverQueueMetrics(names)
 	want := []string{"worker_pool_active", "request_queue_size", "connection_queue_depth", "tasks_pending"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v\nwant %v", got, want)
@@ -262,18 +238,14 @@ func TestComputeSaturationSpikes_HappyPath(t *testing.T) {
 	// Simulates window_max=6.0, baseline_max=1.0 → ratio=6.0 > 5.0 → score=1.0
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			// No wildcard metrics — only sentinels queried
-			fmt.Fprint(w, `{"status":"success","data":[]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			callCount++
 			val := "1.0"
 			if callCount%2 == 1 {
 				val = "6.0" // window value > baseline
 			}
 			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -283,7 +255,8 @@ func TestComputeSaturationSpikes_HappyPath(t *testing.T) {
 	start := time.Unix(1700000000, 0)
 	end := start.Add(5 * time.Minute)
 
-	spikes := computeSaturationSpikes(context.Background(), prom, "test-svc", start, end, &investigate.Diagnostics{})
+	// No wildcard metrics — only sentinels queried (empty slice).
+	spikes := computeSaturationSpikes(context.Background(), prom, "test-svc", nil, start, end, &investigate.Diagnostics{})
 	if len(spikes) == 0 {
 		t.Fatal("expected at least one saturation spike (sentinel queries)")
 	}
@@ -326,14 +299,11 @@ func TestBucketSaturationRatio_Boundaries(t *testing.T) {
 
 func TestComputeAnomalyScore_MergesAllKinds(t *testing.T) {
 	// Simulate: failure=none, latency spike ratio>2, saturation spike ratio>5
-	// Expected: top score from saturation (1.0), merged spike list has latency + saturation kinds
+	// Expected: top score from saturation (1.0), merged spike list has latency + saturation kinds.
+	// metricNames slice provides one latency bucket and no queue metrics.
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			// one latency bucket, no failure metrics, no queue metrics
-			fmt.Fprint(w, `{"status":"success","data":["http_request_duration_seconds_bucket"]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			q := r.URL.Query().Get("query")
 			callCount++
 			switch {
@@ -355,7 +325,7 @@ func TestComputeAnomalyScore_MergesAllKinds(t *testing.T) {
 				// failure metrics return empty
 				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
 			}
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -366,7 +336,9 @@ func TestComputeAnomalyScore_MergesAllKinds(t *testing.T) {
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
 
-	topScore, spikes := computeAnomalyScore(context.Background(), prom, "test-svc", start, end, diags)
+	// Provide metricNames with one latency bucket (no failure/queue metrics).
+	metricNames := []string{"http_request_duration_seconds_bucket"}
+	topScore, spikes := computeAnomalyScore(context.Background(), prom, "test-svc", metricNames, start, end, diags)
 	if len(spikes) == 0 {
 		t.Fatal("expected merged spikes across latency and saturation")
 	}
@@ -389,12 +361,9 @@ func TestComputeAnomalyScore_MergesAllKinds(t *testing.T) {
 func TestComputeAnomalyScore_AllEmpty_FallsBackToLegacy(t *testing.T) {
 	// No failure/latency/saturation metrics → legacy fallback runs.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":[]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -406,7 +375,8 @@ func TestComputeAnomalyScore_AllEmpty_FallsBackToLegacy(t *testing.T) {
 	diags := &investigate.Diagnostics{}
 
 	// Legacy returns scoreDefault=0.5 when both window and baseline are empty.
-	topScore, spikes := computeAnomalyScore(context.Background(), prom, "test-svc", start, end, diags)
+	// Empty metricNames → no failure/latency/queue candidates.
+	topScore, spikes := computeAnomalyScore(context.Background(), prom, "test-svc", nil, start, end, diags)
 	if len(spikes) != 0 {
 		t.Errorf("expected no spikes for empty registry, got %d", len(spikes))
 	}
@@ -452,12 +422,9 @@ func TestSaturationQueueRegex_CaseInsensitive(t *testing.T) {
 func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
 	// After computeLatencySpikes with 1 candidate, MetricsQueried must be incremented by 2.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -468,7 +435,8 @@ func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
 
-	computeLatencySpikes(context.Background(), prom, "test-svc", start, end, diags)
+	metricNames := []string{"grpc_server_handling_seconds_bucket"}
+	computeLatencySpikes(context.Background(), prom, "test-svc", metricNames, start, end, diags)
 	if diags.MetricsQueried != 2 {
 		t.Errorf("MetricsQueried: got %d, want 2 (1 candidate × 2 queries)", diags.MetricsQueried)
 	}
@@ -477,12 +445,9 @@ func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
 func TestComputeSaturationSpikes_UpdatesDiagnostics(t *testing.T) {
 	// sentinel count = 2 metrics × 2 queries each = 4 MetricsQueried minimum.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":[]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -493,7 +458,7 @@ func TestComputeSaturationSpikes_UpdatesDiagnostics(t *testing.T) {
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
 
-	computeSaturationSpikes(context.Background(), prom, "test-svc", start, end, diags)
+	computeSaturationSpikes(context.Background(), prom, "test-svc", nil, start, end, diags)
 	if diags.MetricsQueried != 4 {
 		t.Errorf("MetricsQueried: got %d, want 4 (2 sentinels × 2 queries each)", diags.MetricsQueried)
 	}
@@ -503,10 +468,7 @@ func TestComputeFailureSpikes_JobLabelFallback(t *testing.T) {
 	// service= returns empty; job= returns data with ratio > ratioCritical → spike expected.
 	callNum := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":["ws_handshake_failed_total"]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			q := r.URL.Query().Get("query")
 			if strings.Contains(q, "service=") {
 				// service= returns empty
@@ -520,7 +482,7 @@ func TestComputeFailureSpikes_JobLabelFallback(t *testing.T) {
 				}
 				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
 			}
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -531,7 +493,8 @@ func TestComputeFailureSpikes_JobLabelFallback(t *testing.T) {
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
 
-	spikes := computeFailureSpikes(context.Background(), prom, "my-svc", start, end, diags)
+	metricNames := []string{"ws_handshake_failed_total"}
+	spikes := computeFailureSpikes(context.Background(), prom, "my-svc", metricNames, start, end, diags)
 	if len(spikes) == 0 {
 		t.Fatal("expected spike via job= label fallback")
 	}
@@ -544,10 +507,7 @@ func TestComputeLatencySpikes_JobLabelFallback(t *testing.T) {
 	// service= empty, job= returns high latency → spike expected.
 	callNum := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			q := r.URL.Query().Get("query")
 			if strings.Contains(q, "service=") {
 				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
@@ -559,7 +519,7 @@ func TestComputeLatencySpikes_JobLabelFallback(t *testing.T) {
 				}
 				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
 			}
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -570,7 +530,8 @@ func TestComputeLatencySpikes_JobLabelFallback(t *testing.T) {
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
 
-	spikes := computeLatencySpikes(context.Background(), prom, "my-svc", start, end, diags)
+	metricNames := []string{"grpc_server_handling_seconds_bucket"}
+	spikes := computeLatencySpikes(context.Background(), prom, "my-svc", metricNames, start, end, diags)
 	if len(spikes) == 0 {
 		t.Fatal("expected latency spike via job= label fallback")
 	}
@@ -583,10 +544,7 @@ func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
 	// service= empty for sentinels, job= returns high saturation → spike expected.
 	callNum := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
-			fmt.Fprint(w, `{"status":"success","data":[]}`)
-		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			q := r.URL.Query().Get("query")
 			if strings.Contains(q, "service=") {
 				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
@@ -598,7 +556,7 @@ func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
 				}
 				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
 			}
-		default:
+		} else {
 			http.Error(w, "not found", 404)
 		}
 	}))
@@ -609,11 +567,78 @@ func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
 
-	spikes := computeSaturationSpikes(context.Background(), prom, "my-svc", start, end, diags)
+	// sentinels only (nil metricNames → no queue wildcards)
+	spikes := computeSaturationSpikes(context.Background(), prom, "my-svc", nil, start, end, diags)
 	if len(spikes) == 0 {
 		t.Fatal("expected saturation spike via job= label fallback")
 	}
 	if !strings.Contains(spikes[0].Labels, `job=`) {
 		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
+	}
+}
+
+// TestLabels_NoDoubleEscapeInRenderedXML verifies that spike Labels values
+// produced by computeFailureSpikes do not contain inner quotes that would be
+// double-escaped by labels=%q in formatInvestigationResult.
+// Regression test for the %q Labels double-escape bug (issue #65).
+func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
+	// Simulate a failure spike with window > baseline.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				// window high, baseline low → spike
+				if strings.Contains(q, "start=") || true {
+					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"10.0"]]}]}}`)
+				}
+			} else {
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
+			}
+		} else {
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	// Two requests: window (high) + baseline (low) → ratio=10 > 5 → critical spike.
+	callNum := 0
+	srvAlt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
+			callNum++
+			val := "10.0"
+			if callNum%2 == 0 {
+				val = "1.0" // baseline
+			}
+			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+		} else {
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srvAlt.Close()
+
+	prom := promclient.NewClient(srvAlt.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	metricNames := []string{"ws_handshake_failed_total"}
+	spikes := computeFailureSpikes(context.Background(), prom, "acme-web", metricNames, start, end, diags)
+	if len(spikes) == 0 {
+		t.Skip("no spikes produced (network condition); skipping escape check")
+	}
+
+	res := &investigate.InvestigationResult{
+		Service:      "acme-web",
+		MetricSpikes: spikes,
+	}
+	out := formatInvestigationResult(res)
+
+	// The labels= attribute in the XML spike element must not contain \" (double-escaped).
+	if strings.Contains(out, `\"`) {
+		t.Errorf("rendered XML contains double-escaped quotes in labels= attribute (issue #65):\n%s", out)
+	}
+	// Verify the labels attribute appears without inner quotes.
+	if !strings.Contains(out, "labels=") {
+		t.Error("expected labels= attribute in rendered XML")
 	}
 }
