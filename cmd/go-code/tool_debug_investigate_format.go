@@ -10,6 +10,13 @@ import (
 	"github.com/anatolykoptev/go-code/internal/investigate"
 )
 
+// escapeCDATA splits any literal "]]>" sequences so they don't terminate
+// the enclosing CDATA section. Standard XML technique: end the section,
+// emit "]" or ">" as a separate CDATA, resume.
+func escapeCDATA(s string) string {
+	return strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+}
+
 // formatInvestigationResult renders the result as XML for the MCP caller.
 func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	var b strings.Builder
@@ -64,6 +71,33 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 			b.WriteString(fmt.Sprintf(
 				"\n      <symbol_body error_exits=\"%d\" has_defer=%q has_todo=%q/>",
 				sb.ErrorExits, hasDeferStr, hasTODOStr))
+		}
+
+		// γ.D.1: fused score block — rendered when FusedScore > 0.
+		if h.FusedScore > 0 {
+			b.WriteString(fmt.Sprintf("\n      <fused_score value=\"%.3f\">", h.FusedScore))
+			// Emit signals in a stable order for consistent output.
+			for _, sig := range []string{
+				fusionSigMetricAnomaly,
+				fusionSigRecency,
+				fusionSigComplexity,
+				fusionSigImpact,
+				fusionSigHistorical,
+			} {
+				if v, ok := h.SignalBreakdown[sig]; ok {
+					b.WriteString(fmt.Sprintf("\n        <signal name=%q score=\"%.3f\"/>", sig, v))
+				}
+			}
+			b.WriteString("\n      </fused_score>")
+		}
+
+		// γ.D.2: recent change block — rendered when RecentChange is set and Diff non-empty.
+		if rc := h.RecentChange; rc != nil && rc.Diff != "" {
+			b.WriteString(fmt.Sprintf("\n      <recent_change file=%q since=%q>", rc.File, rc.Since))
+			b.WriteString("\n        <![CDATA[\n")
+			b.WriteString(escapeCDATA(rc.Diff))
+			b.WriteString("\n        ]]>")
+			b.WriteString("\n      </recent_change>")
 		}
 
 		for _, link := range h.EvidenceLinks {
