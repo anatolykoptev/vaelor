@@ -84,10 +84,13 @@ The optional `hint_kind` field lets callers communicate a known failure class, s
     </hypothesis>
     ...
     <metric_spikes>
-      <spike metric="signaling_call_outcome_total" labels="{service=&quot;oxpulse-chat&quot;}" ratio="4.70" score="0.800"/>
-      <spike metric="ws_handshake_failed_total"    labels="{service=&quot;oxpulse-chat&quot;}" ratio="2.10" score="0.600"/>
+      <spike kind="error"     metric="signaling_call_outcome_total" labels="{service=&quot;oxpulse-chat&quot;}" ratio="4.70" score="0.800"/>
+      <spike kind="invariant" metric="WireWriteMissing"             labels="{service=&quot;oxpulse-sfu&quot;,severity=&quot;critical&quot;}" ratio="0.00" score="1.000"/>
     </metric_spikes>
-    <diagnostics>{"metrics_queried":4,"traces_fetched":20,"spans_analyzed":143,"symbols_touched":3}</diagnostics>
+    <alert_violations>
+      <alert_violation alertname="WireWriteMissing" severity="critical" service="oxpulse-sfu" active_at="2026-05-08T10:00:00Z">wire_written stayed at 0 while forward_decisions advanced</alert_violation>
+    </alert_violations>
+    <diagnostics>{"metrics_queried":4,"traces_fetched":20,"spans_analyzed":143,"symbols_touched":3,"alerts_queried":1}</diagnostics>
   </investigation>
 </response>
 ```
@@ -98,12 +101,45 @@ When auto-discovery finds anomalous failure counters, the result includes a `<me
 
 | Attribute | Meaning |
 |---|---|
-| `metric` | Full Prometheus metric name. |
+| `kind`   | `error` (failure-counter spike), `latency`, `saturation`, or `invariant` (firing alert). |
+| `metric` | Full Prometheus metric name (or alert name for `kind=invariant`). |
 | `labels` | Label selector used when querying (always includes `service=`). |
-| `ratio` | `window_max / baseline_max` (1h earlier window of same duration). |
+| `ratio` | `window_max / baseline_max` (1h earlier window of same duration). `0` for invariant spikes. |
 | `score` | Bucketed anomaly score 0..1; ≥ 0.8 = critical, ≥ 0.6 = elevated, ≥ 0.4 = mild. |
 
 The `anomaly_score` on each `<hypothesis>` reflects the score of the top spike (or 0.5 default when no spikes are found).
+
+### `<alert_violations>`
+
+When Prometheus `/api/v1/alerts` returns firing alerts for the investigated service, the result includes an `<alert_violations>` block. These capture **constant-state invariant violations** — cases where a metric ratio has been wrong continuously (no delta) and thus escapes Phase 4 spike detection.
+
+**How it works:** operators define invariant rules as standard Prometheus alerting rules. The tool consumes them without any additional configuration — if `PROMETHEUS_URL` is set, alerts are queried automatically.
+
+**Service matching:** an alert is included when `labels.service == input.service` OR `labels.job == input.service`.
+
+| Attribute | Meaning |
+|---|---|
+| `alertname` | Prometheus alert name (from `labels.alertname`). |
+| `severity`  | Severity label value (`critical`, `warning`, etc.). |
+| `service`   | Matched service name. |
+| `active_at` | ISO-8601 timestamp when the alert began firing. |
+| (text body) | Alert `annotations.summary`. |
+
+**Defining invariant rules (operator guide):**
+
+```yaml
+# Example: wire_written should equal forward_decisions{action="forwarded"}
+- alert: WireWriteMissing
+  expr: |
+    sum(rate(wire_written_total{service="oxpulse-sfu"}[5m])) /
+    sum(rate(forward_decisions_total{service="oxpulse-sfu",action="forwarded"}[5m])) < 0.9
+  labels:
+    service: oxpulse-sfu
+    severity: critical
+  annotations:
+    summary: wire_written stayed below 90% of forward_decisions
+    runbook_url: https://runbooks/wire-write-missing
+```
 
 When `hint_kind` is set, the `<investigation>` element includes it as an attribute:
 

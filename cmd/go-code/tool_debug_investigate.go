@@ -189,7 +189,19 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// investigation window and a baseline (same duration, 1h earlier).
 	// The composite anomaly score weights metric-confirmed operations higher.
 	anomalyScore, spikes := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
-	res.MetricSpikes = spikes
+
+	// Phase 4.5: query Prometheus /api/v1/alerts for firing alerts.
+	// Captures constant-state invariant violations that Phase 4 misses because
+	// there is no delta when the metric has been broken continuously.
+	alertSpikes, violations := runAlertsPhase(ctx, prom, input.Service, &res.Diagnostics)
+	res.AlertViolations = violations
+
+	// Merge alert spikes with Phase 4 spikes and re-rank top 5.
+	allSpikes := append(spikes, alertSpikes...) //nolint:gocritic
+	res.MetricSpikes = rankSpikes(allSpikes, 5)
+	if len(res.MetricSpikes) > 0 {
+		anomalyScore = res.MetricSpikes[0].Score
+	}
 
 	// Phase 3: span → symbol correlation.
 	ops := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)
