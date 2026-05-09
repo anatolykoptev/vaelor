@@ -100,6 +100,10 @@ func filterInvestigateIncidents(incidents []investigate.HistoricalIncident) []in
 // records for the same service. Returns nil on any error (best-effort).
 // When input.Hint is non-empty and the store has an embedder, also runs a vector
 // similarity query and merges results (deduped by Repo+Symbol).
+//
+// To improve diversity, we fetch fetchK=10 candidates from NearestByRepo, then
+// dedup by (Repo,Symbol), then trim to topK=3. This prevents a single hot symbol
+// from filling all three slots when NearestByRepo ranks it 3 times.
 func retrieveHistoricalIncidents(ctx context.Context, store *learnings.Store, service, hint string, res *investigate.InvestigationResult) {
 	if store == nil {
 		return
@@ -108,10 +112,13 @@ func retrieveHistoricalIncidents(ctx context.Context, store *learnings.Store, se
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	const topK = 3
+	const (
+		topK   = 3  // final result limit shown to LLM
+		fetchK = 10 // over-fetch to improve diversity after dedup
+	)
 
-	// Exact-by-repo lookup.
-	records, err := store.NearestByRepo(ctx, service, topK)
+	// Exact-by-repo lookup — fetch more than we need so dedup can surface diverse symbols.
+	records, err := store.NearestByRepo(ctx, service, fetchK)
 	if err != nil {
 		res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
 			fmt.Sprintf("historical incidents lookup: %v", err))
@@ -119,14 +126,26 @@ func retrieveHistoricalIncidents(ctx context.Context, store *learnings.Store, se
 		records = nil
 	}
 
+	// Dedup by (Repo, Symbol) within the repo-lookup results.
+	// Keep first occurrence (highest similarity score).
+	records = dedupByRepoSymbol(records)
+	if len(records) > topK {
+		records = records[:topK]
+	}
+
 	// Vector similarity lookup when hint is set and embedder configured.
 	if hint != "" && store.HasEmbedder() {
-		vecs, verr := store.NearestVector(ctx, hint, topK)
+		vecs, verr := store.NearestVector(ctx, hint, fetchK)
 		if verr != nil {
 			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
 				fmt.Sprintf("historical incidents vector lookup: %v", verr))
 		} else {
+			// dedupByRepoSymbol the vector results too before merging.
+			vecs = dedupByRepoSymbol(vecs)
 			records = mergeDedup(records, vecs)
+			if len(records) > topK {
+				records = records[:topK]
+			}
 		}
 	}
 
@@ -142,6 +161,26 @@ func retrieveHistoricalIncidents(ctx context.Context, store *learnings.Store, se
 		})
 	}
 	res.HistoricalIncidents = filterInvestigateIncidents(raw)
+}
+
+// dedupByRepoSymbol removes duplicate learnings.Record entries that share the
+// same (Repo, Symbol) key. The first occurrence (highest similarity, since
+// NearestByRepo returns results ordered by score) is kept.
+func dedupByRepoSymbol(records []learnings.Record) []learnings.Record {
+	if len(records) == 0 {
+		return records
+	}
+	seen := make(map[string]struct{}, len(records))
+	out := make([]learnings.Record, 0, len(records))
+	for _, r := range records {
+		key := r.Repo + "|" + r.Symbol
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }
 
 // mergeDedup merges two slices of learnings.Record, deduplicating by (Repo, Symbol).
