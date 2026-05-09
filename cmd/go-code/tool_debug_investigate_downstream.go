@@ -67,6 +67,9 @@ func runDownstreamPhase(
 		if added >= downstreamMaxAdditions {
 			break
 		}
+		if child.depth == 0 {
+			continue
+		}
 		key := child.symbol.Name + "@" + child.symbol.File
 		if _, exists := seen[key]; exists {
 			continue
