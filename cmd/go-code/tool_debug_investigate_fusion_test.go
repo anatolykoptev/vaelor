@@ -175,3 +175,27 @@ func TestFusionRankAndBreakdownAgree(t *testing.T) {
 		}
 	}
 }
+
+// TestRunFusionRank_TieBreakBySubject verifies that hypotheses with identical FusedScore
+// are sorted lexicographically by Subject — ensuring cache key stability across calls
+// when map iteration order is non-deterministic.
+func TestRunFusionRank_TieBreakBySubject(t *testing.T) {
+	// Use identical AnomalyScore and no other signals so all hyps get the same FusedScore.
+	hyps := []investigate.Hypothesis{
+		{Subject: "zebra", AnomalyScore: 0.5},
+		{Subject: "apple", AnomalyScore: 0.5},
+		{Subject: "mango", AnomalyScore: 0.5},
+	}
+	ranked := runFusionRank(hyps, nil, nil)
+	if len(ranked) != 3 {
+		t.Fatalf("got %d ranked, want 3", len(ranked))
+	}
+	// All FusedScores equal → lexicographic Subject order expected.
+	subjects := []string{ranked[0].Subject, ranked[1].Subject, ranked[2].Subject}
+	want := []string{"apple", "mango", "zebra"}
+	for i := range want {
+		if subjects[i] != want[i] {
+			t.Errorf("ranked[%d].Subject = %q, want %q (full order: %v)", i, subjects[i], want[i], subjects)
+		}
+	}
+}
