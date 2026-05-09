@@ -31,8 +31,15 @@ import (
 // `service` becomes the otelhttp operation prefix; pass the service name.
 // Falls back to "<method> unmatched" when r.Pattern is empty (no matching
 // route — pre-routing handlers, raw 404s, etc.).
+//
+// When next is a *http.ServeMux, Handler also emits OTEL semantic-convention
+// code.* attributes (code.namespace, code.function, code.filepath,
+// code.lineno) on each request span, resolved from the registered handler
+// via runtime reflection at first-request time. Anonymous closures are
+// silently skipped. Non-ServeMux handlers are wrapped without code.* attrs.
 func Handler(service string, next http.Handler) http.Handler {
-	return otelhttp.NewHandler(next, service,
+	instrumented := muxCodeAttrsMiddleware(next)
+	return otelhttp.NewHandler(instrumented, service,
 		otelhttp.WithSpanNameFormatter(stdlibFormatter),
 	)
 }
