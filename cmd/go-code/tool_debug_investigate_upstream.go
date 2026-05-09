@@ -71,7 +71,7 @@ func runUpstreamPhase(
 			MaxDepth:  maxDepth,
 		})
 		// Walk the tree; baseDepth=0 so the root (queried symbol) is skipped.
-		for _, node := range flattenCallers(result.Tree, 0) {
+		for _, node := range flattenTraceTree(result.Tree, 0) {
 			if added >= maxAdditions {
 				break
 			}
@@ -122,10 +122,12 @@ type flatNode struct {
 	depth  int
 }
 
-// flattenCallers flattens a CallChainNode tree into a slice of flatNodes.
-// baseDepth=0 skips the root (depth 0 = queried symbol) and emits callers
-// starting at depth 1. Nodes with nil Symbol are skipped.
-func flattenCallers(tree []callgraph.CallChainNode, baseDepth int) []flatNode {
+// flattenTraceTree flattens a CallChainNode tree into a slice of flatNodes.
+// baseDepth=0 skips the root (depth 0 = queried symbol) and emits nodes
+// starting at depth 1. Works for both callers and callees — the tree shape
+// from callgraph.Trace is identical regardless of direction. Nodes with nil
+// Symbol are skipped.
+func flattenTraceTree(tree []callgraph.CallChainNode, baseDepth int) []flatNode {
 	var out []flatNode
 	for _, n := range tree {
 		if n.Symbol == nil {
@@ -143,7 +145,7 @@ func flattenCallers(tree []callgraph.CallChainNode, baseDepth int) []flatNode {
 			// Emit non-root nodes.
 			out = append(out, flatNode{symbol: n.Symbol, depth: baseDepth})
 		}
-		out = append(out, flattenCallers(n.Children, baseDepth+1)...)
+		out = append(out, flattenTraceTree(n.Children, baseDepth+1)...)
 	}
 	return out
 }

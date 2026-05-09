@@ -39,7 +39,7 @@ func TestExtractSymbolNameFromSubject(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// flattenCallers
+// flattenTraceTree
 // ---------------------------------------------------------------------------
 
 // makeSym is a helper to create a minimal *parser.Symbol.
@@ -60,7 +60,7 @@ func TestFlattenCallers_SkipsRoot(t *testing.T) {
 	root := callgraph.CallChainNode{Symbol: makeSym("target_fn", "/src/a.rs", 10, 20)}
 	tree := []callgraph.CallChainNode{root}
 
-	out := flattenCallers(tree, 0)
+	out := flattenTraceTree(tree, 0)
 	if len(out) != 0 {
 		t.Errorf("expected empty flat list for root-only tree, got %d nodes", len(out))
 	}
@@ -79,7 +79,7 @@ func TestFlattenCallers_Depth(t *testing.T) {
 	}
 	tree := []callgraph.CallChainNode{root}
 
-	out := flattenCallers(tree, 0)
+	out := flattenTraceTree(tree, 0)
 	if len(out) != 2 {
 		t.Fatalf("expected 2 flat nodes, got %d", len(out))
 	}
@@ -270,7 +270,7 @@ func TestFlattenCallers_SkipsCycleNodes(t *testing.T) {
 			{Symbol: a, Cycle: true}, // cycle sentinel — must be skipped
 		},
 	}}
-	got := flattenCallers(tree, 0)
+	got := flattenTraceTree(tree, 0)
 	if len(got) != 1 || got[0].symbol.Name != "A" {
 		t.Fatalf("expected single A non-cycle node, got %+v", got)
 	}

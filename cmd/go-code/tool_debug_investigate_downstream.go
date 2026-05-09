@@ -46,7 +46,9 @@ func runDownstreamPhase(
 	seen := buildHypothesisKeySet(hyps)
 
 	// Only top-1 seed; eligibility same as upstream: span source or no source.
-	h := &hyps[0]
+	// Value copy (not pointer) — subsequent append(hyps,...) may reallocate the
+	// backing array and leave a &hyps[0] pointer dangling.
+	h := hyps[0]
 	if h.Source != "" && h.Source != investigate.HypothesisSourceSpan {
 		return hyps
 	}
@@ -60,10 +62,10 @@ func runDownstreamPhase(
 		MaxDepth:  maxDepth,
 	})
 
-	// flattenCallers traverses any tree from callgraph.Trace regardless of
+	// flattenTraceTree traverses any tree from callgraph.Trace regardless of
 	// direction — the tree shape is identical for callees and callers.
 	added := 0
-	for _, child := range flattenCallers(result.Tree, 0) {
+	for _, child := range flattenTraceTree(result.Tree, 0) {
 		if added >= downstreamMaxAdditions {
 			break
 		}
