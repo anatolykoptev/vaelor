@@ -81,7 +81,7 @@ func TestIntegration_AlertViolations(t *testing.T) {
 		analyze.Deps{},
 		prom,
 		jaeger,
-			nil,
+		nil,
 	)
 	if callErr != nil {
 		t.Fatalf("handleDebugInvestigate: %v", callErr)
