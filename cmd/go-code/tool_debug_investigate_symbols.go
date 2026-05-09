@@ -208,12 +208,15 @@ func runSymbolsPhase(
 				AnomalyScore:  anomalyScore,
 				EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d; route=%s", op, info.Count, info.HTTPRoute)},
 			}
+			args := map[string]string{
+				"pattern": fmt.Sprintf(`route("%s"`, info.HTTPRoute),
+			}
+			if input.Repo != "" {
+				args["repo"] = input.Repo
+			}
 			h.NextChecks = append(h.NextChecks, investigate.NextCheck{
 				Tool: "code_search",
-				Args: map[string]string{
-					"pattern": fmt.Sprintf("route(%q", info.HTTPRoute),
-					"repo":    input.Repo,
-				},
+				Args: args,
 			})
 			res.Diagnostics.SymbolsTouched++ // gives operator something to act on
 			res.Hypotheses = append(res.Hypotheses, h)

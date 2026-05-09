@@ -257,11 +257,11 @@ type HistoricalIncident struct {
 // counts and OTEL semantic-convention attributes. When code.* tags are present,
 // Phase 3 resolves directly to file:line without needing a callgraph.
 type OperationInfo struct {
-	Operation     string // span operation name
-	Count         int    // number of spans seen for this op in window
-	HTTPRoute     string // http.route tag — first seen
-	HTTPMethod    string // http.method tag — first seen
-	CodeFilepath  string // OTEL code.filepath tag (absolute path inside container)
-	CodeLineno    int    // OTEL code.lineno tag
-	CodeNamespace string // OTEL code.namespace tag (e.g. Rust module path)
+	Operation     string // span operation name (key)
+	Count         int    // CUMULATIVE — total spans for this op in window
+	HTTPRoute     string // FIRST-SEEN — http.route tag (axum MatchedPath)
+	HTTPMethod    string // FIRST-SEEN — http.method tag
+	CodeFilepath  string // FIRST-SEEN — code.filepath OR code.file.path (absolute path inside container)
+	CodeLineno    int    // FIRST-SEEN — code.lineno OR code.line.number
+	CodeNamespace string // FIRST-SEEN — code.namespace OR code.module.name (e.g. Rust module path)
 }

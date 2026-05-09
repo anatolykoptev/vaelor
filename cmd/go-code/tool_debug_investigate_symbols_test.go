@@ -5,6 +5,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -271,7 +272,7 @@ func TestPhase3_LibraryPathFiltered(t *testing.T) {
 	}
 	h := res.Hypotheses[0]
 	// Subject must contain the route, not the library file path.
-	if !containsStr(h.Subject, "/api/x") {
+	if !strings.Contains(h.Subject, "/api/x") {
 		t.Errorf("Subject = %q, want it to contain route %q", h.Subject, "/api/x")
 	}
 	// Should have a code_search next_check for the route.
@@ -316,7 +317,7 @@ func TestPhase3_HTTPRouteFallback(t *testing.T) {
 		t.Fatal("expected at least one hypothesis")
 	}
 	h := res.Hypotheses[0]
-	if !containsStr(h.Subject, "GET") || !containsStr(h.Subject, "/api/x") {
+	if !strings.Contains(h.Subject, "GET") || !strings.Contains(h.Subject, "/api/x") {
 		t.Errorf("Subject = %q, want it to contain method and route", h.Subject)
 	}
 	foundCodeSearch := false
@@ -331,7 +332,7 @@ func TestPhase3_HTTPRouteFallback(t *testing.T) {
 		t.Errorf("expected code_search NextCheck; got %v", h.NextChecks)
 	}
 	// Pattern must reference the route for axum Router::route lookup.
-	if !containsStr(codeSearchNC.Args["pattern"], "/api/x") {
+	if !strings.Contains(codeSearchNC.Args["pattern"], "/api/x") {
 		t.Errorf("code_search pattern = %q, want it to contain route", codeSearchNC.Args["pattern"])
 	}
 	if res.Diagnostics.SymbolsTouched == 0 {
@@ -366,7 +367,7 @@ func TestPhase3_NoCodeNoRoute_FallsBackToOperationToFuncName(t *testing.T) {
 	}
 	// Subject must include the operation name.
 	h := res.Hypotheses[0]
-	if !containsStr(h.Subject, "HandleMessage") {
+	if !strings.Contains(h.Subject, "HandleMessage") {
 		t.Errorf("Subject = %q, want it to contain operation name", h.Subject)
 	}
 	// SymbolsTouched stays 0 — no tier-1 or tier-2 resolution happened.
@@ -375,15 +376,52 @@ func TestPhase3_NoCodeNoRoute_FallsBackToOperationToFuncName(t *testing.T) {
 	}
 }
 
-// containsStr is a test helper to check if s contains substr.
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
-			}
-			return false
-		}())
+// ────────────────────────────────────────────────────────────────────
+// M1 fix: empty repo must not emit "repo": "" in Tier-2 next_check
+// ────────────────────────────────────────────────────────────────────
+
+// TestPhase3_HTTPRouteFallback_EmptyRepo_OmitsRepoArg verifies that when
+// input.Repo is empty, the Tier-2 code_search next_check does NOT include
+// a "repo": "" entry — that would silently break code_search invocation.
+func TestPhase3_HTTPRouteFallback_EmptyRepo_OmitsRepoArg(t *testing.T) {
+	traces := []jaegerclient.Trace{{
+		TraceID: "t6",
+		Spans: []jaegerclient.Span{{
+			OperationName: "HTTP GET /api/x",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "http.route", Value: "/api/x"},
+				{Key: "http.method", Value: "GET"},
+				// no code.* tags — forces Tier-2 path
+			},
+		}},
+	}}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	// Crucially, Repo is empty — some callers don't pass it.
+	input := DebugInvestigateInput{Service: "axum-svc", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, traces, 0.5, res) //nolint:staticcheck
+
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis (tier-2 http.route fallback)")
+	}
+	h := res.Hypotheses[0]
+	var codeSearchNC investigate.NextCheck
+	found := false
+	for _, nc := range h.NextChecks {
+		if nc.Tool == "code_search" {
+			codeSearchNC = nc
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected code_search NextCheck for tier-2 route fallback")
+	}
+	if _, hasRepo := codeSearchNC.Args["repo"]; hasRepo {
+		t.Errorf("code_search NextCheck.Args must not contain \"repo\" key when input.Repo is empty; got args=%v", codeSearchNC.Args)
+	}
+	if !strings.Contains(codeSearchNC.Args["pattern"], "/api/x") {
+		t.Errorf("code_search pattern = %q, want it to contain route", codeSearchNC.Args["pattern"])
+	}
 }
