@@ -112,6 +112,7 @@ func runLLMPhase(
 	// a non-nil interface wrapping a nil pointer — client == nil check inside
 	// runLLMPhaseInner would incorrectly return false. Check here before passing.
 	if deps.LLM == nil {
+		res.Diagnostics.LLMSkippedReason = "no_client"
 		return
 	}
 	runLLMPhaseInner(ctx, deps.LLM, deps.ToolCache, metricNames, input, services, ops, start, end, res)
@@ -128,7 +129,13 @@ func runLLMPhaseInner(
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
-	if client == nil || len(res.Hypotheses) == 0 {
+	if client == nil {
+		return
+	}
+	// Skip LLM when there is no signal to summarize: no hypotheses, no spikes,
+	// no alert violations. This saves 5-15s on healthy-service investigations.
+	if len(res.Hypotheses) == 0 && len(res.MetricSpikes) == 0 && len(res.AlertViolations) == 0 {
+		res.Diagnostics.LLMSkippedReason = "no_signal"
 		return
 	}
 
