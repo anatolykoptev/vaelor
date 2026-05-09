@@ -30,7 +30,11 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	}
 
 	for i, h := range r.Hypotheses {
-		b.WriteString(fmt.Sprintf("\n    <hypothesis rank=\"%d\" confidence=%q>", i+1, h.Confidence))
+		if h.Source != "" {
+			b.WriteString(fmt.Sprintf("\n    <hypothesis rank=\"%d\" confidence=%q source=%q>", i+1, h.Confidence, h.Source))
+		} else {
+			b.WriteString(fmt.Sprintf("\n    <hypothesis rank=\"%d\" confidence=%q>", i+1, h.Confidence))
+		}
 		b.WriteString("\n      <subject>")
 		b.WriteString(escapeXML(h.Subject))
 		b.WriteString("</subject>")
@@ -105,6 +109,17 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 			b.WriteString("</line>")
 		}
 		b.WriteString("\n    </log_excerpts>")
+	}
+
+	if len(r.HistoricalIncidents) > 0 {
+		b.WriteString("\n    <historical_incidents>")
+		for _, inc := range r.HistoricalIncidents {
+			b.WriteString(fmt.Sprintf("\n      <incident repo=%q symbol=%q risk_level=%q flag=%q>",
+				inc.Repo, inc.Symbol, inc.RiskLevel, inc.Flag))
+			b.WriteString(escapeXML(inc.Note))
+			b.WriteString("</incident>")
+		}
+		b.WriteString("\n    </historical_incidents>")
 	}
 
 	// Diagnostics is a plain struct — Marshal cannot fail in practice.
