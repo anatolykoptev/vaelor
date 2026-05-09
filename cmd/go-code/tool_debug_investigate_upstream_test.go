@@ -259,3 +259,37 @@ func TestRunUpstreamPhase_GlobalCap(t *testing.T) {
 		t.Errorf("upstream additions capped at 9; got %d", upstreamCount)
 	}
 }
+
+func TestFlattenCallers_SkipsCycleNodes(t *testing.T) {
+	root := &parser.Symbol{Name: "root", File: "/r.go"}
+	a := &parser.Symbol{Name: "A", File: "/a.go"}
+	tree := []callgraph.CallChainNode{{
+		Symbol: root,
+		Children: []callgraph.CallChainNode{
+			{Symbol: a},
+			{Symbol: a, Cycle: true}, // cycle sentinel — must be skipped
+		},
+	}}
+	got := flattenCallers(tree, 0)
+	if len(got) != 1 || got[0].symbol.Name != "A" {
+		t.Fatalf("expected single A non-cycle node, got %+v", got)
+	}
+}
+
+func TestRunUpstreamPhase_SeedSourceSpan_Eligible(t *testing.T) {
+	// Hypothesis with Source=HypothesisSourceSpan must be eligible as a seed.
+	baz := makeSym("baz", "/baz.go", 1, 5)
+	bar := makeSym("bar", "/bar.go", 10, 15)
+	syms := []*parser.Symbol{baz, bar}
+	edges := []callgraph.CallEdge{{Caller: bar, Callee: baz, CalleeName: "baz"}}
+	cg := &callgraph.CallGraph{Symbols: syms, Edges: edges}
+	hyps := []investigate.Hypothesis{{
+		Subject: "baz in /baz.go:1",
+		File:    "/baz.go",
+		Source:  investigate.HypothesisSourceSpan,
+	}}
+	out := runUpstreamPhase(context.Background(), cg, hyps, 3, 2)
+	if len(out) <= 1 {
+		t.Fatalf("expected upstream callers added for span-source hypothesis, got %d", len(out))
+	}
+}
