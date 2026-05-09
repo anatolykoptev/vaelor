@@ -191,6 +191,7 @@ func TestIntegration_HappyPath(t *testing.T) {
 		analyze.Deps{},
 		prom,
 		jaeger,
+			nil,
 	)
 	if callErr != nil {
 		t.Fatalf("handleDebugInvestigate: unexpected error: %v", callErr)
@@ -246,6 +247,7 @@ func TestIntegration_JaegerEmpty(t *testing.T) {
 		analyze.Deps{},
 		prom,
 		jaeger,
+			nil,
 	)
 	if callErr != nil {
 		t.Fatalf("unexpected error: %v", callErr)
@@ -300,6 +302,7 @@ func TestIntegration_PromDown(t *testing.T) {
 		analyze.Deps{},
 		prom,
 		jaeger,
+			nil,
 	)
 	if callErr != nil {
 		t.Fatalf("unexpected error: %v", callErr)

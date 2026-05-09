@@ -153,3 +153,44 @@ When `hint_kind` is set, the `<investigation>` element includes it as an attribu
 - **Grafana Sift** — analysis result struct + lifecycle.
 - **Sentry Autofix** — condensed→expand trace strategy.
 - **Datadog Bits AI** — parallel hypothesis ranking.
+
+## Phase 6 — log excerpts
+
+**Phase 6** fetches recent log lines from the [dozor](https://github.com/anatolykoptev/dozor) sidecar and attaches them to the investigation result as `<log_excerpts>`. This surfaces `panic`, `fatal`, and `error` messages that do not leave a Prometheus metric (one-off panics, cold-path errors, startup failures).
+
+### Required environment variable
+
+| Variable | Default | Description |
+|---|---|---|
+| `DOZOR_URL` | `http://dozor:8765` | Base URL of the dozor API. Set to empty string (`DOZOR_URL=`) to disable Phase 6. |
+| `DOZOR_API_TOKEN` | _(empty — no auth)_ | Optional Bearer token sent in `Authorization` header. |
+
+### What gets fetched
+
+- Up to **20 lines** from the investigation time window (`start` → `end`).
+- Server-side default grep applied when no explicit grep given: `panic|fatal|error` (case-insensitive).
+- Lines are returned in ascending timestamp order by the server.
+
+### Output XML structure
+
+```xml
+<log_excerpts>
+  <line ts="2026-05-08T10:00:00Z" level="ERROR">connection refused to postgres</line>
+  <line ts="2026-05-08T10:00:01Z" level="FATAL">panic: nil pointer dereference</line>
+</log_excerpts>
+```
+
+The block is omitted entirely when:
+- `DOZOR_URL` is empty.
+- Dozor returns an error (error is added to `diagnostics.warnings` instead).
+- No lines match the default filter in the window.
+
+### Compose environment note
+
+After the go-code service is (re)deployed, add to `compose/search.yml`:
+
+```yaml
+environment:
+  - DOZOR_URL=${DOZOR_URL:-http://dozor:8765}
+  - DOZOR_API_TOKEN=${DOZOR_API_TOKEN:-}
+```
