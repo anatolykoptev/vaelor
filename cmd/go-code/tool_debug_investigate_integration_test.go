@@ -48,10 +48,10 @@ func fixedWindow() (time.Time, time.Time) {
 // pollStore waits for the investigation to reach a terminal state (Done or
 // Failed). It polls up to maxWait with 25 ms ticks. Returns the final state
 // or nil on timeout.
-func pollStore(svc string, start, end time.Time, maxWait time.Duration) *investigate.State {
+func pollStore(svc string, start, end time.Time, repo string, maxWait time.Duration) *investigate.State {
 	deadline := time.Now().Add(maxWait)
 	for time.Now().Before(deadline) {
-		st, ok := debugInvestigateStore.Get(svc, start, end)
+		st, ok := debugInvestigateStore.Get(svc, start, end, repo)
 		if ok {
 			switch st.Status() {
 			case investigate.StatusDone, investigate.StatusFailed:
@@ -197,7 +197,7 @@ func TestIntegration_HappyPath(t *testing.T) {
 		t.Fatalf("handleDebugInvestigate: unexpected error: %v", callErr)
 	}
 
-	st := pollStore(svc, start, end, 10*time.Second)
+	st := pollStore(svc, start, end, "", 10*time.Second)
 	if st == nil {
 		t.Fatal("investigation did not complete within 10s")
 	}
@@ -253,7 +253,7 @@ func TestIntegration_JaegerEmpty(t *testing.T) {
 		t.Fatalf("unexpected error: %v", callErr)
 	}
 
-	st := pollStore(svc, start, end, 10*time.Second)
+	st := pollStore(svc, start, end, "", 10*time.Second)
 	if st == nil {
 		t.Fatal("investigation did not complete within 10s")
 	}
@@ -308,7 +308,7 @@ func TestIntegration_PromDown(t *testing.T) {
 		t.Fatalf("unexpected error: %v", callErr)
 	}
 
-	st := pollStore(svc, start, end, 10*time.Second)
+	st := pollStore(svc, start, end, "", 10*time.Second)
 	if st == nil {
 		t.Fatal("investigation did not complete within 10s")
 	}

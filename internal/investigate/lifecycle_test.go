@@ -10,7 +10,7 @@ import (
 
 func TestInvestigationStore_StartReturnsRunning(t *testing.T) {
 	s := NewInvestigationStore()
-	st, fresh := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
+	st, fresh := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	if !fresh {
 		t.Error("expected fresh=true on first call")
 	}
@@ -21,8 +21,8 @@ func TestInvestigationStore_StartReturnsRunning(t *testing.T) {
 
 func TestInvestigationStore_StartDedupsSecondCall(t *testing.T) {
 	s := NewInvestigationStore()
-	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
-	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
+	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
+	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	if !fresh1 {
 		t.Error("first call: expected fresh=true")
 	}
@@ -33,11 +33,11 @@ func TestInvestigationStore_StartDedupsSecondCall(t *testing.T) {
 
 func TestInvestigationStore_FinishStoresResult(t *testing.T) {
 	s := NewInvestigationStore()
-	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
+	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	res := &InvestigationResult{}
-	s.Finish("svc", time.Unix(100, 0), time.Unix(200, 0), res)
+	s.Finish("svc", time.Unix(100, 0), time.Unix(200, 0), "", res)
 
-	st, ok := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0))
+	st, ok := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	if !ok {
 		t.Fatal("Get returned !ok after Finish")
 	}
@@ -51,10 +51,10 @@ func TestInvestigationStore_FinishStoresResult(t *testing.T) {
 
 func TestInvestigationStore_FailMarksFailed(t *testing.T) {
 	s := NewInvestigationStore()
-	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
-	s.Fail("svc", time.Unix(100, 0), time.Unix(200, 0), "boom")
+	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
+	s.Fail("svc", time.Unix(100, 0), time.Unix(200, 0), "", "boom")
 
-	st, _ := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0))
+	st, _ := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	if st.Status() != StatusFailed {
 		t.Errorf("expected failed, got %q", st.Status())
 	}
@@ -65,8 +65,8 @@ func TestInvestigationStore_FailMarksFailed(t *testing.T) {
 
 func TestInvestigationStore_DifferentRangeIsDifferentKey(t *testing.T) {
 	s := NewInvestigationStore()
-	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
-	_, fresh2 := s.Start("svc", time.Unix(300, 0), time.Unix(400, 0))
+	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
+	_, fresh2 := s.Start("svc", time.Unix(300, 0), time.Unix(400, 0), "")
 	if !fresh1 || !fresh2 {
 		t.Errorf("different ranges should both be fresh; got %v %v", fresh1, fresh2)
 	}
@@ -80,7 +80,7 @@ func TestInvestigationStore_ConcurrentStartIsRaceFree(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, fresh := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
+			_, fresh := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 			if fresh {
 				freshCount.Add(1)
 			}
@@ -94,11 +94,11 @@ func TestInvestigationStore_ConcurrentStartIsRaceFree(t *testing.T) {
 
 func TestStateKey_NoCollisionOnPipeInServiceName(t *testing.T) {
 	s := NewInvestigationStore()
-	s.Start("svc|extra", time.Unix(100, 0), time.Unix(200, 0))
-	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
+	s.Start("svc|extra", time.Unix(100, 0), time.Unix(200, 0), "")
+	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 
-	st1, ok1 := s.Get("svc|extra", time.Unix(100, 0), time.Unix(200, 0))
-	st2, ok2 := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0))
+	st1, ok1 := s.Get("svc|extra", time.Unix(100, 0), time.Unix(200, 0), "")
+	st2, ok2 := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	if !ok1 || !ok2 {
 		t.Fatal("both entries should exist")
 	}
@@ -109,19 +109,19 @@ func TestStateKey_NoCollisionOnPipeInServiceName(t *testing.T) {
 
 func TestInvestigationStore_ConcurrentFinishGet_RaceFree(t *testing.T) {
 	s := NewInvestigationStore()
-	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0))
+	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.Finish("svc", time.Unix(100, 0), time.Unix(200, 0), &InvestigationResult{})
+			s.Finish("svc", time.Unix(100, 0), time.Unix(200, 0), "", &InvestigationResult{})
 		}()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			st, _ := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0))
+			st, _ := s.Get("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 			if st != nil {
 				_ = st.Status()
 				_ = st.Result()
@@ -129,4 +129,29 @@ func TestInvestigationStore_ConcurrentFinishGet_RaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// TestInvestigationStore_DifferentRepoIsDifferentKey verifies that same
+// service+range with different repo does NOT dedup (fix for cache-key bug).
+func TestInvestigationStore_DifferentRepoIsDifferentKey(t *testing.T) {
+	s := NewInvestigationStore()
+	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-a")
+	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-b")
+	if !fresh1 || !fresh2 {
+		t.Errorf("different repos should both be fresh; got %v %v", fresh1, fresh2)
+	}
+}
+
+// TestInvestigationStore_SameRepoIsDeduplicated verifies that same
+// service+range+repo correctly deduplicates.
+func TestInvestigationStore_SameRepoIsDeduplicated(t *testing.T) {
+	s := NewInvestigationStore()
+	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-a")
+	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-a")
+	if !fresh1 {
+		t.Error("first call: expected fresh=true")
+	}
+	if fresh2 {
+		t.Error("second call: expected fresh=false (dedup)")
+	}
 }
