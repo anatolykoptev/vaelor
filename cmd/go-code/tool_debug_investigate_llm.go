@@ -71,9 +71,21 @@ func listLabelValues(ctx context.Context, prom *promclient.Client, label string)
 //
 // Note: llmCtx (10s deadline) is deferred inside this function; it fires when
 // runLLMPhase returns. Nothing after this call reads the LLM context.
-// investigationCacheKey builds a stable cache key from the investigation input
-// and the top-5 hypotheses (by subject and anomaly score). The key is a hex
-// SHA-256 prefix (first 16 bytes) to keep it compact and storage-safe.
+
+// investigationCacheKey builds a stable hash of (service, time-window,
+// top-5 hypothesis subjects + scores) to dedupe LLM Complete calls
+// during polling within the 5-min cache TTL.
+//
+// Precision note: scores formatted as %.3f bounds Prometheus drift to
+// 0.001 -- values within that margin produce same key. Without this
+// bound, polling the same investigation 3x within 5 min could miss
+// cache on every poll due to sub-millisecond drift in metric values.
+// %.3f is the deliberate trade-off: any change in 4th+ decimal place
+// is treated as cache-equivalent.
+//
+// Both AnomalyScore and FusedScore are included: AnomalyScore is part of
+// the LLM prompt content, FusedScore drives hypothesis ranking -- a change
+// in either produces a meaningfully different investigation.
 func investigationCacheKey(input DebugInvestigateInput, top []investigate.Hypothesis) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s|%d|%d|", input.Service, input.StartUnix, input.EndUnix)
@@ -81,7 +93,7 @@ func investigationCacheKey(input DebugInvestigateInput, top []investigate.Hypoth
 		if i >= 5 {
 			break
 		}
-		fmt.Fprintf(h, "%s|%.3f|", hyp.Subject, hyp.AnomalyScore)
+		fmt.Fprintf(h, "%s|%.3f|%.3f|", hyp.Subject, hyp.AnomalyScore, hyp.FusedScore)
 	}
 	return "investigate:llm:" + hex.EncodeToString(h.Sum(nil)[:16])
 }

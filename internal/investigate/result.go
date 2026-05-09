@@ -239,7 +239,7 @@ const (
 // NextCheck is a structured follow-up recommendation for the operator or agent.
 // It names the tool to call and the arguments to pass.
 type NextCheck struct {
-	Tool string            `json:"tool"`           // e.g. "understand", "code_health"
+	Tool string            `json:"tool"`           // Tool must be non-empty (the MCP tool name to invoke). e.g. "understand", "code_health"
 	Args map[string]string `json:"args,omitempty"` // named arguments for the tool
 }
 

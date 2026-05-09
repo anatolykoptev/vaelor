@@ -224,3 +224,21 @@ func TestNextCheck_EmptyArgs_RendersToolOnly(t *testing.T) {
 		t.Errorf("unexpected <arg> element when Args is empty:\n%s", out)
 	}
 }
+
+// TestInvestigationCacheKey_FusedScoreInfluence verifies that different FusedScores
+// produce different cache keys even when AnomalyScore is identical.
+func TestInvestigationCacheKey_FusedScoreInfluence(t *testing.T) {
+	input := DebugInvestigateInput{Service: "svc", StartUnix: 100, EndUnix: 200}
+	// Same AnomalyScore, different FusedScore — must produce different key.
+	topA := []investigate.Hypothesis{
+		{Subject: "HandlePayment", AnomalyScore: 0.9, FusedScore: 0.75},
+	}
+	topB := []investigate.Hypothesis{
+		{Subject: "HandlePayment", AnomalyScore: 0.9, FusedScore: 0.42},
+	}
+	kA := investigationCacheKey(input, topA)
+	kB := investigationCacheKey(input, topB)
+	if kA == kB {
+		t.Errorf("different FusedScores must produce different keys; both produced %q", kA)
+	}
+}
