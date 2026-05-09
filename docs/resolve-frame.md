@@ -101,8 +101,8 @@ Source maps are cached in an in-process LRU:
 
 | Parameter | Value |
 |---|---|
-| Cache size | 100 entries (parsed `sourcemap.Consumer` objects) |
-| TTL | 1 hour per entry |
+| Cache size | 64 entries (parsed `sourcemap.Consumer` objects) |
+| TTL | 10 minutes per entry |
 | Body size cap | 16 MiB per `.map` file (prevents oversized maps from exhausting memory) |
 | Eviction | LRU: oldest entry evicted when the cache is full |
 
