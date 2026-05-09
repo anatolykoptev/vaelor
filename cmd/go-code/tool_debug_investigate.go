@@ -189,7 +189,34 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// investigation window and a baseline (same duration, 1h earlier).
 	// The composite anomaly score weights metric-confirmed operations higher.
 	anomalyScore, spikes := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
-	res.MetricSpikes = spikes
+
+	// Phase 4.5: query Prometheus /api/v1/alerts for firing alerts.
+	// Captures constant-state invariant violations that Phase 4 misses because
+	// there is no delta when the metric has been broken continuously.
+	alertSpikes, violations := runAlertsPhase(ctx, prom, input.Service, &res.Diagnostics)
+	res.AlertViolations = violations
+
+	// Phase 4.5: separate budgets — alerts are guaranteed surface-able regardless
+	// of metric spike count, so they get their own top-K slot. Merging into a
+	// single ranked list would let 5 alerts at score=1.0 displace all metric spikes,
+	// masking the actual anomaly signal that Phase 3 symbol weighting relies on.
+	//
+	// anomalyScore drives Phase 3 symbol weighting. Keep it driven by metric
+	// signals only (alerts have their own weight via AlertViolations + invariant
+	// spikes). Fall back to top alert score only when no metric spikes exist.
+	const (
+		topAlertsK  = 3
+		topMetricsK = 5
+	)
+	rankedAlerts := rankSpikes(alertSpikes, topAlertsK)
+	rankedMetrics := rankSpikes(spikes, topMetricsK)
+	res.MetricSpikes = append(rankedMetrics, rankedAlerts...)
+
+	if len(rankedMetrics) > 0 {
+		anomalyScore = rankedMetrics[0].Score
+	} else if len(rankedAlerts) > 0 {
+		anomalyScore = rankedAlerts[0].Score
+	}
 
 	// Phase 3: span → symbol correlation.
 	ops := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)

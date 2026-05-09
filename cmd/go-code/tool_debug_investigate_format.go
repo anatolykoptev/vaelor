@@ -62,6 +62,18 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		b.WriteString("\n    </metric_spikes>")
 	}
 
+	if len(r.AlertViolations) > 0 {
+		b.WriteString("\n    <alert_violations>")
+		for _, av := range r.AlertViolations {
+			b.WriteString(fmt.Sprintf(
+				"\n      <alert_violation alertname=%q severity=%q service=%q active_at=%q>",
+				av.AlertName, av.Severity, av.Service, av.ActiveAt))
+			b.WriteString(escapeXML(av.Summary))
+			b.WriteString("</alert_violation>")
+		}
+		b.WriteString("\n    </alert_violations>")
+	}
+
 	// Diagnostics is a plain struct — Marshal cannot fail in practice.
 	d, _ := json.Marshal(r.Diagnostics)
 	b.WriteString("\n    <diagnostics>")

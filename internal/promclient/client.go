@@ -58,3 +58,31 @@ func (c *Client) GetJSON(ctx context.Context, path string, dest any) error {
 	}
 	return nil
 }
+
+// Alert represents a single Prometheus alerting rule result from /api/v1/alerts.
+type Alert struct {
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+	State       string            `json:"state"` // "firing"|"pending"|"inactive"
+	ActiveAt    string            `json:"activeAt"`
+	Value       string            `json:"value"`
+}
+
+// Alerts queries /api/v1/alerts and returns all alert instances regardless of state.
+// Callers should filter by State == "firing" for actionable alerts.
+func (c *Client) Alerts(ctx context.Context) ([]Alert, error) {
+	type resp struct {
+		Status string `json:"status"`
+		Data   struct {
+			Alerts []Alert `json:"alerts"`
+		} `json:"data"`
+	}
+	var r resp
+	if err := c.GetJSON(ctx, "/api/v1/alerts", &r); err != nil {
+		return nil, err
+	}
+	if r.Status != "success" {
+		return nil, fmt.Errorf("alerts status %q", r.Status)
+	}
+	return r.Data.Alerts, nil
+}
