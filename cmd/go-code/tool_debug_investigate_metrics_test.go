@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
@@ -96,5 +97,523 @@ func TestFailureMetricRegex_RejectsGaugesAcceptsCounters(t *testing.T) {
 		if !failureMetricRegex.MatchString(name) {
 			t.Errorf("regex should match counter %q", name)
 		}
+	}
+}
+
+func TestMetricSpike_KindField_FailureSpike(t *testing.T) {
+	// Verify Kind field exists and is set to "failure" for failure spikes.
+	s := MetricSpike{Kind: "failure", MetricName: "test_errors_total", Labels: `{service="svc"}`, Ratio: 3.0, Score: 0.8}
+	if s.Kind != "failure" {
+		t.Errorf("expected Kind=failure, got %q", s.Kind)
+	}
+}
+
+func TestFormatInvestigationResult_SpikeRendersKind(t *testing.T) {
+	r := &investigate.InvestigationResult{
+		Service: "svc",
+		MetricSpikes: []investigate.MetricSpike{
+			{Kind: "failure", MetricName: "test_errors_total", Labels: `{service="svc"}`, Ratio: 3.5, Score: 0.8},
+			{Kind: "latency", MetricName: "grpc_duration_seconds_p99", Labels: `{service="svc"}`, Ratio: 2.1, Score: 0.9},
+			{Kind: "saturation", MetricName: "go_goroutines", Labels: `{service="svc"}`, Ratio: 6.0, Score: 1.0},
+		},
+	}
+	out := formatInvestigationResult(r)
+	for _, want := range []string{`kind="failure"`, `kind="latency"`, `kind="saturation"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nfull output:\n%s", want, out)
+		}
+	}
+}
+
+// --- Latency spike tests ---
+
+func TestDiscoverLatencyHistograms_FiltersByPattern(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
+			fmt.Fprint(w, `{"status":"success","data":[
+				"grpc_server_handling_seconds_bucket",
+				"turn_cred_duration_ms_bucket",
+				"http_request_duration_seconds_bucket",
+				"some_latency_seconds_bucket",
+				"go_goroutines",
+				"process_cpu_seconds_total",
+				"signaling_call_outcome_total"
+			]}`)
+			return
+		}
+		http.Error(w, "not found", 404)
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	got, err := discoverLatencyHistograms(context.Background(), prom)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{
+		"grpc_server_handling_seconds_bucket",
+		"turn_cred_duration_ms_bucket",
+		"http_request_duration_seconds_bucket",
+		"some_latency_seconds_bucket",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
+	}
+}
+
+func TestComputeLatencySpikes_HappyPath(t *testing.T) {
+	// Simulate: window p99=3.0, baseline p99=1.0 → ratio=3.0 > 2.0 → score=0.9
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			callCount++
+			val := "1.0"
+			if callCount%2 == 1 {
+				val = "3.0" // window
+			}
+			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+
+	spikes := computeLatencySpikes(context.Background(), prom, "test-svc", start, end, &investigate.Diagnostics{})
+	if len(spikes) == 0 {
+		t.Fatal("expected at least one latency spike")
+	}
+	s := spikes[0]
+	if s.Kind != "latency" {
+		t.Errorf("Kind: got %q, want latency", s.Kind)
+	}
+	if s.MetricName != "grpc_server_handling_seconds_p99" {
+		t.Errorf("MetricName: got %q, want grpc_server_handling_seconds_p99", s.MetricName)
+	}
+	if s.Score != scoreLatencyCritical {
+		t.Errorf("Score: got %v, want %v (scoreLatencyCritical)", s.Score, scoreLatencyCritical)
+	}
+}
+
+func TestBucketLatencyRatio_Boundaries(t *testing.T) {
+	cases := []struct {
+		ratio     float64
+		wantScore float64
+		skip      bool
+	}{
+		{ratio: 2.0001, wantScore: scoreLatencyCritical}, // > 2.0 → critical
+		{ratio: 2.0, wantScore: scoreLatencyElevated},    // == 2.0, > 1.5 → elevated
+		{ratio: 1.5001, wantScore: scoreLatencyElevated}, // > 1.5 → elevated
+		{ratio: 1.5, skip: true},                         // == 1.5, not > 1.5 → skip
+		{ratio: 1.0, skip: true},                         // < 1.5 → skip
+	}
+	for _, tc := range cases {
+		score, _ := bucketLatencyRatio(tc.ratio)
+		if tc.skip {
+			if score != 0 {
+				t.Errorf("ratio=%.4f: expected skip (0), got %v", tc.ratio, score)
+			}
+		} else {
+			if score != tc.wantScore {
+				t.Errorf("ratio=%.4f: got score=%v, want %v", tc.ratio, score, tc.wantScore)
+			}
+		}
+	}
+}
+
+// --- Saturation spike tests ---
+
+func TestDiscoverSaturationMetrics_FiltersByPattern(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values") {
+			fmt.Fprint(w, `{"status":"success","data":[
+				"worker_pool_active",
+				"request_queue_size",
+				"connection_queue_depth",
+				"tasks_pending",
+				"go_goroutines",
+				"process_resident_memory_bytes",
+				"http_requests_total"
+			]}`)
+			return
+		}
+		http.Error(w, "not found", 404)
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	got, err := discoverQueueMetrics(context.Background(), prom)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"worker_pool_active", "request_queue_size", "connection_queue_depth", "tasks_pending"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
+	}
+}
+
+func TestComputeSaturationSpikes_HappyPath(t *testing.T) {
+	// Simulates window_max=6.0, baseline_max=1.0 → ratio=6.0 > 5.0 → score=1.0
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			// No wildcard metrics — only sentinels queried
+			fmt.Fprint(w, `{"status":"success","data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			callCount++
+			val := "1.0"
+			if callCount%2 == 1 {
+				val = "6.0" // window value > baseline
+			}
+			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+
+	spikes := computeSaturationSpikes(context.Background(), prom, "test-svc", start, end, &investigate.Diagnostics{})
+	if len(spikes) == 0 {
+		t.Fatal("expected at least one saturation spike (sentinel queries)")
+	}
+	for _, s := range spikes {
+		if s.Kind != "saturation" {
+			t.Errorf("spike %q: Kind=%q, want saturation", s.MetricName, s.Kind)
+		}
+	}
+}
+
+func TestBucketSaturationRatio_Boundaries(t *testing.T) {
+	cases := []struct {
+		ratio     float64
+		wantScore float64
+		skip      bool
+	}{
+		{ratio: 5.0001, wantScore: scoreCritical}, // > 5.0 → 1.0
+		{ratio: 5.0, wantScore: scoreElevated},    // == 5.0, > 2.0 → 0.8
+		{ratio: 2.0001, wantScore: scoreElevated}, // > 2.0 → 0.8
+		{ratio: 2.0, wantScore: scoreMild},        // == 2.0, > 1.3 → 0.6
+		{ratio: 1.3001, wantScore: scoreMild},     // > 1.3 → 0.6
+		{ratio: 1.3, skip: true},                  // == 1.3, not > 1.3 → skip
+		{ratio: 1.0, skip: true},
+	}
+	for _, tc := range cases {
+		score, _ := bucketSaturationRatio(tc.ratio)
+		if tc.skip {
+			if score != 0 {
+				t.Errorf("ratio=%.4f: expected skip (0), got %v", tc.ratio, score)
+			}
+		} else {
+			if score != tc.wantScore {
+				t.Errorf("ratio=%.4f: got score=%v, want %v", tc.ratio, score, tc.wantScore)
+			}
+		}
+	}
+}
+
+// --- Wire-in / orchestration tests ---
+
+func TestComputeAnomalyScore_MergesAllKinds(t *testing.T) {
+	// Simulate: failure=none, latency spike ratio>2, saturation spike ratio>5
+	// Expected: top score from saturation (1.0), merged spike list has latency + saturation kinds
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			// one latency bucket, no failure metrics, no queue metrics
+			fmt.Fprint(w, `{"status":"success","data":["http_request_duration_seconds_bucket"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			callCount++
+			switch {
+			case strings.Contains(q, "histogram_quantile"):
+				// latency: window=3.0, baseline=1.0 → ratio=3.0 > 2.0 → latency critical
+				if callCount%2 == 1 {
+					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"3.0"]]}]}}`)
+				} else {
+					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
+				}
+			case strings.Contains(q, "go_goroutines") || strings.Contains(q, "process_resident"):
+				// saturation: window=6.0, baseline=1.0 → ratio=6.0 > 5.0 → sat critical
+				if callCount%2 == 1 {
+					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"6.0"]]}]}}`)
+				} else {
+					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
+				}
+			default:
+				// failure metrics return empty
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	topScore, spikes := computeAnomalyScore(context.Background(), prom, "test-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected merged spikes across latency and saturation")
+	}
+
+	kindsSeen := make(map[string]bool)
+	for _, s := range spikes {
+		kindsSeen[s.Kind] = true
+	}
+	if !kindsSeen["latency"] {
+		t.Error("expected latency kind in merged spikes")
+	}
+	if !kindsSeen["saturation"] {
+		t.Error("expected saturation kind in merged spikes")
+	}
+	if topScore != scoreCritical {
+		t.Errorf("topScore: got %v, want %v (saturation ratio>5 → scoreCritical)", topScore, scoreCritical)
+	}
+}
+
+func TestComputeAnomalyScore_AllEmpty_FallsBackToLegacy(t *testing.T) {
+	// No failure/latency/saturation metrics → legacy fallback runs.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	// Legacy returns scoreDefault=0.5 when both window and baseline are empty.
+	topScore, spikes := computeAnomalyScore(context.Background(), prom, "test-svc", start, end, diags)
+	if len(spikes) != 0 {
+		t.Errorf("expected no spikes for empty registry, got %d", len(spikes))
+	}
+	if topScore != scoreDefault {
+		t.Errorf("expected scoreDefault=%v fallback, got %v", scoreDefault, topScore)
+	}
+}
+
+func TestLatencyHistogramRegex_OverBroadRejected(t *testing.T) {
+	// request_parse_ms_bucket should NOT match — "_ms_bucket" without duration prefix
+	// is too broad and catches non-histogram counters.
+	if latencyHistogramRegex.MatchString("request_parse_ms_bucket") {
+		t.Error("latencyHistogramRegex should NOT match request_parse_ms_bucket")
+	}
+	// These must still match.
+	matches := []string{
+		"foo_seconds_bucket",
+		"foo_duration_seconds_bucket",
+		"foo_duration_ms_bucket",
+		"foo_latency_seconds_bucket",
+	}
+	for _, name := range matches {
+		if !latencyHistogramRegex.MatchString(name) {
+			t.Errorf("latencyHistogramRegex should match %q", name)
+		}
+	}
+}
+
+func TestSaturationQueueRegex_CaseInsensitive(t *testing.T) {
+	// Mixed-case names must match after adding (?i) flag.
+	matches := []string{
+		"Worker_Pool_Active",
+		"Request_Queue_Size",
+		"Tasks_Pending",
+	}
+	for _, name := range matches {
+		if !saturationQueueRegex.MatchString(name) {
+			t.Errorf("saturationQueueRegex should match %q (case-insensitive)", name)
+		}
+	}
+}
+
+func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
+	// After computeLatencySpikes with 1 candidate, MetricsQueried must be incremented by 2.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	computeLatencySpikes(context.Background(), prom, "test-svc", start, end, diags)
+	if diags.MetricsQueried != 2 {
+		t.Errorf("MetricsQueried: got %d, want 2 (1 candidate × 2 queries)", diags.MetricsQueried)
+	}
+}
+
+func TestComputeSaturationSpikes_UpdatesDiagnostics(t *testing.T) {
+	// sentinel count = 2 metrics × 2 queries each = 4 MetricsQueried minimum.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	computeSaturationSpikes(context.Background(), prom, "test-svc", start, end, diags)
+	if diags.MetricsQueried != 4 {
+		t.Errorf("MetricsQueried: got %d, want 4 (2 sentinels × 2 queries each)", diags.MetricsQueried)
+	}
+}
+
+func TestComputeFailureSpikes_JobLabelFallback(t *testing.T) {
+	// service= returns empty; job= returns data with ratio > ratioCritical → spike expected.
+	callNum := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["ws_handshake_failed_total"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				// service= returns empty
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			} else {
+				// job= returns data
+				callNum++
+				val := "1.0"
+				if callNum%2 == 1 {
+					val = "10.0" // window: high → ratio > ratioCritical
+				}
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	spikes := computeFailureSpikes(context.Background(), prom, "my-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected spike via job= label fallback")
+	}
+	if !strings.Contains(spikes[0].Labels, `job=`) {
+		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
+	}
+}
+
+func TestComputeLatencySpikes_JobLabelFallback(t *testing.T) {
+	// service= empty, job= returns high latency → spike expected.
+	callNum := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			} else {
+				callNum++
+				val := "1.0"
+				if callNum%2 == 1 {
+					val = "3.0"
+				}
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	spikes := computeLatencySpikes(context.Background(), prom, "my-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected latency spike via job= label fallback")
+	}
+	if !strings.Contains(spikes[0].Labels, `job=`) {
+		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
+	}
+}
+
+func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
+	// service= empty for sentinels, job= returns high saturation → spike expected.
+	callNum := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			} else {
+				callNum++
+				val := "1.0"
+				if callNum%2 == 1 {
+					val = "6.0"
+				}
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	spikes := computeSaturationSpikes(context.Background(), prom, "my-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected saturation spike via job= label fallback")
+	}
+	if !strings.Contains(spikes[0].Labels, `job=`) {
+		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
 	}
 }
