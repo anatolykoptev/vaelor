@@ -107,7 +107,7 @@ func main() {
 	// Wrap the default slog handler with slogh.Handler so every log record
 	// emitted with a context carrying an active span gets trace_id + span_id
 	// attrs. Enables log↔trace correlation in Jaeger without changing call sites.
-	slog.SetDefault(slog.New(slogh.NewHandler(slog.Default().Handler())))
+	slog.SetDefault(slog.New(slogh.NewHandler(slog.NewTextHandler(os.Stderr, nil))))
 
 	reg := kitmetrics.NewPrometheusRegistry("gocode")
 	startPrometheusScrape(ctx, slog.Default())
