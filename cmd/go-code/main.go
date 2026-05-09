@@ -186,11 +186,11 @@ func main() {
 	}
 
 	hooks := mcpserver.MCPHooks{
-		OnToolCall: func(_ context.Context, name string) {
-			slog.Info("tool_call", slog.String("tool", name))
+		OnToolCall: func(ctx context.Context, name string) {
+			slog.InfoContext(ctx, "tool_call", slog.String("tool", name))
 		},
-		OnToolResult: func(_ context.Context, name string, dur time.Duration, isErr bool) {
-			slog.Info("tool_result", slog.String("tool", name), slog.Duration("duration", dur), slog.Bool("error", isErr))
+		OnToolResult: func(ctx context.Context, name string, dur time.Duration, isErr bool) {
+			slog.InfoContext(ctx, "tool_result", slog.String("tool", name), slog.Duration("duration", dur), slog.Bool("error", isErr))
 		},
 	}
 
