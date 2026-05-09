@@ -16,6 +16,7 @@ import (
 
 	"github.com/anatolykoptev/go-kit/llm"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
@@ -77,9 +78,11 @@ func TestComputeFailureSpikes_Parallel_Race(t *testing.T) {
 	if len(spikes) != 10 {
 		t.Errorf("expected 10 spikes, got %d", len(spikes))
 	}
-	// MetricsQueried must equal 2 * 20 = 40.
-	if diags.MetricsQueried != 40 {
-		t.Errorf("MetricsQueried = %d, want 40 (20 candidates × 2 queries each)", diags.MetricsQueried)
+	// MetricsQueried: even candidates return non-zero (no fallback) = 2 RPCs each;
+	// odd candidates return 0.0 (isEmpty=true → job= fallback fires) = 4 RPCs each.
+	// 10 even × 2 + 10 odd × 4 = 60.
+	if diags.MetricsQueried != 60 {
+		t.Errorf("MetricsQueried = %d, want 60 (10 even × 2 RPCs + 10 odd × 4 RPCs with job= fallback)", diags.MetricsQueried)
 	}
 	// All spikes must have Kind="failure".
 	for _, s := range spikes {
@@ -190,9 +193,11 @@ func TestComputeLatencySpikes_Parallel(t *testing.T) {
 	if len(spikes) != 8 {
 		t.Errorf("expected 8 latency spikes, got %d", len(spikes))
 	}
-	// MetricsQueried = 2 * 15 = 30.
-	if diags.MetricsQueried != 30 {
-		t.Errorf("MetricsQueried = %d, want 30 (15 candidates × 2 queries each)", diags.MetricsQueried)
+	// MetricsQueried: even candidates return data (no fallback) = 2 RPCs each;
+	// odd candidates return empty result (isEmpty=true → job= fallback fires) = 4 RPCs each.
+	// 8 even × 2 + 7 odd × 4 = 44.
+	if diags.MetricsQueried != 44 {
+		t.Errorf("MetricsQueried = %d, want 44 (8 even × 2 RPCs + 7 odd × 4 RPCs with job= fallback)", diags.MetricsQueried)
 	}
 	for _, s := range spikes {
 		if s.Kind != "latency" {
@@ -265,8 +270,8 @@ func TestComputeFailureSpikes_Parallel_ActualConcurrency(t *testing.T) {
 
 	// slowRespond adds a small artificial delay to let all goroutines start
 	// before any returns. Without it, fast machines might serialize due to
-	// scheduling. 20ms is long enough to see concurrency, short enough for CI.
-	const perReqDelay = 20 * time.Millisecond
+	// scheduling. 5ms is sufficient; shorter than 20ms reduces total test time.
+	const perReqDelay = 5 * time.Millisecond
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
@@ -294,10 +299,11 @@ func TestComputeFailureSpikes_Parallel_ActualConcurrency(t *testing.T) {
 	computeFailureSpikes(context.Background(), prom, "test-svc", names, start, end, &investigate.Diagnostics{})
 
 	peak := atomic.LoadInt32(&peakFlight)
-	// With 10 candidates all starting simultaneously, peak concurrent in-flight
-	// must be > 1 (serial would be 1). Accept >= 2 for resilience to scheduling.
-	if peak < 2 {
-		t.Errorf("peak concurrent in-flight requests = %d; want >= 2 (serial execution suspected)", peak)
+	// With 10 candidates (= promQueryConcurrency) all starting simultaneously,
+	// peak concurrent in-flight should be well above 1. Floor of 5 distinguishes
+	// genuine parallelism from lucky scheduling on a serial implementation.
+	if peak < 5 {
+		t.Errorf("peak concurrent in-flight requests = %d; want >= 5 (serial execution suspected)", peak)
 	}
 }
 
@@ -413,5 +419,25 @@ func TestRunLLMPhase_HasAlert_RunsCall(t *testing.T) {
 
 	if !fakeLLM.called {
 		t.Error("LLM.Complete should have been called when AlertViolations are present")
+	}
+}
+
+// TestRunLLMPhase_NilClient_SetsReason verifies that LLMSkippedReason is set
+// to "no_client" when deps.LLM is nil (nil-client guard in runLLMPhase).
+func TestRunLLMPhase_NilClient_SetsReason(t *testing.T) {
+	res := &investigate.InvestigationResult{
+		Service: "no-client-svc",
+		Hypotheses: []investigate.Hypothesis{
+			{Subject: "HandleReq", AnomalyScore: 0.9},
+		},
+	}
+	input := DebugInvestigateInput{Service: "no-client-svc", StartUnix: 100, EndUnix: 200}
+
+	// Call runLLMPhase (not Inner) with nil deps.LLM — exercises the nil-client guard.
+	runLLMPhase(context.Background(), analyze.Deps{LLM: nil}, nil, input, nil, nil,
+		time.Unix(100, 0), time.Unix(200, 0), res)
+
+	if res.Diagnostics.LLMSkippedReason != "no_client" {
+		t.Errorf("LLMSkippedReason = %q, want %q", res.Diagnostics.LLMSkippedReason, "no_client")
 	}
 }

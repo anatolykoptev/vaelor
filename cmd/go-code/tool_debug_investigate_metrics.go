@@ -107,39 +107,46 @@ func isEmpty(resp *promclient.QueryRangeResponse) bool {
 
 // queryRangeWithJobFallback runs query (which must contain service=%q) against
 // [start, end]. If the response is empty, it retries with job=%q substituted
-// for service=%q. Returns (series, usedJobLabel, error).
-func queryRangeWithJobFallback(ctx context.Context, prom *promclient.Client, query, service string, start, end time.Time) (*promclient.QueryRangeResponse, bool, error) {
+// for service=%q. Returns (series, usedJobLabel, queries, error).
+// queries counts attempted Prometheus RPCs (success + error), matching the
+// pre-parallelization accounting convention.
+func queryRangeWithJobFallback(ctx context.Context, prom *promclient.Client, query, service string, start, end time.Time) (*promclient.QueryRangeResponse, bool, int, error) {
+	queries := 0
 	series, err := prom.QueryRange(ctx, query, start, end, 60*time.Second)
+	queries++
 	if err != nil {
-		return nil, false, err
+		return nil, false, queries, err
 	}
 	if !isEmpty(series) {
-		return series, false, nil
+		return series, false, queries, nil
 	}
 	// Fall back to job= label.
 	jobQuery := strings.ReplaceAll(query, fmt.Sprintf("service=%q", service), fmt.Sprintf("job=%q", service))
 	jobSeries, jerr := prom.QueryRange(ctx, jobQuery, start, end, 60*time.Second)
+	queries++
 	if jerr != nil {
-		return series, false, nil // original empty result is fine; ignore fallback error
+		return series, false, queries, nil // original empty result is fine; ignore fallback error
 	}
-	return jobSeries, true, nil
+	return jobSeries, true, queries, nil
 }
 
 // analyzeFailureCandidate queries window + baseline for one failure metric and
-// returns a spike if anomalous. Thread-safe: no shared state.
-func analyzeFailureCandidate(ctx context.Context, prom *promclient.Client, service, name string, start, end, baselineStart, baselineEnd time.Time) *MetricSpike {
+// returns a spike if anomalous, along with the count of attempted Prometheus RPCs.
+// Thread-safe: no shared state.
+func analyzeFailureCandidate(ctx context.Context, prom *promclient.Client, service, name string, start, end, baselineStart, baselineEnd time.Time) (*MetricSpike, int) {
 	query := fmt.Sprintf(`sum(rate(%s{service=%q}[1m]))`, name, service)
-	windowSeries, usedJob, werr := queryRangeWithJobFallback(ctx, prom, query, service, start, end)
+	windowSeries, usedJob, wq, werr := queryRangeWithJobFallback(ctx, prom, query, service, start, end)
 	if werr != nil {
-		return nil
+		return nil, wq
 	}
-	baseSeries, _, berr := queryRangeWithJobFallback(ctx, prom, query, service, baselineStart, baselineEnd)
+	baseSeries, _, bq, berr := queryRangeWithJobFallback(ctx, prom, query, service, baselineStart, baselineEnd)
+	queries := wq + bq
 	if berr != nil {
-		return nil
+		return nil, queries
 	}
 	score, ratio := bucketRatio(maxSampleValue(windowSeries), maxSampleValue(baseSeries))
 	if score <= scoreNominal {
-		return nil // not anomalous
+		return nil, queries // not anomalous
 	}
 	labelStr := fmt.Sprintf(`{service=%s}`, service)
 	if usedJob {
@@ -151,7 +158,7 @@ func analyzeFailureCandidate(ctx context.Context, prom *promclient.Client, servi
 		Labels:     labelStr,
 		Ratio:      ratio,
 		Score:      score,
-	}
+	}, queries
 }
 
 // computeFailureSpikes returns MetricSpike entries for discovered failure-counter
@@ -169,27 +176,32 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 	baselineEnd := start.Add(-1 * time.Hour)
 	baselineStart := baselineEnd.Add(-windowDur)
 
-	results := make([]*MetricSpike, len(candidates))
+	type result struct {
+		spike   *MetricSpike
+		queries int
+	}
+	results := make([]result, len(candidates))
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(promQueryConcurrency)
 	for i, name := range candidates {
 		i, name := i, name
 		g.Go(func() error {
-			results[i] = analyzeFailureCandidate(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
+			spike, queries := analyzeFailureCandidate(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
+			results[i] = result{spike: spike, queries: queries}
 			return nil // best-effort phase: errors absorbed per-candidate
 		})
 	}
-	_ = g.Wait() // SetLimit only; never errors
+	_ = g.Wait() // SetLimit only; never errors (best-effort phase)
 
 	// Merge results on single goroutine - safe, no races.
 	var spikes []MetricSpike
-	for _, sp := range results {
-		if sp != nil {
-			spikes = append(spikes, *sp)
+	for _, r := range results {
+		diags.MetricsQueried += r.queries
+		if r.spike != nil {
+			spikes = append(spikes, *r.spike)
 		}
 	}
-	diags.MetricsQueried += 2 * len(candidates)
 	return spikes
 }
 func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) (float64, []MetricSpike) {
@@ -317,29 +329,31 @@ func bucketLatencyRatio(ratio float64) (float64, float64) {
 }
 
 // analyzeLatencyCandidate queries window + baseline for one histogram bucket and
-// returns a latency spike if anomalous. Thread-safe: no shared state.
-func analyzeLatencyCandidate(ctx context.Context, prom *promclient.Client, service, bucketName string, start, end, baselineStart, baselineEnd time.Time) *MetricSpike {
+// returns a latency spike if anomalous, along with the count of attempted Prometheus RPCs.
+// Thread-safe: no shared state.
+func analyzeLatencyCandidate(ctx context.Context, prom *promclient.Client, service, bucketName string, start, end, baselineStart, baselineEnd time.Time) (*MetricSpike, int) {
 	baseName := strings.TrimSuffix(bucketName, "_bucket")
 	query := fmt.Sprintf(
 		`histogram_quantile(0.99, sum by (le) (rate(%s{service=%q}[1m])))`,
 		bucketName, service)
-	windowSeries, usedJob, werr := queryRangeWithJobFallback(ctx, prom, query, service, start, end)
+	windowSeries, usedJob, wq, werr := queryRangeWithJobFallback(ctx, prom, query, service, start, end)
 	if werr != nil {
-		return nil
+		return nil, wq
 	}
-	baseSeries, _, berr := queryRangeWithJobFallback(ctx, prom, query, service, baselineStart, baselineEnd)
+	baseSeries, _, bq, berr := queryRangeWithJobFallback(ctx, prom, query, service, baselineStart, baselineEnd)
+	queries := wq + bq
 	if berr != nil {
-		return nil
+		return nil, queries
 	}
 	wMax := maxSampleValue(windowSeries)
 	bMax := maxSampleValue(baseSeries)
 	if bMax <= 0 {
-		return nil // no baseline data — skip
+		return nil, queries // no baseline data — skip
 	}
 	ratio := wMax / bMax
 	score, _ := bucketLatencyRatio(ratio)
 	if score == 0 {
-		return nil
+		return nil, queries
 	}
 	labelStr := fmt.Sprintf(`{service=%s}`, service)
 	if usedJob {
@@ -351,7 +365,7 @@ func analyzeLatencyCandidate(ctx context.Context, prom *promclient.Client, servi
 		Labels:     labelStr,
 		Ratio:      ratio,
 		Score:      score,
-	}
+	}, queries
 }
 
 // computeLatencySpikes queries histogram_quantile(0.99, ...) for discovered
@@ -369,26 +383,31 @@ func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service 
 	baselineEnd := start.Add(-1 * time.Hour)
 	baselineStart := baselineEnd.Add(-windowDur)
 
-	results := make([]*MetricSpike, len(candidates))
+	type result struct {
+		spike   *MetricSpike
+		queries int
+	}
+	results := make([]result, len(candidates))
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(promQueryConcurrency)
 	for i, name := range candidates {
 		i, name := i, name
 		g.Go(func() error {
-			results[i] = analyzeLatencyCandidate(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
-			return nil
+			spike, queries := analyzeLatencyCandidate(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
+			results[i] = result{spike: spike, queries: queries}
+			return nil // best-effort phase: errors absorbed per-candidate
 		})
 	}
-	_ = g.Wait()
+	_ = g.Wait() // SetLimit only; never errors (best-effort phase)
 
 	var spikes []MetricSpike
-	for _, sp := range results {
-		if sp != nil {
-			spikes = append(spikes, *sp)
+	for _, r := range results {
+		diags.MetricsQueried += r.queries
+		if r.spike != nil {
+			spikes = append(spikes, *r.spike)
 		}
 	}
-	diags.MetricsQueried += 2 * len(candidates)
 	return spikes
 }
 
@@ -434,37 +453,44 @@ func bucketSaturationRatio(ratio float64) (float64, float64) {
 
 // queryMaxValueWithFallback returns the max sample value for a query,
 // trying service= label first and falling back to job= if empty.
-// Returns (maxValue, usedJobLabel).
-func queryMaxValueWithFallback(ctx context.Context, prom *promclient.Client, query, service string, start, end time.Time) (float64, bool) {
+// Returns (maxValue, usedJobLabel, queries).
+// queries counts attempted Prometheus RPCs (success + error), matching the
+// pre-parallelization accounting convention.
+func queryMaxValueWithFallback(ctx context.Context, prom *promclient.Client, query, service string, start, end time.Time) (float64, bool, int) {
+	queries := 0
 	series, err := prom.QueryRange(ctx, query, start, end, 60*time.Second)
+	queries++
 	if err != nil {
-		return 0, false
+		return 0, false, queries
 	}
 	if !isEmpty(series) {
-		return maxSampleValue(series), false
+		return maxSampleValue(series), false, queries
 	}
 	// Fall back to job= label.
 	jobQuery := strings.ReplaceAll(query, fmt.Sprintf("service=%q", service), fmt.Sprintf("job=%q", service))
 	jobSeries, jerr := prom.QueryRange(ctx, jobQuery, start, end, 60*time.Second)
+	queries++
 	if jerr != nil {
-		return 0, false
+		return 0, false, queries
 	}
-	return maxSampleValue(jobSeries), true
+	return maxSampleValue(jobSeries), true, queries
 }
 
 // analyzeSaturationCandidate queries window + baseline for one saturation metric
-// and returns a spike if anomalous. Thread-safe: no shared state.
-func analyzeSaturationCandidate(ctx context.Context, prom *promclient.Client, service, metricName string, start, end, baselineStart, baselineEnd time.Time) *MetricSpike {
+// and returns a spike if anomalous, along with the count of attempted Prometheus RPCs.
+// Thread-safe: no shared state.
+func analyzeSaturationCandidate(ctx context.Context, prom *promclient.Client, service, metricName string, start, end, baselineStart, baselineEnd time.Time) (*MetricSpike, int) {
 	query := fmt.Sprintf(`%s{service=%q}`, metricName, service)
-	wMax, usedJob := queryMaxValueWithFallback(ctx, prom, query, service, start, end)
-	bMax, _ := queryMaxValueWithFallback(ctx, prom, query, service, baselineStart, baselineEnd)
+	wMax, usedJob, wq := queryMaxValueWithFallback(ctx, prom, query, service, start, end)
+	bMax, _, bq := queryMaxValueWithFallback(ctx, prom, query, service, baselineStart, baselineEnd)
+	queries := wq + bq
 	if bMax <= 0 {
-		return nil
+		return nil, queries
 	}
 	ratio := wMax / bMax
 	score, _ := bucketSaturationRatio(ratio)
 	if score == 0 {
-		return nil
+		return nil, queries
 	}
 	labelStr := fmt.Sprintf(`{service=%s}`, service)
 	if usedJob {
@@ -476,7 +502,7 @@ func analyzeSaturationCandidate(ctx context.Context, prom *promclient.Client, se
 		Labels:     labelStr,
 		Ratio:      ratio,
 		Score:      score,
-	}
+	}, queries
 }
 
 // computeSaturationSpikes detects memory / goroutine / queue saturation by
@@ -497,28 +523,30 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 	allMetrics = append(allMetrics, sentinelSaturationMetrics...)
 	allMetrics = append(allMetrics, wildcards...)
 
-	results := make([]*MetricSpike, len(allMetrics))
+	type result struct {
+		spike   *MetricSpike
+		queries int
+	}
+	results := make([]result, len(allMetrics))
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(promQueryConcurrency)
 	for i, metricName := range allMetrics {
 		i, metricName := i, metricName
 		g.Go(func() error {
-			results[i] = analyzeSaturationCandidate(gctx, prom, service, metricName, start, end, baselineStart, baselineEnd)
-			return nil
+			spike, queries := analyzeSaturationCandidate(gctx, prom, service, metricName, start, end, baselineStart, baselineEnd)
+			results[i] = result{spike: spike, queries: queries}
+			return nil // best-effort phase: errors absorbed per-candidate
 		})
 	}
-	_ = g.Wait()
+	_ = g.Wait() // SetLimit only; never errors (best-effort phase)
 
 	var spikes []MetricSpike
-	for _, sp := range results {
-		if sp != nil {
-			spikes = append(spikes, *sp)
+	for _, r := range results {
+		diags.MetricsQueried += r.queries
+		if r.spike != nil {
+			spikes = append(spikes, *r.spike)
 		}
 	}
-	// Preserve original accounting: sentinels and wildcards counted separately
-	// to match existing test expectations (TestComputeSaturationSpikes_UpdatesDiagnostics).
-	diags.MetricsQueried += 2 * len(sentinelSaturationMetrics)
-	diags.MetricsQueried += 2 * len(wildcards)
 	return spikes
 }

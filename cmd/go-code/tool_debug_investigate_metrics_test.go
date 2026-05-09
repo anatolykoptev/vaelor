@@ -417,7 +417,8 @@ func TestSaturationQueueRegex_CaseInsensitive(t *testing.T) {
 }
 
 func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
-	// After computeLatencySpikes with 1 candidate, MetricsQueried must be incremented by 2.
+	// Empty result triggers job= fallback on both window and baseline calls.
+	// 1 candidate × 2 RPCs per queryRangeWithJobFallback call × 2 calls = 4 RPCs.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
@@ -434,13 +435,14 @@ func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
 
 	metricNames := []string{"grpc_server_handling_seconds_bucket"}
 	computeLatencySpikes(context.Background(), prom, "test-svc", metricNames, start, end, diags)
-	if diags.MetricsQueried != 2 {
-		t.Errorf("MetricsQueried: got %d, want 2 (1 candidate × 2 queries)", diags.MetricsQueried)
+	if diags.MetricsQueried != 4 {
+		t.Errorf("MetricsQueried: got %d, want 4 (1 candidate × 2 RPCs/call × 2 calls; empty result triggers job= fallback)", diags.MetricsQueried)
 	}
 }
 
 func TestComputeSaturationSpikes_UpdatesDiagnostics(t *testing.T) {
-	// sentinel count = 2 metrics × 2 queries each = 4 MetricsQueried minimum.
+	// Empty result triggers job= fallback on both window and baseline calls per sentinel.
+	// 2 sentinels × 2 RPCs per queryMaxValueWithFallback call × 2 calls = 8 RPCs.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
@@ -456,8 +458,8 @@ func TestComputeSaturationSpikes_UpdatesDiagnostics(t *testing.T) {
 	diags := &investigate.Diagnostics{}
 
 	computeSaturationSpikes(context.Background(), prom, "test-svc", nil, start, end, diags)
-	if diags.MetricsQueried != 4 {
-		t.Errorf("MetricsQueried: got %d, want 4 (2 sentinels × 2 queries each)", diags.MetricsQueried)
+	if diags.MetricsQueried != 8 {
+		t.Errorf("MetricsQueried: got %d, want 8 (2 sentinels × 2 RPCs/call × 2 calls; empty result triggers job= fallback)", diags.MetricsQueried)
 	}
 }
 

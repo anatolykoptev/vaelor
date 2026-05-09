@@ -112,6 +112,7 @@ func runLLMPhase(
 	// a non-nil interface wrapping a nil pointer — client == nil check inside
 	// runLLMPhaseInner would incorrectly return false. Check here before passing.
 	if deps.LLM == nil {
+		res.Diagnostics.LLMSkippedReason = "no_client"
 		return
 	}
 	runLLMPhaseInner(ctx, deps.LLM, deps.ToolCache, metricNames, input, services, ops, start, end, res)
