@@ -3,17 +3,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/compound"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
 	"github.com/anatolykoptev/go-code/internal/promclient"
@@ -42,13 +36,35 @@ const (
 	ratioMild     = 1.2
 )
 
+// HintKind disambiguates investigation focus when caller knows the bug class.
+// Empty value preserves current "auto-detect everything" behavior.
+type HintKind string
+
+const (
+	HintKindAuto                  HintKind = ""
+	HintKindFrontendReactiveCycle HintKind = "frontend_reactive_cycle"
+	HintKindPanicAtHandler        HintKind = "panic_at_handler"
+	HintKindMetricSpikeUnknown    HintKind = "metric_spike_unknown_source"
+	HintKindLatencySpike          HintKind = "latency_spike"
+)
+
+// IsValid reports whether k is a known HintKind value.
+func (k HintKind) IsValid() bool {
+	switch k {
+	case HintKindAuto, HintKindFrontendReactiveCycle, HintKindPanicAtHandler, HintKindMetricSpikeUnknown, HintKindLatencySpike:
+		return true
+	}
+	return false
+}
+
 // DebugInvestigateInput is the user-facing tool input.
 type DebugInvestigateInput struct {
-	Service   string `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'acme-web')."`
-	StartUnix int64  `json:"start_unix" jsonschema_description:"Investigation window start, unix seconds. If 0, defaults to now-15m."`
-	EndUnix   int64  `json:"end_unix" jsonschema_description:"Investigation window end, unix seconds. If 0, defaults to now."`
-	Hint      string `json:"hint,omitempty" jsonschema_description:"Optional free-text hint about the suspected behaviour."`
-	Repo      string `json:"repo,omitempty" jsonschema_description:"Repo path for symbol lookup. Defaults to the service's resolved repo when known."`
+	Service   string   `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'acme-web')."`
+	StartUnix int64    `json:"start_unix" jsonschema_description:"Investigation window start, unix seconds. If 0, defaults to now-15m."`
+	EndUnix   int64    `json:"end_unix" jsonschema_description:"Investigation window end, unix seconds. If 0, defaults to now."`
+	Hint      string   `json:"hint,omitempty" jsonschema_description:"Optional free-text hint about the suspected behaviour."`
+	HintKind  HintKind `json:"hint_kind,omitempty" jsonschema_description:"Optional structured hint kind: frontend_reactive_cycle | panic_at_handler | metric_spike_unknown_source | latency_spike. Empty = auto-detect (default)."`
+	Repo      string   `json:"repo,omitempty" jsonschema_description:"Repo path for symbol lookup. Defaults to the service's resolved repo when known."`
 }
 
 // debugInvestigateStore is module-scoped — survives across calls in the same process.
@@ -72,6 +88,10 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 }
 
 func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client) (*mcp.CallToolResult, error) {
+
+	if !input.HintKind.IsValid() {
+		return errResult(fmt.Sprintf("invalid hint_kind %q; expected one of: frontend_reactive_cycle, panic_at_handler, metric_spike_unknown_source, latency_spike", input.HintKind)), nil
+	}
 
 	if input.Service == "" {
 		return errResult("service is required"), nil
@@ -130,271 +150,36 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// TODO(phase-beta): route to specialized data sources per hint_kind
 	res := &investigate.InvestigationResult{
 		Service:   input.Service,
 		Range:     investigate.TimeRange{Start: start, End: end},
 		StartedAt: time.Now(),
+		HintKind:  string(input.HintKind),
 	}
 
-	// Phase 1: list services to confirm Jaeger has data for this service.
-	services, err := jaeger.ListServices(ctx)
+	// Phase 1 + 2: list Jaeger services and fetch failed traces.
+	services, traces, err := runTracesPhase(ctx, jaeger, input, start, end, res)
 	if err != nil {
-		debugInvestigateStore.Fail(input.Service, start, end, fmt.Sprintf("jaeger list services: %v", err))
+		debugInvestigateStore.Fail(input.Service, start, end, err.Error())
 		finished = true
 		return
 	}
-	knownService := false
-	for _, s := range services {
-		if s == input.Service {
-			knownService = true
-			break
-		}
-	}
-	if !knownService {
-		res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-			fmt.Sprintf("service %q not seen by Jaeger; available: %s", input.Service, strings.Join(services, ", ")))
-	}
-
-	// Phase 2: fetch failed traces.
-	traces, err := jaeger.FindTraces(ctx, jaegerclient.FindTracesParams{
-		Service:   input.Service,
-		Tags:      map[string]string{"error": "true"},
-		StartTime: start,
-		EndTime:   end,
-		Limit:     debugInvestigateTraceLimit,
-	})
-	if err != nil {
-		res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("find traces: %v", err))
-	}
-	res.Diagnostics.TracesFetched = len(traces)
 
 	// Phase 4: query Prometheus for the error-rate ratio between the
 	// investigation window and a baseline (same duration, 1h earlier).
 	// The composite anomaly score weights metric-confirmed operations higher.
-	windowDur := end.Sub(start)
-	baselineEnd := start.Add(-1 * time.Hour)
-	baselineStart := baselineEnd.Add(-windowDur)
+	anomalyScore, spikes := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
+	res.MetricSpikes = spikes
 
-	errMetricQuery := fmt.Sprintf(
-		`sum(rate(http_requests_total{service=%q,code=~"5..|4.."}[1m]))`,
-		input.Service)
+	// Phase 3: span → symbol correlation.
+	ops := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)
 
-	windowSeries, werr := prom.QueryRange(ctx, errMetricQuery, start, end, 60*time.Second)
-	baseSeries, berr := prom.QueryRange(ctx, errMetricQuery, baselineStart, baselineEnd, 60*time.Second)
-	res.Diagnostics.MetricsQueried = 2
+	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
+	runLLMPhase(ctx, deps, prom, input, services, ops, start, end, res)
 
-	anomalyScore := scoreDefault // default if metric data missing
-	if werr == nil && berr == nil {
-		wMax := maxSampleValue(windowSeries)
-		bMax := maxSampleValue(baseSeries)
-		if bMax > 0 {
-			ratio := wMax / bMax
-			switch {
-			case ratio > ratioCritical:
-				anomalyScore = scoreCritical
-			case ratio > ratioElevated:
-				anomalyScore = scoreElevated
-			case ratio > ratioMild:
-				anomalyScore = scoreMild
-			default:
-				anomalyScore = scoreNominal
-			}
-		} else if wMax > 0 {
-			// Baseline empty but window has errors — modest anomaly.
-			anomalyScore = scoreBaselineEmpty
-		}
-	} else {
-		if werr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("prom window: %v", werr))
-		}
-		if berr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("prom baseline: %v", berr))
-		}
-	}
-
-	// Phase 3: count unique operations across all failed spans.
-	ops := map[string]int{}
-	for _, tr := range traces {
-		for _, sp := range tr.Spans {
-			ops[sp.OperationName]++
-			res.Diagnostics.SpansAnalyzed++
-		}
-	}
-
-	// Phase 3: span → operation → symbol correlation.
-	//
-	// For each unique operation we attempt to extract a Go function name and
-	// resolve it against the repo's symbol table. Successful resolutions
-	// produce a Hypothesis with file:line; unresolved operations remain
-	// Hypotheses with empty File (still useful — caller sees "operation X
-	// failed N times even though no symbol matched").
-	repo := input.Repo
-	if repo != "" {
-		resolvedRoot, cleanup, resolveErr := resolveRoot(ctx, repo, "", deps)
-		if resolveErr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-				fmt.Sprintf("resolve root %q: %v", repo, resolveErr))
-		} else {
-			defer cleanup()
-			cg, cgErr := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
-				Root:     resolvedRoot,
-				Language: "go",
-			})
-			if cgErr != nil {
-				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-					fmt.Sprintf("build callgraph: %v", cgErr))
-			}
-			for op, count := range ops {
-				funcName := investigate.OperationToFuncName(op)
-				h := investigate.Hypothesis{
-					Subject:       fmt.Sprintf("operation %q", op),
-					SpanCount:     count,
-					AnomalyScore:  anomalyScore,
-					EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
-				}
-				if cg != nil && funcName != "" {
-					matches := compound.FindSymbol(cg.Symbols, funcName)
-					if len(matches) > 0 {
-						sym := matches[0]
-						h.File = reverseToHost(sym.File, deps.PathMappings)
-						h.Line = int(sym.StartLine)
-						h.Subject = fmt.Sprintf("%s in %s", funcName, h.File)
-						h.NextChecks = append(h.NextChecks,
-							fmt.Sprintf("understand symbol=%q repo=%q", funcName, repo))
-						res.Diagnostics.SymbolsTouched++
-					}
-				}
-				res.Hypotheses = append(res.Hypotheses, h)
-			}
-		}
-	}
-
-	if len(res.Hypotheses) == 0 {
-		// No symbol resolution (empty repo or no callgraph) — fall back to
-		// frequency-only hypotheses so callers always get something useful.
-		for op, count := range ops {
-			res.Hypotheses = append(res.Hypotheses, investigate.Hypothesis{
-				Subject:       fmt.Sprintf("operation %q", op),
-				SpanCount:     count,
-				AnomalyScore:  anomalyScore,
-				EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, count)},
-			})
-		}
-	}
-
-	res.Hypotheses = investigate.RankHypotheses(res.Hypotheses)
-	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning for top hypothesis.
-	if deps.LLM != nil && len(res.Hypotheses) > 0 {
-		// Gather ground-truth context.
-		availMetrics, llvErr := listLabelValues(ctx, prom, "__name__")
-		if llvErr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-				fmt.Sprintf("list label values: %v", llvErr))
-		}
-		operationsSeen := make([]string, 0, len(ops))
-		for op := range ops {
-			operationsSeen = append(operationsSeen, op)
-		}
-
-		sysPrompt := investigate.BuildSystemPrompt(investigate.PromptContext{
-			Service:           input.Service,
-			AvailableMetrics:  availMetrics,
-			AvailableServices: services,
-			OperationsSeen:    operationsSeen,
-		})
-
-		// Compact user-side payload: top 5 hypotheses + diagnostics + hint.
-		topN := res.Hypotheses
-		if len(topN) > 5 {
-			topN = topN[:5]
-		}
-		userPayload := map[string]any{
-			"service":     input.Service,
-			"window":      map[string]string{"start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)},
-			"hypotheses":  topN,
-			"diagnostics": res.Diagnostics,
-			"user_hint":   input.Hint,
-		}
-		userJSON, marshalErr := json.Marshal(userPayload)
-		if marshalErr != nil {
-			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-				fmt.Sprintf("marshal llm payload: %v", marshalErr))
-			// Skip LLM call — sending an empty payload produces meaningless output.
-		} else {
-			// Bounded LLM call (10s timeout — non-blocking on overall investigation).
-			llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
-			defer llmCancel()
-			summary, err := deps.LLM.Complete(llmCtx, sysPrompt, string(userJSON))
-			if err != nil {
-				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, fmt.Sprintf("llm: %v", err))
-			} else {
-				res.LLMSummary = summary
-			}
-		}
-	}
 	res.FinishedAt = time.Now()
 
 	debugInvestigateStore.Finish(input.Service, start, end, res)
 	finished = true
-}
-
-// maxSampleValue returns the maximum sample value across all series in a
-// Prometheus matrix response. Returns 0 if the response is empty or all
-// values fail to parse.
-func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
-	if resp == nil {
-		return 0
-	}
-	var max float64
-	for _, series := range resp.Data.Result {
-		for _, v := range series.Values {
-			if len(v) < 2 {
-				continue
-			}
-			s, ok := v[1].(string)
-			if !ok {
-				continue
-			}
-			f, err := strconv.ParseFloat(s, 64)
-			if err != nil {
-				continue
-			}
-			if f > max {
-				max = f
-			}
-		}
-	}
-	return max
-}
-
-// validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
-// Labels that deviate are rejected by listLabelValues to prevent path injection.
-var validPromLabel = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-// listLabelValues fetches the values of a Prometheus label (e.g. "__name__"
-// to get all metric names). Returns up to 200 values; failures are
-// non-fatal — empty slice is returned with the error.
-//
-// label must match Prometheus label naming rules ([A-Za-z_][A-Za-z0-9_]*);
-// invalid labels are rejected immediately to prevent path construction issues.
-func listLabelValues(ctx context.Context, prom *promclient.Client, label string) ([]string, error) {
-	if !validPromLabel.MatchString(label) {
-		return nil, fmt.Errorf("listLabelValues: invalid label name %q (must match [A-Za-z_][A-Za-z0-9_]*)", label)
-	}
-	type resp struct {
-		Status string   `json:"status"`
-		Data   []string `json:"data"`
-	}
-	var r resp
-	path := "/api/v1/label/" + label + "/values"
-	if err := prom.GetJSON(ctx, path, &r); err != nil {
-		return nil, err
-	}
-	if r.Status != "success" {
-		return nil, fmt.Errorf("label values status %q", r.Status)
-	}
-	if len(r.Data) > 200 {
-		return r.Data[:200], nil
-	}
-	return r.Data, nil
 }

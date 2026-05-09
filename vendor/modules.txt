@@ -23,6 +23,10 @@ github.com/davecgh/go-spew/spew
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
+# github.com/go-sourcemap/sourcemap v2.1.4+incompatible
+## explicit
+github.com/go-sourcemap/sourcemap
+github.com/go-sourcemap/sourcemap/internal/base64vlq
 # github.com/google/jsonschema-go v0.4.2
 ## explicit; go 1.23.0
 github.com/google/jsonschema-go/jsonschema
