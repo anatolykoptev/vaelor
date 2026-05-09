@@ -77,24 +77,32 @@ func runLLMPhase(
 		operationsSeen = append(operationsSeen, op)
 	}
 
+	// Collect firing alert names for the system prompt ground truth.
+	firingAlerts := make([]string, 0, len(res.AlertViolations))
+	for _, av := range res.AlertViolations {
+		firingAlerts = append(firingAlerts, av.AlertName)
+	}
+
 	sysPrompt := investigate.BuildSystemPrompt(investigate.PromptContext{
 		Service:           input.Service,
 		AvailableMetrics:  availMetrics,
 		AvailableServices: services,
 		OperationsSeen:    operationsSeen,
+		FiringAlerts:      firingAlerts,
 	})
 
-	// Compact user-side payload: top 5 hypotheses + diagnostics + hint.
+	// Compact user-side payload: top 5 hypotheses + diagnostics + hint + alerts.
 	topN := res.Hypotheses
 	if len(topN) > 5 {
 		topN = topN[:5]
 	}
 	userPayload := map[string]any{
-		"service":     input.Service,
-		"window":      map[string]string{"start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)},
-		"hypotheses":  topN,
-		"diagnostics": res.Diagnostics,
-		"user_hint":   input.Hint,
+		"service":          input.Service,
+		"window":           map[string]string{"start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)},
+		"hypotheses":       topN,
+		"diagnostics":      res.Diagnostics,
+		"user_hint":        input.Hint,
+		"alert_violations": res.AlertViolations,
 	}
 	userJSON, marshalErr := json.Marshal(userPayload)
 	if marshalErr != nil {
