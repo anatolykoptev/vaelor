@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 )
 
@@ -158,7 +159,7 @@ func TestRunBodyExtractionPhase_Top3Only(t *testing.T) {
 		}
 	}
 
-	result := runBodyExtractionPhase(hyps, 3)
+	result := runBodyExtractionPhase(hyps, 3, nil)
 
 	for i := 0; i < 3; i++ {
 		if result[i].BodySource == "" {
@@ -179,7 +180,7 @@ func TestRunBodyExtractionPhase_EmptyFile_NoCrash(t *testing.T) {
 	}
 
 	// Should not panic or error
-	result := runBodyExtractionPhase(hyps, 3)
+	result := runBodyExtractionPhase(hyps, 3, nil)
 
 	if len(result) != 1 {
 		t.Fatalf("expected 1 hypothesis, got %d", len(result))
@@ -244,5 +245,62 @@ func TestFormat_BodyExcerpt_RendersInXML(t *testing.T) {
 	}
 	if !strings.Contains(out, "Fn1") {
 		t.Errorf("expected body content 'Fn1' in CDATA, got:\n%s", out)
+	}
+}
+
+// ---------- runBodyExtractionPhaseWithMappings ----------
+
+// TestRunBodyExtractionPhaseWithMappings_AppliesPathMapping: hypothesis with host path
+// → mapping rewrites to tempfile path → BodySource populated.
+func TestRunBodyExtractionPhaseWithMappings_AppliesPathMapping(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a 30-line tempfile at the "container" path (dir/foo.go).
+	lines := make([]byte, 0, 1024)
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, []byte(fmt.Sprintf("line %d\n", i))...)
+	}
+	containerPath := filepath.Join(dir, "foo.go")
+	if err := os.WriteFile(containerPath, lines, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hypothesis uses the "host" path (External prefix).
+	hostPrefix := "/host/src/testXXX"
+	hostFile := hostPrefix + "/foo.go"
+	hyps := []investigate.Hypothesis{
+		{Subject: "TestFn", File: hostFile, Line: 1, EndLine: 10},
+	}
+
+	mappings := []analyze.PathMapping{
+		{External: hostPrefix, Internal: dir},
+	}
+
+	var diags investigate.Diagnostics
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, mappings, &diags)
+
+	if result[0].BodySource == "" {
+		t.Errorf("expected BodySource to be populated via path mapping, got empty")
+	}
+	if len(diags.Warnings) != 0 {
+		t.Errorf("expected no warnings, got: %v", diags.Warnings)
+	}
+}
+
+// TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError: nonexistent host path
+// → BodySource empty, warning appended to diagnostics.
+func TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError(t *testing.T) {
+	hyps := []investigate.Hypothesis{
+		{Subject: "BadFn", File: "/nonexistent/path/bad.go", Line: 1, EndLine: 5},
+	}
+
+	var diags investigate.Diagnostics
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, nil, &diags)
+
+	if result[0].BodySource != "" {
+		t.Errorf("expected empty BodySource on error, got %q", result[0].BodySource)
+	}
+	if len(diags.Warnings) == 0 {
+		t.Error("expected at least one warning in diagnostics, got none")
 	}
 }

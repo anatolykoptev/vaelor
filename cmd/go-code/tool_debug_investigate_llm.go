@@ -169,6 +169,8 @@ func runLLMPhaseInner(
 	if len(topN) > 5 {
 		topN = topN[:5]
 	}
+	// Only top-3 have BodySource (per runBodyExtractionPhase budget).
+	// collectBodyExcerpts skips empty BodySource → top-3 effectively.
 	bodyExcerpts := collectBodyExcerpts(topN)
 	userPayload := map[string]any{
 		"service":          input.Service,

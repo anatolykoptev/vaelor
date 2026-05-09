@@ -86,7 +86,7 @@ type Hypothesis struct {
 	// BodySource is the raw source text of the function body (Sprint B1).
 	// Populated for top-3 hypotheses after FusionRank. Enables LLM to
 	// reason about the code rather than just its metadata.
-	// Empty when file read fails or EndLine == 0.
+	// Empty when file read fails or File is empty (no symbol resolved).
 	BodySource string `json:"body_source,omitempty"`
 }
 

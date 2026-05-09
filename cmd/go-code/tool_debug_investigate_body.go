@@ -69,14 +69,23 @@ func extractBodySource(file string, startLine, endLine int, maxLines int) (strin
 	return result, nil
 }
 
+// resolveEndLine returns h.EndLine when non-zero, or h.Line as a fallback for
+// symbols where the parser did not record an end position (single-line body).
+func resolveEndLine(h *investigate.Hypothesis) int {
+	if h.EndLine == 0 {
+		return h.Line
+	}
+	return h.EndLine
+}
+
 // runBodyExtractionPhase populates BodySource on the top-N hypotheses (by
 // position, so caller must have already ranked them). Body extraction is
-// best-effort: file read errors append a warning to the hypothesis subject
-// metadata but never abort the investigation.
+// best-effort: file read errors append a warning to diags.Warnings when diags
+// is non-nil. Bodies that exceed maxLines get a "// ... (truncated)" marker.
 //
 // topN controls how many hypotheses receive body extraction (task spec: 3).
 // Hypotheses with empty File are silently skipped.
-func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int) []investigate.Hypothesis {
+func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int, diags *investigate.Diagnostics) []investigate.Hypothesis {
 	out := make([]investigate.Hypothesis, len(hyps))
 	copy(out, hyps)
 
@@ -90,15 +99,11 @@ func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int) []investiga
 		if h.File == "" {
 			continue
 		}
-		endLine := h.EndLine
-		if endLine == 0 {
-			endLine = h.Line
-		}
-		body, err := extractBodySource(h.File, h.Line, endLine, 200)
+		body, err := extractBodySource(h.File, h.Line, resolveEndLine(h), 200)
 		if err != nil {
-			// Best-effort: note the failure but do not propagate error.
-			// The warning is visible in the XML diagnostics block.
-			_ = err // caller uses BodySource="" as the signal
+			if diags != nil {
+				diags.Warnings = append(diags.Warnings, fmt.Sprintf("body read %s: %v", h.File, err))
+			}
 			continue
 		}
 		h.BodySource = body
@@ -113,7 +118,11 @@ func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int) []investiga
 // Hypothesis.File is host-side (after reverseToHost), but file reads inside
 // the container need the container-internal path (e.g. /host/src/... from the
 // /host mount). If mappings is empty, paths are used as-is.
-func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int, mappings []analyze.PathMapping) []investigate.Hypothesis {
+//
+// File read errors append a warning to diags.Warnings when diags is non-nil,
+// giving operators a clear signal on /host mount mis-config or PATH_MAPPINGS
+// drift instead of a silent empty body block.
+func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int, mappings []analyze.PathMapping, diags *investigate.Diagnostics) []investigate.Hypothesis {
 	out := make([]investigate.Hypothesis, len(hyps))
 	copy(out, hyps)
 
@@ -129,13 +138,11 @@ func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int,
 		}
 		// Translate host path → container path for the actual disk read.
 		containerPath := rewritePath(h.File, mappings)
-		endLine := h.EndLine
-		if endLine == 0 {
-			endLine = h.Line
-		}
-		body, err := extractBodySource(containerPath, h.Line, endLine, 200)
+		body, err := extractBodySource(containerPath, h.Line, resolveEndLine(h), 200)
 		if err != nil {
-			// Best-effort: body stays empty, warning is visible in diagnostics.
+			if diags != nil {
+				diags.Warnings = append(diags.Warnings, fmt.Sprintf("body read %s: %v", h.File, err))
+			}
 			continue
 		}
 		h.BodySource = body
@@ -154,9 +161,11 @@ func collectBodyExcerpts(hyps []investigate.Hypothesis) []map[string]any {
 		if h.BodySource == "" {
 			continue
 		}
-		lines := fmt.Sprintf("%d-%d", h.Line, h.EndLine)
-		if h.EndLine == 0 || h.EndLine == h.Line {
+		var lines string
+		if h.EndLine == 0 {
 			lines = fmt.Sprintf("%d", h.Line)
+		} else {
+			lines = fmt.Sprintf("%d-%d", h.Line, h.EndLine)
 		}
 		out = append(out, map[string]any{
 			"file":   h.File,

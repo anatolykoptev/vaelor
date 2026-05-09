@@ -269,7 +269,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		// to host by reverseToHost in Tier-1/Tier-3 symbol resolution). Inside the
 		// container, host paths are accessible under /host via PATH_MAPPINGS mount.
 		// rewritePath translates host → container for the disk read.
-		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, 3, deps.PathMappings)
+		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, 3, deps.PathMappings, &res.Diagnostics)
 	}
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
