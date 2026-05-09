@@ -63,6 +63,9 @@ type Hypothesis struct {
 
 	EvidenceLinks []string `json:"evidence_links,omitempty"`
 	NextChecks    []string `json:"next_checks,omitempty"`
+
+	// Source tracks the origin of this hypothesis: span | hint_match | alert | "" (backwards compat).
+	Source string `json:"source,omitempty"`
 }
 
 // MetricSpike captures a single metric (failure / latency / saturation) showing anomaly above baseline.
@@ -95,17 +98,18 @@ type AlertViolation struct {
 //   - Range: the *data* window the investigation analysed (Prometheus
 //     query range, Jaeger trace search range). Independent of wall-clock.
 type InvestigationResult struct {
-	Service         string           `json:"service"`
-	Range           TimeRange        `json:"range"`
-	StartedAt       time.Time        `json:"started_at"`
-	FinishedAt      time.Time        `json:"finished_at"`
-	Hypotheses      []Hypothesis     `json:"hypotheses"`
-	LLMSummary      string           `json:"llm_summary,omitempty"`
-	MetricSpikes    []MetricSpike    `json:"metric_spikes,omitempty"`
-	AlertViolations []AlertViolation `json:"alert_violations,omitempty"`
-	HintKind        string           `json:"hint_kind,omitempty"`
-	LogExcerpts     []LogExcerpt     `json:"log_excerpts,omitempty"`
-	Diagnostics     Diagnostics      `json:"diagnostics"`
+	Service             string               `json:"service"`
+	Range               TimeRange            `json:"range"`
+	StartedAt           time.Time            `json:"started_at"`
+	FinishedAt          time.Time            `json:"finished_at"`
+	Hypotheses          []Hypothesis         `json:"hypotheses"`
+	LLMSummary          string               `json:"llm_summary,omitempty"`
+	MetricSpikes        []MetricSpike        `json:"metric_spikes,omitempty"`
+	AlertViolations     []AlertViolation     `json:"alert_violations,omitempty"`
+	HintKind            string               `json:"hint_kind,omitempty"`
+	LogExcerpts         []LogExcerpt         `json:"log_excerpts,omitempty"`
+	HistoricalIncidents []HistoricalIncident `json:"historical_incidents,omitempty"`
+	Diagnostics         Diagnostics          `json:"diagnostics"`
 }
 
 // TimeRange is the [Start, End] window the investigation covered.
@@ -123,6 +127,7 @@ type Diagnostics struct {
 	AlertsQueried           int      `json:"alerts_queried,omitempty"`
 	LogsFetched             int      `json:"logs_fetched,omitempty"`
 	HypothesesDroppedAsDead int      `json:"hypotheses_dropped_as_dead,omitempty"`
+	LearningsPersisted      bool     `json:"learnings_persisted,omitempty"`
 	Warnings                []string `json:"warnings,omitempty"`
 }
 
@@ -202,4 +207,20 @@ type SymbolBodyInfo struct {
 	ErrorExits      int  `json:"error_exits"`
 	HasDeferCleanup bool `json:"has_defer_cleanup,omitempty"`
 	HasTODO         bool `json:"has_todo,omitempty"`
+}
+
+// Source values for Hypothesis.Source (γ.C.3).
+const (
+	HypothesisSourceSpan      = "span"
+	HypothesisSourceHintMatch = "hint_match"
+	HypothesisSourceAlert     = "alert"
+)
+
+// HistoricalIncident is a past investigation record retrieved from the learnings store.
+type HistoricalIncident struct {
+	Repo      string `json:"repo"`
+	Symbol    string `json:"symbol"`
+	RiskLevel string `json:"risk_level,omitempty"`
+	Flag      string `json:"flag,omitempty"`
+	Note      string `json:"note,omitempty"`
 }
