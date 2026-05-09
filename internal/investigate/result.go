@@ -58,6 +58,9 @@ type Hypothesis struct {
 	// are preserved. To force the heuristic, leave this zero on input.
 	Confidence ConfidenceLevel `json:"confidence"`
 
+	Impact     *ImpactInfo     `json:"impact,omitempty"`
+	SymbolBody *SymbolBodyInfo `json:"symbol_body,omitempty"`
+
 	EvidenceLinks []string `json:"evidence_links,omitempty"`
 	NextChecks    []string `json:"next_checks,omitempty"`
 }
@@ -113,13 +116,14 @@ type TimeRange struct {
 
 // Diagnostics records counters from the investigation run for transparency.
 type Diagnostics struct {
-	MetricsQueried int      `json:"metrics_queried"`
-	TracesFetched  int      `json:"traces_fetched"`
-	SpansAnalyzed  int      `json:"spans_analyzed"`
-	SymbolsTouched int      `json:"symbols_touched"`
-	AlertsQueried  int      `json:"alerts_queried,omitempty"`
-	LogsFetched    int      `json:"logs_fetched,omitempty"`
-	Warnings       []string `json:"warnings,omitempty"`
+	MetricsQueried          int      `json:"metrics_queried"`
+	TracesFetched           int      `json:"traces_fetched"`
+	SpansAnalyzed           int      `json:"spans_analyzed"`
+	SymbolsTouched          int      `json:"symbols_touched"`
+	AlertsQueried           int      `json:"alerts_queried,omitempty"`
+	LogsFetched             int      `json:"logs_fetched,omitempty"`
+	HypothesesDroppedAsDead int      `json:"hypotheses_dropped_as_dead,omitempty"`
+	Warnings                []string `json:"warnings,omitempty"`
 }
 
 // RankHypotheses returns a copy of h sorted by fused score (descending).
@@ -175,4 +179,27 @@ type LogExcerpt struct {
 	Level string `json:"level,omitempty"`
 	Msg   string `json:"msg,omitempty"`
 	Raw   string `json:"raw,omitempty"`
+}
+
+// BlastRadius enum values for ImpactInfo.BlastRadius.
+const (
+	BlastRadiusNone   = "none"
+	BlastRadiusLow    = "low"
+	BlastRadiusMedium = "medium"
+	BlastRadiusHigh   = "high"
+)
+
+// ImpactInfo captures blast-radius data from impact.Analyze for a hypothesis.
+type ImpactInfo struct {
+	DirectCallers int     `json:"direct_callers"`
+	TotalAffected int     `json:"total_affected"`
+	BlastRadius   string  `json:"blast_radius,omitempty"` // BlastRadiusNone | BlastRadiusLow | BlastRadiusMedium | BlastRadiusHigh
+	RiskScore     float64 `json:"risk_score,omitempty"`
+}
+
+// SymbolBodyInfo captures structural analysis from compound.AnalyzeBody for a hypothesis.
+type SymbolBodyInfo struct {
+	ErrorExits      int  `json:"error_exits"`
+	HasDeferCleanup bool `json:"has_defer_cleanup,omitempty"`
+	HasTODO         bool `json:"has_todo,omitempty"`
 }
