@@ -84,6 +84,7 @@ type InvestigationResult struct {
 	MetricSpikes    []MetricSpike    `json:"metric_spikes,omitempty"`
 	AlertViolations []AlertViolation `json:"alert_violations,omitempty"`
 	HintKind        string           `json:"hint_kind,omitempty"`
+	LogExcerpts     []LogExcerpt     `json:"log_excerpts,omitempty"`
 	Diagnostics     Diagnostics      `json:"diagnostics"`
 }
 
@@ -100,6 +101,7 @@ type Diagnostics struct {
 	SpansAnalyzed  int      `json:"spans_analyzed"`
 	SymbolsTouched int      `json:"symbols_touched"`
 	AlertsQueried  int      `json:"alerts_queried,omitempty"`
+	LogsFetched    int      `json:"logs_fetched,omitempty"`
 	Warnings       []string `json:"warnings,omitempty"`
 }
 
@@ -147,4 +149,13 @@ func RankHypotheses(h []Hypothesis) []Hypothesis {
 		out = append(out, hyp)
 	}
 	return out
+}
+
+// LogExcerpt is a single log line from the dozor sidecar, attached to the
+// investigation result when dozor is configured.
+type LogExcerpt struct {
+	Ts    string `json:"ts,omitempty"`
+	Level string `json:"level,omitempty"`
+	Msg   string `json:"msg,omitempty"`
+	Raw   string `json:"raw,omitempty"`
 }

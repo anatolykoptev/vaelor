@@ -160,6 +160,15 @@ type Config struct {
 	PrometheusURL string
 	JaegerURL     string
 
+	// DozorURL is the base URL for the dozor sidecar API (e.g. http://dozor:8765).
+	// When set, Phase 6 of debug_investigate fetches recent log excerpts.
+	// Defaults to http://dozor:8765 when empty (set DOZOR_URL=" to disable).
+	DozorURL string
+
+	// DozorAPIToken is the optional Bearer token for dozor API auth.
+	// Set via DOZOR_API_TOKEN env var; empty means no auth header is sent.
+	DozorAPIToken string
+
 	// SourcemapAllowedHosts is the list of JS bundle hosts from which source
 	// maps may be fetched. Empty means resolve_frame tool and POST /resolve are
 	// disabled. Set via SOURCEMAP_ALLOWED_HOSTS env var (CSV).
@@ -281,6 +290,8 @@ func loadConfig() (Config, error) {
 		RRFWeightSemantic:     env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
 		RRFWeightKeyword:      env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
 		PrometheusURL:         env.Str("PROMETHEUS_URL", ""),
+		DozorURL:              env.Str("DOZOR_URL", "http://dozor:8765"),
+		DozorAPIToken:         env.Str("DOZOR_API_TOKEN", ""),
 		JaegerURL:             env.Str("JAEGER_URL", ""),
 		SourcemapAllowedHosts: env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
 	}, nil
