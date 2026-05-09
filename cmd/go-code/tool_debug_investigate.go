@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/dozorclient"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
 	"github.com/anatolykoptev/go-code/internal/promclient"
@@ -97,16 +98,20 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 
 	prom := promclient.NewClient(cfg.PrometheusURL, 30*time.Second)
 	jaeger := jaegerclient.NewClient(cfg.JaegerURL, 30*time.Second)
+	var dozor *dozorclient.Client
+	if cfg.DozorURL != "" {
+		dozor = dozorclient.NewClient(cfg.DozorURL, cfg.DozorAPIToken, 10*time.Second)
+	}
 
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "debug_investigate",
 		Description: "Correlate Prometheus metrics + Jaeger failed traces + code symbols to suggest the likely buggy file:function for the given service+window. Long-running (5min budget); poll same input to fetch result.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DebugInvestigateInput) (*mcp.CallToolResult, error) {
-		return handleDebugInvestigate(ctx, input, deps, prom, jaeger)
+		return handleDebugInvestigate(ctx, input, deps, prom, jaeger, dozor)
 	})
 }
 
-func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client) (*mcp.CallToolResult, error) {
+func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, dozor *dozorclient.Client) (*mcp.CallToolResult, error) {
 
 	if !input.HintKind.IsValid() {
 		return errResult(fmt.Sprintf("invalid hint_kind %q; expected one of: frontend_reactive_cycle, panic_at_handler, metric_spike_unknown_source, latency_spike", input.HintKind)), nil
@@ -146,13 +151,13 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 	}
 
 	// Fresh — kick off background goroutine.
-	go runInvestigation(input, deps, prom, jaeger, start, end)
+	go runInvestigation(input, deps, prom, jaeger, dozor, start, end)
 
 	return textResult(fmt.Sprintf("Investigation started for service=%q range=[%s, %s]. Re-run this call in 30s to fetch the result.",
 		input.Service, start.Format(time.RFC3339), end.Format(time.RFC3339))), nil
 }
 
-func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, start, end time.Time) {
+func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, dozor *dozorclient.Client, start, end time.Time) {
 	finished := false
 	defer func() {
 		if r := recover(); r != nil {
@@ -223,6 +228,12 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
 	runLLMPhase(ctx, deps, prom, input, services, ops, start, end, res)
+
+	// Phase 6: log excerpts — fetch recent ERROR/WARN/panic lines from the dozor
+	// sidecar. Supplemental evidence; errors are non-fatal (appended to warnings).
+	if dozor != nil {
+		res.LogExcerpts = runLogsPhase(ctx, dozor, input, start, end, &res.Diagnostics)
+	}
 
 	res.FinishedAt = time.Now()
 
