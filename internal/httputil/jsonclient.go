@@ -48,7 +48,6 @@ func New(baseURL string, opts ...Option) *Client {
 	return c
 }
 
-
 // NewWithHTTPClient creates a Client that reuses an existing *http.Client.
 // This preserves connection pooling when the caller already manages an
 // http.Client instance (e.g. promclient, jaegerclient, dozorclient).
