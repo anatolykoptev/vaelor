@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -106,9 +107,22 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 			b.WriteString("</evidence>")
 		}
 		for _, nc := range h.NextChecks {
-			b.WriteString("\n      <next_check>")
-			b.WriteString(escapeXML(nc))
-			b.WriteString("</next_check>")
+			if len(nc.Args) == 0 {
+				b.WriteString(fmt.Sprintf("\n      <next_check tool=%q/>", nc.Tool))
+			} else {
+				b.WriteString(fmt.Sprintf("\n      <next_check tool=%q>", nc.Tool))
+				keys := make([]string, 0, len(nc.Args))
+				for k := range nc.Args {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					b.WriteString(fmt.Sprintf("\n        <arg name=%q>", k))
+					b.WriteString(escapeXML(nc.Args[k]))
+					b.WriteString("</arg>")
+				}
+				b.WriteString("\n      </next_check>")
+			}
 		}
 		b.WriteString("\n    </hypothesis>")
 	}
