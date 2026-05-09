@@ -86,7 +86,13 @@ func runSymbolsPhase(
 						h.Line = int(sym.StartLine)
 						h.Subject = fmt.Sprintf("%s in %s", funcName, h.File)
 						h.NextChecks = append(h.NextChecks,
-							fmt.Sprintf("understand symbol=%q repo=%q", funcName, repo))
+							investigate.NextCheck{
+								Tool: "understand",
+								Args: map[string]string{
+									"symbol": funcName,
+									"repo":   repo,
+								},
+							})
 						res.Diagnostics.SymbolsTouched++
 						// Invariant: key == index of hypothesis about to be appended at line ~94.
 						// Reordering the append below would silently desync this map.

@@ -130,9 +130,14 @@ func runFusionRank(
 		}
 	}
 
-	// Sort by FusedScore descending (stable: equal scores preserve input order).
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].FusedScore > out[j].FusedScore
+	// Sort by FusedScore descending; ties broken by Subject lexicographically.
+	// The secondary key ensures deterministic order when map-iteration produces
+	// equal FusedScores -- without it, cache key drift occurs across calls.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].FusedScore != out[j].FusedScore {
+			return out[i].FusedScore > out[j].FusedScore
+		}
+		return out[i].Subject < out[j].Subject
 	})
 
 	return out
