@@ -39,6 +39,29 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		}
 		b.WriteString(fmt.Sprintf("\n      <signals span_count=\"%d\" anomaly_score=\"%.3f\"/>",
 			h.SpanCount, h.AnomalyScore))
+
+		// γ.B.2: blast radius block — rendered for top-3 when Impact is set.
+		if imp := h.Impact; imp != nil && (imp.DirectCallers > 0 || imp.TotalAffected > 0 || imp.BlastRadius != "") {
+			b.WriteString(fmt.Sprintf(
+				"\n      <impact direct_callers=\"%d\" total_affected=\"%d\" blast_radius=%q risk_score=\"%.2f\"/>",
+				imp.DirectCallers, imp.TotalAffected, imp.BlastRadius, imp.RiskScore))
+		}
+
+		// γ.B.3: symbol body block — rendered for top-1 when SymbolBody is set.
+		if sb := h.SymbolBody; sb != nil {
+			hasDeferStr := "false"
+			if sb.HasDeferCleanup {
+				hasDeferStr = "true"
+			}
+			hasTODOStr := "false"
+			if sb.HasTODO {
+				hasTODOStr = "true"
+			}
+			b.WriteString(fmt.Sprintf(
+				"\n      <symbol_body error_exits=\"%d\" has_defer=%q has_todo=%q/>",
+				sb.ErrorExits, hasDeferStr, hasTODOStr))
+		}
+
 		for _, link := range h.EvidenceLinks {
 			b.WriteString("\n      <evidence>")
 			b.WriteString(escapeXML(link))
