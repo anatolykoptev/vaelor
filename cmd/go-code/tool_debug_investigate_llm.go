@@ -104,7 +104,7 @@ func runLLMPhase(
 	metricNames []string,
 	input DebugInvestigateInput,
 	services []string,
-	ops map[string]int,
+	ops map[string]*investigate.OperationInfo,
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
@@ -124,7 +124,7 @@ func runLLMPhaseInner(
 	metricNames []string,
 	input DebugInvestigateInput,
 	services []string,
-	ops map[string]int,
+	ops map[string]*investigate.OperationInfo,
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
