@@ -70,11 +70,23 @@ func extractBodySource(file string, startLine, endLine int, maxLines int) (strin
 	return result, nil
 }
 
-// resolveEndLine returns h.EndLine when non-zero, or h.Line as a fallback for
-// symbols where the parser did not record an end position (single-line body).
+// defaultBodyWindow is the line-count heuristic used when EndLine is unknown.
+// Rust tracing-opentelemetry emits code.lineno pointing at the function entry
+// (the line with #[tracing::instrument(...)] annotation), so reading 1 line
+// gives just the annotation. 50 lines covers most function bodies after.
+const defaultBodyWindow = 50
+
+// resolveEndLine returns h.EndLine when non-zero. When EndLine is zero (the
+// hypothesis came from OTEL code.* tags which only record a single line),
+// expand the window by defaultBodyWindow lines so body excerpt covers the
+// function body, not just the entry/annotation line.
+//
+// Tier-3 (callgraph FindSymbol) gives real EndLine from the parser AST and
+// hits the first branch.
+// Tier-1 (OTEL code.*) hits the second branch and gets the heuristic window.
 func resolveEndLine(h *investigate.Hypothesis) int {
 	if h.EndLine == 0 {
-		return h.Line
+		return h.Line + defaultBodyWindow
 	}
 	return h.EndLine
 }
