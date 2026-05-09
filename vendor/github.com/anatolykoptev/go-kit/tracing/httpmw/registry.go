@@ -119,3 +119,40 @@ func splitRegistryFuncName(name string) (namespace, funcName string) {
 	funcName = rest[dot+1:]
 	return namespace, funcName
 }
+
+// RegisterGinRoute registers an HTTP route using a handler name string
+// that gin provides via engine.Routes()[i].HandlerFunc. gin already resolves
+// handler names at startup via runtime reflection; instead of re-doing the
+// reflect.ValueOf dance we accept the string directly and inject it into
+// the registry, bypassing FuncForPC.
+//
+// The handlerName is the value gin puts in RouteInfo.HandlerFunc, e.g.:
+//
+//	"github.com/myorg/app/handlers.(*API).GetUser-fm"
+//
+// The -fm suffix (method-value wrapper) is stripped so code.function resolves
+// to the real method name. An empty handlerName is a no-op.
+//
+// Usage:
+//
+//	for _, r := range engine.Routes() {
+//	    httpmw.RegisterGinRoute(r.Method, r.Path, r.HandlerFunc)
+//	}
+func RegisterGinRoute(method, pattern, handlerName string) {
+	if handlerName == "" {
+		return
+	}
+	namespace, funcName := splitRegistryFuncName(handlerName)
+	if namespace == "" || funcName == "" {
+		return
+	}
+	key := method + " " + pattern
+	attrs := []attribute.KeyValue{
+		attribute.String("code.namespace", namespace),
+		attribute.String("code.function", funcName),
+	}
+
+	routeRegistryMu.Lock()
+	routeRegistry[key] = codeAttrs{attrs: attrs}
+	routeRegistryMu.Unlock()
+}
