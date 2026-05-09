@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -136,18 +137,70 @@ func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int,
 		if h.File == "" {
 			continue
 		}
-		// Translate host path → container path for the actual disk read.
-		containerPath := rewritePath(h.File, mappings)
-		body, err := extractBodySource(containerPath, h.Line, resolveEndLine(h), 200)
-		if err != nil {
-			if diags != nil {
-				diags.Warnings = append(diags.Warnings, fmt.Sprintf("body read %s: %v", h.File, err))
+		// Try multiple path candidates: absolute, mapped, repo-relative,
+		// and /host fallback. Rust tracing-opentelemetry emits relative
+		// code.filepath (file!() macro from CARGO_MANIFEST_DIR), which
+		// fails as-is; prepending repo or /host gives a working absolute.
+		candidates := buildBodyPathCandidates(h.File, mappings)
+		var body string
+		var lastErr error
+		for _, p := range candidates {
+			b, e := extractBodySource(p, h.Line, resolveEndLine(h), 200)
+			if e == nil {
+				body = b
+				break
+			}
+			lastErr = e
+		}
+		if body == "" {
+			if diags != nil && lastErr != nil {
+				diags.Warnings = append(diags.Warnings, fmt.Sprintf("body read %s (tried %d): %v", h.File, len(candidates), lastErr))
 			}
 			continue
 		}
 		h.BodySource = body
 	}
 
+	return out
+}
+
+// buildBodyPathCandidates returns paths to try in order:
+//  1. file as-is (absolute or already mapped)
+//  2. rewritePath(file) — host→container mapping
+//  3. /host/<file> when file is relative and /host mount exists
+//  4. <m.Container>/<file> for each PathMapping when file is relative
+//
+// Dedup-protected via filepath.Clean.
+func buildBodyPathCandidates(file string, mappings []analyze.PathMapping) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(p string) {
+		p = filepath.Clean(p)
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	add(file)
+	if mapped := rewritePath(file, mappings); mapped != file {
+		add(mapped)
+	}
+	if !filepath.IsAbs(file) {
+		// Try /host/<file> if /host mount is configured anywhere
+		for _, m := range mappings {
+			if m.External == "/host" {
+				add(filepath.Join("/host", file))
+				break
+			}
+		}
+		// Try every mapping's container prefix joined with relative file
+		for _, m := range mappings {
+			if m.Internal != "" {
+				add(filepath.Join(m.Internal, file))
+			}
+		}
+	}
 	return out
 }
 
