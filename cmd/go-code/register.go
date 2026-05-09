@@ -167,6 +167,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	}
 	registerDesignSearch(server, cfg, designDeps)
 	registerDebugInvestigate(server, cfg, deps)
+	registerResolveFrame(server, cfg)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {

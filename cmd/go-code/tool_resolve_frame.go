@@ -1,0 +1,75 @@
+// cmd/go-code/tool_resolve_frame.go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/anatolykoptev/go-code/internal/sourcemap"
+	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// resolveFrameResolver is the package-level Resolver shared by the MCP tool
+// and the POST /resolve HTTP endpoint. Initialized once in registerResolveFrame.
+var resolveFrameResolver *sourcemap.Resolver
+
+// resolveFrameCacheSize is the LRU cache size (entries) for parsed source maps.
+const resolveFrameCacheSize = 64
+
+// resolveFrameTTL is the per-entry TTL for cached source maps.
+const resolveFrameTTL = 10 * time.Minute
+
+// ResolveFrameInput is the MCP tool input schema for resolve_frame.
+type ResolveFrameInput struct {
+	// URL is the URL of the minified JS bundle (not the .map file).
+	URL string `json:"url"`
+	// Line is the 1-based line number from the browser stack frame.
+	Line int `json:"line"`
+	// Column is the 1-based column number from the browser stack frame.
+	Column int `json:"column"`
+}
+
+// registerResolveFrame registers the resolve_frame MCP tool. If
+// cfg.SourcemapAllowedHosts is empty, registration is silently skipped (same
+// pattern as debug_investigate with PROMETHEUS_URL/JAEGER_URL).
+func registerResolveFrame(server *mcp.Server, cfg Config) {
+	if len(cfg.SourcemapAllowedHosts) == 0 {
+		return
+	}
+
+	resolveFrameResolver = sourcemap.NewResolver(
+		&http.Client{Timeout: 15 * time.Second},
+		resolveFrameCacheSize,
+		resolveFrameTTL,
+	)
+
+	mcpserver.AddTool(server, &mcp.Tool{
+		Name:        "resolve_frame",
+		Description: "Resolve a minified JavaScript stack frame (url, line, column) to its original source location using the companion .map file. Returns file, line, column, and function name.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ResolveFrameInput) (*mcp.CallToolResult, error) {
+		return handleResolveFrame(ctx, input, cfg.SourcemapAllowedHosts)
+	})
+}
+
+func handleResolveFrame(ctx context.Context, input ResolveFrameInput, allowedHosts []string) (*mcp.CallToolResult, error) {
+	if !sourcemap.IsAllowedURL(input.URL, allowedHosts) {
+		return errResult("resolve_frame: URL host not in SOURCEMAP_ALLOWED_HOSTS allowlist"), nil
+	}
+	if resolveFrameResolver == nil {
+		return errResult("resolve_frame: resolver not initialized"), nil
+	}
+
+	frame, err := resolveFrameResolver.Resolve(ctx, input.URL, input.Line, input.Column)
+	if err != nil {
+		return errResult("resolve_frame: " + err.Error()), nil
+	}
+
+	data, err := json.Marshal(frame)
+	if err != nil {
+		return errResult("resolve_frame: marshal: " + err.Error()), nil
+	}
+	return textResult(string(data)), nil
+}

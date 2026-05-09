@@ -148,6 +148,20 @@ func main() {
 		slog.Info("webhook registered", slog.String("path", "/webhook/github"))
 	}
 
+	// Build the combined HTTP routes: webhook (conditional) + resolve (conditional).
+	// Using a composed closure so both routes share the same mux regardless of
+	// which env vars are set.
+	resolveHosts := cfg.SourcemapAllowedHosts
+	combinedRoutes := func(mux *http.ServeMux) {
+		if webhookRoutes != nil {
+			webhookRoutes(mux)
+		}
+		if len(resolveHosts) > 0 && resolveFrameResolver != nil {
+			mux.Handle("POST /resolve", resolveHTTPHandler(resolveHosts, resolveFrameResolver))
+			slog.Info("resolve endpoint registered", slog.String("path", "/resolve"))
+		}
+	}
+
 	hooks := mcpserver.MCPHooks{
 		OnToolCall: func(_ context.Context, name string) {
 			slog.Info("tool_call", slog.String("tool", name))
@@ -166,14 +180,14 @@ func main() {
 		MCPLogger:              slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
 		RESTBridge:             true,
-		Routes:                 webhookRoutes,
+		Routes:                 combinedRoutes,
 		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
 		ToolTimeouts: map[string]time.Duration{
-			"code_research": 90 * time.Second,
-			"repo_analyze":  90 * time.Second,
-			"code_compare":  90 * time.Second,
-			"call_trace":    60 * time.Second,
-			"code_health":   60 * time.Second,
+			"code_research":     90 * time.Second,
+			"repo_analyze":      90 * time.Second,
+			"code_compare":      90 * time.Second,
+			"call_trace":        60 * time.Second,
+			"code_health":       60 * time.Second,
 			"debug_investigate": 5 * time.Minute,
 		},
 	}); err != nil {
