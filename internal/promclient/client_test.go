@@ -158,3 +158,77 @@ func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
 		t.Errorf("error should include status + body preview, got: %v", err)
 	}
 }
+
+func TestAlerts_Parse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/alerts" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"alerts": [
+					{
+						"labels": {"alertname":"HighErrorRate","service":"svc-a","severity":"critical"},
+						"annotations": {"summary":"Error rate high","description":"Errors > 5%","runbook_url":"https://runbooks/HighErrorRate"},
+						"state": "firing",
+						"activeAt": "2026-05-08T10:00:00Z",
+						"value": "0.12"
+					},
+					{
+						"labels": {"alertname":"PendingAlert","service":"svc-a","severity":"warning"},
+						"annotations": {"summary":"Pending"},
+						"state": "pending",
+						"activeAt": "2026-05-08T10:01:00Z",
+						"value": "0.01"
+					}
+				]
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	alerts, err := c.Alerts(t.Context())
+	if err != nil {
+		t.Fatalf("Alerts: %v", err)
+	}
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 alerts, got %d", len(alerts))
+	}
+
+	a := alerts[0]
+	if a.Labels["alertname"] != "HighErrorRate" {
+		t.Errorf("alertname: got %q", a.Labels["alertname"])
+	}
+	if a.State != "firing" {
+		t.Errorf("state: got %q", a.State)
+	}
+	if a.Annotations["summary"] != "Error rate high" {
+		t.Errorf("summary: got %q", a.Annotations["summary"])
+	}
+	if a.Value != "0.12" {
+		t.Errorf("value: got %q", a.Value)
+	}
+	if a.ActiveAt != "2026-05-08T10:00:00Z" {
+		t.Errorf("activeAt: got %q", a.ActiveAt)
+	}
+}
+
+func TestAlerts_ErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"error","errorType":"internal","error":"boom"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 5*time.Second)
+	_, err := c.Alerts(t.Context())
+	if err == nil {
+		t.Fatal("expected error for non-success status")
+	}
+	if !strings.Contains(err.Error(), "error") {
+		t.Errorf("expected error message to mention status, got: %v", err)
+	}
+}

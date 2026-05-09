@@ -14,10 +14,12 @@ type PromptContext struct {
 	AvailableMetrics  []string // truncated to first 80 if longer
 	AvailableServices []string
 	OperationsSeen    []string // top operations from traces
+	FiringAlerts      []string // alert names currently firing for this service
 }
 
 const maxMetricsInPrompt = 80
 const maxOpsInPrompt = 30
+const maxAlertsInPrompt = 20
 
 // BuildSystemPrompt assembles the LLM correlation prompt with hard constraints
 // against hallucination. Layout: role + ground truth + reasoning rules + output schema.
@@ -65,6 +67,20 @@ func BuildSystemPrompt(c PromptContext) string {
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
+	}
+
+	if len(c.FiringAlerts) > 0 {
+		firing := c.FiringAlerts
+		if len(firing) > maxAlertsInPrompt {
+			firing = firing[:maxAlertsInPrompt]
+		}
+		b.WriteString("Firing Prometheus alerts for this service (invariant violations — DO NOT dismiss these as noise):\n")
+		for _, a := range firing {
+			b.WriteString("  - ")
+			b.WriteString(a)
+			b.WriteString("\n")
+		}
+		b.WriteString("NOTE: firing alerts signal constant-state invariant violations that spike detection may miss.\n\n")
 	}
 
 	b.WriteString(`Reasoning rules:

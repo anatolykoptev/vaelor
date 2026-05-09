@@ -54,6 +54,19 @@ type MetricSpike struct {
 	Score      float64 `json:"score"`       // bucketed anomaly score 0..1
 }
 
+// AlertViolation captures a firing Prometheus alert that matches the investigated service.
+// These represent constant-state invariant violations that Phase 4 spike detection
+// misses because there is no delta — the ratio never changes, it is just always wrong.
+type AlertViolation struct {
+	AlertName   string `json:"alert_name"`
+	Severity    string `json:"severity"`
+	Service     string `json:"service"`
+	Summary     string `json:"summary"`
+	Description string `json:"description,omitempty"`
+	Runbook     string `json:"runbook,omitempty"`
+	ActiveAt    string `json:"active_at,omitempty"`
+}
+
 // InvestigationResult is the final tool output.
 //
 // Time fields:
@@ -62,15 +75,16 @@ type MetricSpike struct {
 //   - Range: the *data* window the investigation analysed (Prometheus
 //     query range, Jaeger trace search range). Independent of wall-clock.
 type InvestigationResult struct {
-	Service      string        `json:"service"`
-	Range        TimeRange     `json:"range"`
-	StartedAt    time.Time     `json:"started_at"`
-	FinishedAt   time.Time     `json:"finished_at"`
-	Hypotheses   []Hypothesis  `json:"hypotheses"`
-	LLMSummary   string        `json:"llm_summary,omitempty"`
-	MetricSpikes []MetricSpike `json:"metric_spikes,omitempty"`
-	HintKind     string        `json:"hint_kind,omitempty"`
-	Diagnostics  Diagnostics   `json:"diagnostics"`
+	Service         string           `json:"service"`
+	Range           TimeRange        `json:"range"`
+	StartedAt       time.Time        `json:"started_at"`
+	FinishedAt      time.Time        `json:"finished_at"`
+	Hypotheses      []Hypothesis     `json:"hypotheses"`
+	LLMSummary      string           `json:"llm_summary,omitempty"`
+	MetricSpikes    []MetricSpike    `json:"metric_spikes,omitempty"`
+	AlertViolations []AlertViolation `json:"alert_violations,omitempty"`
+	HintKind        string           `json:"hint_kind,omitempty"`
+	Diagnostics     Diagnostics      `json:"diagnostics"`
 }
 
 // TimeRange is the [Start, End] window the investigation covered.
@@ -85,6 +99,7 @@ type Diagnostics struct {
 	TracesFetched  int      `json:"traces_fetched"`
 	SpansAnalyzed  int      `json:"spans_analyzed"`
 	SymbolsTouched int      `json:"symbols_touched"`
+	AlertsQueried  int      `json:"alerts_queried,omitempty"`
 	Warnings       []string `json:"warnings,omitempty"`
 }
 
