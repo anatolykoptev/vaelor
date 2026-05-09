@@ -190,10 +190,23 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		return
 	}
 
+	// Phase 4 pre-fetch: fetch the full metric name list once. All discover*
+	// functions are pure filters over this slice — avoids 3 redundant Prometheus
+	// /api/v1/label/__name__/values round-trips in Phase 4. Also reused in Phase 5
+	// (LLM system prompt ground truth). Non-fatal: empty slice falls through
+	// gracefully; the warning is appended to diagnostics.
+	metricNames, mnErr := prom.MetricNames(ctx)
+	if mnErr != nil {
+		res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+			fmt.Sprintf("metric names: %v", mnErr))
+		// metricNames is nil — discover* return empty; legacy fallback runs.
+	}
+	res.Diagnostics.MetricsQueried++ // count the single __name__ fetch
+
 	// Phase 4: query Prometheus for the error-rate ratio between the
 	// investigation window and a baseline (same duration, 1h earlier).
 	// The composite anomaly score weights metric-confirmed operations higher.
-	anomalyScore, spikes := computeAnomalyScore(ctx, prom, input.Service, start, end, &res.Diagnostics)
+	anomalyScore, spikes := computeAnomalyScore(ctx, prom, input.Service, metricNames, start, end, &res.Diagnostics)
 
 	// Phase 4.5: query Prometheus /api/v1/alerts for firing alerts.
 	// Captures constant-state invariant violations that Phase 4 misses because
@@ -227,7 +240,8 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	ops := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
-	runLLMPhase(ctx, deps, prom, input, services, ops, start, end, res)
+	// metricNames is passed to avoid re-fetching __name__ in the LLM phase.
+	runLLMPhase(ctx, deps, metricNames, input, services, ops, start, end, res)
 
 	// Phase 6: log excerpts — fetch recent ERROR/WARN/panic lines from the dozor
 	// sidecar. Supplemental evidence; errors are non-fatal (appended to warnings).
