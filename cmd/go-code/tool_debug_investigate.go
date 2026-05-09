@@ -36,6 +36,25 @@ const (
 	ratioMild     = 1.2
 )
 
+// Latency spike score buckets — used by computeLatencySpikes.
+const (
+	scoreLatencyCritical = 0.9 // p99 ratio > 2.0x baseline
+	scoreLatencyElevated = 0.7 // p99 ratio > 1.5x baseline
+)
+
+// Latency ratio thresholds.
+const (
+	ratioLatencyCritical = 2.0
+	ratioLatencyElevated = 1.5
+)
+
+// Saturation ratio thresholds.
+const (
+	ratioSatCritical = 5.0
+	ratioSatElevated = 2.0
+	ratioSatMild     = 1.3
+)
+
 // HintKind disambiguates investigation focus when caller knows the bug class.
 // Empty value preserves current "auto-detect everything" behavior.
 type HintKind string
