@@ -87,7 +87,7 @@ func TestIntegration_AlertViolations(t *testing.T) {
 		t.Fatalf("handleDebugInvestigate: %v", callErr)
 	}
 
-	st := pollStore(svc, start, end, 10*time.Second)
+	st := pollStore(svc, start, end, "", 10*time.Second)
 	if st == nil {
 		t.Fatal("investigation did not complete within 10s")
 	}
@@ -234,7 +234,7 @@ func TestIntegration_MixedBudget_AlertsAndMetrics(t *testing.T) {
 		t.Fatalf("handleDebugInvestigate: %v", callErr)
 	}
 
-	st := pollStore(svc, start, end, 10*time.Second)
+	st := pollStore(svc, start, end, "", 10*time.Second)
 	if st == nil {
 		t.Fatal("investigation did not complete within 10s")
 	}
@@ -291,7 +291,7 @@ func TestIntegration_OnlyAlerts_AnomalyScoreFallback(t *testing.T) {
 		t.Fatalf("handleDebugInvestigate: %v", callErr)
 	}
 
-	st := pollStore(svc, start, end, 10*time.Second)
+	st := pollStore(svc, start, end, "", 10*time.Second)
 	if st == nil {
 		t.Fatal("investigation did not complete within 10s")
 	}

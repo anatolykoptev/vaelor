@@ -135,8 +135,9 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 		return errResult("end must be after start"), nil
 	}
 
-	// Lifecycle dedup.
-	st, fresh := debugInvestigateStore.Start(input.Service, start, end)
+	// Lifecycle dedup. repo is part of the key so that re-running with a
+	// corrected repo arg busts the cache instead of returning a stale result.
+	st, fresh := debugInvestigateStore.Start(input.Service, start, end, input.Repo)
 	if !fresh {
 		switch st.Status() {
 		case investigate.StatusRunning:
@@ -163,12 +164,12 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("debug_investigate panic", "service", input.Service, "recover", r)
-			debugInvestigateStore.Fail(input.Service, start, end, fmt.Sprintf("panic: %v", r))
+			debugInvestigateStore.Fail(input.Service, start, end, input.Repo, fmt.Sprintf("panic: %v", r))
 			return
 		}
 		if !finished {
 			// Covers any future early-return that misses Finish/Fail.
-			debugInvestigateStore.Fail(input.Service, start, end, "investigation did not complete")
+			debugInvestigateStore.Fail(input.Service, start, end, input.Repo, "investigation did not complete")
 		}
 	}()
 
@@ -186,7 +187,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// Phase 1 + 2: list Jaeger services and fetch failed traces.
 	services, traces, err := runTracesPhase(ctx, jaeger, input, start, end, res)
 	if err != nil {
-		debugInvestigateStore.Fail(input.Service, start, end, err.Error())
+		debugInvestigateStore.Fail(input.Service, start, end, input.Repo, err.Error())
 		finished = true
 		return
 	}
@@ -299,6 +300,6 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 	// LearningsPersisted is visible in the polled result.
 	runHistoryPersist(ctx, deps.Learnings, input.Service, topAnomalyScore(res), res)
 
-	debugInvestigateStore.Finish(input.Service, start, end, res)
+	debugInvestigateStore.Finish(input.Service, start, end, input.Repo, res)
 	finished = true
 }

@@ -66,23 +66,27 @@ func (s *State) UpdatedAt() time.Time {
 
 // stateKey is the dedup key for the sync.Map.
 // Using a struct avoids "|" collision when service names contain that character.
+// repo is included so that the same service+range with different repo args
+// does not return a cached result from a prior (wrong-repo) investigation.
 type stateKey struct {
 	service string
 	start   string // RFC3339 UTC
 	end     string // RFC3339 UTC
+	repo    string
 }
 
 // makeStateKey builds a collision-free key from the investigation parameters.
-func makeStateKey(service string, start, end time.Time) stateKey {
+func makeStateKey(service string, start, end time.Time, repo string) stateKey {
 	return stateKey{
 		service: service,
 		start:   start.UTC().Format(time.RFC3339),
 		end:     end.UTC().Format(time.RFC3339),
+		repo:    repo,
 	}
 }
 
 // InvestigationStore deduplicates concurrent debug_investigate calls and
-// stores results for polling. Key: service + range. Thread-safe.
+// stores results for polling. Key: service + range + repo. Thread-safe.
 type InvestigationStore struct {
 	m sync.Map // map[stateKey]*State
 }
@@ -93,10 +97,10 @@ func NewInvestigationStore() *InvestigationStore {
 }
 
 // Start either creates a new running investigation or returns the existing
-// one. fresh=true on first call for this (service, range), false if already
-// running or completed (dedup).
-func (s *InvestigationStore) Start(service string, start, end time.Time) (*State, bool) {
-	key := makeStateKey(service, start, end)
+// one. fresh=true on first call for this (service, range, repo), false if
+// already running or completed (dedup).
+func (s *InvestigationStore) Start(service string, start, end time.Time, repo string) (*State, bool) {
+	key := makeStateKey(service, start, end, repo)
 	now := time.Now()
 	st := &State{status: StatusRunning, startedAt: now, updatedAt: now}
 	if existing, loaded := s.m.LoadOrStore(key, st); loaded {
@@ -107,8 +111,8 @@ func (s *InvestigationStore) Start(service string, start, end time.Time) (*State
 
 // Finish marks the investigation done and stores the result.
 // Last writer wins when called concurrently.
-func (s *InvestigationStore) Finish(service string, start, end time.Time, res *InvestigationResult) {
-	key := makeStateKey(service, start, end)
+func (s *InvestigationStore) Finish(service string, start, end time.Time, repo string, res *InvestigationResult) {
+	key := makeStateKey(service, start, end, repo)
 	v, ok := s.m.Load(key)
 	if !ok {
 		return
@@ -123,8 +127,8 @@ func (s *InvestigationStore) Finish(service string, start, end time.Time, res *I
 
 // Fail marks the investigation failed with an error message.
 // Last writer wins when called concurrently.
-func (s *InvestigationStore) Fail(service string, start, end time.Time, errMsg string) {
-	key := makeStateKey(service, start, end)
+func (s *InvestigationStore) Fail(service string, start, end time.Time, repo string, errMsg string) {
+	key := makeStateKey(service, start, end, repo)
 	v, ok := s.m.Load(key)
 	if !ok {
 		return
@@ -137,9 +141,9 @@ func (s *InvestigationStore) Fail(service string, start, end time.Time, errMsg s
 	st.mu.Unlock()
 }
 
-// Get returns the State for (service, range) or (nil, false) if absent.
-func (s *InvestigationStore) Get(service string, start, end time.Time) (*State, bool) {
-	v, ok := s.m.Load(makeStateKey(service, start, end))
+// Get returns the State for (service, range, repo) or (nil, false) if absent.
+func (s *InvestigationStore) Get(service string, start, end time.Time, repo string) (*State, bool) {
+	v, ok := s.m.Load(makeStateKey(service, start, end, repo))
 	if !ok {
 		return nil, false
 	}

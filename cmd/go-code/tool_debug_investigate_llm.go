@@ -72,9 +72,12 @@ func listLabelValues(ctx context.Context, prom *promclient.Client, label string)
 // Note: llmCtx (10s deadline) is deferred inside this function; it fires when
 // runLLMPhase returns. Nothing after this call reads the LLM context.
 
-// investigationCacheKey builds a stable hash of (service, time-window,
+// investigationCacheKey builds a stable hash of (repo, service, time-window,
 // top-5 hypothesis subjects + scores) to dedupe LLM Complete calls
 // during polling within the 5-min cache TTL.
+//
+// repo is included so that re-running with a corrected repo arg busts the
+// cache instead of returning the prior (wrong-repo) LLM summary.
 //
 // Precision note: scores formatted as %.3f bounds Prometheus drift to
 // 0.001 -- values within that margin produce same key. Without this
@@ -88,7 +91,7 @@ func listLabelValues(ctx context.Context, prom *promclient.Client, label string)
 // in either produces a meaningfully different investigation.
 func investigationCacheKey(input DebugInvestigateInput, top []investigate.Hypothesis) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%d|%d|", input.Service, input.StartUnix, input.EndUnix)
+	fmt.Fprintf(h, "%s|%s|%d|%d|", input.Repo, input.Service, input.StartUnix, input.EndUnix)
 	for i, hyp := range top {
 		if i >= 5 {
 			break

@@ -242,3 +242,20 @@ func TestInvestigationCacheKey_FusedScoreInfluence(t *testing.T) {
 		t.Errorf("different FusedScores must produce different keys; both produced %q", kA)
 	}
 }
+
+// TestInvestigationCacheKey_DifferentRepoProducesDifferentKey verifies that
+// same service+window+hypotheses but different repo produces a different key.
+// This is the regression test for the empirical bug: re-running with corrected
+// repo arg returned the prior (wrong-repo) cached result.
+func TestInvestigationCacheKey_DifferentRepoProducesDifferentKey(t *testing.T) {
+	top := []investigate.Hypothesis{
+		{Subject: "HandleRequest", AnomalyScore: 0.9, FusedScore: 0.8},
+	}
+	inputA := DebugInvestigateInput{Service: "svc", StartUnix: 1000, EndUnix: 2000, Repo: "anatolykoptev/oxpulse-sfu"}
+	inputB := DebugInvestigateInput{Service: "svc", StartUnix: 1000, EndUnix: 2000, Repo: "anatolykoptev/oxpulse-partner-edge"}
+	kA := investigationCacheKey(inputA, top)
+	kB := investigationCacheKey(inputB, top)
+	if kA == kB {
+		t.Errorf("different repos must produce different keys; both produced %q", kA)
+	}
+}
