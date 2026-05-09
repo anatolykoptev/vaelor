@@ -113,3 +113,50 @@ func TestConfidenceFromScore(t *testing.T) {
 		}
 	}
 }
+
+// ---------- γ.E.2: NextCheck struct tests ----------
+
+// TestNextCheck_StructFields verifies NextCheck has Tool and Args fields.
+func TestNextCheck_StructFields(t *testing.T) {
+	nc := NextCheck{
+		Tool: "understand",
+		Args: map[string]string{"symbol": "HandleMessage", "repo": "/host/src/go-code"},
+	}
+	if nc.Tool != "understand" {
+		t.Errorf("Tool = %q, want 'understand'", nc.Tool)
+	}
+	if nc.Args["symbol"] != "HandleMessage" {
+		t.Errorf("Args[symbol] = %q, want 'HandleMessage'", nc.Args["symbol"])
+	}
+}
+
+// TestNextCheck_EmptyArgs is valid (tool-only recommendation).
+func TestNextCheck_EmptyArgs(t *testing.T) {
+	nc := NextCheck{Tool: "code_health"}
+	if nc.Tool != "code_health" {
+		t.Errorf("Tool = %q, want 'code_health'", nc.Tool)
+	}
+	if len(nc.Args) != 0 {
+		t.Errorf("expected empty Args, got %v", nc.Args)
+	}
+}
+
+// TestHypothesis_NextChecksIsStructured verifies NextChecks is []NextCheck, not []string.
+func TestHypothesis_NextChecksIsStructured(t *testing.T) {
+	h := Hypothesis{
+		Subject: "handleRequest",
+		NextChecks: []NextCheck{
+			{Tool: "understand", Args: map[string]string{"symbol": "handleRequest", "repo": "/src"}},
+			{Tool: "code_health"},
+		},
+	}
+	if len(h.NextChecks) != 2 {
+		t.Fatalf("expected 2 NextChecks, got %d", len(h.NextChecks))
+	}
+	if h.NextChecks[0].Tool != "understand" {
+		t.Errorf("NextChecks[0].Tool = %q, want 'understand'", h.NextChecks[0].Tool)
+	}
+	if h.NextChecks[1].Tool != "code_health" {
+		t.Errorf("NextChecks[1].Tool = %q, want 'code_health'", h.NextChecks[1].Tool)
+	}
+}

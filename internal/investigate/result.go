@@ -61,8 +61,8 @@ type Hypothesis struct {
 	Impact     *ImpactInfo     `json:"impact,omitempty"`
 	SymbolBody *SymbolBodyInfo `json:"symbol_body,omitempty"`
 
-	EvidenceLinks []string `json:"evidence_links,omitempty"`
-	NextChecks    []string `json:"next_checks,omitempty"`
+	EvidenceLinks []string    `json:"evidence_links,omitempty"`
+	NextChecks    []NextCheck `json:"next_checks,omitempty"`
 
 	// Source tracks the origin of this hypothesis: span | hint_match | alert | "" (backwards compat).
 	Source string `json:"source,omitempty"`
@@ -147,6 +147,7 @@ type Diagnostics struct {
 	LogsFetched             int      `json:"logs_fetched,omitempty"`
 	HypothesesDroppedAsDead int      `json:"hypotheses_dropped_as_dead,omitempty"`
 	LearningsPersisted      bool     `json:"learnings_persisted,omitempty"`
+	LLMCacheHit             bool     `json:"llm_cache_hit,omitempty"`
 	Warnings                []string `json:"warnings,omitempty"`
 }
 
@@ -234,6 +235,13 @@ const (
 	HypothesisSourceHintMatch = "hint_match"
 	HypothesisSourceAlert     = "alert"
 )
+
+// NextCheck is a structured follow-up recommendation for the operator or agent.
+// It names the tool to call and the arguments to pass.
+type NextCheck struct {
+	Tool string            `json:"tool"`           // Tool must be non-empty (the MCP tool name to invoke). e.g. "understand", "code_health"
+	Args map[string]string `json:"args,omitempty"` // named arguments for the tool
+}
 
 // HistoricalIncident is a past investigation record retrieved from the learnings store.
 type HistoricalIncident struct {
