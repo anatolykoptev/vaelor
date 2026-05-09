@@ -169,6 +169,9 @@ func runLLMPhaseInner(
 	if len(topN) > 5 {
 		topN = topN[:5]
 	}
+	// Only top-3 have BodySource (per runBodyExtractionPhase budget).
+	// collectBodyExcerpts skips empty BodySource → top-3 effectively.
+	bodyExcerpts := collectBodyExcerpts(topN)
 	userPayload := map[string]any{
 		"service":          input.Service,
 		"window":           map[string]string{"start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)},
@@ -176,6 +179,7 @@ func runLLMPhaseInner(
 		"diagnostics":      res.Diagnostics,
 		"user_hint":        input.Hint,
 		"alert_violations": res.AlertViolations,
+		"body_excerpts":    bodyExcerpts,
 	}
 	userJSON, marshalErr := json.Marshal(userPayload)
 	if marshalErr != nil {

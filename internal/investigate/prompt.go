@@ -89,6 +89,13 @@ func BuildSystemPrompt(c PromptContext) string {
 - Span-to-symbol: when a span operation maps to a known symbol via OperationToFuncName,
   the symbol's call_trace and adjacent code are stronger evidence than metric trends alone.
 - Confidence calibration: high only when both metric anomaly + matching failed spans + symbol resolution agree.
+- Body analysis: when body_excerpts are provided in the user payload, you MUST examine
+  the code in each excerpt and determine whether the function looks like a likely root
+  cause (logic bug) vs. an instrumented attribution site (e.g. a counter increment near
+  a generic loop or handler dispatch). For sites that look like attribution-only, walk
+  the call graph mentally: the actual cause is likely in a recently-changed upstream
+  caller that drives this site's state. A UDP send loop, a metrics counter, or a generic
+  error-path function is almost never the root cause — trace back to who calls it.
 
 Output schema (JSON, exactly):
 {
