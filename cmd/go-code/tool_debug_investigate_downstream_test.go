@@ -117,8 +117,6 @@ func TestRunDownstreamPhase_Top1Only(t *testing.T) {
 
 	// Two hypotheses: baz (index 0 — no callees in this graph) and foo (index 1).
 	// Only baz is walked; baz has no outgoing edges → no additions.
-	baz := makeSym("baz", "/src/baz.rs", 40, 50)
-	_ = baz
 	hyps := []investigate.Hypothesis{
 		{
 			Subject:      "baz in /src/baz.rs:40",
@@ -200,5 +198,30 @@ func TestRunDownstreamPhase_NonSpanSource_Skipped(t *testing.T) {
 	// No traversal: length unchanged.
 	if len(result) != 1 {
 		t.Errorf("expected 1 hypothesis (skipped non-span source), got %d", len(result))
+	}
+}
+
+// TestRunDownstreamPhase_Depth1ScorePinned asserts that a depth=1 callee scores
+// 0.3 (not 0.4, the upstream baseline). Keeps callee < caller < direct-symptom
+// attribution priority intact.
+//
+// Load-bearing: callees less suspicious than direct symptom; do not normalize to 0.4.
+func TestRunDownstreamPhase_Depth1ScorePinned(t *testing.T) {
+	cg := buildFakeCGDown()
+	hyps := []investigate.Hypothesis{fooHypothesis()}
+
+	result := runDownstreamPhase(context.Background(), cg, hyps, 1)
+
+	// depth=1 callee (bar) must be present.
+	if len(result) < 2 {
+		t.Fatalf("expected at least 2 hypotheses (foo + bar), got %d", len(result))
+	}
+	bar := result[1]
+	const wantScore = 0.3
+	if bar.AnomalyScore == 0.4 {
+		t.Errorf("depth=1 callee score is 0.4 (upstream value) — must be 0.3 for callees")
+	}
+	if bar.AnomalyScore != wantScore {
+		t.Errorf("bar.AnomalyScore = %f; want %f", bar.AnomalyScore, wantScore)
 	}
 }
