@@ -200,6 +200,7 @@ func main() {
 		Port:                   cfg.Port,
 		Context:                ctx,
 		SessionTimeout:         10 * time.Minute,
+		Logger:                 slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
 		MCPLogger:              slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{tracemcpmw.Middleware(serviceName), hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
 		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
