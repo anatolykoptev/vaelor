@@ -65,17 +65,24 @@ func TestPrimarySpikeKind_FirstKind(t *testing.T) {
 }
 
 // TestTruncate verifies string truncation and pass-through.
+// truncate appends "..." when the string is longer than n runes.
 func TestTruncate(t *testing.T) {
 	if got := truncate("hello", 10); got != "hello" {
 		t.Errorf("truncate short string: got %q", got)
 	}
+	// ASCII: 20 x's truncated to 10 runes → "xxxxxxxxxx..."
 	long := strings.Repeat("x", 20)
 	got := truncate(long, 10)
-	if len(got) != 10 {
-		t.Errorf("truncate(len=20, n=10) → len=%d, want 10", len(got))
+	want := strings.Repeat("x", 10) + "..."
+	if got != want {
+		t.Errorf("truncate(len=20, n=10) = %q, want %q", got, want)
 	}
-	if got != strings.Repeat("x", 10) {
-		t.Errorf("truncate content wrong: %q", got)
+	// Multi-byte (2-byte rune): 10 '£' truncated to 5 runes → "£££££..."
+	multiRune := strings.Repeat("£", 10)
+	gotMR := truncate(multiRune, 5)
+	wantMR := strings.Repeat("£", 5) + "..."
+	if gotMR != wantMR {
+		t.Errorf("truncate multibyte = %q, want %q", gotMR, wantMR)
 	}
 }
 

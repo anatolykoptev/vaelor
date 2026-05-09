@@ -135,8 +135,8 @@ func runSymbolsPhase(
 			// leaving hint_match hypotheses unordered at the tail.
 			if input.Hint != "" {
 				hintCtx, hintCancel := context.WithTimeout(ctx, 5*time.Second)
-				defer hintCancel()
 				hintMatches := runHintSearch(hintCtx, input.Hint, resolvedRoot)
+				hintCancel() // synchronous — purpose-bounded scope, not deferred
 				if len(hintMatches) > 0 {
 					res.Hypotheses = applyHintMatches(res.Hypotheses, hintMatches)
 					// Clear Confidence so RankHypotheses re-fills all entries uniformly.

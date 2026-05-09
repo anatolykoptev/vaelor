@@ -5,7 +5,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/codesearch"
 	"github.com/anatolykoptev/go-code/internal/investigate"
@@ -33,19 +35,28 @@ func primarySpikeKind(spikes []investigate.MetricSpike) string {
 	return spikes[0].Kind
 }
 
-// truncate returns s[:n] if len(s) > n, otherwise s unchanged.
+// truncate returns the first n runes of s (with "..." appended if truncated),
+// otherwise s unchanged. Uses rune slicing for UTF-8 safety.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n]
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
 }
 
 // buildInvestigateRecord constructs a learnings.Record from investigation results.
 // The Flag is prefixed with "investigate:" to distinguish from review_pr records.
 func buildInvestigateRecord(service string, anomalyScore float64, res *investigate.InvestigationResult) learnings.Record {
 	top := res.Hypotheses[0]
-	flag := "investigate:" + primarySpikeKind(res.MetricSpikes)
+	spikeKind := primarySpikeKind(res.MetricSpikes)
+	if spikeKind == "" {
+		spikeKind = "unknown"
+	}
+	flag := "investigate:" + spikeKind
 	return learnings.Record{
 		Repo:      service,
 		Symbol:    top.Subject,
@@ -93,6 +104,9 @@ func retrieveHistoricalIncidents(ctx context.Context, store *learnings.Store, se
 	if store == nil {
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	const topK = 3
 
@@ -189,6 +203,7 @@ func runHintSearch(ctx context.Context, hint, root string) []hintSearchMatch {
 		ContextLines:  1,
 	})
 	if err != nil {
+		slog.Debug("hint search failed", "hint", hint, "root", root, "err", err)
 		return nil
 	}
 	out := make([]hintSearchMatch, 0, len(matches))
