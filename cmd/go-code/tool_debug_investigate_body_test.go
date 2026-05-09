@@ -304,3 +304,26 @@ func TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError(t *testing.T) 
 		t.Error("expected at least one warning in diagnostics, got none")
 	}
 }
+
+func TestBuildBodyPathCandidates_RelativePathPrefersHostMount(t *testing.T) {
+	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
+	got := buildBodyPathCandidates("crates/server/src/main.rs", mappings)
+	// Must include /host/<relative> candidate
+	found := false
+	for _, p := range got {
+		if p == "/host/crates/server/src/main.rs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected /host/<relative> in candidates, got %v", got)
+	}
+}
+
+func TestBuildBodyPathCandidates_AbsoluteUnchanged(t *testing.T) {
+	got := buildBodyPathCandidates("/abs/path/foo.rs", nil)
+	if len(got) != 1 || got[0] != "/abs/path/foo.rs" {
+		t.Fatalf("expected single absolute candidate, got %v", got)
+	}
+}
