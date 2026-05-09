@@ -10,6 +10,13 @@ import (
 	"github.com/anatolykoptev/go-code/internal/investigate"
 )
 
+// escapeCDATA splits any literal "]]>" sequences so they don't terminate
+// the enclosing CDATA section. Standard XML technique: end the section,
+// emit "]" or ">" as a separate CDATA, resume.
+func escapeCDATA(s string) string {
+	return strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+}
+
 // formatInvestigationResult renders the result as XML for the MCP caller.
 func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	var b strings.Builder
@@ -88,7 +95,7 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		if rc := h.RecentChange; rc != nil && rc.Diff != "" {
 			b.WriteString(fmt.Sprintf("\n      <recent_change file=%q since=%q>", rc.File, rc.Since))
 			b.WriteString("\n        <![CDATA[\n")
-			b.WriteString(rc.Diff)
+			b.WriteString(escapeCDATA(rc.Diff))
 			b.WriteString("\n        ]]>")
 			b.WriteString("\n      </recent_change>")
 		}

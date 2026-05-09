@@ -119,3 +119,59 @@ func buildMinimalResult() *investigate.InvestigationResult {
 		},
 	}
 }
+
+// TestEscapeCDATA_SplitsCloseSeq verifies that literal "]]>" in a diff is split
+// so it cannot terminate an enclosing CDATA section.
+func TestEscapeCDATA_SplitsCloseSeq(t *testing.T) {
+	in := "before ]]> after"
+	got := escapeCDATA(in)
+	want := "before ]]]]><![CDATA[> after"
+	if got != want {
+		t.Errorf("escapeCDATA(%q) = %q, want %q", in, got, want)
+	}
+}
+
+// TestEscapeCDATA_NoOp_WhenNoCloseSeq verifies strings without "]]>" pass through unchanged.
+func TestEscapeCDATA_NoOp_WhenNoCloseSeq(t *testing.T) {
+	in := "plain diff text\n+ added\n- removed"
+	got := escapeCDATA(in)
+	if got != in {
+		t.Errorf("escapeCDATA modified clean input: got %q, want %q", got, in)
+	}
+}
+
+// TestFusionRankAndBreakdownAgree verifies that each hypothesis's FusedScore equals
+// the weighted sum of its SignalBreakdown values. This is a regression guard: if
+// ranking.FusionRank ever changes its normalization (e.g. softmax migration), this
+// test catches divergence between the two code paths.
+func TestFusionRankAndBreakdownAgree(t *testing.T) {
+	hyps := []investigate.Hypothesis{
+		{Subject: "A", AnomalyScore: 0.9},
+		{Subject: "B", AnomalyScore: 0.5},
+		{Subject: "C", AnomalyScore: 0.1},
+	}
+	weights := map[string]float64{
+		fusionSigMetricAnomaly: 0.40,
+		fusionSigRecency:       0.20,
+		fusionSigComplexity:    0.15,
+		fusionSigImpact:        0.15,
+		fusionSigHistorical:    0.10,
+	}
+
+	out := runFusionRank(hyps, nil, nil)
+
+	const tolerance = 1e-6
+	for _, h := range out {
+		if h.FusedScore == 0 {
+			continue
+		}
+		var manual float64
+		for sigName, normVal := range h.SignalBreakdown {
+			manual += normVal * weights[sigName]
+		}
+		if diff := manual - h.FusedScore; diff > tolerance || diff < -tolerance {
+			t.Errorf("hypothesis %q: breakdown weighted-sum %.8f != FusedScore %.8f (diff=%.8f)",
+				h.Subject, manual, h.FusedScore, diff)
+		}
+	}
+}

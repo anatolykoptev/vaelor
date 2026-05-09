@@ -104,6 +104,12 @@ func runFusionRank(
 
 	// Rebuild per-signal normalized scores for breakdown (re-apply normalizeMinMax logic).
 	// FusionRank does not expose per-signal normalized values, so we compute them inline.
+	// Note on duplication with ranking.FusionRank:
+	// We compute per-signal normalized scores locally for SignalBreakdown because
+	// ranking.FusionRank doesn't expose its internal normalized values. Both paths use
+	// min-max normalization — if the package's algorithm changes (e.g. softmax migration
+	// per the deprecation note), TestFusionRankAndBreakdownAgree catches the divergence
+	// by asserting fused_score == sum(breakdown[i] * weight[i]).
 	normalizedSignals := make([]map[string]float64, len(signals))
 	for i, sig := range signals {
 		normalizedSignals[i] = normalizeSignalScores(sig.Scores)
@@ -134,6 +140,11 @@ func runFusionRank(
 
 // normalizeSignalScores applies min-max normalization to a score map.
 // Returns empty map for all-equal input (rng==0), matching ranking.FusionRank behavior.
+//
+// This mirrors the unexported normalizeMinMax in the ranking package. The duplication
+// is intentional: FusionRank does not expose per-signal normalized values, and we need
+// them for SignalBreakdown. If ranking ever changes its normalization algorithm,
+// TestFusionRankAndBreakdownAgree will catch the divergence.
 func normalizeSignalScores(scores map[string]float64) map[string]float64 {
 	if len(scores) == 0 {
 		return map[string]float64{}
@@ -156,14 +167,6 @@ func normalizeSignalScores(scores map[string]float64) map[string]float64 {
 		out[k] = (v - minVal) / rng
 	}
 	return out
-}
-
-// gitRecencyFromCommits converts CommitsSince output into a recentCommits map
-// for runFusionRank. The input is a raw map from gitutil.CommitsSince.
-// This is a pass-through today but isolates the gitutil dependency from the
-// fusion function.
-func gitRecencyFromCommits(raw map[string]int) map[string]int {
-	return raw
 }
 
 // historicalSubjectsFromIncidents builds a lookup set of Subject strings
