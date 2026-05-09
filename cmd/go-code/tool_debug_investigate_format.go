@@ -56,8 +56,8 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		b.WriteString("\n    <metric_spikes>")
 		for _, s := range r.MetricSpikes {
 			b.WriteString(fmt.Sprintf(
-				"\n      <spike metric=%q labels=%q ratio=\"%.2f\" score=\"%.3f\"/>",
-				s.MetricName, s.Labels, s.Ratio, s.Score))
+				"\n      <spike kind=%q metric=%q labels=%q ratio=\"%.2f\" score=\"%.3f\"/>",
+				s.Kind, s.MetricName, s.Labels, s.Ratio, s.Score))
 		}
 		b.WriteString("\n    </metric_spikes>")
 	}
