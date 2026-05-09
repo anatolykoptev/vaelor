@@ -66,6 +66,25 @@ type Hypothesis struct {
 
 	// Source tracks the origin of this hypothesis: span | hint_match | alert | "" (backwards compat).
 	Source string `json:"source,omitempty"`
+
+	// FusedScore is the multi-signal combined score (Phase γ.D). Set after
+	// all enrichment phases. Sortable. Higher = more likely root cause.
+	FusedScore float64 `json:"fused_score,omitempty"`
+
+	// SignalBreakdown shows individual normalized signal values that fed
+	// into FusedScore. Useful for operator triage and debugging the rank.
+	SignalBreakdown map[string]float64 `json:"signal_breakdown,omitempty"`
+
+	// RecentChange embeds a recent git diff for the hypothesis file (Phase γ.D).
+	// Set for top-1 hypothesis only when a repo path is available.
+	RecentChange *RecentChange `json:"recent_change,omitempty"`
+}
+
+// RecentChange captures a recent git diff for a hypothesis file.
+type RecentChange struct {
+	File  string `json:"file"`
+	Since string `json:"since"`          // e.g. "2026-04-09" — 30 days ago
+	Diff  string `json:"diff,omitempty"` // unified diff, capped at maxLines
 }
 
 // MetricSpike captures a single metric (failure / latency / saturation) showing anomaly above baseline.
