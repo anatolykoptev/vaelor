@@ -151,12 +151,11 @@ func TestDiscoverLatencyHistograms_FiltersByPattern(t *testing.T) {
 
 func TestComputeLatencySpikes_HappyPath(t *testing.T) {
 	// Simulate: window p99=3.0, baseline p99=1.0 → ratio=3.0 > 2.0 → score=0.9
-	callCount := 0
+	// Uses start= param to distinguish window (start=1700000000) from baseline (earlier start).
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
-			callCount++
 			val := "1.0"
-			if callCount%2 == 1 {
+			if r.URL.Query().Get("start") == "1700000000" {
 				val = "3.0" // window
 			}
 			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
@@ -236,12 +235,11 @@ func TestDiscoverSaturationMetrics_FiltersByPattern(t *testing.T) {
 
 func TestComputeSaturationSpikes_HappyPath(t *testing.T) {
 	// Simulates window_max=6.0, baseline_max=1.0 → ratio=6.0 > 5.0 → score=1.0
-	callCount := 0
+	// Uses start= param to distinguish window (start=1700000000) from baseline (earlier start).
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
-			callCount++
 			val := "1.0"
-			if callCount%2 == 1 {
+			if r.URL.Query().Get("start") == "1700000000" {
 				val = "6.0" // window value > baseline
 			}
 			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
@@ -301,22 +299,21 @@ func TestComputeAnomalyScore_MergesAllKinds(t *testing.T) {
 	// Simulate: failure=none, latency spike ratio>2, saturation spike ratio>5
 	// Expected: top score from saturation (1.0), merged spike list has latency + saturation kinds.
 	// metricNames slice provides one latency bucket and no queue metrics.
-	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			q := r.URL.Query().Get("query")
-			callCount++
+			isWindow := r.URL.Query().Get("start") == "1700000000"
 			switch {
 			case strings.Contains(q, "histogram_quantile"):
 				// latency: window=3.0, baseline=1.0 → ratio=3.0 > 2.0 → latency critical
-				if callCount%2 == 1 {
+				if isWindow {
 					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"3.0"]]}]}}`)
 				} else {
 					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
 				}
 			case strings.Contains(q, "go_goroutines") || strings.Contains(q, "process_resident"):
 				// saturation: window=6.0, baseline=1.0 → ratio=6.0 > 5.0 → sat critical
-				if callCount%2 == 1 {
+				if isWindow {
 					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"6.0"]]}]}}`)
 				} else {
 					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
@@ -542,16 +539,14 @@ func TestComputeLatencySpikes_JobLabelFallback(t *testing.T) {
 
 func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
 	// service= empty for sentinels, job= returns high saturation → spike expected.
-	callNum := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			q := r.URL.Query().Get("query")
 			if strings.Contains(q, "service=") {
 				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
 			} else {
-				callNum++
 				val := "1.0"
-				if callNum%2 == 1 {
+				if r.URL.Query().Get("start") == "1700000000" {
 					val = "6.0"
 				}
 				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)

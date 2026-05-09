@@ -148,6 +148,7 @@ type Diagnostics struct {
 	HypothesesDroppedAsDead int      `json:"hypotheses_dropped_as_dead,omitempty"`
 	LearningsPersisted      bool     `json:"learnings_persisted,omitempty"`
 	LLMCacheHit             bool     `json:"llm_cache_hit,omitempty"`
+	LLMSkippedReason        string   `json:"llm_skipped_reason,omitempty"`
 	Warnings                []string `json:"warnings,omitempty"`
 }
 
