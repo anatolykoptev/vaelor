@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -16,14 +17,38 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// isLibraryPath reports whether p refers to a dependency or toolchain path
+// rather than application source code. Used by Phase 3 to detect spans where
+// code.* tags point to library internals (e.g. tower-http's DefaultMakeSpan),
+// which are constant and useless for handler identification.
+//
+// Recognised patterns:
+//   - /cargo/registry/ — Rust crates fetched via Cargo
+//   - /.rustup/        — Rust toolchain source
+//   - /go/pkg/mod/     — Go module cache
+//   - /usr/local/go/src/ — Go standard library
+func isLibraryPath(p string) bool {
+	return strings.Contains(p, "/cargo/registry/") ||
+		strings.Contains(p, "/.cargo/registry/") ||
+		strings.Contains(p, "/.rustup/") ||
+		strings.Contains(p, "/go/pkg/mod/") ||
+		strings.Contains(p, "/usr/local/go/src/")
+}
+
 // buildOpsMap aggregates span data from traces into a map from operation name
 // to OperationInfo. For each operation, the Count is incremented per span seen.
 // OTEL semantic-convention tags (http.route, http.method, code.filepath,
 // code.lineno, code.namespace) are captured with first-seen-wins semantics for
 // stability across trace variations.
 //
-// code.lineno is handled defensively: the JSON wire format may deliver it as
-// float64 (standard JSON numbers), int64 (rare), or string.
+// Both the legacy (pre-v0.32) and renamed (v0.32+) OTEL attribute names are
+// recognised:
+//   - code.filepath  / code.file.path
+//   - code.lineno    / code.line.number
+//   - code.namespace / code.module.name
+//
+// code.lineno / code.line.number are handled defensively: the JSON wire format
+// may deliver them as float64 (standard JSON numbers), int64 (rare), or string.
 func buildOpsMap(traces []jaegerclient.Trace) map[string]*investigate.OperationInfo {
 	ops := make(map[string]*investigate.OperationInfo)
 	for _, tr := range traces {
@@ -47,18 +72,18 @@ func buildOpsMap(traces []jaegerclient.Trace) map[string]*investigate.OperationI
 						if info.HTTPMethod == "" {
 							info.HTTPMethod = v
 						}
-					case "code.filepath":
+					case "code.filepath", "code.file.path":
 						if info.CodeFilepath == "" {
 							info.CodeFilepath = v
 						}
-					case "code.namespace":
+					case "code.namespace", "code.module.name":
 						if info.CodeNamespace == "" {
 							info.CodeNamespace = v
 						}
 					}
 				}
-				// code.lineno may arrive as float64/int64/string — handle all.
-				if tag.Key == "code.lineno" && info.CodeLineno == 0 {
+				// code.lineno / code.line.number may arrive as float64/int64/string.
+				if (tag.Key == "code.lineno" || tag.Key == "code.line.number") && info.CodeLineno == 0 {
 					switch v := tag.Value.(type) {
 					case float64:
 						info.CodeLineno = int(v)
@@ -78,16 +103,22 @@ func buildOpsMap(traces []jaegerclient.Trace) map[string]*investigate.OperationI
 
 // runSymbolsPhase executes Phase 3: span→operation→symbol correlation.
 //
-// It aggregates unique operations across all spans via buildOpsMap, then for
-// each operation attempts one of two resolution strategies:
+// Phase 3 symbol resolution is best-effort and depends on what tags the service
+// emits. Resolution proceeds through tiers in order:
 //
-//  1. PREFERRED: OTEL code.* tags (code.filepath + code.lineno present) →
-//     direct file:line resolution without a callgraph. Works for tower-http /
-//     any OTEL-instrumented service emitting semantic-convention code attributes.
-//     This path runs regardless of whether a repo was provided.
-//
-//  2. FALLBACK: OperationToFuncName + compound.FindSymbol — existing Go path.
+//   - Tier-1 (code.*): requires #[tracing::instrument] (Rust) or equivalent OTEL
+//     annotations on handler functions — without it, code.* will point to library
+//     internals (e.g. tower-http for axum services) and Phase 3 falls to Tier-2.
+//   - Tier-2 (http.route): used when code.* tags are absent or point to library
+//     internals (detected by isLibraryPath). Generates a code_search next_check
+//     for the axum Router::route pattern so the operator can locate the handler.
+//   - Tier-3 (OperationToFuncName): legacy / non-OTEL-instrumented services.
 //     Requires a callgraph built from the repo.
+//
+// See issue #74 for full discussion of service-side instrumentation requirements.
+//
+// It aggregates unique operations across all spans via buildOpsMap, then for
+// each operation attempts one of the above strategies.
 //
 // The resulting Hypotheses are ranked by investigate.RankHypotheses before
 // being stored in res.
@@ -122,45 +153,73 @@ func runSymbolsPhase(
 	// Phase γ.B.3 (AnalyzeBody) can access the full symbol struct.
 	symMap := make(map[int]*parser.Symbol)
 
-	// resolvedFromCodeTags tracks operations resolved via code.* path so the
-	// callgraph fallback skips them.
+	// resolvedFromCodeTags tracks operations resolved via code.* or http.route
+	// so the callgraph fallback (PASS 2) skips them.
 	resolvedFromCodeTags := make(map[string]bool, len(ops))
 
-	// PASS 1: Preferred path — OTEL code.* tags give file:line directly.
-	// Runs regardless of whether a repo was provided (no callgraph needed).
+	// PASS 1: Preferred path — OTEL code.* tags give file:line directly (Tier-1),
+	// or http.route gives a discriminator when code.* are absent/library-internal
+	// (Tier-2). Runs regardless of whether a repo was provided.
 	for op, info := range ops {
-		if info.CodeFilepath == "" || info.CodeLineno == 0 {
+		// Tier-1: code.* present and pointing to application code (not a library).
+		if info.CodeFilepath != "" && info.CodeLineno > 0 && !isLibraryPath(info.CodeFilepath) {
+			h := investigate.Hypothesis{
+				Subject:       fmt.Sprintf("operation %q", op),
+				SpanCount:     info.Count,
+				AnomalyScore:  anomalyScore,
+				EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, info.Count)},
+			}
+			h.File = reverseToHost(info.CodeFilepath, deps.PathMappings)
+			h.Line = info.CodeLineno
+			symbol := info.CodeNamespace
+			if symbol == "" {
+				symbol = op
+			}
+			if info.HTTPRoute != "" {
+				h.Subject = fmt.Sprintf("%s %s in %s:%d",
+					info.HTTPMethod, info.HTTPRoute, h.File, info.CodeLineno)
+			} else {
+				h.Subject = fmt.Sprintf("%s in %s:%d", symbol, h.File, info.CodeLineno)
+			}
+			h.NextChecks = append(h.NextChecks, investigate.NextCheck{
+				Tool: "understand",
+				Args: map[string]string{
+					"file": h.File,
+					"line": fmt.Sprintf("%d", h.Line),
+					"repo": input.Repo,
+				},
+			})
+			res.Diagnostics.SymbolsTouched++
+			res.Hypotheses = append(res.Hypotheses, h)
+			resolvedFromCodeTags[op] = true
 			continue
 		}
-		h := investigate.Hypothesis{
-			Subject:       fmt.Sprintf("operation %q", op),
-			SpanCount:     info.Count,
-			AnomalyScore:  anomalyScore,
-			EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d", op, info.Count)},
-		}
-		h.File = reverseToHost(info.CodeFilepath, deps.PathMappings)
-		h.Line = info.CodeLineno
-		symbol := info.CodeNamespace
-		if symbol == "" {
-			symbol = op
-		}
+
+		// Tier-2: route-based discriminator. Used when code.* tags are absent or
+		// point to library internals (e.g. tower-http's DefaultMakeSpan span where
+		// code.filepath = tower-http-X.Y.Z/src/trace/make_span.rs).
+		// Generates a code_search next_check for the axum Router::route pattern so
+		// the operator/Claude can locate the handler in source:
+		//   Router::new().route("/api/x", get(handler_fn))
 		if info.HTTPRoute != "" {
-			h.Subject = fmt.Sprintf("%s %s in %s:%d",
-				info.HTTPMethod, info.HTTPRoute, h.File, info.CodeLineno)
-		} else {
-			h.Subject = fmt.Sprintf("%s in %s:%d", symbol, h.File, info.CodeLineno)
+			h := investigate.Hypothesis{
+				Subject:       fmt.Sprintf("%s %s", info.HTTPMethod, info.HTTPRoute),
+				SpanCount:     info.Count,
+				AnomalyScore:  anomalyScore,
+				EvidenceLinks: []string{fmt.Sprintf("operation=%s; spans=%d; route=%s", op, info.Count, info.HTTPRoute)},
+			}
+			h.NextChecks = append(h.NextChecks, investigate.NextCheck{
+				Tool: "code_search",
+				Args: map[string]string{
+					"pattern": fmt.Sprintf("route(%q", info.HTTPRoute),
+					"repo":    input.Repo,
+				},
+			})
+			res.Diagnostics.SymbolsTouched++ // gives operator something to act on
+			res.Hypotheses = append(res.Hypotheses, h)
+			resolvedFromCodeTags[op] = true // prevent PASS 2 double-hypothesizing
+			continue
 		}
-		h.NextChecks = append(h.NextChecks, investigate.NextCheck{
-			Tool: "understand",
-			Args: map[string]string{
-				"file": h.File,
-				"line": fmt.Sprintf("%d", h.Line),
-				"repo": input.Repo,
-			},
-		})
-		res.Diagnostics.SymbolsTouched++
-		res.Hypotheses = append(res.Hypotheses, h)
-		resolvedFromCodeTags[op] = true
 	}
 
 	// PASS 2: Fallback — OperationToFuncName + callgraph for Go services
@@ -183,7 +242,7 @@ func runSymbolsPhase(
 			}
 			for op, info := range ops {
 				if resolvedFromCodeTags[op] {
-					continue // already resolved via code.* path
+					continue // already resolved via code.* or http.route path
 				}
 				h := investigate.Hypothesis{
 					Subject:       fmt.Sprintf("operation %q", op),

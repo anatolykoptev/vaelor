@@ -137,3 +137,253 @@ func TestPhase3_NextCheck_FileLineForm(t *testing.T) {
 		t.Errorf("NextCheck.Args must not have \"symbol\" key when using code.* path; got %v", nc.Args)
 	}
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Fix 1: New OTEL attribute names (tracing-opentelemetry v0.32+)
+// ────────────────────────────────────────────────────────────────────
+
+// buildTraceWithNewOTELNames returns a trace using the v0.32+ renamed tags:
+// code.file.path, code.line.number, code.module.name.
+func buildTraceWithNewOTELNames(op, route, method, filepath, namespace string, lineno float64) jaegerclient.Trace {
+	return jaegerclient.Trace{
+		TraceID: "t2",
+		Spans: []jaegerclient.Span{{
+			OperationName: op,
+			Tags: []jaegerclient.SpanTag{
+				{Key: "http.route", Value: route},
+				{Key: "http.method", Value: method},
+				{Key: "code.file.path", Value: filepath},
+				{Key: "code.line.number", Value: lineno},
+				{Key: "code.module.name", Value: namespace},
+			},
+		}},
+	}
+}
+
+// TestBuildOpsMap_NewOTELNames verifies that the v0.32+ renamed tags
+// (code.file.path, code.line.number, code.module.name) are parsed
+// identically to the legacy names.
+func TestBuildOpsMap_NewOTELNames(t *testing.T) {
+	traces := []jaegerclient.Trace{
+		buildTraceWithNewOTELNames(
+			"request",
+			"/api/x",
+			"POST",
+			"/src/handler.rs",
+			"myapp::handler",
+			float64(77),
+		),
+	}
+	ops := buildOpsMap(traces)
+	info, ok := ops["request"]
+	if !ok {
+		t.Fatal("operation 'request' not found in ops map")
+	}
+	if info.CodeFilepath != "/src/handler.rs" {
+		t.Errorf("CodeFilepath = %q, want %q", info.CodeFilepath, "/src/handler.rs")
+	}
+	if info.CodeLineno != 77 {
+		t.Errorf("CodeLineno = %d, want 77", info.CodeLineno)
+	}
+	if info.CodeNamespace != "myapp::handler" {
+		t.Errorf("CodeNamespace = %q, want %q", info.CodeNamespace, "myapp::handler")
+	}
+}
+
+// TestBuildOpsMap_NewOTELNames_DoNotOverwriteExisting verifies first-seen wins:
+// if both old and new names appear in the same span (edge case), the old one
+// (seen first) is preserved.
+func TestBuildOpsMap_NewOTELNames_DoNotOverwriteExisting(t *testing.T) {
+	tr := jaegerclient.Trace{
+		TraceID: "t3",
+		Spans: []jaegerclient.Span{{
+			OperationName: "op",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "code.filepath", Value: "/src/old.rs"},
+				{Key: "code.file.path", Value: "/src/new.rs"}, // should NOT overwrite
+				{Key: "code.lineno", Value: float64(10)},
+				{Key: "code.line.number", Value: float64(20)}, // should NOT overwrite
+			},
+		}},
+	}
+	ops := buildOpsMap([]jaegerclient.Trace{tr})
+	info := ops["op"]
+	if info.CodeFilepath != "/src/old.rs" {
+		t.Errorf("CodeFilepath = %q, want %q (first-seen wins)", info.CodeFilepath, "/src/old.rs")
+	}
+	if info.CodeLineno != 10 {
+		t.Errorf("CodeLineno = %d, want 10 (first-seen wins)", info.CodeLineno)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Fix 2 & 3: isLibraryPath + library-path filter + http.route fallback
+// ────────────────────────────────────────────────────────────────────
+
+// TestIsLibraryPath verifies the library-path heuristic against known patterns.
+func TestIsLibraryPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		// library paths → true
+		{"/home/user/.cargo/registry/src/tower-http-0.5.2/src/trace/make_span.rs", true},
+		{"/root/.rustup/toolchains/stable-x86_64/lib/rustlib/src/core/src/ops.rs", true},
+		{"/home/user/go/pkg/mod/github.com/some/dep@v1.2.3/foo.go", true},
+		{"/usr/local/go/src/net/http/server.go", true},
+		// app paths → false
+		{"/src/server/src/turn_credentials.rs", false},
+		{"/home/user/myapp/src/handlers/auth.rs", false},
+		{"src/lib.rs", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		got := isLibraryPath(tc.path)
+		if got != tc.want {
+			t.Errorf("isLibraryPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+// TestPhase3_LibraryPathFiltered verifies that when code.filepath points to
+// cargo registry internals (tower-http make_span.rs), Phase 3 treats it as
+// absent and falls through to the http.route tier-2 path.
+func TestPhase3_LibraryPathFiltered(t *testing.T) {
+	traces := []jaegerclient.Trace{
+		buildTraceWithCodeTags(
+			"request",
+			"/api/x",
+			"GET",
+			"/home/user/.cargo/registry/src/tower-http-0.5.2/src/trace/make_span.rs",
+			"tower_http::trace::make_span::DefaultMakeSpan",
+			float64(42),
+		),
+	}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	input := DebugInvestigateInput{Service: "axum-svc", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, traces, 0.5, res) //nolint:staticcheck
+
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis (tier-2 http.route fallback)")
+	}
+	h := res.Hypotheses[0]
+	// Subject must contain the route, not the library file path.
+	if !containsStr(h.Subject, "/api/x") {
+		t.Errorf("Subject = %q, want it to contain route %q", h.Subject, "/api/x")
+	}
+	// Should have a code_search next_check for the route.
+	foundCodeSearch := false
+	for _, nc := range h.NextChecks {
+		if nc.Tool == "code_search" {
+			foundCodeSearch = true
+		}
+	}
+	if !foundCodeSearch {
+		t.Errorf("expected code_search NextCheck for tier-2 route fallback; got %v", h.NextChecks)
+	}
+	// SymbolsTouched must be incremented.
+	if res.Diagnostics.SymbolsTouched == 0 {
+		t.Errorf("SymbolsTouched = 0, want > 0 for tier-2 path")
+	}
+}
+
+// TestPhase3_HTTPRouteFallback verifies that when code.* tags are entirely
+// absent but http.route is present, Phase 3 emits a tier-2 hypothesis with
+// Subject = "<method> <route>" and a code_search next_check.
+func TestPhase3_HTTPRouteFallback(t *testing.T) {
+	traces := []jaegerclient.Trace{{
+		TraceID: "t4",
+		Spans: []jaegerclient.Span{{
+			OperationName: "HTTP GET /api/x",
+			Tags: []jaegerclient.SpanTag{
+				{Key: "http.route", Value: "/api/x"},
+				{Key: "http.method", Value: "GET"},
+				// no code.* tags
+			},
+		}},
+	}}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	input := DebugInvestigateInput{Service: "axum-svc", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, traces, 0.7, res) //nolint:staticcheck
+
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis")
+	}
+	h := res.Hypotheses[0]
+	if !containsStr(h.Subject, "GET") || !containsStr(h.Subject, "/api/x") {
+		t.Errorf("Subject = %q, want it to contain method and route", h.Subject)
+	}
+	foundCodeSearch := false
+	var codeSearchNC investigate.NextCheck
+	for _, nc := range h.NextChecks {
+		if nc.Tool == "code_search" {
+			foundCodeSearch = true
+			codeSearchNC = nc
+		}
+	}
+	if !foundCodeSearch {
+		t.Errorf("expected code_search NextCheck; got %v", h.NextChecks)
+	}
+	// Pattern must reference the route for axum Router::route lookup.
+	if !containsStr(codeSearchNC.Args["pattern"], "/api/x") {
+		t.Errorf("code_search pattern = %q, want it to contain route", codeSearchNC.Args["pattern"])
+	}
+	if res.Diagnostics.SymbolsTouched == 0 {
+		t.Errorf("SymbolsTouched = 0, want > 0 for tier-2 path")
+	}
+}
+
+// TestPhase3_NoCodeNoRoute_FallsBackToOperationToFuncName verifies that with
+// no code.* tags and no http.route, the operation falls through entirely to
+// the existing frequency-only / callgraph path — resolvedFromCodeTags must
+// NOT be set, so a repo-backed PASS 2 would still handle it.
+func TestPhase3_NoCodeNoRoute_FallsBackToOperationToFuncName(t *testing.T) {
+	traces := []jaegerclient.Trace{{
+		TraceID: "t5",
+		Spans: []jaegerclient.Span{{
+			OperationName: "HandleMessage",
+			Tags:          []jaegerclient.SpanTag{
+				// no code.*, no http.route — legacy op name only
+			},
+		}},
+	}}
+
+	res := &investigate.InvestigationResult{}
+	deps := analyze.Deps{}
+	input := DebugInvestigateInput{Service: "legacy-svc", Repo: ""}
+
+	runSymbolsPhase(nil, deps, input, traces, 0.2, res) //nolint:staticcheck
+
+	// Without a callgraph we fall through to frequency-only fallback.
+	if len(res.Hypotheses) == 0 {
+		t.Fatal("expected at least one hypothesis from fallback")
+	}
+	// Subject must include the operation name.
+	h := res.Hypotheses[0]
+	if !containsStr(h.Subject, "HandleMessage") {
+		t.Errorf("Subject = %q, want it to contain operation name", h.Subject)
+	}
+	// SymbolsTouched stays 0 — no tier-1 or tier-2 resolution happened.
+	if res.Diagnostics.SymbolsTouched != 0 {
+		t.Errorf("SymbolsTouched = %d, want 0 (no tier-1/tier-2 resolution)", res.Diagnostics.SymbolsTouched)
+	}
+}
+
+// containsStr is a test helper to check if s contains substr.
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		}())
+}
