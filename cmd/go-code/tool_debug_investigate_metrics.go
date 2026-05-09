@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,6 +80,55 @@ func bucketRatio(window, baseline float64) (float64, float64) {
 	}
 }
 
+// isEmpty reports whether a QueryRangeResponse carries no usable data.
+// Prometheus may return a non-empty Result with all-zero values when the
+// label set matches but there is no actual signal — those count as empty
+// for the purpose of the service= → job= fallback.
+func isEmpty(resp *promclient.QueryRangeResponse) bool {
+	if resp == nil || len(resp.Data.Result) == 0 {
+		return true
+	}
+	for _, series := range resp.Data.Result {
+		for _, v := range series.Values {
+			if len(v) < 2 {
+				continue
+			}
+			s, ok := v[1].(string)
+			if !ok {
+				continue
+			}
+			f, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				continue
+			}
+			if f != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// queryRangeWithJobFallback runs query (which must contain service=%q) against
+// [start, end]. If the response is empty, it retries with job=%q substituted
+// for service=%q. Returns (series, usedJobLabel, error).
+func queryRangeWithJobFallback(ctx context.Context, prom *promclient.Client, query, service string, start, end time.Time) (*promclient.QueryRangeResponse, bool, error) {
+	series, err := prom.QueryRange(ctx, query, start, end, 60*time.Second)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isEmpty(series) {
+		return series, false, nil
+	}
+	// Fall back to job= label.
+	jobQuery := strings.ReplaceAll(query, fmt.Sprintf("service=%q", service), fmt.Sprintf("job=%q", service))
+	jobSeries, jerr := prom.QueryRange(ctx, jobQuery, start, end, 60*time.Second)
+	if jerr != nil {
+		return series, false, nil // original empty result is fine; ignore fallback error
+	}
+	return jobSeries, true, nil
+}
+
 // computeFailureSpikes returns MetricSpike entries for discovered failure-counter
 // metrics showing anomalous window vs baseline ratios.
 func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
@@ -97,14 +147,12 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 
 	var spikes []MetricSpike
 	for _, name := range candidates {
-		// Query with service label filter; if metric has no service label,
-		// the result will be empty and we silently skip.
 		query := fmt.Sprintf(`sum(rate(%s{service=%q}[1m]))`, name, service)
-		windowSeries, werr := prom.QueryRange(ctx, query, start, end, 60*time.Second)
+		windowSeries, usedJob, werr := queryRangeWithJobFallback(ctx, prom, query, service, start, end)
 		if werr != nil {
 			continue
 		}
-		baseSeries, berr := prom.QueryRange(ctx, query, baselineStart, baselineEnd, 60*time.Second)
+		baseSeries, _, berr := queryRangeWithJobFallback(ctx, prom, query, service, baselineStart, baselineEnd)
 		if berr != nil {
 			continue
 		}
@@ -112,10 +160,14 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 		if score <= scoreNominal {
 			continue // not anomalous
 		}
+		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		if usedJob {
+			labelStr = fmt.Sprintf(`{job=%q}`, service)
+		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "failure",
 			MetricName: name,
-			Labels:     fmt.Sprintf(`{service=%q}`, service),
+			Labels:     labelStr,
 			Ratio:      ratio,
 			Score:      score,
 		})
@@ -129,10 +181,10 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 // Falls back to computeAnomalyScoreLegacy only when ALL three axes are empty.
 func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) (float64, []MetricSpike) {
 	fail := computeFailureSpikes(ctx, prom, service, start, end, diags)
-	lat := computeLatencySpikes(ctx, prom, service, start, end)
-	sat := computeSaturationSpikes(ctx, prom, service, start, end)
+	lat := computeLatencySpikes(ctx, prom, service, start, end, diags)
+	sat := computeSaturationSpikes(ctx, prom, service, start, end, diags)
 
-	all := append(append(fail, lat...), sat...)
+	all := slices.Concat(fail, lat, sat)
 	if len(all) == 0 {
 		// Nothing discovered — fall back to legacy http_requests_total path.
 		return computeAnomalyScoreLegacy(ctx, prom, service, start, end, diags), nil
@@ -220,8 +272,10 @@ func maxSampleValue(resp *promclient.QueryRangeResponse) float64 {
 }
 
 // latencyHistogramRegex matches Prometheus histogram bucket metrics following
-// common latency naming conventions.
-var latencyHistogramRegex = regexp.MustCompile(`(_seconds_bucket|_duration_seconds_bucket|_duration_ms_bucket|_latency_seconds_bucket|_ms_bucket)$`)
+// common latency naming conventions. _ms_bucket without a semantic prefix
+// (like _duration_) is intentionally excluded — it is too broad and matches
+// non-histogram counters (e.g. request_parse_ms_bucket).
+var latencyHistogramRegex = regexp.MustCompile(`(?i)(_seconds_bucket|_duration_seconds_bucket|_duration_ms_bucket|_latency_seconds_bucket)$`)
 
 // discoverLatencyHistograms returns Prometheus metric names that represent
 // histogram buckets with latency semantics.
@@ -261,7 +315,7 @@ func bucketLatencyRatio(ratio float64) (float64, float64) {
 
 // computeLatencySpikes queries histogram_quantile(0.99, ...) for discovered
 // histogram metrics, comparing window vs baseline.
-func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time) []MetricSpike {
+func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
 	candidates, err := discoverLatencyHistograms(ctx, prom)
 	if err != nil || len(candidates) == 0 {
 		return nil
@@ -279,11 +333,11 @@ func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service 
 			`histogram_quantile(0.99, sum by (le) (rate(%s{service=%q}[1m])))`,
 			bucketName, service)
 
-		windowSeries, werr := prom.QueryRange(ctx, query, start, end, 60*time.Second)
+		windowSeries, usedJob, werr := queryRangeWithJobFallback(ctx, prom, query, service, start, end)
 		if werr != nil {
 			continue
 		}
-		baseSeries, berr := prom.QueryRange(ctx, query, baselineStart, baselineEnd, 60*time.Second)
+		baseSeries, _, berr := queryRangeWithJobFallback(ctx, prom, query, service, baselineStart, baselineEnd)
 		if berr != nil {
 			continue
 		}
@@ -298,20 +352,25 @@ func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service 
 		if score == 0 {
 			continue
 		}
+		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		if usedJob {
+			labelStr = fmt.Sprintf(`{job=%q}`, service)
+		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "latency",
 			MetricName: baseName + "_p99",
-			Labels:     fmt.Sprintf(`{service=%q}`, service),
+			Labels:     labelStr,
 			Ratio:      ratio,
 			Score:      score,
 		})
 	}
+	diags.MetricsQueried += 2 * len(candidates)
 	return spikes
 }
 
 // saturationQueueRegex matches gauge metrics representing queue depths and
 // active worker counts — key saturation indicators.
-var saturationQueueRegex = regexp.MustCompile(`(_active|_pending|_queue_size|_queue_depth)$`)
+var saturationQueueRegex = regexp.MustCompile(`(?i)(_active|_pending|_queue_size|_queue_depth)$`)
 
 // sentinelSaturationMetrics are queried directly without discovery — they are
 // universally present in Go services instrumented with the default Prometheus
@@ -359,19 +418,30 @@ func bucketSaturationRatio(ratio float64) (float64, float64) {
 	}
 }
 
-// queryMaxValue returns the max sample value for a query over [start, end].
-func queryMaxValue(ctx context.Context, prom *promclient.Client, query string, start, end time.Time) float64 {
+// queryMaxValueWithFallback returns the max sample value for a query,
+// trying service= label first and falling back to job= if empty.
+// Returns (maxValue, usedJobLabel).
+func queryMaxValueWithFallback(ctx context.Context, prom *promclient.Client, query, service string, start, end time.Time) (float64, bool) {
 	series, err := prom.QueryRange(ctx, query, start, end, 60*time.Second)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return maxSampleValue(series)
+	if !isEmpty(series) {
+		return maxSampleValue(series), false
+	}
+	// Fall back to job= label.
+	jobQuery := strings.ReplaceAll(query, fmt.Sprintf("service=%q", service), fmt.Sprintf("job=%q", service))
+	jobSeries, jerr := prom.QueryRange(ctx, jobQuery, start, end, 60*time.Second)
+	if jerr != nil {
+		return 0, false
+	}
+	return maxSampleValue(jobSeries), true
 }
 
 // computeSaturationSpikes detects memory / goroutine / queue saturation by
 // comparing window max vs baseline max. Sentinels are queried unconditionally;
 // wildcard queue metrics are discovered via Prometheus label API.
-func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time) []MetricSpike {
+func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, service string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
 	windowDur := end.Sub(start)
 	baselineEnd := start.Add(-1 * time.Hour)
 	baselineStart := baselineEnd.Add(-windowDur)
@@ -381,8 +451,8 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 	// Sentinels — always queried.
 	for _, metricName := range sentinelSaturationMetrics {
 		query := fmt.Sprintf(`%s{service=%q}`, metricName, service)
-		wMax := queryMaxValue(ctx, prom, query, start, end)
-		bMax := queryMaxValue(ctx, prom, query, baselineStart, baselineEnd)
+		wMax, usedJob := queryMaxValueWithFallback(ctx, prom, query, service, start, end)
+		bMax, _ := queryMaxValueWithFallback(ctx, prom, query, service, baselineStart, baselineEnd)
 		if bMax <= 0 {
 			continue
 		}
@@ -391,14 +461,19 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 		if score == 0 {
 			continue
 		}
+		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		if usedJob {
+			labelStr = fmt.Sprintf(`{job=%q}`, service)
+		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "saturation",
 			MetricName: metricName,
-			Labels:     fmt.Sprintf(`{service=%q}`, service),
+			Labels:     labelStr,
 			Ratio:      ratio,
 			Score:      score,
 		})
 	}
+	diags.MetricsQueried += 2 * len(sentinelSaturationMetrics)
 
 	// Wildcard queue/active metrics.
 	wildcards, err := discoverQueueMetrics(ctx, prom)
@@ -407,8 +482,8 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 	}
 	for _, metricName := range wildcards {
 		query := fmt.Sprintf(`%s{service=%q}`, metricName, service)
-		wMax := queryMaxValue(ctx, prom, query, start, end)
-		bMax := queryMaxValue(ctx, prom, query, baselineStart, baselineEnd)
+		wMax, usedJob := queryMaxValueWithFallback(ctx, prom, query, service, start, end)
+		bMax, _ := queryMaxValueWithFallback(ctx, prom, query, service, baselineStart, baselineEnd)
 		if bMax <= 0 {
 			continue
 		}
@@ -417,14 +492,19 @@ func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, servi
 		if score == 0 {
 			continue
 		}
+		labelStr := fmt.Sprintf(`{service=%q}`, service)
+		if usedJob {
+			labelStr = fmt.Sprintf(`{job=%q}`, service)
+		}
 		spikes = append(spikes, MetricSpike{
 			Kind:       "saturation",
 			MetricName: metricName,
-			Labels:     fmt.Sprintf(`{service=%q}`, service),
+			Labels:     labelStr,
 			Ratio:      ratio,
 			Score:      score,
 		})
 	}
+	diags.MetricsQueried += 2 * len(wildcards)
 
 	return spikes
 }

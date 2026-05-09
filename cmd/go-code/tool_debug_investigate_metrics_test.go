@@ -185,7 +185,7 @@ func TestComputeLatencySpikes_HappyPath(t *testing.T) {
 	start := time.Unix(1700000000, 0)
 	end := start.Add(5 * time.Minute)
 
-	spikes := computeLatencySpikes(context.Background(), prom, "test-svc", start, end)
+	spikes := computeLatencySpikes(context.Background(), prom, "test-svc", start, end, &investigate.Diagnostics{})
 	if len(spikes) == 0 {
 		t.Fatal("expected at least one latency spike")
 	}
@@ -283,7 +283,7 @@ func TestComputeSaturationSpikes_HappyPath(t *testing.T) {
 	start := time.Unix(1700000000, 0)
 	end := start.Add(5 * time.Minute)
 
-	spikes := computeSaturationSpikes(context.Background(), prom, "test-svc", start, end)
+	spikes := computeSaturationSpikes(context.Background(), prom, "test-svc", start, end, &investigate.Diagnostics{})
 	if len(spikes) == 0 {
 		t.Fatal("expected at least one saturation spike (sentinel queries)")
 	}
@@ -412,5 +412,208 @@ func TestComputeAnomalyScore_AllEmpty_FallsBackToLegacy(t *testing.T) {
 	}
 	if topScore != scoreDefault {
 		t.Errorf("expected scoreDefault=%v fallback, got %v", scoreDefault, topScore)
+	}
+}
+
+func TestLatencyHistogramRegex_OverBroadRejected(t *testing.T) {
+	// request_parse_ms_bucket should NOT match — "_ms_bucket" without duration prefix
+	// is too broad and catches non-histogram counters.
+	if latencyHistogramRegex.MatchString("request_parse_ms_bucket") {
+		t.Error("latencyHistogramRegex should NOT match request_parse_ms_bucket")
+	}
+	// These must still match.
+	matches := []string{
+		"foo_seconds_bucket",
+		"foo_duration_seconds_bucket",
+		"foo_duration_ms_bucket",
+		"foo_latency_seconds_bucket",
+	}
+	for _, name := range matches {
+		if !latencyHistogramRegex.MatchString(name) {
+			t.Errorf("latencyHistogramRegex should match %q", name)
+		}
+	}
+}
+
+func TestSaturationQueueRegex_CaseInsensitive(t *testing.T) {
+	// Mixed-case names must match after adding (?i) flag.
+	matches := []string{
+		"Worker_Pool_Active",
+		"Request_Queue_Size",
+		"Tasks_Pending",
+	}
+	for _, name := range matches {
+		if !saturationQueueRegex.MatchString(name) {
+			t.Errorf("saturationQueueRegex should match %q (case-insensitive)", name)
+		}
+	}
+}
+
+func TestComputeLatencySpikes_UpdatesDiagnostics(t *testing.T) {
+	// After computeLatencySpikes with 1 candidate, MetricsQueried must be incremented by 2.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	computeLatencySpikes(context.Background(), prom, "test-svc", start, end, diags)
+	if diags.MetricsQueried != 2 {
+		t.Errorf("MetricsQueried: got %d, want 2 (1 candidate × 2 queries)", diags.MetricsQueried)
+	}
+}
+
+func TestComputeSaturationSpikes_UpdatesDiagnostics(t *testing.T) {
+	// sentinel count = 2 metrics × 2 queries each = 4 MetricsQueried minimum.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	computeSaturationSpikes(context.Background(), prom, "test-svc", start, end, diags)
+	if diags.MetricsQueried != 4 {
+		t.Errorf("MetricsQueried: got %d, want 4 (2 sentinels × 2 queries each)", diags.MetricsQueried)
+	}
+}
+
+func TestComputeFailureSpikes_JobLabelFallback(t *testing.T) {
+	// service= returns empty; job= returns data with ratio > ratioCritical → spike expected.
+	callNum := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["ws_handshake_failed_total"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				// service= returns empty
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			} else {
+				// job= returns data
+				callNum++
+				val := "1.0"
+				if callNum%2 == 1 {
+					val = "10.0" // window: high → ratio > ratioCritical
+				}
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	spikes := computeFailureSpikes(context.Background(), prom, "my-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected spike via job= label fallback")
+	}
+	if !strings.Contains(spikes[0].Labels, `job=`) {
+		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
+	}
+}
+
+func TestComputeLatencySpikes_JobLabelFallback(t *testing.T) {
+	// service= empty, job= returns high latency → spike expected.
+	callNum := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":["grpc_server_handling_seconds_bucket"]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			} else {
+				callNum++
+				val := "1.0"
+				if callNum%2 == 1 {
+					val = "3.0"
+				}
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	spikes := computeLatencySpikes(context.Background(), prom, "my-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected latency spike via job= label fallback")
+	}
+	if !strings.Contains(spikes[0].Labels, `job=`) {
+		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
+	}
+}
+
+func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
+	// service= empty for sentinels, job= returns high saturation → spike expected.
+	callNum := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/v1/label/__name__/values"):
+			fmt.Fprint(w, `{"status":"success","data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/api/v1/query_range"):
+			q := r.URL.Query().Get("query")
+			if strings.Contains(q, "service=") {
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+			} else {
+				callNum++
+				val := "1.0"
+				if callNum%2 == 1 {
+					val = "6.0"
+				}
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"%s"]]}]}}`, val)
+			}
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+
+	spikes := computeSaturationSpikes(context.Background(), prom, "my-svc", start, end, diags)
+	if len(spikes) == 0 {
+		t.Fatal("expected saturation spike via job= label fallback")
+	}
+	if !strings.Contains(spikes[0].Labels, `job=`) {
+		t.Errorf("Labels should contain job= fallback label, got %q", spikes[0].Labels)
 	}
 }

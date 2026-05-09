@@ -45,7 +45,7 @@ type Hypothesis struct {
 	NextChecks    []string `json:"next_checks,omitempty"`
 }
 
-// MetricSpike captures a single failure-metric showing anomaly above baseline.
+// MetricSpike captures a single metric (failure / latency / saturation) showing anomaly above baseline.
 type MetricSpike struct {
 	Kind       string  `json:"kind"`        // failure | latency | saturation
 	MetricName string  `json:"metric_name"` // full Prometheus metric name
