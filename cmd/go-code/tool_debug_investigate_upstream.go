@@ -131,6 +131,14 @@ func flattenCallers(tree []callgraph.CallChainNode, baseDepth int) []flatNode {
 		if n.Symbol == nil {
 			continue
 		}
+		if n.Cycle {
+			// Skip cycle-sentinel nodes — they reference an already-visited
+			// ancestor; emitting would dedup-miss (different depth path) and
+			// add a noise hypothesis with artificially low score that
+			// undercuts the original. Children of a cycle node are never
+			// traversed (Tree.traceNode returns empty Children for cycles).
+			continue
+		}
 		if baseDepth > 0 {
 			// Emit non-root nodes.
 			out = append(out, flatNode{symbol: n.Symbol, depth: baseDepth})
