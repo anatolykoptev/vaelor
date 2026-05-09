@@ -642,3 +642,35 @@ func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
 		t.Error("expected labels= attribute in rendered XML")
 	}
 }
+
+func TestMetricsQueried_NeverResets(t *testing.T) {
+	// Regression for #75: computeAnomalyScoreLegacy used "= 2" (assignment)
+	// instead of "+= 2" (addition), overwriting any counts accumulated by the
+	// auto-discovery phase when it fired as a fallback.
+	// Invariant: MetricsQueried must be monotonically increasing.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
+			// Return empty results — no spikes discovered by any phase — legacy fires.
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
+		} else {
+			http.Error(w, "not found", 404)
+		}
+	}))
+	defer srv.Close()
+
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
+	start := time.Unix(1700000000, 0)
+	end := start.Add(5 * time.Minute)
+	diags := &investigate.Diagnostics{}
+	diags.MetricsQueried = 1 // simulate one orchestrator pre-fetch already counted
+
+	// Empty metricNames forces all discovery phases to produce no candidates,
+	// which means no spikes cross scoreNominal, triggering legacy fallback.
+	_, _ = computeAnomalyScore(context.Background(), prom, "test-svc", nil, start, end, diags)
+
+	// Legacy fires 2 QueryRange calls. With the bug (= 2), the counter would be
+	// reset to 2 — losing the orchestrator's 1. With the fix (+= 2) it must be >= 3.
+	if diags.MetricsQueried < 3 {
+		t.Errorf("MetricsQueried = %d; want >= 3 (1 orchestrator + 2 legacy QueryRange calls, never reset)", diags.MetricsQueried)
+	}
+}
