@@ -164,10 +164,10 @@ func runLLMPhaseInner(
 		FiringAlerts:      firingAlerts,
 	})
 
-	// Compact user-side payload: top 5 hypotheses + diagnostics + hint + alerts.
+	// Compact user-side payload: top investigateTopN hypotheses + diagnostics + hint + alerts.
 	topN := res.Hypotheses
-	if len(topN) > 5 {
-		topN = topN[:5]
+	if len(topN) > investigateTopN {
+		topN = topN[:investigateTopN]
 	}
 	// Top-5 have BodySource (per runBodyExtractionPhase budget, bumped B5).
 	// collectBodyExcerpts skips empty BodySource → top-5 effectively.

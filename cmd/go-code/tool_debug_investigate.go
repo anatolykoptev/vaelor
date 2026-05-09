@@ -21,6 +21,10 @@ import (
 // debugInvestigateTraceLimit caps the number of traces fetched per investigation.
 const debugInvestigateTraceLimit = 20
 
+// investigateTopN is the number of top hypotheses passed to body extraction
+// and the LLM phase. Declared once to keep both call sites in sync.
+const investigateTopN = 5
+
 // Anomaly score buckets — highest to lowest.
 const (
 	scoreCritical      = 1.0 // ratio > 5x baseline
@@ -262,6 +266,9 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		// Symmetric to B2 but walks DOWN: when the symptom site is a dispatcher
 		// or event-loop, the buggy logic lives in something it calls.
 		// Best-effort: investigateCG=nil for Tier-1/Tier-2 paths — no-op.
+		// Note: if runUpstreamPhase displaced hyps[0] from its original Tier-3
+		// hypothesis, runDownstreamPhase walks a non-Span hypothesis and the
+		// Source != "" && Source != HypothesisSourceSpan guard makes it silently no-op.
 		res.Hypotheses = runDownstreamPhase(ctx, investigateCG, res.Hypotheses, 2)
 		res.Hypotheses = runFusionRank(res.Hypotheses, recentCommits, historicalSubjects)
 
@@ -279,7 +286,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		// to host by reverseToHost in Tier-1/Tier-3 symbol resolution). Inside the
 		// container, host paths are accessible under /host via PATH_MAPPINGS mount.
 		// rewritePath translates host → container for the disk read.
-		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, 5, input.Service, deps.PathMappings, &res.Diagnostics)
+		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, investigateTopN, input.Service, deps.PathMappings, &res.Diagnostics)
 	}
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
