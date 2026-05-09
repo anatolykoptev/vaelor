@@ -1,10 +1,13 @@
 package gitutil
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestIsGitRepo_NormalRepo(t *testing.T) {
@@ -69,5 +72,103 @@ func mustGit(t *testing.T, dir string, args ...string) {
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// ---- γ.D.2 tests ----
+
+func TestCommitsSince_CountsFiles(t *testing.T) {
+	dir := t.TempDir()
+	mustGit(t, dir, "init")
+	writeTestFile(t, dir, "foo.go", "package main")
+	mustGit(t, dir, "add", "foo.go")
+	mustGit(t, dir, "commit", "-m", "add foo")
+
+	writeTestFile(t, dir, "bar.go", "package main")
+	mustGit(t, dir, "add", "bar.go")
+	mustGit(t, dir, "commit", "-m", "add bar")
+
+	writeTestFile(t, dir, "foo.go", "package main // v2")
+	mustGit(t, dir, "add", "foo.go")
+	mustGit(t, dir, "commit", "-m", "update foo")
+
+	counts := CommitsSince(context.Background(), dir, 30*24*time.Hour)
+	if counts["foo.go"] != 2 {
+		t.Errorf("foo.go: got %d commits, want 2", counts["foo.go"])
+	}
+	if counts["bar.go"] != 1 {
+		t.Errorf("bar.go: got %d commits, want 1", counts["bar.go"])
+	}
+}
+
+func TestCommitsSince_BadRoot_EmptyMap(t *testing.T) {
+	counts := CommitsSince(context.Background(), "/nonexistent/path/xyz", 30*24*time.Hour)
+	if len(counts) != 0 {
+		t.Errorf("expected empty map for bad root, got %v", counts)
+	}
+}
+
+func TestFileDiffSince_HappyPath(t *testing.T) {
+	dir := t.TempDir()
+	mustGit(t, dir, "init")
+	writeTestFile(t, dir, "hello.go", "package main\n// v1\n")
+	mustGit(t, dir, "add", "hello.go")
+	mustGit(t, dir, "commit", "-m", "initial")
+
+	writeTestFile(t, dir, "hello.go", "package main\n// v2\n")
+	mustGit(t, dir, "add", "hello.go")
+	mustGit(t, dir, "commit", "-m", "update")
+
+	diff := FileDiffSince(context.Background(), dir, "hello.go", 30*24*time.Hour, 60)
+	if diff == "" {
+		t.Error("expected non-empty diff for changed file")
+	}
+}
+
+func TestFileDiffSince_NoChange_EmptyDiff(t *testing.T) {
+	dir := t.TempDir()
+	mustGit(t, dir, "init")
+	writeTestFile(t, dir, "stable.go", "package main\n")
+	mustGit(t, dir, "add", "stable.go")
+	mustGit(t, dir, "commit", "-m", "only commit")
+	// Single commit — no prior commit — expect no panic, result may be empty.
+	diff := FileDiffSince(context.Background(), dir, "stable.go", 30*24*time.Hour, 60)
+	_ = diff
+}
+
+func TestFileDiffSince_CapsLines(t *testing.T) {
+	dir := t.TempDir()
+	mustGit(t, dir, "init")
+
+	var sb strings.Builder
+	sb.WriteString("package main\n")
+	for i := 0; i < 100; i++ {
+		sb.WriteString("// original line\n")
+	}
+	writeTestFile(t, dir, "big.go", sb.String())
+	mustGit(t, dir, "add", "big.go")
+	mustGit(t, dir, "commit", "-m", "big initial")
+
+	sb.Reset()
+	sb.WriteString("package main\n")
+	for i := 0; i < 100; i++ {
+		sb.WriteString("// modified line\n")
+	}
+	writeTestFile(t, dir, "big.go", sb.String())
+	mustGit(t, dir, "add", "big.go")
+	mustGit(t, dir, "commit", "-m", "big update")
+
+	diff := FileDiffSince(context.Background(), dir, "big.go", 30*24*time.Hour, 10)
+	lineCount := len(strings.Split(diff, "\n"))
+	if lineCount > 20 {
+		t.Errorf("diff has %d lines, expected ≤20 (cap 10 + header buffer)", lineCount)
+	}
+}
+
+// writeTestFile writes content to a named file inside dir.
+func writeTestFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatalf("writeTestFile %s: %v", name, err)
 	}
 }

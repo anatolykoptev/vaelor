@@ -9,6 +9,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/dozorclient"
+	"github.com/anatolykoptev/go-code/internal/gitutil"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
 	"github.com/anatolykoptev/go-code/internal/promclient"
@@ -242,6 +243,26 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 
 	// Phase 3: span → symbol correlation.
 	ops := runSymbolsPhase(ctx, deps, input, traces, anomalyScore, res)
+
+	// Phase γ.D: multi-signal fusion + recent diff embedding.
+	// Best-effort: runs only when there are hypotheses to rank; gitutil calls
+	// are timeout-bounded (CommitsSince=5s, FileDiffSince=10s) and return
+	// empty on error so they never abort the investigation.
+	if len(res.Hypotheses) > 0 {
+		repoRoot := input.Repo
+		var recentCommits map[string]int
+		if repoRoot != "" {
+			recentCommits = gitutil.CommitsSince(ctx, repoRoot, 30*24*time.Hour)
+		}
+		historicalSubjects := historicalSubjectsFromIncidents(res.HistoricalIncidents)
+		res.Hypotheses = runFusionRank(res.Hypotheses, recentCommits, historicalSubjects)
+
+		// Embed recent diff for top-1 hypothesis.
+		if repoRoot != "" && len(res.Hypotheses) > 0 && res.Hypotheses[0].File != "" {
+			diff := gitutil.FileDiffSince(ctx, repoRoot, res.Hypotheses[0].File, 30*24*time.Hour, 60)
+			res.Hypotheses[0].RecentChange = recentChangeForHypothesis(res.Hypotheses[0].File, diff)
+		}
+	}
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
 	// metricNames is passed to avoid re-fetching __name__ in the LLM phase.
