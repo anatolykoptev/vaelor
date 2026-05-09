@@ -195,7 +195,7 @@ func computeAnomalyScoreLegacy(ctx context.Context, prom *promclient.Client, ser
 
 	windowSeries, werr := prom.QueryRange(ctx, errMetricQuery, start, end, 60*time.Second)
 	baseSeries, berr := prom.QueryRange(ctx, errMetricQuery, baselineStart, baselineEnd, 60*time.Second)
-	diags.MetricsQueried = 2
+	diags.MetricsQueried += 2
 
 	if werr != nil {
 		diags.Warnings = append(diags.Warnings, fmt.Sprintf("prom window: %v", werr))
