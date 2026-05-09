@@ -258,6 +258,11 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		// Sprint B2: walk upstream callers for top-3 span hypotheses before fusion rank.
 		// Best-effort: investigateCG=nil for Tier-1/Tier-2 paths — no-op.
 		res.Hypotheses = runUpstreamPhase(ctx, investigateCG, res.Hypotheses, 3, 2)
+		// Sprint B4: walk callees of top-1 hypothesis before fusion rank.
+		// Symmetric to B2 but walks DOWN: when the symptom site is a dispatcher
+		// or event-loop, the buggy logic lives in something it calls.
+		// Best-effort: investigateCG=nil for Tier-1/Tier-2 paths — no-op.
+		res.Hypotheses = runDownstreamPhase(ctx, investigateCG, res.Hypotheses, 2)
 		res.Hypotheses = runFusionRank(res.Hypotheses, recentCommits, historicalSubjects)
 
 		// Embed recent diff for top-1 hypothesis.
@@ -266,13 +271,15 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 			res.Hypotheses[0].RecentChange = recentChangeForHypothesis(res.Hypotheses[0].File, diff)
 		}
 
-		// Sprint B1: populate BodySource for top-3 hypotheses.
-		// Runs after FusionRank so we know the definitive top-3.
+		// Sprint B1/B5: populate BodySource for top-5 hypotheses.
+		// Runs after FusionRank so we know the definitive ranking.
+		// Bumped from top-3 to top-5 (Sprint B5) so downstream callee hypotheses
+		// added by B4 also get BodySource when they rank in the top-5.
 		// Files are read via host-side paths (Hypothesis.File is already reversed
 		// to host by reverseToHost in Tier-1/Tier-3 symbol resolution). Inside the
 		// container, host paths are accessible under /host via PATH_MAPPINGS mount.
 		// rewritePath translates host → container for the disk read.
-		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, 3, input.Service, deps.PathMappings, &res.Diagnostics)
+		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, 5, input.Service, deps.PathMappings, &res.Diagnostics)
 	}
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
