@@ -286,4 +286,5 @@ type OperationInfo struct {
 	CodeFilepath  string // FIRST-SEEN — code.filepath OR code.file.path (absolute path inside container)
 	CodeLineno    int    // FIRST-SEEN — code.lineno OR code.line.number
 	CodeNamespace string // FIRST-SEEN — code.namespace OR code.module.name (e.g. Rust module path)
+	CodeFunction  string // FIRST-SEEN — code.function OR code.function.name (e.g. Go method like (*T).Method)
 }

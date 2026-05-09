@@ -46,6 +46,7 @@ func isLibraryPath(p string) bool {
 //   - code.filepath  / code.file.path
 //   - code.lineno    / code.line.number
 //   - code.namespace / code.module.name
+//   - code.function  / code.function.name
 //
 // code.lineno / code.line.number are handled defensively: the JSON wire format
 // may deliver them as float64 (standard JSON numbers), int64 (rare), or string.
@@ -79,6 +80,10 @@ func buildOpsMap(traces []jaegerclient.Trace) map[string]*investigate.OperationI
 					case "code.namespace", "code.module.name":
 						if info.CodeNamespace == "" {
 							info.CodeNamespace = v
+						}
+					case "code.function", "code.function.name":
+						if info.CodeFunction == "" {
+							info.CodeFunction = v
 						}
 					}
 				}
@@ -175,7 +180,7 @@ func runSymbolsPhase(
 			}
 			h.File = reverseToHost(info.CodeFilepath, deps.PathMappings)
 			h.Line = info.CodeLineno
-			symbol := info.CodeNamespace
+			symbol := joinSymbol(info.CodeNamespace, info.CodeFunction)
 			if symbol == "" {
 				symbol = op
 			}
@@ -391,4 +396,27 @@ func isRanked(hyps []investigate.Hypothesis) bool {
 		}
 	}
 	return false
+}
+
+// joinSymbol combines a code.namespace and code.function into a single
+// symbol string for hypothesis subjects.
+//
+//   - Both empty → ""
+//   - Only ns     → ns
+//   - Only fn     → fn
+//   - Both        → ns + "." + fn  (Go dotted form, e.g. "main.(*T).Method")
+//
+// For Rust spans where ns = "oxpulse_sfu::client_ws" and fn is empty, the
+// dot is not appended so the Rust module path is preserved unchanged.
+func joinSymbol(ns, fn string) string {
+	switch {
+	case ns == "" && fn == "":
+		return ""
+	case fn == "":
+		return ns
+	case ns == "":
+		return fn
+	default:
+		return ns + "." + fn
+	}
 }
