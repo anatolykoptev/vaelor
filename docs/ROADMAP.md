@@ -781,7 +781,7 @@ DataDog APM, Beyla, OTel auto-instrumentation, Honeycomb, Pixie, Coroot, OTel-go
 | v1.15.0 | `780139d` | Identifier-level fusion ranking (PPR + BM25F + exact match) |
 | v1.19.1–v1.19.7 | `ed0325b`–`472ce61` | AGE stability: CREATE EXTENSION, 42P01 fix, BulkWriter, UNWIND batching, EnsureIndexes before inserts |
 | v1.20.0 | `79b8791` | BulkCopyInsert — direct COPY INTO AGE tables; IndexRepo 6 min → 14s |
-| v1.21.0 | `60add60`–`15b045d` | Three-layer search (pg_trgm+CE), dead code CE scores, code_health cache, pool fix |
+| v1.20.1 | `60add60`–`15b045d` | Three-layer search (pg_trgm+CE), dead code CE scores, code_health cache, pool fix |
 
 ## Technical Debt Watch
 
