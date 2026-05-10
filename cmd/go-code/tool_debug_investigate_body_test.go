@@ -277,7 +277,7 @@ func TestRunBodyExtractionPhaseWithMappings_AppliesPathMapping(t *testing.T) {
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, "", mappings, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "", "", mappings, &diags)
 
 	if result[0].BodySource == "" {
 		t.Errorf("expected BodySource to be populated via path mapping, got empty")
@@ -295,7 +295,7 @@ func TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError(t *testing.T) 
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, "", nil, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "", "", nil, &diags)
 
 	if result[0].BodySource != "" {
 		t.Errorf("expected empty BodySource on error, got %q", result[0].BodySource)
@@ -307,7 +307,7 @@ func TestRunBodyExtractionPhaseWithMappings_AppendsWarningOnError(t *testing.T) 
 
 func TestBuildBodyPathCandidates_RelativePathPrefersHostMount(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
-	got := buildBodyPathCandidates("crates/server/src/main.rs", "", mappings)
+	got := buildBodyPathCandidates("crates/server/src/main.rs", "", mappings, "")
 	// Must include /host/<relative> candidate
 	found := false
 	for _, p := range got {
@@ -322,7 +322,7 @@ func TestBuildBodyPathCandidates_RelativePathPrefersHostMount(t *testing.T) {
 }
 
 func TestBuildBodyPathCandidates_AbsoluteUnchanged(t *testing.T) {
-	got := buildBodyPathCandidates("/abs/path/foo.rs", "", nil)
+	got := buildBodyPathCandidates("/abs/path/foo.rs", "", nil, "")
 	if len(got) != 1 || got[0] != "/abs/path/foo.rs" {
 		t.Fatalf("expected single absolute candidate, got %v", got)
 	}
@@ -375,7 +375,7 @@ func TestRunBodyExtractionPhase_OTELLineOnly_ReadsHandlerBody(t *testing.T) {
 // candidate when /host mount is in mappings.
 func TestBuildBodyPathCandidates_BuildPrefix_StripsAndPrependsHostService(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
-	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings)
+	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings, "")
 
 	// Must contain the /host/src/go-code/... candidate.
 	want := "/host/src/go-code/cmd/go-code/webhook_github.go"
@@ -395,7 +395,7 @@ func TestBuildBodyPathCandidates_BuildPrefix_StripsAndPrependsHostService(t *tes
 // /build/<rel> also generates <mapping.Internal>/src/<service>/<rel>.
 func TestBuildBodyPathCandidates_BuildPrefix_MappingInternal(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/repos", Internal: "/mnt/repos"}}
-	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings)
+	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings, "")
 
 	want := "/mnt/repos/src/go-code/cmd/go-code/webhook_github.go"
 	found := false
@@ -434,12 +434,68 @@ func TestRunBodyExtractionPhaseWithMappings_BuildPath_ReadsHostFile(t *testing.T
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, "go-code", mappings, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "go-code", "", mappings, &diags)
 
 	if result[0].BodySource == "" {
 		t.Errorf("expected BodySource populated, got empty; warnings: %v", diags.Warnings)
 	}
 	if !strings.Contains(result[0].BodySource, "ServeHTTP") {
 		t.Errorf("BodySource = %q, want it to contain 'ServeHTTP'", result[0].BodySource)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Fix 3: service-name ≠ repo-dir body extraction gap
+// ────────────────────────────────────────────────────────────────────
+
+// TestBuildBodyPathCandidates_RepoArgDerivedDir verifies that when the repo
+// arg last segment differs from the service name (e.g. service="partner-edge-sfu",
+// repo="anatolykoptev/oxpulse-partner-edge"), the repo-dir is also tried as
+// a candidate path under /host/src/<repoDir>/<rel>.
+func TestBuildBodyPathCandidates_RepoArgDerivedDir(t *testing.T) {
+	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
+	// file is relative, service name differs from repo dir
+	got := buildBodyPathCandidates("src/sfu/main.rs", "partner-edge-sfu", mappings, "anatolykoptev/oxpulse-partner-edge")
+
+	want := "/host/src/oxpulse-partner-edge/src/sfu/main.rs"
+	found := false
+	for _, p := range got {
+		if p == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected %q in candidates (repo-dir derived), got %v", want, got)
+	}
+}
+
+// TestRunBodyExtractionPhase_RepoArgDerivedDir_FindsFile verifies end-to-end:
+// service="partner-edge-sfu", repo="anatolykoptev/oxpulse-partner-edge",
+// file exists under /host/src/oxpulse-partner-edge/ — body extractor finds it.
+func TestRunBodyExtractionPhase_RepoArgDerivedDir_FindsFile(t *testing.T) {
+	// Create temp dir simulating /tmp/test-host/src/oxpulse-partner-edge/some/file.rs
+	base := t.TempDir()
+	repoDir := filepath.Join(base, "src", "oxpulse-partner-edge", "some")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	rsFile := filepath.Join(repoDir, "file.rs")
+	content := "fn handle_packet() {\n    // SFU logic\n    let x = 1;\n}\n"
+	if err := os.WriteFile(rsFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mappings := []analyze.PathMapping{{External: base, Internal: base}}
+
+	hyps := []investigate.Hypothesis{
+		{Subject: "handle_packet", File: "some/file.rs", Line: 1, EndLine: 4},
+	}
+
+	var diags investigate.Diagnostics
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "partner-edge-sfu", "anatolykoptev/oxpulse-partner-edge", mappings, &diags)
+
+	if result[0].BodySource == "" {
+		t.Errorf("expected BodySource populated via repo-dir derived path, got empty; warnings: %v", diags.Warnings)
 	}
 }
