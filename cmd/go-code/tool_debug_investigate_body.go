@@ -132,10 +132,15 @@ func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int, diags *inve
 // the container need the container-internal path (e.g. /host/src/... from the
 // /host mount). If mappings is empty, paths are used as-is.
 //
+// repo is the VCS repo identifier (e.g. "owner/acme-edge"). Its
+// last path segment is used as a fallback on-disk directory when the service
+// name differs from the repo directory name (e.g. service="web-api-sfu",
+// repo dir="acme-edge"). Pass "" when service == repo dir.
+//
 // File read errors append a warning to diags.Warnings when diags is non-nil,
 // giving operators a clear signal on /host mount mis-config or PATH_MAPPINGS
 // drift instead of a silent empty body block.
-func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int, service string, mappings []analyze.PathMapping, diags *investigate.Diagnostics) []investigate.Hypothesis {
+func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int, service string, repo string, mappings []analyze.PathMapping, diags *investigate.Diagnostics) []investigate.Hypothesis {
 	out := make([]investigate.Hypothesis, len(hyps))
 	copy(out, hyps)
 
@@ -153,7 +158,7 @@ func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int,
 		// and /host fallback. Rust tracing-opentelemetry emits relative
 		// code.filepath (file!() macro from CARGO_MANIFEST_DIR), which
 		// fails as-is; prepending repo or /host gives a working absolute.
-		candidates := buildBodyPathCandidates(h.File, service, mappings)
+		candidates := buildBodyPathCandidates(h.File, service, mappings, repo)
 		var body string
 		var lastErr error
 		for _, p := range candidates {
@@ -176,14 +181,27 @@ func runBodyExtractionPhaseWithMappings(hyps []investigate.Hypothesis, topN int,
 	return out
 }
 
+// lastPathSegment returns the last non-empty segment of a slash-separated
+// path (e.g. "owner/my-repo" → "my-repo", "my-repo" → "my-repo", "" → "").
+func lastPathSegment(p string) string {
+	p = strings.TrimRight(p, "/")
+	if idx := strings.LastIndex(p, "/"); idx >= 0 {
+		return p[idx+1:]
+	}
+	return p
+}
+
 // buildBodyPathCandidates returns paths to try in order:
 //  1. file as-is (absolute or already mapped)
 //  2. rewritePath(file) — host→container mapping
 //  3. /host/<file> when file is relative and /host mount exists
 //  4. <m.Container>/<file> for each PathMapping when file is relative
+//  5. /host/src/<repoDir>/<rel> when repo arg's last segment differs from service
 //
 // Dedup-protected via filepath.Clean.
-func buildBodyPathCandidates(file string, service string, mappings []analyze.PathMapping) []string {
+// repo is the VCS repo arg (e.g. "owner/acme-edge"); its last path
+// segment is used as the on-disk directory when service name ≠ repo dir name.
+func buildBodyPathCandidates(file string, service string, mappings []analyze.PathMapping, repo string) []string {
 	seen := make(map[string]struct{})
 	var out []string
 	add := func(p string) {
@@ -211,6 +229,12 @@ func buildBodyPathCandidates(file string, service string, mappings []analyze.Pat
 				if service != "" {
 					add(filepath.Join("/host", "src", service, file))
 				}
+				// repo-dir fallback: when service name ≠ on-disk repo dir
+				// (e.g. service="web-api-sfu", repo dir="acme-edge"),
+				// also try the repo dir derived from the repo arg last segment.
+				if repoDir := lastPathSegment(repo); repoDir != "" && repoDir != service {
+					add(filepath.Join("/host", "src", repoDir, file))
+				}
 				break
 			}
 		}
@@ -220,6 +244,10 @@ func buildBodyPathCandidates(file string, service string, mappings []analyze.Pat
 				add(filepath.Join(m.Internal, file))
 				if service != "" {
 					add(filepath.Join(m.Internal, "src", service, file))
+				}
+				// repo-dir fallback for container mappings
+				if repoDir := lastPathSegment(repo); repoDir != "" && repoDir != service {
+					add(filepath.Join(m.Internal, "src", repoDir, file))
 				}
 			}
 		}
