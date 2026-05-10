@@ -5,7 +5,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 ## Features
 
 - **13 languages** — Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro
-- **8 MCP tools** — from quick code search to deep structural analysis
+- **30 MCP tools** — code search, AST analysis, knowledge graph queries, observability ⇄ code (`debug_investigate`), structural rewrite, code review, design search
 - **Multiple analysis modes** — deep (clone + AST + LLM), quick (GitHub Code Search), issues/PRs
 - **Call chain tracing** — bidirectional BFS with cycle detection and LLM narrative
 - **Code comparison** — three-pass symbol matching (exact/fuzzy/semantic) with quality verdicts
@@ -25,6 +25,25 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 | `symbol_search` | Search symbols (functions, types, consts) by name pattern across a repo |
 | `call_trace` | Trace call chains — callees (forward) or callers (reverse) with depth control |
 | `code_graph` | Query a persistent code knowledge graph in Apache AGE via natural language |
+| `debug_investigate` | 6-phase prod incident root cause: Prom spikes + Jaeger failed traces + symbol resolution + callgraph walks + LLM fusion → ranked file:function |
+| `semantic_search` | Hybrid RRF: BM25F + pgvector + 1-hop AGE graph expansion. Find by concept, not keyword |
+| `understand` | Type-aware symbol deep-dive. Aggregates call_trace + symbol_search + complexity + tested_by + dead_code_score |
+| `impact_analysis` | Blast radius up to depth 10. Direct callers, transitive callers, hotspot reordering by churn |
+| `prepare_change` | Pre-change risk: impact + dead_code combined |
+| `dead_code` | Cross-encoder confidence [0..1] per symbol (CE reranker), not flat list |
+| `dataflow_analyze` | IL/CFG taint tracking + dead stores + SQL/cmd injection sinks |
+| `rewrite` | Structural AST search-replace with $WILDCARDS across 13 languages, dry-run + apply |
+| `review_pr` | Differential blast radius between git refs; persists per-symbol learnings |
+| `review_delta` | Differential blast radius between git refs; persists per-symbol learnings |
+| `code_research` | BM25F + embeddings + DAG expansion for 10k+ file monorepos |
+| `design_search` | Find DESIGN.md systems by UI description (multilingual-e5-large 1024-dim) |
+| `resolve_frame` | Unminify a JS stack frame via source maps |
+| `site_analyze` | Tech stack + SEO audit, BFS crawler |
+| `site_crawl` | BFS crawler |
+| `code_health` | Repo grade A-F: complexity, test coverage, dep freshness, OSV vulns |
+| `explore` | Quick repo overview, sub-second, no LLM, no clone for remote repos |
+| `remember_graph_insights` | Persist learnings surfaced in future understand calls |
+| `wp_plugin_search` | Search WordPress.org plugin directory |
 
 
 > **Optional:** `dead_code` and `code_health` tools integrate with [ox-codes](https://github.com/anatolykoptev/ox-codes), an internal Rust code analysis service. Without it, these tools degrade to AST-only heuristics and still produce useful results.
