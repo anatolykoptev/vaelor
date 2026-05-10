@@ -716,6 +716,47 @@ These fixes were discovered and shipped while debugging code_graph performance:
 
 **Cumulative improvement**: code_graph first-build 6+ min → ~90s. Queries from cache: 2-3s.
 
+## v1.21: OTel Function Attribution + debug_investigate Polish (Shipped 2026-05-09)
+
+**Goal**: Industry-first Go OTel HTTP middleware with function-level handler attribution. Closes the metrics→trace→file:line loop in `debug_investigate` Tier-1 symbol resolution.
+
+**Status**: Shipped 2026-05-09. Empirically validated on go-code + dozor + oxpulse-chat (Rust) + partner-edge-sfu (Rust).
+
+### 21.1 OTel handler attribution (`anatolykoptev/go-kit#49,#50,#51,#52,#53,#6`)
+- [x] `RegisterRoute(method, pattern, fn)` registry — startup-time `runtime.FuncForPC` capture
+- [x] Drop-in `httpmw.NewServeMux()` wrapper — auto-registers via `Handle`/`HandleFunc` interception
+- [x] `WalkAndRegister(walkFn)` — chi.Walk and gorilla.Walk integration
+- [x] `RegisterGinRoute(method, pattern, name)` — gin uses HandlerFunc string directly
+- [x] `-fm` suffix strip for method-value wrappers
+- [x] Closure → `code.filepath`+`code.lineno` graceful fallback
+- [x] `tracing/slogh` package — slog handler injecting `trace_id`+`span_id` into records (port from tilegroxy)
+- [x] `theme.css` canonical token export, `FontPreload.astro` helper, `maskIconColor` prop, `--aw-color-primary` legacy leak removed (kit-side fixes from review)
+
+### 21.2 debug_investigate Tier-1 wiring (`anatolykoptev/go-code#87,#88,#89,#90,#91,#92,#93,#94,#95,#96,#97,#98,#99`)
+- [x] B4 downstream callees walk (top-1 hypothesis, depth 2, 0.3/depth scoring)
+- [x] B5 body extraction topN 3 → 5
+- [x] OTel self-instrumentation (Setup + httpmw + mcpmw)
+- [x] go-kit v0.50 → v0.53 bump
+- [x] Drop-in NewServeMux refactor — single `(*githubWebhookHandler).ServeHTTP` symbol
+- [x] slogh deadlock fix (concrete handler base, not slog.Default)
+- [x] InfoContext threading for span context propagation
+- [x] `code.function` joined into Tier-1 hypothesis subject (was namespace-only)
+- [x] Path mapping: `/build/...` → host repo root via `repo` arg
+- [x] Polling instruction 30s → 5s (perceived latency 6× faster)
+- [x] LLM HTTP timeout 10s → 30s (catches cliproxyapi long-tail)
+- [x] Service→repo dir mapping (e.g. `partner-edge-sfu` → `oxpulse-partner-edge`)
+
+**Empirical validation**:
+- go-code `POST /webhook/github` → `code.function=(*githubWebhookHandler).ServeHTTP, code.filepath=/build/cmd/go-code/webhook_github.go:25`
+- dozor `GET /health` → `code.function=runGateway.healthHandler.func5, code.lineno=162`
+- oxpulse-chat (Rust): 4 routes resolved (`ws_call`, `http_request`, `metrics_handler`, `spa_fallback`)
+- partner-edge-sfu (Rust): `oxpulse_sfu::client_ws::handler:185` + body excerpts
+
+**State of the art comparison** (research-confirmed):
+DataDog APM, Beyla, OTel auto-instrumentation, Honeycomb, Pixie, Coroot, OTel-go-contrib all stop at HTTP route templates. `tilegroxy` is the only public Go project emitting `code.*` on HTTP server spans, and they hardcode strings — not runtime reflection. Krolik is the first Go middleware doing function-level attribution at runtime.
+
+---
+
 ## Releases
 
 | Tag | Commit | What |
