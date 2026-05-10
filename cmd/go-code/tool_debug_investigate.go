@@ -145,7 +145,7 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 	if !fresh {
 		switch st.Status() {
 		case investigate.StatusRunning:
-			return textResult(fmt.Sprintf("Investigation in progress for %q (started %s). Re-run this call in 30s to fetch the result.",
+			return textResult(fmt.Sprintf("Investigation in progress for %q (started %s). Re-run this call in 5s to fetch the result.",
 				input.Service, st.StartedAt().Format(time.RFC3339))), nil
 		case investigate.StatusDone:
 			return textResult(formatInvestigationResult(st.Result())), nil
@@ -159,7 +159,7 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 	// Fresh — kick off background goroutine.
 	go runInvestigation(input, deps, prom, jaeger, dozor, start, end)
 
-	return textResult(fmt.Sprintf("Investigation started for service=%q range=[%s, %s]. Re-run this call in 30s to fetch the result.",
+	return textResult(fmt.Sprintf("Investigation started for service=%q range=[%s, %s]. Re-run this call in 5s to fetch the result.",
 		input.Service, start.Format(time.RFC3339), end.Format(time.RFC3339))), nil
 }
 
@@ -287,7 +287,7 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		// to host by reverseToHost in Tier-1/Tier-3 symbol resolution). Inside the
 		// container, host paths are accessible under /host via PATH_MAPPINGS mount.
 		// rewritePath translates host → container for the disk read.
-		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, investigateTopN, input.Service, deps.PathMappings, &res.Diagnostics)
+		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, investigateTopN, input.Service, input.Repo, deps.PathMappings, &res.Diagnostics)
 	}
 
 	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
