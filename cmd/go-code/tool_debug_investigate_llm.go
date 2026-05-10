@@ -204,8 +204,8 @@ func runLLMPhaseInner(
 		}
 	}
 
-	// Bounded LLM call (10s timeout — non-blocking on overall investigation).
-	llmCtx, llmCancel := context.WithTimeout(ctx, 10*time.Second)
+	// Bounded LLM call (30s timeout — non-blocking on overall investigation).
+	llmCtx, llmCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer llmCancel()
 	summary, err := client.Complete(llmCtx, sysPrompt, string(userJSON))
 	if err != nil {
