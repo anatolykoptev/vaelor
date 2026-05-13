@@ -124,6 +124,23 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 	}
 }
 
+// TestRunGoBuildPrewarm_NoVendorReturnsNil asserts that runGoBuildPrewarm
+// returns nil (no error) when the repo has a go.mod but no vendor/ directory.
+// Both etsy-forge and dozor hit this path on every container start: they have
+// go.mod but use module proxy (no vendor/), so -mod=vendor would fail with
+// "inconsistent vendoring". The fix skips with DEBUG and returns nil so the
+// caller does not emit a WARN or increment the "failed" counter.
+func TestRunGoBuildPrewarm_NoVendorReturnsNil(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	// No vendor/ directory present.
+	if err := runGoBuildPrewarm(context.Background(), tmp); err != nil {
+		t.Fatalf("runGoBuildPrewarm without vendor/ returned err=%v; want nil", err)
+	}
+}
+
 // TestEagerWarmRepos_EmptyDirsNoOp asserts that the warm path is a no-op
 // when AUTO_INDEX_DIRS is empty (the gating env var is empty) — no goroutine
 // dispatched, no metric increment.
