@@ -95,7 +95,17 @@ func discoverGoRepos(dirs []string) []string {
 // same env as the on-demand warm path (CGO_ENABLED=0, GOWORK=off, dedicated
 // GOCACHE). Bounded by eagerWarmTimeout to avoid hung builds blocking the
 // startup goroutine indefinitely.
+//
+// Repos without a vendor/ directory are silently skipped (DEBUG log, nil
+// return). Missing vendor is an operator decision — module proxy workflow or
+// archived repo — not a build failure. Running -mod=vendor without vendor/
+// always fails with "inconsistent vendoring"; the WARN it previously produced
+// was noise with no remediation path.
 func runGoBuildPrewarm(ctx context.Context, root string) error {
+	if _, err := os.Stat(filepath.Join(root, "vendor")); err != nil {
+		slog.Debug("eager warm: skipping repo without vendor/", "root", root)
+		return nil
+	}
 	warmCtx, cancel := context.WithTimeout(ctx, eagerWarmTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(warmCtx, "go", "build", "-mod=vendor", "./...")
