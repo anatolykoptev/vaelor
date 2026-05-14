@@ -128,7 +128,7 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("git clone %s: %w\n%s", repoName, err, string(out))
+		return nil, fmt.Errorf("git clone %s: %w\n%s", repoName, err, sanitizeGitOutput(string(out)))
 	}
 
 	return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
@@ -163,18 +163,43 @@ func refreshClone(ctx context.Context, localPath, ref string, tokenFunc func(ctx
 			"GIT_CONFIG_COUNT=1",
 			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
 			"GIT_CONFIG_VALUE_0=Authorization: Basic "+cred,
+			// Defence-in-depth: suppress git trace channels that may
+			// echo extraheader contents into stderr. The token is
+			// already injected via GIT_CONFIG above; tracing it adds
+			// no value.
+			"GIT_TRACE=0",
+			"GIT_CURL_VERBOSE=0",
 		)
 	}
 	fetch.Env = env
 	if out, err := fetch.CombinedOutput(); err != nil {
-		return fmt.Errorf("git fetch: %w\n%s", err, string(out))
+		return fmt.Errorf("git fetch: %w\n%s", err, sanitizeGitOutput(string(out)))
 	}
 	reset := exec.CommandContext(ctx, "git", "-C", localPath,
 		"reset", "--hard", "FETCH_HEAD")
 	if out, err := reset.CombinedOutput(); err != nil {
-		return fmt.Errorf("git reset: %w\n%s", err, string(out))
+		return fmt.Errorf("git reset: %w\n%s", err, sanitizeGitOutput(string(out)))
 	}
 	return nil
+}
+
+// sanitizeGitOutput strips lines that may contain the Authorization
+// header injected via GIT_CONFIG_VALUE_0. Without this, a failed
+// git fetch could include the installation token in error messages
+// that bubble up to logs.
+func sanitizeGitOutput(s string) string {
+	if !strings.ContainsAny(s, "AeE") {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Contains(line, "Authorization:") || strings.Contains(line, "extraheader") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
 }
 
 // CleanupCloneDir removes a cloned repository directory from disk.

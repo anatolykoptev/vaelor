@@ -201,3 +201,31 @@ func TestRefreshClone_TokenFuncError(t *testing.T) {
 	}
 	_ = fmt.Sprintf("error check: %v", err) // ensure err is used
 }
+
+func TestSanitizeGitOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"no auth", "fatal: repository not found", "fatal: repository not found"},
+		{"strip Authorization line",
+			"fatal: unable to access\nAuthorization: Basic eHRyYTpzZWNyZXQ=\nbye",
+			"fatal: unable to access\nbye"},
+		{"strip extraheader line",
+			"http.extraheader=Authorization: Basic xxx\nfatal: end",
+			"fatal: end"},
+		{"multiple lines",
+			"a\nAuthorization: Basic abc\nb\nextraheader\nc",
+			"a\nb\nc"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeGitOutput(tc.in)
+			if got != tc.want {
+				t.Errorf("sanitizeGitOutput(%q):\n  got:  %q\n  want: %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
