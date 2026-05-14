@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"context"
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 	"github.com/anatolykoptev/go-kit/llm"
 
@@ -31,6 +32,12 @@ type Deps struct {
 
 	// GithubToken is the optional GitHub token for cloning private repos.
 	GithubToken string
+
+	// CloneTokenFunc, when non-nil, is called before each git fetch to obtain
+	// a fresh credential token. Supersedes the static GithubToken for cache-hit
+	// refresh calls so installation tokens (TTL ~1 h) do not cause fetch failures.
+	// Set by registerTools when GitHub App credentials are configured.
+	CloneTokenFunc func(ctx context.Context) (string, error)
 
 	// WorkspaceDir is the directory used for temporary clones.
 	WorkspaceDir string

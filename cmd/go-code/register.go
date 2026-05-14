@@ -63,6 +63,23 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 		Learnings:    buildLearningsStore(cfg),
 	}
 
+	// Wire CloneTokenFunc when GitHub App credentials are configured so that
+	// git fetch calls in the cache-hit path use a fresh installation token
+	// instead of the stale one embedded in the remote URL at clone time.
+	if cfg.GithubAppConfig.AppID != 0 && cfg.GithubAppConfig.InstallationID != 0 && len(cfg.GithubAppConfig.KeyPEM) > 0 {
+		appSrc, appSrcErr := forge.NewAppTokenSource(forge.AppAuthConfig{
+			AppID:          cfg.GithubAppConfig.AppID,
+			InstallationID: cfg.GithubAppConfig.InstallationID,
+			PrivateKeyPEM:  cfg.GithubAppConfig.KeyPEM,
+		})
+		if appSrcErr != nil {
+			slog.Warn("github app: cannot create token source for clone refresh, falling back to static token",
+				slog.Any("error", appSrcErr))
+		} else {
+			deps.CloneTokenFunc = appSrc.Token
+		}
+	}
+
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
 	var graphStore *codegraph.Store
 	var dbPool *pgxpool.Pool

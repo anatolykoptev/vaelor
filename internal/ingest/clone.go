@@ -35,6 +35,18 @@ type CloneOpts struct {
 	// directly and the GitHub-specific URL building logic is skipped.
 	// Slug is still required for directory naming.
 	CloneURL string
+
+	// TokenFunc, when set, is called before each git fetch to obtain a fresh
+	// credential token. The returned token is passed to git via
+	// GIT_CONFIG_COUNT / GIT_CONFIG_KEY_0 / GIT_CONFIG_VALUE_0 so that it
+	// is only visible to the subprocess and never persisted to .git/config.
+	//
+	// When nil, the static GithubToken embedded in the remote URL at clone
+	// time is used (legacy behaviour). Callers that hold a token source
+	// (e.g. a GitHub App installation-token refresher) should always supply
+	// TokenFunc to avoid fetch failures after the ~1 h installation-token
+	// expiry.
+	TokenFunc func(ctx context.Context) (string, error)
 }
 
 // CloneResult contains the result of a successful clone.
@@ -90,11 +102,12 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	// (cmd/go-code/resolve.go) and the lack of webhook-driven invalidation
 	// can leave the workspace stale relative to a recent push.
 	if _, statErr := os.Stat(localPath); statErr == nil {
-		if err := refreshClone(ctx, localPath, opts.Ref); err == nil {
+		if err := refreshClone(ctx, localPath, opts.Ref, opts.TokenFunc); err == nil {
 			return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 		}
-		// Refresh failed (corrupt repo, network blip, missing ref) — wipe
-		// and fall through to a fresh shallow clone below.
+		// Refresh failed (corrupt repo, network blip, missing ref, expired
+		// token with no TokenFunc) — wipe and fall through to a fresh shallow
+		// clone below.
 		_ = os.RemoveAll(localPath)
 	}
 
@@ -127,19 +140,45 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 }
 
-
 // refreshClone updates an existing shallow clone at localPath to match
 // remote origin's tip of ref (or default HEAD when ref is empty).
+//
+// When tokenFunc is non-nil it is called to obtain a fresh credential token.
+// The token is injected into git's subprocess environment via
+// GIT_CONFIG_COUNT / GIT_CONFIG_KEY_0 / GIT_CONFIG_VALUE_0 so the credential
+// is never written to .git/config and is safe for concurrent callers.
+//
 // Returns an error if any git operation fails so the caller can wipe
 // and re-clone instead of trusting potentially stale state.
-func refreshClone(ctx context.Context, localPath, ref string) error {
+func refreshClone(ctx context.Context, localPath, ref string, tokenFunc func(context.Context) (string, error)) error {
 	branch := ref
 	if branch == "" {
 		branch = "HEAD"
 	}
+
+	fetchEnv := append(os.Environ(), "GIT_TERMINAL_PROMPT=0") //nolint:gocritic // intentional copy-on-append
+	if tokenFunc != nil {
+		tok, err := tokenFunc(ctx)
+		if err != nil {
+			return fmt.Errorf("refresh token: %w", err)
+		}
+		if tok != "" {
+			// Use git's per-process config injection to supply the credential.
+			// This avoids mutating .git/config and is safe for concurrent calls.
+			// GitHub accepts both "token <tok>" and "Bearer <tok>" for
+			// installation tokens; "token" is the canonical form for PATs and
+			// installation tokens alike (see GitHub REST API docs).
+			fetchEnv = append(fetchEnv,
+				"GIT_CONFIG_COUNT=1",
+				"GIT_CONFIG_KEY_0=http.extraheader",
+				"GIT_CONFIG_VALUE_0=Authorization: token "+tok,
+			)
+		}
+	}
+
 	fetch := exec.CommandContext(ctx, "git", "-C", localPath,
 		"fetch", "--depth=2", "origin", branch)
-	fetch.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	fetch.Env = fetchEnv
 	if out, err := fetch.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch: %w\n%s", err, string(out))
 	}
