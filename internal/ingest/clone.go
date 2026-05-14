@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,6 +36,12 @@ type CloneOpts struct {
 	// directly and the GitHub-specific URL building logic is skipped.
 	// Slug is still required for directory naming.
 	CloneURL string
+
+	// TokenFunc returns a fresh token for authenticated git operations.
+	// When set, it is called before each refreshClone to obtain a current
+	// installation token (ghs_, ~1h TTL). Overrides GithubToken for refreshes.
+	// When nil, refreshClone relies on credentials embedded in .git/config.
+	TokenFunc func(ctx context.Context) (string, error)
 }
 
 // CloneResult contains the result of a successful clone.
@@ -42,7 +49,7 @@ type CloneResult struct {
 	// LocalPath is the absolute path to the cloned repository root.
 	LocalPath string
 
-	// Ref is the actual ref checked out (may differ if HEAD was resolved).
+	// Ref is the actual ref checked out (may differ if HEAD was resolved)..
 	Ref string
 }
 
@@ -90,7 +97,7 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	// (cmd/go-code/resolve.go) and the lack of webhook-driven invalidation
 	// can leave the workspace stale relative to a recent push.
 	if _, statErr := os.Stat(localPath); statErr == nil {
-		if err := refreshClone(ctx, localPath, opts.Ref); err == nil {
+		if err := refreshClone(ctx, localPath, opts.Ref, opts.TokenFunc); err == nil {
 			return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 		}
 		// Refresh failed (corrupt repo, network blip, missing ref) — wipe
@@ -127,19 +134,38 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 }
 
-
 // refreshClone updates an existing shallow clone at localPath to match
 // remote origin's tip of ref (or default HEAD when ref is empty).
+// When tokenFunc is non-nil it is called to obtain a fresh installation
+// token; the token is injected via GIT_CONFIG_COUNT env variables so
+// .git/config is never modified.
 // Returns an error if any git operation fails so the caller can wipe
 // and re-clone instead of trusting potentially stale state.
-func refreshClone(ctx context.Context, localPath, ref string) error {
+func refreshClone(ctx context.Context, localPath, ref string, tokenFunc func(ctx context.Context) (string, error)) error {
 	branch := ref
 	if branch == "" {
 		branch = "HEAD"
 	}
 	fetch := exec.CommandContext(ctx, "git", "-C", localPath,
 		"fetch", "--depth=2", "origin", branch)
-	fetch.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if tokenFunc != nil {
+		tok, err := tokenFunc(ctx)
+		if err != nil {
+			return fmt.Errorf("refresh token: %w", err)
+		}
+		// Inject fresh token via git's per-process config override.
+		// Basic auth with user=x-access-token is the standard for GitHub
+		// App installation tokens (ghs_). Bearer is accepted too, but
+		// http.extraheader with Basic is the canonical git credential form.
+		cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + tok))
+		env = append(env,
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+			"GIT_CONFIG_VALUE_0=Authorization: Basic "+cred,
+		)
+	}
+	fetch.Env = env
 	if out, err := fetch.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch: %w\n%s", err, string(out))
 	}
