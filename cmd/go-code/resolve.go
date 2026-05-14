@@ -81,6 +81,7 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 			DestDir:     deps.WorkspaceDir,
 			GithubToken: token,
 			CloneURL:    cloneURL,
+			TokenFunc:   deps.CloneTokenFunc,
 		})
 		if err != nil {
 			return "", nil, fmt.Errorf("clone: %w", err)
