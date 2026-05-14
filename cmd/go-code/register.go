@@ -51,8 +51,9 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			llm.WithMaxTokens(cfg.LLMMaxTokens),
 		),
 		MaxFileBytes: cfg.MaxFileBytes,
-		GithubToken:  cfg.GithubToken,
-		WorkspaceDir: cfg.WorkspaceDir,
+		GithubToken:    cfg.GithubToken,
+		CloneTokenFunc: buildCloneTokenFunc(cfg),
+		WorkspaceDir:   cfg.WorkspaceDir,
 		PathMappings: cfg.PathMappings,
 		ParseCache:   parseCache,
 		LLMCache:     llmCache,
@@ -290,4 +291,30 @@ func (a *symbolBoostAdapter) SearchBySymbolName(
 		hits[i] = analyze.SymbolHit{FilePath: r.FilePath}
 	}
 	return hits, nil
+}
+
+// buildCloneTokenFunc returns a CloneTokenFunc for analyze.Deps.
+// When GitHub App credentials are fully configured, returns appTokenSource.Token
+// (issues ghs_ installation tokens with auto-refresh).
+// Otherwise returns a static closure that yields the configured PAT.
+func buildCloneTokenFunc(cfg Config) func(ctx context.Context) (string, error) {
+	if cfg.GithubAppConfig.IsConfigured() {
+		src, err := forge.NewAppTokenSource(forge.AppAuthConfig{
+			AppID:          cfg.GithubAppConfig.AppID,
+			InstallationID: cfg.GithubAppConfig.InstallationID,
+			PrivateKeyPEM:  cfg.GithubAppConfig.KeyPEM,
+		})
+		if err != nil {
+			slog.Warn("github app token source init failed; clone will use PAT fallback",
+				slog.Any("error", err),
+			)
+			// Fall through to PAT.
+		} else {
+			return src.Token
+		}
+	}
+	pat := cfg.GithubToken
+	return func(_ context.Context) (string, error) {
+		return pat, nil
+	}
 }

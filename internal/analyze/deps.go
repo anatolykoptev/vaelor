@@ -1,6 +1,8 @@
 package analyze
 
 import (
+	"context"
+
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 	"github.com/anatolykoptev/go-kit/llm"
 
@@ -30,7 +32,14 @@ type Deps struct {
 	MaxFileBytes int64
 
 	// GithubToken is the optional GitHub token for cloning private repos.
+	// Deprecated: prefer CloneTokenFunc for dynamic tokens (e.g. GitHub App installation tokens).
+	// Kept for backwards-compat; CloneTokenFunc takes precedence when set.
 	GithubToken string
+
+	// CloneTokenFunc returns a token for authenticated git clones.
+	// When set, it overrides GithubToken. Use forge.AppTokenSource.Token for
+	// GitHub App installation tokens (ghs_), or a static closure for PATs.
+	CloneTokenFunc func(ctx context.Context) (string, error)
 
 	// WorkspaceDir is the directory used for temporary clones.
 	WorkspaceDir string

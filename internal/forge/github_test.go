@@ -314,3 +314,44 @@ func TestGitHubSearchIssues_UnprocessableEntity(t *testing.T) {
 		t.Fatal("expected error for 422, got nil")
 	}
 }
+
+func TestAppConfigIsConfigured(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  AppConfig
+		want bool
+	}{
+		{
+			name: "all zero",
+			cfg:  AppConfig{},
+			want: false,
+		},
+		{
+			name: "AppID only",
+			cfg:  AppConfig{AppID: 42},
+			want: false,
+		},
+		{
+			name: "AppID and InstallationID, no KeyPEM",
+			cfg:  AppConfig{AppID: 42, InstallationID: 99},
+			want: false,
+		},
+		{
+			name: "all fields set",
+			cfg:  AppConfig{AppID: 42, InstallationID: 99, KeyPEM: []byte("pem")},
+			want: true,
+		},
+		{
+			name: "InstallationID and KeyPEM, no AppID",
+			cfg:  AppConfig{InstallationID: 99, KeyPEM: []byte("pem")},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.IsConfigured(); got != tc.want {
+				t.Errorf("IsConfigured() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
