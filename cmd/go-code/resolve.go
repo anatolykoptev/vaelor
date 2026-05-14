@@ -69,13 +69,17 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 		if !ok {
 			return "", nil, fmt.Errorf("invalid repo: cannot extract slug from %q", repo)
 		}
+		token, tokErr := cloneToken(ctx, deps)
+		if tokErr != nil {
+			return "", nil, fmt.Errorf("get clone token: %w", tokErr)
+		}
 		kind := forge.DetectForge(repo)
-		cloneURL := forge.CloneURL(kind, slug, "", deps.GithubToken)
+		cloneURL := forge.CloneURL(kind, slug, "", token)
 		result, err := ingest.CloneRepo(ctx, ingest.CloneOpts{
 			Slug:        slug,
 			Ref:         ref,
 			DestDir:     deps.WorkspaceDir,
-			GithubToken: deps.GithubToken,
+			GithubToken: token,
 			CloneURL:    cloneURL,
 		})
 		if err != nil {
@@ -98,4 +102,14 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 		return "", nil, fmt.Errorf("local path %q: not a directory", repo)
 	}
 	return repo, func() {}, nil
+}
+
+// cloneToken returns the token to use for authenticated git clones.
+// Prefers CloneTokenFunc (GitHub App installation token) when set;
+// falls back to the static GithubToken PAT.
+func cloneToken(ctx context.Context, deps analyze.Deps) (string, error) {
+	if deps.CloneTokenFunc != nil {
+		return deps.CloneTokenFunc(ctx)
+	}
+	return deps.GithubToken, nil
 }

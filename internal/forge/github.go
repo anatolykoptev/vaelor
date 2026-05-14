@@ -21,6 +21,12 @@ type AppConfig struct {
 	KeyPEM []byte
 }
 
+// IsConfigured reports whether all three App credentials are present.
+// When false, callers should fall back to a static PAT.
+func (a AppConfig) IsConfigured() bool {
+	return a.AppID != 0 && a.InstallationID != 0 && len(a.KeyPEM) > 0
+}
+
 const (
 	ghDefaultAPIBase = "https://api.github.com"
 	ghDefaultTimeout = 15 * time.Second
