@@ -55,21 +55,20 @@ func TestRunesBasic(t *testing.T) {
 		}
 	}
 
-	// Line 5 of runes_basic.svelte is `let { name = "anon" } = $props();` — destructured
-	// $props must emit exactly one KindRune with RuneKind="props" and StartLine=5.
-	propsDestructured, hasPD := byName["$props"]
-	if !hasPD {
-		t.Errorf("missing $props symbol for destructured let { name } = $props(); got %v", runeSymbolNames(result.Symbols))
-	} else {
-		if propsDestructured.Kind != parser.KindRune {
-			t.Errorf("$props: Kind = %q, want rune", propsDestructured.Kind)
+	// Line 5 of runes_basic.svelte is `let { name = "anon" } = $props();` -- destructured.
+	// Since dual-emit was added, $props also appears as a secondary symbol name for bound
+	// $props.id() declarations. Search all symbols for a $props rune on line 5.
+	var propsLine5 *parser.Symbol
+	for _, s := range result.Symbols {
+		if s.Name == "$props" && s.Kind == parser.KindRune && s.StartLine == 5 {
+			propsLine5 = s
+			break
 		}
-		if propsDestructured.RuneKind != "props" {
-			t.Errorf("$props: RuneKind = %q, want props", propsDestructured.RuneKind)
-		}
-		if propsDestructured.StartLine != 5 {
-			t.Errorf("$props: StartLine = %d, want 5", propsDestructured.StartLine)
-		}
+	}
+	if propsLine5 == nil {
+		t.Errorf("missing $props KindRune symbol on line 5 (destructured $props()); got %v", runeSymbolNames(result.Symbols))
+	} else if propsLine5.RuneKind != "props" {
+		t.Errorf("$props (line 5): RuneKind = %q, want props", propsLine5.RuneKind)
 	}
 
 	// Standalone $effect, $effect.pre, $effect.root, $effect.tracking, $effect.pending.

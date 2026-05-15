@@ -97,6 +97,10 @@ func ExtractQueryKeywords(query string) []string {
 // using pg_trgm trigram similarity — correctly handles code abbreviations like
 // "init" matching "initializes", "llm" matching "llms" etc.
 // Returns results sorted by combined trigram similarity score DESC.
+//
+// Rune token secondary symbols are stored as "$state:L<line>" (e.g. "$state:L7").
+// The trigram similarity between "$state" and "$state:L7" is ≈0.57 (well above the
+// 0.1 threshold), so rune token queries work without special-casing.
 func (s *Store) SearchBySymbolName(
 	ctx context.Context,
 	repoKey string,
@@ -159,6 +163,8 @@ func (s *Store) SearchBySymbolName(
 }
 
 // searchBySymbolNameFallback uses ILIKE when tsvector is unavailable.
+// For rune token queries (e.g. "$state"), the ILIKE pattern "%$state%" naturally
+// matches the line-disambiguated form "$state:L7" stored in the index.
 func (s *Store) searchBySymbolNameFallback(ctx context.Context, repoKey string, keywords []string, language string, limit int) ([]SearchResult, error) {
 	patterns := make([]string, len(keywords))
 	for i, kw := range keywords {
