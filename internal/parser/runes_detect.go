@@ -51,8 +51,14 @@ func walkRuneNodes(node *sitter.Node, src []byte, out *[]*Symbol, path string) {
 		// Walk the expression chain rooted at child(0) to find the innermost
 		// rune call_expression. Handles both direct calls ($effect(...)) and
 		// chained calls ($inspect(val).with(cb)) where the rune is the chain root.
+		//
+		// The symbol Name is suffixed with ":L<line>" so that two $effect statements
+		// in the same file produce distinct (repo_key, file_path, symbol_name) DB rows.
+		// Format matches the secondary symbol emitted by runeFromDeclaratorAll so
+		// consumers (symbol search, ILIKE %$effect%) see a consistent naming scheme.
 		if node.ChildCount() > 0 {
 			if sym := runeFromExprChain(node.Child(0), src, path); sym != nil {
+				sym.Name = sym.Name + ":L" + strconv.FormatUint(uint64(sym.StartLine), 10)
 				*out = append(*out, sym)
 			}
 		}

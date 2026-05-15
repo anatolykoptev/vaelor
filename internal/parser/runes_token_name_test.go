@@ -54,13 +54,6 @@ func TestRuneTokenNameNormalization(t *testing.T) {
 			}
 
 			if tokenSym == nil {
-				// $effect with a variable binding is unusual — effect is normally
-				// used as a statement, not an assignment. If no token sym found,
-				// check if this is one of those cases and skip gracefully.
-				if c.name == "effect_plain" {
-					t.Skipf("$effect bound to variable may not produce dual-emit (statement form only); got: %v",
-						runeSymbolNames(result.Symbols))
-				}
 				t.Fatalf("no secondary symbol with prefix %q found; all symbols: %v",
 					prefix, runeSymbolNames(result.Symbols))
 			}

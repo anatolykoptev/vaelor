@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -62,6 +63,57 @@ func TestRuneAssignmentChain(t *testing.T) {
 		}
 		if stopSym.RuneKind != "inspect" {
 			t.Errorf("stop: RuneKind = %q, want inspect", stopSym.RuneKind)
+		}
+	}
+}
+
+// TestRuneDualEmitStatementForm verifies that two $effect statements (expression_statement
+// form, no variable binding) in the same file produce distinct KindRune symbols.
+//
+// This is the most common real-world $effect usage. Before the fix, both statements
+// produced Name="$effect", causing a (repo_key, file_path, symbol_name) PRIMARY KEY
+// collision in the DB. After the fix, each emits "$effect:L<n>" with its own line number.
+//
+// Also covers $effect.pre, which uses the same expression_statement code path.
+func TestRuneDualEmitStatementForm(t *testing.T) {
+	src := []byte(`<script>
+  $effect(() => { console.log('a'); });
+  $effect(() => { console.log('b'); });
+  $effect.pre(() => { console.log('pre-a'); });
+  $effect.pre(() => { console.log('pre-b'); });
+</script>`)
+	result, err := parser.ParseFile("dual_stmt.svelte", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	// Collect all effect rune symbols that have the ":L" suffix (statement form).
+	var stmtSyms []*parser.Symbol
+	for _, s := range result.Symbols {
+		if s.Kind == parser.KindRune && s.RuneKind == "effect" && strings.Contains(s.Name, ":L") {
+			stmtSyms = append(stmtSyms, s)
+		}
+	}
+
+	// 2 $effect + 2 $effect.pre statements → 4 distinct line-suffixed symbols.
+	if len(stmtSyms) != 4 {
+		t.Fatalf("expected 4 effect:L* symbols (2 $effect + 2 $effect.pre), got %d: %v",
+			len(stmtSyms), runeSymbolNames(result.Symbols))
+	}
+
+	// All Names must be distinct (no PK collision).
+	seen := make(map[string]bool, len(stmtSyms))
+	for _, s := range stmtSyms {
+		if seen[s.Name] {
+			t.Errorf("duplicate statement-form symbol Name=%q (PK collision); all: %v",
+				s.Name, runeSymbolNames(result.Symbols))
+		}
+		seen[s.Name] = true
+		if s.Kind != parser.KindRune {
+			t.Errorf("symbol %q: Kind=%q, want rune", s.Name, s.Kind)
+		}
+		if s.RuneKind != "effect" {
+			t.Errorf("symbol %q: RuneKind=%q, want effect", s.Name, s.RuneKind)
 		}
 	}
 }
