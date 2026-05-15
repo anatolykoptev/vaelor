@@ -213,3 +213,12 @@ func TestIsReadOnly(t *testing.T) {
 		})
 	}
 }
+
+// TestAgeSetupNoLOAD verifies that ageSetup no longer contains a LOAD directive.
+// Regression guard: per-connection LOAD was removed in favour of shared_preload_libraries.
+// If this test fails, someone re-introduced LOAD — verify postgresql.conf instead.
+func TestAgeSetupNoLOAD(t *testing.T) {
+	if strings.Contains(strings.ToUpper(ageSetup), "LOAD") {
+		t.Errorf("ageSetup must not contain LOAD directive (rely on shared_preload_libraries): %q", ageSetup)
+	}
+}

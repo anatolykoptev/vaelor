@@ -81,6 +81,11 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 		} else {
 			dbPool = p
 			graphStore = codegraph.NewStore(dbPool)
+			// Verify AGE is server-preloaded. Per-connection LOAD was removed in favour of
+			// shared_preload_libraries; fail loudly here rather than silently at query time.
+			if err := graphStore.CheckAGEPreloaded(context.Background()); err != nil {
+				slog.Error("AGE startup check failed — graph queries will fail", slog.Any("error", err))
+			}
 		}
 	}
 

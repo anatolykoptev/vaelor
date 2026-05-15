@@ -16,8 +16,9 @@ import (
 const graphExistsCacheTTL = 30 * time.Second
 
 // ageSetup runs per-connection AGE initialization.
-// LOAD '$libdir/plugins/age' must be called on each connection before using AGE types/operators.
-const ageSetup = `LOAD '$libdir/plugins/age'; SET search_path TO ag_catalog, "$user", public`
+// Requires AGE to be in shared_preload_libraries (verified at startup by CheckAGEPreloaded).
+// Only sets the search path — LOAD is not needed when AGE is server-preloaded.
+const ageSetup = `SET search_path TO ag_catalog, "$user", public`
 
 // metaTableSQL defines the schema for tracking built code graphs.
 const metaTableSQL = `
@@ -72,6 +73,24 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // Pool returns the underlying connection pool (for testing and diagnostics).
 func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
+}
+
+// CheckAGEPreloaded verifies that the AGE extension is loaded in PostgreSQL.
+// Call once at service startup — before any Cypher query — to fail fast if
+// shared_preload_libraries does not include 'age'. Without server-side preloading
+// AGE types/operators are unavailable and all graph operations will fail.
+func (s *Store) CheckAGEPreloaded(ctx context.Context) error {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM pg_extension WHERE extname = 'age'`,
+	).Scan(&n); err != nil {
+		return fmt.Errorf("age extension probe: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("AGE extension not loaded: add 'age' to shared_preload_libraries in postgresql.conf and restart postgres")
+	}
+	slog.Info("AGE extension confirmed preloaded")
+	return nil
 }
 
 // HasAGE checks if Apache AGE extension is available in this PostgreSQL instance.
