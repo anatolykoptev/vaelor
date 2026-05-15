@@ -9,8 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ageExpandSetup runs per-connection AGE initialization required before Cypher.
-const ageExpandSetup = `LOAD '$libdir/plugins/age'; SET search_path TO ag_catalog, "$user", public`
+// ageExpandSetup sets the search path for AGE Cypher queries.
+// Requires AGE in shared_preload_libraries (verified at startup by codegraph.Store.CheckAGEPreloaded).
+const ageExpandSetup = `SET search_path TO ag_catalog, "$user", public`
 
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
 const graphRowCols = 3
