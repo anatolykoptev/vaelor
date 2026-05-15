@@ -16,12 +16,17 @@ import (
 )
 
 const (
-	semanticRerankTimeout = 15 * time.Second
 	semanticRerankTopN    = 20 // max docs sent to reranker
 	codeSignatureLines    = 5  // lines to read for CE context
 )
 
-var semanticRerankClient = &http.Client{Timeout: semanticRerankTimeout}
+var semanticRerankTimeout = 15 * time.Second // set in init via parseTimeoutSecs
+var semanticRerankClient *http.Client
+
+func init() {
+	semanticRerankTimeout = parseTimeoutSecs("GOCODE_SEMANTIC_RERANK_TIMEOUT_S", 15*time.Second)
+	semanticRerankClient = &http.Client{Timeout: semanticRerankTimeout}
+}
 
 // readCodeSignature reads the first nLines lines from a source file starting
 // at startLine. Returns empty string on any error — CE falls back gracefully.
