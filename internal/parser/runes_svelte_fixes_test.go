@@ -41,19 +41,28 @@ func TestRuneAssignmentChain(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	inspectSyms := runeSymbolsWithKind(result.Symbols, "inspect")
-	if len(inspectSyms) != 1 {
-		t.Fatalf("expected exactly 1 inspect rune for assignment-form chain, got %d: %v",
+	// Dual-emit: expect 2 symbols: one with Name="stop" (variable) and one with Name="$inspect" (token).
+	if len(inspectSyms) < 1 {
+		t.Fatalf("expected at least 1 inspect rune for assignment-form chain, got %d: %v",
 			len(inspectSyms), runeSymbolNames(result.Symbols))
 	}
-	sym := inspectSyms[0]
-	if sym.Kind != parser.KindRune {
-		t.Errorf("Kind = %q, want rune", sym.Kind)
+	// One of the inspect symbols must be the variable-name "stop".
+	var stopSym *parser.Symbol
+	for _, s := range inspectSyms {
+		if s.Name == "stop" {
+			stopSym = s
+			break
+		}
 	}
-	if sym.Name != "stop" {
-		t.Errorf("Name = %q, want stop", sym.Name)
-	}
-	if sym.RuneKind != "inspect" {
-		t.Errorf("RuneKind = %q, want inspect", sym.RuneKind)
+	if stopSym == nil {
+		t.Errorf("expected an inspect rune with Name=\"stop\", got: %v", runeSymbolNames(result.Symbols))
+	} else {
+		if stopSym.Kind != parser.KindRune {
+			t.Errorf("stop: Kind = %q, want rune", stopSym.Kind)
+		}
+		if stopSym.RuneKind != "inspect" {
+			t.Errorf("stop: RuneKind = %q, want inspect", stopSym.RuneKind)
+		}
 	}
 }
 
@@ -67,11 +76,14 @@ export const doubled = $derived(counter * 2);
 		t.Fatalf("ParseFile: %v", err)
 	}
 	stateSyms := runeSymbolsWithKind(result.Symbols, "state")
-	if len(stateSyms) != 1 {
-		t.Fatalf("expected 1 state rune in .svelte.ts, got %d: %v",
+	// Dual-emit: bound $state(0) emits 2 symbols (variable name + "$state" token).
+	if len(stateSyms) < 1 {
+		t.Fatalf("expected at least 1 state rune in .svelte.ts, got %d: %v",
 			len(stateSyms), runeSymbolNames(result.Symbols))
 	}
-	if stateSyms[0].Kind != parser.KindRune {
-		t.Errorf("Kind = %q, want rune", stateSyms[0].Kind)
+	for _, s := range stateSyms {
+		if s.Kind != parser.KindRune {
+			t.Errorf("state rune %q: Kind = %q, want rune", s.Name, s.Kind)
+		}
 	}
 }

@@ -187,3 +187,89 @@ func TestRuneLineNumbers(t *testing.T) {
 		t.Errorf("missing symbol 'doubled'")
 	}
 }
+// TestRuneDualEmit verifies that bound rune declarations emit BOTH the variable name
+// and the rune token name as separate KindRune symbols with the same line/kind.
+//
+// This enables both:
+//   - symbol_search query="count"  -> finds the declaration site
+//   - symbol_search query="$state" -> finds every $state site in the repo
+func TestRuneDualEmit(t *testing.T) {
+	src := []byte(`<script>
+  let count = $state(0);
+  let doubled = $derived(count * 2);
+  let sum = $derived.by(() => count + 1);
+</script>`)
+
+	result, err := parser.ParseFile("dual_emit.svelte", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	// Build a multi-map: name -> list of symbols.
+	byName := make(map[string][]*parser.Symbol)
+	for _, s := range result.Symbols {
+		byName[s.Name] = append(byName[s.Name], s)
+	}
+
+	// let count = $state(0) -> must emit "count" AND "$state"
+	if _, ok := byName["count"]; !ok {
+		t.Errorf("missing symbol %q; got %v", "count", runeSymbolNames(result.Symbols))
+	}
+	stateSyms, hasState := byName["$state"]
+	if !hasState {
+		t.Errorf("missing symbol %q; got %v", "$state", runeSymbolNames(result.Symbols))
+	} else {
+		for _, s := range stateSyms {
+			if s.Kind != parser.KindRune {
+				t.Errorf("$state symbol Kind=%q, want rune", s.Kind)
+			}
+			if s.RuneKind != "state" {
+				t.Errorf("$state symbol RuneKind=%q, want state", s.RuneKind)
+			}
+		}
+	}
+
+	// let doubled = $derived(count * 2) -> must emit "doubled" AND "$derived"
+	if _, ok := byName["doubled"]; !ok {
+		t.Errorf("missing symbol %q; got %v", "doubled", runeSymbolNames(result.Symbols))
+	}
+	derivedSyms, hasDerived := byName["$derived"]
+	if !hasDerived {
+		t.Errorf("missing symbol %q; got %v", "$derived", runeSymbolNames(result.Symbols))
+	} else {
+		for _, s := range derivedSyms {
+			if s.RuneKind != "derived" {
+				t.Errorf("$derived symbol RuneKind=%q, want derived", s.RuneKind)
+			}
+		}
+	}
+
+	// let sum = $derived.by(...) -> must emit "sum" AND "$derived" (normalised from $derived.by)
+	if _, ok := byName["sum"]; !ok {
+		t.Errorf("missing symbol %q; got %v", "sum", runeSymbolNames(result.Symbols))
+	}
+	if sumSyms, ok := byName["sum"]; ok {
+		for _, s := range sumSyms {
+			if s.RuneKind != "derived" {
+				t.Errorf("sum symbol RuneKind=%q, want derived", s.RuneKind)
+			}
+		}
+	}
+
+	// The $state symbol must share StartLine with the "count" symbol.
+	countSyms := byName["count"]
+	if len(countSyms) > 0 && hasState {
+		countLine := countSyms[0].StartLine
+		found := false
+		for _, s := range stateSyms {
+			if s.StartLine == countLine {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no $state symbol on line %d (count line); $state symbols: %v",
+				countLine, stateSyms)
+		}
+	}
+}
