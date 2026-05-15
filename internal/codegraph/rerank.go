@@ -18,12 +18,17 @@ const (
 	rerankModel         = "gte-multi-rerank"
 	rerankDeadCodeQuery = "orphaned function with no callers that is a bug risk"
 	rerankTopN          = 20
-	rerankTimeout       = 35 * time.Second
 	// rerankPreFilterN is the max docs sent to reranker; ~4s for 20 docs on ARM.
 	rerankPreFilterN = 20
 )
 
-var rerankHTTPClient = &http.Client{Timeout: rerankTimeout}
+var rerankTimeout = 35 * time.Second // set in init via parseTimeoutSecs
+var rerankHTTPClient *http.Client
+
+func init() {
+	rerankTimeout = parseTimeoutSecs("GOCODE_RERANK_TIMEOUT_S", 35*time.Second)
+	rerankHTTPClient = &http.Client{Timeout: rerankTimeout}
+}
 
 // rerankRequest is the Cohere-compatible rerank API request.
 type rerankRequest struct {
