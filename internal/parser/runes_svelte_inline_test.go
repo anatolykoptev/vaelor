@@ -187,3 +187,149 @@ func TestRuneLineNumbers(t *testing.T) {
 		t.Errorf("missing symbol 'doubled'")
 	}
 }
+// TestRuneDualEmit verifies that bound rune declarations emit BOTH the variable name
+// and the line-disambiguated rune token name as separate KindRune symbols.
+//
+// Secondary symbol names use the format "$token:L<line>" (e.g. "$state:L2") so that
+// multiple $state bindings in the same file produce distinct DB rows under the
+// (repo_key, file_path, symbol_name) PRIMARY KEY.
+//
+// This enables both:
+//   - symbol_search query="count"  -> finds the declaration site via variable name
+//   - symbol_search query="$state" -> finds every $state site via trigram/ILIKE match on "$state:L<n>"
+func TestRuneDualEmit(t *testing.T) {
+	src := []byte(`<script>
+  let count = $state(0);
+  let doubled = $derived(count * 2);
+  let sum = $derived.by(() => count + 1);
+</script>`)
+
+	result, err := parser.ParseFile("dual_emit.svelte", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	// Helper: collect all symbols whose Name starts with a given prefix.
+	byPrefix := func(prefix string) []*parser.Symbol {
+		var out []*parser.Symbol
+		for _, s := range result.Symbols {
+			if len(s.Name) >= len(prefix) && s.Name[:len(prefix)] == prefix {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	byExact := func(name string) []*parser.Symbol {
+		var out []*parser.Symbol
+		for _, s := range result.Symbols {
+			if s.Name == name {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+
+	// let count = $state(0) -> "count" (exact) + "$state:L2" (token)
+	if syms := byExact("count"); len(syms) != 1 {
+		t.Errorf("expected 1 symbol named \"count\", got %d: %v", len(syms), runeSymbolNames(result.Symbols))
+	}
+	stateTokenSyms := byPrefix("$state:L")
+	if len(stateTokenSyms) != 1 {
+		t.Errorf("expected 1 token symbol matching \"$state:L*\", got %d: %v",
+			len(stateTokenSyms), runeSymbolNames(result.Symbols))
+	} else {
+		s := stateTokenSyms[0]
+		if s.Kind != parser.KindRune {
+			t.Errorf("$state token symbol Kind=%q, want rune", s.Kind)
+		}
+		if s.RuneKind != "state" {
+			t.Errorf("$state token symbol RuneKind=%q, want state", s.RuneKind)
+		}
+		// Token symbol must share StartLine with "count" primary symbol.
+		countSyms := byExact("count")
+		if len(countSyms) > 0 && s.StartLine != countSyms[0].StartLine {
+			t.Errorf("$state:L token StartLine=%d, want %d (count line)",
+				s.StartLine, countSyms[0].StartLine)
+		}
+	}
+
+	// let doubled = $derived(count * 2) + let sum = $derived.by(...) -> 2 "$derived:L*" tokens
+	derivedTokenSyms := byPrefix("$derived:L")
+	if len(derivedTokenSyms) != 2 {
+		t.Errorf("expected 2 token symbols matching \"$derived:L*\" (doubled + sum), got %d: %v",
+			len(derivedTokenSyms), runeSymbolNames(result.Symbols))
+	} else {
+		for _, s := range derivedTokenSyms {
+			if s.RuneKind != "derived" {
+				t.Errorf("$derived token symbol RuneKind=%q, want derived", s.RuneKind)
+			}
+		}
+	}
+
+	// Primary variable symbols must still be present.
+	for _, name := range []string{"count", "doubled", "sum"} {
+		if syms := byExact(name); len(syms) != 1 {
+			t.Errorf("expected 1 primary symbol %q, got %d: %v", name, len(syms), runeSymbolNames(result.Symbols))
+		}
+	}
+}
+
+// TestRuneDualEmitMultiState is the BLOCKER regression test: a file with 2+ $state
+// bindings must emit a distinct secondary token symbol for EACH one.
+// Before the fix: pipeline dedup (key=file+":"+name) and DB PK (repo,file,symbol_name)
+// both collapsed them to one row. After the fix: each gets "$state:L<line>" so all survive.
+func TestRuneDualEmitMultiState(t *testing.T) {
+	src := []byte(`<script>
+  let a = $state(0);
+  let b = $state(1);
+  let c = $state("hello");
+</script>`)
+
+	result, err := parser.ParseFile("multi_state.svelte", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	// Collect all "$state:L*" token symbols.
+	var stateTokenSyms []*parser.Symbol
+	for _, s := range result.Symbols {
+		if len(s.Name) > 7 && s.Name[:8] == "$state:L" {
+			stateTokenSyms = append(stateTokenSyms, s)
+		}
+	}
+
+	// 3 $state bindings -> 3 distinct token symbols: "$state:L2", "$state:L3", "$state:L4"
+	if len(stateTokenSyms) != 3 {
+		t.Errorf("expected 3 $state:L* token symbols (one per binding), got %d: %v",
+			len(stateTokenSyms), runeSymbolNames(result.Symbols))
+	}
+
+	// All 3 must have distinct Names (distinct lines).
+	seen := make(map[string]bool)
+	for _, s := range stateTokenSyms {
+		if seen[s.Name] {
+			t.Errorf("duplicate token symbol Name=%q; all: %v", s.Name, runeSymbolNames(result.Symbols))
+		}
+		seen[s.Name] = true
+		if s.Kind != parser.KindRune {
+			t.Errorf("token symbol %q Kind=%q, want rune", s.Name, s.Kind)
+		}
+		if s.RuneKind != "state" {
+			t.Errorf("token symbol %q RuneKind=%q, want state", s.Name, s.RuneKind)
+		}
+	}
+
+	// Primary symbols must still be present: "a", "b", "c"
+	for _, name := range []string{"a", "b", "c"} {
+		found := false
+		for _, s := range result.Symbols {
+			if s.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing primary symbol %q; all: %v", name, runeSymbolNames(result.Symbols))
+		}
+	}
+}

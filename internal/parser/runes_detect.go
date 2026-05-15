@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strconv"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -11,9 +12,9 @@ import (
 // (the switch-case in CallExpression visitor), Svelte v5.x main branch as of 2026-04-16.
 //
 // Anti-patterns NOT in this map (do not add):
-//   - $$slots, $$props, $$restProps — legacy Svelte 4 double-dollar variables, not runes.
-//   - $.proxy, $.computed, $.user_effect, etc. — Svelte 5 internal helpers (start with "$.").
-//   - $inspect.with — this is a CHAINED method on $inspect(value) results, not an
+//   - $$slots, $$props, $$restProps -- legacy Svelte 4 double-dollar variables, not runes.
+//   - $.proxy, $.computed, $.user_effect, etc. -- Svelte 5 internal helpers (start with "$.").
+//   - $inspect.with -- this is a CHAINED method on $inspect(value) results, not an
 //     independent rune. On the AST level it surfaces as a separate call_expression
 //     on the result of $inspect(); the inner $inspect(value) is correctly classified.
 //
@@ -45,15 +46,19 @@ var runeKindMap = map[string]string{
 func walkRuneNodes(node *sitter.Node, src []byte, out *[]*Symbol, path string) {
 	switch node.Type() {
 	case "variable_declarator":
-		if sym := runeFromDeclarator(node, src, path); sym != nil {
-			*out = append(*out, sym)
-		}
+		runeFromDeclaratorAll(node, src, path, out)
 	case "expression_statement":
 		// Walk the expression chain rooted at child(0) to find the innermost
 		// rune call_expression. Handles both direct calls ($effect(...)) and
 		// chained calls ($inspect(val).with(cb)) where the rune is the chain root.
+		//
+		// The symbol Name is suffixed with ":L<line>" so that two $effect statements
+		// in the same file produce distinct (repo_key, file_path, symbol_name) DB rows.
+		// Format matches the secondary symbol emitted by runeFromDeclaratorAll so
+		// consumers (symbol search, ILIKE %$effect%) see a consistent naming scheme.
 		if node.ChildCount() > 0 {
 			if sym := runeFromExprChain(node.Child(0), src, path); sym != nil {
+				sym.Name = sym.Name + ":L" + strconv.FormatUint(uint64(sym.StartLine), 10)
 				*out = append(*out, sym)
 			}
 		}
@@ -65,8 +70,8 @@ func walkRuneNodes(node *sitter.Node, src []byte, out *[]*Symbol, path string) {
 
 // runeFromExprChain finds the innermost rune call_expression in a call chain.
 // Handles:
-//   - direct:   $effect(...)           → call_expression{function=identifier}
-//   - chained:  $inspect(val).with(cb) → call_expression{function=member_expression{
+//   - direct:   $effect(...)           -> call_expression{function=identifier}
+//   - chained:  $inspect(val).with(cb) -> call_expression{function=member_expression{
 //     object=call_expression{function=identifier("$inspect")}}}
 //
 // Returns the first (leftmost) rune call found by peeling the chain inward.
@@ -109,44 +114,93 @@ func innermostRuneCall(node *sitter.Node) *sitter.Node {
 	return node
 }
 
-// runeFromDeclarator attempts to build a KindRune symbol from a variable_declarator
-// whose `value` child is a rune call_expression. Returns nil if not a rune.
+// runeFromDeclaratorAll emits all KindRune symbols for a variable_declarator node.
 //
-// Handles three forms:
-//   - Simple:       let count = $state(0)
-//   - Chain:        let stop = $inspect(count).with(callback)
-//   - Destructure:  let { name } = $props()
-func runeFromDeclarator(node *sitter.Node, src []byte, path string) *Symbol {
+// For bound identifiers (let x = $state(0)), two symbols are emitted:
+//   - Name = varName  ("x")        -- allows lookup by variable name
+//   - Name = "$state:L<line>"     -- allows lookup by rune token; line-disambiguated
+//     so two $state bindings in the same file get distinct DB rows in the
+//     (repo_key, file_path, symbol_name) PRIMARY KEY.
+//
+// Same line range and RuneKind for both. The rune-token name is the root rune
+// (e.g. "$state" for "$state.raw", "$derived" for "$derived.by").
+//
+// For destructuring patterns (let { a } = $props()), one symbol is emitted
+// with Name = "$props" (existing behaviour unchanged).
+func runeFromDeclaratorAll(node *sitter.Node, src []byte, path string, out *[]*Symbol) {
 	nameNode := node.ChildByFieldName("name")
 	valueNode := node.ChildByFieldName("value")
 	if nameNode == nil || valueNode == nil {
-		return nil
+		return
 	}
 
 	if nameNode.Type() == "identifier" {
 		varName := nameNode.Content(src)
 		innerCall := innermostRuneCall(valueNode)
 		if innerCall == nil {
-			return nil
+			return
 		}
-		return runeFromCallExpr(innerCall, src, path, varName)
+		// Primary symbol: name = variable name (e.g. "count").
+		primary := runeFromCallExpr(innerCall, src, path, varName)
+		if primary == nil {
+			return
+		}
+		*out = append(*out, primary)
+
+		// Secondary symbol: name = "$state:L<line>" (e.g. "$state:L7").
+		// Line suffix disambiguates multiple rune bindings in the same file so each
+		// gets a distinct (repo_key, file_path, symbol_name) DB row. Semantic search
+		// (trigram similarity) and ILIKE %$state% both match the suffixed form.
+		tokenName := runeTokenName(innerCall, src)
+		if tokenName != "" && tokenName != varName {
+			suffixedName := tokenName + ":L" + strconv.FormatUint(uint64(primary.StartLine), 10)
+			secondary := &Symbol{
+				Name:      suffixedName,
+				Kind:      KindRune,
+				RuneKind:  primary.RuneKind,
+				Language:  primary.Language,
+				File:      primary.File,
+				StartLine: primary.StartLine,
+				EndLine:   primary.EndLine,
+			}
+			*out = append(*out, secondary)
+		}
+		return
 	}
 
 	// Destructuring pattern (object_pattern, array_pattern, etc.).
 	// e.g. let { name = "anon", count } = $props();
 	// Emit a single rune symbol with empty varName (falls back to "$props").
-	// Anchor to the declarator's start line so the rune is locatable.
+	// Anchor to the declarator start line so the rune is locatable.
 	innerCall := innermostRuneCall(valueNode)
 	if innerCall == nil {
-		return nil
+		return
 	}
 	sym := runeFromCallExpr(innerCall, src, path, "")
 	if sym == nil {
-		return nil
+		return
 	}
 	sym.StartLine = node.StartPoint().Row + 1
 	sym.EndLine = node.EndPoint().Row + 1
-	return sym
+	*out = append(*out, sym)
+}
+
+// runeTokenName derives the canonical rune token name (e.g. "$state") from the
+// innermost rune call_expression node. Returns "" if the call is not a known rune.
+// Normalises dotted variants: "$state.raw" -> "$state", "$derived.by" -> "$derived".
+func runeTokenName(callNode *sitter.Node, src []byte) string {
+	if callNode == nil || callNode.Type() != "call_expression" {
+		return ""
+	}
+	funcNode := callNode.ChildByFieldName("function")
+	if funcNode == nil {
+		return ""
+	}
+	callText := funcNode.Content(src)
+	if _, ok := runeKindMap[callText]; !ok {
+		return ""
+	}
+	return "$" + strings.TrimPrefix(strings.SplitN(callText, ".", 2)[0], "$")
 }
 
 // runeFromCallExpr returns a KindRune symbol if callNode is a rune call_expression.
