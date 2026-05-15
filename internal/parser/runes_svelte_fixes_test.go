@@ -41,9 +41,9 @@ func TestRuneAssignmentChain(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	inspectSyms := runeSymbolsWithKind(result.Symbols, "inspect")
-	// Dual-emit: expect 2 symbols: one with Name="stop" (variable) and one with Name="$inspect" (token).
-	if len(inspectSyms) < 1 {
-		t.Fatalf("expected at least 1 inspect rune for assignment-form chain, got %d: %v",
+	// Dual-emit: expect 2 symbols: "stop" (variable) and "$inspect:L<line>" (token).
+	if len(inspectSyms) < 2 {
+		t.Fatalf("expected at least 2 inspect runes for assignment-form chain (variable + token), got %d: %v",
 			len(inspectSyms), runeSymbolNames(result.Symbols))
 	}
 	// One of the inspect symbols must be the variable-name "stop".
@@ -76,9 +76,9 @@ export const doubled = $derived(counter * 2);
 		t.Fatalf("ParseFile: %v", err)
 	}
 	stateSyms := runeSymbolsWithKind(result.Symbols, "state")
-	// Dual-emit: bound $state(0) emits 2 symbols (variable name + "$state" token).
-	if len(stateSyms) < 1 {
-		t.Fatalf("expected at least 1 state rune in .svelte.ts, got %d: %v",
+	// Dual-emit: bound $state(0) emits 2 symbols (variable name + "$state:L<n>" token).
+	if len(stateSyms) < 2 {
+		t.Fatalf("expected at least 2 state runes in .svelte.ts (variable + token), got %d: %v",
 			len(stateSyms), runeSymbolNames(result.Symbols))
 	}
 	for _, s := range stateSyms {

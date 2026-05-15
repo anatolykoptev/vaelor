@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strconv"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -110,8 +111,10 @@ func innermostRuneCall(node *sitter.Node) *sitter.Node {
 // runeFromDeclaratorAll emits all KindRune symbols for a variable_declarator node.
 //
 // For bound identifiers (let x = $state(0)), two symbols are emitted:
-//   - Name = varName  ("x")     -- allows lookup by variable name
-//   - Name = "$state"          -- allows lookup by rune token
+//   - Name = varName  ("x")        -- allows lookup by variable name
+//   - Name = "$state:L<line>"     -- allows lookup by rune token; line-disambiguated
+//     so two $state bindings in the same file get distinct DB rows in the
+//     (repo_key, file_path, symbol_name) PRIMARY KEY.
 //
 // Same line range and RuneKind for both. The rune-token name is the root rune
 // (e.g. "$state" for "$state.raw", "$derived" for "$derived.by").
@@ -138,12 +141,15 @@ func runeFromDeclaratorAll(node *sitter.Node, src []byte, path string, out *[]*S
 		}
 		*out = append(*out, primary)
 
-		// Secondary symbol: name = rune token (e.g. "$state").
-		// Lets symbol_search query="$state" find every bound declaration site.
+		// Secondary symbol: name = "$state:L<line>" (e.g. "$state:L7").
+		// Line suffix disambiguates multiple rune bindings in the same file so each
+		// gets a distinct (repo_key, file_path, symbol_name) DB row. Semantic search
+		// (trigram similarity) and ILIKE %$state% both match the suffixed form.
 		tokenName := runeTokenName(innerCall, src)
 		if tokenName != "" && tokenName != varName {
+			suffixedName := tokenName + ":L" + strconv.FormatUint(uint64(primary.StartLine), 10)
 			secondary := &Symbol{
-				Name:      tokenName,
+				Name:      suffixedName,
 				Kind:      KindRune,
 				RuneKind:  primary.RuneKind,
 				Language:  primary.Language,
