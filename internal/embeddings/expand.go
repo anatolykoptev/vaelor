@@ -10,7 +10,7 @@ import (
 )
 
 // ageExpandSetup runs per-connection AGE initialization required before Cypher.
-const ageExpandSetup = `LOAD 'age'; SET search_path TO ag_catalog, "$user", public`
+const ageExpandSetup = `LOAD '$libdir/plugins/age'; SET search_path TO ag_catalog, "$user", public`
 
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
 const graphRowCols = 3
