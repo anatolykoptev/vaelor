@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"os"
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
@@ -81,10 +82,13 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 		} else {
 			dbPool = p
 			graphStore = codegraph.NewStore(dbPool)
-			// Verify AGE is server-preloaded. Per-connection LOAD was removed in favour of
-			// shared_preload_libraries; fail loudly here rather than silently at query time.
-			if err := graphStore.CheckAGEPreloaded(context.Background()); err != nil {
-				slog.Error("AGE startup check failed — graph queries will fail", slog.Any("error", err))
+			// Preflight verifies AGE is server-preloaded (#111: per-connection LOAD removed)
+			// and that the role has ag_catalog USAGE + database CREATE privileges (#112).
+			// Fail fast at startup so operators get clear instructions rather than a
+			// cryptic permission error on the first repo index request.
+			if err := graphStore.Preflight(context.Background()); err != nil {
+				slog.Error("database: preflight failed", slog.Any("error", err))
+				os.Exit(1)
 			}
 		}
 	}

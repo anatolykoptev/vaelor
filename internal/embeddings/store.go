@@ -78,11 +78,32 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // EnsureSchema creates the pgvector extension and embeddings table if needed.
+// After creating tables it attempts to transfer ownership to CURRENT_USER
+// (best-effort: warns instead of failing if the role is not the table owner).
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	s.once.Do(func() {
 		_, s.initErr = s.pool.Exec(ctx, schemaSQL)
 		if s.initErr != nil {
 			slog.Error("embeddings: schema init failed", slog.Any("error", s.initErr))
+			return
+		}
+		// Best-effort ownership transfer so the connected role can TRUNCATE
+		// code_embeddings on reindex without needing explicit grants from an admin.
+		// Uses the SQL keyword CURRENT_USER (not a bind parameter) so it resolves
+		// to the actual connected role regardless of the DATABASE_URL role name.
+		for _, tbl := range []string{"code_embeddings", "code_repo_state"} {
+			// CURRENT_USER is a SQL keyword — not a bind parameter.
+			sql := "ALTER TABLE " + tbl + " OWNER TO CURRENT_USER"
+			conn, err := s.pool.Acquire(ctx)
+			if err != nil {
+				slog.Warn("embeddings: acquire for ownership transfer", slog.Any("error", err))
+				continue
+			}
+			if _, err := conn.Exec(ctx, sql); err != nil {
+				slog.Warn("embeddings: cannot transfer table ownership",
+					slog.String("table", tbl), slog.Any("error", err))
+			}
+			conn.Release()
 		}
 	})
 	return s.initErr
