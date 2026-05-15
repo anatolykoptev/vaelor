@@ -16,8 +16,8 @@ import (
 const graphExistsCacheTTL = 30 * time.Second
 
 // ageSetup runs per-connection AGE initialization.
-// LOAD 'age' must be called on each connection before using AGE types/operators.
-const ageSetup = `LOAD 'age'; SET search_path TO ag_catalog, "$user", public`
+// LOAD '$libdir/plugins/age' must be called on each connection before using AGE types/operators.
+const ageSetup = `LOAD '$libdir/plugins/age'; SET search_path TO ag_catalog, "$user", public`
 
 // metaTableSQL defines the schema for tracking built code graphs.
 const metaTableSQL = `
