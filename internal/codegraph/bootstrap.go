@@ -2,12 +2,8 @@ package codegraph
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Preflight checks that the connected role has the minimum database-level
@@ -89,42 +85,4 @@ func (s *Store) Preflight(ctx context.Context) error {
 			"run the GRANT statements logged above as a superuser, then restart go-code",
 		role, len(missing),
 	)
-}
-
-// transferTableOwnerIfPossible attempts ALTER TABLE <table> OWNER TO CURRENT_USER.
-// Best-effort: if the connected role is not the current owner (common after
-// a restore where a superuser created the tables), the ALTER fails with
-// SQLSTATE 42501 and we log a warning instead of returning an error.
-//
-// The SQL keyword CURRENT_USER is a Postgres built-in, not a bind parameter,
-// so it resolves to the connected role regardless of the DATABASE_URL role name.
-//
-// NOTE: The string "CURRENT_USER" must appear in the generated SQL — tests
-// assert this to prevent accidental hardcoding of a role name.
-func transferTableOwnerIfPossible(ctx context.Context, conn *pgxpool.Conn, table string) {
-	// CURRENT_USER is a SQL keyword — do NOT replace with a bind parameter.
-	sql := fmt.Sprintf(`ALTER TABLE %s OWNER TO CURRENT_USER`, table) //nolint:gosec // table is always a package-level constant
-	if _, err := conn.Exec(ctx, sql); err != nil {
-		if isInsufficientPrivilege(err) {
-			slog.Warn("codegraph: cannot transfer table ownership (not current owner); "+
-				"ensure explicit DML grants are in place",
-				slog.String("table", table))
-			return
-		}
-		slog.Warn("codegraph: transfer table owner",
-			slog.String("table", table), slog.Any("error", err))
-	}
-}
-
-// isInsufficientPrivilege reports whether err is SQLSTATE 42501
-// (insufficient_privilege / "must be owner of …").
-func isInsufficientPrivilege(err error) bool {
-	if err == nil {
-		return false
-	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "42501"
-	}
-	return false
 }
