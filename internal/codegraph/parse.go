@@ -2,7 +2,9 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"runtime"
@@ -34,10 +36,20 @@ type templateFileRef struct {
 	line       uint32
 }
 
+// read_error skip-reason keys, broken out by errno class for operational
+// diagnostics. "read_error_missing" (ENOENT) is the signature of the
+// WalkDir-vs-clone-swap race; ops can grep structured logs for it directly.
+const (
+	skipReasonReadMissing = "read_error_missing" // fs.ErrNotExist — vanished between WalkDir and ReadFile
+	skipReasonReadPerm    = "read_error_perm"    // fs.ErrPermission — process lacks read access
+	skipReasonReadOther   = "read_error_other"   // any other I/O error
+)
+
 // ingestAndParse ingests a repository and parses all files in parallel.
 // The returned map associates each file's relative path with the import paths
 // declared in that file. parseSkipped tallies files dropped at the parse stage
-// per reason (e.g. "read_error", "parse_error").
+// per reason (e.g. "read_error_missing", "read_error_perm", "read_error_other",
+// "parse_error").
 func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, []parser.TypeRelationship, []templateFileRef, map[string]int, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
@@ -116,11 +128,33 @@ func indexParseParallel(ctx context.Context, root string, files []*ingest.File) 
 	return results
 }
 
+// indexParseFile reads and parses a single source file.
+// On os.ReadFile failure the error is classified by errno and returned as a
+// skipReason key (skipReasonRead*) so callers can distinguish race-induced
+// ENOENT from permission errors and other I/O failures.
 func indexParseFile(root string, f *ingest.File) indexParseResult {
 	source, err := os.ReadFile(f.Path)
 	if err != nil {
-		slog.Debug("codegraph: file read failed", slog.String("file", f.Path), slog.Any("error", err))
-		return indexParseResult{skipReason: "read_error"}
+		reason := classifyReadError(err)
+		switch reason {
+		case skipReasonReadMissing:
+			// ENOENT: file disappeared between WalkDir (T1) and ReadFile (T2).
+			// Classic signature of the WalkDir-vs-RemoveAll race. Emit Warn
+			// (not Debug) so ops can spot it without enabling verbose logging.
+			slog.Warn("codegraph: file vanished between walk and read — possible clone-swap race",
+				slog.String("file", f.Path),
+				slog.String("skip_reason", reason))
+		case skipReasonReadPerm:
+			slog.Warn("codegraph: file read permission denied",
+				slog.String("file", f.Path),
+				slog.String("skip_reason", reason))
+		default:
+			slog.Warn("codegraph: file read error",
+				slog.String("file", f.Path),
+				slog.String("skip_reason", reason),
+				slog.Any("error", err))
+		}
+		return indexParseResult{skipReason: reason}
 	}
 
 	opts := parser.ParseOpts{
@@ -161,6 +195,18 @@ func indexParseFile(root string, f *ingest.File) indexParseResult {
 		imports:      pr.Imports,
 		rels:         rels,
 		templateRefs: tplRefs,
+	}
+}
+
+// classifyReadError maps an os.ReadFile error to a skipReason key.
+func classifyReadError(err error) string {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return skipReasonReadMissing
+	case errors.Is(err, fs.ErrPermission):
+		return skipReasonReadPerm
+	default:
+		return skipReasonReadOther
 	}
 }
 
