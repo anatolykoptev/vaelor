@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/workspace"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-kit/env"
@@ -140,15 +139,7 @@ func main() {
 		}
 	}
 	if len(cfg.AutoIndexDirs) > 0 && eager {
-		// GO_CODE_AUTOINDEX_TRANSLATE=true applies PATH_MAPPINGS to AUTO_INDEX_DIRS,
-		// translating host-side paths to container-internal paths before passing them
-		// to EagerWarmRepos. Default false to preserve existing behavior; set to true
-		// once paths in AUTO_INDEX_DIRS are verified to need translation.
-		eagerDirs := cfg.AutoIndexDirs
-		if translateAuto, _ := strconv.ParseBool(os.Getenv(autoIndexTranslateEnv)); translateAuto {
-			eagerDirs = workspace.TranslateDirs(cfg.AutoIndexDirs, cfg.PathMappings)
-		}
-		go callgraph.EagerWarmRepos(ctx, eagerDirs)
+		go callgraph.EagerWarmRepos(ctx, autoIndexDirs(cfg))
 	}
 
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares

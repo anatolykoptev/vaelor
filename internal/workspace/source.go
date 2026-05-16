@@ -51,9 +51,10 @@ func (s LocalSource) Root(_ context.Context) (string, func(), error) {
 type RemoteSource struct {
 	// Slug is the "owner/repo" identifier (resolved via forge.ExtractSlug).
 	Slug string
-	// RepoInput is the original user-supplied repo identifier (e.g. full URL or
-	// bare slug with host prefix). Used for forge detection so that GitLab and
-	// other forge kinds are handled correctly.
+	// RepoInput is the original user-supplied identifier (URL or slug).
+	// Used for forge detection so that GitLab and other forges are handled
+	// correctly. If empty, the resolver assumes GitHub forge — GitLab/Bitbucket
+	// callers MUST set this from the unnormalized input.
 	RepoInput string
 	// Ref is the optional git ref (branch, tag, commit) to check out.
 	Ref string
@@ -155,7 +156,7 @@ func RewritePath(path string, mappings []analyze.PathMapping) string {
 // checking that env flag before invoking this function.
 func TranslateDirs(dirs []string, mappings []analyze.PathMapping) []string {
 	if len(mappings) == 0 {
-		return dirs
+		return append([]string(nil), dirs...)
 	}
 	out := make([]string, len(dirs))
 	for i, d := range dirs {

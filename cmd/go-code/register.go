@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"strconv"
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
@@ -13,7 +12,6 @@ import (
 	"github.com/anatolykoptev/go-kit/llm"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/workspace"
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/designmd"
@@ -188,15 +186,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			RetryMax:    cfg.AutoIndexRetryMax,
 			RetryBase:   cfg.AutoIndexRetryBase,
 		}
-		// GO_CODE_AUTOINDEX_TRANSLATE=true applies PATH_MAPPINGS to AUTO_INDEX_DIRS,
-		// translating host-side paths to container-internal paths before passing them
-		// to AutoIndex. Default false to preserve existing behavior; set to true once
-		// paths in AUTO_INDEX_DIRS are verified to need translation.
-		autoIndexDirs := cfg.AutoIndexDirs
-		if translateAuto, _ := strconv.ParseBool(os.Getenv(autoIndexTranslateEnv)); translateAuto {
-			autoIndexDirs = workspace.TranslateDirs(cfg.AutoIndexDirs, cfg.PathMappings)
-		}
-		go embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs, codegraph.GraphNameFor, opts)
+		go embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
 	}
 
 	return deps

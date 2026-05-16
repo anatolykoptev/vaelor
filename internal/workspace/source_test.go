@@ -162,3 +162,64 @@ func TestTranslateDirs_ZeroLengthInput(t *testing.T) {
 		t.Fatalf("want empty, got %v", got)
 	}
 }
+
+
+// ---------------------------------------------------------------------------
+// TranslateDirs — copy invariants
+// ---------------------------------------------------------------------------
+
+// TestTranslateDirs_EmptyMappingsNonNil_ReturnsCopy ensures that a non-nil
+// but zero-length mappings slice still causes TranslateDirs to return a new
+// slice, not the original. This covers the gap flagged in code review: the
+// nil-mappings fast path previously returned dirs unchanged (same pointer).
+func TestTranslateDirs_EmptyMappingsNonNil_ReturnsCopy(t *testing.T) {
+	dirs := []string{"/a", "/b"}
+	got := workspace.TranslateDirs(dirs, []analyze.PathMapping{})
+	if len(got) != len(dirs) {
+		t.Fatalf("want len %d, got %d", len(dirs), len(got))
+	}
+	for i := range dirs {
+		if got[i] != dirs[i] {
+			t.Errorf("idx %d: want %q, got %q", i, dirs[i], got[i])
+		}
+	}
+	// Mutation of returned slice must NOT affect the original.
+	got[0] = "/mutated"
+	if dirs[0] == "/mutated" {
+		t.Fatal("TranslateDirs returned same slice as input (mutation visible)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RemoteSource — token precedence
+// ---------------------------------------------------------------------------
+
+// TestRemoteSource_BothStaticTokenAndTokenFunc_TokenFuncWins verifies that
+// when both StaticToken and TokenFunc are set, TokenFunc takes precedence.
+// This guards the documented contract: "TokenFunc returns an authentication
+// token for the clone; may be nil." — StaticToken is the fallback.
+func TestRemoteSource_BothStaticTokenAndTokenFunc_TokenFuncWins(t *testing.T) {
+	funcToken := "func-token"
+	called := false
+	s := workspace.RemoteSource{
+		Slug:        "owner/repo",
+		RepoInput:   "github.com/owner/repo",
+		DestDir:     t.TempDir(),
+		StaticToken: "static-token",
+		TokenFunc: func(ctx context.Context) (string, error) {
+			called = true
+			return funcToken, nil
+		},
+	}
+	// We can't call s.Root without network, but we can verify the token
+	// selection logic by inspecting what RemoteSource exposes. The contract
+	// is tested indirectly: if TokenFunc is non-nil, Root calls it.
+	// Use a cancelled context so the clone fails fast after token fetch.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, cleanup, _ := s.Root(ctx)
+	cleanup()
+	if !called {
+		t.Fatal("expected TokenFunc to be called when both StaticToken and TokenFunc are set")
+	}
+}
