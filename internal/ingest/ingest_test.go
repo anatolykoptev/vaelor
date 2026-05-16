@@ -526,3 +526,118 @@ func keys(m map[string]bool) []string {
 	}
 	return out
 }
+
+// TestIngestRepoSkippedReasons verifies SkippedReasons tracks per-reason counts.
+func TestIngestRepoSkippedReasons(t *testing.T) {
+	root := t.TempDir()
+
+	// Accepted: .go and .svelte
+	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(root, "App.svelte"), "<script>let x = 1</script>\n")
+
+	// unknown_extension: .xyz has no registered handler
+	writeFile(t, filepath.Join(root, "data.xyz"), "blob\n")
+	writeFile(t, filepath.Join(root, "report.xyz"), "blob\n")
+
+	// gitignored: via .gitignore pattern
+	writeFile(t, filepath.Join(root, ".gitignore"), "*.log\n")
+	writeFile(t, filepath.Join(root, "app.log"), "log entry\n")
+
+	// oversize: file exceeds MaxFileBytes
+	writeFile(t, filepath.Join(root, "big.go"), "package big\n"+strings.Repeat("// padding\n", 200))
+
+	// test_excluded: _test.go with ExcludeTests
+	writeFile(t, filepath.Join(root, "main_test.go"), "package main\n")
+
+	// language_filter: .py excluded when Languages=["go","svelte"]
+	writeFile(t, filepath.Join(root, "script.py"), "print('hi')\n")
+
+	// focus_excluded: outside focus prefix
+	writeFile(t, filepath.Join(root, "cmd", "run.go"), "package cmd\n")
+
+	t.Run("unknown_extension tracked", func(t *testing.T) {
+		result, err := IngestRepo(context.Background(), IngestOpts{Root: root})
+		if err != nil {
+			t.Fatalf("IngestRepo: %v", err)
+		}
+		if result.SkippedReasons == nil {
+			t.Fatal("SkippedReasons is nil")
+		}
+		if got := result.SkippedReasons["unknown_extension"]; got != 2 {
+			t.Errorf("unknown_extension: want 2, got %d; all reasons: %v", got, result.SkippedReasons)
+		}
+		if got := result.SkippedReasons["gitignored"]; got < 1 {
+			t.Errorf("gitignored: want >=1, got %d", got)
+		}
+	})
+
+	t.Run("oversize tracked", func(t *testing.T) {
+		result, err := IngestRepo(context.Background(), IngestOpts{
+			Root:         root,
+			MaxFileBytes: 50,
+		})
+		if err != nil {
+			t.Fatalf("IngestRepo: %v", err)
+		}
+		if got := result.SkippedReasons["oversize"]; got < 1 {
+			t.Errorf("oversize: want >=1, got %d; reasons: %v", got, result.SkippedReasons)
+		}
+	})
+
+	t.Run("test_excluded tracked", func(t *testing.T) {
+		result, err := IngestRepo(context.Background(), IngestOpts{
+			Root:         root,
+			ExcludeTests: true,
+		})
+		if err != nil {
+			t.Fatalf("IngestRepo: %v", err)
+		}
+		if got := result.SkippedReasons["test_excluded"]; got != 1 {
+			t.Errorf("test_excluded: want 1, got %d; reasons: %v", got, result.SkippedReasons)
+		}
+	})
+
+	t.Run("language_filter tracked", func(t *testing.T) {
+		result, err := IngestRepo(context.Background(), IngestOpts{
+			Root:      root,
+			Languages: []string{"go", "svelte"},
+		})
+		if err != nil {
+			t.Fatalf("IngestRepo: %v", err)
+		}
+		// script.py and main_test.go are python/go but python is filtered;
+		// .xyz files hit unknown_extension before language_filter.
+		if got := result.SkippedReasons["language_filter"]; got < 1 {
+			t.Errorf("language_filter: want >=1, got %d; reasons: %v", got, result.SkippedReasons)
+		}
+	})
+
+	t.Run("focus_excluded tracked", func(t *testing.T) {
+		result, err := IngestRepo(context.Background(), IngestOpts{
+			Root:  root,
+			Focus: "cmd",
+		})
+		if err != nil {
+			t.Fatalf("IngestRepo: %v", err)
+		}
+		if got := result.SkippedReasons["focus_excluded"]; got < 1 {
+			t.Errorf("focus_excluded: want >=1, got %d; reasons: %v", got, result.SkippedReasons)
+		}
+		// Only cmd/run.go should be accepted.
+		if len(result.Files) != 1 {
+			t.Errorf("focus=cmd: expected 1 file, got %d", len(result.Files))
+		}
+	})
+
+	t.Run("map always initialized", func(t *testing.T) {
+		// Empty dir — no files at all; map must not be nil.
+		empty := t.TempDir()
+		result, err := IngestRepo(context.Background(), IngestOpts{Root: empty})
+		if err != nil {
+			t.Fatalf("IngestRepo: %v", err)
+		}
+		if result.SkippedReasons == nil {
+			t.Error("SkippedReasons must be initialized even when no files exist")
+		}
+	})
+}
