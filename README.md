@@ -213,6 +213,7 @@ make deploy     # Docker build + deploy
 ## License
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) Apache 2.0 — Copyright 2026 Anatoly Koptev
+[![SafeSkill 86/100](https://img.shields.io/badge/SafeSkill-86%2F100_Passes%20with%20Notes-yellow)](https://safeskill.dev/scan/anatolykoptev-go-code)
 
 ## Contributing
 
