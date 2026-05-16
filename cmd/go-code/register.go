@@ -186,7 +186,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			RetryMax:    cfg.AutoIndexRetryMax,
 			RetryBase:   cfg.AutoIndexRetryBase,
 		}
-		go embeddings.AutoIndex(semDeps.Pipeline, cfg.AutoIndexDirs, codegraph.GraphNameFor, opts)
+		go embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
 	}
 
 	return deps
