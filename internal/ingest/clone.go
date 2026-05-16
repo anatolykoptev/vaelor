@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/slugparse"
 )
@@ -83,6 +85,20 @@ func NormalizeSlug(input string) (string, error) {
 
 // CloneRepo performs a shallow git clone of the given repository into DestDir.
 // If Ref is specified, it checks out that ref after cloning.
+//
+// When a cached clone already exists, it is refreshed in-place via
+// git fetch + reset. If the in-place refresh fails (corrupt repo, network blip,
+// missing ref), a fresh clone is performed into a temporary sibling directory
+// which is then atomically swapped into place (see atomicDirectorySwap).
+//
+// The atomic swap guarantees that concurrent readers (e.g. WalkDir +
+// indexParseParallel) always see either the old snapshot or the new one —
+// never a half-deleted intermediate state that causes ENOENT during file reads.
+//
+// Disk note: during the swap the workspace directory briefly holds both
+// the old clone and the new tmp clone. If the volume is critically full
+// (< 2× repo size free) the clone step may fail; the tmp directory is
+// cleaned up before the error is returned.
 func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	slug, err := NormalizeSlug(opts.Slug)
 	if err != nil {
@@ -93,45 +109,84 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	localPath := filepath.Join(opts.DestDir, strings.ReplaceAll(slug, "/", "_"))
 
 	// Cache hit — refresh to remote HEAD instead of trusting on-disk state.
-	// Without this, the race window between concurrent calls' defer cleanup()
-	// (cmd/go-code/resolve.go) and the lack of webhook-driven invalidation
-	// can leave the workspace stale relative to a recent push.
 	if _, statErr := os.Stat(localPath); statErr == nil {
 		if err := refreshClone(ctx, localPath, opts.Ref, opts.TokenFunc); err == nil {
 			return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 		}
-		// Refresh failed (corrupt repo, network blip, missing ref) — wipe
-		// and fall through to a fresh shallow clone below.
-		_ = os.RemoveAll(localPath)
+		// Refresh failed (corrupt repo, network blip, missing ref) — perform
+		// an atomic re-clone so localPath is never absent for concurrent readers.
+		if err := atomicReclone(ctx, opts, localPath, repoName); err != nil {
+			return nil, err
+		}
+		return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 	}
 
 	if err := os.MkdirAll(opts.DestDir, dirPerm); err != nil {
 		return nil, fmt.Errorf("create dest dir: %w", err)
 	}
 
-	cloneURL := opts.CloneURL
-	if cloneURL == "" {
-		cloneURL = fmt.Sprintf("https://github.com/%s.git", slug)
-		if opts.GithubToken != "" {
-			cloneURL = fmt.Sprintf("https://%s@github.com/%s.git", opts.GithubToken, slug)
-		}
+	cloneURL := buildCloneURL(opts, slug)
+	if err := runClone(ctx, cloneURL, opts.Ref, localPath); err != nil {
+		return nil, fmt.Errorf("git clone %s: %w", repoName, err)
 	}
 
-	args := []string{"clone", "--depth=2", "--single-branch", "--filter=blob:none"}
-	if opts.Ref != "" {
-		args = append(args, "--branch", opts.Ref)
+	return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
+}
+
+// atomicReclone clones into a sibling tmp directory, then atomically swaps it
+// into finalDest using atomicDirectorySwap (renameat2 RENAME_EXCHANGE on Linux,
+// two-step rename on other platforms).
+//
+// On Linux: the RENAME_EXCHANGE syscall is a single atomic kernel operation —
+// finalDest is never absent at any point during the swap.
+//
+// On other platforms: a two-step rename is used with a sub-microsecond window
+// where finalDest may be absent (see clone_swap_other.go).
+func atomicReclone(ctx context.Context, opts CloneOpts, finalDest, repoName string) error {
+	slug, _ := NormalizeSlug(opts.Slug) // already validated by caller
+	tmpDest := filepath.Join(opts.DestDir,
+		strings.ReplaceAll(slug, "/", "_")+".tmp."+strconv.FormatInt(time.Now().UnixNano(), 36))
+
+	cloneURL := buildCloneURL(opts, slug)
+	if err := runClone(ctx, cloneURL, opts.Ref, tmpDest); err != nil {
+		// Clone failed — clean up the (possibly partial) tmp directory.
+		_ = os.RemoveAll(tmpDest)
+		return fmt.Errorf("git clone %s (atomic re-clone): %w", repoName, err)
 	}
-	args = append(args, cloneURL, localPath)
+
+	if err := atomicDirectorySwap(tmpDest, finalDest); err != nil {
+		return fmt.Errorf("atomic re-clone swap: %w", err)
+	}
+	return nil
+}
+
+// buildCloneURL constructs the git clone URL from CloneOpts.
+func buildCloneURL(opts CloneOpts, slug string) string {
+	if opts.CloneURL != "" {
+		return opts.CloneURL
+	}
+	if opts.GithubToken != "" {
+		return fmt.Sprintf("https://%s@github.com/%s.git", opts.GithubToken, slug)
+	}
+	return fmt.Sprintf("https://github.com/%s.git", slug)
+}
+
+// runClone executes the git clone command into dest.
+func runClone(ctx context.Context, cloneURL, ref, dest string) error {
+	args := []string{"clone", "--depth=2", "--single-branch", "--filter=blob:none"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, cloneURL, dest)
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("git clone %s: %w\n%s", repoName, err, sanitizeGitOutput(string(out)))
+		return fmt.Errorf("%w\n%s", err, sanitizeGitOutput(string(out)))
 	}
-
-	return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
+	return nil
 }
 
 // refreshClone updates an existing shallow clone at localPath to match
