@@ -48,6 +48,10 @@ const (
 
 	// workspaceDirPerm is the permission mode for the workspace directory.
 	workspaceDirPerm = 0o750
+
+	// autoIndexTranslateEnv is the environment variable name that enables
+	// PATH_MAPPINGS translation for AUTO_INDEX_DIRS. Default off.
+	autoIndexTranslateEnv = "GO_CODE_AUTOINDEX_TRANSLATE"
 )
 
 func main() {
@@ -135,7 +139,7 @@ func main() {
 		}
 	}
 	if len(cfg.AutoIndexDirs) > 0 && eager {
-		go callgraph.EagerWarmRepos(ctx, cfg.AutoIndexDirs)
+		go callgraph.EagerWarmRepos(ctx, autoIndexDirs(cfg))
 	}
 
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares
