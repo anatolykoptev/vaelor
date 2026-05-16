@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/anatolykoptev/go-code/internal/pgutil"
 )
 
 // EnsureGraph creates the AGE graph if it does not exist and ensures the
@@ -40,25 +42,25 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 	// Best-effort: transfer ownership to the connected role so the role can
 	// TRUNCATE and ALTER on reindex. No-op when already the owner; logs a
 	// warning (not an error) when running as a non-owner after a restore.
-	transferTableOwnerIfPossible(ctx, conn, "code_graph_meta")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_meta")
 
 	// Ensure the file mtimes table exists for incremental indexing.
 	if _, err := conn.Exec(ctx, mtimeTableSQL); err != nil {
 		return fmt.Errorf("ensure mtimes table: %w", err)
 	}
-	transferTableOwnerIfPossible(ctx, conn, "code_file_mtimes")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_file_mtimes")
 
 	// Ensure the snapshot table exists for graph diffing.
 	if _, err := conn.Exec(ctx, snapshotTableSQL); err != nil {
 		return fmt.Errorf("ensure snapshot table: %w", err)
 	}
-	transferTableOwnerIfPossible(ctx, conn, "code_graph_snapshots")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_snapshots")
 
 	// Ensure dead code scores table exists for pre-computed reranker scores.
 	if _, err := conn.Exec(ctx, deadCodeScoresTableSQL); err != nil {
 		return fmt.Errorf("ensure dead_code_scores table: %w", err)
 	}
-	transferTableOwnerIfPossible(ctx, conn, "code_dead_code_scores")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_dead_code_scores")
 
 	// Seed the exists-cache so subsequent read-path preflight calls don't hit
 	// ag_catalog.ag_graph immediately after a build.

@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/anatolykoptev/go-code/internal/pgutil"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
@@ -89,21 +91,8 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		}
 		// Best-effort ownership transfer so the connected role can TRUNCATE
 		// code_embeddings on reindex without needing explicit grants from an admin.
-		// Uses the SQL keyword CURRENT_USER (not a bind parameter) so it resolves
-		// to the actual connected role regardless of the DATABASE_URL role name.
 		for _, tbl := range []string{"code_embeddings", "code_repo_state"} {
-			// CURRENT_USER is a SQL keyword — not a bind parameter.
-			sql := "ALTER TABLE " + tbl + " OWNER TO CURRENT_USER"
-			conn, err := s.pool.Acquire(ctx)
-			if err != nil {
-				slog.Warn("embeddings: acquire for ownership transfer", slog.Any("error", err))
-				continue
-			}
-			if _, err := conn.Exec(ctx, sql); err != nil {
-				slog.Warn("embeddings: cannot transfer table ownership",
-					slog.String("table", tbl), slog.Any("error", err))
-			}
-			conn.Release()
+			pgutil.TransferOwnership(ctx, s.pool, "embeddings", tbl)
 		}
 	})
 	return s.initErr
