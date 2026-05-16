@@ -90,11 +90,12 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Duration("elapsed", time.Since(t_idx)))
 
 	t1 := time.Now()
-	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, err := ingestAndParse(ctx, root)
+	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, skippedReasons, err := ingestAndParse(ctx, root)
 	if err != nil {
 		return nil, err
 	}
 	slog.Info("codegraph: ingestAndParse done",
+		slog.Any("skipped_reasons", skippedReasons),
 		slog.String("repo", root), slog.Int("files", len(allFiles)),
 		slog.Duration("elapsed", time.Since(t1)))
 

@@ -22,6 +22,7 @@ type indexParseResult struct {
 	imports      []string
 	rels         []parser.TypeRelationship
 	templateRefs []templateFileRef
+	skipReason   string // non-empty when file was dropped at parse stage
 }
 
 // templateFileRef is a resolved Astro USES relationship ready for AGE insertion.
@@ -35,14 +36,15 @@ type templateFileRef struct {
 
 // ingestAndParse ingests a repository and parses all files in parallel.
 // The returned map associates each file's relative path with the import paths
-// declared in that file.
-func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, []parser.TypeRelationship, []templateFileRef, error) {
+// declared in that file. parseSkipped tallies files dropped at the parse stage
+// per reason (e.g. "read_error", "parse_error").
+func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser.Symbol, []parser.CallSite, map[string][]string, []parser.TypeRelationship, []templateFileRef, map[string]int, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
 		MaxFileBytes: maxIndexFileBytes,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("ingest repo: %w", err)
 	}
 
 	results := indexParseParallel(ctx, root, ir.Files)
@@ -53,8 +55,18 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 	var allRels []parser.TypeRelationship
 	var allTplRefs []templateFileRef
 	fileImports := make(map[string][]string)
+	parseSkipped := make(map[string]int)
+
+	// Merge ingest-stage skip reasons into parseSkipped for unified reporting.
+	for reason, count := range ir.SkippedReasons {
+		parseSkipped[reason] += count
+	}
 
 	for _, r := range results {
+		if r.skipReason != "" {
+			parseSkipped[r.skipReason]++
+			continue
+		}
 		if r.file == nil {
 			continue
 		}
@@ -68,7 +80,7 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 		}
 	}
 
-	return allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, nil
+	return allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, parseSkipped, nil
 }
 
 // indexParseParallel parses all files concurrently and returns results.
@@ -107,7 +119,8 @@ func indexParseParallel(ctx context.Context, root string, files []*ingest.File) 
 func indexParseFile(root string, f *ingest.File) indexParseResult {
 	source, err := os.ReadFile(f.Path)
 	if err != nil {
-		return indexParseResult{}
+		slog.Debug("codegraph: file read failed", slog.String("file", f.Path), slog.Any("error", err))
+		return indexParseResult{skipReason: "read_error"}
 	}
 
 	opts := parser.ParseOpts{
@@ -118,7 +131,8 @@ func indexParseFile(root string, f *ingest.File) indexParseResult {
 
 	pr, err := parser.ParseFile(f.Path, source, opts)
 	if err != nil {
-		return indexParseResult{file: f}
+		slog.Debug("codegraph: parse failed", slog.String("file", f.Path), slog.String("language", f.Language), slog.Any("error", err))
+		return indexParseResult{file: f, skipReason: "parse_error"}
 	}
 
 	calls, callErr := parser.ExtractCalls(f.Path, source, opts)
