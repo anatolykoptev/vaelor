@@ -6,6 +6,7 @@ package ingest
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -68,6 +69,13 @@ type IngestResult struct {
 
 	// SkippedCount is the number of files skipped (too large, ignored, binary).
 	SkippedCount int
+
+	// SkippedReasons tallies the number of silently-dropped files per reason.
+	// Reasons: "gitignored", "test_excluded", "language_filter",
+	// "oversize", "focus_excluded", "unknown_extension".
+	// A file may be silently excluded (not counted in SkippedCount) for some
+	// of these reasons — SkippedReasons captures all of them.
+	SkippedReasons map[string]int
 }
 
 // maxWalkDepth is the maximum directory depth before descending is stopped.
@@ -84,7 +92,7 @@ func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 	root := filepath.Clean(opts.Root)
 	gitignorePatterns := parseGitignore(root)
 
-	result := &IngestResult{Root: root}
+	result := &IngestResult{Root: root, SkippedReasons: make(map[string]int)}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -106,7 +114,10 @@ func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 			return nil
 		}
 
-		skipped, file := handleFile(relPath, path, d, opts, gitignorePatterns)
+		skipped, reason, file := handleFile(relPath, path, d, opts, gitignorePatterns)
+		if reason != "" {
+			result.SkippedReasons[reason]++
+		}
 		if skipped {
 			result.SkippedCount++
 			return nil
@@ -142,23 +153,31 @@ func handleDir(relPath, name string, patterns []string) error {
 }
 
 // handleFile processes a single regular file entry.
-// Returns (true, nil) when the file should be counted as skipped,
-// (false, nil) when it is silently excluded (language filter, focus),
-// and (false, *File) when it is accepted.
-func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, patterns []string) (skipped bool, f *File) {
+// Returns (skipped bool, reason string, f *File):
+//   - skipped=true when the file should be counted in SkippedCount (gitignored, oversize)
+//   - reason is always non-empty when the file is dropped for any reason
+//   - (false, "", *File) when the file is accepted for ingestion
+func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, patterns []string) (skipped bool, reason string, f *File) {
 	name := d.Name()
 
 	if shouldIgnoreFile(name) || matchGitignore(relPath, false, patterns) {
-		return true, nil
+		slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "gitignored"))
+		return true, "gitignored", nil
 	}
 
 	if opts.ExcludeTests && strings.HasSuffix(name, "_test.go") {
-		return false, nil
+		slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "test_excluded"))
+		return false, "test_excluded", nil
 	}
 
 	lang := DetectLanguage(name)
+	if lang == "" {
+		slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "unknown_extension"))
+		return false, "unknown_extension", nil
+	}
 	if len(opts.Languages) > 0 && !containsString(opts.Languages, lang) {
-		return false, nil
+		slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "language_filter"))
+		return false, "language_filter", nil
 	}
 
 	info, _ := d.Info()
@@ -170,23 +189,27 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 	}
 
 	if opts.MaxFileBytes > 0 && size > opts.MaxFileBytes {
-		return true, nil
+		slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "oversize"),
+			slog.Int64("size", size), slog.Int64("max", opts.MaxFileBytes))
+		return true, "oversize", nil
 	}
 
 	if opts.Focus != "" {
 		if IsKeywordFocus(opts.Focus) {
 			if !matchKeywords(opts.Focus, relPath) {
-				return false, nil
+				slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "focus_excluded"))
+				return false, "focus_excluded", nil
 			}
 		} else {
 			matched, _ := filepath.Match(opts.Focus, relPath)
 			if !matched && !strings.HasPrefix(relPath, opts.Focus) {
-				return false, nil
+				slog.Debug("ingest: file skipped", slog.String("path", relPath), slog.String("reason", "focus_excluded"))
+				return false, "focus_excluded", nil
 			}
 		}
 	}
 
-	return false, &File{
+	return false, "", &File{
 		Path:     absPath,
 		RelPath:  relPath,
 		Language: lang,
