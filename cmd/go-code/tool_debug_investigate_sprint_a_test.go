@@ -423,7 +423,7 @@ func TestRunLLMPhase_HasAlert_RunsCall(t *testing.T) {
 }
 
 // TestRunLLMPhase_NilClient_SetsReason verifies that LLMSkippedReason is set
-// to "no_client" when deps.LLM is nil (nil-client guard in runLLMPhase).
+// when deps.LLM is nil / LLMHasKey=false (inner phase guard in runLLMPhase).
 func TestRunLLMPhase_NilClient_SetsReason(t *testing.T) {
 	res := &investigate.InvestigationResult{
 		Service: "no-client-svc",
@@ -437,7 +437,7 @@ func TestRunLLMPhase_NilClient_SetsReason(t *testing.T) {
 	runLLMPhase(context.Background(), analyze.Deps{LLM: nil}, nil, input, nil, nil,
 		time.Unix(100, 0), time.Unix(200, 0), res)
 
-	if res.Diagnostics.LLMSkippedReason != "no_client" {
-		t.Errorf("LLMSkippedReason = %q, want %q", res.Diagnostics.LLMSkippedReason, "no_client")
+	if res.Diagnostics.LLMSkippedReason != "LLM_API_KEY not set" {
+		t.Errorf("LLMSkippedReason = %q, want %q", res.Diagnostics.LLMSkippedReason, "LLM_API_KEY not set")
 	}
 }

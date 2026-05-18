@@ -105,10 +105,12 @@ func runLLMPhase(
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
-	// Guard: Deps.LLM is always non-nil after this PR (either real client or NoOp{}).
-	// Use LLMHasKey to skip the LLM phase when no API key is configured.
+	// Guard: Deps.LLM is always non-nil after PR1 (either real client or NoOp{}).
+	// Use LLMHasKey (bool) to skip this phase — avoids the typed-nil interface trap.
+	// Deterministic phases (trace analysis, metric spikes, hypothesis ranking) already
+	// ran; only LLM hypothesis ranking is skipped here.
 	if !deps.LLMHasKey {
-		res.Diagnostics.LLMSkippedReason = "no_client"
+		res.Diagnostics.LLMSkippedReason = "LLM_API_KEY not set"
 		return
 	}
 	runLLMPhaseInner(ctx, deps.LLM, deps.ToolCache, metricNames, input, services, ops, start, end, res)
