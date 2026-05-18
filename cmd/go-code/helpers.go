@@ -13,7 +13,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/policy"
 	"github.com/anatolykoptev/go-code/internal/review"
-	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -112,11 +112,9 @@ func xmlMarshalResult(v any, toolName, outputDir string) *mcp.CallToolResult {
 }
 
 // generateNarrative produces an LLM narrative from structured data.
-// Returns empty string on nil client or any error (non-fatal).
-func generateNarrative(ctx context.Context, client *llm.Client, systemPrompt string, data any, promptPrefix string) string {
-	if client == nil {
-		return ""
-	}
+// Returns empty string on any error (non-fatal, including ErrLLMUnavailable from NoOp).
+// client must be non-nil; pass llmiface.NoOp{} when LLM is not configured.
+func generateNarrative(ctx context.Context, client llmiface.Completer, systemPrompt string, data any, promptPrefix string) string {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return ""
