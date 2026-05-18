@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/prompts"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // PostProcessSurprises scores raw cross-package edge rows and returns top-N
@@ -127,7 +127,7 @@ func postProcessGraphDiff(ctx context.Context, store *Store, graphName, repoKey 
 // create >600KB prompts that exceed the 60s MCP client timeout.
 const maxNarrativeRows = 50
 
-func addNarrative(ctx context.Context, llmClient llmiface.Completer, result *QueryResult, rows [][]string, query, cypher string) {
+func addNarrative(ctx context.Context, llmClient llm.Completer, result *QueryResult, rows [][]string, query, cypher string) {
 	if len(rows) == 0 {
 		return
 	}

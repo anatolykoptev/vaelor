@@ -6,7 +6,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -18,7 +18,7 @@ import (
 // the augment tool's core output is not gated behind LLM availability.
 func TestCallTrace_NoLLM_NarrativeEmpty(t *testing.T) {
 	deps := analyze.Deps{
-		LLM:       llmiface.NoOp{},
+		LLM:       llm.NoOp{},
 		LLMHasKey: false,
 	}
 

@@ -6,13 +6,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // countingCompleter wraps a Completer and counts Complete calls.
 type countingCompleter struct {
-	inner llmiface.Completer
+	inner llm.Completer
 	calls atomic.Int32
 }
 
@@ -32,10 +31,10 @@ func (c *countingCompleter) Complete(ctx context.Context, system, user string, o
 func TestClassifyAndBuildCypherNoLLM_SingleRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	cc := &countingCompleter{inner: llmiface.NoOp{}}
+	cc := &countingCompleter{inner: llm.NoOp{}}
 	_, _, _, err := classifyAndBuildCypher(context.Background(), cc, "who calls Parse?")
 
-	if !errors.Is(err, llmiface.ErrLLMUnavailable) {
+	if !errors.Is(err, llm.ErrUnavailable) {
 		t.Errorf("want ErrLLMUnavailable; got %v", err)
 	}
 	if cc.calls.Load() != 1 {
