@@ -17,7 +17,6 @@ import (
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
@@ -47,16 +46,12 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 		JitterPercent: 0.1,
 	})
 
-	var llmClient llmiface.Completer
-	hasKey := cfg.LLMAPIKey != ""
-	if hasKey {
-		llmClient = llm.NewClient(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel,
-			llm.WithFallbackKeys(cfg.LLMFallbackKeys),
-			llm.WithMaxTokens(cfg.LLMMaxTokens),
-		)
-	} else {
-		llmClient = llmiface.NoOp{}
-		slog.Warn("llm: disabled (LLM_API_KEY unset); code_graph/repo_search/debug_investigate will error, narratives in call_trace/dead_code/impact omitted")
+	llmClient, hasKey := llm.NewOptional(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel,
+		llm.WithFallbackKeys(cfg.LLMFallbackKeys),
+		llm.WithMaxTokens(cfg.LLMMaxTokens),
+	)
+	if !hasKey {
+		slog.Warn("llm: disabled (LLM_API_KEY unset) — code_graph/repo_search/debug_investigate will error; narratives in call_trace/dead_code/impact omitted")
 	}
 
 	deps := analyze.Deps{

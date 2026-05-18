@@ -24,13 +24,13 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 // noLLMDeps returns Deps with LLMHasKey=false — simulates LLM_API_KEY="".
 func noLLMDeps() analyze.Deps {
-	return analyze.Deps{LLM: llmiface.NoOp{}, LLMHasKey: false}
+	return analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}
 }
 
 // TestServerNoLLM_PolicyMatrix exercises one tool per LLM-dependency category

@@ -150,6 +150,7 @@ func isCircuitTrippingError(err error) bool {
 }
 
 // NewClient creates a new LLM client.
+// For callers that want to gracefully disable LLM when apiKey is empty, see NewOptional.
 func NewClient(baseURL, apiKey, model string, opts ...Option) *Client {
 	// Temperature is intentionally nil — see ChatRequest.Temperature comment.
 	// Callers who want non-default sampling pass WithTemperature(t).

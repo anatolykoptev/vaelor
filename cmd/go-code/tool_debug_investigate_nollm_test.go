@@ -7,7 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // TestDebugInvestigate_NoLLM_RunsAndSetsMarker verifies that debug_investigate
@@ -25,7 +25,7 @@ import (
 // Uses NoOp{} not nil — avoids the typed-nil interface trap (PR2 reviewer concern).
 func TestDebugInvestigate_NoLLM_RunsAndSetsMarker(t *testing.T) {
 	deps := analyze.Deps{
-		LLM:       llmiface.NoOp{},
+		LLM:       llm.NoOp{},
 		LLMHasKey: false,
 	}
 	res := &investigate.InvestigationResult{
@@ -75,7 +75,7 @@ func TestDebugInvestigate_NoLLM_HandlerDoesNotError(t *testing.T) {
 	t.Cleanup(func() { debugInvestigateStore = orig })
 
 	deps := analyze.Deps{
-		LLM:       llmiface.NoOp{},
+		LLM:       llm.NoOp{},
 		LLMHasKey: false,
 	}
 	input := DebugInvestigateInput{

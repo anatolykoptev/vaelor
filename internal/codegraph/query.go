@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // templateFreeform is the sentinel template ID used when no named template matches.
@@ -41,7 +41,7 @@ type QueryResult struct {
 //  3. Freeform path: GenerateCypher + ExecCypher
 //  4. On freeform exec error: GenerateCypherWithRetry + retry ExecCypher
 //  5. LLM narrative (non-fatal, skipped when results are empty)
-func QueryGraph(ctx context.Context, store *Store, llmClient llmiface.Completer, graphName, query string, meta *GraphMeta) (*QueryResult, error) {
+func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query string, meta *GraphMeta) (*QueryResult, error) {
 	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query)
 	if err != nil {
 		return nil, err
@@ -94,12 +94,12 @@ func QueryGraph(ctx context.Context, store *Store, llmClient llmiface.Completer,
 }
 
 // classifyAndBuildCypher classifies the query and generates Cypher via template or freeform.
-func classifyAndBuildCypher(ctx context.Context, llmClient llmiface.Completer, query string) (*Classification, string, int, error) {
+func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query string) (*Classification, string, int, error) {
 	cls, err := Classify(ctx, llmClient, query)
 	if err != nil {
 		// Short-circuit on ErrLLMUnavailable: no point falling through to the
 		// freeform path which would make a second NoOp round-trip via GenerateCypher.
-		if errors.Is(err, llmiface.ErrLLMUnavailable) {
+		if errors.Is(err, llm.ErrUnavailable) {
 			return nil, "", 0, err
 		}
 		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
@@ -138,7 +138,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient llmiface.Completer, q
 }
 
 // execWithRetry executes Cypher, retrying once for freeform queries with self-correction.
-func execWithRetry(ctx context.Context, store *Store, llmClient llmiface.Completer, graphName, query, cypher string, cols int, template string) ([][]string, string, error) {
+func execWithRetry(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query, cypher string, cols int, template string) ([][]string, string, error) {
 	// Preflight: check graph existence before issuing Cypher to AGE.
 	// This prevents postgres from logging ERROR entries for repos that have
 	// never been indexed. The existing IsGraphMissingError guard below remains
