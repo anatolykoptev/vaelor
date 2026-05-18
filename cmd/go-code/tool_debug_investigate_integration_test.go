@@ -11,7 +11,8 @@
 // fields are 0 the handler derives times from time.Now() which differs from
 // the local copy we compute — poll would never match.
 //
-// deps.LLM is nil throughout — skips the LLM phase (no fake needed).
+// deps uses integrationDeps() (LLM=NoOp, LLMHasKey=true) to bypass the outer
+// LLMHasKey gate while still letting runLLMPhase absorb the NoOp error.
 // input.Repo is "" throughout — skips callgraph build.
 //
 // Cleanup: each test replaces debugInvestigateStore with a fresh instance via
@@ -33,8 +34,16 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
+
+// integrationDeps returns a Deps for integration tests that bypasses the
+// LLMHasKey gate at handleDebugInvestigate entry. LLM is NoOp — the
+// LLM phase runs but returns ErrLLMUnavailable which runLLMPhase absorbs.
+func integrationDeps() analyze.Deps {
+	return analyze.Deps{LLM: llmiface.NoOp{}, LLMHasKey: true}
+}
 
 // fixedWindow returns a deterministic (start, end) pair for integration tests.
 // Using fixed unix seconds means the store key inside runInvestigation and the
@@ -188,7 +197,7 @@ func TestIntegration_HappyPath(t *testing.T) {
 			StartUnix: start.Unix(),
 			EndUnix:   end.Unix(),
 		},
-		analyze.Deps{},
+		integrationDeps(),
 		prom,
 		jaeger,
 		nil,
@@ -244,7 +253,7 @@ func TestIntegration_JaegerEmpty(t *testing.T) {
 			StartUnix: start.Unix(),
 			EndUnix:   end.Unix(),
 		},
-		analyze.Deps{},
+		integrationDeps(),
 		prom,
 		jaeger,
 		nil,
@@ -299,7 +308,7 @@ func TestIntegration_PromDown(t *testing.T) {
 			StartUnix: start.Unix(),
 			EndUnix:   end.Unix(),
 		},
-		analyze.Deps{},
+		integrationDeps(),
 		prom,
 		jaeger,
 		nil,

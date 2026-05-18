@@ -63,61 +63,71 @@ func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Searches web + GitHub/GitLab APIs, enriches with metadata (stars, language, topics), " +
 			"fetches READMEs, and returns LLM-summarized recommendations.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input RepoSearchInput) (*mcp.CallToolResult, error) {
-		if input.Query == "" {
-			return errResult("query is required"), nil
-		}
+		return handleRepoSearch(ctx, input, deps)
+	})
+}
 
-		// Apply language filter to query if provided.
-		query := input.Query
-		if input.Language != "" {
-			query = fmt.Sprintf("%s language:%s", query, input.Language)
-		}
+// handleRepoSearch is the extracted handler for repo_search, callable from tests.
+func handleRepoSearch(ctx context.Context, input RepoSearchInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
+	if input.Query == "" {
+		return errResult("query is required"), nil
+	}
 
-		// Check cache.
-		cacheKey := cache.Key("repo_search", query, input.Sort)
-		if cached, ok, _ := kitcache.GetJSON[string](deps.ToolCache, ctx, cacheKey); ok {
-			return textResult(cached), nil
-		}
+	// Gate: repo_search requires LLM to summarize results.
+	if !deps.LLMHasKey {
+		return errResult("repo_search: requires LLM_API_KEY to be set"), nil
+	}
 
-		// Step 1: Parallel search with query relaxation on empty results.
-		repos := parallelRepoSearch(ctx, query, input.Sort, deps)
-		if len(repos) == 0 {
-			for _, relaxed := range relaxQuery(query) {
-				repos = parallelRepoSearch(ctx, relaxed, input.Sort, deps)
-				if len(repos) > 0 {
-					slog.Info("repo_search: relaxed query found results", "original", query, "relaxed", relaxed)
-					break
-				}
+	// Apply language filter to query if provided.
+	query := input.Query
+	if input.Language != "" {
+		query = fmt.Sprintf("%s language:%s", query, input.Language)
+	}
+
+	// Check cache.
+	cacheKey := cache.Key("repo_search", query, input.Sort)
+	if cached, ok, _ := kitcache.GetJSON[string](deps.ToolCache, ctx, cacheKey); ok {
+		return textResult(cached), nil
+	}
+
+	// Step 1: Parallel search with query relaxation on empty results.
+	repos := parallelRepoSearch(ctx, query, input.Sort, deps)
+	if len(repos) == 0 {
+		for _, relaxed := range relaxQuery(query) {
+			repos = parallelRepoSearch(ctx, relaxed, input.Sort, deps)
+			if len(repos) > 0 {
+				slog.Info("repo_search: relaxed query found results", "original", query, "relaxed", relaxed)
+				break
 			}
 		}
-		if len(repos) == 0 {
-			return textResult("No repositories found for: " + input.Query), nil
-		}
+	}
+	if len(repos) == 0 {
+		return textResult("No repositories found for: " + input.Query), nil
+	}
 
-		// Step 2: Dedup by owner/repo.
-		unique := deduplicateRepoResults(repos)
+	// Step 2: Dedup by owner/repo.
+	unique := deduplicateRepoResults(repos)
 
-		// Step 3: Parallel enrich.
-		enriched := enrichRepoResults(ctx, unique, deps)
+	// Step 3: Parallel enrich.
+	enriched := enrichRepoResults(ctx, unique, deps)
 
-		// Step 4: Build text for LLM.
-		repoText := buildRepoSearchContext(enriched)
+	// Step 4: Build text for LLM.
+	repoText := buildRepoSearchContext(enriched)
 
-		// Step 5: LLM summarize.
-		prompt := fmt.Sprintf("Query: %s\n\nRepositories found:\n%s", input.Query, repoText)
-		summary, err := deps.LLM.Complete(ctx, systemPromptRepoSearch, prompt)
-		if err != nil {
-			slog.Warn("repo_search: LLM summarization failed, returning raw data", "err", err)
-			result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, repoText)
-			return textResult(result), nil
-		}
-
-		result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, summary)
-		if err := kitcache.SetJSONWithTTL(deps.ToolCache, ctx, cacheKey, result, 24*time.Hour); err != nil {
-			slog.Warn("repo_search: failed to cache result", "key", cacheKey, "err", err)
-		}
+	// Step 5: LLM summarize.
+	prompt := fmt.Sprintf("Query: %s\n\nRepositories found:\n%s", input.Query, repoText)
+	summary, err := deps.LLM.Complete(ctx, systemPromptRepoSearch, prompt)
+	if err != nil {
+		slog.Warn("repo_search: LLM summarization failed, returning raw data", "err", err)
+		result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, repoText)
 		return textResult(result), nil
-	})
+	}
+
+	result := fmt.Sprintf("# Repository Search: %s\n\n%s", input.Query, summary)
+	if err := kitcache.SetJSONWithTTL(deps.ToolCache, ctx, cacheKey, result, 24*time.Hour); err != nil {
+		slog.Warn("repo_search: failed to cache result", "key", cacheKey, "err", err)
+	}
+	return textResult(result), nil
 }
 
 // parallelRepoSearch runs three searches concurrently and merges results.

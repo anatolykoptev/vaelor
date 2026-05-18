@@ -126,6 +126,12 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 		return errResult("service is required"), nil
 	}
 
+	// Gate: debug_investigate requires LLM for its analysis phase.
+	// Without an API key the investigation would produce partial output with no summary.
+	if !deps.LLMHasKey {
+		return errResult("debug_investigate: requires LLM_API_KEY to be set"), nil
+	}
+
 	now := time.Now()
 	start := time.Unix(input.StartUnix, 0)
 	end := time.Unix(input.EndUnix, 0)
