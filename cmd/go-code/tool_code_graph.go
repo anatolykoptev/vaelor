@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"sync"
-	"time"
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
@@ -59,8 +59,6 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 		return
 	}
 
-	outputDir := cfg.OutputDir
-
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "code_graph",
 		Description: "Query a persistent code knowledge graph backed by Apache AGE. " +
@@ -74,93 +72,105 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			"and graph diff (what changed since last rebuild — 'what changed in the graph'). " +
 			"Results include raw graph rows and an LLM narrative.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeGraphInput) (*mcp.CallToolResult, error) {
-		if input.Repo == "" {
-			return errResult("repo is required"), nil
-		}
-		if input.Query == "" {
-			return errResult("query is required"), nil
-		}
+		return handleCodeGraph(ctx, input, cfg, deps, store)
+	})
+}
 
-		if !store.HasAGE(ctx) {
-			return errResult("Apache AGE extension is not available in the configured PostgreSQL instance"), nil
+// handleCodeGraph is the extracted handler for code_graph, callable from tests.
+func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps analyze.Deps, store *codegraph.Store) (*mcp.CallToolResult, error) {
+	outputDir := cfg.OutputDir
+
+	if input.Repo == "" {
+		return errResult("repo is required"), nil
+	}
+	if input.Query == "" {
+		return errResult("query is required"), nil
+	}
+
+	// Gate: code_graph NL-query requires LLM to generate or select Cypher.
+	if !deps.LLMHasKey {
+		return errResult("code_graph: requires LLM_API_KEY to be set"), nil
+	}
+
+	if store != nil && !store.HasAGE(ctx) {
+		return errResult("Apache AGE extension is not available in the configured PostgreSQL instance"), nil
+	}
+
+	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
+	}
+	defer cleanup()
+
+	isRemote := ingest.IsRemote(input.Repo)
+
+	if input.Refresh {
+		key := codegraph.GraphNameFor(root)
+		// Snapshot current graph before forced refresh for future diffing.
+		codegraph.SnapshotBeforeRebuild(ctx, store, key, key)
+		if dropErr := store.DropGraph(ctx, key, key); dropErr != nil {
+			slog.Warn("code_graph: drop graph failed (continuing with re-index)",
+				slog.String("key", key),
+				slog.Any("error", dropErr))
 		}
+	}
 
-		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
-		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
-		}
-		defer cleanup()
+	// Check whether a fresh graph is already cached.
+	// If not, launch a background goroutine to build it and return immediately
+	// so the MCP client is not held for the duration of the first-time build,
+	// which can take several minutes for large repos.
+	fresh, cacheErr := codegraph.CacheStatus(ctx, store, root)
+	if cacheErr != nil {
+		slog.Warn("code_graph: cache status check failed, proceeding with sync build",
+			slog.Any("error", cacheErr))
+	}
 
-		isRemote := ingest.IsRemote(input.Repo)
+	indexCfg := codegraph.IndexConfig{
+		TTLLocal:            cfg.GraphTTLLocal,
+		TTLRemote:           cfg.GraphTTLRemote,
+		BatchSize:           cfg.GraphBatchSize,
+		EnableSurpriseIndex: cfg.CodegraphSurpriseIndex,
+	}
 
-		if input.Refresh {
-			key := codegraph.GraphNameFor(root)
-			// Snapshot current graph before forced refresh for future diffing.
-			codegraph.SnapshotBeforeRebuild(ctx, store, key, key)
-			if dropErr := store.DropGraph(ctx, key, key); dropErr != nil {
-				slog.Warn("code_graph: drop graph failed (continuing with re-index)",
-					slog.String("key", key),
-					slog.Any("error", dropErr))
-			}
-		}
-
-		// Check whether a fresh graph is already cached.
-		// If not, launch a background goroutine to build it and return immediately
-		// so the MCP client is not held for the duration of the first-time build,
-		// which can take several minutes for large repos.
-		fresh, cacheErr := codegraph.CacheStatus(ctx, store, root)
-		if cacheErr != nil {
-			slog.Warn("code_graph: cache status check failed, proceeding with sync build",
-				slog.Any("error", cacheErr))
-		}
-
-		indexCfg := codegraph.IndexConfig{
-			TTLLocal:            cfg.GraphTTLLocal,
-			TTLRemote:           cfg.GraphTTLRemote,
-			BatchSize:           cfg.GraphBatchSize,
-			EnableSurpriseIndex: cfg.CodegraphSurpriseIndex,
-		}
-
-		if !fresh {
-			// Not cached: build in background and tell the client to retry.
-			// Use sync.Map to prevent two concurrent goroutines building the same graph
-			// (AGE is not concurrency-safe for writes to the same graph).
-			repoKey := codegraph.GraphNameFor(root)
-			if _, alreadyBuilding := buildingRepos.LoadOrStore(repoKey, true); alreadyBuilding {
-				return errResult("graph is being built — retry in 2-3 minutes"), nil
-			}
-			bgRoot := root
-			go func() {
-				defer buildingRepos.Delete(repoKey)
-				bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
-				defer bgCancel()
-				if _, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
-					slog.Warn("code_graph: background index failed",
-						slog.String("repo", bgRoot), slog.Any("error", err))
-				} else {
-					slog.Info("code_graph: background index complete", slog.String("repo", bgRoot))
-				}
-			}()
+	if !fresh {
+		// Not cached: build in background and tell the client to retry.
+		// Use sync.Map to prevent two concurrent goroutines building the same graph
+		// (AGE is not concurrency-safe for writes to the same graph).
+		repoKey := codegraph.GraphNameFor(root)
+		if _, alreadyBuilding := buildingRepos.LoadOrStore(repoKey, true); alreadyBuilding {
 			return errResult("graph is being built — retry in 2-3 minutes"), nil
 		}
+		bgRoot := root
+		go func() {
+			defer buildingRepos.Delete(repoKey)
+			bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer bgCancel()
+			if _, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
+				slog.Warn("code_graph: background index failed",
+					slog.String("repo", bgRoot), slog.Any("error", err))
+			} else {
+				slog.Info("code_graph: background index complete", slog.String("repo", bgRoot))
+			}
+		}()
+		return errResult("graph is being built — retry in 2-3 minutes"), nil
+	}
 
-		meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, indexCfg)
-		if err != nil {
-			return errResult(fmt.Sprintf("index repo: %s", err)), nil
-		}
+	meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, indexCfg)
+	if err != nil {
+		return errResult(fmt.Sprintf("index repo: %s", err)), nil
+	}
 
-		result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta)
-		if err != nil {
-			return errResult(fmt.Sprintf("query graph: %s", err)), nil
-		}
+	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta)
+	if err != nil {
+		return errResult(fmt.Sprintf("query graph: %s", err)), nil
+	}
 
-		formatted, err := formatGraphXML(result)
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil
-		}
+	formatted, err := formatGraphXML(result)
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err)), nil
+	}
 
-		return largeTextResult(formatted, "code_graph", outputDir), nil
-	})
+	return largeTextResult(formatted, "code_graph", outputDir), nil
 }
 
 // formatGraphXML converts a QueryResult to XML string.

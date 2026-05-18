@@ -154,7 +154,7 @@ claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
 |----------|---------|-------------|
 | `MCP_PORT` | `8897` | HTTP server port |
 | `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | OpenAI-compatible LLM endpoint |
-| `LLM_API_KEY` | *(required)* | API key for LLM |
+| `LLM_API_KEY` | *(optional)* | API key for LLM — see LLM dependency below |
 | `LLM_MODEL` | `gemini-2.5-flash` | Model name |
 | `GITHUB_TOKEN` | *(optional)* | GitHub token for higher API rate limits |
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp directory for cloned repos |
@@ -163,6 +163,19 @@ claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
 | `REDIS_URL` | *(optional)* | Redis URL for L2 cache |
 | `DATABASE_URL` | *(optional)* | PostgreSQL DSN for Apache AGE code graph |
 | `SEARXNG_URL` | `http://searxng:8888` | SearXNG instance for `repo_search` |
+
+### LLM dependency
+
+`LLM_API_KEY` is optional. The server starts and most tools operate without it. The exact behavior per tool category when `LLM_API_KEY` is unset:
+
+| Category | Tools | Behavior without `LLM_API_KEY` |
+|----------|-------|-------------------------------|
+| **Hard** | `code_graph` (NL query), `repo_search` | Returns MCP error: *"requires LLM_API_KEY to be set"* |
+| **Soft** | `repo_analyze` (quick/raw modes), `repo_analyze_issues` | Returns deterministic results + `(LLM unavailable)` marker |
+| **Augment** | `call_trace`, `dead_code`, `impact_analysis` | Returns full core output; narrative/augmentation fields are empty |
+| **Debug** | `debug_investigate` | Runs deterministic phases (trace analysis, metric spikes, alert violations); LLM hypothesis ranking is skipped with `LLMSkippedReason: "LLM_API_KEY not set"` |
+
+Set `LLM_API_BASE` + `LLM_API_KEY` + `LLM_MODEL` to enable all tools. Any OpenAI-compatible endpoint works (OpenAI, Anthropic via proxy, local Ollama, etc.).
 
 ## Architecture
 
