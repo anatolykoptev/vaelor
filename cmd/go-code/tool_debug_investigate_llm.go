@@ -14,7 +14,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
@@ -122,7 +122,7 @@ func runLLMPhase(
 
 func runLLMPhaseInner(
 	ctx context.Context,
-	client llmiface.Completer,
+	client llm.Completer,
 	toolCache *kitcache.Cache,
 	metricNames []string,
 	input DebugInvestigateInput,

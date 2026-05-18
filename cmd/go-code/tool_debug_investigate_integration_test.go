@@ -34,7 +34,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
@@ -42,7 +42,7 @@ import (
 // no outer gate on debug_investigate; inner LLM phase is skipped with a marker.
 // Tests that specifically exercise the LLM phase should construct Deps inline.
 func integrationDeps() analyze.Deps {
-	return analyze.Deps{LLM: llmiface.NoOp{}, LLMHasKey: false}
+	return analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}
 }
 
 // fixedWindow returns a deterministic (start, end) pair for integration tests.

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 )
 
@@ -22,7 +22,7 @@ func cypherSystemPrompt() string {
 // GenerateCypher asks the LLM to produce a read-only Cypher query for the given
 // natural-language question. It extracts the query from any markdown code block
 // returned by the model and rejects queries containing write operations.
-func GenerateCypher(ctx context.Context, client llmiface.Completer, query string) (string, error) {
+func GenerateCypher(ctx context.Context, client llm.Completer, query string) (string, error) {
 	raw, err := client.Complete(ctx, cypherSystemPrompt(), query)
 	if err != nil {
 		return "", fmt.Errorf("llm completion: %w", err)
@@ -44,7 +44,7 @@ const vleNullHint = "\n\nHint: the failing query likely starts a variable-length
 
 // GenerateCypherWithRetry retries Cypher generation with the previous error
 // attached to the prompt so the model can self-correct.
-func GenerateCypherWithRetry(ctx context.Context, client llmiface.Completer, query, firstErr string) (string, error) {
+func GenerateCypherWithRetry(ctx context.Context, client llm.Completer, query, firstErr string) (string, error) {
 	hint := ""
 	if strings.Contains(firstErr, "match_vle_terminal_edge") {
 		hint = vleNullHint

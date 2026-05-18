@@ -20,7 +20,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
@@ -79,7 +79,7 @@ func TestIntegration_AlertViolations(t *testing.T) {
 	_, callErr := handleDebugInvestigate(
 		context.Background(),
 		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
-		analyze.Deps{LLM: llmiface.NoOp{}, LLMHasKey: false},
+		analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false},
 		prom,
 		jaeger,
 		nil,
@@ -229,7 +229,7 @@ func TestIntegration_MixedBudget_AlertsAndMetrics(t *testing.T) {
 	_, callErr := handleDebugInvestigate(
 		context.Background(),
 		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
-		analyze.Deps{LLM: llmiface.NoOp{}, LLMHasKey: false}, prom, jaeger, nil,
+		analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}, prom, jaeger, nil,
 	)
 	if callErr != nil {
 		t.Fatalf("handleDebugInvestigate: %v", callErr)
@@ -286,7 +286,7 @@ func TestIntegration_OnlyAlerts_AnomalyScoreFallback(t *testing.T) {
 	_, callErr := handleDebugInvestigate(
 		context.Background(),
 		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
-		analyze.Deps{LLM: llmiface.NoOp{}, LLMHasKey: false}, prom, jaeger, nil,
+		analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}, prom, jaeger, nil,
 	)
 	if callErr != nil {
 		t.Fatalf("handleDebugInvestigate: %v", callErr)

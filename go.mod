@@ -3,7 +3,7 @@ module github.com/anatolykoptev/go-code
 go 1.26.0
 
 require (
-	github.com/anatolykoptev/go-kit v0.53.0
+	github.com/anatolykoptev/go-kit v0.62.0
 	github.com/anatolykoptev/go-mcpserver v0.13.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible
@@ -18,6 +18,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.43.0
 	golang.org/x/sync v0.20.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/tools v0.44.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -61,7 +62,6 @@ require (
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
