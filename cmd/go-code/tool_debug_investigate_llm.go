@@ -18,6 +18,10 @@ import (
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
+// llmSkipReasonNoKey is the LLMSkippedReason set when LLM_API_KEY is not configured.
+// Shared with tests to avoid literal duplication.
+const llmSkipReasonNoKey = "LLM_API_KEY not set"
+
 // validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
 // Labels that deviate are rejected by listLabelValues to prevent path injection.
 var validPromLabel = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -110,7 +114,7 @@ func runLLMPhase(
 	// Deterministic phases (trace analysis, metric spikes, hypothesis ranking) already
 	// ran; only LLM hypothesis ranking is skipped here.
 	if !deps.LLMHasKey {
-		res.Diagnostics.LLMSkippedReason = "LLM_API_KEY not set"
+		res.Diagnostics.LLMSkippedReason = llmSkipReasonNoKey
 		return
 	}
 	runLLMPhaseInner(ctx, deps.LLM, deps.ToolCache, metricNames, input, services, ops, start, end, res)
@@ -127,9 +131,6 @@ func runLLMPhaseInner(
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
-	if client == nil {
-		return
-	}
 	// Skip LLM when there is no signal to summarize: no hypotheses, no spikes,
 	// no alert violations. This saves 5-15s on healthy-service investigations.
 	if len(res.Hypotheses) == 0 && len(res.MetricSpikes) == 0 && len(res.AlertViolations) == 0 {

@@ -52,9 +52,8 @@ func TestDebugInvestigate_NoLLM_RunsAndSetsMarker(t *testing.T) {
 		res,
 	)
 
-	const wantReason = "LLM_API_KEY not set"
-	if res.Diagnostics.LLMSkippedReason != wantReason {
-		t.Errorf("LLMSkippedReason = %q, want %q", res.Diagnostics.LLMSkippedReason, wantReason)
+	if res.Diagnostics.LLMSkippedReason != llmSkipReasonNoKey {
+		t.Errorf("LLMSkippedReason = %q, want %q", res.Diagnostics.LLMSkippedReason, llmSkipReasonNoKey)
 	}
 	// LLMSummary must be empty — no LLM was called.
 	if res.LLMSummary != "" {

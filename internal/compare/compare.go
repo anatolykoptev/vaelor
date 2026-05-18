@@ -67,9 +67,9 @@ func computeDiffStats(matches []SymbolMatch) *DiffStats {
 }
 
 // CompareRepos orchestrates a full comparison between two repositories.
-// llmClient is always non-nil: either a real *llm.Client or llmiface.NoOp{}.
-// Pass llmiface.NoOp{} to skip LLM analysis (e.g. in tests); NoOp.Complete
-// returns ErrLLMUnavailable which runLLMAnalysis treats as a fallback.
+// llmClient must be non-nil; pass llmiface.NoOp{} when LLM is not configured.
+// NoOp.Complete returns ErrLLMUnavailable which runLLMAnalysis treats as a
+// fallback (deterministic comparison still runs in full).
 func CompareRepos(ctx context.Context, input CompareInput, llmClient llmiface.Completer) (*CompareResult, error) {
 	// Hard deadline: ensure we always return before MCP client timeout.
 	ctx, cancel := context.WithTimeout(ctx, compareTimeout)
@@ -176,12 +176,12 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llmiface.Co
 
 	// LLM analysis runs after all enrichment so it has full context:
 	// freshness, dataflow, API surface, and routes.
-	if llmClient != nil {
-		analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
-			hotspotsA, hotspotsB, relStatsA, relStatsB,
-			enr.freshnessA, enr.freshnessB, enr.dataflowA, enr.dataflowB, apiDiff, routeDiff,
-			enr.archMetricsA, enr.archMetricsB)
-	}
+	// llmClient is always non-nil (NoOp{} when unconfigured); runLLMAnalysis
+	// handles ErrLLMUnavailable via its own error branch (compare/llm.go).
+	analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
+		hotspotsA, hotspotsB, relStatsA, relStatsB,
+		enr.freshnessA, enr.freshnessB, enr.dataflowA, enr.dataflowB, apiDiff, routeDiff,
+		enr.archMetricsA, enr.archMetricsB)
 
 	result := &CompareResult{
 		RepoA:           snapA.Name,

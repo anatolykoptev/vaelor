@@ -97,6 +97,11 @@ func QueryGraph(ctx context.Context, store *Store, llmClient llmiface.Completer,
 func classifyAndBuildCypher(ctx context.Context, llmClient llmiface.Completer, query string) (*Classification, string, int, error) {
 	cls, err := Classify(ctx, llmClient, query)
 	if err != nil {
+		// Short-circuit on ErrLLMUnavailable: no point falling through to the
+		// freeform path which would make a second NoOp round-trip via GenerateCypher.
+		if errors.Is(err, llmiface.ErrLLMUnavailable) {
+			return nil, "", 0, err
+		}
 		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
 	}
 

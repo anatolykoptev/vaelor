@@ -43,7 +43,10 @@ func TestServerNoLLM_PolicyMatrix(t *testing.T) {
 			CodeGraphInput{Repo: "owner/repo", Query: "who calls Parse?"},
 			Config{},
 			noLLMDeps(),
-			nil, // store not reached before the gate
+			// store=nil intentional: LLM gate at tool_code_graph.go fires before
+			// any store access. If those checks are ever reordered, this test will
+			// nil-panic (not silently pass), which is the desired failure signal.
+			nil,
 		)
 		if err != nil {
 			t.Fatalf("unexpected non-nil error: %v", err)
