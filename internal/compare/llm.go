@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/prompts"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // runLLMAnalysis sends the comparison context to the LLM and parses its response.
 // Returns a fallback analysis with the error message if the LLM call fails.
-func runLLMAnalysis(ctx context.Context, client llmiface.Completer, matches []SymbolMatch,
+func runLLMAnalysis(ctx context.Context, client llm.Completer, matches []SymbolMatch,
 	metricsA, metricsB RepoMetrics, query string,
 	hotspotsA, hotspotsB []HotspotFile, relStatsA, relStatsB *RelStats,
 	freshnessA, freshnessB *FreshnessStats, dataflowA, dataflowB *DataflowStats,

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 )
 
@@ -25,7 +25,7 @@ func classifierSystemPrompt() string {
 
 // Classify sends a natural-language query to the LLM and returns a Classification.
 // On JSON parse failure it returns a freeform fallback rather than an error.
-func Classify(ctx context.Context, client llmiface.Completer, query string) (*Classification, error) {
+func Classify(ctx context.Context, client llm.Completer, query string) (*Classification, error) {
 	systemPrompt := classifierSystemPrompt()
 	raw, err := client.Complete(ctx, systemPrompt, query)
 	if err != nil {

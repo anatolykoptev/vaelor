@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/llmiface"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // TestRepoSearch_NoLLM_ReturnsExplicitError verifies that repo_search returns
@@ -14,7 +14,7 @@ import (
 // Hard-tool gate: PR2 of LLM-optional refactor.
 func TestRepoSearch_NoLLM_ReturnsExplicitError(t *testing.T) {
 	deps := analyze.Deps{
-		LLM:       llmiface.NoOp{},
+		LLM:       llm.NoOp{},
 		LLMHasKey: false,
 	}
 	input := RepoSearchInput{Query: "kubernetes operator"}
