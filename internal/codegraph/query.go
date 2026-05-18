@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 )
 
 // templateFreeform is the sentinel template ID used when no named template matches.
@@ -41,7 +41,7 @@ type QueryResult struct {
 //  3. Freeform path: GenerateCypher + ExecCypher
 //  4. On freeform exec error: GenerateCypherWithRetry + retry ExecCypher
 //  5. LLM narrative (non-fatal, skipped when results are empty)
-func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphName, query string, meta *GraphMeta) (*QueryResult, error) {
+func QueryGraph(ctx context.Context, store *Store, llmClient llmiface.Completer, graphName, query string, meta *GraphMeta) (*QueryResult, error) {
 	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func QueryGraph(ctx context.Context, store *Store, llmClient *llm.Client, graphN
 }
 
 // classifyAndBuildCypher classifies the query and generates Cypher via template or freeform.
-func classifyAndBuildCypher(ctx context.Context, llmClient *llm.Client, query string) (*Classification, string, int, error) {
+func classifyAndBuildCypher(ctx context.Context, llmClient llmiface.Completer, query string) (*Classification, string, int, error) {
 	cls, err := Classify(ctx, llmClient, query)
 	if err != nil {
 		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
@@ -133,7 +133,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient *llm.Client, query st
 }
 
 // execWithRetry executes Cypher, retrying once for freeform queries with self-correction.
-func execWithRetry(ctx context.Context, store *Store, llmClient *llm.Client, graphName, query, cypher string, cols int, template string) ([][]string, string, error) {
+func execWithRetry(ctx context.Context, store *Store, llmClient llmiface.Completer, graphName, query, cypher string, cols int, template string) ([][]string, string, error) {
 	// Preflight: check graph existence before issuing Cypher to AGE.
 	// This prevents postgres from logging ERROR entries for repos that have
 	// never been indexed. The existing IsGraphMissingError guard below remains

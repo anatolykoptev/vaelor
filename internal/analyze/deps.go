@@ -4,12 +4,12 @@ import (
 	"context"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
-	"github.com/anatolykoptev/go-kit/llm"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
 )
@@ -26,7 +26,13 @@ type PathMapping struct {
 // Deps holds injected dependencies for analysis operations.
 type Deps struct {
 	// LLM is the client used for natural-language queries.
-	LLM *llm.Client
+	// Always non-nil: either a real *llm.Client or llmiface.NoOp{}.
+	// Check LLMHasKey before invoking tools that require an actual LLM.
+	LLM llmiface.Completer
+
+	// LLMHasKey is true when LLM_API_KEY is set and LLM is a real client.
+	// False means LLM is llmiface.NoOp{} and calls will return ErrLLMUnavailable.
+	LLMHasKey bool
 
 	// MaxFileBytes is the max file size to parse. 0 uses the default.
 	MaxFileBytes int64

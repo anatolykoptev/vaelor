@@ -11,18 +11,12 @@ import (
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
-	"github.com/anatolykoptev/go-kit/llm"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
-
-// investigateLLM is the interface subset of *llm.Client used by runLLMPhase.
-// Defined locally so tests can inject fakes without importing the llm package.
-type investigateLLM interface {
-	Complete(ctx context.Context, system, user string, opts ...llm.ChatOption) (string, error)
-}
 
 // validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
 // Labels that deviate are rejected by listLabelValues to prevent path injection.
@@ -111,10 +105,9 @@ func runLLMPhase(
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
-	// Guard: passing a nil *llm.Client as investigateLLM interface would create
-	// a non-nil interface wrapping a nil pointer — client == nil check inside
-	// runLLMPhaseInner would incorrectly return false. Check here before passing.
-	if deps.LLM == nil {
+	// Guard: Deps.LLM is always non-nil after this PR (either real client or NoOp{}).
+	// Use LLMHasKey to skip the LLM phase when no API key is configured.
+	if !deps.LLMHasKey {
 		res.Diagnostics.LLMSkippedReason = "no_client"
 		return
 	}
@@ -123,7 +116,7 @@ func runLLMPhase(
 
 func runLLMPhaseInner(
 	ctx context.Context,
-	client investigateLLM,
+	client llmiface.Completer,
 	toolCache *kitcache.Cache,
 	metricNames []string,
 	input DebugInvestigateInput,

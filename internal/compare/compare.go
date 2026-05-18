@@ -15,7 +15,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-kit/embed"
-	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 )
 
 // CompareInput is the input for CompareRepos.
@@ -67,8 +67,10 @@ func computeDiffStats(matches []SymbolMatch) *DiffStats {
 }
 
 // CompareRepos orchestrates a full comparison between two repositories.
-// llmClient may be nil to skip LLM analysis (useful for testing).
-func CompareRepos(ctx context.Context, input CompareInput, llmClient *llm.Client) (*CompareResult, error) {
+// llmClient is always non-nil: either a real *llm.Client or llmiface.NoOp{}.
+// Pass llmiface.NoOp{} to skip LLM analysis (e.g. in tests); NoOp.Complete
+// returns ErrLLMUnavailable which runLLMAnalysis treats as a fallback.
+func CompareRepos(ctx context.Context, input CompareInput, llmClient llmiface.Completer) (*CompareResult, error) {
 	// Hard deadline: ensure we always return before MCP client timeout.
 	ctx, cancel := context.WithTimeout(ctx, compareTimeout)
 	defer cancel()
