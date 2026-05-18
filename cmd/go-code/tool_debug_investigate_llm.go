@@ -11,18 +11,16 @@ import (
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
-	"github.com/anatolykoptev/go-kit/llm"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-code/internal/promclient"
 )
 
-// investigateLLM is the interface subset of *llm.Client used by runLLMPhase.
-// Defined locally so tests can inject fakes without importing the llm package.
-type investigateLLM interface {
-	Complete(ctx context.Context, system, user string, opts ...llm.ChatOption) (string, error)
-}
+// llmSkipReasonNoKey is the LLMSkippedReason set when LLM_API_KEY is not configured.
+// Shared with tests to avoid literal duplication.
+const llmSkipReasonNoKey = "LLM_API_KEY not set"
 
 // validPromLabel matches Prometheus label names: [A-Za-z_][A-Za-z0-9_]*.
 // Labels that deviate are rejected by listLabelValues to prevent path injection.
@@ -111,11 +109,12 @@ func runLLMPhase(
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
-	// Guard: passing a nil *llm.Client as investigateLLM interface would create
-	// a non-nil interface wrapping a nil pointer — client == nil check inside
-	// runLLMPhaseInner would incorrectly return false. Check here before passing.
-	if deps.LLM == nil {
-		res.Diagnostics.LLMSkippedReason = "no_client"
+	// Guard: Deps.LLM is always non-nil after PR1 (either real client or NoOp{}).
+	// Use LLMHasKey (bool) to skip this phase — avoids the typed-nil interface trap.
+	// Deterministic phases (trace analysis, metric spikes, hypothesis ranking) already
+	// ran; only LLM hypothesis ranking is skipped here.
+	if !deps.LLMHasKey {
+		res.Diagnostics.LLMSkippedReason = llmSkipReasonNoKey
 		return
 	}
 	runLLMPhaseInner(ctx, deps.LLM, deps.ToolCache, metricNames, input, services, ops, start, end, res)
@@ -123,7 +122,7 @@ func runLLMPhase(
 
 func runLLMPhaseInner(
 	ctx context.Context,
-	client investigateLLM,
+	client llmiface.Completer,
 	toolCache *kitcache.Cache,
 	metricNames []string,
 	input DebugInvestigateInput,
@@ -132,9 +131,6 @@ func runLLMPhaseInner(
 	start, end time.Time,
 	res *investigate.InvestigationResult,
 ) {
-	if client == nil {
-		return
-	}
 	// Skip LLM when there is no signal to summarize: no hypotheses, no spikes,
 	// no alert violations. This saves 5-15s on healthy-service investigations.
 	if len(res.Hypotheses) == 0 && len(res.MetricSpikes) == 0 && len(res.AlertViolations) == 0 {

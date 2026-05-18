@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/llmiface"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -167,7 +168,7 @@ func TestCompareReposIntegration(t *testing.T) {
 		RootB: root,
 		Query: "compare error handling",
 		Opts:  SnapshotOpts{Language: "go"},
-	}, nil) // nil LLM = skip LLM analysis
+	}, llmiface.NoOp{}) // NoOp returns ErrLLMUnavailable; runLLMAnalysis treats it as a fallback
 	if err != nil {
 		t.Fatalf("CompareRepos: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestCompareRepos_MatchBreakdown(t *testing.T) {
 		RootB: root,
 		Query: "test",
 		Opts:  SnapshotOpts{Language: "go"},
-	}, nil)
+	}, llmiface.NoOp{}) // NoOp returns ErrLLMUnavailable; runLLMAnalysis uses deterministic fallback
 	if err != nil {
 		t.Fatalf("CompareRepos: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestCompareRepos_ImportDiff(t *testing.T) {
 		RootB: root,
 		Query: "test",
 		Opts:  SnapshotOpts{Language: "go"},
-	}, nil)
+	}, llmiface.NoOp{}) // NoOp returns ErrLLMUnavailable; runLLMAnalysis uses deterministic fallback
 	if err != nil {
 		t.Fatalf("CompareRepos: %v", err)
 	}
@@ -250,7 +251,7 @@ func TestCompareRepos_Hotspots(t *testing.T) {
 		RootB: root,
 		Query: "test",
 		Opts:  SnapshotOpts{Language: "go"},
-	}, nil)
+	}, llmiface.NoOp{}) // NoOp returns ErrLLMUnavailable; runLLMAnalysis uses deterministic fallback
 	if err != nil {
 		t.Fatalf("CompareRepos: %v", err)
 	}
@@ -360,7 +361,7 @@ func TestCompareRepos_Freshness(t *testing.T) {
 	root := findRepoRootInternal(t)
 	result, err := CompareRepos(context.Background(), CompareInput{
 		RootA: root, RootB: root,
-	}, nil)
+	}, llmiface.NoOp{}) // NoOp returns ErrLLMUnavailable; runLLMAnalysis uses deterministic fallback
 	if err != nil {
 		t.Fatalf("CompareRepos: %v", err)
 	}
