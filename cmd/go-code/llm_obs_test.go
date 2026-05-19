@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/client_golang/prometheus"
 	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	kitllm "github.com/anatolykoptev/go-kit/llm"
 )
@@ -119,4 +122,53 @@ func TestLLMObs_ErrorOutcomeLabeled(t *testing.T) {
 	if ok := reg.Value("llm_calls_total{outcome=ok}"); ok != 0 {
 		t.Errorf("llm_calls_total{outcome=ok} = %d, want 0", ok)
 	}
+}
+
+// TestLLMObs_HistogramVisibleInDefaultGatherer verifies that after a middleware
+// call the latency histogram appears in prometheus.DefaultGatherer under the
+// family name "<ns>_llm_request_seconds".  This pins the metric-name invariant
+// that Prometheus alerts depend on (gocode_llm_request_seconds_bucket{...}).
+//
+// Uses a unique namespace ("gocodetest") so the registration does not collide
+// with other tests that run in the same go test binary against DefaultRegisterer.
+func TestLLMObs_HistogramVisibleInDefaultGatherer(t *testing.T) {
+	const ns = "gocodetest"
+	reg := kitmetrics.NewPrometheusRegistry(ns)
+	obs := newLLMObs(reg)
+
+	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
+		return &kitllm.ChatResponse{}, nil
+	}
+	if _, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next); err != nil {
+		t.Fatalf("middleware returned unexpected error: %v", err)
+	}
+
+	wantFamily := ns + "_llm_request_seconds"
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("DefaultGatherer.Gather: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == wantFamily {
+			// Found. Assert at least one sample was recorded.
+			for _, m := range mf.GetMetric() {
+				if h := m.GetHistogram(); h != nil && h.GetSampleCount() > 0 {
+					return // test passes
+				}
+			}
+			t.Fatalf("histogram family %q found but sample count is 0", wantFamily)
+		}
+	}
+	t.Fatalf("metric family %q not found in DefaultGatherer; family names seen: %v",
+		wantFamily, metricFamilyNames(mfs))
+}
+
+// metricFamilyNames returns a sorted slice of names for diagnostic output.
+func metricFamilyNames(mfs []*dto.MetricFamily) []string {
+	names := make([]string, 0, len(mfs))
+	for _, mf := range mfs {
+		names = append(names, mf.GetName())
+	}
+	sort.Strings(names)
+	return names
 }
