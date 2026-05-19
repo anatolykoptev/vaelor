@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	kitllm "github.com/anatolykoptev/go-kit/llm"
 )
 
@@ -35,7 +36,10 @@ func TestClassifyOutcome(t *testing.T) {
 	}
 }
 
-func TestLLMMetricsMW_CallsNextAndPropagatesResult(t *testing.T) {
+func TestLLMObs_CallsNextAndPropagatesResult(t *testing.T) {
+	reg := kitmetrics.NewRegistry()
+	obs := newLLMObs(reg)
+
 	var nextCalled bool
 	wantResp := &kitllm.ChatResponse{}
 	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
@@ -43,7 +47,7 @@ func TestLLMMetricsMW_CallsNextAndPropagatesResult(t *testing.T) {
 		return wantResp, nil
 	}
 
-	resp, err := llmMetricsMW(context.Background(), &kitllm.ChatRequest{}, next)
+	resp, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -55,14 +59,64 @@ func TestLLMMetricsMW_CallsNextAndPropagatesResult(t *testing.T) {
 	}
 }
 
-func TestLLMMetricsMW_PropagatesError(t *testing.T) {
+func TestLLMObs_PropagatesError(t *testing.T) {
+	reg := kitmetrics.NewRegistry()
+	obs := newLLMObs(reg)
+
 	wantErr := errors.New("downstream failure")
 	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
 		return nil, wantErr
 	}
 
-	_, err := llmMetricsMW(context.Background(), &kitllm.ChatRequest{}, next)
+	_, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
+// TestLLMObs_CounterIncrements verifies that the counter is incremented
+// in the registry on each call, using the labeled kitmetrics syntax.
+func TestLLMObs_CounterIncrements(t *testing.T) {
+	reg := kitmetrics.NewRegistry()
+	obs := newLLMObs(reg)
+
+	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
+		return &kitllm.ChatResponse{}, nil
+	}
+
+	if _, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// kitmetrics stores labeled counters under the full labeled name key.
+	got := reg.Value("llm_calls_total{outcome=ok}")
+	if got != 2 {
+		t.Errorf("llm_calls_total{outcome=ok} = %d, want 2", got)
+	}
+}
+
+// TestLLMObs_ErrorOutcomeLabeled verifies the error outcome label is set correctly.
+func TestLLMObs_ErrorOutcomeLabeled(t *testing.T) {
+	reg := kitmetrics.NewRegistry()
+	obs := newLLMObs(reg)
+
+	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
+		return nil, kitllm.ErrCircuitOpen
+	}
+
+	if _, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	got := reg.Value("llm_calls_total{outcome=circuit_open}")
+	if got != 1 {
+		t.Errorf("llm_calls_total{outcome=circuit_open} = %d, want 1", got)
+	}
+	// ok counter must remain at 0.
+	if ok := reg.Value("llm_calls_total{outcome=ok}"); ok != 0 {
+		t.Errorf("llm_calls_total{outcome=ok} = %d, want 0", ok)
 	}
 }
