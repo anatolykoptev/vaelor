@@ -121,7 +121,7 @@ func main() {
 		Version: version,
 	}, nil)
 
-	deps := registerTools(server, cfg)
+	deps := registerTools(server, cfg, reg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
 
 	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
+	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/env"
 	"github.com/anatolykoptev/go-kit/llm"
@@ -28,7 +29,7 @@ import (
 // registerTools registers all MCP tool handlers on the server.
 // Each tool has its own file: tool_<name>.go
 // Returns the analyze.Deps for use by other components (e.g., webhook handler).
-func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
+func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) analyze.Deps {
 	parseCacheSize := env.Int("PARSE_CACHE_SIZE", cache.DefaultParseCacheSize)
 	llmCacheSize := env.Int("LLM_CACHE_SIZE", cache.DefaultLLMCacheSize)
 	llmCacheTTLMin := env.Int("LLM_CACHE_TTL_MIN", defaultLLMCacheTTL)
@@ -54,7 +55,7 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 			OpenDuration:   30 * time.Second, // fail-fast for 30s, then probe
 			HalfOpenProbes: 1,               // one probe request before closing
 		}),
-		llm.WithMiddleware(llmMetricsMW), // records go_code_llm_calls_total / go_code_llm_request_seconds
+		llm.WithMiddleware(newLLMObs(reg).middleware), // records gocode_llm_calls_total / gocode_llm_request_seconds
 	)
 	if !hasKey {
 		slog.Warn("llm: disabled (LLM_API_KEY unset) — code_graph/repo_search/debug_investigate will error; narratives in call_trace/dead_code/impact omitted")
