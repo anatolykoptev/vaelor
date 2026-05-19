@@ -49,6 +49,12 @@ func registerTools(server *mcp.Server, cfg Config) analyze.Deps {
 	llmClient, hasKey := llm.NewOptional(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel,
 		llm.WithFallbackKeys(cfg.LLMFallbackKeys),
 		llm.WithMaxTokens(cfg.LLMMaxTokens),
+		llm.WithCircuitBreaker(llm.CircuitConfig{
+			FailThreshold:  5,               // 5 consecutive failures trip the breaker
+			OpenDuration:   30 * time.Second, // fail-fast for 30s, then probe
+			HalfOpenProbes: 1,               // one probe request before closing
+		}),
+		llm.WithMiddleware(llmMetricsMW), // records go_code_llm_calls_total / go_code_llm_request_seconds
 	)
 	if !hasKey {
 		slog.Warn("llm: disabled (LLM_API_KEY unset) — code_graph/repo_search/debug_investigate will error; narratives in call_trace/dead_code/impact omitted")
