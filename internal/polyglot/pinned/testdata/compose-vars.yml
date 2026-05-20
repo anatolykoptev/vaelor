@@ -1,0 +1,7 @@
+services:
+  with-default:
+    image: postgres:${PG_VER:-16}
+  bare:
+    image: ${BARE_IMAGE}:latest
+  full-default:
+    image: ${IMG:-mariadb}:${MARIADB_VER:-11.4}
