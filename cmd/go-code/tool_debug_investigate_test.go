@@ -93,7 +93,7 @@ func TestHintKind_IsValid(t *testing.T) {
 func TestHandleDebugInvestigate_RejectsInvalidHintKind(t *testing.T) {
 	res, err := handleDebugInvestigate(context.Background(), DebugInvestigateInput{
 		Service: "x", StartUnix: 1, EndUnix: 2, HintKind: HintKind("bogus"),
-	}, analyze.Deps{}, nil, nil, nil)
+	}, Config{}, analyze.Deps{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

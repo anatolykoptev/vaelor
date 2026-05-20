@@ -24,8 +24,8 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // noLLMDeps returns Deps with LLMHasKey=false — simulates LLM_API_KEY="".
@@ -143,6 +143,7 @@ func TestServerNoLLM_PolicyMatrix(t *testing.T) {
 				StartUnix: 1_700_000_000,
 				EndUnix:   1_700_000_600,
 			},
+			Config{},
 			noLLMDeps(),
 			nil, // prom
 			nil, // jaeger

@@ -139,6 +139,10 @@ type InvestigationResult struct {
 	LogExcerpts         []LogExcerpt         `json:"log_excerpts,omitempty"`
 	HistoricalIncidents []HistoricalIncident `json:"historical_incidents,omitempty"`
 	Diagnostics         Diagnostics          `json:"diagnostics"`
+
+	// RuntimeVersions, when non-nil, carries the Phase 7 deployed-image
+	// diff against pinned source. Nil = phase skipped or host not provided.
+	RuntimeVersions *FleetReport `json:"runtime_versions,omitempty"`
 }
 
 // TimeRange is the [Start, End] window the investigation covered.

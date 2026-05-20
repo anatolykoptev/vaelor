@@ -14,8 +14,8 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // llmSkipReasonNoKey is the LLMSkippedReason set when LLM_API_KEY is not configured.
@@ -171,6 +171,19 @@ func runLLMPhaseInner(
 	// Top-5 have BodySource (per runBodyExtractionPhase budget, bumped B5).
 	// collectBodyExcerpts skips empty BodySource → top-5 effectively.
 	bodyExcerpts := collectBodyExcerpts(topN)
+	// Build fleet drift section for LLM prompt. Only Summary (cardinality-capped)
+	// is sent; full Diffs stay in the JSON output, not the LLM prompt budget.
+	var runtimeDrift string
+	if res.RuntimeVersions != nil {
+		runtimeDrift = res.RuntimeVersions.Summary
+		if res.RuntimeVersions.Error != "" {
+			if runtimeDrift != "" {
+				runtimeDrift += "\n"
+			}
+			runtimeDrift += "NOTE: fleet probe error: " + res.RuntimeVersions.Error
+		}
+	}
+
 	userPayload := map[string]any{
 		"service":          input.Service,
 		"window":           map[string]string{"start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)},
@@ -179,6 +192,7 @@ func runLLMPhaseInner(
 		"user_hint":        input.Hint,
 		"alert_violations": res.AlertViolations,
 		"body_excerpts":    bodyExcerpts,
+		"runtime_drift":    runtimeDrift,
 	}
 	userJSON, marshalErr := json.Marshal(userPayload)
 	if marshalErr != nil {
