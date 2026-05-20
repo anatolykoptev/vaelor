@@ -173,6 +173,34 @@ type Config struct {
 	// maps may be fetched. Empty means resolve_frame tool and POST /resolve are
 	// disabled. Set via SOURCEMAP_ALLOWED_HOSTS env var (CSV).
 	SourcemapAllowedHosts []string
+
+	// Fleet runtime-image probing (fleet_versions tool and debug_investigate Phase 7).
+	// All settings are safe-by-default: SSH disabled, socket is well-known location,
+	// timeout is conservative. Existing operators see no behaviour change unless they
+	// opt in.
+
+	// FleetDefaultHost is the default probe target for debug_investigate Phase 7
+	// when the caller does not specify a host. Reserved for P6; fleet_versions
+	// always requires an explicit host (defaulting to local://). Empty = disabled.
+	// Env: GOCODE_FLEET_DEFAULT_HOST
+	FleetDefaultHost string
+
+	// FleetDockerSocket is the path to the Docker Engine unix socket.
+	// Env: GOCODE_FLEET_DOCKER_SOCKET (default /var/run/docker.sock)
+	FleetDockerSocket string
+
+	// FleetSSHEnable gates the ssh:// probe driver. False by default (security gate).
+	// Set GOCODE_FLEET_SSH_ENABLE=true to enable ssh:// targets in fleet_versions.
+	// Env: GOCODE_FLEET_SSH_ENABLE
+	FleetSSHEnable bool
+
+	// FleetSSHBinary is the path or name of the system ssh binary.
+	// Env: GOCODE_FLEET_SSH_BINARY (default ssh)
+	FleetSSHBinary string
+
+	// FleetTimeout is the per-call timeout for fleet probe drivers.
+	// Env: GOCODE_FLEET_TIMEOUT (default 10s)
+	FleetTimeout time.Duration
 }
 
 const (
@@ -294,6 +322,13 @@ func loadConfig() (Config, error) {
 		DozorAPIToken:         env.Str("DOZOR_API_TOKEN", ""),
 		JaegerURL:             env.Str("JAEGER_URL", ""),
 		SourcemapAllowedHosts: env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
+
+		// Fleet probe settings — safe-by-default (SSH off, standard socket).
+		FleetDefaultHost:  env.Str("GOCODE_FLEET_DEFAULT_HOST", ""),
+		FleetDockerSocket: env.Str("GOCODE_FLEET_DOCKER_SOCKET", "/var/run/docker.sock"),
+		FleetSSHEnable:    env.Bool("GOCODE_FLEET_SSH_ENABLE", false),
+		FleetSSHBinary:    env.Str("GOCODE_FLEET_SSH_BINARY", "ssh"),
+		FleetTimeout:      env.Duration("GOCODE_FLEET_TIMEOUT", 10*time.Second),
 	}, nil
 }
 

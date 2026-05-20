@@ -7,10 +7,10 @@ import (
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
-	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/env"
 	"github.com/anatolykoptev/go-kit/llm"
+	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
@@ -51,9 +51,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		llm.WithFallbackKeys(cfg.LLMFallbackKeys),
 		llm.WithMaxTokens(cfg.LLMMaxTokens),
 		llm.WithCircuitBreaker(llm.CircuitConfig{
-			FailThreshold:  5,               // 5 consecutive failures trip the breaker
+			FailThreshold:  5,                // 5 consecutive failures trip the breaker
 			OpenDuration:   30 * time.Second, // fail-fast for 30s, then probe
-			HalfOpenProbes: 1,               // one probe request before closing
+			HalfOpenProbes: 1,                // one probe request before closing
 		}),
 		llm.WithMiddleware(newLLMObs(reg).middleware), // records gocode_llm_calls_total / gocode_llm_request_seconds
 	)
@@ -62,20 +62,20 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	}
 
 	deps := analyze.Deps{
-		LLM:          llmClient,
-		LLMHasKey:    hasKey,
-		MaxFileBytes: cfg.MaxFileBytes,
+		LLM:            llmClient,
+		LLMHasKey:      hasKey,
+		MaxFileBytes:   cfg.MaxFileBytes,
 		GithubToken:    cfg.GithubToken,
 		CloneTokenFunc: buildCloneTokenFunc(cfg),
 		WorkspaceDir:   cfg.WorkspaceDir,
-		PathMappings: cfg.PathMappings,
-		ParseCache:   parseCache,
-		LLMCache:     llmCache,
-		Forges:       buildForgeRegistry(cfg),
-		WebSearch:    buildWebSearchClient(cfg),
-		ToolCache:    toolCache,
-		OxCodes:      buildOxCodesClient(cfg),
-		Learnings:    buildLearningsStore(cfg),
+		PathMappings:   cfg.PathMappings,
+		ParseCache:     parseCache,
+		LLMCache:       llmCache,
+		Forges:         buildForgeRegistry(cfg),
+		WebSearch:      buildWebSearchClient(cfg),
+		ToolCache:      toolCache,
+		OxCodes:        buildOxCodesClient(cfg),
+		Learnings:      buildLearningsStore(cfg),
 	}
 
 	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
@@ -190,6 +190,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	}
 	registerDesignSearch(server, cfg, designDeps)
 	registerDebugInvestigate(server, cfg, deps)
+	registerFleetVersions(server, cfg, deps)
 	registerResolveFrame(server, cfg)
 
 	// Auto-index local repos in background.
