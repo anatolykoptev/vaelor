@@ -9,8 +9,11 @@ import (
 	"strings"
 	"sync"
 
+	"time"
+
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/go-code/internal/fleet/upstream"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
 )
@@ -25,8 +28,9 @@ func summaryStatusPriorityOf(s string) int {
 }
 
 // summarizeFleetForLLM returns a human-readable summary suitable for inclusion
-// in the LLM prompt. It prepends a sibling-drift section (top-5 entries) when
-// drift rows are present, then per-target drift sections.
+// in the LLM prompt. It prepends a changelog-notes section (top-5 image/count pairs)
+// when any TagDrift row has upstream changelog data, then sibling-drift section
+// (top-5 entries), then per-target drift sections.
 //
 // Rules for per-target section:
 //  1. Drop Match diffs entirely.
@@ -37,6 +41,42 @@ func summaryStatusPriorityOf(s string) int {
 // Returns "" if no non-Match diffs anywhere.
 func summarizeFleetForLLM(report *investigate.FleetReport) string {
 	var b strings.Builder
+
+	// Changelog notes prelude (top-5 TagDrift rows with upstream data).
+	type changelogNote struct {
+		image   string
+		count   int
+		subject string // first commit subject
+	}
+	var notes []changelogNote
+	noteSet := make(map[string]bool)
+	for _, t := range report.Targets {
+		for _, d := range t.Diffs {
+			if d.Status == "TagDrift" && d.ChangelogSummary != "" && !noteSet[d.Image] {
+				noteSet[d.Image] = true
+				notes = append(notes, changelogNote{image: d.Image, subject: d.ChangelogSummary})
+				if len(notes) >= 5 {
+					break
+				}
+			}
+		}
+	}
+	// Also check single-host backward-compat diffs.
+	for _, d := range report.Diffs {
+		if d.Status == "TagDrift" && d.ChangelogSummary != "" && !noteSet[d.Image] {
+			noteSet[d.Image] = true
+			notes = append(notes, changelogNote{image: d.Image, subject: d.ChangelogSummary})
+			if len(notes) >= 5 {
+				break
+			}
+		}
+	}
+	if len(notes) > 0 {
+		fmt.Fprintf(&b, "Changelog notes (top upstream commit per drifting image):\n")
+		for _, n := range notes {
+			fmt.Fprintf(&b, " - %s: %s\n", n.image, n.subject)
+		}
+	}
 
 	// Sibling-drift prelude (top-5 cap).
 	if len(report.SiblingDrifts) > 0 {
@@ -203,19 +243,45 @@ func runFleetVersionsPhase(ctx context.Context, input DebugInvestigateInput,
 
 	reg := buildFleetRegistry(cfg)
 
-	// Probe all hosts in parallel.
-	targetRows := make([]investigate.FleetTargetRow, len(parsedHosts))
+	// Probe all hosts in parallel: collect raw fleet.ImageDiff slices.
+	type hostProbeResult struct {
+		raw   string
+		diffs []fleet.ImageDiff
+		error string
+	}
+	probeResults := make([]hostProbeResult, len(parsedHosts))
 	var wg sync.WaitGroup
 	wg.Add(len(parsedHosts))
 	for i, ph := range parsedHosts {
 		i, ph := i, ph
 		go func() {
 			defer wg.Done()
-			row := probeOneHostForInvestigation(ctx, ph.raw, ph.target, pinnedImgs, input.Service, reg)
-			targetRows[i] = row
+			diffs, errStr := rawProbeForInvestigation(ctx, ph.raw, ph.target, pinnedImgs, input.Service, reg)
+			probeResults[i] = hostProbeResult{raw: ph.raw, diffs: diffs, error: errStr}
 		}()
 	}
 	wg.Wait()
+
+	// Upstream changelog enrichment for TagDrift rows (before translation to FleetDiffRow).
+	if !cfg.FleetUpstreamDisable && cfg.GithubToken != "" {
+		upstreamClient := upstream.New(
+			upstream.WithToken(cfg.GithubToken),
+			upstream.WithTimeout(8*time.Second),
+		)
+		for i := range probeResults {
+			probeResults[i].diffs = upstream.Enrich(ctx, upstreamClient, probeResults[i].diffs, 30)
+		}
+	}
+
+	// Translate to investigate.FleetTargetRow.
+	targetRows := make([]investigate.FleetTargetRow, len(probeResults))
+	for i, pr := range probeResults {
+		targetRows[i] = investigate.FleetTargetRow{
+			Target: pr.raw,
+			Diffs:  toInvestigateDiffRows(pr.diffs),
+			Error:  pr.error,
+		}
+	}
 
 	// Compute sibling drift.
 	var siblingDrifts []investigate.FleetSiblingDriftRow
@@ -283,15 +349,16 @@ func (r investigateTargetRowLike) DiffsList() []fleet.ImageDiff {
 	return diffs
 }
 
-// probeOneHostForInvestigation probes one host for the investigate phase.
-func probeOneHostForInvestigation(
+// rawProbeForInvestigation probes one host and returns the raw fleet.ImageDiff slice.
+// The caller is responsible for upstream enrichment and translation to FleetTargetRow.
+func rawProbeForInvestigation(
 	ctx context.Context,
 	hostRaw string,
 	t fleet.Target,
 	pinnedImgs []pinned.PinnedImage,
 	service string,
 	reg *fleet.Registry,
-) investigate.FleetTargetRow {
+) ([]fleet.ImageDiff, string) {
 	probe, probeErr := reg.Get(t)
 
 	var runtimeImgs []fleet.RuntimeImage
@@ -309,12 +376,7 @@ func probeOneHostForInvestigation(
 	}
 
 	diffs := fleet.Diff(pinnedImgs, runtimeImgs)
-
-	return investigate.FleetTargetRow{
-		Target: hostRaw,
-		Diffs:  toInvestigateDiffRows(diffs),
-		Error:  targetErr,
-	}
+	return diffs, targetErr
 }
 
 // collectPinnedForInvestigation collects pinned images from the repo path.
@@ -355,6 +417,10 @@ func toInvestigateDiffRows(diffs []fleet.ImageDiff) []investigate.FleetDiffRow {
 			if row.Service == "" {
 				row.Service = d.Runtime.Service
 			}
+		}
+		// Carry through the first commit subject from upstream changelog, if available.
+		if d.Changelog != nil && d.Changelog.Resolved && len(d.Changelog.Commits) > 0 {
+			row.ChangelogSummary = d.Changelog.Commits[0].Subject
 		}
 		rows = append(rows, row)
 	}
