@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -152,5 +153,93 @@ func TestRealExecer_RunPopulatesSSHHome(t *testing.T) {
 	_, _, _ = re.Run(context.Background(), "false", "irrelevant-host", nil)
 	if _, err := os.Stat(filepath.Join(dst, ".ssh", "config")); err != nil {
 		t.Errorf("dst/.ssh/config not populated after Run: %v", err)
+	}
+}
+
+// TestRewriteSSHConfigPaths_TildeAndHome verifies that rewriteSSHConfigPaths
+// replaces ~/.ssh/ and $HOME/.ssh/ prefixes with <homeDst>/.ssh/, while
+// leaving absolute paths and HostName/other values untouched.
+// Regression test for OpenSSH 10.2p1 on alpine: getpwuid() expands ~ to
+// /root/.ssh (the bind-mounted uid-1000 dir), not to $HOME — so IdentityFile
+// lines in the shadow-copy must be rewritten to absolute homeDst paths.
+func TestRewriteSSHConfigPaths_TildeAndHome(t *testing.T) {
+	dst := t.TempDir()
+	sshDir := filepath.Join(dst, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(sshDir, "config")
+	content := `Host host-a
+  HostName 127.0.0.1
+  IdentityFile ~/.ssh/id_ed25519
+  UserKnownHostsFile $HOME/.ssh/known_hosts
+
+Host other
+  IdentityFile /absolute/path/key
+`
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rewriteSSHConfigPaths(cfg, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	rewritten, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(rewritten)
+
+	// ~/.ssh/id_ed25519 must become <dst>/.ssh/id_ed25519
+	wantIdentity := "IdentityFile " + dst + "/.ssh/id_ed25519"
+	if !strings.Contains(s, wantIdentity) {
+		t.Errorf("IdentityFile ~/.ssh/ not rewritten: got:\n%s", s)
+	}
+
+	// $HOME/.ssh/known_hosts must become <dst>/.ssh/known_hosts
+	wantKnown := "UserKnownHostsFile " + dst + "/.ssh/known_hosts"
+	if !strings.Contains(s, wantKnown) {
+		t.Errorf("UserKnownHostsFile $HOME/.ssh/ not rewritten: got:\n%s", s)
+	}
+
+	// Absolute path must be untouched
+	if !strings.Contains(s, "IdentityFile /absolute/path/key") {
+		t.Errorf("absolute path was mangled: got:\n%s", s)
+	}
+
+	// HostName value must be untouched (does not contain ~/.ssh/)
+	if !strings.Contains(s, "HostName 127.0.0.1") {
+		t.Errorf("HostName was mangled: got:\n%s", s)
+	}
+}
+
+// TestRewriteSSHConfigPaths_Idempotent verifies that running rewriteSSHConfigPaths
+// twice produces the same result as running it once.
+func TestRewriteSSHConfigPaths_Idempotent(t *testing.T) {
+	dst := t.TempDir()
+	sshDir := filepath.Join(dst, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(sshDir, "config")
+	content := "  IdentityFile ~/.ssh/id_ed25519\n  UserKnownHostsFile $HOME/.ssh/known_hosts\n"
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rewriteSSHConfigPaths(cfg, dst); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(cfg)
+
+	// Second pass must be a no-op.
+	if err := rewriteSSHConfigPaths(cfg, dst); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := os.ReadFile(cfg)
+
+	if string(first) != string(second) {
+		t.Errorf("rewriteSSHConfigPaths not idempotent:\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
 }
