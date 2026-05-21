@@ -20,6 +20,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -344,30 +345,14 @@ func (e *realExecer) Run(ctx context.Context, binary, host string, args []string
 		}
 	}
 
-	// Separate any leading option flags (-p N) from the positional args
-	// so that "--" can be inserted immediately before the host.
-	// This prevents a leading-dash host (e.g. "-v") from being interpreted
-	// as an ssh flag — defense-in-depth alongside the allowlist check.
+	// Build the final argv using buildSSHArgv. When sshHomeDst is set, -F is
+	// prepended so OpenSSH reads the shadow-copy config explicitly, bypassing
+	// the getpwuid()-based ~/ expansion that would otherwise point back at the
+	// bind-mounted uid-1000 originals on alpine OpenSSH 10.2p1.
 	//
-	// Resulting argv shape:
-	//   [(-p N)?  --  host  'docker' 'ps' '--no-trunc' '--format={{json .}}']
-	//
-	// The remote-command args (rest) are POSIX-single-quoted via shellQuote.
-	// OpenSSH joins remote-command args with spaces into a single string and
-	// sends it to the remote sshd, which runs the user's shell to re-tokenise.
-	// Any arg containing a space (e.g. '--format={{json .}}') would be split
-	// into multiple tokens by the remote shell without quoting.
-	// Opts (-p N) and host are interpreted locally by ssh — not quoted.
-	var opts []string
-	rest := args
-	if len(rest) >= 2 && rest[0] == "-p" {
-		opts = []string{rest[0], rest[1]}
-		rest = rest[2:]
-	}
-	argv := append(opts, "--", host)
-	for _, a := range rest {
-		argv = append(argv, shellQuote(a))
-	}
+	// Allowlist validation runs in List() on the clean args slice before this
+	// point; -F is injected here at the wire layer and is never seen by Validate.
+	argv := buildSSHArgv(host, args, e.sshHomeDst)
 
 	cmd := exec.CommandContext(ctx, binary, argv...)
 
@@ -386,6 +371,60 @@ func (e *realExecer) Run(ctx context.Context, binary, host string, args []string
 			ErrSSHError, outBuf.Len(), errBuf.Len())
 	}
 	return outBuf.Bytes(), errBuf.Bytes(), err
+}
+
+// buildSSHArgv constructs the argument slice for exec.CommandContext.
+//
+// When homeDst is non-empty, -F <homeDst>/.ssh/config is prepended so that
+// OpenSSH reads the shadow-copy config explicitly. This is required on
+// alpine OpenSSH 10.2p1: that build expands ~/ via getpwuid() (always
+// /root/.ssh) rather than from $HOME env, so the HOME override alone is
+// insufficient — -F forces the explicit path.
+//
+// Argv shape when homeDst is set:
+//
+//	[-F <homeDst>/.ssh/config  (-p N)?  --  host  'remote-cmd'...]
+//
+// Argv shape when homeDst is empty (backward-compatible):
+//
+//	[(-p N)?  --  host  'remote-cmd'...]
+//
+// Remote-command args (everything after the host) are POSIX-single-quoted
+// via shellQuote. OpenSSH joins them with spaces into a single string
+// sent to the remote sshd, which re-tokenises via the user's shell.
+// Without quoting, args with embedded spaces (e.g. '--format={{json .}}')
+// would be split by the remote shell.
+//
+// Opts (-p N) and host are interpreted locally by ssh — not quoted.
+// The -F path is also interpreted locally — not quoted.
+func buildSSHArgv(host string, args []string, homeDst string) []string {
+	// Separate any leading option flags (-p N) from the positional args so
+	// that "--" can be inserted immediately before the host. This prevents a
+	// leading-dash host (e.g. "-v") from being interpreted as an ssh flag —
+	// defense-in-depth alongside the allowlist check.
+	var opts []string
+	rest := args
+	if len(rest) >= 2 && rest[0] == "-p" {
+		opts = []string{rest[0], rest[1]}
+		rest = rest[2:]
+	}
+
+	// Pre-allocate: optional ["-F", cfg] + opts + ["--", host] + rest.
+	cap := len(opts) + 2 + len(rest)
+	if homeDst != "" {
+		cap += 2
+	}
+	argv := make([]string, 0, cap)
+
+	if homeDst != "" {
+		argv = append(argv, "-F", filepath.Join(homeDst, ".ssh", "config"))
+	}
+	argv = append(argv, opts...)
+	argv = append(argv, "--", host)
+	for _, a := range rest {
+		argv = append(argv, shellQuote(a))
+	}
+	return argv
 }
 
 // Ensure Driver satisfies fleet.Probe at compile time.
