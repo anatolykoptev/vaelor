@@ -8,9 +8,27 @@ import (
 )
 
 // ParseDockerfile reads a Dockerfile at path and returns one PinnedImage per
-// FROM instruction. Multi-stage builds are handled: non-final stages get a
-// ":builder" suffix on their Service name. ARG interpolation is deferred —
-// images starting with "$" are emitted with a non-empty Unresolved field.
+// FROM instruction that references an external image. Multi-stage builds are
+// handled: non-final stages get a ":builder" suffix on their Service name.
+// ARG interpolation is deferred — images starting with "$" are emitted with
+// a non-empty Unresolved field.
+//
+// Intra-Dockerfile stage references (FROM <as-name>) are NOT emitted: if a
+// FROM image-ref is a bare identifier (no ':', '@', '/') that exactly matches
+// an AS-name declared by a prior FROM in the same file, it is skipped.
+//
+// Skip predicate details:
+//   - Bare identifier: no ':', '@', or '/' in the ref. A ref like
+//     "library/base:1.0" will NOT match AS name "base" (has ':' and '/').
+//   - If <ref> appears bare but was never declared as an AS-name in this
+//     file, it is still emitted (treated as external image with implicit
+//     tag=latest). Rare but possible (e.g. scratch, buildpack).
+//   - Tracking is per-file — different Dockerfiles never share AS-names.
+//
+// Final-stage determination uses PHYSICAL FROM count (design choice A):
+// skipped FROMs still count toward "last FROM". This preserves the semantic
+// that the real base image is a builder when later stages (even skipped ones)
+// follow it in the file.
 //
 // Service naming rules:
 //   - Single-stage Dockerfile (regardless of AS clause): Service = ""
@@ -111,10 +129,36 @@ func ParseDockerfile(path string) ([]PinnedImage, error) {
 
 	isOnly := len(froms) == 1
 
+	// Build a set of AS-names declared so far in this file.
+	// Used to detect intra-Dockerfile stage references.
+	// Populated incrementally: a name is only available to FROMs that follow it.
+	asNames := make(map[string]struct{}, len(froms))
+
 	// Second pass: build PinnedImage for each FROM.
 	var result []PinnedImage
 	for i, fe := range froms {
+		// isFinal uses PHYSICAL FROM count (design choice A): skipped FROMs
+		// still count, so the first real base image is correctly non-final
+		// in multi-stage layouts where all subsequent FROMs are stage-refs.
 		isFinal := i == len(froms)-1
+
+		// Check if this FROM is an intra-Dockerfile stage reference.
+		// Skip condition: image-ref is a bare identifier (no ':', '@', '/')
+		// AND matches a previously-declared AS-name in this file.
+		if isStageRef(fe.imageRef, asNames) {
+			// Record AS-name declared by this line (if any) before skipping,
+			// so later FROMs can also reference it.
+			if fe.stageName != "" {
+				asNames[fe.stageName] = struct{}{}
+			}
+			continue
+		}
+
+		// Record this FROM's AS-name AFTER the skip check (a name is only
+		// reachable by FROMs that come after it in the file).
+		if fe.stageName != "" {
+			asNames[fe.stageName] = struct{}{}
+		}
 
 		// Determine service field.
 		var service string
@@ -143,6 +187,20 @@ func ParseDockerfile(path string) ([]PinnedImage, error) {
 	}
 
 	return result, nil
+}
+
+// isStageRef returns true when ref is a bare identifier (contains none of
+// ':', '@', '/') AND matches a previously-declared AS-name in this Dockerfile.
+//
+// The bare-identifier check ensures that refs like "library/base:1.0" or
+// "registry.example.com:5000/base" are never mistakenly skipped even if a
+// prior stage was declared AS "base".
+func isStageRef(ref string, asNames map[string]struct{}) bool {
+	if strings.ContainsAny(ref, ":@/") {
+		return false
+	}
+	_, ok := asNames[ref]
+	return ok
 }
 
 // parseFromClause splits the rest of a FROM line into imageRef and stage name.
