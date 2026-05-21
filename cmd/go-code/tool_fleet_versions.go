@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/fleet"
 	"github.com/anatolykoptev/go-code/internal/fleet/docker"
 	"github.com/anatolykoptev/go-code/internal/fleet/ssh"
+	"github.com/anatolykoptev/go-code/internal/fleet/upstream"
 	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -42,6 +44,11 @@ func (r TargetReport) TargetStr() string { return r.Target }
 
 // DiffsList implements fleet.TargetReportLike.
 func (r TargetReport) DiffsList() []fleet.ImageDiff { return r.Diffs }
+
+// overrideUpstreamBaseURL is a test seam that redirects the upstream GitHub client
+// to a different base URL. Set by tests to point at httptest.Server.
+// Empty string (default) uses the production GitHub API.
+var overrideUpstreamBaseURL string
 
 // buildFleetRegistry is the package-level seam for tests. Production code builds
 // the registry from config; tests swap this var to inject fake probes.
@@ -163,6 +170,22 @@ func fleetVersionsHandler(ctx context.Context, cfg Config, deps analyze.Deps, in
 		}()
 	}
 	wg.Wait()
+
+	// 6b. Upstream changelog enrichment: populate Changelog on TagDrift rows.
+	// Skipped when FleetUpstreamDisable=true or no GITHUB_TOKEN configured.
+	if !cfg.FleetUpstreamDisable && cfg.GithubToken != "" {
+		upstreamOpts := []upstream.Option{
+			upstream.WithToken(cfg.GithubToken),
+			upstream.WithTimeout(8 * time.Second),
+		}
+		if overrideUpstreamBaseURL != "" {
+			upstreamOpts = append(upstreamOpts, upstream.WithBaseURL(overrideUpstreamBaseURL))
+		}
+		upstreamClient := upstream.New(upstreamOpts...)
+		for i := range reports {
+			reports[i].Diffs = upstream.Enrich(ctx, upstreamClient, reports[i].Diffs, 30)
+		}
+	}
 
 	// 7. Compute sibling drift across all probed targets (nil when < 2 targets).
 	var siblingDrifts []fleet.SiblingDriftRow

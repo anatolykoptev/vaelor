@@ -51,17 +51,18 @@ type FleetSiblingVariant struct {
 }
 
 type FleetDiffRow struct {
-	Image         string    `json:"image"`
-	Status        string    `json:"status"` // "Match" / "TagDrift" / ... (from fleet.DiffStatus)
-	PinnedTag     string    `json:"pinned_tag,omitempty"`
-	RuntimeTag    string    `json:"runtime_tag,omitempty"`
-	PinnedDigest  string    `json:"pinned_digest,omitempty"`
-	RuntimeDigest string    `json:"runtime_digest,omitempty"`
-	Source        string    `json:"source,omitempty"`    // pinned source file
-	Container     string    `json:"container,omitempty"` // runtime container name
-	Service       string    `json:"service,omitempty"`   // compose service (either side)
-	State         string    `json:"state,omitempty"`     // runtime state
-	StartedAt     time.Time `json:"started_at,omitempty"`
-	Explanation   string    `json:"explanation,omitempty"`
-	Unresolved    string    `json:"unresolved,omitempty"` // pinned-side parse caveat
+	Image            string    `json:"image"`
+	Status           string    `json:"status"` // "Match" / "TagDrift" / ... (from fleet.DiffStatus)
+	PinnedTag        string    `json:"pinned_tag,omitempty"`
+	RuntimeTag       string    `json:"runtime_tag,omitempty"`
+	PinnedDigest     string    `json:"pinned_digest,omitempty"`
+	RuntimeDigest    string    `json:"runtime_digest,omitempty"`
+	Source           string    `json:"source,omitempty"`    // pinned source file
+	Container        string    `json:"container,omitempty"` // runtime container name
+	Service          string    `json:"service,omitempty"`   // compose service (either side)
+	State            string    `json:"state,omitempty"`     // runtime state
+	StartedAt        time.Time `json:"started_at,omitempty"`
+	Explanation      string    `json:"explanation,omitempty"`
+	Unresolved       string    `json:"unresolved,omitempty"`        // pinned-side parse caveat
+	ChangelogSummary string    `json:"changelog_summary,omitempty"` // first commit subject from upstream changelog, if available
 }
