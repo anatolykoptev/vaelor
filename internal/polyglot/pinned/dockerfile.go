@@ -3,6 +3,7 @@ package pinned
 import (
 	"bufio"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -128,7 +129,7 @@ func ParseDockerfile(path string) ([]PinnedImage, error) {
 			// Non-final stage.
 			svcName := fe.stageName
 			if svcName == "" {
-				svcName = "stage" + intToStr(fe.idx)
+				svcName = "stage" + strconv.Itoa(fe.idx)
 			}
 			service = svcName + ":builder"
 		}
@@ -212,17 +213,4 @@ func splitImageTag(ref string) (image, tag string) {
 		return ref, ""
 	}
 	return ref[:lastColon], suffix
-}
-
-// intToStr converts a non-negative int to its decimal string representation.
-func intToStr(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := make([]byte, 0, 10)
-	for n > 0 {
-		digits = append([]byte{byte(0 + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }

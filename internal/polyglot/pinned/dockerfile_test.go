@@ -74,6 +74,18 @@ func TestParseDockerfile(t *testing.T) {
 				{Image: "golang", Tag: "1.26-alpine", Service: "", Line: 1},
 			},
 		},
+		{
+			// Regression for intToStr bug: byte(0 + n%10) produced control chars
+			// instead of ASCII digits for indices >= 1. Service names for unnamed
+			// non-final stages must use printable ASCII digit characters.
+			name:    "multi-stage with three unnamed stages — service names use ASCII digits",
+			fixture: "Dockerfile.multistage-unnamed.dockerfile",
+			want: []PinnedImage{
+				{Image: "alpine", Tag: "3.20", Service: "stage0:builder", Line: 1},
+				{Image: "debian", Tag: "12", Service: "stage1:builder", Line: 4},
+				{Image: "ubuntu", Tag: "24.04", Service: "", Line: 7},
+			},
+		},
 	}
 
 	for _, tc := range tests {
