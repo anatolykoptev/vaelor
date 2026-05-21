@@ -1,0 +1,5 @@
+services:
+  a: &base
+    image: redis:7.4
+  b:
+    <<: *base

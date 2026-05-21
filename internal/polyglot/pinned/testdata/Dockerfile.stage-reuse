@@ -1,0 +1,16 @@
+FROM node:18-alpine AS base
+
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json ./
+RUN npm install
+
+FROM base AS builder
+COPY . .
+RUN npm run build
+
+FROM base AS runner
+COPY --from=builder /app/dist /app
+ENTRYPOINT ["node", "/app/server.js"]

@@ -1,0 +1,4 @@
+ARG BASE=golang:1.26
+FROM $BASE AS builder
+
+FROM alpine:3.20

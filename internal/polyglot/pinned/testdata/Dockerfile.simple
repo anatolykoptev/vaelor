@@ -1,0 +1,4 @@
+# Simple single-stage Dockerfile.
+FROM nginx:1.27-alpine
+
+RUN echo hello

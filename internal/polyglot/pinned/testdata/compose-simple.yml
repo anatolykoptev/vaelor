@@ -1,0 +1,5 @@
+services:
+  web:
+    image: nginx:1.27-alpine
+  cache:
+    image: redis:7.4

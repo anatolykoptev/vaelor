@@ -45,8 +45,8 @@ func TestDebugInvestigate_NoLLM_RunsAndSetsMarker(t *testing.T) {
 		deps,
 		nil, // metricNames
 		input,
-		nil,   // services
-		nil,   // ops
+		nil, // services
+		nil, // ops
 		time.Unix(1_000_000, 0),
 		time.Unix(1_001_000, 0),
 		res,
@@ -83,7 +83,7 @@ func TestDebugInvestigate_NoLLM_HandlerDoesNotError(t *testing.T) {
 		StartUnix: 1_000_000,
 		EndUnix:   1_001_000,
 	}
-	res, err := handleDebugInvestigate(context.Background(), input, deps, nil, nil, nil)
+	res, err := handleDebugInvestigate(context.Background(), input, Config{}, deps, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected non-nil error: %v", err)
 	}
