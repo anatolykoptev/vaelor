@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -69,6 +70,57 @@ func ensureWritableSSHHome(src, dst string) error {
 		}
 	}
 
+	// Rewrite ~/.ssh/ and $HOME/.ssh/ in the copied config so that
+	// IdentityFile / UserKnownHostsFile etc. point at the writable shadow-copy
+	// paths. Required because OpenSSH 10.2p1 on alpine uses getpwuid() for ~/
+	// expansion, not $HOME env — so without this rewrite, those lines would
+	// resolve to /root/.ssh (the bind-mounted uid-1000 originals) and fail
+	// the strict-mode ownership check.
+	copiedCfg := filepath.Join(sshDir, "config")
+	if _, err := os.Stat(copiedCfg); err == nil {
+		if err := rewriteSSHConfigPaths(copiedCfg, dst); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// rewriteSSHConfigPaths replaces ~/.ssh/ and $HOME/.ssh/ literals in the
+// shadow-copied config so that IdentityFile / UserKnownHostsFile / etc. lines
+// point at the writable-copy paths under homeDst. Required because OpenSSH's
+// ~/ expansion uses getpwuid() (always points at the bind-mounted uid-1000
+// originals), not the $HOME env var.
+//
+// Only the config file at configPath is modified; key files and known_hosts
+// are not changed. The rewrite is idempotent: a second pass on an already-
+// rewritten config produces the same output.
+//
+// Rewrite rules:
+//   - "~/.ssh/" → "<homeDst>/.ssh/"
+//   - "$HOME/.ssh/" → "<homeDst>/.ssh/"
+//
+// Absolute paths (starting with "/") and all other values are left untouched.
+func rewriteSSHConfigPaths(configPath, homeDst string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("fleet/ssh: rewrite config read %s: %w", configPath, err)
+	}
+
+	dst := homeDst + "/.ssh/"
+	// Replace both tilde and $HOME forms. Order matters: do $HOME first so that
+	// a hypothetical "~/$HOME/.ssh/" edge-case doesn't get double-rewritten.
+	out := strings.ReplaceAll(string(data), "$HOME/.ssh/", dst)
+	out = strings.ReplaceAll(out, "~/.ssh/", dst)
+
+	if out == string(data) {
+		// Nothing to rewrite; avoid a pointless write.
+		return nil
+	}
+
+	if err := os.WriteFile(configPath, []byte(out), 0o600); err != nil {
+		return fmt.Errorf("fleet/ssh: rewrite config write %s: %w", configPath, err)
+	}
 	return nil
 }
 
