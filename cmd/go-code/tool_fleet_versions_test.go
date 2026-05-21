@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -634,5 +636,141 @@ func TestFleetVersions_MultiHost_SoftFailPerTarget(t *testing.T) {
 	out := parseOutput(t, result)
 	if len(out.Targets) != 2 {
 		t.Fatalf("Targets len=%d; want 2", len(out.Targets))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Upstream changelog enrichment integration test
+// ---------------------------------------------------------------------------
+
+// TestFleetVersions_UpstreamChangelog_EndToEnd: Dockerfile pins teddysun/xray:26.4.25,
+// fake docker returns teddysun/xray:26.5.3 → TagDrift → changelog enriched with fake GH.
+func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
+	// Fake GitHub Compare API server.
+	ghSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := `{"status":"ahead","html_url":"https://github.com/XTLS/Xray-core/compare/v26.4.25...v26.5.3","commits":[{"sha":"abc001","commit":{"message":"feat: new feature\nsome body","author":{"name":"Dev","date":"2025-05-01T12:00:00Z"}}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(resp))
+	}))
+	defer ghSrv.Close()
+
+	// Override the upstream client's baseURL to point at our fake server.
+	// We do this by setting a test-specific env that the upstream client uses.
+	// Since upstream.New uses an internal baseURL field, we need a test seam.
+	// The simplest approach: set GITHUB_TOKEN in env so the gate passes,
+	// and override buildFleetRegistry to inject a probe + swap the upstream client.
+	//
+	// Actually, the upstream client is constructed inside fleetVersionsHandler with
+	// cfg.GithubToken. We need to override the upstream client construction.
+	// Since we can't easily do that without a seam, let's instead test via
+	// the fleet versions handler directly with a custom overrideUpstreamBaseURL.
+
+	// We'll test the integration by checking: with a TagDrift row and GithubToken set,
+	// the handler calls Enrich and the output contains a non-nil changelog.
+	// We do this by setting GOCODE_UPSTREAM_TEST_BASE_URL to our fake server.
+	// (This test-only env is not used in production; the real client uses githubAPIBase.)
+	//
+	// Instead, let's use a simpler approach: set the overrideUpstreamBaseURL package-level
+	// var (test seam) to redirect all upstream.New calls.
+
+	// Simplest path: directly test that the fleetVersionsHandler, given a TagDrift and
+	// a non-empty GithubToken, produces a diff with Changelog != nil.
+	// We can confirm this by checking the JSON output.
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM teddysun/xray:26.4.25\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultFleetCfg()
+	cfg.GithubToken = "test-token"
+	// Override upstream base URL so client hits our fake server.
+	overrideUpstreamBaseURL = ghSrv.URL
+	t.Cleanup(func() { overrideUpstreamBaseURL = "" })
+
+	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
+		images: []fleet.RuntimeImage{
+			{Container: "xray", Image: "teddysun/xray", Tag: "26.5.3", State: "running"},
+		},
+	}, nil))
+
+	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{Repo: dir}))
+
+	if len(out.Targets) != 1 || len(out.Targets[0].Diffs) == 0 {
+		t.Fatalf("expected 1 target with diffs, got %+v", out)
+	}
+
+	// Find the TagDrift diff.
+	var tagDriftDiff *fleet.ImageDiff
+	for i := range out.Targets[0].Diffs {
+		if out.Targets[0].Diffs[i].Status == fleet.DiffTagDrift {
+			td := out.Targets[0].Diffs[i]
+			tagDriftDiff = &td
+			break
+		}
+	}
+	if tagDriftDiff == nil {
+		t.Fatal("expected DiffTagDrift row for teddysun/xray version mismatch")
+	}
+	if tagDriftDiff.Changelog == nil {
+		t.Error("expected Changelog to be non-nil for TagDrift with valid GithubToken")
+	} else {
+		if !tagDriftDiff.Changelog.Resolved {
+			t.Errorf("Changelog.Resolved=false; Reason=%q", tagDriftDiff.Changelog.Reason)
+		}
+		if tagDriftDiff.Changelog.Repo != "XTLS/Xray-core" {
+			t.Errorf("Changelog.Repo=%q; want XTLS/Xray-core", tagDriftDiff.Changelog.Repo)
+		}
+		if len(tagDriftDiff.Changelog.Commits) != 1 {
+			t.Errorf("Changelog.Commits len=%d; want 1", len(tagDriftDiff.Changelog.Commits))
+		}
+	}
+}
+
+// TestFleetVersions_UpstreamDisableFlag: FleetUpstreamDisable=true → no changelog enrichment.
+func TestFleetVersions_UpstreamDisableFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM teddysun/xray:26.4.25\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultFleetCfg()
+	cfg.GithubToken = "test-token"
+	cfg.FleetUpstreamDisable = true
+
+	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
+		images: []fleet.RuntimeImage{
+			{Container: "xray", Image: "teddysun/xray", Tag: "26.5.3", State: "running"},
+		},
+	}, nil))
+
+	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{Repo: dir}))
+
+	for _, d := range out.Targets[0].Diffs {
+		if d.Status == fleet.DiffTagDrift && d.Changelog != nil {
+			t.Errorf("expected Changelog=nil when FleetUpstreamDisable=true, got non-nil for %s", d.Image)
+		}
+	}
+}
+
+// TestLoadConfig_FleetUpstreamDisable: GOCODE_FLEET_UPSTREAM_DISABLE env var is parsed.
+func TestLoadConfig_FleetUpstreamDisable(t *testing.T) {
+	t.Setenv("GOCODE_FLEET_UPSTREAM_DISABLE", "true")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if !cfg.FleetUpstreamDisable {
+		t.Error("FleetUpstreamDisable=false; want true")
+	}
+
+	// Also test that default is false.
+	t.Setenv("GOCODE_FLEET_UPSTREAM_DISABLE", "")
+	cfg2, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig (default): %v", err)
+	}
+	if cfg2.FleetUpstreamDisable {
+		t.Error("FleetUpstreamDisable default=true; want false")
 	}
 }

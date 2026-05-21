@@ -59,7 +59,8 @@ type ImageDiff struct {
 	Pinned      *pinned.PinnedImage
 	Runtime     *RuntimeImage
 	Status      DiffStatus
-	Explanation string // one-line human-readable summary
+	Explanation string     // one-line human-readable summary
+	Changelog   *Changelog `json:"changelog,omitempty"` // populated for DiffTagDrift rows when upstream enrichment succeeds
 }
 
 // Diff computes per-image diffs between pinned (source) and runtime (probe) sets.
