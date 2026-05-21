@@ -3,6 +3,7 @@ package pinned
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -15,7 +16,41 @@ import (
 // (the default literal is used). ${VAR} without a default is never resolved
 // against the process environment — an explicit design choice to avoid silent
 // cross-environment leaks. Such variables emit a non-empty Unresolved field.
+//
+// Compose-spec include: directives (string form) are followed recursively.
+// Map-form items ({path: foo, env_file: bar}) are skipped silently per spec.
+// Cycle detection is based on absolute paths; each file is parsed at most once.
+// Recursion is capped at 10 levels.
 func ParseCompose(path string) ([]PinnedImage, error) {
+	return parseComposeImpl(path, map[string]bool{}, 0)
+}
+
+// parseComposeImpl is the recursive inner implementation of ParseCompose.
+// seen maps absolute paths to true for cycle detection.
+// depth tracks recursion depth; returns nil beyond maxIncludeDepth.
+//
+// Source on returned PinnedImages carries the same path form as the caller
+// passed: relative paths stay relative, absolute stay absolute.
+// This preserves backward compatibility with Collect's filepath.Rel rewriting.
+const maxIncludeDepth = 10
+
+func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedImage, error) {
+	if depth > maxIncludeDepth {
+		// Silent skip — too deeply nested.
+		return nil, nil
+	}
+
+	// Canonicalise for cycle detection only; Source uses the original path.
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	if seen[absPath] {
+		// Silent skip — cycle.
+		return nil, nil
+	}
+	seen[absPath] = true
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -37,59 +72,90 @@ func ParseCompose(path string) ([]PinnedImage, error) {
 		return nil, nil
 	}
 
-	// Find the "services" key in the top-level mapping.
-	servicesNode := mappingLookup(docNode, "services")
-	if servicesNode == nil {
-		return nil, nil
-	}
-	if servicesNode.Kind != yaml.MappingNode {
-		return nil, nil
-	}
-
 	var result []PinnedImage
 
-	// servicesNode is a mapping: key1, val1, key2, val2, ...
-	for i := 0; i+1 < len(servicesNode.Content); i += 2 {
-		svcNameNode := servicesNode.Content[i]
-		svcValNode := servicesNode.Content[i+1]
+	// --- 1. Walk services: block for this file ---
+	servicesNode := mappingLookup(docNode, "services")
+	if servicesNode != nil && servicesNode.Kind == yaml.MappingNode {
+		// servicesNode is a mapping: key1, val1, key2, val2, ...
+		for i := 0; i+1 < len(servicesNode.Content); i += 2 {
+			svcNameNode := servicesNode.Content[i]
+			svcValNode := servicesNode.Content[i+1]
 
-		svcName := svcNameNode.Value
+			svcName := svcNameNode.Value
 
-		// Decode the service node into a struct to handle yaml anchors/merges.
-		var svc struct {
-			Image string      `yaml:"image"`
-			Build interface{} `yaml:"build"`
-		}
-		if err := svcValNode.Decode(&svc); err != nil {
-			// Malformed service — skip this service but continue.
-			continue
-		}
-
-		if svc.Image == "" {
-			continue
-		}
-
-		// Find the image node line number by walking the service mapping.
-		imageLine := imageLineFromNode(svcValNode)
-
-		// Perform strict interpolation (no process env).
-		interpolated, unresolved := interpolateCompose(svc.Image)
-
-		pi := parseImageRef(interpolated)
-		if unresolved != "" {
-			// Preserve any Unresolved from interpolation; parseImageRef may
-			// have its own (e.g. invalid digest) — chain them if both exist.
-			if pi.Unresolved != "" {
-				pi.Unresolved = unresolved + "; " + pi.Unresolved
-			} else {
-				pi.Unresolved = unresolved
+			// Decode the service node into a struct to handle yaml anchors/merges.
+			var svc struct {
+				Image string      `yaml:"image"`
+				Build interface{} `yaml:"build"`
 			}
-		}
-		pi.Service = svcName
-		pi.Line = imageLine
-		pi.Source = path
+			if err := svcValNode.Decode(&svc); err != nil {
+				// Malformed service — skip this service but continue.
+				continue
+			}
 
-		result = append(result, pi)
+			if svc.Image == "" {
+				continue
+			}
+
+			// Find the image node line number by walking the service mapping.
+			imageLine := imageLineFromNode(svcValNode)
+
+			// Perform strict interpolation (no process env).
+			interpolated, unresolved := interpolateCompose(svc.Image)
+
+			pi := parseImageRef(interpolated)
+			if unresolved != "" {
+				// Preserve any Unresolved from interpolation; parseImageRef may
+				// have its own (e.g. invalid digest) — chain them if both exist.
+				if pi.Unresolved != "" {
+					pi.Unresolved = unresolved + "; " + pi.Unresolved
+				} else {
+					pi.Unresolved = unresolved
+				}
+			}
+			pi.Service = svcName
+			pi.Line = imageLine
+			pi.Source = path
+
+			result = append(result, pi)
+		}
+	}
+
+	// --- 2. Follow include: directives ---
+	// Compose spec allows top-level include: to reference other compose files.
+	// String items are followed recursively; map items (with path:/env_file:)
+	// are skipped silently (MVP: string form only).
+	//
+	// Include paths are resolved relative to the directory of the *original*
+	// path parameter (not its absolute form) so that relative paths stay
+	// relative in the returned PinnedImages' Source field. This keeps backward
+	// compatibility with Collect's filepath.Rel rewriting.
+	//
+	// Known limitation: if a sub-file's basename also matches the walker glob
+	// AND it is referenced via include:, it may be parsed twice. Dedup at the
+	// Collect level is deferred.
+	includeNode := mappingLookup(docNode, "include")
+	if includeNode != nil && includeNode.Kind == yaml.SequenceNode {
+		// Use the original path's directory (may be relative) for constructing
+		// include paths so Source preserves the caller's path form.
+		baseDir := filepath.Dir(path)
+		for _, item := range includeNode.Content {
+			if item.Kind != yaml.ScalarNode {
+				// Map-form or other non-string: skip silently per spec.
+				continue
+			}
+			includePath := item.Value
+			if !filepath.IsAbs(includePath) {
+				includePath = filepath.Join(baseDir, includePath)
+			}
+			sub, err := parseComposeImpl(includePath, seen, depth+1)
+			if err != nil {
+				// Non-fatal: include file unreadable/malformed — skip.
+				continue
+			}
+			result = append(result, sub...)
+		}
 	}
 
 	return result, nil
