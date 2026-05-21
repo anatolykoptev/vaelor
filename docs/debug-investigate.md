@@ -21,6 +21,7 @@ JAEGER_URL=http://jaeger:16686
 | `hint` | string | Optional free-text hint about the suspected behaviour. |
 | `hint_kind` | string | Optional structured hint kind (see "Hint kinds" below). Empty = auto-detect. |
 | `repo` | string | Repo path for symbol lookup. Defaults to the go-code repo when omitted. |
+| `host` | string | Optional probe target for Phase 7 runtime-drift analysis. `local://` or empty = local docker socket; `ssh://[user@]host[:port]` = remote via system ssh (requires `GOCODE_FLEET_SSH_ENABLE=true`). |
 
 ## Lifecycle
 
@@ -42,6 +43,8 @@ The tool is **long-running** (5-minute budget). First call returns `"investigati
 | 3 | Span operation → Go function via `OperationToFuncName` + `compound.FindSymbol` | `internal/investigate/correlate.go` |
 | 4 | Prometheus baseline anomaly score (window vs 1h earlier, ratio bucket) | `promclient.QueryRange` |
 | 5 | LLM correlate summary with ground-truth context (metric names + service names + ops seen) | `deps.LLM.Complete` |
+| 6 | Fetch recent log excerpts from dozor sidecar; surface panic/fatal/error lines not captured in metrics | `dozorclient` |
+| 7 | Diff indexed repo pinned images against running containers on `host`; fold non-Match rows into LLM prompt | `internal/fleet`, `internal/polyglot/pinned` |
 
 ## Auto-discovered failure metrics
 
@@ -194,3 +197,72 @@ environment:
   - DOZOR_URL=${DOZOR_URL:-http://dozor:8765}
   - DOZOR_API_TOKEN=${DOZOR_API_TOKEN:-}
 ```
+
+## Phase 7 — fleet versions
+
+After log excerpts (Phase 6) and before the LLM pass, `debug_investigate`
+optionally diffs the indexed repo's pinned container images against what is
+actually running on a target host. The output populates
+`InvestigationResult.RuntimeVersions` and is folded into the LLM prompt as
+a priority-capped summary.
+
+### When it runs
+
+Phase 7 runs when:
+- `host` is passed on the `debug_investigate` input, OR
+- `GOCODE_FLEET_DEFAULT_HOST` is set in the environment.
+
+Phase 7 is **silently skipped** when neither is set AND the indexed repo
+contains no `Dockerfile` / `docker-compose*.yml`. When the repo DOES contain
+container manifests but no host is configured, the phase records one
+`Diagnostics.Warning` explaining how to enable it, then skips.
+
+### What it surfaces
+
+For each container image found in source (`internal/polyglot/pinned`) and each
+running container on the target host, the phase produces a `FleetDiffRow`
+with one of these statuses:
+
+| Status | Meaning |
+|---|---|
+| `Match` | Image, tag, and digest agree between source and runtime. |
+| `TagDrift` | Same image, different tag. Most common regression vector. |
+| `DigestDrift` | Same image and tag, different digest. Auto-update silent regression. |
+| `OnlySource` | Pinned in repo, not running anywhere on the target. |
+| `OnlyRuntime` | Running but not pinned in repo (e.g. sidecar). |
+| `Unresolved` | Pinned-side parser hit `${VAR}` with no compose default, or `ARG ${X}` not expanded. |
+
+### Reproduction scenario — Issue #123
+
+The motivating bug: **xray-tunnel outage on partner-edge nodes, 2026-05-20**.
+
+Pinned in compose (krolik xray-reality + 4 partner edges):
+`teddysun/xray:26.4.25`. Running on piter via auto-update:
+`teddysun/xray:26.5.3`. The `mlkem768x25519plus` + Reality TLS handshake
+interaction bug existed in 26.4.25 only. Source-level config schemas were
+bit-identical across hosts.
+
+With Phase 7 wired, the same investigation surfaces:
+
+```text
+Phase 7 (fleet versions):
+  target: ssh://piter
+  - TagDrift: teddysun/xray pinned 26.4.25 -> running 26.5.3
+```
+
+This row reaches the LLM prompt under `runtime_drift` and biases the model
+to prioritise upstream-changelog inspection of `teddysun/xray` 26.4.25 ->
+26.5.3 over further source-level template asymmetry hypotheses.
+
+The 40-minute investigation that initially needed `docker inspect` on each
+host manually becomes a single MCP call.
+
+### Security
+
+The ssh probe runs only an allowlisted command (`docker ps --no-trunc
+--format={{json .}}`). The driver is disabled by default
+(`GOCODE_FLEET_SSH_ENABLE=true` required). All host configuration —
+ProxyJump, identity, port, known_hosts — lives in `~/.ssh/config` and is
+used as-is; go-code does not override `StrictHostKeyChecking` or weaken any
+SSH option. `stderr` from ssh is captured but never surfaced into tool
+output to avoid leaking host fingerprints or key paths into LLM prompts.

@@ -25,7 +25,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 | `symbol_search` | Search symbols (functions, types, consts) by name pattern across a repo |
 | `call_trace` | Trace call chains — callees (forward) or callers (reverse) with depth control |
 | `code_graph` | Query a persistent code knowledge graph in Apache AGE via natural language |
-| `debug_investigate` | 6-phase prod incident root cause: Prom spikes + Jaeger failed traces + symbol resolution + callgraph walks + LLM fusion → ranked file:function |
+| `debug_investigate` | 7-phase prod incident root cause: Prom spikes + Jaeger failed traces + symbol resolution + callgraph walks + LLM fusion + runtime binary drift → ranked file:function |
 | `semantic_search` | Hybrid RRF: BM25F + pgvector + 1-hop AGE graph expansion. Find by concept, not keyword |
 | `understand` | Type-aware symbol deep-dive. Aggregates call_trace + symbol_search + complexity + tested_by + dead_code_score |
 | `impact_analysis` | Blast radius up to depth 10. Direct callers, transitive callers, hotspot reordering by churn |
@@ -42,11 +42,53 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 | `site_crawl` | BFS crawler |
 | `code_health` | Repo grade A-F: complexity, test coverage, dep freshness, OSV vulns |
 | `explore` | Quick repo overview, sub-second, no LLM, no clone for remote repos |
+| `fleet_versions` | Diff pinned container image references in indexed source (Dockerfile, docker-compose*.yml) against deployed runtime containers. Probes local docker socket by default; `ssh://[user@]host[:port]` reaches remote hosts via the system ssh client (requires `GOCODE_FLEET_SSH_ENABLE=true`). Catches the "config aligned, source looks right, behaviour wrong" bug class where prod runs a different binary version than the repo pins. |
 | `remember_graph_insights` | Persist learnings surfaced in future understand calls |
 | `wp_plugin_search` | Search WordPress.org plugin directory |
 
 
 > **Optional:** `dead_code` and `code_health` tools integrate with [ox-codes](https://github.com/anatolykoptev/ox-codes), an internal Rust code analysis service. Without it, these tools degrade to AST-only heuristics and still produce useful results.
+
+## Runtime version awareness
+
+When a production bug lives at the **deployed binary** level rather than in
+source — pinned tag drift, sibling-host divergence, silent auto-updates —
+go-code can probe the running containers and diff them against what the
+indexed repo pins.
+
+Two surfaces:
+
+1. `fleet_versions` — explicit tool. Pass `host` (optional, defaults to local
+   docker socket) and `service` (optional filter). Returns per-target image
+   diff with status: `Match` / `TagDrift` / `DigestDrift` / `OnlySource` /
+   `OnlyRuntime` / `Unresolved`.
+
+2. `debug_investigate` — Phase 7 runs automatically when an investigation is
+   started with `host` set. Drift is included in the LLM prompt with
+   priority-capped cardinality (top 20 non-Match diffs, sorted
+   TagDrift > DigestDrift > Unresolved > OnlyRuntime > OnlySource).
+
+### SSH probe
+
+Reaching a remote host uses the system `ssh` binary directly — go-code does
+not maintain its own SSH stack. This means `~/.ssh/config` (ProxyJump, agent,
+identities, port, known_hosts) is the single source of truth and you get all
+of it for free. The driver is disabled by default; enable with
+`GOCODE_FLEET_SSH_ENABLE=true`.
+
+Commands executed on the remote host are limited to an internal allowlist:
+exactly `docker ps --no-trunc --format={{json .}}`. Filter values are
+regex-validated before any exec call.
+
+### Configuration
+
+| Env | Default | Purpose |
+|---|---|---|
+| `GOCODE_FLEET_DEFAULT_HOST` | `""` | Fallback host for `debug_investigate` Phase 7. Empty = skip. |
+| `GOCODE_FLEET_DOCKER_SOCKET` | `/var/run/docker.sock` | Local docker engine socket path. |
+| `GOCODE_FLEET_SSH_ENABLE` | `false` | Security gate. Must be `true` to use `ssh://` targets. |
+| `GOCODE_FLEET_SSH_BINARY` | `ssh` | System ssh binary; PATH-resolved by default. |
+| `GOCODE_FLEET_TIMEOUT` | `10s` | Per-probe timeout. |
 
 ## Quick Start
 

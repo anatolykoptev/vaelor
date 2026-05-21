@@ -83,6 +83,8 @@ func BuildSystemPrompt(c PromptContext) string {
 		b.WriteString("NOTE: firing alerts signal constant-state invariant violations that spike detection may miss.\n\n")
 	}
 
+	b.WriteString("Pinned-vs-runtime image drift is a high-prior cause of regressions; weigh it heavily when source-level analysis is inconclusive.\n\n")
+
 	b.WriteString(`Reasoning rules:
 - three-strike rule: if a hypothesis is invalidated by data three times, drop it.
 - Evidence-gated: never propose a root cause without at least one returning signal.
