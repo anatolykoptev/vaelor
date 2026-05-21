@@ -29,7 +29,7 @@ FROM golang:1.26-alpine
 # rust/cargo/rust-analyzer: rust-analyzer ships a `scip` subcommand.
 # openjdk17-jre-headless: required by the scip-java launcher (JAR with embedded coursier bootstrap).
 # curl: download scip-java release asset during the next layer.
-RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-analyzer openjdk17-jre-headless curl && \
+RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-analyzer openjdk17-jre-headless curl openssh-client && \
     git config --global --add safe.directory '*'
 
 # SCIP indexers for multi-language type-aware analysis.
