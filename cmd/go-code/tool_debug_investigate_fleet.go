@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/fleet"
@@ -23,19 +24,61 @@ func summaryStatusPriorityOf(s string) int {
 	return 99
 }
 
-// summarizeFleetForLLM returns a one-paragraph human-readable summary suitable
-// for inclusion in the LLM prompt. Rules (per plan):
+// summarizeFleetForLLM returns a human-readable summary suitable for inclusion
+// in the LLM prompt. It prepends a sibling-drift section (top-5 entries) when
+// drift rows are present, then per-target drift sections.
 //
+// Rules for per-target section:
 //  1. Drop Match diffs entirely.
-//  2. Sort remaining by status priority:
-//     TagDrift > DigestDrift > Unresolved > OnlyRuntime > OnlySource
+//  2. Sort remaining by status priority: TagDrift > DigestDrift > Unresolved > OnlyRuntime > OnlySource
 //  3. Cap to top 20 diffs in the summary.
-//  4. Trailing summary line for the remainder: "and N more diffs of type X, Y, Z"
-//     where X, Y, Z are the distinct status names among the dropped tail
-//     (sorted alphabetically for determinism).
+//  4. Trailing "and N more diffs of type X, Y, Z" for the tail.
 //
-// Returns "" if no non-Match diffs.
-func summarizeFleetForLLM(target string, rows []investigate.FleetDiffRow) string {
+// Returns "" if no non-Match diffs anywhere.
+func summarizeFleetForLLM(report *investigate.FleetReport) string {
+	var b strings.Builder
+
+	// Sibling-drift prelude (top-5 cap).
+	if len(report.SiblingDrifts) > 0 {
+		fmt.Fprintf(&b, "Sibling drift across hosts:\n")
+		cap5 := report.SiblingDrifts
+		if len(cap5) > 5 {
+			cap5 = cap5[:5]
+		}
+		for _, row := range cap5 {
+			parts := make([]string, 0, len(row.Variants))
+			for _, v := range row.Variants {
+				parts = append(parts, fmt.Sprintf("%s=%s", v.Target, v.Tag))
+			}
+			fmt.Fprintf(&b, " - %s: %s\n", row.Image, strings.Join(parts, ", "))
+		}
+		if len(report.SiblingDrifts) > 5 {
+			fmt.Fprintf(&b, "... and %d more sibling-drift images.\n", len(report.SiblingDrifts)-5)
+		}
+	}
+
+	// Per-target sections (multi-host).
+	if len(report.Targets) > 0 {
+		for _, t := range report.Targets {
+			section := summarizeTargetDiffRows(t.Target, t.Diffs)
+			if section != "" {
+				fmt.Fprintf(&b, "%s\n", section)
+			}
+		}
+	} else if report.Target != "" {
+		// Single-host backward-compat path.
+		section := summarizeTargetDiffRows(report.Target, report.Diffs)
+		if section != "" {
+			fmt.Fprintf(&b, "%s\n", section)
+		}
+	}
+
+	result := strings.TrimRight(b.String(), "\n")
+	return result
+}
+
+// summarizeTargetDiffRows returns a per-target drift summary (empty if only Match rows).
+func summarizeTargetDiffRows(target string, rows []investigate.FleetDiffRow) string {
 	// Filter out Match rows.
 	var nonMatch []investigate.FleetDiffRow
 	for _, r := range rows {
@@ -101,70 +144,177 @@ func summarizeFleetForLLM(target string, rows []investigate.FleetDiffRow) string
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// runFleetVersionsPhase populates res.RuntimeVersions with a diff of repo-pinned
-// images against runtime containers on input.Host. Soft failures append to
-// res.Diagnostics.Warnings and leave res.RuntimeVersions nil.
+// runFleetVersionsPhase populates res.RuntimeVersions with diffs of repo-pinned
+// images against runtime containers on input.Host / input.Hosts. Soft failures
+// append to res.Diagnostics.Warnings and leave res.RuntimeVersions nil.
+//
+// Multi-host: when Hosts is set (or both Host and Hosts), all hosts are probed
+// in parallel. Per-host failures go into FleetTargetRow.Error. SiblingDrifts
+// are populated when ≥2 hosts were probed.
 //
 // Phase 7 NEVER aborts the investigation.
 func runFleetVersionsPhase(ctx context.Context, input DebugInvestigateInput,
 	cfg Config, deps analyze.Deps, res *investigate.InvestigationResult,
 ) {
-	host := input.Host
-	if host == "" {
-		host = cfg.FleetDefaultHost
+	// Resolve effective hosts (same back-compat rules as tool_fleet_versions.go).
+	var effectiveHosts []string
+	if len(input.Hosts) > 0 {
+		effectiveHosts = input.Hosts
+	} else {
+		h := input.Host
+		if h == "" {
+			h = cfg.FleetDefaultHost
+		}
+		if h != "" {
+			effectiveHosts = []string{h}
+		}
 	}
 
 	// Collect pinned images from repo (best-effort).
 	pinnedImgs := collectPinnedForInvestigation(ctx, input, deps)
 
-	if host == "" {
+	if len(effectiveHosts) == 0 {
 		// No host — warn only if repo has compose/Dockerfile (has intent).
 		if len(pinnedImgs) > 0 {
 			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-				"Phase 7 (fleet versions) skipped: pass `host` param or set GOCODE_FLEET_DEFAULT_HOST to enable")
+				"Phase 7 (fleet versions) skipped: pass `host`/`hosts` param or set GOCODE_FLEET_DEFAULT_HOST to enable")
 		}
 		return
 	}
 
-	t, err := fleet.ParseTarget(host)
-	if err != nil {
-		res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-			fmt.Sprintf("Phase 7 (fleet versions) skipped: invalid host %q: %v", host, err))
-		return
+	// Validate all host strings up-front (avoids partial errors later).
+	type parsedHost struct {
+		raw    string
+		target fleet.Target
 	}
-
-	// Remap "local" → "docker" for registry dispatch (same as tool_fleet_versions.go).
-	if t.Scheme == "local" {
-		t.Scheme = "docker"
+	parsedHosts := make([]parsedHost, 0, len(effectiveHosts))
+	for _, h := range effectiveHosts {
+		t, err := fleet.ParseTarget(h)
+		if err != nil {
+			res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
+				fmt.Sprintf("Phase 7 (fleet versions) skipped: invalid host %q: %v", h, err))
+			return
+		}
+		if t.Scheme == "local" {
+			t.Scheme = "docker"
+		}
+		parsedHosts = append(parsedHosts, parsedHost{raw: h, target: t})
 	}
 
 	reg := buildFleetRegistry(cfg)
-	probe, err := reg.Get(t)
-	if err != nil {
-		report := &investigate.FleetReport{
-			Target: host,
-			Error:  err.Error(),
+
+	// Probe all hosts in parallel.
+	targetRows := make([]investigate.FleetTargetRow, len(parsedHosts))
+	var wg sync.WaitGroup
+	wg.Add(len(parsedHosts))
+	for i, ph := range parsedHosts {
+		i, ph := i, ph
+		go func() {
+			defer wg.Done()
+			row := probeOneHostForInvestigation(ctx, ph.raw, ph.target, pinnedImgs, input.Service, reg)
+			targetRows[i] = row
+		}()
+	}
+	wg.Wait()
+
+	// Compute sibling drift.
+	var siblingDrifts []investigate.FleetSiblingDriftRow
+	if len(targetRows) >= 2 {
+		// Build TargetReportLike slice from target rows.
+		likes := make([]fleet.TargetReportLike, len(targetRows))
+		for i := range targetRows {
+			likes[i] = investigateTargetRowLike{targetRows[i]}
 		}
-		res.RuntimeVersions = report
-		return
+		rawDrifts := fleet.SiblingDiff(likes)
+		siblingDrifts = toInvestigateSiblingDriftRows(rawDrifts)
 	}
 
-	runtimeImgs, probeErr := probe.List(ctx, t, fleet.Filter{Service: input.Service})
-	var probeErrStr string
+	// Build report.
+	report := &investigate.FleetReport{
+		Targets:       targetRows,
+		SiblingDrifts: siblingDrifts,
+	}
+
+	// For single-host backward-compat: also populate top-level Target/Diffs/Error.
+	if len(targetRows) == 1 {
+		report.Target = targetRows[0].Target
+		report.Diffs = targetRows[0].Diffs
+		report.Error = targetRows[0].Error
+	} else if len(targetRows) > 1 {
+		// Multi-host: log any probe errors as warnings.
+		for _, row := range targetRows {
+			if row.Error != "" {
+				slog.WarnContext(ctx, "fleet phase: probe error on host",
+					"host", row.Target, "err", row.Error)
+			}
+		}
+	}
+
+	report.Summary = summarizeFleetForLLM(report)
+	res.RuntimeVersions = report
+}
+
+// investigateTargetRowLike adapts investigate.FleetTargetRow to fleet.TargetReportLike.
+// This lets fleet.SiblingDiff work without importing cmd/ types.
+type investigateTargetRowLike struct {
+	row investigate.FleetTargetRow
+}
+
+func (r investigateTargetRowLike) TargetStr() string { return r.row.Target }
+func (r investigateTargetRowLike) DiffsList() []fleet.ImageDiff {
+	// Re-hydrate ImageDiff from FleetDiffRow for SiblingDiff (only Runtime matters).
+	diffs := make([]fleet.ImageDiff, 0, len(r.row.Diffs))
+	for _, d := range r.row.Diffs {
+		diff := fleet.ImageDiff{
+			Image:  d.Image,
+			Status: fleet.DiffStatus(d.Status),
+		}
+		if d.RuntimeTag != "" || d.RuntimeDigest != "" || d.Container != "" || d.State != "" {
+			diff.Runtime = &fleet.RuntimeImage{
+				Image:     d.Image,
+				Tag:       d.RuntimeTag,
+				Digest:    d.RuntimeDigest,
+				Container: d.Container,
+				State:     d.State,
+			}
+		}
+		diffs = append(diffs, diff)
+	}
+	return diffs
+}
+
+// probeOneHostForInvestigation probes one host for the investigate phase.
+func probeOneHostForInvestigation(
+	ctx context.Context,
+	hostRaw string,
+	t fleet.Target,
+	pinnedImgs []pinned.PinnedImage,
+	service string,
+	reg *fleet.Registry,
+) investigate.FleetTargetRow {
+	probe, probeErr := reg.Get(t)
+
+	var runtimeImgs []fleet.RuntimeImage
+	var targetErr string
+
 	if probeErr != nil {
-		probeErrStr = probeErr.Error()
-		slog.WarnContext(ctx, "fleet phase: probe.List error", "err", probeErr)
+		targetErr = probeErr.Error()
+	} else {
+		var err error
+		runtimeImgs, err = probe.List(ctx, t, fleet.Filter{Service: service})
+		if err != nil {
+			targetErr = err.Error()
+			slog.WarnContext(ctx, "fleet phase: probe.List error", "host", hostRaw, "err", err)
+		}
 	}
 
 	diffs := fleet.Diff(pinnedImgs, runtimeImgs)
 
-	report := &investigate.FleetReport{
-		Target: host,
+	return investigate.FleetTargetRow{
+		Target: hostRaw,
 		Diffs:  toInvestigateDiffRows(diffs),
-		Error:  probeErrStr,
+		Error:  targetErr,
 	}
-	report.Summary = summarizeFleetForLLM(host, report.Diffs)
-	res.RuntimeVersions = report
 }
 
 // collectPinnedForInvestigation collects pinned images from the repo path.
@@ -209,4 +359,30 @@ func toInvestigateDiffRows(diffs []fleet.ImageDiff) []investigate.FleetDiffRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// toInvestigateSiblingDriftRows converts []fleet.SiblingDriftRow to the
+// flattened investigate type so internal/investigate stays import-free of internal/fleet.
+func toInvestigateSiblingDriftRows(rows []fleet.SiblingDriftRow) []investigate.FleetSiblingDriftRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	result := make([]investigate.FleetSiblingDriftRow, 0, len(rows))
+	for _, r := range rows {
+		variants := make([]investigate.FleetSiblingVariant, 0, len(r.Variants))
+		for _, v := range r.Variants {
+			variants = append(variants, investigate.FleetSiblingVariant{
+				Target:    v.Target,
+				Tag:       v.Tag,
+				Digest:    v.Digest,
+				Container: v.Container,
+				State:     v.State,
+			})
+		}
+		result = append(result, investigate.FleetSiblingDriftRow{
+			Image:    r.Image,
+			Variants: variants,
+		})
+	}
+	return result
 }
