@@ -30,7 +30,15 @@ func Collect(repoRoot string) ([]PinnedImage, error) {
 
 	err := filepath.Walk(repoRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			// Best-effort walk: log and skip this entry instead of aborting.
+			// Common causes: permission-denied subdirs (e.g. /var/secrets,
+			// /data/youtube), broken symlinks. Walk continues into siblings.
+			slog.Warn("pinned.Collect: walk entry error, skipping",
+				"path", path, "err", err)
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir // skip subtree
+			}
+			return nil // skip file
 		}
 		if info.IsDir() {
 			if skipDirs[info.Name()] {
