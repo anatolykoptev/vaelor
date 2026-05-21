@@ -9,7 +9,7 @@
 //   - All args are validated against the allowlist before exec.
 //   - Filter.Service is validated BEFORE any remote call.
 //   - Stderr from ssh is discarded (never surfaces to callers).
-//   - Stdout is capped at 1 MiB.
+//   - Stdout is capped at 1 MiB (enforced streaming via cappedWriter).
 package ssh
 
 import (
@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"time"
@@ -55,7 +56,46 @@ var (
 
 // maxStdoutBytes is the cap on ssh stdout. Responses larger than this are
 // rejected to prevent memory exhaustion from a misbehaving host.
+// Enforced streaming via cappedWriter inside realExecer.Run, and
+// additionally as a post-fetch check in List (so the post-fetch check
+// also protects callers that inject a fakeExecer returning oversized data).
 const maxStdoutBytes = 1 * 1024 * 1024 // 1 MiB
+
+// maxStderrBytes is the cap on ssh stderr.
+// Stderr is diagnostic text only; 64 KiB is ample for any error message.
+const maxStderrBytes = 64 * 1024 // 64 KiB
+
+// cappedWriter limits writes to a fixed byte budget.
+// Once the budget is exhausted, Write returns io.ErrShortWrite and invokes
+// the cancel function (if set) to terminate the underlying subprocess.
+// cancel is called at most once; it is nilled after the first invocation.
+type cappedWriter struct {
+	inner   io.Writer
+	max     int
+	written int
+	cancel  context.CancelFunc
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	// Already exhausted: reject immediately.
+	if w.written >= w.max {
+		return 0, io.ErrShortWrite
+	}
+	remaining := w.max - w.written
+	if len(p) > remaining {
+		// Write only up to budget, then cancel.
+		n, _ := w.inner.Write(p[:remaining])
+		w.written += n
+		if w.cancel != nil {
+			w.cancel()
+			w.cancel = nil
+		}
+		return n, io.ErrShortWrite
+	}
+	n, err := w.inner.Write(p)
+	w.written += n
+	return n, err
+}
 
 // Driver is the ssh-shell-out fleet.Probe implementation.
 // It delegates to the user's system `ssh` binary so that ~/.ssh/config
@@ -130,7 +170,7 @@ func (d *Driver) Scheme() string {
 //  4. Build argv (host string, optional -p port, fixed docker invocation).
 //  5. Run through allowlist.
 //  6. Call execer.Run.
-//  7. Check stdout size cap.
+//  7. Check stdout size cap (belt-and-braces: also enforced streaming in realExecer).
 //  8. Parse JSON-per-line output.
 //  9. Post-fetch filter by Service.
 func (d *Driver) List(ctx context.Context, t fleet.Target, f fleet.Filter) ([]fleet.RuntimeImage, error) {
@@ -195,7 +235,9 @@ func (d *Driver) List(ctx context.Context, t fleet.Target, f fleet.Filter) ([]fl
 		return nil, fmt.Errorf("%w: %v", ErrSSHError, err)
 	}
 
-	// Step 7: stdout size cap.
+	// Step 7: stdout size cap (belt-and-braces post-fetch check).
+	// realExecer enforces this streaming via cappedWriter; this check also
+	// catches oversized data injected by fakeExecer in tests.
 	if len(stdout) > maxStdoutBytes {
 		return nil, fmt.Errorf("%w: stdout exceeds %d bytes cap", ErrSSHError, maxStdoutBytes)
 	}
@@ -271,21 +313,42 @@ type Execer interface {
 }
 
 // realExecer is the production Execer that shells out via exec.CommandContext.
+// stdout is capped at maxStdoutBytes and stderr at maxStderrBytes via
+// cappedWriter, which cancels the subprocess on overflow.
 type realExecer struct{}
 
 func (e *realExecer) Run(ctx context.Context, binary, host string, args []string) ([]byte, []byte, error) {
-	// Compose the final argv: binary, host, then remaining args.
-	// ssh convention: `ssh [options] host [command...]`
-	// Port flag (-p N) appears in args if needed; ssh accepts option flags
-	// after the host via getopt permutation.
-	argv := append([]string{host}, args...)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Separate any leading option flags (-p N) from the positional args
+	// so that "--" can be inserted immediately before the host.
+	// This prevents a leading-dash host (e.g. "-v") from being interpreted
+	// as an ssh flag — defense-in-depth alongside the allowlist check.
+	//
+	// Resulting argv shape:
+	//   [(-p N)?  --  host  docker ps ...]
+	var opts []string
+	rest := args
+	if len(rest) >= 2 && rest[0] == "-p" {
+		opts = []string{rest[0], rest[1]}
+		rest = rest[2:]
+	}
+	argv := append(opts, "--", host)
+	argv = append(argv, rest...)
+
 	cmd := exec.CommandContext(ctx, binary, argv...)
 
 	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+	cmd.Stdout = &cappedWriter{inner: &outBuf, max: maxStdoutBytes, cancel: cancel}
+	cmd.Stderr = &cappedWriter{inner: &errBuf, max: maxStderrBytes, cancel: cancel}
 
 	err := cmd.Run()
+	if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+		// Overflow triggered the cancel — produce a clear diagnostic error.
+		err = fmt.Errorf("%w: output exceeded cap (stdout=%d stderr=%d)",
+			ErrSSHError, outBuf.Len(), errBuf.Len())
+	}
 	return outBuf.Bytes(), errBuf.Bytes(), err
 }
 
