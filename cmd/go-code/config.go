@@ -215,6 +215,14 @@ type Config struct {
 	// Typical value: /tmp/fleet-ssh-home (writable tmpfs inside the container).
 	// Env: GOCODE_FLEET_SSH_HOME_DST (default "" — no shadow-copy)
 	FleetSSHHomeDst string
+
+	// FleetUpstreamDisable skips GitHub upstream changelog enrichment for TagDrift rows.
+	// When false (default) and GITHUB_TOKEN is set, fleet_versions and
+	// debug_investigate Phase 7 enrich each TagDrift diff with the commit range
+	// between the pinned and running tags via the GitHub Compare API.
+	// Set GOCODE_FLEET_UPSTREAM_DISABLE=true to skip all enrichment.
+	// Env: GOCODE_FLEET_UPSTREAM_DISABLE
+	FleetUpstreamDisable bool
 }
 
 const (
@@ -338,13 +346,14 @@ func loadConfig() (Config, error) {
 		SourcemapAllowedHosts: env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
 
 		// Fleet probe settings — safe-by-default (SSH off, standard socket).
-		FleetDefaultHost:  env.Str("GOCODE_FLEET_DEFAULT_HOST", ""),
-		FleetDockerSocket: env.Str("GOCODE_FLEET_DOCKER_SOCKET", "/var/run/docker.sock"),
-		FleetSSHEnable:    env.Bool("GOCODE_FLEET_SSH_ENABLE", false),
-		FleetSSHBinary:    env.Str("GOCODE_FLEET_SSH_BINARY", "ssh"),
-		FleetTimeout:      env.Duration("GOCODE_FLEET_TIMEOUT", 10*time.Second),
-		FleetSSHHomeSrc:   env.Str("GOCODE_FLEET_SSH_HOME_SRC", ""),
-		FleetSSHHomeDst:   env.Str("GOCODE_FLEET_SSH_HOME_DST", ""),
+		FleetDefaultHost:     env.Str("GOCODE_FLEET_DEFAULT_HOST", ""),
+		FleetDockerSocket:    env.Str("GOCODE_FLEET_DOCKER_SOCKET", "/var/run/docker.sock"),
+		FleetSSHEnable:       env.Bool("GOCODE_FLEET_SSH_ENABLE", false),
+		FleetSSHBinary:       env.Str("GOCODE_FLEET_SSH_BINARY", "ssh"),
+		FleetTimeout:         env.Duration("GOCODE_FLEET_TIMEOUT", 10*time.Second),
+		FleetSSHHomeSrc:      env.Str("GOCODE_FLEET_SSH_HOME_SRC", ""),
+		FleetSSHHomeDst:      env.Str("GOCODE_FLEET_SSH_HOME_DST", ""),
+		FleetUpstreamDisable: env.Bool("GOCODE_FLEET_UPSTREAM_DISABLE", false),
 	}, nil
 }
 
