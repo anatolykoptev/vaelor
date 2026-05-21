@@ -299,7 +299,14 @@ func (e *realExecer) Run(ctx context.Context, binary, host string, args []string
 	// as an ssh flag — defense-in-depth alongside the allowlist check.
 	//
 	// Resulting argv shape:
-	//   [(-p N)?  --  host  docker ps ...]
+	//   [(-p N)?  --  host  'docker' 'ps' '--no-trunc' '--format={{json .}}']
+	//
+	// The remote-command args (rest) are POSIX-single-quoted via shellQuote.
+	// OpenSSH joins remote-command args with spaces into a single string and
+	// sends it to the remote sshd, which runs the user's shell to re-tokenise.
+	// Any arg containing a space (e.g. '--format={{json .}}') would be split
+	// into multiple tokens by the remote shell without quoting.
+	// Opts (-p N) and host are interpreted locally by ssh — not quoted.
 	var opts []string
 	rest := args
 	if len(rest) >= 2 && rest[0] == "-p" {
@@ -307,7 +314,9 @@ func (e *realExecer) Run(ctx context.Context, binary, host string, args []string
 		rest = rest[2:]
 	}
 	argv := append(opts, "--", host)
-	argv = append(argv, rest...)
+	for _, a := range rest {
+		argv = append(argv, shellQuote(a))
+	}
 
 	cmd := exec.CommandContext(ctx, binary, argv...)
 
