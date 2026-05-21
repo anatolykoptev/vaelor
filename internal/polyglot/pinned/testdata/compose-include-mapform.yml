@@ -1,0 +1,8 @@
+include:
+  - includes/data.yml
+  - path: includes/memdb.yml
+    env_file: .env
+
+services:
+  app:
+    image: example/app:2.0

@@ -1,0 +1,7 @@
+include:
+  - includes/data.yml
+  - includes/memdb.yml
+
+services:
+  app:
+    image: example/app:1.0

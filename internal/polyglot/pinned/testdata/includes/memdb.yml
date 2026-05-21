@@ -1,0 +1,3 @@
+services:
+  memdb:
+    image: ghcr.io/example/memdb:0.3.1
