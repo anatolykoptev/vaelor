@@ -23,7 +23,7 @@ func TestSummarizeFleetForLLM_AllMatch(t *testing.T) {
 		{Image: "nginx", Status: "Match"},
 		{Image: "redis", Status: "Match"},
 	}
-	got := summarizeFleetForLLM("local://", rows)
+	got := summarizeFleetForLLM(&investigate.FleetReport{Target: "local://", Diffs: rows})
 	if got != "" {
 		t.Errorf("expected empty summary for all-Match rows, got: %q", got)
 	}
@@ -31,7 +31,7 @@ func TestSummarizeFleetForLLM_AllMatch(t *testing.T) {
 
 // TestSummarizeFleetForLLM_Empty: no rows → empty summary.
 func TestSummarizeFleetForLLM_Empty(t *testing.T) {
-	got := summarizeFleetForLLM("local://", nil)
+	got := summarizeFleetForLLM(&investigate.FleetReport{Target: "local://"})
 	if got != "" {
 		t.Errorf("expected empty summary for nil rows, got: %q", got)
 	}
@@ -43,7 +43,7 @@ func TestSummarizeFleetForLLM_TagDriftSurfaces(t *testing.T) {
 		{Image: "nginx", Status: "TagDrift", PinnedTag: "1.27", RuntimeTag: "1.26",
 			Explanation: "tag drift: pinned \"1.27\" vs runtime \"1.26\""},
 	}
-	got := summarizeFleetForLLM("local://", rows)
+	got := summarizeFleetForLLM(&investigate.FleetReport{Target: "local://", Diffs: rows})
 	if got == "" {
 		t.Fatal("expected non-empty summary for TagDrift row")
 	}
@@ -69,7 +69,7 @@ func TestSummarizeFleetForLLM_MatchDropped(t *testing.T) {
 		{Image: "memcached", Status: "Match"},
 		{Image: "rabbitmq", Status: "Match"},
 	}
-	got := summarizeFleetForLLM("local://", rows)
+	got := summarizeFleetForLLM(&investigate.FleetReport{Target: "local://", Diffs: rows})
 	if !strings.Contains(got, "TagDrift") {
 		t.Errorf("expected summary to contain TagDrift, got: %q", got)
 	}
@@ -96,7 +96,7 @@ func TestSummarizeFleetForLLM_CardinalityCap30(t *testing.T) {
 			Explanation: "tag drift",
 		}
 	}
-	got := summarizeFleetForLLM("local://", rows)
+	got := summarizeFleetForLLM(&investigate.FleetReport{Target: "local://", Diffs: rows})
 	if !strings.Contains(got, "and 10 more") {
 		t.Errorf("expected 'and 10 more' tail for 30 TagDrift rows, got: %q", got)
 	}
@@ -130,7 +130,7 @@ func TestSummarizeFleetForLLM_CardinalityCapMixed(t *testing.T) {
 			RuntimeTag: "1.26",
 		})
 	}
-	got := summarizeFleetForLLM("local://", rows)
+	got := summarizeFleetForLLM(&investigate.FleetReport{Target: "local://", Diffs: rows})
 	// TagDrift must appear (first 10 priority rows)
 	if !strings.Contains(got, "TagDrift") {
 		t.Errorf("expected TagDrift in summary, got: %q", got)

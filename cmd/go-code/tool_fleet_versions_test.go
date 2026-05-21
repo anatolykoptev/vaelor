@@ -439,3 +439,200 @@ func buildTestFleetRegistry(dockerProbe fleet.Probe, sshProbe fleet.Probe) *flee
 	}
 	return reg
 }
+
+// ---------------------------------------------------------------------------
+// Hosts [] field + multi-host + SiblingDrifts tests
+// ---------------------------------------------------------------------------
+
+// TestFleetVersions_HostsField_BackCompat: Hosts=["local://"] is identical to
+// Host="local://" (backwards compatibility).
+func TestFleetVersions_HostsField_BackCompat(t *testing.T) {
+	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
+		images: []fleet.RuntimeImage{
+			{Container: "web", Image: "nginx", Tag: "1.27", State: "running"},
+		},
+	}, nil))
+	out := parseOutput(t, callHandler(t, defaultFleetCfg(), FleetVersionsInput{Hosts: []string{"local://"}}))
+
+	if len(out.Targets) != 1 {
+		t.Fatalf("Targets len=%d; want 1", len(out.Targets))
+	}
+	if out.Targets[0].Target != "local://" {
+		t.Errorf("Target=%q; want %q", out.Targets[0].Target, "local://")
+	}
+	if out.Targets[0].Error != "" {
+		t.Errorf("unexpected error: %s", out.Targets[0].Error)
+	}
+}
+
+// TestFleetVersions_EmptyHostsAndHost_DefaultsToLocal: both Host and Hosts empty →
+// single "local://" target (back-compat default).
+func TestFleetVersions_EmptyHostsAndHost_DefaultsToLocal(t *testing.T) {
+	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{images: nil}, nil))
+	out := parseOutput(t, callHandler(t, defaultFleetCfg(), FleetVersionsInput{}))
+
+	if len(out.Targets) != 1 {
+		t.Fatalf("Targets len=%d; want 1", len(out.Targets))
+	}
+	if out.Targets[0].Target != "local://" {
+		t.Errorf("Target=%q; want local://", out.Targets[0].Target)
+	}
+}
+
+// TestFleetVersions_HostsWinsOverHost: when both Host and Hosts are set, Hosts
+// wins and a warning is emitted.
+func TestFleetVersions_HostsWinsOverHost(t *testing.T) {
+	cfg := defaultFleetCfg()
+	cfg.FleetSSHEnable = true
+
+	injectRegistry(t, buildTestFleetRegistry(
+		&fakeDockerProbe{
+			images: []fleet.RuntimeImage{
+				{Container: "web", Image: "nginx", Tag: "1.27", State: "running"},
+			},
+		},
+		&fakeSSHProbe{},
+	))
+	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{
+		Host:  "ssh://host-a",
+		Hosts: []string{"local://"},
+	}))
+
+	// Hosts wins: should probe "local://" not "ssh://host-a"
+	if len(out.Targets) != 1 {
+		t.Fatalf("Targets len=%d; want 1", len(out.Targets))
+	}
+	if out.Targets[0].Target != "local://" {
+		t.Errorf("Target=%q; want local://", out.Targets[0].Target)
+	}
+	// Warning must be emitted about host being ignored.
+	if len(out.Warnings) == 0 {
+		t.Error("expected warning about 'host' being ignored when 'hosts' is set")
+	}
+}
+
+// fakeSSHProbeForHost is an SSH probe that returns different images based on the
+// target host, allowing multi-host tests to return distinct data per host.
+type fakeSSHProbeForHost struct {
+	perHost map[string][]fleet.RuntimeImage
+}
+
+func (f *fakeSSHProbeForHost) Scheme() string { return "ssh" }
+func (f *fakeSSHProbeForHost) List(_ context.Context, t fleet.Target, _ fleet.Filter) ([]fleet.RuntimeImage, error) {
+	if imgs, ok := f.perHost[t.Host]; ok {
+		return imgs, nil
+	}
+	return nil, nil
+}
+
+// TestFleetVersions_MultiHost_TwoTargets: Hosts with two entries → two TargetReports.
+func TestFleetVersions_MultiHost_TwoTargets(t *testing.T) {
+	cfg := defaultFleetCfg()
+	cfg.FleetSSHEnable = true
+
+	fakeSSH := &fakeSSHProbeForHost{
+		perHost: map[string][]fleet.RuntimeImage{
+			"host-a": {{Container: "app", Image: "myapp", Tag: "v1", State: "running"}},
+			"host-b":  {{Container: "app", Image: "myapp", Tag: "v2", State: "running"}},
+		},
+	}
+
+	orig := buildFleetRegistry
+	buildFleetRegistry = func(_ Config) *fleet.Registry {
+		reg := fleet.NewRegistry()
+		reg.Register(&fakeDockerProbe{})
+		reg.Register(fakeSSH)
+		return reg
+	}
+	t.Cleanup(func() { buildFleetRegistry = orig })
+
+	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{
+		Hosts: []string{"ssh://host-a", "ssh://host-b"},
+	}))
+
+	if len(out.Targets) != 2 {
+		t.Fatalf("Targets len=%d; want 2", len(out.Targets))
+	}
+	// Verify both targets are present (order may vary).
+	targetSet := map[string]bool{}
+	for _, tr := range out.Targets {
+		targetSet[tr.Target] = true
+	}
+	if !targetSet["ssh://host-a"] || !targetSet["ssh://host-b"] {
+		t.Errorf("expected both targets; got %v", targetSet)
+	}
+}
+
+// TestFleetVersions_MultiHost_SiblingDriftDetected: two hosts running same image
+// with different tags → SiblingDrifts populated.
+func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
+	cfg := defaultFleetCfg()
+	cfg.FleetSSHEnable = true
+
+	fakeSSH := &fakeSSHProbeForHost{
+		perHost: map[string][]fleet.RuntimeImage{
+			"host-a": {{Container: "svcimage", Image: "minio/minio", Tag: "latest", State: "running"}},
+			"host-b":  {{Container: "svcimage", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
+		},
+	}
+
+	orig := buildFleetRegistry
+	buildFleetRegistry = func(_ Config) *fleet.Registry {
+		reg := fleet.NewRegistry()
+		reg.Register(&fakeDockerProbe{})
+		reg.Register(fakeSSH)
+		return reg
+	}
+	t.Cleanup(func() { buildFleetRegistry = orig })
+
+	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{
+		Hosts: []string{"ssh://host-a", "ssh://host-b"},
+	}))
+
+	if len(out.SiblingDrifts) != 1 {
+		t.Fatalf("SiblingDrifts len=%d; want 1 (minio/minio drift)", len(out.SiblingDrifts))
+	}
+	if out.SiblingDrifts[0].Image != "minio/minio" {
+		t.Errorf("SiblingDrifts[0].Image=%q; want minio/minio", out.SiblingDrifts[0].Image)
+	}
+	if len(out.SiblingDrifts[0].Variants) != 2 {
+		t.Errorf("SiblingDrifts[0].Variants len=%d; want 2", len(out.SiblingDrifts[0].Variants))
+	}
+}
+
+// TestFleetVersions_MultiHost_SoftFailPerTarget: one host fails → TargetReport.Error
+// set, other host still returns results, tool does not return IsError.
+func TestFleetVersions_MultiHost_SoftFailPerTarget(t *testing.T) {
+	cfg := defaultFleetCfg()
+	cfg.FleetSSHEnable = true
+
+	fakeSSH := &fakeSSHProbeForHost{
+		perHost: map[string][]fleet.RuntimeImage{
+			"host-a": {{Container: "web", Image: "nginx", Tag: "1.27", State: "running"}},
+			// host-b is not in the map → returns nil/nil → success but empty
+		},
+	}
+
+	orig := buildFleetRegistry
+	buildFleetRegistry = func(_ Config) *fleet.Registry {
+		reg := fleet.NewRegistry()
+		reg.Register(&fakeDockerProbe{})
+		reg.Register(fakeSSH)
+		return reg
+	}
+	t.Cleanup(func() { buildFleetRegistry = orig })
+
+	result := callHandler(t, cfg, FleetVersionsInput{
+		Hosts: []string{"ssh://host-a", "ssh://host-b"},
+	})
+
+	// Must NOT be a tool-level error.
+	if result.IsError {
+		t.Fatal("multi-host soft-fail must not be a tool-level error")
+	}
+
+	out := parseOutput(t, result)
+	if len(out.Targets) != 2 {
+		t.Fatalf("Targets len=%d; want 2", len(out.Targets))
+	}
+}

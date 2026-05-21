@@ -277,3 +277,150 @@ func runtimeContainer(d ImageDiff) string {
 	}
 	return ""
 }
+
+// ---------------------------------------------------------------------------
+// Cross-host SiblingDrift types and logic
+// ---------------------------------------------------------------------------
+
+// TargetReportLike is the minimal view of a per-host probe report that
+// SiblingDiff needs. cmd/go-code's TargetReport implements this interface via
+// TargetStr() and DiffsList() methods so that internal/fleet stays import-free
+// of cmd/.
+type TargetReportLike interface {
+	TargetStr() string
+	DiffsList() []ImageDiff
+}
+
+// SiblingDriftRow groups same-Image runtime entries across targets whose
+// tag or digest differs. Populated by SiblingDiff over a slice of
+// TargetReports (one per probed host).
+type SiblingDriftRow struct {
+	Image    string           `json:"image"` // registry+repo, no tag/digest
+	Variants []SiblingVariant `json:"variants"`
+}
+
+// SiblingVariant is one row inside a SiblingDriftRow — a single host's view
+// of the image.
+type SiblingVariant struct {
+	Target    string `json:"target"` // the TargetReport.Target string (e.g. "ssh://host-b")
+	Tag       string `json:"tag"`
+	Digest    string `json:"digest,omitempty"`
+	Container string `json:"container,omitempty"` // container name on that target
+	State     string `json:"state,omitempty"`
+}
+
+// SiblingDiff returns one SiblingDriftRow per Image that appears with a
+// differing (Tag, Digest) tuple across two or more targets.
+//
+// Inputs: the per-target reports produced by per-host Diff().
+// Output: deterministic order — by Image asc, then by Variant.Target asc.
+// Empty result (nil slice) when fewer than 2 targets, or when no Image
+// shows cross-host drift.
+//
+// Rules:
+//   - For each Image observed in any target's Diffs[].Runtime (regardless of
+//     Status — Match, OnlyRuntime, TagDrift, etc.), collect (Target, Tag, Digest, ...).
+//   - If two or more variants for the same Image differ in (Tag, Digest), emit one row.
+//   - Variants WITHOUT a Runtime (e.g. OnlySource rows) are skipped — only
+//     actually-running containers count for sibling-drift purposes.
+//   - When Digest is empty on one side and non-empty on the other, treat as
+//     drift only if Tag also differs. (Same-tag/empty-digest-vs-real-digest
+//     is the "we don't have full info" case, not actionable drift.)
+//   - When the same Image appears multiple times in one target (multiple
+//     containers), one representative variant is chosen (first by Container
+//     name ascending).
+func SiblingDiff(reports []TargetReportLike) []SiblingDriftRow {
+	if len(reports) < 2 {
+		return nil
+	}
+
+	// Collect per-image: map[image][target] = SiblingVariant (one per target).
+	// When a target has multiple containers for the same image, we keep the
+	// lexicographically first Container as the representative.
+	type key struct {
+		image  string
+		target string
+	}
+	best := make(map[key]SiblingVariant)
+
+	for _, r := range reports {
+		target := r.TargetStr()
+		for _, d := range r.DiffsList() {
+			if d.Runtime == nil {
+				// Skip rows with no running container (OnlySource etc.)
+				continue
+			}
+			k := key{image: d.Image, target: target}
+			v := SiblingVariant{
+				Target:    target,
+				Tag:       d.Runtime.Tag,
+				Digest:    d.Runtime.Digest,
+				Container: d.Runtime.Container,
+				State:     d.Runtime.State,
+			}
+			if prev, ok := best[k]; !ok || v.Container < prev.Container {
+				best[k] = v
+			}
+		}
+	}
+
+	// Group variants by image. Collect unique images.
+	type imageData struct {
+		variants []SiblingVariant
+	}
+	imgMap := make(map[string]*imageData)
+	for k, v := range best {
+		if _, ok := imgMap[k.image]; !ok {
+			imgMap[k.image] = &imageData{}
+		}
+		imgMap[k.image].variants = append(imgMap[k.image].variants, v)
+	}
+
+	var rows []SiblingDriftRow
+	for image, data := range imgMap {
+		// Sort variants by Target for determinism.
+		sort.Slice(data.variants, func(i, j int) bool {
+			return data.variants[i].Target < data.variants[j].Target
+		})
+
+		// Check if there's actual drift among variants.
+		if !hasSiblingDrift(data.variants) {
+			continue
+		}
+		rows = append(rows, SiblingDriftRow{
+			Image:    image,
+			Variants: data.variants,
+		})
+	}
+
+	// Sort rows by Image asc for determinism.
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Image < rows[j].Image
+	})
+
+	if len(rows) == 0 {
+		return nil
+	}
+	return rows
+}
+
+// hasSiblingDrift returns true if any two variants differ in (Tag, Digest)
+// per the spec rules:
+//   - Different Tag → always drift.
+//   - Same Tag, both Digest non-empty, Digest differs → drift.
+//   - Same Tag, one Digest empty → NOT drift (incomplete info).
+func hasSiblingDrift(variants []SiblingVariant) bool {
+	for i := 0; i < len(variants); i++ {
+		for j := i + 1; j < len(variants); j++ {
+			a, b := variants[i], variants[j]
+			if a.Tag != b.Tag {
+				return true
+			}
+			// Same tag — only check digest if both are non-empty.
+			if a.Digest != "" && b.Digest != "" && a.Digest != b.Digest {
+				return true
+			}
+		}
+	}
+	return false
+}
