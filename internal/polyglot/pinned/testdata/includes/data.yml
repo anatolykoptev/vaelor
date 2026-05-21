@@ -1,0 +1,5 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+  redis:
+    image: redis:8.6-alpine
