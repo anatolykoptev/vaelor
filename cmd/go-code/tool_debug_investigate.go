@@ -98,7 +98,9 @@ type DebugInvestigateInput struct {
 	// is silently skipped. When unset AND a compose/Dockerfile IS detected,
 	// Phase 7 records one Diagnostics.Warning explaining how to enable it,
 	// then skips.
-	Host string `json:"host,omitempty" jsonschema_description:"Optional probe target for runtime-binary drift analysis (Phase 7). 'local://' for local docker, 'ssh://... for remote (requires GOCODE_FLEET_SSH_ENABLE=true)."`
+	Host string `json:"host,omitempty"  jsonschema_description:"Optional probe target for runtime-binary drift analysis (Phase 7). 'local://' for local docker, 'ssh://...' for remote (requires GOCODE_FLEET_SSH_ENABLE=true)."`
+	// Hosts enables multi-host Phase 7. Supersedes Host when both are set.
+	Hosts []string `json:"hosts,omitempty" jsonschema_description:"Multiple probe targets for Phase 7 fleet diff. Supersedes 'host' when set. Each is local://, docker://, or ssh://[user@]host[:port]."`
 }
 
 // debugInvestigateStore is module-scoped — survives across calls in the same process.
