@@ -12,6 +12,7 @@ import (
 // These match the conventions used elsewhere in the polyglot package.
 var skipDirs = map[string]bool{
 	".git":         true,
+	".claude":      true, // agent-session worktrees (e.g. .claude/worktrees/agent-*)
 	"node_modules": true,
 	"vendor":       true,
 	"target":       true,
@@ -43,6 +44,18 @@ func Collect(repoRoot string) ([]PinnedImage, error) {
 		if info.IsDir() {
 			if skipDirs[info.Name()] {
 				return filepath.SkipDir
+			}
+			// Skip any subdirectory that is itself a separate git tracking
+			// unit (nested repo or git submodule). Submodules have a .git
+			// FILE (gitdir: pointer); nested repos have a .git DIR. Either
+			// way, os.Lstat succeeds on path/.git.
+			// The walk root itself always has .git and is the source-of-truth
+			// for the operator's pins; the "path != repoRoot" guard keeps it
+			// indexable.
+			if path != repoRoot {
+				if _, statErr := os.Lstat(filepath.Join(path, ".git")); statErr == nil {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}

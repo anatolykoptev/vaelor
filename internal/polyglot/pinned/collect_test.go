@@ -134,3 +134,85 @@ func TestCollect_SkipsUnreadableSubdir(t *testing.T) {
 		t.Errorf("blocked dir parsed unexpectedly: %v", got)
 	}
 }
+
+// TestCollect_SkipsNestedGitAndAgentWorktrees — Collect must not aggregate
+// images from nested git repos (submodules) or .claude/worktrees/ subdirs.
+// Real-world repro: fleet_versions reported false drifts from agent-session
+// worktrees and third-party submodules inside the deploy clone.
+func TestCollect_SkipsNestedGitAndAgentWorktrees(t *testing.T) {
+	root := t.TempDir()
+
+	// Top-level (the legit operator-controlled repo):
+	if err := os.WriteFile(filepath.Join(root, "docker-compose.yml"), []byte(`services:
+  web:
+    image: nginx:1.27
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pretend the walk root itself is a git repo — should NOT be skipped.
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Submodule with its own pin (FILE-form .git pointer).
+	sub := filepath.Join(root, "vendored-sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, ".git"), []byte("gitdir: ../.git/modules/vendored-sub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "docker-compose.yml"), []byte(`services:
+  third-party:
+    image: vendor/thirdparty:0.1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nested git repo (DIR-form .git).
+	nested := filepath.Join(root, "nested-repo")
+	if err := os.MkdirAll(filepath.Join(nested, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "docker-compose.yml"), []byte(`services:
+  inner:
+    image: alpine:3.20
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent worktree under .claude/worktrees/.
+	agent := filepath.Join(root, ".claude", "worktrees", "agent-abc")
+	if err := os.MkdirAll(agent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agent, "docker-compose.yml"), []byte(`services:
+  stale:
+    image: stale/agent-state:v999
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Collect(root)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	images := make(map[string]string)
+	for _, p := range got {
+		images[p.Image] = p.Tag
+	}
+
+	if images["nginx"] != "1.27" {
+		t.Errorf("missing nginx:1.27 (root compose): %v", got)
+	}
+	if _, ok := images["vendor/thirdparty"]; ok {
+		t.Errorf("submodule pin leaked: %v", got)
+	}
+	if _, ok := images["alpine"]; ok {
+		t.Errorf("nested-repo pin leaked: %v", got)
+	}
+	if _, ok := images["stale/agent-state"]; ok {
+		t.Errorf(".claude/worktrees pin leaked: %v", got)
+	}
+}
