@@ -93,4 +93,15 @@ func TestDebugInvestigate_NoLLM_HandlerDoesNotError(t *testing.T) {
 	if res.IsError {
 		t.Errorf("expected IsError=false, got true; text: %q", resultText(res))
 	}
+
+	// C9 race fix: handleDebugInvestigate launches a background goroutine
+	// (runInvestigation) that writes to debugInvestigateStore via Fail/Finish.
+	// t.Cleanup (above) writes debugInvestigateStore = orig. Without this wait,
+	// the cleanup assignment races the goroutine's store mutation.
+	// Poll until the goroutine reaches Done or Failed, then cleanup is safe.
+	start := time.Unix(1_000_000, 0)
+	end := time.Unix(1_001_000, 0)
+	if st := pollStore("go-code-nollm", start, end, "" /* repo */, 3*time.Second); st == nil {
+		t.Log("warn: pollStore timed out — background investigation did not finish in 3s")
+	}
 }
