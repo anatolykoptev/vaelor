@@ -20,8 +20,8 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // newPromFakeWithAlerts returns a Prometheus fake that additionally handles
@@ -79,6 +79,7 @@ func TestIntegration_AlertViolations(t *testing.T) {
 	_, callErr := handleDebugInvestigate(
 		context.Background(),
 		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
+		Config{},
 		analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false},
 		prom,
 		jaeger,
@@ -229,6 +230,7 @@ func TestIntegration_MixedBudget_AlertsAndMetrics(t *testing.T) {
 	_, callErr := handleDebugInvestigate(
 		context.Background(),
 		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
+		Config{},
 		analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}, prom, jaeger, nil,
 	)
 	if callErr != nil {
@@ -286,6 +288,7 @@ func TestIntegration_OnlyAlerts_AnomalyScoreFallback(t *testing.T) {
 	_, callErr := handleDebugInvestigate(
 		context.Background(),
 		DebugInvestigateInput{Service: svc, StartUnix: start.Unix(), EndUnix: end.Unix()},
+		Config{},
 		analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}, prom, jaeger, nil,
 	)
 	if callErr != nil {

@@ -1,0 +1,5 @@
+services:
+  app:
+    build: .
+  worker:
+    image: ghcr.io/example/worker:1.0

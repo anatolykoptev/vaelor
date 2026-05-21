@@ -90,6 +90,15 @@ type DebugInvestigateInput struct {
 	Hint      string   `json:"hint,omitempty" jsonschema_description:"Optional free-text hint about the suspected behaviour."`
 	HintKind  HintKind `json:"hint_kind,omitempty" jsonschema_description:"Optional structured hint kind: frontend_reactive_cycle | panic_at_handler | metric_spike_unknown_source | latency_spike. Empty = auto-detect (default)."`
 	Repo      string   `json:"repo,omitempty" jsonschema_description:"Repo path for symbol lookup. Defaults to the service's resolved repo when known."`
+	// Host, when set, enables Phase 7 (fleet_versions). Forms accepted:
+	//   "local://"           - local docker socket (default if Host == "")
+	//   "ssh://user@host[:port]" - via system ssh (requires GOCODE_FLEET_SSH_ENABLE=true)
+	//
+	// When unset AND no compose/Dockerfile is detected in the repo, Phase 7
+	// is silently skipped. When unset AND a compose/Dockerfile IS detected,
+	// Phase 7 records one Diagnostics.Warning explaining how to enable it,
+	// then skips.
+	Host string `json:"host,omitempty" jsonschema_description:"Optional probe target for runtime-binary drift analysis (Phase 7). 'local://' for local docker, 'ssh://... for remote (requires GOCODE_FLEET_SSH_ENABLE=true)."`
 }
 
 // debugInvestigateStore is module-scoped — survives across calls in the same process.
@@ -112,11 +121,11 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 		Name:        "debug_investigate",
 		Description: "Correlate Prometheus metrics + Jaeger failed traces + code symbols to suggest the likely buggy file:function for the given service+window. Long-running (5min budget); poll same input to fetch result.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DebugInvestigateInput) (*mcp.CallToolResult, error) {
-		return handleDebugInvestigate(ctx, input, deps, prom, jaeger, dozor)
+		return handleDebugInvestigate(ctx, input, cfg, deps, prom, jaeger, dozor)
 	})
 }
 
-func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, dozor *dozorclient.Client) (*mcp.CallToolResult, error) {
+func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, cfg Config, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, dozor *dozorclient.Client) (*mcp.CallToolResult, error) {
 
 	if !input.HintKind.IsValid() {
 		return errResult(fmt.Sprintf("invalid hint_kind %q; expected one of: frontend_reactive_cycle, panic_at_handler, metric_spike_unknown_source, latency_spike", input.HintKind)), nil
@@ -157,13 +166,13 @@ func handleDebugInvestigate(ctx context.Context, input DebugInvestigateInput, de
 	}
 
 	// Fresh — kick off background goroutine.
-	go runInvestigation(input, deps, prom, jaeger, dozor, start, end)
+	go runInvestigation(input, cfg, deps, prom, jaeger, dozor, start, end)
 
 	return textResult(fmt.Sprintf("Investigation started for service=%q range=[%s, %s]. Re-run this call in 5s to fetch the result.",
 		input.Service, start.Format(time.RFC3339), end.Format(time.RFC3339))), nil
 }
 
-func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, dozor *dozorclient.Client, start, end time.Time) {
+func runInvestigation(input DebugInvestigateInput, cfg Config, deps analyze.Deps, prom *promclient.Client, jaeger *jaegerclient.Client, dozor *dozorclient.Client, start, end time.Time) {
 	finished := false
 	defer func() {
 		if r := recover(); r != nil {
@@ -290,11 +299,17 @@ func runInvestigation(input DebugInvestigateInput, deps analyze.Deps, prom *prom
 		res.Hypotheses = runBodyExtractionPhaseWithMappings(res.Hypotheses, investigateTopN, input.Service, input.Repo, deps.PathMappings, &res.Diagnostics)
 	}
 
-	// Phase 5: LLM correlate — produce one-paragraph summary + reasoning.
+	// Phase 7: fleet versions — diff pinned image refs in repo against deployed
+	// container images on the target host. Populates res.RuntimeVersions in
+	// place. Soft failures append Diagnostics.Warnings; phase never aborts the
+	// investigation.
+	runFleetVersionsPhase(ctx, input, cfg, deps, res)
+
+	// Phase 8: LLM correlate — produce one-paragraph summary + reasoning.
 	// metricNames is passed to avoid re-fetching __name__ in the LLM phase.
 	runLLMPhase(ctx, deps, metricNames, input, services, ops, start, end, res)
 
-	// Phase 6: log excerpts — fetch recent ERROR/WARN/panic lines from the dozor
+	// Phase 9: log excerpts — fetch recent ERROR/WARN/panic lines from the dozor
 	// sidecar. Supplemental evidence; errors are non-fatal (appended to warnings).
 	if dozor != nil {
 		res.LogExcerpts = runLogsPhase(ctx, dozor, input, start, end, &res.Diagnostics)

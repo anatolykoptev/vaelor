@@ -32,10 +32,13 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/fleet"
 	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-code/internal/jaegerclient"
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/go-kit/llm"
+	"os"
+	"path/filepath"
 )
 
 // integrationDeps returns a Deps for integration tests. LLM=NoOp, LLMHasKey=false —
@@ -197,6 +200,7 @@ func TestIntegration_HappyPath(t *testing.T) {
 			StartUnix: start.Unix(),
 			EndUnix:   end.Unix(),
 		},
+		Config{},
 		integrationDeps(),
 		prom,
 		jaeger,
@@ -253,6 +257,7 @@ func TestIntegration_JaegerEmpty(t *testing.T) {
 			StartUnix: start.Unix(),
 			EndUnix:   end.Unix(),
 		},
+		Config{},
 		integrationDeps(),
 		prom,
 		jaeger,
@@ -308,6 +313,7 @@ func TestIntegration_PromDown(t *testing.T) {
 			StartUnix: start.Unix(),
 			EndUnix:   end.Unix(),
 		},
+		Config{},
 		integrationDeps(),
 		prom,
 		jaeger,
@@ -377,4 +383,117 @@ func TestUnit_ListLabelValues_500(t *testing.T) {
 // runInvestigation's phases via injectable hooks.
 func TestIntegration_PanicRecovery(t *testing.T) {
 	t.Skip("panic injection requires intrusive refactor — deferred per #57 task spec")
+}
+
+// noFilterDockerProbe is a fleet.Probe that returns all images without service filtering.
+// Used in integration tests where the investigation service name (Jaeger name) doesn't
+// match the docker container name.
+type noFilterDockerProbe struct {
+	images []fleet.RuntimeImage
+	err    error
+}
+
+func (f *noFilterDockerProbe) Scheme() string { return "docker" }
+func (f *noFilterDockerProbe) List(_ context.Context, _ fleet.Target, _ fleet.Filter) ([]fleet.RuntimeImage, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.images, nil
+}
+
+// TestIntegration_FleetPhase verifies that when an investigation is run with
+// a Host input and a fake fleet registry injected, the result has non-nil
+// RuntimeVersions and the LLM user payload contains the fleet summary.
+//
+// This test extends the existing integration test infrastructure: same
+// httptest.Server fakes for Prom+Jaeger, plus fleet registry injection via
+// the buildFleetRegistry seam.
+func TestIntegration_FleetPhase(t *testing.T) {
+	t.Cleanup(func() { debugInvestigateStore = investigate.NewInvestigationStore() })
+
+	svc := "test-svc-fleet-integration"
+	tmpDir := t.TempDir()
+	// Create Dockerfile with pinned nginx 1.27
+	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte("FROM nginx:1.27\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Inject fake fleet registry: runtime nginx is 1.26 → TagDrift
+	reg := fleet.NewRegistry()
+	// Use a probeAllDockerProbe (inner anonymous type) that returns all images
+	// without filtering, so input.Service (Jaeger name) doesn't need to match
+	// the container name.
+	reg.Register(&noFilterDockerProbe{
+		images: []fleet.RuntimeImage{
+			{Container: "nginx-web", Image: "nginx", Tag: "1.26", State: "running"},
+		},
+	})
+	injectRegistry(t, reg)
+
+	jaegerSrv := newJaegerFake([]string{svc}, nil)
+	defer jaegerSrv.Close()
+
+	promSrv := newPromFake(1.0)
+	defer promSrv.Close()
+
+	start, end := fixedWindow()
+	prom := promclient.NewClient(promSrv.URL, 5*time.Second)
+	jaeger := jaegerclient.NewClient(jaegerSrv.URL, 5*time.Second)
+
+	_, callErr := handleDebugInvestigate(
+		context.Background(),
+		DebugInvestigateInput{
+			Service:   svc,
+			StartUnix: start.Unix(),
+			EndUnix:   end.Unix(),
+			Host:      "local://",
+			Repo:      tmpDir,
+		},
+		Config{
+			FleetDockerSocket: "/var/run/docker.sock",
+			FleetSSHEnable:    false,
+			FleetTimeout:      5 * time.Second,
+		},
+		integrationDeps(),
+		prom,
+		jaeger,
+		nil,
+	)
+	if callErr != nil {
+		t.Fatalf("handleDebugInvestigate: unexpected error: %v", callErr)
+	}
+
+	st := pollStore(svc, start, end, tmpDir, 10*time.Second)
+	if st == nil {
+		t.Fatal("investigation did not complete within 10s")
+	}
+	if st.Status() != investigate.StatusDone {
+		t.Fatalf("expected StatusDone, got %v (err: %s)", st.Status(), st.Error())
+	}
+	r := st.Result()
+
+	// Phase 7 must populate RuntimeVersions.
+	if r.RuntimeVersions == nil {
+		t.Fatal("expected RuntimeVersions non-nil after fleet phase")
+	}
+	if r.RuntimeVersions.Target == "" {
+		t.Error("expected RuntimeVersions.Target non-empty")
+	}
+
+	// The TagDrift (nginx 1.27 pinned vs 1.26 running) must be in Diffs.
+	found := false
+	for _, d := range r.RuntimeVersions.Diffs {
+		if d.Status == "TagDrift" && d.Image == "nginx" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected TagDrift for nginx in RuntimeVersions.Diffs, got: %+v", r.RuntimeVersions.Diffs)
+	}
+
+	// Summary must contain the fleet drift (non-empty for TagDrift).
+	if r.RuntimeVersions.Summary == "" {
+		t.Error("expected non-empty Summary for TagDrift")
+	}
 }

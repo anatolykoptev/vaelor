@@ -1,0 +1,9 @@
+# Multi-stage build: builder + runtime.
+FROM golang:1.26-alpine AS builder
+WORKDIR /build
+COPY . .
+RUN go build -o app .
+
+FROM alpine:3.20 AS runtime
+COPY --from=builder /build/app /usr/local/bin/app
+ENTRYPOINT ["/usr/local/bin/app"]

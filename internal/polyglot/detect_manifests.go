@@ -37,6 +37,14 @@ var manifestNames = map[string]string{
 	"build.gradle.kts":  "java",
 	"Gemfile":           "ruby",
 	"Gemfile.lock":      "ruby",
+
+	// Docker manifests: marked as known but language is empty.
+	// Glob-pattern variants (Dockerfile.*, *.Dockerfile, docker-compose.*.yml)
+	// are matched by internal/polyglot/pinned.Collect, which keeps
+	// manifestNames a simple exact-string map.
+	"Dockerfile":         "",
+	"docker-compose.yml": "",
+	"compose.yml":        "",
 }
 
 // manifestExtensions maps file extensions to their language for manifests

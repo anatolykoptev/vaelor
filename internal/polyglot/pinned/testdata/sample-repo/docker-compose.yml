@@ -1,0 +1,5 @@
+services:
+  app:
+    image: example/app:2.1
+  cache:
+    image: redis:7.4
