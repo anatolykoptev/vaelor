@@ -63,6 +63,19 @@ func TestValidate(t *testing.T) {
 			args:    []string{"krolik"},
 			wantErr: true,
 		},
+		// Leading-dash host must be rejected — would be interpreted as ssh flag.
+		// url.Parse("ssh://-v") returns Hostname()=="-v"; isValidHost must
+		// reject any host whose first byte is -.
+		{
+			name:    "leading-dash host rejected",
+			args:    []string{"-G", "docker", "ps", "--no-trunc", "--format={{json .}}"},
+			wantErr: true,
+		},
+		{
+			name:    "leading-dash with user@ still rejected",
+			args:    []string{"-v@realhost", "docker", "ps", "--no-trunc", "--format={{json .}}"},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range tests {

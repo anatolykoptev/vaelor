@@ -20,7 +20,7 @@ var forbiddenSubstrings = []string{";", "|", "$(", "`", "&&", "||", ">", "<", "\
 //	[host, "docker", "ps", "--no-trunc", "--format={{json .}}"]
 //	["-p", "<port>", host, "docker", "ps", "--no-trunc", "--format={{json .}}"]
 //
-// All other shapes → wrapped ErrAllowlistViolation.
+// All other shapes -> wrapped ErrAllowlistViolation.
 //
 // Metacharacter check runs first (before shape validation) so injection
 // attempts in the host position are caught.
@@ -29,7 +29,7 @@ func Validate(args []string) error {
 		return fmt.Errorf("%w: empty args", ErrAllowlistViolation)
 	}
 
-	// Step 1: metacharacter sweep — check EVERY element.
+	// Step 1: metacharacter sweep -- check EVERY element.
 	for _, a := range args {
 		for _, bad := range forbiddenSubstrings {
 			if strings.Contains(a, bad) {
@@ -58,7 +58,7 @@ func Validate(args []string) error {
 	// Step 4: validate host (first element of rest).
 	host := rest[0]
 	if !isValidHost(host) {
-		return fmt.Errorf("%w: host %q contains invalid characters (allowed: [a-zA-Z0-9._@-])",
+		return fmt.Errorf("%w: host %q contains invalid characters (allowed: [a-zA-Z0-9._@-], must not start with '-')",
 			ErrAllowlistViolation, host)
 	}
 
@@ -74,10 +74,18 @@ func Validate(args []string) error {
 	return nil
 }
 
-// isValidHost reports whether s matches [a-zA-Z0-9._@-]+.
-// No regexp — hand-rolled per constraint.
+// isValidHost reports whether s is a non-empty string matching [a-zA-Z0-9._@-]+
+// that does NOT start with '-'. A leading '-' would cause ssh to interpret the
+// value as a flag rather than a destination hostname.
+// No regexp -- hand-rolled per constraint.
 func isValidHost(s string) bool {
 	if len(s) == 0 {
+		return false
+	}
+	// Reject any host whose first byte is '-'.
+	// url.Parse("ssh://-v") returns Hostname()=="-v"; without this guard,
+	// ssh would interpret "-v" as its verbose flag, not a destination.
+	if s[0] == '-' {
 		return false
 	}
 	for _, c := range s {

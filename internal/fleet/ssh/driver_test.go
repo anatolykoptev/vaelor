@@ -341,3 +341,24 @@ func TestDriver_ParseErrorPerLine_BestEffort(t *testing.T) {
 		t.Errorf("Container: want %q, got %q", "web", imgs[0].Container)
 	}
 }
+
+// TestDriver_LeadingDashHost_Rejected ensures that a host starting with "-"
+// is rejected before any exec.Command construction.
+// url.Parse("ssh://-G") returns Hostname()=="-G"; without this guard,
+// ssh would interpret "-G" as its "--print-config" flag, not a destination.
+func TestDriver_LeadingDashHost_Rejected(t *testing.T) {
+	fake := &fakeExecer{stdout: []byte("")}
+	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
+	_, err := d.List(context.Background(),
+		fleet.Target{Scheme: "ssh", Host: "-G"}, fleet.Filter{})
+	if err == nil {
+		t.Fatal("expected error for leading-dash host, got nil")
+	}
+	if fake.called {
+		t.Error("execer must NOT be called when host starts with -")
+	}
+	// Either ErrAllowlistViolation or ErrInvalidTarget closes the class.
+	if !errors.Is(err, flssh.ErrAllowlistViolation) && !errors.Is(err, flssh.ErrInvalidTarget) {
+		t.Errorf("want ErrAllowlistViolation or ErrInvalidTarget, got: %v", err)
+	}
+}
