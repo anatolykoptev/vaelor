@@ -20,6 +20,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -157,6 +158,17 @@ func TestServerNoLLM_PolicyMatrix(t *testing.T) {
 		}
 		if res.IsError {
 			t.Errorf("debug tool: expected IsError=false; text: %q", resultText(res))
+		}
+
+		// C9 race fix: handleDebugInvestigate launches a background goroutine
+		// (runInvestigation) that writes to debugInvestigateStore via Fail/Finish.
+		// t.Cleanup (above) writes debugInvestigateStore = orig. Without this wait,
+		// the cleanup assignment races the goroutine's store mutation.
+		// Poll until the goroutine reaches Done or Failed, then cleanup is safe.
+		start := time.Unix(1_700_000_000, 0)
+		end := time.Unix(1_700_000_600, 0)
+		if st := pollStore("policy-matrix-test", start, end, "" /* repo */, 3*time.Second); st == nil {
+			t.Log("warn: pollStore timed out — background investigation did not finish in 3s")
 		}
 	})
 }
