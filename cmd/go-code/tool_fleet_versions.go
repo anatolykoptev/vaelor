@@ -50,6 +50,7 @@ var buildFleetRegistry = func(cfg Config) *fleet.Registry {
 		ssh.WithEnabled(cfg.FleetSSHEnable),
 		ssh.WithBinary(cfg.FleetSSHBinary),
 		ssh.WithTimeout(cfg.FleetTimeout),
+		ssh.WithSSHHome(cfg.FleetSSHHomeSrc, cfg.FleetSSHHomeDst),
 	))
 	return reg
 }
@@ -171,4 +172,3 @@ func fleetVersionsHandler(ctx context.Context, cfg Config, deps analyze.Deps, in
 	}
 	return textResult(string(data)), nil
 }
-
