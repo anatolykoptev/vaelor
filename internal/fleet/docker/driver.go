@@ -7,8 +7,6 @@ import (
 	"net"
 	"strings"
 	"time"
-	"unicode"
-
 	"github.com/anatolykoptev/go-code/internal/fleet"
 )
 
@@ -95,8 +93,9 @@ func (d *Driver) Scheme() string {
 // drivers may omit label matching; P5 wiring handles higher-level filtering.
 func (d *Driver) List(ctx context.Context, _ fleet.Target, f fleet.Filter) ([]fleet.RuntimeImage, error) {
 	// Validate filter before any I/O.
-	if err := validateFilter(f); err != nil {
-		return nil, err
+	if !fleet.IsValidFilter(f.Service) {
+		return nil, fmt.Errorf("%w: service name %q contains invalid characters",
+			ErrInvalidFilter, f.Service)
 	}
 
 	c := newClient(d.socketPath, d.dial, d.timeout)
@@ -108,7 +107,7 @@ func (d *Driver) List(ctx context.Context, _ fleet.Target, f fleet.Filter) ([]fl
 	imgs := make([]fleet.RuntimeImage, 0, len(containers))
 	for _, ctr := range containers {
 		img := mapContainer(ctr)
-		if f.Service != "" && !matchesFilter(img, f.Service) {
+		if f.Service != "" && !fleet.MatchesFilter(f.Service, img) {
 			continue
 		}
 		imgs = append(imgs, img)
@@ -122,7 +121,9 @@ func mapContainer(ctr containerJSON) fleet.RuntimeImage {
 	container := resolveContainerName(ctr.Names, ctr.ID)
 
 	// Parse image reference to extract image, tag, digest.
-	ref := parseImageRef(ctr.Image)
+	// invalidDigestReason is intentionally ignored here: runtime-probe semantics
+	// silently drop invalid digest formats (matches prior behaviour).
+	image, tag, digest, _ := fleet.ParseImageRef(ctr.Image)
 
 	// Resolve StartedAt: Created==0 → zero time; else UTC.
 	var startedAt time.Time
@@ -135,9 +136,9 @@ func mapContainer(ctr containerJSON) fleet.RuntimeImage {
 
 	return fleet.RuntimeImage{
 		Container: container,
-		Image:     ref.image,
-		Tag:       ref.tag,
-		Digest:    ref.digest,
+		Image:     image,
+		Tag:       tag,
+		Digest:    digest,
 		State:     strings.ToLower(ctr.State),
 		StartedAt: startedAt,
 		Service:   service,
@@ -159,34 +160,3 @@ func resolveContainerName(names []string, id string) string {
 	return id
 }
 
-// matchesFilter reports whether img satisfies the Service filter.
-// Priority:
-//  1. Container name exact match
-//  2. com.docker.compose.service label exact match
-//
-// Both comparisons are case-sensitive.
-func matchesFilter(img fleet.RuntimeImage, service string) bool {
-	return img.Container == service || img.Service == service
-}
-
-// validateFilter checks that Filter.Service contains only [a-zA-Z0-9._-] characters.
-// Returns a wrapped ErrInvalidFilter if validation fails.
-func validateFilter(f fleet.Filter) error {
-	if f.Service == "" {
-		return nil
-	}
-	for _, r := range f.Service {
-		if !isAllowedFilterChar(r) {
-			return fmt.Errorf("%w: service name %q contains invalid character %q",
-				ErrInvalidFilter, f.Service, r)
-		}
-	}
-	return nil
-}
-
-// isAllowedFilterChar reports whether r is in [a-zA-Z0-9._-].
-func isAllowedFilterChar(r rune) bool {
-	return unicode.IsLetter(r) && r <= unicode.MaxASCII && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') ||
-		r >= '0' && r <= '9' ||
-		r == '.' || r == '_' || r == '-'
-}

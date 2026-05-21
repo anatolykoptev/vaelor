@@ -50,15 +50,17 @@ func ParseDockerPSLine(line []byte) (fleet.RuntimeImage, error) {
 // mapRecord converts a dockerPSRecord to a fleet.RuntimeImage.
 func mapRecord(rec dockerPSRecord) fleet.RuntimeImage {
 	container := resolveContainer(rec.Names, rec.ID)
-	ref := parseImageRef(rec.Image)
+	// invalidDigestReason is intentionally ignored here: runtime-probe semantics
+	// silently drop invalid digest formats (matches prior behaviour).
+	image, tag, digest, _ := fleet.ParseImageRef(rec.Image)
 	startedAt := parseCreatedAt(rec.CreatedAt)
 	service := ParseComposeService(rec.Labels)
 
 	return fleet.RuntimeImage{
 		Container: container,
-		Image:     ref.image,
-		Tag:       ref.tag,
-		Digest:    ref.digest,
+		Image:     image,
+		Tag:       tag,
+		Digest:    digest,
 		State:     strings.ToLower(rec.State),
 		StartedAt: startedAt,
 		Service:   service,
@@ -117,48 +119,3 @@ func ParseComposeService(labels string) string {
 	return ""
 }
 
-// imageRef holds the parsed components of a Docker image reference string.
-type imageRef struct {
-	image  string // registry+repo, no tag, no digest
-	tag    string // resolved tag; "" if absent
-	digest string // sha256:...; "" if absent
-}
-
-// parseImageRef parses a Docker image reference string into components.
-// Logic mirrors the docker driver's parseImageRef.
-func parseImageRef(ref string) imageRef {
-	var r imageRef
-
-	// Split on first "@" for digest.
-	if atIdx := strings.Index(ref, "@"); atIdx >= 0 {
-		candidate := ref[atIdx+1:]
-		ref = ref[:atIdx]
-		if strings.HasPrefix(candidate, "sha256:") {
-			r.digest = candidate
-		}
-	}
-
-	r.image, r.tag = splitImageTag(ref)
-
-	// Apply "latest" default only when no tag AND no digest.
-	if r.tag == "" && r.digest == "" {
-		r.tag = "latest"
-	}
-
-	return r
-}
-
-// splitImageTag splits an image reference (without digest) into image and tag.
-// Rule: find the LAST ":". If the substring after it does NOT contain "/",
-// that is the tag. Otherwise the whole string is the image.
-func splitImageTag(ref string) (image, tag string) {
-	lastColon := strings.LastIndex(ref, ":")
-	if lastColon < 0 {
-		return ref, ""
-	}
-	suffix := ref[lastColon+1:]
-	if strings.Contains(suffix, "/") {
-		return ref, ""
-	}
-	return ref[:lastColon], suffix
-}

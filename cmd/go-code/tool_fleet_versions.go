@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"unicode"
-
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/fleet"
 	"github.com/anatolykoptev/go-code/internal/fleet/docker"
@@ -81,8 +79,8 @@ func registerFleetVersions(server *mcp.Server, cfg Config, deps analyze.Deps) {
 // Extracted so tests can call it directly with injected cfg/deps.
 func fleetVersionsHandler(ctx context.Context, cfg Config, deps analyze.Deps, input FleetVersionsInput) (*mcp.CallToolResult, error) {
 	// 1. Validate service filter early (fast-fail; drivers do their own check too).
-	if err := validateFleetServiceFilter(input.Service); err != nil {
-		return errResult(fmt.Sprintf("invalid service filter: %s", err)), nil
+	if !fleet.IsValidFilter(input.Service) {
+		return errResult(fmt.Sprintf("invalid service filter: service name %q contains invalid characters", input.Service)), nil
 	}
 
 	// 2. Parse host target. Empty → "local://".
@@ -174,29 +172,3 @@ func fleetVersionsHandler(ctx context.Context, cfg Config, deps analyze.Deps, in
 	return textResult(string(data)), nil
 }
 
-// validateFleetServiceFilter rejects service names containing characters
-// outside [a-zA-Z0-9._-]. Called at handler entry for fast-fail UX.
-// Drivers do their own check; this layer ensures the error is a tool-level
-// errResult rather than a per-target soft-fail.
-func validateFleetServiceFilter(service string) error {
-	if service == "" {
-		return nil
-	}
-	for _, r := range service {
-		if !isFleetFilterChar(r) {
-			return fmt.Errorf("service name %q contains invalid character %q", service, r)
-		}
-	}
-	return nil
-}
-
-// isFleetFilterChar reports whether r is in [a-zA-Z0-9._-].
-func isFleetFilterChar(r rune) bool {
-	if unicode.IsLetter(r) && r <= 0x7F {
-		return true
-	}
-	if r >= '0' && r <= '9' {
-		return true
-	}
-	return r == '.' || r == '_' || r == '-'
-}

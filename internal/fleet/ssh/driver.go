@@ -188,8 +188,9 @@ func (d *Driver) List(ctx context.Context, t fleet.Target, f fleet.Filter) ([]fl
 	}
 
 	// Step 3: validate filter before any I/O.
-	if err := validateFilter(f); err != nil {
-		return nil, err
+	if !fleet.IsValidFilter(f.Service) {
+		return nil, fmt.Errorf("%w: service name %q contains invalid characters",
+			ErrInvalidFilter, f.Service)
 	}
 
 	// Step 4: build the ssh host string and args slice.
@@ -264,40 +265,11 @@ func (d *Driver) List(ctx context.Context, t fleet.Target, f fleet.Filter) ([]fl
 	}
 	filtered := imgs[:0]
 	for _, img := range imgs {
-		if matchesFilter(img, f.Service) {
+		if fleet.MatchesFilter(f.Service, img) {
 			filtered = append(filtered, img)
 		}
 	}
 	return filtered, nil
-}
-
-// matchesFilter reports whether img satisfies the Service filter.
-// Matches container name OR compose-service label (case-sensitive).
-func matchesFilter(img fleet.RuntimeImage, service string) bool {
-	return img.Container == service || img.Service == service
-}
-
-// validateFilter checks Filter.Service for allowed characters [a-zA-Z0-9._-].
-func validateFilter(f fleet.Filter) error {
-	if f.Service == "" {
-		return nil
-	}
-	for _, r := range f.Service {
-		if !isAllowedFilterChar(r) {
-			return fmt.Errorf("%w: service name %q contains invalid character %q",
-				ErrInvalidFilter, f.Service, r)
-		}
-	}
-	return nil
-}
-
-// isAllowedFilterChar reports whether r is in [a-zA-Z0-9._-].
-// No regexp — hand-rolled per constraint.
-func isAllowedFilterChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') ||
-		(r >= 'A' && r <= 'Z') ||
-		(r >= '0' && r <= '9') ||
-		r == '.' || r == '_' || r == '-'
 }
 
 // Execer is the testing seam.

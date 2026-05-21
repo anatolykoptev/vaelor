@@ -19,14 +19,36 @@ const (
 	DiffUnresolved  DiffStatus = "Unresolved"  // pinned image had Unresolved set; cannot compare
 )
 
-// diffStatusPriority maps DiffStatus to a sort-order integer.
-// Lower = higher priority (appears first in sorted output).
-var diffStatusPriority = map[DiffStatus]int{
+// DiffStatusPriority maps DiffStatus to a sort-order integer used by Diff()
+// for stable per-target output. Lower number = higher priority (appears first).
+//
+// External code wanting a DIFFERENT priority order (e.g. LLM-summary
+// presentation) MUST declare its own table rather than mutating this one;
+// see SummaryStatusPriority.
+var DiffStatusPriority = map[DiffStatus]int{
 	DiffTagDrift:    0,
 	DiffDigestDrift: 1,
 	DiffUnresolved:  2,
 	DiffOnlySource:  3,
 	DiffOnlyRuntime: 4,
+	DiffMatch:       5,
+}
+
+// SummaryStatusPriority is the order used to rank entries when summarising
+// fleet drift for an LLM prompt (cmd/go-code Phase 7). DELIBERATELY differs
+// from DiffStatusPriority: OnlyRuntime ranks above OnlySource here because
+// a running unpinned container is more actionable in incident triage than
+// a pinned image with no running instance.
+//
+// Lower number = higher priority (appears first). The zero value for unknown
+// statuses sorts last — callers should provide explicit fallback (e.g. 99)
+// for statuses not in this map.
+var SummaryStatusPriority = map[DiffStatus]int{
+	DiffTagDrift:    0,
+	DiffDigestDrift: 1,
+	DiffUnresolved:  2,
+	DiffOnlyRuntime: 3,
+	DiffOnlySource:  4,
 	DiffMatch:       5,
 }
 
@@ -155,7 +177,7 @@ func Diff(pinnedImgs []pinned.PinnedImage, runtimeImgs []RuntimeImage) []ImageDi
 
 	sort.SliceStable(rows, func(a, b int) bool {
 		ra, rb := rows[a], rows[b]
-		pa, pb := diffStatusPriority[ra.Status], diffStatusPriority[rb.Status]
+		pa, pb := DiffStatusPriority[ra.Status], DiffStatusPriority[rb.Status]
 		if pa != pb {
 			return pa < pb
 		}

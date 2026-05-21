@@ -14,22 +14,10 @@ import (
 	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
 )
 
-// summaryStatusPriority maps status strings to sort order for the LLM summary.
-// Note: OnlyRuntime (4) < OnlySource (5) — this differs from fleet.diffStatusPriority
-// (OnlySource=3, OnlyRuntime=4) per plan spec.
-var summaryStatusPriority = map[string]int{
-	"TagDrift":    0,
-	"DigestDrift": 1,
-	"Unresolved":  2,
-	"OnlyRuntime": 3,
-	"OnlySource":  4,
-	"Match":       5,
-}
-
-// summaryStatusPriorityOf returns the priority for a status string;
-// unknown statuses sort last.
+// summaryStatusPriorityOf returns the sort priority for status s using the
+// fleet.SummaryStatusPriority table. Unknown statuses sort last (99).
 func summaryStatusPriorityOf(s string) int {
-	if p, ok := summaryStatusPriority[s]; ok {
+	if p, ok := fleet.SummaryStatusPriority[fleet.DiffStatus(s)]; ok {
 		return p
 	}
 	return 99
