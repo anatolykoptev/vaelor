@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"time"
@@ -102,10 +103,12 @@ func (w *cappedWriter) Write(p []byte) (int, error) {
 // (ProxyJump, agent, key passphrases, known_hosts) is the single source
 // of truth — no parallel SSH stack to maintain.
 type Driver struct {
-	enabled bool
-	binary  string
-	execer  Execer
-	timeout time.Duration
+	enabled    bool
+	binary     string
+	execer     Execer
+	timeout    time.Duration
+	sshHomeSrc string // source path for shadow-copy (e.g. /root/.ssh)
+	sshHomeDst string // destination parent for shadow-copy (e.g. /tmp/fleet-ssh-home)
 }
 
 // Option configures a Driver.
@@ -139,8 +142,27 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
+// WithSSHHome enables shadow-copy of the ssh source directory into a writable
+// path before exec. Required when the source ~/.ssh is bind-mounted from a
+// different uid — the OpenSSH client refuses such files via its built-in
+// strict-mode ownership check.
+//
+// homeSrc is the read-only source path (e.g. /root/.ssh bind-mounted from the
+// host). homeDst is the writable copy parent (e.g. /tmp/fleet-ssh-home); the
+// .ssh subdirectory is created inside it by ensureWritableSSHHome.
+//
+// When either argument is empty, no shadow-copy happens and the subprocess
+// inherits the parent's HOME unchanged — backward compatible for any local
+// deploy where ~/.ssh is already root-owned.
+func WithSSHHome(homeSrc, homeDst string) Option {
+	return func(d *Driver) {
+		d.sshHomeSrc = homeSrc
+		d.sshHomeDst = homeDst
+	}
+}
+
 // New constructs a Driver with the given options.
-// Default: disabled, binary="ssh", timeout=10s.
+// Default: disabled, binary="ssh", timeout=10s, no shadow-copy.
 func New(opts ...Option) *Driver {
 	d := &Driver{
 		enabled: false,
@@ -151,7 +173,10 @@ func New(opts ...Option) *Driver {
 		o(d)
 	}
 	if d.execer == nil {
-		d.execer = &realExecer{}
+		d.execer = &realExecer{
+			sshHomeSrc: d.sshHomeSrc,
+			sshHomeDst: d.sshHomeDst,
+		}
 	}
 	return d
 }
@@ -287,11 +312,37 @@ type Execer interface {
 // realExecer is the production Execer that shells out via exec.CommandContext.
 // stdout is capped at maxStdoutBytes and stderr at maxStderrBytes via
 // cappedWriter, which cancels the subprocess on overflow.
-type realExecer struct{}
+//
+// When sshHomeSrc and sshHomeDst are both non-empty, Run shadow-copies the
+// source .ssh directory to sshHomeDst/.ssh on first call (sync.Once), then
+// sets HOME=sshHomeDst in the subprocess env so the OpenSSH client reads the
+// writable, correctly-owned copy.
+type realExecer struct {
+	sshHomeSrc string
+	sshHomeDst string
+	homeState  sshHomeState
+}
 
 func (e *realExecer) Run(ctx context.Context, binary, host string, args []string) ([]byte, []byte, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// Shadow-copy ~/.ssh to a writable dir if requested.
+	// This bypasses OpenSSH's strict-mode ownership check, which rejects any
+	// config/key file not owned by getuid() — bind-mounts from the host retain
+	// their host uid regardless of CAP_DAC_READ_SEARCH.
+	//
+	// sync.Once ensures we copy exactly once per realExecer instance even
+	// under concurrent callers. The error (if any) is stored and returned on
+	// every subsequent call without re-attempting the copy.
+	if e.sshHomeSrc != "" && e.sshHomeDst != "" {
+		e.homeState.once.Do(func() {
+			e.homeState.err = ensureWritableSSHHome(e.sshHomeSrc, e.sshHomeDst)
+		})
+		if e.homeState.err != nil {
+			return nil, nil, fmt.Errorf("%w: ssh home setup: %v", ErrSSHError, e.homeState.err)
+		}
+	}
 
 	// Separate any leading option flags (-p N) from the positional args
 	// so that "--" can be inserted immediately before the host.
@@ -319,6 +370,10 @@ func (e *realExecer) Run(ctx context.Context, binary, host string, args []string
 	}
 
 	cmd := exec.CommandContext(ctx, binary, argv...)
+
+	// Inject HOME override when shadow-copy is active. Appending HOME last
+	// ensures it overrides any earlier HOME= from os.Environ().
+	cmd.Env = envWithHome(os.Environ(), e.sshHomeDst)
 
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &cappedWriter{inner: &outBuf, max: maxStdoutBytes, cancel: cancel}

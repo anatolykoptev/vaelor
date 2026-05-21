@@ -201,6 +201,20 @@ type Config struct {
 	// FleetTimeout is the per-call timeout for fleet probe drivers.
 	// Env: GOCODE_FLEET_TIMEOUT (default 10s)
 	FleetTimeout time.Duration
+
+	// FleetSSHHomeSrc is the source path for the ssh home shadow-copy.
+	// When non-empty (together with FleetSSHHomeDst), the ssh driver copies
+	// ~/.ssh files from this path to a writable directory before exec, so
+	// that the OpenSSH client's strict-mode ownership check passes.
+	// Typical value in the host-a container: /root/.ssh (the bind-mounted host ~/.ssh).
+	// Env: GOCODE_FLEET_SSH_HOME_SRC (default "" — no shadow-copy)
+	FleetSSHHomeSrc string
+
+	// FleetSSHHomeDst is the writable parent directory for the shadow-copy.
+	// A .ssh subdirectory is created inside it.
+	// Typical value: /tmp/fleet-ssh-home (writable tmpfs inside the container).
+	// Env: GOCODE_FLEET_SSH_HOME_DST (default "" — no shadow-copy)
+	FleetSSHHomeDst string
 }
 
 const (
@@ -329,6 +343,8 @@ func loadConfig() (Config, error) {
 		FleetSSHEnable:    env.Bool("GOCODE_FLEET_SSH_ENABLE", false),
 		FleetSSHBinary:    env.Str("GOCODE_FLEET_SSH_BINARY", "ssh"),
 		FleetTimeout:      env.Duration("GOCODE_FLEET_TIMEOUT", 10*time.Second),
+		FleetSSHHomeSrc:   env.Str("GOCODE_FLEET_SSH_HOME_SRC", ""),
+		FleetSSHHomeDst:   env.Str("GOCODE_FLEET_SSH_HOME_DST", ""),
 	}, nil
 }
 
