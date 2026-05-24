@@ -47,8 +47,12 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		JitterPercent: 0.1,
 	})
 
-	llmClient, hasKey := llm.NewOptional(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel,
-		llm.WithFallbackKeys(cfg.LLMFallbackKeys),
+	// Build LLM option set. Model chain and key-rotation are mutually exclusive:
+	// WithEndpoints owns per-endpoint retry; WithFallbackKeys keys same-model retries.
+	// When chain is configured, use it (cross-provider failure-domain via cliproxyapi
+	// model routing). Otherwise fall back to key-rotation for single-provider pools.
+	modelChain := llm.ParseModelFallbackChain(cfg.LLMModelFallback)
+	llmOpts := []llm.Option{
 		llm.WithMaxTokens(cfg.LLMMaxTokens),
 		llm.WithCircuitBreaker(llm.CircuitConfig{
 			FailThreshold:  5,                // 5 consecutive failures trip the breaker
@@ -56,7 +60,23 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			HalfOpenProbes: 1,                // one probe request before closing
 		}),
 		llm.WithMiddleware(newLLMObs(reg).middleware), // records gocode_llm_calls_total / gocode_llm_request_seconds
-	)
+	}
+	if len(modelChain) > 0 {
+		// Each model in the chain is already a retry layer; cap per-endpoint retries
+		// to 1 to avoid O(chain_len × retries) wall time on full outage.
+		llmOpts = append(llmOpts,
+			llm.WithEndpoints(llm.BuildModelChainEndpoints(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, modelChain)),
+			llm.WithMaxRetries(1),
+		)
+		slog.Info("llm: model chain enabled",
+			slog.String("primary", cfg.LLMModel),
+			slog.String("chain", cfg.LLMModelFallback),
+		)
+	} else {
+		llmOpts = append(llmOpts, llm.WithFallbackKeys(cfg.LLMFallbackKeys))
+	}
+
+	llmClient, hasKey := llm.NewOptional(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, llmOpts...)
 	if !hasKey {
 		slog.Warn("llm: disabled (LLM_API_KEY unset) — code_graph/repo_search/debug_investigate will error; narratives in call_trace/dead_code/impact omitted")
 	}

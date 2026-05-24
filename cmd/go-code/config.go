@@ -49,7 +49,16 @@ type Config struct {
 	RedisURL string
 
 	// LLMFallbackKeys are fallback API keys tried when primary gets 429/5xx.
+	// Mutually exclusive with LLMModelFallback: when LLMModelFallback is set,
+	// model chain takes precedence and key rotation is disabled.
 	LLMFallbackKeys []string
+
+	// LLMModelFallback is a CSV cross-provider model chain (e.g.
+	// "gemini-3.1-flash-lite-preview,cerebras-qwen-3-235b"). When non-empty,
+	// cliproxyapi routes each model id to its upstream provider, enabling
+	// cross-provider failover without rotating API keys.
+	// Env: LLM_MODEL_FALLBACK.
+	LLMModelFallback string
 
 	// GithubSearchRepos are default repos for quick mode code search.
 	GithubSearchRepos []string
@@ -305,6 +314,7 @@ func loadConfig() (Config, error) {
 		WorkspaceDir:           env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
 		RedisURL:               env.Str("REDIS_URL", ""),
 		LLMFallbackKeys:        env.List("LLM_API_KEY_FALLBACK", ""),
+		LLMModelFallback:       env.Str("LLM_MODEL_FALLBACK", ""),
 		GithubSearchRepos:      env.List("GITHUB_SEARCH_REPOS", ""),
 		OutputDir:              env.Str("OUTPUT_DIR", ""),
 		PathMappings:           parsePathMappings(env.Str("PATH_MAPPINGS", "")),
