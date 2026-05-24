@@ -75,7 +75,8 @@
 | `MCP_PORT` | `8897` | |
 | `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | Local OpenAI-compatible proxy (e.g. LiteLLM, CLIProxyAPI) |
 | `LLM_API_KEY` | required | |
-| `LLM_API_KEY_FALLBACK` | optional | Comma-separated, used on 429/5xx |
+| `LLM_API_KEY_FALLBACK` | optional | Comma-separated API keys, same-model key rotation on 429/5xx. Disabled when `LLM_MODEL_FALLBACK` is set. |
+| `LLM_MODEL_FALLBACK` | optional | CSV cross-provider model chain (e.g. `gemini-3.1-flash-lite-preview,cerebras-qwen-3-235b`). When set, overrides key-rotation; cliproxyapi routes each model id to its upstream provider. |
 | `LLM_MODEL` | `gemini-2.5-flash` | |
 | `GITHUB_TOKEN` | optional | Higher rate limits + private repos |
 | `GITHUB_SEARCH_REPOS` | optional | Default repos for quick-mode code search |
