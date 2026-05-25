@@ -98,7 +98,7 @@ func buildColDefs(n int) string {
 // UpsertFileMtimes stores file modification times for a repo.
 // It replaces all existing entries for the given repoKey.
 func (s *Store) UpsertFileMtimes(ctx context.Context, repoKey string, mtimes map[string]time.Time) error {
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
 	}
@@ -130,7 +130,7 @@ func (s *Store) UpsertFileMtimes(ctx context.Context, repoKey string, mtimes map
 
 // GetFileMtimes retrieves stored file modification times for a repo.
 func (s *Store) GetFileMtimes(ctx context.Context, repoKey string) (map[string]time.Time, error) {
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire connection: %w", err)
 	}
@@ -157,7 +157,12 @@ func (s *Store) GetFileMtimes(ctx context.Context, repoKey string) (map[string]t
 
 // DeleteFileMtimes removes stored file modification times for a repo.
 func (s *Store) DeleteFileMtimes(ctx context.Context, repoKey string) error {
-	_, err := s.pool.Exec(ctx, "DELETE FROM code_file_mtimes WHERE repo_key = $1", repoKey)
+	conn, err := s.acquireAGE(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	_, err = conn.Exec(ctx, "DELETE FROM code_file_mtimes WHERE repo_key = $1", repoKey)
 	return err
 }
 
