@@ -109,7 +109,7 @@ func saveSnapshot(ctx context.Context, store *Store, repoKey string, snap Snapsh
 		return fmt.Errorf("marshal edges: %w", err)
 	}
 
-	conn, err := store.Pool().Acquire(ctx)
+	conn, err := store.acquireAGE(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
 	}
@@ -154,7 +154,7 @@ func saveSnapshot(ctx context.Context, store *Store, repoKey string, snap Snapsh
 // loadLatestSnapshot loads the most recent snapshot for a repo.
 // Returns nil, nil if no snapshot exists.
 func loadLatestSnapshot(ctx context.Context, store *Store, repoKey string) (*Snapshot, error) {
-	conn, err := store.Pool().Acquire(ctx)
+	conn, err := store.acquireAGE(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire connection: %w", err)
 	}
