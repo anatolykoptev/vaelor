@@ -140,7 +140,7 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	}
 
 	// Step 4: Persist scores to PostgreSQL.
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire: %w", err)
 	}
@@ -179,7 +179,7 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 func (s *Store) LoadDeadCodeScore(ctx context.Context, root, name, file string) (float32, bool) {
 	// Normalise: full paths must be converted to graph key (sha-prefix hash).
 	repoKey := GraphNameFor(root)
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return 0, false
 	}
@@ -202,7 +202,7 @@ func (s *Store) LoadDeadCodeScores(ctx context.Context, repoKey string, rows [][
 		return nil
 	}
 
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return nil
 	}
@@ -285,7 +285,7 @@ func (s *Store) LoadTopDeadCodeCandidates(
 	minScore float32,
 	limit int,
 ) ([]DeadCodeCandidate, error) {
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire: %w", err)
 	}
