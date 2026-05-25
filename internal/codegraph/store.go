@@ -75,6 +75,26 @@ func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }
 
+// acquireAGE acquires a pooled connection and applies the AGE search_path
+// (ageSetup). The codegraph bookkeeping tables (code_graph_meta, code_file_mtimes,
+// code_graph_snapshots, code_dead_code_scores) live in the ag_catalog schema, so a
+// connection that touches them must run ageSetup first — otherwise the default
+// `"$user", public` search_path hides them and access fails with 42P01. Callers
+// must Release the returned connection. (Tables in public — code_health_cache,
+// code_repo_state, code_embeddings — must NOT use this; plain Acquire keeps them
+// on the default search_path where their live data lives.)
+func (s *Store) acquireAGE(ctx context.Context) (*pgxpool.Conn, error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire connection: %w", err)
+	}
+	if _, err := conn.Exec(ctx, ageSetup); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("age setup: %w", err)
+	}
+	return conn, nil
+}
+
 // CheckAGEPreloaded verifies that the AGE extension is loaded in PostgreSQL.
 // Call once at service startup — before any Cypher query — to fail fast if
 // shared_preload_libraries does not include 'age'. Without server-side preloading
