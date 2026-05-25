@@ -89,6 +89,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		CloneTokenFunc: buildCloneTokenFunc(cfg),
 		WorkspaceDir:   cfg.WorkspaceDir,
 		PathMappings:   cfg.PathMappings,
+		LocalRepoDirs:  autoIndexDirs(cfg),
 		ParseCache:     parseCache,
 		LLMCache:       llmCache,
 		Forges:         buildForgeRegistry(cfg),
