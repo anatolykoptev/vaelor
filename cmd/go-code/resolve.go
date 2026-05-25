@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -53,13 +56,20 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 		if !ok {
 			return "", nil, fmt.Errorf("invalid repo: cannot extract slug from %q", repo)
 		}
-		src = workspace.RemoteSource{
-			Slug:        slug,
-			RepoInput:   repo,
-			Ref:         ref,
-			DestDir:     deps.WorkspaceDir,
-			TokenFunc:   deps.CloneTokenFunc,
-			StaticToken: deps.GithubToken,
+		// Prefer a local checkout (e.g. /host/src/<name>) whose origin remote
+		// matches the slug — the autoindexer already maintains it, and cloning a
+		// private repo without a configured GitHub App yields an empty tree.
+		if local := localCheckoutFor(ctx, slug, deps.LocalRepoDirs); local != "" {
+			src = workspace.LocalSource{Path: local, Mappings: deps.PathMappings}
+		} else {
+			src = workspace.RemoteSource{
+				Slug:        slug,
+				RepoInput:   repo,
+				Ref:         ref,
+				DestDir:     deps.WorkspaceDir,
+				TokenFunc:   deps.CloneTokenFunc,
+				StaticToken: deps.GithubToken,
+			}
 		}
 
 	default:
@@ -67,6 +77,38 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 	}
 
 	return src.Root(ctx)
+}
+
+// localCheckoutFor returns the path to a local git checkout of slug under one of
+// dirs (e.g. /host/src/<repo>) when one exists and its origin remote resolves to
+// the same slug. Returns "" when none matches, signalling the caller to clone.
+// Preferring a local checkout avoids a redundant clone — which yields an empty
+// tree for private repos when no GitHub App is configured.
+func localCheckoutFor(ctx context.Context, slug string, dirs []string) string {
+	if len(dirs) == 0 {
+		return ""
+	}
+	name := slug
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "" {
+		return ""
+	}
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(filepath.Join(candidate, ".git")); err != nil {
+			continue // not a git checkout
+		}
+		out, err := exec.CommandContext(ctx, "git", "-C", candidate, "remote", "get-url", "origin").Output()
+		if err != nil {
+			continue
+		}
+		if s, ok := forge.ExtractSlug(strings.TrimSpace(string(out))); ok && strings.EqualFold(s, slug) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // cloneToken returns the token to use for authenticated git clones.

@@ -53,6 +53,12 @@ type Deps struct {
 	// PathMappings translates external paths to container-internal paths.
 	PathMappings []PathMapping
 
+	// LocalRepoDirs are directories holding local checkouts (e.g. /host/src).
+	// resolveRoot prefers a matching local checkout over cloning when a remote
+	// slug resolves to one of these — avoids a redundant (and, for private
+	// repos without a GitHub App, auth-failing) clone.
+	LocalRepoDirs []string
+
 	// ParseCache caches parsed AST results per file. Optional.
 	ParseCache *cache.ParseCache
 
