@@ -12,7 +12,7 @@ import (
 
 // getMeta retrieves the stored GraphMeta for repoKey, or returns nil if none exists.
 func getMeta(ctx context.Context, store *Store, repoKey string) (*GraphMeta, error) {
-	conn, err := store.Pool().Acquire(ctx)
+	conn, err := store.acquireAGE(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire connection: %w", err)
 	}
@@ -45,7 +45,7 @@ func getMeta(ctx context.Context, store *Store, repoKey string) (*GraphMeta, err
 
 // upsertMeta inserts or updates the GraphMeta row.
 func upsertMeta(ctx context.Context, store *Store, meta *GraphMeta) error {
-	conn, err := store.Pool().Acquire(ctx)
+	conn, err := store.acquireAGE(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
 	}
