@@ -51,7 +51,7 @@ func EagerWarmRepos(ctx context.Context, dirs []string) {
 			recordEagerWarm("started")
 			if err := warmGoBuildFn(ctx, r); err != nil {
 				recordEagerWarm("failed")
-				slog.Warn("eager warm: prewarm failed", "root", r, "err", err)
+				slog.Debug("eager warm: prewarm failed", "root", r, "err", err)
 				return
 			}
 			recordEagerWarm("completed")
