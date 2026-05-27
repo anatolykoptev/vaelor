@@ -5,12 +5,21 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 )
 
-const semanticFallbackTopK = 5
+const (
+	semanticFallbackTopK = 5
+
+	// semanticFallbackEmbedTimeout caps the EmbedQuery call inside semanticSuggest.
+	// The fallback is best-effort "did you mean…?" — a dead/slow embed server
+	// must degrade to empty suggestions, NOT consume the parent tool's full budget.
+	// Root-cause: 2026-05-27 understand-timeout incident (embed.krolik.tools 504).
+	semanticFallbackEmbedTimeout = 5 * time.Second
+)
 
 // semanticSuggest runs a semantic search as fallback when the primary tool found nothing.
 // Returns formatted XML suggestions string, or empty string if unavailable or no results.
@@ -21,7 +30,14 @@ func semanticSuggest(ctx context.Context, sem *SemanticDeps, root, query, langua
 
 	repoKey := codegraph.GraphNameFor(root)
 
-	vector, err := sem.Client.EmbedQuery(ctx, query)
+	// Bound the embed call to a short sub-context: the fallback is best-effort,
+	// so a dead embed server should degrade to no suggestions rather than
+	// blocking the entire tool budget. DeadlineExceeded is handled by the
+	// existing slog.Debug below.
+	embedCtx, cancel := context.WithTimeout(ctx, semanticFallbackEmbedTimeout)
+	defer cancel()
+
+	vector, err := sem.Client.EmbedQuery(embedCtx, query)
 	if err != nil {
 		slog.Debug("semantic fallback: embed failed", slog.Any("error", err))
 		return ""
