@@ -146,3 +146,49 @@ func TestAnalyzeZeroFuncs(t *testing.T) {
 		t.Error("expected nil for zero totalFuncs")
 	}
 }
+
+// countingFinder is a test double for SimilarPairFinder that records how many
+// times FindSimilarPairs was called. Used to assert the repo-size guard skips
+// the O(n²) self-join when totalFuncs exceeds semhealthMaxFuncs.
+type countingFinder struct {
+	callCount int
+}
+
+func (c *countingFinder) FindSimilarPairs(_ context.Context, _ embeddings.SimilarPairOpts) ([]embeddings.SimilarPair, error) {
+	c.callCount++
+	return nil, nil
+}
+
+// TestAnalyzeSkipsWhenTooLarge asserts that Analyze skips FindSimilarPairs
+// when totalFuncs > semhealthMaxFuncs, preventing the O(n²) pgvector self-join
+// from pinning a CPU core on large repos.
+//
+// RED: before Fix #4a, Analyze always calls FindSimilarPairs regardless of
+// repo size, so finder.callCount == 1 even for totalFuncs=10000.
+//
+// GREEN: with the guard, finder.callCount must stay 0 for large repos and
+// be 1 for small repos.
+//
+// Anti-tautology: asserts against finder.callCount from the production
+// Analyze function — not a local predicate. If the guard is removed or
+// threshold changed, one of the two cases below fails.
+func TestAnalyzeSkipsWhenTooLarge(t *testing.T) {
+	// Case 1: totalFuncs above threshold — guard MUST skip FindSimilarPairs.
+	largeFinder := &countingFinder{}
+	result := Analyze(context.TODO(), largeFinder, "repo", semhealthMaxFuncs+1)
+	if largeFinder.callCount != 0 {
+		t.Errorf("large repo: FindSimilarPairs called %d times, want 0 — repo-size guard missing",
+			largeFinder.callCount)
+	}
+	// Skipped analysis returns an empty (non-nil) result, not nil.
+	if result == nil {
+		t.Error("large repo: expected non-nil &SemanticResult{} for skipped analysis, got nil")
+	}
+
+	// Case 2: totalFuncs at or below threshold — FindSimilarPairs MUST be called.
+	smallFinder := &countingFinder{}
+	_ = Analyze(context.TODO(), smallFinder, "repo", semhealthMaxFuncs)
+	if smallFinder.callCount != 1 {
+		t.Errorf("small repo: FindSimilarPairs called %d times, want 1", smallFinder.callCount)
+	}
+}

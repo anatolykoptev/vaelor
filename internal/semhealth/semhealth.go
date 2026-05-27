@@ -10,6 +10,22 @@ import (
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 )
 
+// SimilarPairFinder abstracts the pgvector self-join query so Analyze can be
+// tested without a real database. Production callers pass *embeddings.Store.
+type SimilarPairFinder interface {
+	FindSimilarPairs(ctx context.Context, opts embeddings.SimilarPairOpts) ([]embeddings.SimilarPair, error)
+}
+
+const (
+	// semhealthMaxFuncs is the repo-size guard for the O(n²) similarity self-join.
+	// Repos with more functions than this threshold skip FindSimilarPairs to avoid
+	// pinning a CPU core on the 4-core ARM box.
+	// At 5000 functions the self-join produces up to 12.5M candidate pairs, which
+	// is near the tip-over point observed in the 2026-05-27 incident (24k embeddings
+	// drove 287M pairs, CPU PSI some avg10 = 85 for 18+ min).
+	semhealthMaxFuncs = 5000
+)
+
 // SemanticResult holds semantic analysis results for a repository.
 type SemanticResult struct {
 	SemanticDupRatio float64    // fraction of functions involved in semantic duplication
@@ -132,9 +148,21 @@ func CollectDupGroups(pairs []embeddings.SimilarPair) []DupGroup {
 
 // Analyze runs semantic health analysis for a repo.
 // Returns nil result (not error) if embeddings are unavailable.
-func Analyze(ctx context.Context, store *embeddings.Store, repoKey string, totalFuncs int) *SemanticResult {
+// Returns an empty &SemanticResult{} if the repo exceeds semhealthMaxFuncs
+// to avoid the O(n²) pgvector self-join pinning a CPU core on large repos.
+func Analyze(ctx context.Context, store SimilarPairFinder, repoKey string, totalFuncs int) *SemanticResult {
 	if store == nil || repoKey == "" || totalFuncs == 0 {
 		return nil
+	}
+
+	// Repo-size guard: skip the O(n²) self-join for large repos.
+	// At semhealthMaxFuncs=5000 functions the self-join produces up to 12.5M
+	// candidate pairs — near the tip-over observed in the 2026-05-27 incident.
+	if totalFuncs > semhealthMaxFuncs {
+		slog.Info("semhealth: skipping similarity analysis, repo too large",
+			slog.Int("totalFuncs", totalFuncs),
+			slog.Int("threshold", semhealthMaxFuncs))
+		return &SemanticResult{}
 	}
 
 	pairs, err := store.FindSimilarPairs(ctx, embeddings.SimilarPairOpts{
