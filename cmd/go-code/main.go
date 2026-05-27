@@ -40,6 +40,23 @@ import (
 // Falls back to "dev" for local `go run` / `go build` without flags.
 var version = "dev"
 
+// toolTimeouts maps MCP tool names to per-tool deadline overrides, wired
+// into mcpserver.Config.ToolTimeouts. Tools absent from this map ride the
+// 90s harness default.
+//
+// Exported as a package-level var (not inlined in main) so tests can assert
+// the deployed config — regression guard for the 2026-05-27 incident where
+// "understand" was missing and silently inherited the 90s default.
+var toolTimeouts = map[string]time.Duration{
+	"code_research":     90 * time.Second,
+	"repo_analyze":      90 * time.Second,
+	"code_compare":      90 * time.Second,
+	"call_trace":        60 * time.Second,
+	"code_health":       60 * time.Second,
+	"understand":        30 * time.Second, // Fix #3: dead embed server + AGE lookups complete well within 30s (Fix #2 caps embed at 5s)
+	"debug_investigate": 5 * time.Minute,
+}
+
 const (
 	serviceName = "go-code"
 	toolCount   = 16
@@ -210,15 +227,8 @@ func main() {
 		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
 		RESTBridge:             true,
 		Routes:                 combinedRoutes,
-		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
-		ToolTimeouts: map[string]time.Duration{
-			"code_research":     90 * time.Second,
-			"repo_analyze":      90 * time.Second,
-			"code_compare":      90 * time.Second,
-			"call_trace":        60 * time.Second,
-			"code_health":       60 * time.Second,
-			"debug_investigate": 5 * time.Minute,
-		},
+		LogSkipPaths: []string{"/health", "/health/live", "/health/ready", "/metrics"},
+		ToolTimeouts: toolTimeouts,
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
