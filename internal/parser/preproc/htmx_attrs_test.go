@@ -112,3 +112,25 @@ func TestScanHtmxRefs_scriptStyleSkip(t *testing.T) {
 		t.Errorf("URL = %q, want /real", refs[0].URL)
 	}
 }
+
+// Left-boundary guard: the substring "hx-get=" inside another attribute's
+// value must NOT trigger a spurious Route. Caught by reviewer on Wave 2 PR.
+func TestScanHtmxRefs_leftBoundaryGuard(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"hxGetInAttrValue", `<input name="hx-get=test" value="y">`},
+		{"hxGetInOnclick", `<button onclick="x.hx-get=1">X</button>`},
+		{"hxGetAsValueSubstr", `<div data-token="foo-hx-get=bar">X</div>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := ScanHtmxRefs([]byte(tc.src))
+			if len(refs) != 0 {
+				t.Errorf("ScanHtmxRefs: got %d false-positive refs, want 0; refs = %v", len(refs), refs)
+			}
+		})
+	}
+}

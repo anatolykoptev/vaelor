@@ -84,6 +84,20 @@ func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inher
 			continue
 		}
 
+		// Left-boundary guard: 'h' must sit at attribute-slot position.
+		// Previous byte must be whitespace or '<' (very-first-attr position).
+		// Without this guard, occurrences inside other attribute values fire:
+		//   <input name="hx-get=test">     → emits GET "test\""
+		//   <button onclick="x.hx-get=1">  → emits GET "1\""
+		// Both pollute Phase B AGE graph with malformed URLs.
+		if i > 0 {
+			prev := src[i-1]
+			if prev != ' ' && prev != '\t' && prev != '\n' && prev != '\r' && prev != '<' {
+				i++
+				continue
+			}
+		}
+
 		// Check for each hx-METHOD attr.
 		matched := false
 		for _, attr := range hxMethodAttrs {
