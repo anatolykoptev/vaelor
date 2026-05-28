@@ -7,17 +7,30 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"time"
+)
+
+// IncrementalSyncMode is the typed label for which code path IncrementalSync took.
+// Values are stable wire strings used in Prometheus labels — do not rename.
+type IncrementalSyncMode string
+
+const (
+	// IncrementalSyncIncremental is the normal git-diff path.
+	IncrementalSyncIncremental IncrementalSyncMode = "incremental"
+	// IncrementalSyncSkipSHAMatch is the fast-path when SHA is unchanged.
+	IncrementalSyncSkipSHAMatch IncrementalSyncMode = "skip-sha-match"
+	// IncrementalSyncFullFallbackBootstrap is triggered when no prior SHA exists in DB.
+	IncrementalSyncFullFallbackBootstrap IncrementalSyncMode = "full-fallback-bootstrap"
+	// IncrementalSyncFullFallbackNoGit is triggered when the path is not a git repo.
+	IncrementalSyncFullFallbackNoGit IncrementalSyncMode = "full-fallback-no-git"
+	// IncrementalSyncFullFallbackDiffError is triggered when git diff exec fails.
+	IncrementalSyncFullFallbackDiffError IncrementalSyncMode = "full-fallback-diff-error"
 )
 
 // IncrementalSyncResult is the return value of Pipeline.IncrementalSync.
 type IncrementalSyncResult struct {
-	// Mode describes which code path was taken:
-	//   "incremental"              — git-diff path (normal operation)
-	//   "skip-sha-match"           — SHA unchanged; no work done
-	//   "full-fallback-bootstrap"  — no prior SHA in DB; ran IndexRepo
-	//   "full-fallback-no-git"     — path is not a git repo; ran IndexRepo
-	//   "full-fallback-diff-error" — git diff exec failed; ran IndexRepo
-	Mode string
+	// Mode describes which code path was taken.
+	Mode IncrementalSyncMode
 
 	PrevSHA    string
 	CurrentSHA string
@@ -54,20 +67,27 @@ type IncrementalSyncResult struct {
 // in Result.Errors, not returned — caller decides retry policy.
 func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
 	// Step 1: resolve current main-branch SHA.
-	currentSHA, err := repoMainBranchSHA(root)
-	if err != nil {
-		return nil, fmt.Errorf("incrementalSync %s: resolve SHA: %w", repoKey, err)
-	}
+	// Treat both a real error (e.g. git repo with no main/master/HEAD ref) and an
+	// empty return (non-git path) identically: we have no usable fingerprint, so
+	// bulk fallback is the safe path. IndexRepo handles non-git via its own walk.
+	// This ensures outcome="full-fallback-no-git" is always recorded by
+	// fallbackToFull → recordIncrementalSync; the error branch previously bypassed
+	// recordIncrementalSync entirely (code-quality MAJOR finding).
+	currentSHA, _ := repoMainBranchSHA(root)
 	if currentSHA == "" {
-		// Non-git path — fall through to full index.
-		return p.fallbackToFull(ctx, repoKey, root, "full-fallback-no-git")
+		// No fingerprint available — fall through to full index.
+		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackNoGit)
+		recordIncrementalSync(res, fullErr)
+		return res, fullErr
 	}
 
 	// Step 2: fetch previous SHA. Swallow the error (treat "" on failure).
 	prevSHA, _ := p.store.GetRepoState(ctx, repoKey)
 	if prevSHA == "" {
 		// Never indexed — bootstrap.
-		return p.fallbackToFull(ctx, repoKey, root, "full-fallback-bootstrap")
+		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackBootstrap)
+		recordIncrementalSync(res, fullErr)
+		return res, fullErr
 	}
 
 	// Step 3: same-SHA fast path — bump timestamp only.
@@ -76,11 +96,13 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			slog.Debug("incrementalSync: SetRepoState (same-SHA) failed",
 				slog.String("repo", repoKey), slog.Any("error", err))
 		}
-		return &IncrementalSyncResult{
-			Mode:       "skip-sha-match",
+		res := &IncrementalSyncResult{
+			Mode:       IncrementalSyncSkipSHAMatch,
 			PrevSHA:    prevSHA,
 			CurrentSHA: currentSHA,
-		}, nil
+		}
+		recordIncrementalSync(res, nil)
+		return res, nil
 	}
 
 	// Step 4: compute diff.
@@ -91,27 +113,44 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			slog.String("prev", prevSHA),
 			slog.String("current", currentSHA),
 			slog.Any("error", diffErr))
-		return p.fallbackToFull(ctx, repoKey, root, "full-fallback-diff-error")
+		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackDiffError)
+		recordIncrementalSync(res, fullErr)
+		return res, fullErr
 	}
 
 	// Step 5-7: index each changed file, collect errors.
 	result := &IncrementalSyncResult{
-		Mode:       "incremental",
+		Mode:       IncrementalSyncIncremental,
 		PrevSHA:    prevSHA,
 		CurrentSHA: currentSHA,
 	}
 
 	for _, relPath := range changedFiles {
 		result.FilesChanged++
+		fileStart := time.Now()
 		fr, fileErr := p.IndexFile(ctx, repoKey, root, relPath)
+		elapsed := time.Since(fileStart)
 		if fileErr != nil {
+			indexFileDuration.WithLabelValues("error").Observe(elapsed.Seconds())
 			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", relPath, fileErr))
 			// Continue — don't abort the batch. SHA will not advance if errors remain.
 			continue
 		}
+		indexFileDuration.WithLabelValues("success").Observe(elapsed.Seconds())
 		result.FilesEmbedded += fr.Embedded
 		result.FilesSkipped += fr.Skipped
 		result.FilesDeleted += fr.Deleted
+	}
+
+	// Record per-file kind counters.
+	if result.FilesEmbedded > 0 {
+		incrementalFilesTotal.WithLabelValues("embedded").Add(float64(result.FilesEmbedded))
+	}
+	if result.FilesSkipped > 0 {
+		incrementalFilesTotal.WithLabelValues("skipped").Add(float64(result.FilesSkipped))
+	}
+	if result.FilesDeleted > 0 {
+		incrementalFilesTotal.WithLabelValues("deleted").Add(float64(result.FilesDeleted))
 	}
 
 	// Step 7: advance SHA only on full success.
@@ -122,12 +161,13 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		}
 	}
 
+	recordIncrementalSync(result, nil)
 	return result, nil
 }
 
 // fallbackToFull runs IndexRepo and maps its result to an IncrementalSyncResult.
-// mode is the string label recorded in result.Mode.
-func (p *Pipeline) fallbackToFull(ctx context.Context, repoKey, root, mode string) (*IncrementalSyncResult, error) {
+// mode is the typed label recorded in result.Mode.
+func (p *Pipeline) fallbackToFull(ctx context.Context, repoKey, root string, mode IncrementalSyncMode) (*IncrementalSyncResult, error) {
 	full, err := p.IndexRepo(ctx, repoKey, root)
 	if err != nil {
 		return &IncrementalSyncResult{Mode: mode}, err
@@ -164,11 +204,3 @@ func gitDiffNames(ctx context.Context, root, prevSHA, currentSHA string) ([]stri
 	return files, nil
 }
 
-// min returns the smaller of a and b. Defined here for pre-1.21 compat;
-// remove when GOVERSION >= 1.21 is guaranteed.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

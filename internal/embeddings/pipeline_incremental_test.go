@@ -198,7 +198,7 @@ func TestIncrementalSync_Bootstrap_NoSHA(t *testing.T) {
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "full-fallback-bootstrap", result.Mode,
+	assert.Equal(t, IncrementalSyncFullFallbackBootstrap, result.Mode,
 		"first call with no prior SHA must bootstrap via full-fallback")
 	assert.Greater(t, result.FilesEmbedded, 0,
 		"bootstrap must embed at least 1 symbol")
@@ -224,7 +224,7 @@ func TestIncrementalSync_NonGit_FallsThroughToFull(t *testing.T) {
 	result, err := p.IncrementalSync(ctx, repo, dir)
 	require.NoError(t, err)
 
-	assert.Equal(t, "full-fallback-no-git", result.Mode,
+	assert.Equal(t, IncrementalSyncFullFallbackNoGit, result.Mode,
 		"non-git path must fall through to full-fallback-no-git")
 }
 
@@ -250,7 +250,7 @@ func TestIncrementalSync_SameSHA_SkipsWork(t *testing.T) {
 	second, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "skip-sha-match", second.Mode,
+	assert.Equal(t, IncrementalSyncSkipSHAMatch, second.Mode,
 		"second call with unchanged SHA must skip all work")
 	assert.Equal(t, 0, second.FilesChanged, "no files changed")
 	assert.Equal(t, 0, second.FilesEmbedded, "no symbols embedded on same-SHA skip")
@@ -291,7 +291,7 @@ func TestIncrementalSync_OneFileChanged(t *testing.T) {
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "incremental", result.Mode,
+	assert.Equal(t, IncrementalSyncIncremental, result.Mode,
 		"after one-file commit, mode must be incremental")
 	assert.Equal(t, 1, result.FilesChanged, "exactly 1 file in git diff")
 	assert.Greater(t, result.FilesEmbedded, 0, "changed file must produce at least 1 embed")
@@ -341,7 +341,7 @@ func TestIncrementalSync_FileDeleted(t *testing.T) {
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "incremental", result.Mode)
+	assert.Equal(t, IncrementalSyncIncremental, result.Mode)
 	assert.Greater(t, result.FilesDeleted, int64(0),
 		"deleted file's symbols must be tombstoned (FilesDeleted > 0)")
 
@@ -438,7 +438,7 @@ func TestIncrementalSync_DiffExecError_FallsBack(t *testing.T) {
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "full-fallback-diff-error", result.Mode,
+	assert.Equal(t, IncrementalSyncFullFallbackDiffError, result.Mode,
 		"git diff exec failure on bad SHA must trigger full-fallback-diff-error")
 }
 
@@ -468,7 +468,7 @@ func TestIncrementalSync_BumpsTimestampOnSameSHA(t *testing.T) {
 	// Same-SHA call.
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
-	require.Equal(t, "skip-sha-match", result.Mode)
+	require.Equal(t, IncrementalSyncSkipSHAMatch, result.Mode)
 
 	tsAfter := rawGetIndexedAt(t, store, repo)
 	assert.True(t, tsAfter.After(tsBefore),
