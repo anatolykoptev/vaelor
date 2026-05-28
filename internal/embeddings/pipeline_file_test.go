@@ -3,6 +3,7 @@ package embeddings
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -404,4 +405,108 @@ func TestIndexFile_FileDeleted(t *testing.T) {
 	rows, err := store.GetSymbolsForFile(ctx, repo, relPath)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "no symbols should remain after file deletion")
+}
+
+// TestIndexFile_SkipsTestFile verifies that IndexFile mirrors indexRepo's
+// isTestFile filter: *_test.go files must never enter code_embeddings.
+// The load-bearing assertion is the convergence guarantee: any pre-existing rows
+// for the test file must be DELETED so state converges with the bulk path.
+// (Plain "Embedded==0" alone is tautological; only the eviction assertion
+// proves Fix #1's DeleteSymbolsForFile call ran.)
+func TestIndexFile_SkipsTestFile(t *testing.T) {
+	p, store := testPipeline(t)
+	ctx := context.Background()
+	const repo = "test/indexfile-skip-testfile"
+	cleanRepo(t, store, repo)
+
+	dir := t.TempDir()
+	relPath := "foo_test.go"
+
+	// Write a valid _test.go file to disk.
+	writeTestFile(t, dir, relPath, "package main\n\nfunc TestFoo(t *testing.T) {}\n")
+
+	// Pre-seed: insert 1 stale symbol for this test file directly via store.
+	// This simulates a prior mis-indexed state that IndexFile must converge away.
+	insertSymbols(t, store, repo, relPath, []string{"TestFoo"})
+
+	preRows, err := store.GetSymbolsForFile(ctx, repo, relPath)
+	require.NoError(t, err)
+	require.Len(t, preRows, 1, "precondition: 1 stale symbol seeded for test file")
+
+	result, err := p.IndexFile(ctx, repo, dir, relPath)
+	require.NoError(t, err)
+
+	// Test file must never be indexed.
+	assert.Equal(t, 0, result.Embedded, "test files must never be embedded")
+	assert.Equal(t, 0, result.Skipped, "test files: no symbols to skip")
+
+	// Convergence guarantee (the load-bearing assertion):
+	// the pre-seeded stale row MUST have been deleted.
+	assert.GreaterOrEqual(t, result.Deleted, int64(1),
+		"IndexFile must evict pre-existing rows for test files to converge with bulk path")
+
+	afterRows, err := store.GetSymbolsForFile(ctx, repo, relPath)
+	require.NoError(t, err)
+	assert.Empty(t, afterRows,
+		"no symbols must remain in DB for a test file after IndexFile")
+}
+
+// TestIndexFile_SkipsOversizedFile verifies that IndexFile mirrors indexRepo's
+// maxIndexFileBytes filter: files > 512 KiB must never enter code_embeddings.
+//
+// The load-bearing assertion is Embedded == 0: the file contains real Go
+// functions that WOULD be indexed if not for the size filter. Without Fix #2
+// those functions get embedded (Embedded > 0). The convergence assertion
+// (pre-seeded row deleted) additionally proves Fix #2's DeleteSymbolsForFile
+// path ran, converging state from any prior mis-indexed content.
+func TestIndexFile_SkipsOversizedFile(t *testing.T) {
+	p, store := testPipeline(t)
+	ctx := context.Background()
+	const repo = "test/indexfile-skip-oversized"
+	cleanRepo(t, store, repo)
+
+	dir := t.TempDir()
+	relPath := "big.go"
+
+	// Write a file larger than maxIndexFileBytes (512 KiB) with real function
+	// declarations. Each "func _fNNNNNN() { _ = NNNNNN }\n" is ~30 bytes;
+	// 18_000 such functions ≈ 540 KiB — safely over the 512 KiB limit.
+	var sb strings.Builder
+	sb.WriteString("package main\n\n")
+	for i := 0; i < 18_000; i++ {
+		fmt.Fprintf(&sb, "func _f%06d() { _ = %06d }\n", i, i)
+	}
+	content := sb.String()
+	writeTestFile(t, dir, relPath, content)
+
+	// Verify the file is actually over the limit.
+	fi, err := os.Stat(filepath.Join(dir, relPath))
+	require.NoError(t, err)
+	require.Greater(t, fi.Size(), int64(maxIndexFileBytes),
+		"precondition: test file must exceed maxIndexFileBytes=%d, got %d",
+		maxIndexFileBytes, fi.Size())
+
+	// Pre-seed: insert 1 stale symbol for this file directly via store.
+	insertSymbols(t, store, repo, relPath, []string{"OldFunc"})
+
+	preRows, err := store.GetSymbolsForFile(ctx, repo, relPath)
+	require.NoError(t, err)
+	require.Len(t, preRows, 1, "precondition: 1 stale symbol seeded for oversized file")
+
+	result, err := p.IndexFile(ctx, repo, dir, relPath)
+	require.NoError(t, err)
+
+	// Load-bearing assertion: the file has real functions but must NOT be indexed.
+	// Without Fix #2, Embedded would be > 0 (all functions would be parsed + embedded).
+	assert.Equal(t, 0, result.Embedded, "oversized files must never be embedded (mirror indexRepo filter)")
+
+	// Convergence guarantee: the pre-seeded stale row MUST have been deleted
+	// so state converges with the bulk path. Proves Fix #2's eviction call ran.
+	assert.GreaterOrEqual(t, result.Deleted, int64(1),
+		"IndexFile must evict pre-existing rows for oversized files to converge with bulk path")
+
+	afterRows, err := store.GetSymbolsForFile(ctx, repo, relPath)
+	require.NoError(t, err)
+	assert.Empty(t, afterRows,
+		"no symbols must remain in DB for an oversized file after IndexFile")
 }
