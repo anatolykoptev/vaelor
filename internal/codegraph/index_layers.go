@@ -199,6 +199,23 @@ func htmxFetchesFromKey(r routes.Route) string {
 	return r.Handler + ":" + r.File
 }
 
+// handlesFromKey returns the composite "Handler:File" key for the server-side
+// HANDLES edge from a Symbol vertex to a Route vertex. Symbol vertices are
+// keyed by "name:file"; HANDLES needs to match against that composite, same
+// as FETCHES (see htmxFetchesFromKey for the parallel fix on client side).
+//
+// Constraint: assumes the handler symbol is defined in the same file where
+// the route is registered (typical Go pattern — e.g. go-nerv internal/admin/handler.go
+// registers and defines all handlers in one file). For codebases where registration
+// and handler definition live in different files, Wave 7+ would need to look
+// up the actual definition file via the Symbol index.
+func handlesFromKey(r routes.Route) string {
+	if r.Handler == "" || r.File == "" {
+		return ""
+	}
+	return r.Handler + ":" + r.File
+}
+
 // buildCrossLanguageGraph constructs Layer and Route vertices, plus HANDLES
 // and FETCHES edges connecting symbols to routes.
 func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string) ([]vertexData, []edgeData) {
@@ -237,18 +254,18 @@ func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, 
 	}
 
 	// HANDLES / FETCHES edges (Symbol → Route).
-	// Client-side (FETCHES): Symbol key is "handler:file" composite so that
-	// AGE's unwindEdgeMatch("Symbol", "fk") can split on ':' into name+file.
-	// Server-side (HANDLES): handler may be defined in a different file from
-	// the route registration; the file field is route-registration context
-	// only, not the handler definition file — keep bare name for now.
+	// Both use composite "handler:file" Symbol keys so that AGE's
+	// unwindEdgeMatch("Symbol", "fk") can split on ':' into name+file.
+	// HANDLES (server side): handlesFromKey — assumes handler defined in same
+	// file as route registration (typical Go pattern; see Wave 6 constraint doc).
+	// FETCHES (client side): htmxFetchesFromKey — Wave 5 fix.
 	for _, r := range routeList {
 		if r.Handler == "" {
 			continue
 		}
 		routeKey := r.Method + ":" + r.Path
 		edgeLabel := "HANDLES"
-		fromKey := r.Handler
+		fromKey := handlesFromKey(r)
 		if r.Side == sideClient {
 			edgeLabel = "FETCHES"
 			fromKey = htmxFetchesFromKey(r)
