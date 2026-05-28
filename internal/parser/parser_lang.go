@@ -9,7 +9,7 @@ import (
 // language names, sorted alphabetically. Derives from the handler registry
 // plus extLanguageOverride values — so "javascript" is included even though
 // no handler's Language() returns it (it's served by typescriptHandler).
-// Fallback-only languages (scala, lua, perl, swift, dart, elixir)
+// Fallback-only languages (scala, lua, perl, dart, elixir)
 // are NOT included — they have no tree-sitter grammar.
 func SupportedLanguages() []string {
 	seen := make(map[string]struct{})
