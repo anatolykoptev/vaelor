@@ -56,7 +56,6 @@ var fallbackExtToLanguage = map[string]string{
 	".lua":   "lua",
 	".pl":    "perl",
 	".pm":    "perl",
-	".swift": "swift",
 	".dart":  "dart",
 	".ex":    "elixir",
 	".exs":   "elixir",
