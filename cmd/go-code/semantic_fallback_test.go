@@ -63,7 +63,7 @@ func TestSemanticSuggestEmbedServerIndependence(t *testing.T) {
 	// sem.Client intentionally nil — embed-server is "unreachable".
 	// The new trigram path must proceed without it.
 	sem := &SemanticDeps{
-		Client:         nil, // no embed client
+		Client:        nil, // no embed client
 		storeSearcher: spy,
 	}
 
