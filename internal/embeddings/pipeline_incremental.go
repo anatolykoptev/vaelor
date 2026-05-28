@@ -1,6 +1,7 @@
 package embeddings
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -83,7 +84,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 	}
 
 	// Step 4: compute diff.
-	changedFiles, diffErr := gitDiffNames(root, prevSHA, currentSHA)
+	changedFiles, diffErr := gitDiffNames(ctx, root, prevSHA, currentSHA)
 	if diffErr != nil {
 		slog.Debug("incrementalSync: git diff failed, falling back to full",
 			slog.String("repo", repoKey),
@@ -140,11 +141,17 @@ func (p *Pipeline) fallbackToFull(ctx context.Context, repoKey, root, mode strin
 
 // gitDiffNames returns the list of files changed between prevSHA and currentSHA
 // in the git repo at root. Returns an error if the git command fails.
-func gitDiffNames(root, prevSHA, currentSHA string) ([]string, error) {
-	cmd := exec.Command("git", "-C", root, "diff", "--name-only", prevSHA, currentSHA)
+// Stderr from git is captured and included in the error so operators can debug
+// "bad object" / "ambiguous argument" / "unknown revision" failures.
+func gitDiffNames(ctx context.Context, root, prevSHA, currentSHA string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "diff", "--name-only", prevSHA, currentSHA)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git diff --name-only %s %s: %w", prevSHA[:min(8, len(prevSHA))], currentSHA[:min(8, len(currentSHA))], err)
+		return nil, fmt.Errorf("git diff %s..%s: %w (stderr: %s)",
+			prevSHA[:min(8, len(prevSHA))], currentSHA[:min(8, len(currentSHA))],
+			err, strings.TrimSpace(stderr.String()))
 	}
 
 	var files []string
