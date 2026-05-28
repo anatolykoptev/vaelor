@@ -38,6 +38,15 @@
 (typealias_declaration
   (type_identifier) @symbol.name) @symbol.type
 
+; Protocol body method declarations.
+; Swift protocol methods parse as protocol_function_declaration inside protocol_body —
+; a distinct node from function_declaration used in class/struct/actor bodies.
+; Confirmed via AST probe: protocol_body > protocol_function_declaration > simple_identifier.
+(protocol_declaration
+  (protocol_body
+    (protocol_function_declaration
+      (simple_identifier) @symbol.name) @symbol.method))
+
 ; Import declarations (e.g. import Foundation, import UIKit).
 (import_declaration
   (identifier) @import.path)
