@@ -188,6 +188,17 @@ func matchesLayer(relPath, rootDir string) bool {
 	return strings.HasPrefix(relPath, rootDir+"/") || relPath == rootDir
 }
 
+// htmxFetchesFromKey returns the Symbol composite key ("name:file") for a
+// client-side htmx Route so that AGE's unwindEdgeMatch("Symbol", "fk") can
+// split it into the name and file properties required for a MATCH.
+// Returns "" when Handler is empty (callers must skip the edge in that case).
+func htmxFetchesFromKey(r routes.Route) string {
+	if r.Handler == "" {
+		return ""
+	}
+	return r.Handler + ":" + r.File
+}
+
 // buildCrossLanguageGraph constructs Layer and Route vertices, plus HANDLES
 // and FETCHES edges connecting symbols to routes.
 func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string) ([]vertexData, []edgeData) {
@@ -226,20 +237,25 @@ func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, 
 	}
 
 	// HANDLES / FETCHES edges (Symbol → Route).
-	// Match Symbol by name only — the handler may be defined in a different
-	// file from the route registration.
+	// Client-side (FETCHES): Symbol key is "handler:file" composite so that
+	// AGE's unwindEdgeMatch("Symbol", "fk") can split on ':' into name+file.
+	// Server-side (HANDLES): handler may be defined in a different file from
+	// the route registration; the file field is route-registration context
+	// only, not the handler definition file — keep bare name for now.
 	for _, r := range routeList {
 		if r.Handler == "" {
 			continue
 		}
 		routeKey := r.Method + ":" + r.Path
 		edgeLabel := "HANDLES"
+		fromKey := r.Handler
 		if r.Side == sideClient {
 			edgeLabel = "FETCHES"
+			fromKey = htmxFetchesFromKey(r)
 		}
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
-			FromKey:   r.Handler,
+			FromKey:   fromKey,
 			ToLabel:   "Route",
 			ToKey:     routeKey,
 			EdgeLabel: edgeLabel,
