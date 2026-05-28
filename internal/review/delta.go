@@ -192,6 +192,8 @@ func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 			if stem, ok := langutil.TestStem(s.File); ok {
 				tested[stem] = true
 			}
+		case "html":
+			// no-op — markup files have no test convention.
 		}
 	}
 	return tested

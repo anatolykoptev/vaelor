@@ -42,6 +42,7 @@ func buildSearchPattern(callName, language string) string {
 		// Matches plain `func name(` and extension-receiver `func Type.name(` (rare in Swift;
 		// extensions are the normal pattern, but defensive receiver support mirrors Kotlin).
 		return `\bfunc\s+(?:\w[\w]*\.)?\s*` + escaped + `\s*\(`
+	// "html" not handled — handler_html bypasses fallbackParse via direct Parse() override.
 	default:
 		return `\b` + escaped + `\(`
 	}

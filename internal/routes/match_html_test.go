@@ -75,3 +75,55 @@ func TestMatchHTML_pathNormalisationMatchesGo(t *testing.T) {
 			htmxPath, goPath)
 	}
 }
+
+// TestMatchHTML_pathConditionalCollapse verifies that a balanced {{if}}...{{end}}
+// block in an htmx URL is collapsed to a single "*", not one "*" per action.
+// MAJOR-2 regression contract: before the fix, /x/{{if .Y}}foo{{else}}bar{{end}}/y
+// incorrectly became /x/*foo*bar*/y (three "*" tokens + literal text).
+func TestMatchHTML_pathConditionalCollapse(t *testing.T) {
+	t.Parallel()
+	src := []byte(`<button hx-get="/x/{{if .Y}}foo{{else}}bar{{end}}/y">X</button>`)
+	got := ExtractAll("html", src)
+	if len(got) != 1 {
+		t.Fatalf("ExtractAll(html): got %d routes, want 1; routes = %v", len(got), got)
+	}
+	const want = "/x/*/y"
+	if got[0].Path != want {
+		t.Errorf("Path = %q, want %q — {{if}}...{{end}} must collapse to a single *", got[0].Path, want)
+	}
+}
+
+// TestMatchHTML_pathRangeCollapse verifies that a balanced {{range}}...{{end}}
+// block in an htmx URL is collapsed to a single "*".
+func TestMatchHTML_pathRangeCollapse(t *testing.T) {
+	t.Parallel()
+	src := []byte(`<button hx-get="/items/{{range .IDs}}{{.}}{{end}}/details">X</button>`)
+	got := ExtractAll("html", src)
+	if len(got) != 1 {
+		t.Fatalf("ExtractAll(html): got %d routes, want 1; routes = %v", len(got), got)
+	}
+	const want = "/items/*/details"
+	if got[0].Path != want {
+		t.Errorf("Path = %q, want %q — {{range}}...{{end}} must collapse to a single *", got[0].Path, want)
+	}
+}
+
+// TestMatchHTML_queryStringParity documents the query-string parity contract:
+// the "?" portion of an htmx URL is preserved in Route.Path (with template
+// actions inside the query string collapsed to "*"). Server-side mux routes
+// never include query strings, so cross-stack comparison must use path-prefix
+// matching (Phase B responsibility). This test locks the current behaviour.
+func TestMatchHTML_queryStringParity(t *testing.T) {
+	t.Parallel()
+	src := []byte(`<button hx-get="/search?q={{.Query}}&page={{add .Page 1}}">Search</button>`)
+	got := ExtractAll("html", src)
+	if len(got) != 1 {
+		t.Fatalf("ExtractAll(html): got %d routes, want 1; routes = %v", len(got), got)
+	}
+	// Query string is preserved; template actions inside it are collapsed to *.
+	// Phase B must compare path prefixes only (strip "?" and everything after).
+	const want = "/search?q=*&page=*"
+	if got[0].Path != want {
+		t.Errorf("Path = %q, want %q — query string must be preserved with actions collapsed", got[0].Path, want)
+	}
+}
