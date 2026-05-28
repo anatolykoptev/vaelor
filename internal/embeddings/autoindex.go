@@ -54,6 +54,7 @@ func DefaultAutoIndexOpts() AutoIndexOpts {
 // Defined here for testability — tests inject a fake.
 type repoIndexer interface {
 	IndexRepo(ctx context.Context, repoKey, root string) (*IndexResult, error)
+	IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error)
 }
 
 // AutoIndex scans directories for Git repositories and indexes them with a
@@ -136,29 +137,45 @@ func discoverRepos(dirs []string, keyFn RepoKeyFunc) []repo {
 	return repos
 }
 
-// indexWithRetry runs IndexRepo with exponential backoff. Non-retryable
+// indexWithRetry runs IncrementalSync with exponential backoff. Non-retryable
 // errors (parse, schema, ctx cancellation) abort immediately. Retryable
 // errors (deadline, 5xx, conn refused) trigger backoff up to RetryMax.
+//
+// IncrementalSync selects the git-diff path when a previous SHA is stored, or
+// falls back to IndexRepo for first-time indexing. Partial failures are
+// propagated as a non-nil error so the retry loop can reschedule the repo.
 func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts AutoIndexOpts) {
 	start := time.Now()
 	backoff := opts.RetryBase
 	for attempt := 0; attempt <= opts.RetryMax; attempt++ {
-		result, err := pipeline.IndexRepo(ctx, r.key, r.root)
-		if err == nil {
-			slog.Info("autoindex: done",
-				slog.String("repo", r.key),
-				slog.Int("indexed", result.Indexed),
-				slog.Int("skipped", result.Skipped),
-				slog.Int("attempts", attempt+1),
-			)
+		result, err := pipeline.IncrementalSync(ctx, r.key, r.root)
+		if err == nil && (result == nil || len(result.Errors) == 0) {
+			if result != nil {
+				slog.Info("autoindex: done",
+					slog.String("repo", r.key),
+					slog.String("mode", result.Mode),
+					slog.Int("embedded", result.FilesEmbedded),
+					slog.Int("skipped", result.FilesSkipped),
+					slog.Int("changed", result.FilesChanged),
+					slog.Int("attempts", attempt+1),
+				)
+			}
 			recordAutoIndexDuration(r.key, "success", time.Since(start))
 			return
 		}
-		reason := classifyAutoIndexError(err)
+		// Treat per-file errors (result.Errors) as a retryable transient failure.
+		// The first error in the slice is representative for classification.
+		var classifyErr error
+		if err != nil {
+			classifyErr = err
+		} else if result != nil && len(result.Errors) > 0 {
+			classifyErr = result.Errors[0]
+		}
+		reason := classifyAutoIndexError(classifyErr)
 		if reason == retryReasonNonRetryable || attempt == opts.RetryMax {
 			slog.Warn("autoindex: failed",
 				slog.String("repo", r.key),
-				slog.Any("error", err),
+				slog.Any("error", classifyErr),
 				slog.Int("attempts", attempt+1),
 				slog.String("reason", reason),
 			)

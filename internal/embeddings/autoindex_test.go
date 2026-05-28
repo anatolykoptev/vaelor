@@ -63,6 +63,21 @@ func (f *fakeIndexer) IndexRepo(ctx context.Context, repoKey, _ string) (*IndexR
 	return &IndexResult{Indexed: 1, Total: 1}, nil
 }
 
+// IncrementalSync satisfies the repoIndexer interface. It delegates to IndexRepo
+// so that all existing retry / concurrency tests continue to exercise their code
+// paths (fail plans, delay, active-count tracking) without modification.
+func (f *fakeIndexer) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
+	result, err := f.IndexRepo(ctx, repoKey, root)
+	if err != nil {
+		return nil, err
+	}
+	return &IncrementalSyncResult{
+		Mode:          "incremental",
+		FilesEmbedded: result.Indexed,
+		FilesSkipped:  result.Skipped,
+	}, nil
+}
+
 func (f *fakeIndexer) callsFor(repoKey string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
