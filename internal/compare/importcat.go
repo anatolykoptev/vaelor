@@ -31,6 +31,8 @@ func CategorizeImport(imp, language string) ImportCategory {
 		return categorizeJSImport(imp)
 	case "cpp", "c":
 		return categorizeCppImport(imp)
+	case "kotlin":
+		return categorizeKotlinImport(imp)
 	default:
 		return ImportExternal
 	}
@@ -64,6 +66,26 @@ func categorizeJSImport(imp string) ImportCategory {
 	}
 	if nodeBuiltins[imp] {
 		return ImportStdlib
+	}
+	return ImportExternal
+}
+
+// kotlinStdlibPrefixes covers Kotlin/Java standard library and Android framework
+// import prefixes that should be classified as stdlib rather than external.
+var kotlinStdlibPrefixes = []string{
+	"kotlin.",
+	"kotlinx.",
+	"java.",
+	"javax.",
+	"android.",
+	"androidx.",
+}
+
+func categorizeKotlinImport(imp string) ImportCategory {
+	for _, prefix := range kotlinStdlibPrefixes {
+		if strings.HasPrefix(imp, prefix) {
+			return ImportStdlib
+		}
 	}
 	return ImportExternal
 }

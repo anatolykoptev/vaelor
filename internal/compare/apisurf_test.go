@@ -6,6 +6,34 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// TestIsExportedSymbol_Kotlin verifies that Kotlin symbols follow the default
+// visibility rule: any non-underscore-prefixed name is treated as exported.
+// NOTE: Wave 3 — Kotlin handler does not populate Symbol.IsPublic or
+// Symbol.Attributes with explicit visibility modifiers. Explicit-modifier
+// support is deferred to Wave 4 (TODO: read explicit modifier from AST).
+func TestIsExportedSymbol_Kotlin(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		// public by default (no visibility modifier → exported)
+		{"UserRepository", true},
+		{"greet", true},
+		// private (underscore prefix convention is not Kotlin native,
+		// but default rule still applies — Wave 4 will read explicit `private`)
+		{"_internal", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isExportedSymbol(tc.name, "kotlin")
+			if got != tc.want {
+				t.Errorf("isExportedSymbol(%q, \"kotlin\") = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsExportedSymbol(t *testing.T) {
 	tests := []struct {
 		name string

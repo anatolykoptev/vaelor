@@ -35,6 +35,9 @@ func buildSearchPattern(callName, language string) string {
 		return `\bdef\s+` + escaped + `\s*\(`
 	case "rust", "rs":
 		return `\bfn\s+` + escaped + `\s*\(`
+	case "kotlin", "kt":
+		// Matches plain `fun name(` and extension-receiver `fun Type.name(`.
+		return `\bfun\s+(?:\w[\w]*\.)?\s*` + escaped + `\s*\(`
 	default:
 		return `\b` + escaped + `\(`
 	}

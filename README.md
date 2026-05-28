@@ -4,7 +4,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 
 ## Features
 
-- **13 languages** — Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro
+- **14 languages** — Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro, Kotlin
 - **30 MCP tools** — code search, AST analysis, knowledge graph queries, observability ⇄ code (`debug_investigate`), structural rewrite, code review, design search
 - **Multiple analysis modes** — deep (clone + AST + LLM), quick (GitHub Code Search), issues/PRs
 - **Call chain tracing** — bidirectional BFS with cycle detection and LLM narrative
@@ -32,7 +32,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 | `prepare_change` | Pre-change risk: impact + dead_code combined |
 | `dead_code` | Cross-encoder confidence [0..1] per symbol (CE reranker), not flat list |
 | `dataflow_analyze` | IL/CFG taint tracking + dead stores + SQL/cmd injection sinks |
-| `rewrite` | Structural AST search-replace with $WILDCARDS across 13 languages, dry-run + apply |
+| `rewrite` | Structural AST search-replace with $WILDCARDS across 14 languages, dry-run + apply |
 | `review_pr` | Differential blast radius between git refs; persists per-symbol learnings |
 | `review_delta` | Differential blast radius between git refs; persists per-symbol learnings |
 | `code_research` | BM25F + embeddings + DAG expansion for 10k+ file monorepos |
@@ -224,7 +224,7 @@ Set `LLM_API_BASE` + `LLM_API_KEY` + `LLM_MODEL` to enable all tools. Any OpenAI
 ```
 cmd/go-code/          — MCP server, tool handlers (one file per tool)
 internal/
-  parser/             — tree-sitter AST parsing, 13 language handlers
+  parser/             — tree-sitter AST parsing, 14 language handlers
   ingest/             — repo cloning, file walking, gitignore filtering
   clean/              — smart code cleaning for LLM context
   render/             — rendering modes (signatures, skeleton, focused)

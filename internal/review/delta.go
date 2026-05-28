@@ -171,6 +171,15 @@ func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 			} else if strings.HasPrefix(name, "Test") {
 				tested[strings.TrimPrefix(name, "Test")] = true
 			}
+		case "kotlin":
+			// Kotlin JUnit 4/5: a function is a test only when annotated with @Test.
+			// Name-prefix conventions (e.g. "testFoo") are a Go/Python idiom, not Kotlin.
+			for _, attr := range s.Attributes {
+				if attr == "@Test" || attr == "Test" {
+					tested[name] = true
+					break
+				}
+			}
 		case "svelte", "astro", "typescript", "javascript":
 			// File-based: Button.test.ts or Modal.spec.svelte → mark stem "Button"/"Modal".
 			if stem, ok := langutil.TestStem(s.File); ok {
