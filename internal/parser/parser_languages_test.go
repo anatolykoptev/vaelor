@@ -1086,3 +1086,118 @@ func TestParsePHPFile(t *testing.T) {
 		}
 	}
 }
+
+// --- Swift Wave 1 tests ---
+
+// TestParseSwiftFile_classDecl verifies that a Swift class declaration is parsed
+// as KindClass with Language=="swift" by the AST handler.
+// Anti-tautology: asserts against parser.ParseFile return value.
+// AST discriminator: EndLine > StartLine (multi-line fixture).
+func TestParseSwiftFile_classDecl(t *testing.T) {
+	// Multi-line so that EndLine > StartLine, proving AST parse (not regex fallback).
+	src := []byte("class User {\n\tvar name: String\n\tvar age: Int\n}")
+
+	result, err := parser.ParseFile("user.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	if !containsSymbol(result.Symbols, "User", parser.KindClass) {
+		t.Errorf("expected symbol User/KindClass; got %v", symbolNames(result.Symbols))
+	}
+
+	// AST discriminator: multi-line fixture must have EndLine > StartLine.
+	// Regex fallback always produces StartLine==EndLine.
+	for _, s := range result.Symbols {
+		if s.Name == "User" && s.Kind == parser.KindClass {
+			if s.EndLine <= s.StartLine {
+				t.Errorf("User: EndLine (%d) should be > StartLine (%d); suggests fallback regex not AST", s.EndLine, s.StartLine)
+			}
+			return
+		}
+	}
+	t.Errorf("User/KindClass not found in symbols: %v", symbolNames(result.Symbols))
+}
+
+// TestParseSwiftFile_topLevelFunction verifies that a top-level Swift func is
+// parsed as KindFunction with Language=="swift".
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_topLevelFunction(t *testing.T) {
+	src := []byte("func greet(name: String) -> String {\n\treturn \"Hello, \\(name)\"\n}")
+
+	result, err := parser.ParseFile("greet.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	if !containsSymbol(result.Symbols, "greet", parser.KindFunction) {
+		t.Errorf("expected symbol greet/KindFunction; got %v", symbolNames(result.Symbols))
+	}
+
+	// AST handler: EndLine > StartLine (multi-line body).
+	for _, s := range result.Symbols {
+		if s.Name == "greet" && s.Kind == parser.KindFunction {
+			if s.EndLine <= s.StartLine {
+				t.Errorf("greet: EndLine (%d) should be > StartLine (%d); suggests fallback regex not AST", s.EndLine, s.StartLine)
+			}
+			return
+		}
+	}
+}
+
+// TestParseSwiftFile_protocolDecl verifies that a Swift protocol declaration is
+// parsed as KindInterface (NOT KindClass).
+// Swift protocols are the closest analog to Kotlin interfaces / Java interfaces.
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_protocolDecl(t *testing.T) {
+	src := []byte("protocol Greeter {\n\tfunc greet() -> String\n}")
+
+	result, err := parser.ParseFile("greeter.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	if !containsSymbol(result.Symbols, "Greeter", parser.KindInterface) {
+		t.Errorf("expected symbol Greeter/KindInterface; got %v", symbolNames(result.Symbols))
+	}
+	// Must NOT appear as KindClass.
+	if containsSymbol(result.Symbols, "Greeter", parser.KindClass) {
+		t.Errorf("Greeter must not be KindClass when declared as protocol")
+	}
+}
+
+// TestParseSwiftFile_extensionDecl verifies that a Swift extension's method is
+// captured. For Wave 1, receiver-type attribution is deferred (Wave 2); we only
+// assert the method name is present.
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_extensionDecl(t *testing.T) {
+	src := []byte("extension String {\n\tfunc shout() -> String {\n\t\treturn self.uppercased()\n\t}\n}")
+
+	result, err := parser.ParseFile("string_ext.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	// Wave 1: method name must be captured (KindFunction or KindMethod).
+	hasShout := containsSymbol(result.Symbols, "shout", parser.KindFunction) ||
+		containsSymbol(result.Symbols, "shout", parser.KindMethod)
+	if !hasShout {
+		t.Errorf("expected symbol shout/KindFunction or KindMethod; got %v", symbolNames(result.Symbols))
+	}
+}
