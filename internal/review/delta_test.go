@@ -82,6 +82,38 @@ func TestBuildTestedSet_FrontendConventions(t *testing.T) {
 	}
 }
 
+// TestBuildTestedSet_Swift_TestPrefix verifies that a Swift function whose name
+// starts with "test" (XCTest convention) is detected as a test function and its
+// name is marked in the tested set.
+// Relies on the Swift case in buildTestedSet (internal/review/delta.go).
+func TestBuildTestedSet_Swift_TestPrefix(t *testing.T) {
+	syms := []*parser.Symbol{
+		// production symbol
+		{Name: "fetchOrder", Language: "swift", File: "OrderService.swift", Kind: parser.KindFunction},
+		// XCTest function: func testFetchOrder() — name starts with "test"
+		{Name: "testFetchOrder", Language: "swift", File: "OrderServiceTests.swift", Kind: parser.KindMethod},
+	}
+	tested := buildTestedSet(syms)
+	// XCTest names the test function directly; the tested set records the test function name.
+	if !tested["testFetchOrder"] {
+		t.Error("expected testFetchOrder to be in tested set (Swift XCTest name-prefix convention)")
+	}
+}
+
+// TestBuildTestedSet_Swift_NoTestPrefix verifies that a Swift function whose name
+// does NOT start with "test" is not detected as an XCTest function.
+// Relies on the Swift case in buildTestedSet (internal/review/delta.go).
+func TestBuildTestedSet_Swift_NoTestPrefix(t *testing.T) {
+	syms := []*parser.Symbol{
+		// helper function in a test file — not a test itself
+		{Name: "makeOrder", Language: "swift", File: "OrderServiceTests.swift", Kind: parser.KindFunction},
+	}
+	tested := buildTestedSet(syms)
+	if tested["makeOrder"] {
+		t.Error("makeOrder should not be in tested set — no 'test' prefix (Swift XCTest convention)")
+	}
+}
+
 // TestBuildTestedSet_Kotlin_AtTest verifies that a Kotlin function whose
 // Attributes slice contains "@Test" (JUnit 4/5 annotation) is detected as a
 // test function and its name marked in the tested set.

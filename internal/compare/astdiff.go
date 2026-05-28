@@ -15,6 +15,7 @@ import (
 	"github.com/smacker/go-tree-sitter/python"
 	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
+	swift "github.com/smacker/go-tree-sitter/swift"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/smacker/gum"
 )
@@ -127,6 +128,8 @@ func lookupLanguage(language string) *sitter.Language {
 		return java.GetLanguage()
 	case "kotlin":
 		return kotlin.GetLanguage()
+	case "swift":
+		return swift.GetLanguage()
 	case "c":
 		return c.GetLanguage()
 	case "cpp", "c++":

@@ -66,6 +66,8 @@ func resolveTestTarget(test *parser.Symbol, byName map[string][]*parser.Symbol) 
 		return resolvePythonTest(test, byName)
 	case "kotlin":
 		return resolveKotlinTest(test, byName)
+	case "swift":
+		return resolveSwiftTest(test, byName)
 	default:
 		return nil
 	}
@@ -121,6 +123,20 @@ func resolveKotlinTest(test *parser.Symbol, byName map[string][]*parser.Symbol) 
 	return nil
 }
 
+func resolveSwiftTest(test *parser.Symbol, byName map[string][]*parser.Symbol) []*parser.Symbol {
+	name := test.Name
+	// Strip "Tests"/"Test" suffix: UserTests → User, UserTest → User (XCTest class convention).
+	for _, suffix := range []string{"Tests", "Test"} {
+		if strings.HasSuffix(name, suffix) {
+			target := strings.TrimSuffix(name, suffix)
+			if targets := byName[target]; len(targets) > 0 {
+				return targets
+			}
+		}
+	}
+	return nil
+}
+
 func isTestSymbol(s *parser.Symbol) bool {
 	switch s.Language {
 	case "go":
@@ -142,6 +158,16 @@ func isTestSymbol(s *parser.Symbol) bool {
 		}
 		base := filepath.Base(s.File)
 		return strings.HasSuffix(base, "Test.kt") || strings.HasSuffix(base, "Tests.kt")
+	case "swift":
+		// XCTest convention: test classes (FooTests.swift / FooTest.swift) and
+		// test methods (func testFoo()) both live in *Tests.swift or *Test.swift files.
+		// Accept KindClass (XCTestCase subclass) and KindFunction/KindMethod (func test*()).
+		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod &&
+			s.Kind != parser.KindType && s.Kind != parser.KindClass {
+			return false
+		}
+		base := filepath.Base(s.File)
+		return strings.HasSuffix(base, "Tests.swift") || strings.HasSuffix(base, "Test.swift")
 	default:
 		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod && s.Kind != parser.KindType {
 			return false
@@ -166,6 +192,14 @@ func guessSourceFile(testFile, lang string) string {
 			if strings.HasSuffix(base, suffix) {
 				stem := strings.TrimSuffix(base, suffix)
 				return filepath.Join(dir, stem+".kt")
+			}
+		}
+	case "swift":
+		// FooTests.swift → Foo.swift, FooTest.swift → Foo.swift (XCTest naming convention)
+		for _, suffix := range []string{"Tests.swift", "Test.swift"} {
+			if strings.HasSuffix(base, suffix) {
+				stem := strings.TrimSuffix(base, suffix)
+				return filepath.Join(dir, stem+".swift")
 			}
 		}
 	}
