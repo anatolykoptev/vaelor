@@ -39,14 +39,6 @@ func TestBuildSearchPattern_Swift(t *testing.T) {
 	}
 }
 
-// min returns the smaller of a and b.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // TestBuildSearchPattern_Kotlin verifies that the Kotlin case is handled by
 // buildSearchPattern (internal/callgraph/speculative.go).
 // Pattern must match plain `fun greet(` and extension-receiver `fun String.shout(`.
