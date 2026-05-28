@@ -45,3 +45,31 @@ func TestExtractTestedByEdges_Python(t *testing.T) {
 		t.Fatal("expected at least 1 edge")
 	}
 }
+
+// TestExtractTestedByEdges_Kotlin verifies that the Kotlin stem-based heuristic
+// maps FooTest.kt → Foo.kt and FooTests.kt → Foo.kt via guessSourceFile.
+// Relies on production guessSourceFile (internal/codegraph/tested_by.go).
+func TestExtractTestedByEdges_Kotlin(t *testing.T) {
+	cases := []struct {
+		srcFile  string
+		testFile string
+		srcName  string
+		testName string
+	}{
+		{"User.kt", "UserTest.kt", "User", "UserTest"},
+		{"Repo.kt", "RepoTests.kt", "Repo", "RepoTests"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.testFile, func(t *testing.T) {
+			symbols := []*parser.Symbol{
+				{Name: c.srcName, Kind: parser.KindClass, File: c.srcFile, Language: "kotlin"},
+				{Name: c.testName, Kind: parser.KindClass, File: c.testFile, Language: "kotlin"},
+			}
+			edges := ExtractTestedByEdges("", symbols)
+			if len(edges) == 0 {
+				t.Errorf("expected at least 1 edge from %s → %s, got none", c.testFile, c.srcFile)
+			}
+		})
+	}
+}

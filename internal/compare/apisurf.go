@@ -38,7 +38,11 @@ type APIDiff struct {
 // isExportedSymbol reports whether a symbol name is considered exported in the given language.
 //
 // For Go, Java, and C#, a symbol is exported when its first rune is uppercase.
-// For Python, JS/TS, and Rust, a symbol is exported when its first rune is not an underscore.
+// For Python, JS/TS, Rust, and Kotlin (Wave 3), a symbol is exported when its first rune is not an underscore.
+//
+// NOTE (Kotlin, Wave 3): Kotlin uses explicit visibility modifiers (private/internal/protected).
+// Wave 3 does not read these from Symbol.Attributes because the Kotlin handler does not populate
+// that field yet. TODO: read explicit modifier from AST (Wave 4).
 func isExportedSymbol(name, language string) bool {
 	if name == "" {
 		return false
@@ -48,7 +52,7 @@ func isExportedSymbol(name, language string) bool {
 	case "go", "java", "csharp", "cs":
 		return r >= 'A' && r <= 'Z'
 	default:
-		// Python, JavaScript, TypeScript, Rust and others.
+		// Python, JavaScript, TypeScript, Rust, Kotlin (Wave 3 approximation) and others.
 		return r != '_'
 	}
 }

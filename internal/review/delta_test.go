@@ -82,6 +82,39 @@ func TestBuildTestedSet_FrontendConventions(t *testing.T) {
 	}
 }
 
+// TestBuildTestedSet_Kotlin_AtTest verifies that a Kotlin function whose
+// Attributes slice contains "@Test" (JUnit 4/5 annotation) is detected as a
+// test function and its name marked in the tested set.
+// Relies on the "@Test" branch in buildTestedSet (internal/review/delta.go).
+func TestBuildTestedSet_Kotlin_AtTest(t *testing.T) {
+	syms := []*parser.Symbol{
+		// production symbol
+		{Name: "processPayment", Language: "kotlin", File: "Payment.kt", Kind: parser.KindFunction},
+		// test function with @Test annotation
+		{Name: "processPayment", Language: "kotlin", File: "PaymentTest.kt", Kind: parser.KindFunction,
+			Attributes: []string{"@Test"}},
+	}
+	tested := buildTestedSet(syms)
+	if !tested["processPayment"] {
+		t.Error("expected processPayment to be in tested set when @Test attribute present")
+	}
+}
+
+// TestBuildTestedSet_Kotlin_NoAnnotation verifies that a Kotlin function WITHOUT
+// a @Test annotation is NOT automatically treated as a test by name prefix alone
+// (prefix-based detection is Go/Python convention, not Kotlin/JUnit).
+func TestBuildTestedSet_Kotlin_NoAnnotation(t *testing.T) {
+	syms := []*parser.Symbol{
+		// name starts with "test" — valid in Go, not in Kotlin without annotation
+		{Name: "testSomething", Language: "kotlin", File: "Foo.kt", Kind: parser.KindFunction},
+	}
+	tested := buildTestedSet(syms)
+	// Kotlin without @Test annotation should NOT be in tested set via name-prefix
+	if tested["Something"] {
+		t.Error("Kotlin name-prefix 'test' should not mark 'Something' as tested (use @Test annotation)")
+	}
+}
+
 func TestDeltaReview(t *testing.T) {
 	dir := setupGitRepoWithSymbols(t)
 	result, err := DeltaReview(context.Background(), DeltaInput{

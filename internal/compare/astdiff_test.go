@@ -88,6 +88,15 @@ func TestComputeASTDiff_Python(t *testing.T) {
 	}
 }
 
+// TestLookupLanguage_Kotlin verifies that lookupLanguage returns a non-nil
+// tree-sitter language for "kotlin" (internal/compare/astdiff.go).
+func TestLookupLanguage_Kotlin(t *testing.T) {
+	lang := lookupLanguage("kotlin")
+	if lang == nil {
+		t.Fatal("lookupLanguage(\"kotlin\") returned nil — Kotlin tree-sitter grammar not registered")
+	}
+}
+
 func TestSummarizeActions_Empty(t *testing.T) {
 	result := summarizeActions(nil, "go")
 	if result != nil {
