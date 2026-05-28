@@ -22,27 +22,31 @@ var incrementalSyncTotal = promauto.NewCounterVec(
 	[]string{"mode", "outcome"},
 )
 
-// embed_incremental_files_total counts files processed by Pipeline.IncrementalSync
+// embed_incremental_files_total counts files processed by Pipeline.IndexFile
 // by change kind (embedded | skipped | deleted).
+//
+// Counter increments BEFORE the SHA-advance gate, so partial-success runs
+// (where some later file fails) are included; only top-level errors that
+// abort before the per-file loop are excluded.
 //
 // Cardinality: 3 series.
 var incrementalFilesTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "embed_incremental_files_total",
-		Help: "Files processed by Pipeline.IncrementalSync by change kind.",
+		Help: "Files processed by Pipeline.IndexFile by change kind. Includes files from partial-success runs (where some other file later failed); only excludes files where the parent IncrementalSync hit a top-level error before reaching the per-file loop.",
 	},
 	[]string{"kind"},
 )
 
 // embed_index_file_duration_seconds measures Pipeline.IndexFile wall-time per
-// invocation, labelled by outcome (success | error | skipped).
+// invocation, labelled by outcome (success | error).
 //
 // Buckets cover the observed range from 10ms (cache hit) to ~40s (large file embed).
-// Cardinality: 3 series.
+// Cardinality: 2 series.
 var indexFileDuration = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "embed_index_file_duration_seconds",
-		Help:    "Pipeline.IndexFile wall-time per file.",
+		Help:    "Pipeline.IndexFile wall-time per file by outcome (success | error).",
 		Buckets: prometheus.ExponentialBuckets(0.01, 2, 12), // 10ms → ~40s
 	},
 	[]string{"outcome"},
@@ -87,7 +91,7 @@ func init() {
 	for _, kind := range []string{"embedded", "skipped", "deleted"} {
 		incrementalFilesTotal.WithLabelValues(kind)
 	}
-	for _, outcome := range []string{"success", "error", "skipped"} {
+	for _, outcome := range []string{"success", "error"} {
 		indexFileDuration.WithLabelValues(outcome)
 	}
 }

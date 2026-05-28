@@ -67,12 +67,15 @@ type IncrementalSyncResult struct {
 // in Result.Errors, not returned — caller decides retry policy.
 func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
 	// Step 1: resolve current main-branch SHA.
-	currentSHA, err := repoMainBranchSHA(root)
-	if err != nil {
-		return nil, fmt.Errorf("incrementalSync %s: resolve SHA: %w", repoKey, err)
-	}
+	// Treat both a real error (e.g. git repo with no main/master/HEAD ref) and an
+	// empty return (non-git path) identically: we have no usable fingerprint, so
+	// bulk fallback is the safe path. IndexRepo handles non-git via its own walk.
+	// This ensures outcome="full-fallback-no-git" is always recorded by
+	// fallbackToFull → recordIncrementalSync; the error branch previously bypassed
+	// recordIncrementalSync entirely (code-quality MAJOR finding).
+	currentSHA, _ := repoMainBranchSHA(root)
 	if currentSHA == "" {
-		// Non-git path — fall through to full index.
+		// No fingerprint available — fall through to full index.
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackNoGit)
 		recordIncrementalSync(res, fullErr)
 		return res, fullErr
