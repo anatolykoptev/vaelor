@@ -143,6 +143,13 @@ func (p *Pipeline) indexRepo(
 			slog.Debug("indexRepo: skip — main branch unchanged",
 				slog.String("repo", repoKey),
 				slog.String("sha", currentSHA[:min(8, len(currentSHA))]))
+			// Bump indexed_at so callers observe liveness even when no symbols
+			// changed. Mirrors the IncrementalSync same-SHA path behaviour.
+			// Best-effort: log and continue on failure.
+			if setErr := p.store.SetRepoState(ctx, repoKey, currentSHA); setErr != nil {
+				slog.Debug("indexRepo: SetRepoState (same-SHA) failed",
+					slog.String("repo", repoKey), slog.Any("error", setErr))
+			}
 			return &IndexResult{Total: 0, Indexed: 0, Skipped: 0}, nil
 		}
 	}
