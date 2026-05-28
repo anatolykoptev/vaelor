@@ -130,6 +130,11 @@ func lookupLanguage(language string) *sitter.Language {
 		return kotlin.GetLanguage()
 	case "swift":
 		return swift.GetLanguage()
+	case "html":
+		// No tree-sitter grammar — htmlHandler bypasses fallbackParse via
+		// direct Parse() override (preproc-based). astdiff cannot operate
+		// on HTML; callers should skip.
+		return nil
 	case "c":
 		return c.GetLanguage()
 	case "cpp", "c++":
