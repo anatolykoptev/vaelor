@@ -6,6 +6,36 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// TestIsExportedSymbol_Swift verifies that Swift symbols follow the default
+// visibility rule: any non-underscore-prefixed name is treated as exported.
+//
+// NOTE (Swift, Wave 3): Swift uses explicit visibility modifiers (public/open/internal/
+// fileprivate/private). Wave 3 does not read these from Symbol.Attributes because the
+// Swift handler does not populate that field yet.
+// TODO: read explicit modifier from AST (Wave 4).
+func TestIsExportedSymbol_Swift(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		// public / open / internal by default — exported in default rule
+		{"UserRepository", true},
+		{"fetchData", true},
+		{"open", true},
+		// underscore prefix → not exported
+		{"_internal", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isExportedSymbol(tc.name, "swift")
+			if got != tc.want {
+				t.Errorf("isExportedSymbol(%q, \"swift\") = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestIsExportedSymbol_Kotlin verifies that Kotlin symbols follow the default
 // visibility rule: any non-underscore-prefixed name is treated as exported.
 // NOTE: Wave 3 — Kotlin handler does not populate Symbol.IsPublic or

@@ -33,6 +33,8 @@ func CategorizeImport(imp, language string) ImportCategory {
 		return categorizeCppImport(imp)
 	case "kotlin":
 		return categorizeKotlinImport(imp)
+	case "swift":
+		return categorizeSwiftImport(imp)
 	default:
 		return ImportExternal
 	}
@@ -84,6 +86,43 @@ var kotlinStdlibPrefixes = []string{
 func categorizeKotlinImport(imp string) ImportCategory {
 	for _, prefix := range kotlinStdlibPrefixes {
 		if strings.HasPrefix(imp, prefix) {
+			return ImportStdlib
+		}
+	}
+	return ImportExternal
+}
+
+// swiftStdlibPrefixes covers Apple SDK and Swift standard library import names
+// that should be classified as stdlib rather than external.
+// Swift imports are bare module names (not dot-separated paths), so we match exact
+// names or known prefix families.
+var swiftStdlibPrefixes = []string{
+	"Swift",
+	"Foundation",
+	"UIKit",
+	"SwiftUI",
+	"AppKit",
+	"Combine",
+	"CoreData",
+	"CoreGraphics",
+	"CoreText",
+	"CoreImage",
+	"CoreLocation",
+	"CoreMotion",
+	"CoreBluetooth",
+	"AVFoundation",
+	"Accelerate",
+	"MapKit",
+	"WebKit",
+	"XCTest",
+	"Network",
+	"OSLog",
+	"Dispatch",
+}
+
+func categorizeSwiftImport(imp string) ImportCategory {
+	for _, prefix := range swiftStdlibPrefixes {
+		if imp == prefix || strings.HasPrefix(imp, prefix+".") {
 			return ImportStdlib
 		}
 	}

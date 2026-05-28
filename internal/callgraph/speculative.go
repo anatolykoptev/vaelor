@@ -38,6 +38,10 @@ func buildSearchPattern(callName, language string) string {
 	case "kotlin", "kt":
 		// Matches plain `fun name(` and extension-receiver `fun Type.name(`.
 		return `\bfun\s+(?:\w[\w]*\.)?\s*` + escaped + `\s*\(`
+	case "swift":
+		// Matches plain `func name(` and extension-receiver `func Type.name(` (rare in Swift;
+		// extensions are the normal pattern, but defensive receiver support mirrors Kotlin).
+		return `\bfunc\s+(?:\w[\w]*\.)?\s*` + escaped + `\s*\(`
 	default:
 		return `\b` + escaped + `\(`
 	}

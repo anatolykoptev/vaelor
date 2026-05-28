@@ -1,7 +1,7 @@
 # go-code — Code Intelligence MCP Server
 
 **Module**: `github.com/anatolykoptev/go-code` | **Port**: 8897 | **MCP**: `http://127.0.0.1:8897/mcp`
-**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro, Kotlin (14 total)
+**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro, Kotlin, Swift (15 total)
 
 ## Package Overview
 
@@ -9,7 +9,7 @@
 |---------|------|
 | `cmd/go-code/` | MCP entry point; `tool_*.go` = one file per tool, `register.go` wires them |
 | `internal/ingest/` | Repo clone (`--filter=blob:none` partial clone) + walk |
-| `internal/parser/` | tree-sitter AST → symbols (14 languages) |
+| `internal/parser/` | tree-sitter AST → symbols (15 languages) |
 | `internal/analyze/` | Orchestration imported by tool handlers (tools import ONLY this) |
 | `internal/callgraph/` | In-memory call tracing + go/types type-aware resolution for Go repos |
 | `internal/goanalysis/` | Go package loading (`go/packages`) + type-aware call resolution (`go/types`) |

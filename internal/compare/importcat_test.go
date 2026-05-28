@@ -104,6 +104,47 @@ func TestCategorizeImport_UnknownLanguage(t *testing.T) {
 	}
 }
 
+// TestCategorizeImport_Swift verifies that Apple/Swift stdlib import prefixes are
+// classified correctly (internal/compare/importcat.go).
+func TestCategorizeImport_Swift(t *testing.T) {
+	tests := []struct {
+		imp  string
+		want ImportCategory
+	}{
+		// Apple Foundation (almost always imported in Swift)
+		{"Foundation", ImportStdlib},
+		// Apple UI frameworks
+		{"UIKit", ImportStdlib},
+		{"SwiftUI", ImportStdlib},
+		{"AppKit", ImportStdlib},
+		// Combine
+		{"Combine", ImportStdlib},
+		// CoreData and other Core* frameworks
+		{"CoreData", ImportStdlib},
+		{"CoreGraphics", ImportStdlib},
+		{"CoreLocation", ImportStdlib},
+		// Testing framework
+		{"XCTest", ImportStdlib},
+		// Swift standard library itself
+		{"Swift", ImportStdlib},
+		// Concurrency / OS support
+		{"Dispatch", ImportStdlib},
+		{"OSLog", ImportStdlib},
+		// third-party — NOT stdlib
+		{"Alamofire", ImportExternal},
+		{"MyApp.Core", ImportExternal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.imp, func(t *testing.T) {
+			got := CategorizeImport(tt.imp, "swift")
+			if got != tt.want {
+				t.Errorf("CategorizeImport(%q, \"swift\") = %q, want %q", tt.imp, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestCategorizeImport_Kotlin verifies that Kotlin/Java stdlib prefixes are
 // classified correctly (internal/compare/importcat.go).
 func TestCategorizeImport_Kotlin(t *testing.T) {
