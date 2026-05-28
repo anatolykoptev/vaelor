@@ -9,7 +9,7 @@ import (
 // language names, sorted alphabetically. Derives from the handler registry
 // plus extLanguageOverride values — so "javascript" is included even though
 // no handler's Language() returns it (it's served by typescriptHandler).
-// Fallback-only languages (kotlin, scala, lua, perl, swift, dart, elixir)
+// Fallback-only languages (scala, lua, perl, swift, dart, elixir)
 // are NOT included — they have no tree-sitter grammar.
 func SupportedLanguages() []string {
 	seen := make(map[string]struct{})
@@ -51,8 +51,6 @@ var extLanguageOverride = map[string]string{
 // languages that have no tree-sitter handler but are still recognized by the
 // regex-based fallbackParse. Without this, ParseFile would reject them.
 var fallbackExtToLanguage = map[string]string{
-	".kt":    "kotlin",
-	".kts":   "kotlin",
 	".scala": "scala",
 	".sc":    "scala",
 	".lua":   "lua",
