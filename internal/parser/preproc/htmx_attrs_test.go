@@ -113,6 +113,67 @@ func TestScanHtmxRefs_scriptStyleSkip(t *testing.T) {
 	}
 }
 
+// TestScanHtmxRefs_enclosingTemplateBasic verifies that a single hx-get inside
+// a {{define "name"}} block records that template name in EnclosingTemplate.
+// Cited gap: Phase B empirical-reviewer — zero FETCHES edges because Route.Handler
+// was always empty (HtmxRef had no EnclosingTemplate field). Wave 4 fix.
+func TestScanHtmxRefs_enclosingTemplateBasic(t *testing.T) {
+	t.Parallel()
+	src := []byte("{{define \"hunt_jobs\"}}\n<button hx-get=\"/admin/hunt/jobs\">Load</button>\n{{end}}")
+	refs := ScanHtmxRefs(src)
+	if len(refs) != 1 {
+		t.Fatalf("ScanHtmxRefs: got %d refs, want 1", len(refs))
+	}
+	if refs[0].Method != "GET" {
+		t.Errorf("Method = %q, want GET", refs[0].Method)
+	}
+	if refs[0].URL != "/admin/hunt/jobs" {
+		t.Errorf("URL = %q, want /admin/hunt/jobs", refs[0].URL)
+	}
+	if refs[0].EnclosingTemplate != "hunt_jobs" {
+		t.Errorf("EnclosingTemplate = %q, want hunt_jobs", refs[0].EnclosingTemplate)
+	}
+}
+
+// TestScanHtmxRefs_multipleTemplatesSeparateScope verifies that two adjacent
+// {{define}} blocks each stamp their own name onto refs found within them.
+func TestScanHtmxRefs_multipleTemplatesSeparateScope(t *testing.T) {
+	t.Parallel()
+	src := []byte("{{define \"list\"}}<a hx-get=\"/admin/contacts\">All</a>{{end}}\n{{define \"detail\"}}<button hx-post=\"/admin/contacts/save\">Save</button>{{end}}")
+	refs := ScanHtmxRefs(src)
+	if len(refs) != 2 {
+		t.Fatalf("ScanHtmxRefs: got %d refs, want 2; refs=%v", len(refs), refs)
+	}
+	// First ref is from "list"
+	if refs[0].URL != "/admin/contacts" {
+		t.Errorf("refs[0].URL = %q, want /admin/contacts", refs[0].URL)
+	}
+	if refs[0].EnclosingTemplate != "list" {
+		t.Errorf("refs[0].EnclosingTemplate = %q, want list", refs[0].EnclosingTemplate)
+	}
+	// Second ref is from "detail"
+	if refs[1].URL != "/admin/contacts/save" {
+		t.Errorf("refs[1].URL = %q, want /admin/contacts/save", refs[1].URL)
+	}
+	if refs[1].EnclosingTemplate != "detail" {
+		t.Errorf("refs[1].EnclosingTemplate = %q, want detail", refs[1].EnclosingTemplate)
+	}
+}
+
+// TestScanHtmxRefs_outsideTemplate verifies that an hx-* attribute outside any
+// {{define}} block gets EnclosingTemplate == "" (top-level / file scope).
+func TestScanHtmxRefs_outsideTemplate(t *testing.T) {
+	t.Parallel()
+	src := []byte(`<button hx-get="/legacy">No define</button>`)
+	refs := ScanHtmxRefs(src)
+	if len(refs) != 1 {
+		t.Fatalf("ScanHtmxRefs: got %d refs, want 1", len(refs))
+	}
+	if refs[0].EnclosingTemplate != "" {
+		t.Errorf("EnclosingTemplate = %q, want empty string for top-level ref", refs[0].EnclosingTemplate)
+	}
+}
+
 // Left-boundary guard: the substring "hx-get=" inside another attribute's
 // value must NOT trigger a spurious Route. Caught by reviewer on Wave 2 PR.
 func TestScanHtmxRefs_leftBoundaryGuard(t *testing.T) {

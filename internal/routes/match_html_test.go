@@ -108,6 +108,32 @@ func TestMatchHTML_pathRangeCollapse(t *testing.T) {
 	}
 }
 
+// TestMatchHTML_handlerFromEnclosingTemplate verifies that ExtractAll("html", ...)
+// sets Route.Handler to the name of the enclosing {{define "X"}} block. This is
+// required so index_layers.go can form FETCHES edges (it skips routes where
+// Handler == ""). Wave 4 regression contract.
+func TestMatchHTML_handlerFromEnclosingTemplate(t *testing.T) {
+	t.Parallel()
+	src := []byte("{{define \"hunt_jobs\"}}\n<button hx-get=\"/admin/hunt/jobs\">Load</button>\n{{end}}")
+	result := ExtractAll("html", src)
+	if len(result) != 1 {
+		t.Fatalf("ExtractAll(html): got %d routes, want 1; routes = %v", len(result), result)
+	}
+	r := result[0]
+	if r.Handler != "hunt_jobs" {
+		t.Errorf("Handler = %q, want hunt_jobs", r.Handler)
+	}
+	if r.Path != "/admin/hunt/jobs" {
+		t.Errorf("Path = %q, want /admin/hunt/jobs", r.Path)
+	}
+	if r.Framework != "htmx" {
+		t.Errorf("Framework = %q, want htmx", r.Framework)
+	}
+	if r.Side != "client" {
+		t.Errorf("Side = %q, want client", r.Side)
+	}
+}
+
 // TestMatchHTML_queryStringParity documents the query-string parity contract:
 // the "?" portion of an htmx URL is preserved in Route.Path (with template
 // actions inside the query string collapsed to "*"). Server-side mux routes
