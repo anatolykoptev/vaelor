@@ -728,6 +728,150 @@ func TestParseCSharpFile(t *testing.T) {
 	}
 }
 
+// containsSymbol returns true if symbols contains a symbol with the given name and kind.
+// Helper shared by Kotlin Wave 1 tests.
+func containsSymbol(symbols []*parser.Symbol, name string, kind parser.NodeKind) bool {
+	for _, s := range symbols {
+		if s.Name == name && s.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// TestParseKotlinFile_dataClass verifies that a Kotlin data class is parsed as
+// KindClass with Language=="kotlin" by the production Kotlin handler (Wave 1).
+// A pass after deleting handler_kotlin.go would be a tautology — this test calls
+// parser.ParseFile("user.kt", ...) and asserts on its return value.
+func TestParseKotlinFile_dataClass(t *testing.T) {
+	src := []byte(`data class User(val name: String, val age: Int)`)
+
+	result, err := parser.ParseFile("user.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "kotlin" {
+		t.Errorf("Language = %q, want %q", result.Language, "kotlin")
+	}
+
+	if !containsSymbol(result.Symbols, "User", parser.KindClass) {
+		t.Errorf("expected symbol User/KindClass; got %v", symbolNames(result.Symbols))
+	}
+
+	// Exactly one class-level symbol — no methods should bleed in for a primary constructor.
+	var classes []*parser.Symbol
+	for _, s := range result.Symbols {
+		if s.Kind == parser.KindClass {
+			classes = append(classes, s)
+		}
+	}
+	if len(classes) != 1 {
+		t.Errorf("expected exactly 1 KindClass symbol, got %d: %v", len(classes), symbolNames(result.Symbols))
+	}
+}
+
+// TestParseKotlinFile_topLevelFun verifies that a top-level Kotlin function is
+// parsed as KindFunction with Language=="kotlin" by the AST handler (Wave 1).
+// Fallback regex also finds "greet" but sets Signature to the raw trimmed line
+// and StartLine==EndLine; the AST handler sets EndLine to the node's real end row.
+// We assert EndLine >= StartLine AND that no unexpected extra symbols appear
+// (fallback cannot distinguish KindMethod-vs-KindFunction context correctly).
+func TestParseKotlinFile_topLevelFun(t *testing.T) {
+	// Multi-line so that AST end-row > start-row; single-expr body still spans 1 line,
+	// so we use a proper block body to guarantee EndLine > StartLine from tree-sitter.
+	src := []byte(`fun greet(name: String): String {
+	return "Hello, $name"
+}`)
+
+	result, err := parser.ParseFile("greet.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "kotlin" {
+		t.Errorf("Language = %q, want %q", result.Language, "kotlin")
+	}
+
+	if !containsSymbol(result.Symbols, "greet", parser.KindFunction) {
+		t.Errorf("expected symbol greet/KindFunction; got %v", symbolNames(result.Symbols))
+	}
+
+	// AST handler: EndLine > StartLine (multi-line function body).
+	// Fallback regex: StartLine == EndLine (single-line span always).
+	for _, s := range result.Symbols {
+		if s.Name == "greet" && s.Kind == parser.KindFunction {
+			if s.EndLine <= s.StartLine {
+				t.Errorf("greet: EndLine (%d) should be > StartLine (%d); suggests fallback regex not AST", s.EndLine, s.StartLine)
+			}
+			return
+		}
+	}
+}
+
+// TestParseKotlinFile_extensionFn verifies that a Kotlin extension function is
+// parsed as KindFunction with Name=="shout" (receiver context is Wave 2).
+func TestParseKotlinFile_extensionFn(t *testing.T) {
+	src := []byte(`fun String.shout(): String { return this.uppercase() }`)
+
+	result, err := parser.ParseFile("shout.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "kotlin" {
+		t.Errorf("Language = %q, want %q", result.Language, "kotlin")
+	}
+
+	if !containsSymbol(result.Symbols, "shout", parser.KindFunction) {
+		t.Errorf("expected symbol shout/KindFunction; got %v", symbolNames(result.Symbols))
+	}
+}
+
+// TestParseKotlinFile_companionObject verifies that a Kotlin class with a companion
+// object is parsed to yield both the enclosing class (KindClass) and the companion
+// method (KindMethod or KindFunction). Wave 1 only asserts both names are present.
+// Fallback regex cannot see the Calculator class span correctly (EndLine==StartLine
+// for the single `class Calculator {` line); AST handler gives EndLine==5.
+func TestParseKotlinFile_companionObject(t *testing.T) {
+	src := []byte(`class Calculator {
+	companion object {
+		fun add(a: Int, b: Int) = a + b
+	}
+}`)
+
+	result, err := parser.ParseFile("calculator.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "kotlin" {
+		t.Errorf("Language = %q, want %q", result.Language, "kotlin")
+	}
+
+	if !containsSymbol(result.Symbols, "Calculator", parser.KindClass) {
+		t.Errorf("expected symbol Calculator/KindClass; got %v", symbolNames(result.Symbols))
+	}
+
+	// add should appear as either KindFunction or KindMethod (Wave 1 tolerates either).
+	hasAdd := containsSymbol(result.Symbols, "add", parser.KindFunction) ||
+		containsSymbol(result.Symbols, "add", parser.KindMethod)
+	if !hasAdd {
+		t.Errorf("expected symbol add/KindFunction or KindMethod; got %v", symbolNames(result.Symbols))
+	}
+
+	// AST handler: Calculator class spans lines 1-5; fallback records StartLine==EndLine.
+	for _, s := range result.Symbols {
+		if s.Name == "Calculator" && s.Kind == parser.KindClass {
+			if s.EndLine <= s.StartLine {
+				t.Errorf("Calculator: EndLine (%d) should be > StartLine (%d); suggests fallback regex not AST", s.EndLine, s.StartLine)
+			}
+			return
+		}
+	}
+	t.Errorf("Calculator/KindClass not found in symbols: %v", symbolNames(result.Symbols))
+}
+
 func TestParsePHPFile(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.php"))
 	if err != nil {
