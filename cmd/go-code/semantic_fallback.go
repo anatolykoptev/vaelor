@@ -26,6 +26,11 @@ type symbolNameSearcher interface {
 	SearchBySymbolName(ctx context.Context, repoKey string, keywords []string, language string, limit int) ([]embeddings.SearchResult, error)
 }
 
+// Compile-time assertion: *embeddings.Store satisfies symbolNameSearcher.
+// Catches signature drift on Store.SearchBySymbolName at build time rather
+// than at runtime when the trigram fallback path first fires.
+var _ symbolNameSearcher = (*embeddings.Store)(nil)
+
 // semanticSuggest runs a trigram fuzzy name match as fallback when the primary
 // tool found no symbol. Uses pg_trgm on code_embeddings.symbol_name (GIN
 // trigram index) — independent of the embed-server / jina worker availability.
