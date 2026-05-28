@@ -475,6 +475,55 @@ func TestIncrementalSync_BumpsTimestampOnSameSHA(t *testing.T) {
 		"indexed_at must advance on same-SHA skip (tsBefore=%v tsAfter=%v)", tsBefore, tsAfter)
 }
 
+// TestGitDiffNames_StderrSurfacedInError: calling gitDiffNames with two SHAs that do not
+// exist in the repo must return an error whose message contains "stderr:" with git's
+// diagnostic. Guards: stderr capture is wired — pure err!=nil check would be tautological.
+func TestGitDiffNames_StderrSurfacedInError(t *testing.T) {
+	root := initGitRepo(t, map[string]string{
+		"dummy.go": goFile("Dummy"),
+	})
+
+	ctx := context.Background()
+	const badPrev = "deadbeef0000000000000000000000000000dead"
+	const badCur = "alsobad000000000000000000000000000000abc"
+
+	_, err := gitDiffNames(ctx, root, badPrev, badCur)
+	require.Error(t, err, "gitDiffNames with non-existent SHAs must return error")
+
+	msg := err.Error()
+	assert.Contains(t, msg, "stderr:",
+		"error message must contain 'stderr:' to surface git diagnostics (proves stderr is captured)")
+
+	// git emits one of: "bad object", "unknown revision", "not a tree", etc.
+	// Assert at least one known token is present so the test fails if stderr is not forwarded.
+	hasGitDiag := strings.Contains(msg, "bad") ||
+		strings.Contains(msg, "unknown") ||
+		strings.Contains(msg, "ambiguous") ||
+		strings.Contains(msg, "fatal") ||
+		strings.Contains(msg, "not a")
+	assert.True(t, hasGitDiag,
+		"error message must contain a git diagnostic token (bad/unknown/ambiguous/fatal/not a); got: %s", msg)
+}
+
+// TestGitDiffNames_ContextCancellation: a pre-cancelled context must cause gitDiffNames
+// to return quickly with an error. Guards: exec.CommandContext context binding is active.
+func TestGitDiffNames_ContextCancellation(t *testing.T) {
+	root := initGitRepo(t, map[string]string{
+		"dummy.go": goFile("Dummy"),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before calling
+
+	start := time.Now()
+	_, err := gitDiffNames(ctx, root, "HEAD", "HEAD")
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "gitDiffNames with cancelled context must return error")
+	assert.Less(t, elapsed, time.Second,
+		"gitDiffNames must return quickly (<1s) when context is already cancelled")
+}
+
 // TestIncrementalSync_BulkPathParityForBootstrap: bootstrap via IncrementalSync
 // (which falls back to IndexRepo) must produce the same symbol count as calling
 // IndexRepo directly on an identical fixture.
