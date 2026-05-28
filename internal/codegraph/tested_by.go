@@ -68,6 +68,7 @@ func resolveTestTarget(test *parser.Symbol, byName map[string][]*parser.Symbol) 
 		return resolveKotlinTest(test, byName)
 	case "swift":
 		return resolveSwiftTest(test, byName)
+	// "html" not handled — markup files have no conventional test pair.
 	default:
 		return nil
 	}

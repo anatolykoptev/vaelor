@@ -35,6 +35,8 @@ func CategorizeImport(imp, language string) ImportCategory {
 		return categorizeKotlinImport(imp)
 	case "swift":
 		return categorizeSwiftImport(imp)
+	// "html" not handled — markup language has no conventional imports;
+	// {{template "X"}} cross-refs are Wave 4+ codegraph work.
 	default:
 		return ImportExternal
 	}

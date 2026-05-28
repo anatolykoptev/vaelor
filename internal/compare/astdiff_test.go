@@ -97,6 +97,16 @@ func TestLookupLanguage_Swift(t *testing.T) {
 	}
 }
 
+// TestLookupLanguage_HTML verifies that lookupLanguage returns nil for "html".
+// HTML has no tree-sitter grammar — handler_html bypasses fallbackParse via
+// direct Parse() override (preproc-based), so astdiff cannot operate on HTML.
+func TestLookupLanguage_HTML(t *testing.T) {
+	lang := lookupLanguage("html")
+	if lang != nil {
+		t.Fatalf("lookupLanguage(\"html\") = %v, want nil — HTML has no tree-sitter grammar", lang)
+	}
+}
+
 // TestLookupLanguage_Kotlin verifies that lookupLanguage returns a non-nil
 // tree-sitter language for "kotlin" (internal/compare/astdiff.go).
 func TestLookupLanguage_Kotlin(t *testing.T) {
