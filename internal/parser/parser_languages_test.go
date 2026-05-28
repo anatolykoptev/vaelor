@@ -1179,8 +1179,9 @@ func TestParseSwiftFile_protocolDecl(t *testing.T) {
 }
 
 // TestParseSwiftFile_extensionDecl verifies that a Swift extension's method is
-// captured. For Wave 1, receiver-type attribution is deferred (Wave 2); we only
-// assert the method name is present.
+// captured and emitted as KindMethod (Wave 1 nit #2: AST discriminator).
+// Extension methods route through class_body capture → @symbol.method → KindMethod.
+// Regex fallback would emit KindFunction; AST handler must emit KindMethod.
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_extensionDecl(t *testing.T) {
 	src := []byte("extension String {\n\tfunc shout() -> String {\n\t\treturn self.uppercased()\n\t}\n}")
@@ -1194,10 +1195,184 @@ func TestParseSwiftFile_extensionDecl(t *testing.T) {
 		t.Errorf("Language = %q, want %q", result.Language, "swift")
 	}
 
-	// Wave 1: method name must be captured (KindFunction or KindMethod).
-	hasShout := containsSymbol(result.Symbols, "shout", parser.KindFunction) ||
-		containsSymbol(result.Symbols, "shout", parser.KindMethod)
-	if !hasShout {
-		t.Errorf("expected symbol shout/KindFunction or KindMethod; got %v", symbolNames(result.Symbols))
+	// Wave 2 nit #2: extension methods must be KindMethod (not KindFunction).
+	// The class_body capture in swift.scm routes to @symbol.method → KindMethod.
+	// Regex fallback emits KindFunction — this assertion distinguishes AST from fallback.
+	if !containsSymbol(result.Symbols, "shout", parser.KindMethod) {
+		t.Errorf("expected symbol shout/KindMethod (AST path); got %v", symbolNames(result.Symbols))
+	}
+	// Must NOT appear as KindFunction (which would indicate fallback regex path).
+	if containsSymbol(result.Symbols, "shout", parser.KindFunction) {
+		t.Errorf("shout must not be KindFunction; extension methods must use KindMethod via AST")
+	}
+}
+
+// --- Swift Wave 2 tests ---
+
+// TestParseSwiftFile_protocolBodyMethods verifies that method declarations inside a
+// Swift protocol body are captured as symbols.
+// Protocol methods parse as protocol_function_declaration inside protocol_body —
+// a distinct node from function_declaration used in class/struct bodies.
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_protocolBodyMethods(t *testing.T) {
+	src := []byte("protocol Greeter {\n\tfunc greet() -> String\n\tfunc farewell(name: String) -> String\n}")
+
+	result, err := parser.ParseFile("greeter.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	// Protocol container must be KindInterface.
+	if !containsSymbol(result.Symbols, "Greeter", parser.KindInterface) {
+		t.Errorf("expected symbol Greeter/KindInterface; got %v", symbolNames(result.Symbols))
+	}
+
+	// Protocol body methods must be captured (KindFunction or KindMethod).
+	// Wave 2 adds protocol_function_declaration capture to swift.scm.
+	for _, name := range []string{"greet", "farewell"} {
+		hasMethod := containsSymbol(result.Symbols, name, parser.KindFunction) ||
+			containsSymbol(result.Symbols, name, parser.KindMethod)
+		if !hasMethod {
+			t.Errorf("expected protocol method %q/KindFunction or KindMethod; got %v", name, symbolNames(result.Symbols))
+		}
+	}
+}
+
+// TestParseSwiftFile_callSites verifies that ExtractCalls captures plain function
+// calls originating inside a Swift function body.
+// Anti-tautology: asserts against parser.ExtractCalls return value.
+func TestParseSwiftFile_callSites(t *testing.T) {
+	src := []byte("func caller() {\n\tprint(\"hi\")\n\tcompute(1, 2)\n}\nfunc compute(a: Int, b: Int) -> Int {\n\treturn a + b\n}")
+
+	calls, err := parser.ExtractCalls("main.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+	for _, want := range []string{"print", "compute"} {
+		if !found[want] {
+			t.Errorf("missing call to %q; got calls: %v", want, calls)
+		}
+	}
+}
+
+// TestParseSwiftFile_relationshipsConformance verifies that ExtractRelationships
+// returns an edge from Cat to Animal for Swift protocol conformance.
+// Swift uses "class Cat: Animal" (single colon) for both inheritance and conformance.
+// Anti-tautology: asserts against parser.ExtractRelationships return value.
+func TestParseSwiftFile_relationshipsConformance(t *testing.T) {
+	src := []byte("protocol Animal {\n\tfunc sound() -> String\n}\nclass Cat: Animal {\n\tfunc sound() -> String { return \"meow\" }\n}")
+
+	rels, err := parser.ExtractRelationships("cat.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractRelationships: %v", err)
+	}
+
+	found := false
+	for _, r := range rels {
+		if r.Subject == "Cat" && r.Target == "Animal" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Cat→Animal relationship; got %v", rels)
+	}
+}
+
+// TestParseSwiftFile_genericFunction guards against the generic type parameter
+// being captured as the function name for "func swap<T>(...)".
+// The Swift grammar emits: function_declaration > simple_identifier["swap"] > type_parameters.
+// swiftNameNode scans children left-to-right and must find "swap" before type_parameters.
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_genericFunction(t *testing.T) {
+	src := []byte("func swap<T>(_ a: inout T, _ b: inout T) {\n\tlet tmp = a\n}")
+
+	result, err := parser.ParseFile("swap.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	if !containsSymbol(result.Symbols, "swap", parser.KindFunction) {
+		t.Errorf("expected symbol swap/KindFunction; got %v", symbolNames(result.Symbols))
+	}
+	// Type parameter must not leak as an independent symbol.
+	for _, s := range result.Symbols {
+		if s.Name == "T" {
+			t.Errorf("unexpected symbol %q leaked from generic type parameter", s.Name)
+		}
+	}
+}
+
+// TestParseSwiftFile_struct verifies that a Swift struct is captured as KindClass.
+// Wave 1 collapses struct → KindClass (class_declaration umbrella node).
+// This test documents and guards the Wave 1 behavior; Wave 2 may add KindStruct
+// if distinct NodeKind constants are introduced in a later wave.
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_struct(t *testing.T) {
+	// Multi-line so EndLine > StartLine (AST discriminator).
+	src := []byte("struct Point {\n\tvar x: Double\n\tvar y: Double\n}")
+
+	result, err := parser.ParseFile("point.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	// Wave 1 maps struct → KindClass (class_declaration umbrella node in Swift grammar).
+	// Note: Wave 3+ may distinguish KindStruct if NodeKind constants are extended.
+	if !containsSymbol(result.Symbols, "Point", parser.KindClass) {
+		t.Errorf("expected symbol Point/KindClass (struct→class Wave 1 behavior); got %v", symbolNames(result.Symbols))
+	}
+
+	// AST discriminator: multi-line struct must have EndLine > StartLine.
+	for _, s := range result.Symbols {
+		if s.Name == "Point" && s.Kind == parser.KindClass {
+			if s.EndLine <= s.StartLine {
+				t.Errorf("Point: EndLine (%d) should be > StartLine (%d); suggests fallback regex not AST", s.EndLine, s.StartLine)
+			}
+			return
+		}
+	}
+	t.Errorf("Point/KindClass not found in symbols: %v", symbolNames(result.Symbols))
+}
+
+// TestParseSwiftFile_actor verifies that a Swift actor is captured as KindClass
+// with its methods emitted as KindMethod.
+// Actors parse as class_declaration with an "actor" keyword child (same umbrella node).
+// Anti-tautology: asserts against parser.ParseFile return value.
+func TestParseSwiftFile_actor(t *testing.T) {
+	src := []byte("actor Counter {\n\tvar value: Int = 0\n\tfunc increment() {\n\t\tvalue += 1\n\t}\n}")
+
+	result, err := parser.ParseFile("counter.swift", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if result.Language != "swift" {
+		t.Errorf("Language = %q, want %q", result.Language, "swift")
+	}
+
+	// Actor maps to KindClass (class_declaration with "actor" keyword child).
+	if !containsSymbol(result.Symbols, "Counter", parser.KindClass) {
+		t.Errorf("expected symbol Counter/KindClass (actor→class Wave 1 behavior); got %v", symbolNames(result.Symbols))
+	}
+	// Method inside actor body must be captured.
+	if !containsSymbol(result.Symbols, "increment", parser.KindMethod) {
+		t.Errorf("expected symbol increment/KindMethod; got %v", symbolNames(result.Symbols))
 	}
 }
