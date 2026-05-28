@@ -35,6 +35,10 @@ type SemanticDeps struct {
 	// RRFWeights are the per-retriever weights threaded into MergeRRF.
 	// Defaults to (1.0, 1.0) — byte-identical to unweighted RRF.
 	RRFWeights embeddings.RRFWeights
+	// storeSearcher is the interface used by semanticSuggest for trigram name
+	// lookup. Production leaves this nil and semanticSuggest falls back to Store.
+	// Tests wire a spy here to avoid a real Postgres connection.
+	storeSearcher symbolNameSearcher
 }
 
 const (
