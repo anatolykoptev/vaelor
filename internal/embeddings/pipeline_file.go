@@ -1,0 +1,157 @@
+package embeddings
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+
+	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// FileIndexResult summarizes the outcome of a single-file incremental index.
+type FileIndexResult struct {
+	Embedded int   // newly-embedded symbol count (new or body-changed)
+	Skipped  int   // hash-matched symbols — no embed call issued
+	Deleted  int64 // symbols removed from DB (file shrank or was deleted)
+}
+
+// IndexFile incrementally indexes one file: parses it, extracts symbols,
+// computes the diff against the currently-indexed set (Store.GetSymbolsForFile),
+// embeds only NEW or CHANGED symbols (body_hash differs), and DELETEs symbols
+// that disappeared from this file in the new parse.
+//
+// root is the repo's absolute path on the host (for symbol path resolution);
+// relPath is the file path relative to root (used as code_embeddings.file_path).
+// repoKey is the canonical repo identifier (see codegraph.GraphNameFor).
+//
+// Returns counts of newly-embedded, unchanged (skipped), and deleted symbols.
+//
+// Side effects: Postgres writes; HTTP call to embed-server ONLY for new/changed
+// symbols (zero HTTP calls if file unchanged from last index).
+//
+// IndexFile does NOT touch repo_state / repoMainBranchSHA — that is repo-level
+// fingerprinting owned by IndexRepo. IndexFile is file-level only.
+func (p *Pipeline) IndexFile(ctx context.Context, repoKey, root, relPath string) (*FileIndexResult, error) {
+	absPath := filepath.Join(root, relPath)
+
+	// Fast path: file no longer exists on disk → evict all its symbols.
+	if _, err := os.Stat(absPath); errors.Is(err, os.ErrNotExist) {
+		n, delErr := p.store.DeleteSymbolsForFile(ctx, repoKey, relPath, nil)
+		if delErr != nil {
+			return nil, fmt.Errorf("indexFile: delete for missing file %s: %w", relPath, delErr)
+		}
+		slog.Debug("indexFile: file absent — evicted all symbols",
+			slog.String("repo", repoKey),
+			slog.String("file", relPath),
+			slog.Int64("deleted", n))
+		return &FileIndexResult{Deleted: n}, nil
+	}
+
+	// Parse the file, collect current symbols, and compute the diff vs DB.
+	toEmbed, currentNames, result, err := p.parseAndDiff(ctx, repoKey, relPath, absPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Delete symbols in DB that are no longer in the current parse.
+	deleted, err := p.store.DeleteSymbolsForFile(ctx, repoKey, relPath, currentNames)
+	if err != nil {
+		return nil, fmt.Errorf("indexFile: delete stale symbols: %w", err)
+	}
+	result.Deleted = deleted
+
+	// Embed and upsert new/changed symbols.
+	if len(toEmbed) > 0 {
+		n, err := p.embedAndUpsert(ctx, repoKey, toEmbed)
+		if err != nil {
+			return nil, fmt.Errorf("indexFile: embed %s: %w", relPath, err)
+		}
+		result.Embedded = n
+	}
+
+	slog.Debug("indexFile: done",
+		slog.String("repo", repoKey),
+		slog.String("file", relPath),
+		slog.Int("embedded", result.Embedded),
+		slog.Int("skipped", result.Skipped),
+		slog.Int64("deleted", result.Deleted))
+
+	return result, nil
+}
+
+// parseAndDiff reads and parses absPath, fetches existing DB symbols for relPath,
+// and computes which symbols need embedding vs skipping. Extracted to reduce
+// cyclomatic complexity of IndexFile.
+//
+// Returns:
+//   - toEmbed: symbols to embed (new or body-hash changed)
+//   - currentNames: all symbol names in the new parse (keep-list for DeleteSymbolsForFile)
+//   - result: partial FileIndexResult with Skipped populated
+//   - err: first error encountered
+func (p *Pipeline) parseAndDiff(
+	ctx context.Context,
+	repoKey, relPath, absPath string,
+) (toEmbed []symbolEntry, currentNames []string, result *FileIndexResult, err error) {
+	result = &FileIndexResult{}
+
+	source, readErr := os.ReadFile(absPath)
+	if readErr != nil {
+		return nil, nil, nil, fmt.Errorf("indexFile: read %s: %w", relPath, readErr)
+	}
+
+	lang := ingest.DetectLanguage(filepath.Base(relPath))
+	pr, parseErr := parser.ParseFile(absPath, source, parser.ParseOpts{
+		Language:    lang,
+		IncludeBody: true,
+	})
+	if parseErr != nil {
+		return nil, nil, nil, fmt.Errorf("indexFile: parse %s: %w", relPath, parseErr)
+	}
+
+	// Build current symbol map: name → {sym, hash, embedText} for funcs/methods only.
+	type currentEntry struct {
+		sym       *parser.Symbol
+		hash      uint64
+		embedText string
+	}
+	current := make(map[string]currentEntry, len(pr.Symbols))
+	for _, sym := range pr.Symbols {
+		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+			continue
+		}
+		et := buildEmbedText(sym, relPath)
+		current[sym.Name] = currentEntry{sym: sym, hash: textHash(et), embedText: et}
+	}
+
+	// Fetch current DB state and build name→hash lookup.
+	existing, fetchErr := p.store.GetSymbolsForFile(ctx, repoKey, relPath)
+	if fetchErr != nil {
+		return nil, nil, nil, fmt.Errorf("indexFile: fetch existing: %w", fetchErr)
+	}
+	dbHashes := make(map[string]uint64, len(existing))
+	for _, si := range existing {
+		dbHashes[si.SymbolName] = si.BodyHash
+	}
+
+	// Diff: classify each current symbol as embed (new/changed) or skip.
+	fileRef := &ingest.File{RelPath: relPath, Language: lang}
+	currentNames = make([]string, 0, len(current))
+	for name, ce := range current {
+		currentNames = append(currentNames, name)
+		if dbHash, inDB := dbHashes[name]; inDB && dbHash == ce.hash {
+			result.Skipped++
+			continue
+		}
+		toEmbed = append(toEmbed, symbolEntry{
+			sym:       ce.sym,
+			file:      fileRef,
+			hash:      ce.hash,
+			embedText: ce.embedText,
+		})
+	}
+	return toEmbed, currentNames, result, nil
+}
