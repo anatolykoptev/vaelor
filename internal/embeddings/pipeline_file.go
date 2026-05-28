@@ -38,6 +38,30 @@ type FileIndexResult struct {
 func (p *Pipeline) IndexFile(ctx context.Context, repoKey, root, relPath string) (*FileIndexResult, error) {
 	absPath := filepath.Join(root, relPath)
 
+	// Mirror indexRepo's isTestFile filter: test files are never indexed via the
+	// bulk path. If an older code version mis-indexed this file, evict its rows
+	// now to converge state.
+	if isTestFile(relPath) {
+		deleted, err := p.store.DeleteSymbolsForFile(ctx, repoKey, relPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("test-file evict: %w", err)
+		}
+		return &FileIndexResult{Deleted: deleted}, nil
+	}
+
+	// Mirror indexRepo's MaxFileBytes filter: oversized files (vendored bundles,
+	// generated lockfiles, etc) are never indexed via the bulk path. Evict any
+	// pre-existing rows for this path to converge state.
+	// When the file does not exist, Stat returns a non-nil error so the condition
+	// is false; the os.ErrNotExist path below handles that case.
+	if fi, statErr := os.Stat(absPath); statErr == nil && fi.Size() > maxIndexFileBytes {
+		deleted, err := p.store.DeleteSymbolsForFile(ctx, repoKey, relPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("oversized-file evict: %w", err)
+		}
+		return &FileIndexResult{Deleted: deleted}, nil
+	}
+
 	// Fast path: file no longer exists on disk → evict all its symbols.
 	if _, err := os.Stat(absPath); errors.Is(err, os.ErrNotExist) {
 		n, delErr := p.store.DeleteSymbolsForFile(ctx, repoKey, relPath, nil)
