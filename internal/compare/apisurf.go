@@ -57,6 +57,7 @@ func isExportedSymbol(name, language string) bool {
 		return r >= 'A' && r <= 'Z'
 	default:
 		// Python, JavaScript, TypeScript, Rust, Kotlin (Wave 3 approximation) and others.
+		// "html" symbols are inherently public; underscore-rule fallback OK for safety.
 		return r != '_'
 	}
 }

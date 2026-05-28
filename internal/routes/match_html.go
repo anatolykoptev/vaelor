@@ -41,10 +41,11 @@ func (h *HTMLMatcher) Match(source []byte) []Route {
 // normalizeHtmxPath normalises an htmx attribute URL to a canonical path
 // suitable for cross-stack route matching. It performs two transformations:
 //
-//  1. Go template actions ({{...}}) are replaced with "*". This makes
-//     htmx "/admin/hunt/job/{{.ID}}/rate" equivalent to the Go-server-side
-//     mux pattern "/admin/hunt/job/{id}/rate", which NormalizePath turns into
-//     "/admin/hunt/job/*/rate" via its {param}→* rule.
+//  1. Go template actions ({{...}}) are replaced with "*". Block actions
+//     ({{if}}, {{range}}, {{with}}, {{block}}, {{define}}) and everything up
+//     to their matching {{end}} are collapsed to a SINGLE "*" so that
+//     /x/{{if .Y}}foo{{else}}bar{{end}}/y → /x/*/y (not /x/*foo*bar*/y).
+//     Atomic actions ({{.X}}, {{$x}}, {{add .Page 1}}) collapse to one "*".
 //
 //  2. The resulting string is passed to NormalizePath, which handles
 //     {param}→*, :param→*, scheme-strip, leading-slash, and double-slash
@@ -53,42 +54,31 @@ func (h *HTMLMatcher) Match(source []byte) []Route {
 // Query strings: the "?" portion is preserved as-is; template actions inside
 // query strings (e.g. "?page={{add .Page 1}}") are also collapsed to "*".
 // This aligns with the convention that server-side query parameters are not
-// matched by route patterns.
+// matched by route patterns. Phase B must use path-prefix comparison when
+// matching htmx routes against server-side patterns.
 func normalizeHtmxPath(raw string) string {
-	// Step 1: replace every {{...}} span with *.
+	// Step 1: block-aware collapse of {{...}} spans.
 	//
-	// Strategy: scan for "{{", then scan forward counting brace depth until
-	// the matching "}}". This correctly handles nested braces inside template
-	// actions (e.g. {{if .X}}...{{end}} is treated as one opaque action by the
-	// attr walker, but query params like {{add .Page 1}} contain no inner
-	// braces so simple scanning works; we use depth counting for correctness).
+	// When we encounter a block-opening action (if/range/with/block/define),
+	// scanBlockEnd advances past the entire balanced block (including nested
+	// blocks) and returns the position after the closing {{end}}. The whole
+	// range collapses to one "*". Atomic actions collapse individually.
 	var sb strings.Builder
 	sb.Grow(len(raw))
 	i := 0
 	for i < len(raw) {
 		if i+1 < len(raw) && raw[i] == '{' && raw[i+1] == '{' {
-			// Found opening {{. Scan for closing }}.
-			j := i + 2
-			depth := 1
-			for j < len(raw) {
-				if j+1 < len(raw) && raw[j] == '{' && raw[j+1] == '{' {
-					depth++
-					j += 2
-					continue
-				}
-				if j+1 < len(raw) && raw[j] == '}' && raw[j+1] == '}' {
-					depth--
-					j += 2
-					if depth == 0 {
-						break
-					}
-					continue
-				}
-				j++
+			// Scan to closing }} of this single action.
+			actionEnd := scanActionClose(raw, i+2)
+			keyword := extractActionKeyword(raw[i+2 : actionEnd-2])
+			if isBlockOpenKeyword(keyword) {
+				// Block action: consume until the matching {{end}}, collapse all to *.
+				i = scanBlockEnd(raw, actionEnd)
+			} else {
+				// Atomic action: collapse this single {{...}} to *.
+				i = actionEnd
 			}
-			// Emit a single * for the entire {{...}} span.
 			sb.WriteByte('*')
-			i = j
 			continue
 		}
 		sb.WriteByte(raw[i])
@@ -98,4 +88,81 @@ func normalizeHtmxPath(raw string) string {
 	// Step 2: pass through NormalizePath to handle {param}→*, :param→*,
 	// scheme-strip, leading-slash, double-slash, and trailing-slash cleanup.
 	return NormalizePath(sb.String())
+}
+
+// scanActionClose returns the position immediately after the closing "}}" of
+// the action that starts at raw[from:]. from should point to the first byte
+// after the opening "{{". Handles nested "{{" depth so that actions containing
+// literal braces (rare in htmx URLs) are handled safely.
+func scanActionClose(raw string, from int) int {
+	depth := 1
+	j := from
+	for j < len(raw) {
+		if j+1 < len(raw) && raw[j] == '{' && raw[j+1] == '{' {
+			depth++
+			j += 2
+			continue
+		}
+		if j+1 < len(raw) && raw[j] == '}' && raw[j+1] == '}' {
+			depth--
+			j += 2
+			if depth == 0 {
+				return j
+			}
+			continue
+		}
+		j++
+	}
+	return len(raw)
+}
+
+// extractActionKeyword returns the first whitespace-delimited word from an
+// action body (the text between "{{" and "}}"). Used to detect block keywords.
+func extractActionKeyword(body string) string {
+	body = strings.TrimSpace(body)
+	// Strip leading trim marker "-".
+	body = strings.TrimPrefix(body, "-")
+	body = strings.TrimSpace(body)
+	sp := strings.IndexAny(body, " \t\n\r")
+	if sp < 0 {
+		return body
+	}
+	return body[:sp]
+}
+
+// isBlockOpenKeyword reports whether kw is a Go template block-opening keyword
+// that requires a matching {{end}}.
+func isBlockOpenKeyword(kw string) bool {
+	switch kw {
+	case "if", "range", "with", "block", "define":
+		return true
+	}
+	return false
+}
+
+// scanBlockEnd scans raw starting at from (which should be immediately after
+// the closing "}}" of an opening block action) and returns the position
+// immediately after the matching "{{end}}". Nested blocks are handled via a
+// depth counter so that {{if}}...{{if}}...{{end}}...{{end}} is consumed fully.
+func scanBlockEnd(raw string, from int) int {
+	depth := 1 // we are already inside one open block
+	i := from
+	for i < len(raw) {
+		if i+1 < len(raw) && raw[i] == '{' && raw[i+1] == '{' {
+			actionEnd := scanActionClose(raw, i+2)
+			keyword := extractActionKeyword(raw[i+2 : actionEnd-2])
+			if isBlockOpenKeyword(keyword) {
+				depth++
+			} else if keyword == "end" {
+				depth--
+				if depth == 0 {
+					return actionEnd
+				}
+			}
+			i = actionEnd
+			continue
+		}
+		i++
+	}
+	return len(raw)
 }
