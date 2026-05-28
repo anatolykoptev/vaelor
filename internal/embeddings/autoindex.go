@@ -153,7 +153,7 @@ func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts Auto
 			if result != nil {
 				slog.Info("autoindex: done",
 					slog.String("repo", r.key),
-					slog.String("mode", result.Mode),
+					slog.String("mode", string(result.Mode)),
 					slog.Int("embedded", result.FilesEmbedded),
 					slog.Int("skipped", result.FilesSkipped),
 					slog.Int("changed", result.FilesChanged),
