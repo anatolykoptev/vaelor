@@ -11,6 +11,12 @@ import (
 //go:embed queries/swift.scm
 var swiftQueryBytes []byte
 
+//go:embed queries/swift_calls.scm
+var swiftCallsQueryBytes []byte
+
+//go:embed queries/swift_rels.scm
+var swiftRelsQueryBytes []byte
+
 // swiftHandler implements LanguageHandler for Swift source files.
 type swiftHandler struct {
 	parserBase
@@ -24,9 +30,11 @@ func init() {
 	swiftLang.parserBase = parserBase{
 		lang: "swift",
 		caps: Capabilities{
-			SitterLanguage: lang,
-			TagsQuery:      mustCompileQuery(swiftQueryBytes, lang, "swift.scm"),
-			MapCapture:     swiftLang.MapCapture,
+			SitterLanguage:     lang,
+			TagsQuery:          mustCompileQuery(swiftQueryBytes, lang, "swift.scm"),
+			CallsQuery:         mustCompileQuery(swiftCallsQueryBytes, lang, "swift_calls.scm"),
+			RelationshipsQuery: mustCompileQuery(swiftRelsQueryBytes, lang, "swift_rels.scm"),
+			MapCapture:         swiftLang.MapCapture,
 		},
 	}
 	registerHandler(swiftLang)
