@@ -102,8 +102,10 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 			}
 		case "FETCHES":
 			fetchesCount++
-			if e.FromKey != "fetchUsers" {
-				t.Errorf("FETCHES FromKey = %q, want fetchUsers", e.FromKey)
+			// FETCHES uses composite "handler:file" key so AGE can split on ':'
+			// into the Symbol's name and file properties (Wave 5 fix).
+			if e.FromKey != "fetchUsers:frontend/api.ts" {
+				t.Errorf("FETCHES FromKey = %q, want fetchUsers:frontend/api.ts", e.FromKey)
 			}
 		}
 	}
@@ -113,6 +115,90 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 	}
 	if fetchesCount != 1 {
 		t.Errorf("expected 1 FETCHES edge, got %d", fetchesCount)
+	}
+}
+
+// TestHtmxFetchesEdgeFromKey verifies that FETCHES edges for htmx (client-side)
+// routes use the composite "handler:file" Symbol key so that AGE's
+// unwindEdgeMatch("Symbol", "fk") can split it into name + file properties.
+// Root cause: index_layers.go was passing r.Handler (bare name) which caused
+// split("hunt_jobs", ':')[1] → NULL → MATCH (f:Symbol {file: NULL}) → no match.
+func TestHtmxFetchesEdgeFromKey(t *testing.T) {
+	t.Parallel()
+
+	route := routes.Route{
+		Method:    "GET",
+		Path:      "/admin/hunt/jobs",
+		Framework: "htmx",
+		Side:      "client",
+		Handler:   "hunt_jobs",
+		File:      "internal/admin/templates/hunt_jobs.html",
+		Line:      12,
+	}
+
+	got := htmxFetchesFromKey(route)
+	want := "hunt_jobs:internal/admin/templates/hunt_jobs.html"
+	if got != want {
+		t.Errorf("htmxFetchesFromKey = %q, want %q", got, want)
+	}
+}
+
+// TestHtmxFetchesEdgeFromKey_EmptyHandler verifies that an empty Handler
+// returns an empty string (callers skip the edge when FromKey is "").
+func TestHtmxFetchesEdgeFromKey_EmptyHandler(t *testing.T) {
+	t.Parallel()
+
+	route := routes.Route{
+		Method:    "GET",
+		Path:      "/admin/hunt/jobs",
+		Framework: "htmx",
+		Side:      "client",
+		Handler:   "",
+		File:      "internal/admin/templates/hunt_jobs.html",
+	}
+
+	got := htmxFetchesFromKey(route)
+	if got != "" {
+		t.Errorf("htmxFetchesFromKey with empty Handler = %q, want \"\"", got)
+	}
+}
+
+// TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey verifies that
+// buildCrossLanguageGraph produces a FETCHES edge whose FromKey is
+// the composite "handler:file" form (not bare handler name).
+// This is what AGE's unwindEdgeMatch("Symbol", "fk") requires.
+func TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/admin/hunt/jobs",
+			Framework: "htmx",
+			Side:      "client",
+			Handler:   "hunt_jobs",
+			File:      "internal/admin/templates/hunt_jobs.html",
+			Line:      12,
+		},
+	}
+
+	_, edges := buildCrossLanguageGraph(nil, routeList, nil)
+
+	var fetchEdge *edgeData
+	for i := range edges {
+		if edges[i].EdgeLabel == "FETCHES" {
+			e := edges[i]
+			fetchEdge = &e
+			break
+		}
+	}
+	if fetchEdge == nil {
+		t.Fatal("expected 1 FETCHES edge, got 0")
+	}
+
+	want := "hunt_jobs:internal/admin/templates/hunt_jobs.html"
+	if fetchEdge.FromKey != want {
+		t.Errorf("FETCHES FromKey = %q, want %q", fetchEdge.FromKey, want)
 	}
 }
 
