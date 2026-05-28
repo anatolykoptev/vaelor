@@ -224,7 +224,7 @@ Set `LLM_API_BASE` + `LLM_API_KEY` + `LLM_MODEL` to enable all tools. Any OpenAI
 ```
 cmd/go-code/          — MCP server, tool handlers (one file per tool)
 internal/
-  parser/             — tree-sitter AST parsing, 13 language handlers
+  parser/             — tree-sitter AST parsing, 14 language handlers
   ingest/             — repo cloning, file walking, gitignore filtering
   clean/              — smart code cleaning for LLM context
   render/             — rendering modes (signatures, skeleton, focused)
