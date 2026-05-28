@@ -104,6 +104,38 @@ func TestCategorizeImport_UnknownLanguage(t *testing.T) {
 	}
 }
 
+// TestCategorizeImport_Kotlin verifies that Kotlin/Java stdlib prefixes are
+// classified correctly (internal/compare/importcat.go).
+func TestCategorizeImport_Kotlin(t *testing.T) {
+	tests := []struct {
+		imp  string
+		want ImportCategory
+	}{
+		// Kotlin stdlib
+		{"kotlin.collections.List", ImportStdlib},
+		{"kotlin.text.StringBuilder", ImportStdlib},
+		{"kotlinx.coroutines.launch", ImportStdlib},
+		// Java stdlib (used from Kotlin)
+		{"java.util.concurrent.Executor", ImportStdlib},
+		{"javax.inject.Inject", ImportStdlib},
+		// Android/AndroidX framework
+		{"android.content.Context", ImportStdlib},
+		{"androidx.lifecycle.ViewModel", ImportStdlib},
+		// third-party
+		{"com.squareup.okhttp3.OkHttpClient", ImportExternal},
+		{"io.ktor.client.HttpClient", ImportExternal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.imp, func(t *testing.T) {
+			got := CategorizeImport(tt.imp, "kotlin")
+			if got != tt.want {
+				t.Errorf("CategorizeImport(%q, \"kotlin\") = %q, want %q", tt.imp, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDetectFrameworks(t *testing.T) {
 	t.Run("go frameworks", func(t *testing.T) {
 		imports := []string{

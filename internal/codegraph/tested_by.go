@@ -64,6 +64,8 @@ func resolveTestTarget(test *parser.Symbol, byName map[string][]*parser.Symbol) 
 		return resolveGoTest(test, byName)
 	case "python":
 		return resolvePythonTest(test, byName)
+	case "kotlin":
+		return resolveKotlinTest(test, byName)
 	default:
 		return nil
 	}
@@ -105,16 +107,45 @@ func resolvePythonTest(test *parser.Symbol, byName map[string][]*parser.Symbol) 
 	return nil
 }
 
-func isTestSymbol(s *parser.Symbol) bool {
-	if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod && s.Kind != parser.KindType {
-		return false
+func resolveKotlinTest(test *parser.Symbol, byName map[string][]*parser.Symbol) []*parser.Symbol {
+	name := test.Name
+	// Strip "Test"/"Tests" suffix: UserTest → User, UserTests → User.
+	for _, suffix := range []string{"Tests", "Test"} {
+		if strings.HasSuffix(name, suffix) {
+			target := strings.TrimSuffix(name, suffix)
+			if targets := byName[target]; len(targets) > 0 {
+				return targets
+			}
+		}
 	}
+	return nil
+}
+
+func isTestSymbol(s *parser.Symbol) bool {
 	switch s.Language {
 	case "go":
+		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod {
+			return false
+		}
 		return strings.HasPrefix(s.Name, "Test") || strings.HasPrefix(s.Name, "Benchmark")
 	case "python":
+		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod && s.Kind != parser.KindType {
+			return false
+		}
 		return strings.HasPrefix(s.Name, "test_") || strings.HasPrefix(s.Name, "Test")
+	case "kotlin":
+		// Kotlin JUnit convention: top-level test classes and functions live in FooTest.kt/FooTests.kt.
+		// Accept both KindClass (JUnit test class) and KindFunction/KindMethod (individual @Test fns).
+		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod &&
+			s.Kind != parser.KindType && s.Kind != parser.KindClass {
+			return false
+		}
+		base := filepath.Base(s.File)
+		return strings.HasSuffix(base, "Test.kt") || strings.HasSuffix(base, "Tests.kt")
 	default:
+		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod && s.Kind != parser.KindType {
+			return false
+		}
 		return langutil.IsTestFile(s.File)
 	}
 }
@@ -128,6 +159,14 @@ func guessSourceFile(testFile, lang string) string {
 	case "python":
 		if strings.HasPrefix(base, "test_") {
 			return filepath.Join(dir, strings.TrimPrefix(base, "test_"))
+		}
+	case "kotlin":
+		// FooTest.kt → Foo.kt, FooTests.kt → Foo.kt (JUnit 4/5 naming convention)
+		for _, suffix := range []string{"Tests.kt", "Test.kt"} {
+			if strings.HasSuffix(base, suffix) {
+				stem := strings.TrimSuffix(base, suffix)
+				return filepath.Join(dir, stem+".kt")
+			}
 		}
 	}
 	return ""
