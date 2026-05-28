@@ -88,6 +88,15 @@ func TestComputeASTDiff_Python(t *testing.T) {
 	}
 }
 
+// TestLookupLanguage_Swift verifies that lookupLanguage returns a non-nil
+// tree-sitter language for "swift" (internal/compare/astdiff.go).
+func TestLookupLanguage_Swift(t *testing.T) {
+	lang := lookupLanguage("swift")
+	if lang == nil {
+		t.Fatal("lookupLanguage(\"swift\") returned nil — Swift tree-sitter grammar not registered")
+	}
+}
+
 // TestLookupLanguage_Kotlin verifies that lookupLanguage returns a non-nil
 // tree-sitter language for "kotlin" (internal/compare/astdiff.go).
 func TestLookupLanguage_Kotlin(t *testing.T) {
