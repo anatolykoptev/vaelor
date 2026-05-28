@@ -94,8 +94,8 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 		switch e.EdgeLabel {
 		case "HANDLES":
 			handlesCount++
-			if e.FromKey != "handleGetUsers" {
-				t.Errorf("HANDLES FromKey = %q, want handleGetUsers", e.FromKey)
+			if e.FromKey != "handleGetUsers:backend/handler.go" {
+				t.Errorf("HANDLES FromKey = %q, want handleGetUsers:backend/handler.go", e.FromKey)
 			}
 			if e.ToKey != "GET:/api/users" {
 				t.Errorf("HANDLES ToKey = %q, want GET:/api/users", e.ToKey)
@@ -199,6 +199,92 @@ func TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey(t *testing.T) {
 	want := "hunt_jobs:internal/admin/templates/hunt_jobs.html"
 	if fetchEdge.FromKey != want {
 		t.Errorf("FETCHES FromKey = %q, want %q", fetchEdge.FromKey, want)
+	}
+}
+
+// TestHandlesEdgeFromKey verifies that HANDLES edges for Go (server-side)
+// routes use the composite "handler:file" Symbol key so that AGE's
+// unwindEdgeMatch("Symbol", "fk") can split it into name + file properties.
+// Root cause: index_layers.go was passing r.Handler (bare name) which caused
+// split("handleHuntJobs", ':')[1] → NULL → MATCH (s:Symbol {file: NULL}) → no match.
+// go-nerv pattern: handler defined in same file as registration (internal/admin/handler.go).
+func TestHandlesEdgeFromKey(t *testing.T) {
+	t.Parallel()
+
+	route := routes.Route{
+		Method:    "GET",
+		Path:      "/admin/hunt/jobs",
+		Framework: "go",
+		Side:      "server",
+		Handler:   "handleHuntJobsList",
+		File:      "internal/admin/handler.go",
+		Line:      42,
+	}
+
+	got := handlesFromKey(route)
+	want := "handleHuntJobsList:internal/admin/handler.go"
+	if got != want {
+		t.Errorf("handlesFromKey = %q, want %q", got, want)
+	}
+}
+
+// TestHandlesEdgeFromKey_EmptyHandler verifies that an empty Handler
+// returns an empty string (callers skip the edge when FromKey is "").
+func TestHandlesEdgeFromKey_EmptyHandler(t *testing.T) {
+	t.Parallel()
+
+	route := routes.Route{
+		Method:    "GET",
+		Path:      "/admin/hunt/jobs",
+		Framework: "go",
+		Side:      "server",
+		Handler:   "",
+		File:      "internal/admin/handler.go",
+	}
+
+	got := handlesFromKey(route)
+	if got != "" {
+		t.Errorf("handlesFromKey with empty Handler = %q, want \"\"", got)
+	}
+}
+
+// TestBuildCrossLanguageGraph_HandlesCompositeKey verifies that
+// buildCrossLanguageGraph produces a HANDLES edge whose FromKey is
+// the composite "handler:file" form (not bare handler name).
+// This is what AGE's unwindEdgeMatch("Symbol", "fk") requires.
+// Constraint: assumes handler defined in same file as route registration (typical Go pattern).
+func TestBuildCrossLanguageGraph_HandlesCompositeKey(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/admin/hunt/jobs",
+			Framework: "go",
+			Side:      "server",
+			Handler:   "handleHuntJobsList",
+			File:      "internal/admin/handler.go",
+			Line:      42,
+		},
+	}
+
+	_, edges := buildCrossLanguageGraph(nil, routeList, nil)
+
+	var handlesEdge *edgeData
+	for i := range edges {
+		if edges[i].EdgeLabel == "HANDLES" {
+			e := edges[i]
+			handlesEdge = &e
+			break
+		}
+	}
+	if handlesEdge == nil {
+		t.Fatal("expected 1 HANDLES edge, got 0")
+	}
+
+	want := "handleHuntJobsList:internal/admin/handler.go"
+	if handlesEdge.FromKey != want {
+		t.Errorf("HANDLES FromKey = %q, want %q", handlesEdge.FromKey, want)
 	}
 }
 
