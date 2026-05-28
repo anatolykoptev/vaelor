@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
@@ -13,45 +12,63 @@ import (
 
 const (
 	semanticFallbackTopK = 5
-
-	// semanticFallbackEmbedTimeout caps the EmbedQuery call inside semanticSuggest.
-	// The fallback is best-effort "did you mean…?" — a dead/slow embed server
-	// must degrade to empty suggestions, NOT consume the parent tool's full budget.
-	// Root-cause: 2026-05-27 understand-timeout incident (embed.krolik.tools 504).
-	semanticFallbackEmbedTimeout = 5 * time.Second
 )
 
-// semanticSuggest runs a semantic search as fallback when the primary tool found nothing.
-// Returns formatted XML suggestions string, or empty string if unavailable or no results.
+// symbolNameSearcher is the minimal interface that semanticSuggest needs from
+// the embedding store. *embeddings.Store satisfies it via SearchBySymbolName.
+// Extracted here so tests can wire a spy without a live Postgres pool.
+//
+// Why an interface here rather than on SemanticDeps.Store: Store is a concrete
+// type used across many callers; narrowing to an interface at the consumer
+// (semantic_fallback.go) avoids touching the embedding package contract and
+// mirrors the SimilarPairFinder pattern from internal/semhealth/semhealth.go.
+type symbolNameSearcher interface {
+	SearchBySymbolName(ctx context.Context, repoKey string, keywords []string, language string, limit int) ([]embeddings.SearchResult, error)
+}
+
+// Compile-time assertion: *embeddings.Store satisfies symbolNameSearcher.
+// Catches signature drift on Store.SearchBySymbolName at build time rather
+// than at runtime when the trigram fallback path first fires.
+var _ symbolNameSearcher = (*embeddings.Store)(nil)
+
+// semanticSuggest runs a trigram fuzzy name match as fallback when the primary
+// tool found no symbol. Uses pg_trgm on code_embeddings.symbol_name (GIN
+// trigram index) — independent of the embed-server / jina worker availability.
+//
+// Why pg_trgm and not embedding: callers here typo on symbol names ("render_coturn"
+// missing → suggest "render_widget", "render_caddy"). Substring/typo similarity is
+// the correct primitive; semantic embedding is overkill and was the source of
+// 5-90s queue-overflow hangs on a saturated jina worker (incident 2026-05-27).
+//
+// Returns formatted XML suggestions, or empty string on no result / nil deps /
+// unindexed repo (degrades silently, same as before).
 func semanticSuggest(ctx context.Context, sem *SemanticDeps, root, query, language string) string {
-	if sem == nil || sem.Client == nil || sem.Store == nil {
+	if sem == nil {
+		return ""
+	}
+
+	// Resolve the searcher: prefer the test-injected spy, fall back to the
+	// concrete Store. Nil on both paths → unindexed / unconfigured → degrade.
+	var searcher symbolNameSearcher
+	if sem.storeSearcher != nil {
+		searcher = sem.storeSearcher
+	} else if sem.Store != nil {
+		searcher = sem.Store
+	}
+	if searcher == nil {
 		return ""
 	}
 
 	repoKey := codegraph.GraphNameFor(root)
 
-	// Bound the embed call to a short sub-context: the fallback is best-effort,
-	// so a dead embed server should degrade to no suggestions rather than
-	// blocking the entire tool budget. DeadlineExceeded is handled by the
-	// existing slog.Debug below.
-	embedCtx, cancel := context.WithTimeout(ctx, semanticFallbackEmbedTimeout)
-	defer cancel()
-
-	vector, err := sem.Client.EmbedQuery(embedCtx, query)
+	results, err := searcher.SearchBySymbolName(ctx, repoKey, []string{query}, language, semanticFallbackTopK)
 	if err != nil {
-		slog.Debug("semantic fallback: embed failed", slog.Any("error", err))
+		slog.Debug("trigram fallback: search failed", slog.Any("error", err))
 		return ""
 	}
-
-	results, err := sem.Store.Search(ctx, vector, embeddings.SearchOpts{
-		RepoKey:  repoKey,
-		Language: language,
-		TopK:     semanticFallbackTopK,
-	})
-	if err != nil || len(results) == 0 {
+	if len(results) == 0 {
 		return ""
 	}
-
 	return formatSemanticSuggestions(results)
 }
 
