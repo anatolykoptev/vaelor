@@ -6,10 +6,11 @@ import "bytes"
 // The URL field contains the ORIGINAL bytes from src (Go template actions such
 // as {{.ID}} are preserved for downstream normalisation by the routes layer).
 type HtmxRef struct {
-	Method    string // "GET", "POST", "PUT", "DELETE", or "PATCH"
-	URL       string // raw attribute value including any {{...}} actions
-	StartLine int    // 1-based line of the opening tag
-	EndLine   int    // 1-based line of the attribute value end (same as StartLine for single-line)
+	Method            string // "GET", "POST", "PUT", "DELETE", or "PATCH"
+	URL               string // raw attribute value including any {{...}} actions
+	StartLine         int    // 1-based line of the opening tag
+	EndLine           int    // 1-based line of the attribute value end (same as StartLine for single-line)
+	EnclosingTemplate string // name from the nearest enclosing {{define "X"}} block; "" if at top level
 }
 
 // hxMethodAttrs maps hx-* attribute name suffixes to their HTTP methods.
@@ -40,6 +41,20 @@ var hxMethodAttrs = []struct {
 //   - Both double-quoted and single-quoted attribute values are handled.
 func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inherently sequential; matches scanTemplateRefs pattern in astro_refs.go
 	skips := collectSkipRanges(src)
+
+	// defineStack tracks open {{define "X"}} blocks so we can stamp the
+	// enclosing template name onto each HtmxRef.  Go html/template does not
+	// allow nested define blocks, but we use a stack to be resilient; only
+	// the innermost name (top of stack) is recorded.
+	var defineStack []string
+
+	// currentTemplate returns the innermost open define name, or "" at top level.
+	currentTemplate := func() string {
+		if len(defineStack) == 0 {
+			return ""
+		}
+		return defineStack[len(defineStack)-1]
+	}
 
 	var refs []HtmxRef
 	i := 0
@@ -74,6 +89,47 @@ func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inher
 				}
 			}
 			i += advance
+			continue
+		}
+
+		// Go template action: {{...}}
+		// Track {{define "X"}} and {{end}} to maintain the enclosing-template
+		// scope stack.  We process this BEFORE the hx-* check so that a
+		// {{define}} on the same line as an hx-* attribute is handled first.
+		// Note: skip-ranges have already been checked above; {{define}} inside
+		// a <script> block is therefore ignored (correct, it can't happen in
+		// valid Go templates anyway).
+		if b == '{' && i+1 < len(src) && src[i+1] == '{' {
+			actionEnd := findActionClose(src, i+2)
+			if actionEnd < 0 {
+				// Unclosed action — skip past the opening "{{" and continue.
+				i += 2
+				continue
+			}
+			body := actionBody(src, i, actionEnd)
+			keyword, name := parseActionKeyword(body)
+			switch keyword {
+			case "define", "range", "if", "with", "block":
+				// Push a new scope.  Only "define" carries a meaningful name;
+				// other block keywords push "" so that {{end}} pops correctly
+				// if they are nested inside a define.
+				if keyword == "define" {
+					defineStack = append(defineStack, name)
+				} else {
+					defineStack = append(defineStack, "")
+				}
+			case "end":
+				if len(defineStack) > 0 {
+					defineStack = defineStack[:len(defineStack)-1]
+				}
+			}
+			// Count newlines consumed by the action span.
+			for _, c := range src[i:actionEnd] {
+				if c == '\n' {
+					line++
+				}
+			}
+			i = actionEnd
 			continue
 		}
 
@@ -139,10 +195,11 @@ func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inher
 				url := string(src[valStart:j])
 				if url != "" {
 					refs = append(refs, HtmxRef{
-						Method:    attr.method,
-						URL:       url,
-						StartLine: line,
-						EndLine:   line,
+						Method:            attr.method,
+						URL:               url,
+						StartLine:         line,
+						EndLine:           line,
+						EnclosingTemplate: currentTemplate(),
 					})
 				}
 				// Advance i to just after attr name so we don't re-scan.
@@ -176,10 +233,11 @@ func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inher
 			}
 			if url != "" {
 				refs = append(refs, HtmxRef{
-					Method:    attr.method,
-					URL:       url,
-					StartLine: startLine,
-					EndLine:   endLine,
+					Method:            attr.method,
+					URL:               url,
+					StartLine:         startLine,
+					EndLine:           endLine,
+					EnclosingTemplate: currentTemplate(),
 				})
 			}
 			i = j
