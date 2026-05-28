@@ -33,6 +33,7 @@ func (h *HTMLMatcher) Match(source []byte) []Route {
 			Framework: "htmx",
 			Side:      "client",
 			Line:      uint32(r.StartLine), //nolint:gosec // line numbers are small positive ints
+			Handler:   r.EnclosingTemplate, // {{define "X"}} scope → FETCHES edge in AGE graph
 		})
 	}
 	return out
