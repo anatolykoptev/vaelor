@@ -198,6 +198,82 @@ func (s *Store) DeleteRepo(ctx context.Context, repoKey string) error {
 	return err
 }
 
+// SymbolIdentity holds the identity fields for a single indexed symbol.
+// Used by incremental update paths (Pipeline.IndexFile) to compute diffs:
+// symbols present in DB but absent from new parse → DELETE;
+// symbols whose BodyHash changed → re-embed.
+type SymbolIdentity struct {
+	SymbolName string
+	BodyHash   uint64 // matches EmbeddingRecord.BodyHash (BIGINT in DB)
+	StartLine  int
+}
+
+// GetSymbolsForFile returns the symbol identity rows currently indexed for a
+// specific file in a repo. Used by incremental update paths (Pipeline.IndexFile)
+// to compute the diff: symbols present in DB but no longer in the file source
+// must be DELETEd; symbols whose BodyHash changed must be re-embedded.
+//
+// Returns rows sorted by symbol_name for determinism.
+func (s *Store) GetSymbolsForFile(ctx context.Context, repoKey, filePath string) ([]SymbolIdentity, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT symbol_name, body_hash, start_line
+		 FROM code_embeddings
+		 WHERE repo_key = $1 AND file_path = $2
+		 ORDER BY symbol_name`,
+		repoKey, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("get symbols for file: %w", err)
+	}
+	defer rows.Close()
+
+	var result []SymbolIdentity
+	for rows.Next() {
+		var si SymbolIdentity
+		var bodyHash int64
+		if err := rows.Scan(&si.SymbolName, &bodyHash, &si.StartLine); err != nil {
+			return nil, fmt.Errorf("scan symbol identity: %w", err)
+		}
+		si.BodyHash = uint64(bodyHash)
+		result = append(result, si)
+	}
+	return result, rows.Err()
+}
+
+// DeleteSymbolsForFile removes index rows for symbols in (repoKey, filePath)
+// EXCEPT those whose names appear in keepSymbolNames. Used to reconcile a file
+// after re-parsing: symbols missing from the new parse (deleted / renamed)
+// must be evicted. Returns rows-affected count.
+//
+// If keepSymbolNames is empty, all symbols for the file are deleted (use this
+// for IndexFile when the file is removed from the source tree).
+func (s *Store) DeleteSymbolsForFile(ctx context.Context, repoKey, filePath string, keepSymbolNames []string) (int64, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return 0, err
+	}
+
+	if len(keepSymbolNames) == 0 {
+		ct, err := s.pool.Exec(ctx,
+			`DELETE FROM code_embeddings WHERE repo_key = $1 AND file_path = $2`,
+			repoKey, filePath)
+		if err != nil {
+			return 0, fmt.Errorf("delete symbols for file: %w", err)
+		}
+		return ct.RowsAffected(), nil
+	}
+	ct, err := s.pool.Exec(ctx,
+		`DELETE FROM code_embeddings
+		 WHERE repo_key = $1 AND file_path = $2
+		   AND symbol_name != ALL($3::text[])`,
+		repoKey, filePath, keepSymbolNames)
+	if err != nil {
+		return 0, fmt.Errorf("delete symbols for file: %w", err)
+	}
+	return ct.RowsAffected(), nil
+}
+
 // Stats returns embedding counts per repo.
 func (s *Store) Stats(ctx context.Context) (map[string]int, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
