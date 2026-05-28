@@ -744,7 +744,8 @@ func containsSymbol(symbols []*parser.Symbol, name string, kind parser.NodeKind)
 // A pass after deleting handler_kotlin.go would be a tautology — this test calls
 // parser.ParseFile("user.kt", ...) and asserts on its return value.
 func TestParseKotlinFile_dataClass(t *testing.T) {
-	src := []byte(`data class User(val name: String, val age: Int)`)
+	// Multi-line fixture so AST handler's EndLine > StartLine is verifiable.
+	src := []byte("data class User(\n\tval name: String,\n\tval age: Int,\n)")
 
 	result, err := parser.ParseFile("user.kt", src, parser.ParseOpts{})
 	if err != nil {
@@ -768,6 +769,14 @@ func TestParseKotlinFile_dataClass(t *testing.T) {
 	}
 	if len(classes) != 1 {
 		t.Errorf("expected exactly 1 KindClass symbol, got %d: %v", len(classes), symbolNames(result.Symbols))
+	}
+
+	// AST discriminator: multi-line fixture must have EndLine > StartLine.
+	// Regex fallback always produces StartLine==EndLine.
+	for _, s := range classes {
+		if s.EndLine <= s.StartLine {
+			t.Errorf("User: EndLine (%d) should be > StartLine (%d); suggests fallback regex not AST", s.EndLine, s.StartLine)
+		}
 	}
 }
 
@@ -870,6 +879,136 @@ func TestParseKotlinFile_companionObject(t *testing.T) {
 		}
 	}
 	t.Errorf("Calculator/KindClass not found in symbols: %v", symbolNames(result.Symbols))
+}
+
+// --- Kotlin Wave 2 tests ---
+
+// TestParseKotlinFile_interfaceModifier verifies that an interface declaration is
+// emitted as KindInterface rather than KindClass, and that its methods are captured.
+func TestParseKotlinFile_interfaceModifier(t *testing.T) {
+	src := []byte(`interface Greeter { fun greet(): String }`)
+
+	result, err := parser.ParseFile("greeter.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if !containsSymbol(result.Symbols, "Greeter", parser.KindInterface) {
+		t.Errorf("expected symbol Greeter/KindInterface; got %v", symbolNames(result.Symbols))
+	}
+	// Must NOT appear as KindClass.
+	if containsSymbol(result.Symbols, "Greeter", parser.KindClass) {
+		t.Errorf("Greeter must not be KindClass when declared with interface keyword")
+	}
+	// Method inside interface body should be captured.
+	hasGreet := containsSymbol(result.Symbols, "greet", parser.KindFunction) ||
+		containsSymbol(result.Symbols, "greet", parser.KindMethod)
+	if !hasGreet {
+		t.Errorf("expected method greet/KindFunction or KindMethod; got %v", symbolNames(result.Symbols))
+	}
+}
+
+// TestParseKotlinFile_genericReceiverExtension guards against the receiver-capture
+// regression: for `fun <T> List<T>.first(): T`, the captured name must be "first",
+// not the type parameter "T" or receiver "List".
+func TestParseKotlinFile_genericReceiverExtension(t *testing.T) {
+	src := []byte(`fun <T> List<T>.first(): T = this[0]`)
+
+	result, err := parser.ParseFile("ext.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if !containsSymbol(result.Symbols, "first", parser.KindFunction) {
+		t.Errorf("expected symbol first/KindFunction; got %v", symbolNames(result.Symbols))
+	}
+	// Type parameter and receiver must not appear as independent symbols.
+	for _, s := range result.Symbols {
+		if s.Name == "T" || s.Name == "List" {
+			t.Errorf("unexpected symbol %q leaked from generic receiver", s.Name)
+		}
+	}
+}
+
+// TestParseKotlinFile_callSites verifies that ExtractCalls captures plain function
+// calls and identifies them by name, using the Kotlin calls query.
+func TestParseKotlinFile_callSites(t *testing.T) {
+	src := []byte(`fun caller() {
+    println("hi")
+    compute(1, 2)
+}
+fun compute(a: Int, b: Int) = a + b
+`)
+
+	calls, err := parser.ExtractCalls("main.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractCalls: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, c := range calls {
+		found[c.Name] = true
+	}
+	for _, want := range []string{"println", "compute"} {
+		if !found[want] {
+			t.Errorf("missing call to %q; got calls: %v", want, calls)
+		}
+	}
+}
+
+// TestParseKotlinFile_relationshipsInheritance verifies that ExtractRelationships
+// returns an inherit/extend edge from Cat to Animal.
+func TestParseKotlinFile_relationshipsInheritance(t *testing.T) {
+	src := []byte(`interface Animal { fun sound(): String }
+open class Cat : Animal { override fun sound() = "meow" }
+`)
+
+	rels, err := parser.ExtractRelationships("cat.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ExtractRelationships: %v", err)
+	}
+
+	found := false
+	for _, r := range rels {
+		if r.Subject == "Cat" && r.Target == "Animal" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Cat→Animal relationship; got %v", rels)
+	}
+}
+
+// TestParseKotlinFile_sealedClass verifies that sealed classes and their nested
+// subclasses are all emitted as KindClass (sealed is a modifier, not a separate kind).
+func TestParseKotlinFile_sealedClass(t *testing.T) {
+	src := []byte(`sealed class Result { class Ok : Result(); class Err : Result() }`)
+
+	result, err := parser.ParseFile("result.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	for _, name := range []string{"Result", "Ok", "Err"} {
+		if !containsSymbol(result.Symbols, name, parser.KindClass) {
+			t.Errorf("expected symbol %s/KindClass; got %v", name, symbolNames(result.Symbols))
+		}
+	}
+}
+
+// TestParseKotlinFile_enumClass verifies that an enum class is emitted as KindClass,
+// consistent with Java handler behaviour for enum_declaration.
+func TestParseKotlinFile_enumClass(t *testing.T) {
+	src := []byte(`enum class Color { RED, GREEN, BLUE }`)
+
+	result, err := parser.ParseFile("color.kt", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if !containsSymbol(result.Symbols, "Color", parser.KindClass) {
+		t.Errorf("expected symbol Color/KindClass; got %v", symbolNames(result.Symbols))
+	}
 }
 
 func TestParsePHPFile(t *testing.T) {
