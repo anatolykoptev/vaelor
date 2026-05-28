@@ -174,6 +174,51 @@ func TestScanHtmxRefs_outsideTemplate(t *testing.T) {
 	}
 }
 
+// TestScanHtmxRefs_nestedNonDefineBlocks — the dominant real-world htmx pattern:
+// {{range}}/{{if}}/{{with}}/{{block}} nested inside a {{define}}. The hx-* attr
+// must attribute to the enclosing define, not get masked to "". Caught as BLOCKER
+// by code-quality-reviewer on Wave 4 PR.
+func TestScanHtmxRefs_nestedNonDefineBlocks(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			"rangeInDefine",
+			`{{define "job_list"}}{{range .Jobs}}<button hx-get="/admin/jobs/x">View</button>{{end}}{{end}}`,
+			"job_list",
+		},
+		{
+			"ifInDefine",
+			`{{define "guarded"}}{{if .Allowed}}<a hx-get="/admin/x">link</a>{{end}}{{end}}`,
+			"guarded",
+		},
+		{
+			"withInDefine",
+			`{{define "scoped"}}{{with .User}}<button hx-post="/admin/y">save</button>{{end}}{{end}}`,
+			"scoped",
+		},
+		{
+			"deeplyNested",
+			`{{define "page"}}{{if .X}}{{range .Y}}{{with .Z}}<button hx-get="/q">x</button>{{end}}{{end}}{{end}}{{end}}`,
+			"page",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := ScanHtmxRefs([]byte(tc.src))
+			if len(refs) != 1 {
+				t.Fatalf("ScanHtmxRefs: got %d refs, want 1; refs = %v", len(refs), refs)
+			}
+			if refs[0].EnclosingTemplate != tc.want {
+				t.Errorf("EnclosingTemplate = %q, want %q (hx-* inside non-define block must inherit outer define)", refs[0].EnclosingTemplate, tc.want)
+			}
+		})
+	}
+}
+
 // Left-boundary guard: the substring "hx-get=" inside another attribute's
 // value must NOT trigger a spurious Route. Caught by reviewer on Wave 2 PR.
 func TestScanHtmxRefs_leftBoundaryGuard(t *testing.T) {

@@ -42,18 +42,26 @@ var hxMethodAttrs = []struct {
 func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inherently sequential; matches scanTemplateRefs pattern in astro_refs.go
 	skips := collectSkipRanges(src)
 
-	// defineStack tracks open {{define "X"}} blocks so we can stamp the
-	// enclosing template name onto each HtmxRef.  Go html/template does not
-	// allow nested define blocks, but we use a stack to be resilient; only
-	// the innermost name (top of stack) is recorded.
+	// defineStack tracks open {{define "X"}} blocks AND non-define block
+	// keywords ({{range}}/{{if}}/{{with}}/{{block}}) so {{end}} pops correctly
+	// even when blocks nest inside a define. Non-define blocks push "" so the
+	// pop accounting matches Go template's flat block grammar.
+	//
+	// currentTemplate walks the stack top→bottom returning the first non-empty
+	// name. This preserves "innermost define wins" semantics for nested defines
+	// (rare, non-standard) while letting nested non-define blocks transparently
+	// inherit the enclosing define — the dominant real-world htmx pattern:
+	//   {{define "list"}}{{range .Items}}<button hx-get="/x">{{end}}{{end}}
+	// without this walk, the hx-get inside {{range}} would mask out to "".
 	var defineStack []string
 
-	// currentTemplate returns the innermost open define name, or "" at top level.
 	currentTemplate := func() string {
-		if len(defineStack) == 0 {
-			return ""
+		for k := len(defineStack) - 1; k >= 0; k-- {
+			if defineStack[k] != "" {
+				return defineStack[k]
+			}
 		}
-		return defineStack[len(defineStack)-1]
+		return ""
 	}
 
 	var refs []HtmxRef
