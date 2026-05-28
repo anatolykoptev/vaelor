@@ -180,6 +180,13 @@ func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 					break
 				}
 			}
+		case "swift":
+			// XCTest: func testFoo() — name prefix "test" (no annotation required).
+			// Note: this marks the test function name itself in the tested set.
+			// A future wave can map testFoo → Foo SUT name via stem-stripping.
+			if strings.HasPrefix(name, "test") {
+				tested[name] = true
+			}
 		case "svelte", "astro", "typescript", "javascript":
 			// File-based: Button.test.ts or Modal.spec.svelte → mark stem "Button"/"Modal".
 			if stem, ok := langutil.TestStem(s.File); ok {

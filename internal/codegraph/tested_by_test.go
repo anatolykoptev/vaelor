@@ -46,6 +46,41 @@ func TestExtractTestedByEdges_Python(t *testing.T) {
 	}
 }
 
+// TestExtractTestedByEdges_Swift verifies that the Swift XCTest stem heuristic
+// maps FooTests.swift → Foo.swift and FooTest.swift → Foo.swift via guessSourceFile,
+// and that XCTest class-level (KindClass) and function-level (KindMethod) symbols
+// are both recognized as test symbols.
+// Relies on production isTestSymbol + guessSourceFile (internal/codegraph/tested_by.go).
+func TestExtractTestedByEdges_Swift(t *testing.T) {
+	cases := []struct {
+		srcFile  string
+		testFile string
+		srcName  string
+		testName string
+		kind     parser.NodeKind
+	}{
+		// XCTestCase class convention: FooTests.swift → Foo.swift
+		{"User.swift", "UserTests.swift", "User", "UserTests", parser.KindClass},
+		// Alternate suffix: FooTest.swift → Foo.swift
+		{"Repo.swift", "RepoTest.swift", "Repo", "RepoTest", parser.KindClass},
+		// Function-level: func testFoo() in a test file
+		{"Order.swift", "OrderTests.swift", "Order", "testFetchOrder", parser.KindMethod},
+	}
+
+	for _, c := range cases {
+		t.Run(c.testFile, func(t *testing.T) {
+			symbols := []*parser.Symbol{
+				{Name: c.srcName, Kind: parser.KindClass, File: c.srcFile, Language: "swift"},
+				{Name: c.testName, Kind: c.kind, File: c.testFile, Language: "swift"},
+			}
+			edges := ExtractTestedByEdges("", symbols)
+			if len(edges) == 0 {
+				t.Errorf("expected at least 1 edge from %s → %s, got none", c.testFile, c.srcFile)
+			}
+		})
+	}
+}
+
 // TestExtractTestedByEdges_Kotlin verifies that the Kotlin stem-based heuristic
 // maps FooTest.kt → Foo.kt and FooTests.kt → Foo.kt via guessSourceFile.
 // Relies on production guessSourceFile (internal/codegraph/tested_by.go).
