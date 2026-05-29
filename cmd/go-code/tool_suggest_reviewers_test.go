@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -20,7 +19,7 @@ func mkSuggestReviewersRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	run := func(env []string, args ...string) {
-		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
 		cmd.Env = append(os.Environ(), env...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -133,5 +132,75 @@ func TestSuggestReviewers_DirectAuthorshipWins(t *testing.T) {
 	}
 	if !strings.Contains(top.Signal, "recent=true") {
 		t.Errorf("expected signal to contain 'recent=true', got %q", top.Signal)
+	}
+}
+
+// mkSuggestReviewersCouplingRepo sets up: Alice authors a.go directly
+// twice (so she's the top direct candidate), then Bob authors TWO joint
+// commits touching BOTH a.go and b.go (so a.go and b.go couple via 2
+// co-changes, and Bob shows up as a partner author).
+func mkSuggestReviewersCouplingRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(env []string, args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), env...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run(nil, "init", "-b", "main")
+	run(nil, "config", "user.email", "x@x")
+	run(nil, "config", "user.name", "x")
+	writeAdd := func(author string, contents map[string]string) {
+		for path, body := range contents {
+			if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run(nil, "add", path)
+		}
+		mail := strings.ToLower(author) + "@example.test"
+		env := []string{
+			"GIT_AUTHOR_NAME=" + author, "GIT_AUTHOR_EMAIL=" + mail,
+			"GIT_COMMITTER_NAME=" + author, "GIT_COMMITTER_EMAIL=" + mail,
+		}
+		run(env, "commit", "-m", "msg")
+	}
+	// Alice's direct work on a.go (2 commits, so she's top direct candidate).
+	writeAdd("Alice", map[string]string{"a.go": "alpha\n"})
+	writeAdd("Alice", map[string]string{"a.go": "alpha v2\n"})
+	// Bob's two joint commits touching both a.go AND b.go (>=2 co-changes
+	// satisfies CollectCoupling minCoChanges).
+	writeAdd("Bob", map[string]string{"a.go": "alpha + joint\n", "b.go": "beta init\n"})
+	writeAdd("Bob", map[string]string{"a.go": "alpha + joint v2\n", "b.go": "beta v2\n"})
+	return dir
+}
+
+// TestSuggestReviewers_CoChangePartnerSignal guards the
+// suggestReviewersWeightCoChange = 0.5 path — partner authors must
+// surface in suggestions when their co-change ratio satisfies the
+// minCoChanges floor (=2).
+func TestSuggestReviewers_CoChangePartnerSignal(t *testing.T) {
+	dir := mkSuggestReviewersCouplingRepo(t)
+	res, err := handleSuggestReviewersCore(t.Context(), SuggestReviewersArgs{
+		Repo:  dir,
+		Paths: []string{"a.go"},
+	}, analyze.Deps{})
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected: err=%v res=%v", err, res)
+	}
+	body := extractText(t, res)
+	// Bob touched a.go in joint commits — must appear in suggestions.
+	if !strings.Contains(body, `"name": "Bob"`) {
+		t.Fatalf("Bob should appear via co-change signal, body:\n%s", body)
+	}
+	// The co-change signal must be present for at least one candidate.
+	if !strings.Contains(body, "co-change=") {
+		t.Fatalf("co-change signal missing in body:\n%s", body)
+	}
+	// Bob's signal must show co-change >= 1 (the joint commits contribute
+	// to partnerCounts via b.go authorship).
+	if !strings.Contains(body, "co-change=2") && !strings.Contains(body, "co-change=1") {
+		t.Fatalf("Bob's co-change signal expected co-change>=1, got body:\n%s", body)
 	}
 }
