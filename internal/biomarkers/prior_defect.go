@@ -4,17 +4,15 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
+	"time"
 )
 
-// osWriteFile is exposed for tests; production code uses os.WriteFile directly.
-var osWriteFile = os.WriteFile
-
-func itoa(i int) string { return strconv.Itoa(i) }
+// priorDefectGitTimeout bounds a single git log call so a stuck repo
+// (large pack, lock contention) can't stall the aggregator.
+const priorDefectGitTimeout = 15 * time.Second
 
 // defectMsgRE matches commit subjects that signal a defect repair.
 //
@@ -40,6 +38,8 @@ func (PriorDefect) Name() string { return "prior_defect" }
 
 // Score implements Biomarker.
 func (PriorDefect) Score(ctx context.Context, repoRoot, relPath string) (float64, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, priorDefectGitTimeout)
+	defer cancel()
 	//nolint:gosec // repoRoot and relPath are trusted local paths.
 	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot,
 		"log", "--since=180.days", "--pretty=format:%s", "--", relPath)
