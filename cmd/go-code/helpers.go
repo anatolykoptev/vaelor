@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/policy"
 	"github.com/anatolykoptev/go-code/internal/review"
 	"github.com/anatolykoptev/go-kit/llm"
@@ -46,6 +47,55 @@ func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 	}
+}
+
+// metaResult returns a text CallToolResult and, when env is non-zero,
+// appends a JSON-encoded "_meta" footer separated by a sentinel marker
+// (HTML comment) so existing human readers and string-matching tests
+// continue to work unchanged.
+//
+// Empty envelope (zero timing AND no hint AND no staleness) falls back
+// to plain textResult.
+func metaResult(text string, env mcpmeta.Envelope) *mcp.CallToolResult {
+	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
+		return textResult(text)
+	}
+	js, err := env.MarshalJSON()
+	if err != nil {
+		return textResult(text)
+	}
+	return textResult(text + "\n\n<!-- meta: " + string(js) + " -->")
+}
+
+// metaXMLMarshalResult is the envelope-aware variant of xmlMarshalResult.
+// It marshals v as indented XML and appends the meta envelope footer before
+// passing to largeTextResult. Falls back to xmlMarshalResult on marshal error.
+func metaXMLMarshalResult(v any, toolName, outputDir string, env mcpmeta.Envelope) *mcp.CallToolResult {
+	data, err := xml.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err))
+	}
+	text := xml.Header + string(data)
+	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
+		return largeTextResult(text, toolName, outputDir)
+	}
+	js, jerr := env.MarshalJSON()
+	if jerr != nil {
+		return largeTextResult(text, toolName, outputDir)
+	}
+	return largeTextResult(text+"\n\n<!-- meta: "+string(js)+" -->", toolName, outputDir)
+}
+
+// metaLargeTextResult is the envelope-aware variant of largeTextResult.
+func metaLargeTextResult(text, toolName, outputDir string, env mcpmeta.Envelope) *mcp.CallToolResult {
+	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
+		return largeTextResult(text, toolName, outputDir)
+	}
+	js, err := env.MarshalJSON()
+	if err != nil {
+		return largeTextResult(text, toolName, outputDir)
+	}
+	return largeTextResult(text+"\n\n<!-- meta: "+string(js)+" -->", toolName, outputDir)
 }
 
 // largeTextResult returns a text result, saving to file if content exceeds maxInlineCharsDefault.
