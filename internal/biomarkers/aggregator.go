@@ -6,22 +6,37 @@ import (
 	"math"
 )
 
+const (
+	// weightSumTolerance is the allowed slop on Σweights == 1.0; floating
+	// point math accumulates small errors when weight values are written
+	// as decimals.
+	weightSumTolerance = 0.001
+	// scoreSpan maps a weighted [0,1] sum onto the integer health-score
+	// [1, 10] range via 1 + round(scoreSpan * weighted).
+	scoreSpan = 9.0
+)
+
 // Aggregator combines biomarker scores into a 1-10 file score.
 type Aggregator struct {
 	reg     *Registry
 	weights map[string]float64 // biomarker name → weight in [0,1], sum to 1
 }
 
-// NewAggregator builds an aggregator. weights must sum to 1.0 (±0.001);
-// otherwise NewAggregator panics — this is a programmer error caught at
-// init.
+// NewAggregator builds an aggregator. weights must sum to 1.0 (±weightSumTolerance)
+// and every weight name must have a registered biomarker; otherwise
+// NewAggregator panics — these are programmer errors caught at init.
 func NewAggregator(reg *Registry, weights map[string]float64) *Aggregator {
 	var sum float64
 	for _, w := range weights {
 		sum += w
 	}
-	if math.Abs(sum-1.0) > 0.001 { //nolint:mnd
+	if math.Abs(sum-1.0) > weightSumTolerance {
 		panic(fmt.Sprintf("biomarkers: weights sum %.3f, want 1.0", sum))
+	}
+	for name := range weights {
+		if reg.Get(name) == nil {
+			panic(fmt.Sprintf("biomarkers: weight name %q has no registered biomarker", name))
+		}
 	}
 	return &Aggregator{reg: reg, weights: weights}
 }
@@ -56,6 +71,6 @@ func (a *Aggregator) ScoreFile(ctx context.Context, repoRoot, relPath string) (F
 	if weighted > 1 {
 		weighted = 1
 	}
-	fs.Score = 1 + int(math.Round(9.0*weighted)) //nolint:mnd
+	fs.Score = 1 + int(math.Round(scoreSpan*weighted))
 	return fs, nil
 }
