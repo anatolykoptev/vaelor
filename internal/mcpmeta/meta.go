@@ -15,13 +15,13 @@ import (
 // Envelope is the meta block attached to a tool response.
 //
 // Convention:
-//   - TimingMS is always populated.
+//   - DurationMS is always populated.
 //   - Hint is populated only when a clear next-call is cheap and obvious.
 //     A noisy hint trains the calling agent to ignore the field.
 //   - StaleWarning is populated only when the indexed commit no longer
 //     matches the on-disk HEAD. Silence is the calibrated signal.
 type Envelope struct {
-	TimingMS     int64  `json:"timing_ms"`
+	DurationMS   int64  `json:"duration_ms"`
 	Hint         string `json:"hint,omitempty"`
 	StaleWarning string `json:"stale_warning,omitempty"`
 	IndexedSHA   string `json:"indexed_sha,omitempty"`
@@ -32,7 +32,7 @@ type Envelope struct {
 // Pass hint == "" when no next-call is obvious.
 func Wrap(elapsed time.Duration, hint string) Envelope {
 	return Envelope{
-		TimingMS: elapsed.Milliseconds(),
+		DurationMS: elapsed.Milliseconds(),
 		Hint:     hint,
 	}
 }
