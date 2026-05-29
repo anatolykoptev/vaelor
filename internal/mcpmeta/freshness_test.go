@@ -83,3 +83,33 @@ func TestWithFreshness_MismatchSpeaks(t *testing.T) {
 		t.Fatalf("mismatch must surface both SHAs")
 	}
 }
+
+func TestWithFreshness_EmptyIndexedSilent(t *testing.T) {
+	dir := mkRepo(t)
+	env := WithFreshness(Wrap(1, ""), dir, "")
+	if env.StaleWarning != "" {
+		t.Fatalf("empty indexedSHA must be silent, got %q", env.StaleWarning)
+	}
+	if env.IndexedSHA != "" || env.LiveSHA != "" {
+		t.Fatalf("empty indexedSHA must not surface SHAs")
+	}
+}
+
+func TestLiveHead_LinkedWorktree(t *testing.T) {
+	// Create a primary repo, then add a linked worktree, then verify
+	// LiveHead resolves the worktree's HEAD by following the gitdir
+	// pointer file.
+	primary := mkRepo(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	cmd := exec.Command("git", "-C", primary, "worktree", "add", "-b", "feature", wt)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	sha, err := LiveHead(wt)
+	if err != nil {
+		t.Fatalf("LiveHead on worktree: %v", err)
+	}
+	if len(sha) != 40 {
+		t.Fatalf("LiveHead worktree SHA: got %q (len=%d), want 40-hex", sha, len(sha))
+	}
+}
