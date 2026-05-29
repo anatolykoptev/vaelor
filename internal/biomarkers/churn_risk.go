@@ -10,13 +10,23 @@ import (
 	"github.com/anatolykoptev/go-code/internal/compare"
 )
 
-// ChurnRisk surfaces files whose post-creation line-volume churn exceeds their
-// current size — Nagappan & Ball's "relative churn" predictor.
+// ChurnRisk surfaces files whose post-creation rewrite churn exceeds their
+// current size. It implements a stable-size variant of Nagappan & Ball's
+// relative-churn predictor.
 //
-// Window: matches compare.CollectChurn (90-day default).
-// Saturation: 2× rewrite (post-creation) = score 1.0.
-// Initial file-creation churn is excluded so a freshly-added file does not
-// register as risky just because its first commit's additions equal its LOC.
+// Window: inherits compare.CollectChurn, which currently walks ALL git
+// history (no --since flag). To get a time-windowed variant, pass a
+// `since` parameter into CollectChurn in a follow-up PR.
+//
+// Saturation: rawChurn >= 2 × LOC → score 1.0.
+//
+// Known limitation (Phase 1 trade-off): the "exclude initial creation"
+// term subtracts LOC unconditionally. For a file that grew substantially
+// post-creation (e.g. created at 50 LOC, later additions brought it to
+// 100 LOC), the formula yields rawChurn = 0 even though the post-creation
+// modifications are real churn. A future per-commit accounting (split
+// out the first commit's additions via `git log --diff-filter=A`) would
+// fix this. Tracked as follow-up.
 type ChurnRisk struct{}
 
 // Name implements Biomarker.
@@ -49,11 +59,10 @@ func (ChurnRisk) Score(ctx context.Context, repoRoot, relPath string) (float64, 
 		score = 1
 	}
 	if score < 0.1 {
-		// Below the noise floor.
-		return 0, "", nil
+		return 0, "below noise floor", nil
 	}
 	reason := fmt.Sprintf(
-		"post-creation churn %.1fx (%d±/%d LOC) in last 90 days",
+		"post-creation churn %.1fx (%d post-creation lines / %d LOC) across history",
 		rel, rawChurn, loc,
 	)
 	return score, reason, nil
