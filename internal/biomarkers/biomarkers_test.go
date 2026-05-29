@@ -5,9 +5,12 @@ import (
 	"testing"
 )
 
-type fakeBM struct{ name string; score float64 }
+type fakeBM struct {
+	name  string
+	score float64
+}
 
-func (f fakeBM) Name() string                                                       { return f.name }
+func (f fakeBM) Name() string { return f.name }
 func (f fakeBM) Score(_ context.Context, _ string, _ string) (float64, string, error) {
 	return f.score, "fake reason", nil
 }
@@ -31,4 +34,11 @@ func TestRegistry_DuplicateNamePanics(t *testing.T) {
 		}
 	}()
 	r.Register(fakeBM{name: "x"})
+}
+
+func TestRegistry_GetReturnsNil(t *testing.T) {
+	r := NewRegistry()
+	if got := r.Get("nope"); got != nil {
+		t.Fatalf("Get on unregistered name: want nil, got %v", got)
+	}
 }

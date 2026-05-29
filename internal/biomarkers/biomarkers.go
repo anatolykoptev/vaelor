@@ -25,8 +25,9 @@ type Biomarker interface {
 }
 
 // Registry holds the set of biomarkers available to the aggregator.
-// Names must be unique; duplicate registration panics — biomarkers are
-// registered once at package init, so this is a programmer error.
+// Names must be unique; duplicate registration panics — Registry uses
+// a construct-register-freeze-read lifecycle, so a duplicate is a
+// programmer error at construction time.
 type Registry struct {
 	order  []string
 	byName map[string]Biomarker
@@ -59,8 +60,8 @@ func (r *Registry) Get(name string) Biomarker {
 	return r.byName[name]
 }
 
-// FileScore is the aggregated result for a single file.
-type FileScore struct {
+// FileHealth is the aggregated health result for a single file.
+type FileHealth struct {
 	Path    string             `json:"path"`
 	Score   int                `json:"score"`   // 1 = healthy, 10 = on fire
 	Reasons map[string]string  `json:"reasons"` // biomarker name → human reason
