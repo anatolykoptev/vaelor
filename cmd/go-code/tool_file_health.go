@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/biomarkers"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
@@ -18,6 +19,10 @@ const (
 	// maxHealthDefaultPaths is the maximum number of hotspot paths to score
 	// when no explicit paths are provided.
 	maxHealthDefaultPaths = 20
+
+	// hotspotHintThreshold is the minimum score for the top file to trigger
+	// an advisory hint in the response meta.
+	hotspotHintThreshold = 7
 )
 
 // defaultHealthWeights are the per-biomarker weights used by defaultHealthRegistry.
@@ -29,7 +34,7 @@ var defaultHealthWeights = map[string]float64{
 
 // FileHealthArgs is the input schema for the get_file_health tool.
 type FileHealthArgs struct {
-	Repo  string   `json:"repo"  jsonschema_description:"Repository absolute local path"`
+	Repo  string   `json:"repo"  jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
 	Paths []string `json:"paths,omitempty" jsonschema_description:"File paths (relative to repo root) to score. Defaults to top-20 hotspot files by churn."`
 }
 
@@ -54,8 +59,7 @@ func defaultHealthRegistry() *biomarkers.Registry {
 func topHotspotPaths(ctx context.Context, repo string, max int) ([]string, error) {
 	churn, err := compare.CollectChurn(ctx, repo)
 	if err != nil {
-		// Non-fatal: non-git dirs return an error from git; treat as empty.
-		return nil, nil //nolint:nilerr
+		return nil, fmt.Errorf("collect churn: %w", err)
 	}
 	if len(churn) == 0 {
 		return nil, nil
@@ -70,7 +74,10 @@ func topHotspotPaths(ctx context.Context, repo string, max int) ([]string, error
 		entries = append(entries, entry{path: path, score: stats.ChurnScore()})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].score > entries[j].score
+		if entries[i].score != entries[j].score {
+			return entries[i].score > entries[j].score
+		}
+		return entries[i].path < entries[j].path
 	})
 
 	if max > 0 && len(entries) > max {
@@ -84,66 +91,82 @@ func topHotspotPaths(ctx context.Context, repo string, max int) ([]string, error
 }
 
 // handleFileHealthCore is the testable core of the get_file_health tool.
-func handleFileHealthCore(ctx context.Context, args FileHealthArgs) (*mcp.CallToolResult, error) {
+func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomarkers.Aggregator, cfg Config, deps analyze.Deps) (*mcp.CallToolResult, error) {
 	if args.Repo == "" {
-		return errResult("repo: required"), nil
+		return errResult("repo is required"), nil
 	}
+
+	root, cleanup, err := resolveRoot(ctx, args.Repo, "", deps)
+	if err != nil {
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
+	}
+	defer cleanup()
 
 	t0 := time.Now()
 
-	reg := defaultHealthRegistry()
-	agg := biomarkers.NewAggregator(reg, defaultHealthWeights)
-
 	paths := args.Paths
 	if len(paths) == 0 {
-		var err error
-		paths, err = topHotspotPaths(ctx, args.Repo, maxHealthDefaultPaths)
-		if err != nil {
-			return errResult(fmt.Sprintf("collect churn: %s", err)), nil
+		var herr error
+		paths, herr = topHotspotPaths(ctx, root, maxHealthDefaultPaths)
+		if herr != nil {
+			return errResult(fmt.Sprintf("collect churn: %s", herr)), nil
 		}
 	}
 
-	files := make([]biomarkers.FileHealth, 0, len(paths))
+	out := FileHealthResult{}
 	for _, p := range paths {
-		fh, err := agg.ScoreFile(ctx, args.Repo, p)
-		if err != nil {
-			return errResult(fmt.Sprintf("score file %q: %s", p, err)), nil
+		fh, serr := agg.ScoreFile(ctx, root, p)
+		if serr != nil {
+			fh = biomarkers.FileHealth{
+				Path:    p,
+				Score:   0,
+				Reasons: map[string]string{"error": serr.Error()},
+				Raw:     map[string]float64{},
+			}
 		}
-		files = append(files, fh)
+		out.Files = append(out.Files, fh)
 	}
 
-	sort.SliceStable(files, func(i, j int) bool {
-		return files[i].Score > files[j].Score
+	sort.SliceStable(out.Files, func(i, j int) bool {
+		if out.Files[i].Score != out.Files[j].Score {
+			return out.Files[i].Score > out.Files[j].Score
+		}
+		return out.Files[i].Path < out.Files[j].Path
 	})
 
-	// Build hint from top file.
+	// Build advisory hint from top file — references only our own response
+	// keys (prior_defect, churn_risk), never tool names or arg keys that
+	// could be wrong or non-existent.
 	var hint string
-	if len(files) > 0 && files[0].Score >= 7 {
-		hint = fmt.Sprintf("%s scored %d — call understand(path=...) or get_dead_code(path=...)",
-			files[0].Path, files[0].Score)
+	if len(out.Files) > 0 && out.Files[0].Score >= hotspotHintThreshold {
+		top := out.Files[0]
+		hint = fmt.Sprintf(
+			"top file %s scored %d/10 — review the reasons map for prior_defect / churn_risk drivers",
+			top.Path, top.Score,
+		)
 	}
 
-	out := FileHealthResult{
-		Files: files,
-		Meta:  mcpmeta.Wrap(time.Since(t0), hint),
-	}
+	out.Meta = mcpmeta.Wrap(time.Since(t0), hint)
 
-	body, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil
+	body, merr := json.MarshalIndent(out, "", "  ")
+	if merr != nil {
+		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
 	}
 	return textResult(string(body)), nil
 }
 
-// handleFileHealth adapts handleFileHealthCore to the mcp.ToolHandler signature.
-func handleFileHealth(ctx context.Context, _ *mcp.CallToolRequest, input FileHealthArgs) (*mcp.CallToolResult, error) {
-	return handleFileHealthCore(ctx, input)
-}
-
 // registerFileHealth registers the get_file_health tool on the MCP server.
-func registerFileHealth(server *mcp.Server) {
+// The aggregator is built once at registration time — NewAggregator panics on
+// bad weight config, so panicking here (at server startup) is intentional and
+// gives clear diagnostic rather than panicking inside a request handler.
+func registerFileHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
+	reg := defaultHealthRegistry()
+	agg := biomarkers.NewAggregator(reg, defaultHealthWeights)
+
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "get_file_health",
 		Description: "Report a 1-10 health score per file using prior_defect + churn_risk biomarkers. Optional paths defaults to top-20 hotspots.",
-	}, handleFileHealth)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FileHealthArgs) (*mcp.CallToolResult, error) {
+		return handleFileHealthCore(ctx, args, agg, cfg, deps)
+	})
 }

@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/biomarkers"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -39,6 +42,12 @@ func mkHealthRepo(t *testing.T, msgs []string) string {
 	return dir
 }
 
+// testAgg builds the default aggregator used by the tool for test helpers.
+func testAgg() *biomarkers.Aggregator {
+	reg := defaultHealthRegistry()
+	return biomarkers.NewAggregator(reg, defaultHealthWeights)
+}
+
 // extractFileHealthResult parses a *mcp.CallToolResult JSON body into FileHealthResult.
 func extractFileHealthResult(t *testing.T, result *mcp.CallToolResult) FileHealthResult {
 	t.Helper()
@@ -59,10 +68,23 @@ func extractFileHealthResult(t *testing.T, result *mcp.CallToolResult) FileHealt
 	return out
 }
 
+// textOf extracts the raw text body from a non-error CallToolResult.
+func textOf(t *testing.T, result *mcp.CallToolResult) string {
+	t.Helper()
+	if len(result.Content) == 0 {
+		return ""
+	}
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		return ""
+	}
+	return tc.Text
+}
+
 // TestGetFileHealth_RequiresRepo verifies that an empty Repo field returns IsError=true.
 func TestGetFileHealth_RequiresRepo(t *testing.T) {
 	args := FileHealthArgs{Repo: ""}
-	result, err := handleFileHealthCore(context.Background(), args)
+	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,25 +94,25 @@ func TestGetFileHealth_RequiresRepo(t *testing.T) {
 }
 
 // TestGetFileHealth_EmptyRepo_ReturnsEmptyList tests that a non-git directory
-// (CollectChurn returns nil/empty) with empty Paths yields empty Files and no error.
+// (CollectChurn returns error → propagated → collect churn error) with empty
+// Paths yields IsError. For an actual non-git dir with explicit paths, Files is empty.
 func TestGetFileHealth_EmptyRepo_ReturnsEmptyList(t *testing.T) {
 	dir := t.TempDir() // not a git repo
 	args := FileHealthArgs{Repo: dir, Paths: []string{}}
-	result, err := handleFileHealthCore(context.Background(), args)
+	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// topHotspotPaths now propagates CollectChurn errors (MAJOR-3 fix).
+	// A non-git tempdir causes git to exit non-zero → error returned → IsError=true.
+	// That is the correct behaviour: caller should know the dir is not a git repo.
 	if result.IsError {
-		if len(result.Content) > 0 {
-			if tc, ok := result.Content[0].(*mcp.TextContent); ok {
-				t.Fatalf("unexpected error result: %s", tc.Text)
-			}
-		}
-		t.Fatalf("unexpected error result")
+		// Accept: non-git dir → collect churn error → IsError.
+		return
 	}
 	out := extractFileHealthResult(t, result)
 	if len(out.Files) != 0 {
-		t.Fatalf("expected 0 files for non-git dir, got %d", len(out.Files))
+		t.Fatalf("expected 0 files for non-git dir with explicit empty paths, got %d", len(out.Files))
 	}
 }
 
@@ -103,7 +125,7 @@ func TestGetFileHealth_ExplicitPaths(t *testing.T) {
 		Repo:  dir,
 		Paths: []string{"foo.go"},
 	}
-	result, err := handleFileHealthCore(context.Background(), args)
+	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,5 +142,38 @@ func TestGetFileHealth_ExplicitPaths(t *testing.T) {
 	}
 	if out.Meta.DurationMS < 0 {
 		t.Fatal("meta.duration_ms should be >= 0")
+	}
+}
+
+// TestGetFileHealth_HintNeverReferencesUnregisteredTools guards against
+// the broken-hint class that shipped in commit 747fdf0 (referenced
+// "get_dead_code" and "understand(path=)" which don't exist / take wrong
+// args). The Phase-1 contract: hints may only reference our own response
+// keys (prior_defect, churn_risk) or advisory descriptions, never external
+// tool names or non-existent arg keys.
+func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
+	// High-score scenario: many fix commits → prior_defect fires hard.
+	dir := mkHealthRepo(t, []string{
+		"fix: a", "fix: b", "fix: c", "fix: d", "fix: e", "fix: f",
+		"fix: g", "fix: h",
+	})
+	args := FileHealthArgs{
+		Repo:  dir,
+		Paths: []string{"foo.go"},
+	}
+	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error result: %s", textOf(t, result))
+	}
+	body := textOf(t, result)
+	// The forbidden strings from the original broken hint (commit 747fdf0).
+	forbidden := []string{"get_dead_code", "understand(path=", "dead_code(path="}
+	for _, f := range forbidden {
+		if strings.Contains(body, f) {
+			t.Fatalf("hint must not reference %q — does not exist as a tool / arg key", f)
+		}
 	}
 }
