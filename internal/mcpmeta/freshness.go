@@ -64,6 +64,58 @@ func commonDir(gd string) string {
 	return filepath.Join(gd, rel)
 }
 
+// packedRefSHA looks up a fully-qualified ref (e.g. "refs/heads/main") in
+// <commonDir>/packed-refs, returning "" if absent or unparseable.
+func packedRefSHA(commonDir, ref string) string {
+	f, err := os.Open(filepath.Join(commonDir, "packed-refs")) //nolint:gosec
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 && parts[1] == ref && len(parts[0]) == 40 && isHex(parts[0]) {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
+// mainBranchHeadSHA returns the SHA of the repo's main branch
+// (refs/heads/main → refs/heads/master → HEAD fallback), without spawning
+// git. This mirrors the embed pipeline's repoMainBranchSHA fingerprint:
+// the index is keyed on the main branch, so freshness must compare against
+// main's tip, not the working-tree HEAD (which on a feature branch would
+// never match the main-keyed index → permanent false stale warning).
+func mainBranchHeadSHA(repoRoot string) (string, error) {
+	gd, err := gitDir(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	cd := commonDir(gd)
+	for _, branch := range []string{"main", "master"} {
+		// Loose ref first.
+		loose := filepath.Join(cd, "refs", "heads", branch)
+		if data, err := os.ReadFile(loose); err == nil { //nolint:gosec
+			sha := strings.TrimSpace(string(data))
+			if len(sha) == 40 && isHex(sha) {
+				return sha, nil
+			}
+		}
+		// packed-refs fallback.
+		if sha := packedRefSHA(cd, "refs/heads/"+branch); sha != "" {
+			return sha, nil
+		}
+	}
+	// No main/master — fall back to current HEAD (single-branch repo).
+	return LiveHead(repoRoot)
+}
+
 // LiveHead returns the on-disk HEAD SHA for a git repo without spawning git.
 //
 // It handles both primary checkouts (where .git is a directory) and linked
@@ -122,22 +174,8 @@ func LiveHead(repoRoot string) (string, error) {
 	}
 
 	// packed-refs lives under commonDir (shared with main repo).
-	packed := filepath.Join(cd, "packed-refs")
-	f, err := os.Open(packed)
-	if err != nil {
-		return "", fmt.Errorf("ref not loose and no packed-refs: %w", err)
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
-			continue
-		}
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) == 2 && parts[1] == ref && len(parts[0]) == 40 && isHex(parts[0]) {
-			return parts[0], nil
-		}
+	if sha := packedRefSHA(cd, ref); sha != "" {
+		return sha, nil
 	}
 	return "", fmt.Errorf("ref %q not in packed-refs", ref)
 }
@@ -151,14 +189,17 @@ func isHex(s string) bool {
 	return true
 }
 
-// WithFreshness annotates an envelope with staleness fields when the
-// caller-supplied indexedSHA does not match the on-disk HEAD.
-//
-// Silent on match: silence is the calibrated signal.
+// WithFreshness annotates an envelope with a staleness warning when the
+// caller-supplied indexedSHA (the SHA the embed pipeline indexed, which is
+// the MAIN-BRANCH tip) no longer matches the repo's current main-branch
+// tip. Freshness means "has main advanced past the index?", NOT "does your
+// working tree differ from the index" — the index is keyed on main, so
+// comparing against the working-tree HEAD would false-warn on every feature
+// branch. Silent on match.
 func WithFreshness(env Envelope, repoRoot, indexedSHA string) Envelope {
-	live, err := LiveHead(repoRoot)
+	live, err := mainBranchHeadSHA(repoRoot)
 	if err != nil {
-		slog.Debug("mcpmeta.LiveHead failed",
+		slog.Debug("mcpmeta.mainBranchHeadSHA failed",
 			"repo_root", repoRoot,
 			"err", err,
 		)
@@ -171,7 +212,7 @@ func WithFreshness(env Envelope, repoRoot, indexedSHA string) Envelope {
 		return env
 	}
 	env.StaleWarning = fmt.Sprintf(
-		"index built against %s, live HEAD is %s -- call code_graph refresh=true",
+		"index built against main %s, main is now %s -- call code_graph refresh=true",
 		short(indexedSHA), short(live),
 	)
 	env.IndexedSHA = indexedSHA

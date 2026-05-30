@@ -122,6 +122,9 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	}
 	// understand is a terminal call — no chaining hint.
 	env := mcpmeta.Wrap(time.Since(t0), "")
+	if sha := deps.IndexedSHA(ctx, codegraph.GraphNameFor(root)); sha != "" {
+		env = mcpmeta.WithFreshness(env, root, sha)
+	}
 	return metaResult(string(data), env), nil
 }
 

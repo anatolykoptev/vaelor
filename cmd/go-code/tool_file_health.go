@@ -203,7 +203,7 @@ func defaultHealthRegistry() *biomarkers.Registry {
 // paths ranked by ChurnScore descending. Returns nil, nil when the repo has
 // no git history (CollectChurn returns empty map without error).
 func topHotspotPaths(ctx context.Context, repo string, max int) ([]string, error) {
-	churn, err := compare.CollectChurn(ctx, repo)
+	churn, err := compare.CollectChurn(ctx, repo, 0)
 	if err != nil {
 		return nil, fmt.Errorf("collect churn: %w", err)
 	}
