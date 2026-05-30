@@ -92,6 +92,11 @@ func (PriorDefect) Score(ctx context.Context, repoRoot, relPath string) (float64
 
 // perFilePriorDefectCount runs the original per-file git log. Returns the
 // count and a wrapped error on git failure.
+//
+// NOTE: --follow is single-path only; BatchPriorDefect (multi-path) cannot
+// use it. The batch path therefore misses pre-rename history. This is an
+// accepted asymmetry: batched scoring trades rename-tracking for one git
+// invocation. The per-file fallback (this function) does follow renames.
 func perFilePriorDefectCount(ctx context.Context, repoRoot, relPath string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, priorDefectGitTimeout)
 	defer cancel()
@@ -100,6 +105,7 @@ func perFilePriorDefectCount(ctx context.Context, repoRoot, relPath string) (int
 		"log", "--since=180.days",
 		"--no-merges",
 		"--diff-filter=AMR",
+		"--follow",
 		"--pretty=format:%s",
 		"--", relPath)
 	out, err := cmd.Output()

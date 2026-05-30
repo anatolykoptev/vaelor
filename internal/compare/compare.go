@@ -253,7 +253,7 @@ func countMatches(matches []SymbolMatch) (matched, unmatchedA, unmatchedB int, b
 // collectHotspots runs git churn analysis and computes hotspot files for a single repo.
 // Returns nil if git is unavailable or the repo has no churn data.
 func collectHotspots(ctx context.Context, root string, snap *RepoSnapshot) []HotspotFile {
-	churn, _ := CollectChurn(ctx, root)
+	churn, _ := CollectChurn(ctx, root, 0)
 	if churn == nil {
 		return nil
 	}

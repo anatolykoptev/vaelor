@@ -103,7 +103,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	var hotspotSet map[string]bool
 	hctx, hcancel := context.WithTimeout(ctx, 15*time.Second)
 	defer hcancel()
-	churn, _ := compare.CollectChurn(hctx, root)
+	churn, _ := compare.CollectChurn(hctx, root, 0)
 	if len(churn) > 0 {
 		snap, snapErr := compare.BuildSnapshot(hctx, root, compare.SnapshotOpts{Language: input.Language})
 		var fc map[string]float64

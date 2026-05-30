@@ -1,7 +1,6 @@
 package compare
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -74,7 +73,7 @@ func (c *churnCache) removeFromOrder(key string) {
 	}
 }
 
-// churnCacheKey produces a stable cache key from the repo root path.
-func churnCacheKey(root string) string {
-	return fmt.Sprintf("churn::%s", root)
+// churnCacheKey derives a cache key from repo root + history window.
+func churnCacheKey(root string, since time.Duration) string {
+	return root + "\x00" + since.String()
 }

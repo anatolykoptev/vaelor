@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/codesearch"
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
@@ -141,6 +142,9 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	}
 	hint := mcpmeta.HintAfterCodeSearch(query, len(matches), firstSym)
 	env := mcpmeta.Wrap(time.Since(t0), hint)
+	if sha := deps.IndexedSHA(ctx, codegraph.GraphNameFor(root)); sha != "" {
+		env = mcpmeta.WithFreshness(env, root, sha)
+	}
 	return metaXMLMarshalResult(formatCodeSearchXML(input, matches, deps.PathMappings), "code_search", outputDir, env), nil
 }
 
