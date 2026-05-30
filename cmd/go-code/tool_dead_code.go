@@ -12,6 +12,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/deadcode"
+	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -88,6 +89,8 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 	if err != nil {
 		return errResult(fmt.Sprintf("build call graph: %s", err)), nil
 	}
+
+	t0 := time.Now()
 
 	result := deadcode.Analyze(cg, deadcode.Options{
 		IncludeExported: input.IncludeExported,
@@ -170,5 +173,27 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 		}
 	}
 
-	return xmlMarshalResult(resp, "dead_code", outputDir), nil
+	// Build hint: find the worst-offender file by dead-symbol count.
+	worstFile, worstCount := deadCodeWorstFile(symbols)
+	hint := mcpmeta.HintAfterDeadCode(worstFile, worstCount)
+	env := mcpmeta.Wrap(time.Since(t0), hint)
+	return metaXMLMarshalResult(resp, "dead_code", outputDir, env), nil
+}
+
+// deadCodeWorstFile returns the file with the most dead symbols and its count.
+// Returns ("", 0) when the symbols list is empty.
+func deadCodeWorstFile(symbols []xmlDeadSymbol) (string, int) {
+	counts := make(map[string]int, len(symbols))
+	for _, s := range symbols {
+		counts[s.File]++
+	}
+	var worst string
+	var worstN int
+	for f, n := range counts {
+		if n > worstN || (n == worstN && f < worst) {
+			worst = f
+			worstN = n
+		}
+	}
+	return worst, worstN
 }

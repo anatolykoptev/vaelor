@@ -5,9 +5,11 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codesearch"
+	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -91,6 +93,8 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	}
 	defer cleanup()
 
+	t0 := time.Now()
+
 	// Route to ox-codes for scoped or structural search (no Go fallback for new features).
 	if input.Scope != "" && deps.OxCodes != nil {
 		return handleScopedSearch(ctx, input, root, deps.OxCodes, outputDir, deps.PathMappings)
@@ -105,7 +109,8 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 		if err != nil {
 			return errResult(fmt.Sprintf("search: %s", err)), nil
 		}
-		return xmlMarshalResult(formatExpandedSearchXML(input, oxMatches), "code_search", outputDir), nil
+		env := mcpmeta.Wrap(time.Since(t0), "")
+		return metaXMLMarshalResult(formatExpandedSearchXML(input, oxMatches), "code_search", outputDir, env), nil
 	}
 
 	matches, err := grepSearch(ctx, input, root, deps.OxCodes)
@@ -116,13 +121,27 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	// Semantic fallback when grep finds nothing.
 	if len(matches) == 0 {
 		if suggestions := semanticSuggest(ctx, sem, root, input.Pattern, input.Language); suggestions != "" {
-			return textResult(fmt.Sprintf("<response tool=\"code_search\">\n"+
+			env := mcpmeta.Wrap(time.Since(t0), "")
+			body := fmt.Sprintf("<response tool=\"code_search\">\n"+
 				"  <search pattern=\"%s\" matches=\"0\"/>\n"+
-				"%s\n</response>", escapeXML(input.Pattern), suggestions)), nil
+				"%s\n</response>", escapeXML(input.Pattern), suggestions)
+			return metaResult(body, env), nil
 		}
 	}
 
-	return xmlMarshalResult(formatCodeSearchXML(input, matches, deps.PathMappings), "code_search", outputDir), nil
+	// Extract hint from first hit (if exactly one match exists).
+	var firstSym string
+	if len(matches) == 1 {
+		firstLine := matches[0].File + ":" + fmt.Sprintf("%d", matches[0].Line) + ":" + matches[0].Text
+		firstSym = mcpmeta.ExtractSymbolFromHit(firstLine)
+	}
+	query := input.Pattern
+	if query == "" {
+		query = input.Query
+	}
+	hint := mcpmeta.HintAfterCodeSearch(query, len(matches), firstSym)
+	env := mcpmeta.Wrap(time.Since(t0), hint)
+	return metaXMLMarshalResult(formatCodeSearchXML(input, matches, deps.PathMappings), "code_search", outputDir, env), nil
 }
 
 // grepSearch runs grep via ox-codes with fallback to Go codesearch.
