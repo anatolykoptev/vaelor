@@ -66,6 +66,20 @@ func TestResolveRepos_SinglePath(t *testing.T) {
 	}
 }
 
+func TestResolveRepos_PlainName(t *testing.T) {
+	parent := t.TempDir()
+	gitInit(t, filepath.Join(parent, "oxpulse-chat"))
+	gitInit(t, filepath.Join(parent, "go-code"))
+
+	got, err := ResolveRepos("go-code", []string{parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Slug != "go-code" {
+		t.Fatalf("plain name → that one repo, got %v", got)
+	}
+}
+
 func TestResolveRepos_GlobNoMatch(t *testing.T) {
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "go-code"))
