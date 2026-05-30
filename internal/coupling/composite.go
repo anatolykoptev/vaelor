@@ -3,8 +3,10 @@ package coupling
 import "context"
 
 // compositeVerifier runs several verifiers over a pair and concatenates their
-// evidence in order. A sub-verifier returning an error contributes no evidence
-// but does not fail the whole pair (one signal failing must not hide another).
+// evidence in order. A sub-verifier returning an error still contributes any
+// partial evidence it found — a future I/O tier may return (evidence, soft-error)
+// and that evidence must not be lost. One signal failing must not hide another's
+// result nor its own partial result.
 // This is how T0 (route) and T1 (symbol) verification run together: VerifyPairs
 // takes a single Verifier, so the composite presents many as one.
 type compositeVerifier struct {
@@ -23,10 +25,10 @@ func (c *compositeVerifier) Verify(ctx context.Context, a, b FilePair) ([]Eviden
 	var all []Evidence
 	for _, v := range c.vs {
 		ev, err := v.Verify(ctx, a, b)
+		all = append(all, ev...) // keep any partial evidence even if this verifier also errored
 		if err != nil {
-			continue // a failing signal must not sink the others
+			continue // a failing signal must not sink the others — nor its own partial result
 		}
-		all = append(all, ev...)
 	}
 	return all, nil
 }
