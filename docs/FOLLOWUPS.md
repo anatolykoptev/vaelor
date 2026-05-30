@@ -36,3 +36,46 @@ WARN msg="eager warm: prewarm failed" root=/host/src/dozor err="exit status 1"
 **Trade-off:** Cold-start warmup ~2× slower (single-threaded build per repo path) — acceptable; cold start is rare.
 
 **Validation:** After cap applied 2026-05-12, LA should peak <12 during cold start (vs 18 unbounded).
+
+---
+
+## Phase 1 repowise port — smoke test bugs (2026-05-29)
+
+Discovered after live smoke on PR #156 / v1.20.0. All non-blocking, but degrade signal quality.
+
+### BUG-FH-1 (HIGH) — `get_file_health` returns non-source files in top-20 hotspots
+**Where:** `cmd/go-code/tool_file_health.go::topHotspotPaths`
+**Evidence:** smoke on acme-web returned:
+- `docs/superpowers/plans/*.md` (4 entries, score 5 each) — markdown plans, churn high by nature, defect risk null
+- `Cargo.lock` (7), `package-lock.json` (2/6), `pnpm-lock.yaml` (2), `test-e2e/package-lock.json` (5) — auto-generated lock files
+- `web/static/audio/c2dec.js` + `c2enc.js` (5 each) — compiled codec2 WASM
+
+**Why:** `compare.CollectChurn` returns all tracked files. No type/dir filtering.
+
+**Fix:** Allow-list source extensions (`.go .rs .ts .tsx .js .jsx .svelte .py .java .kt .swift .rb .cs .cpp .c .h .hpp .php`) + deny-list dir prefixes (`vendor/ node_modules/ dist/ build/ static/ docs/ .claude/`) in `topHotspotPaths` before truncating to top-20.
+
+### BUG-FH-2 (MEDIUM) — `get_file_health` duration_ms=11549 on 20 paths
+**Where:** `cmd/go-code/tool_file_health.go::handleFileHealthCore` → 20 sequential `PriorDefect.Score` calls = 20× `git log --since=180.days`
+**Evidence:** smoke duration 11.5s for 20 paths
+**Fix:** Phase 2 — batch git query (`git log --pretty=%H|%s --since=180.days --name-only -- .` once, parse per-file) instead of per-path call.
+
+### BUG-SR-1 (LOW) — `suggest_reviewers` returns co-change=0 for paths with obvious coupling
+**Where:** `cmd/go-code/tool_suggest_reviewers.go::scoreFileReviewers` → `compare.CollectCoupling(ctx, root, suggestReviewersMinCoChanges=2)`
+**Evidence:** smoke on `cmd/go-code/tool_dead_code.go` + `internal/compare/churn.go` returned co-change=0 even though both files have known co-change partners (other tool_*.go files).
+**Hypothesis:** floor `minCoChanges=2` filters out recently-introduced pairs; possibly correct but slow signal warm-up.
+**Fix:** Phase 2 — verify on multi-author repo (acme-web) with established co-change history. If coupling cache stale, force refresh.
+
+### BUG-FH-3 (LOW) — top-5 cap returns only 1 suggestion on single-author repo
+**Where:** `cmd/go-code/tool_suggest_reviewers.go`
+**Evidence:** go-code repo (single author Anatoly) → 1 suggestion. Not a bug per se, but expose UX confusion when consumer expects "5".
+**Fix:** Phase 2 — document the contract: "returns ≤5 distinct authors found in history".
+
+### Verified WORKING
+
+- Envelope footer `<!-- meta: {"duration_ms":N,"hint":"..."} -->` emitted on 5 retrofitted tools (verified via `code_search`)
+- `HintAfterCodeSearch` silent on multi-hit (5 results) ✓
+- `HintAfterCodeSearch` fires on single-hit declaration ✓ — `"single hit — call understand(symbol=\"defaultHealthRegistry\") for the body"`
+- `ExtractSymbolFromHit` strips trailing `(` from `func defaultHealthRegistry()` correctly ✓
+- `get_file_health` top file hint fires at score ≥7 ✓ — `"top file crates/signaling/src/rooms.rs scored 9/10..."`
+- Hotspot detection identifies real bug-class files (rooms.rs, useCall.svelte.ts, useGroupCall.svelte.ts, register.rs) — all known [[acme-web-turn-loopback-score-regression]], [[feedback_svelte5_hydration_double_mount]], [[acme-web-turn-tls-url-resync-bug]] hotspots
+
