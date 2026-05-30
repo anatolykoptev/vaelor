@@ -81,7 +81,7 @@ func handleFederatedCoChangeCore(ctx context.Context, args FederatedCoChangeArgs
 func registerFederatedCoChange(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "federated_cochange",
-		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. Ranked by Dunning G² statistical significance (support-aware): genuine high-frequency couplings score high, rare coincidences score near-zero. repos='all' | 'oxpulse-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another.",
+		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. Ranked by log-likelihood (G²) co-change significance, well-supported pairs first: pairs with co_changes >= 3 always outrank low-support pairs regardless of raw G², preventing perfect rare coincidences from burying loose genuine couplings. Within each support tier, G² ranks by statistical significance. min_lift is an optional raw effect-size pre-filter (not emitted in results). repos='all' | 'oxpulse-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FederatedCoChangeArgs) (*mcp.CallToolResult, error) {
 		return handleFederatedCoChangeCore(ctx, args, deps)
 	})

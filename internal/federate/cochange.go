@@ -46,7 +46,6 @@ type CrossPair struct {
 	CoChanges       int     `json:"coChanges"`
 	G2              float64 `json:"g2"`
 	Significance    string  `json:"significance"`
-	Lift            float64 `json:"lift"`
 	Confidence      float64 `json:"confidence"`
 	ConfidenceLevel string  `json:"confidenceLevel"`
 }
@@ -77,17 +76,24 @@ type fileKey struct {
 // windowHours. Two touches from different repos in the same bucket form a
 // cross-repo co-occurrence. Pairs are counted at bucket level (a window where
 // both appear counts as +1 regardless of how many touches each file has in that
-// window), which is what the lift and G² statistics assume.
+// window), which is what the G² statistic assumes.
 //
-// Ranking is by Dunning log-likelihood G² (statistical significance, support-aware)
-// descending. G² measures departure from independence AND grows with sample size,
-// so a rare coincidence (co=2 of n=200 windows) scores near-zero while a genuine,
-// well-supported coupling scores high. G² is more reliable than smoothed lift for
-// discriminating genuine couplings from rare coincidences.
+// Ranking is two-tier then by G²:
+//  1. Well-supported pairs (co >= minConfidentSupport) always outrank
+//     low-support pairs. This prevents a perfect rare coincidence (e.g. co=2,
+//     winA=winB=2) from outranking a loose but genuine coupling (e.g. co=8,
+//     winA=winB=10) — the coincidence can score a higher raw G² (rewards
+//     perfection of association) even though it has far less evidence.
+//  2. Within each tier, rank by G² (Dunning log-likelihood) descending.
+//     G² grows with sample size, so genuine high-frequency couplings score
+//     high while rare coincidences score near-zero within the same tier.
 //
-// Lift is raw effect-size (co·N / (winA·winB)) — displayed in the result but
-// NOT used for ranking. minLift optionally filters pairs by raw lift floor;
-// default 0 = no filter.
+// On small histories G² can tie; order then falls to co-change count.
+//
+// minLift is an optional raw-effect-size pre-filter (co·N / (winA·winB));
+// default 0 = no filter. Raw lift is NOT emitted in the result (it is an
+// internal filter only) because it is an uninformative foot-gun for consumers:
+// low-support pairs can have arbitrarily high lift.
 //
 // Significance is the chi-square label derived from G² (chi-square df=1 critical
 // values: 3.84→weak, 6.63→moderate, 10.83→strong, above→very_strong). The label
@@ -110,8 +116,8 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 	if windowHours > crossCoChangeMaxWindowHours {
 		windowHours = crossCoChangeMaxWindowHours
 	}
-	// minLift <= 0 means no floor: rank by smoothed lift, return all pairs
-	// above minPairs. Callers raise minLift explicitly to filter.
+	// minLift <= 0 means no floor: return all pairs above minPairs.
+	// Callers raise minLift explicitly to pre-filter by raw effect-size.
 	var touches []touch
 	for _, r := range repos {
 		touches = append(touches, collectTouches(ctx, r)...)
@@ -165,7 +171,11 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		if winA == 0 || winB == 0 {
 			continue
 		}
-		lift := float64(co) * float64(n) / (float64(winA) * float64(winB)) // raw effect-size
+		// Raw lift is used ONLY as an internal pre-filter; it is not stored in
+		// CrossPair because emitting it is a foot-gun for consumers (low-support
+		// pairs can have arbitrarily high lift and are sorted below well-supported
+		// ones by the two-tier sort anyway).
+		lift := float64(co) * float64(n) / (float64(winA) * float64(winB))
 		if minLift > 0 && lift < minLift {
 			continue
 		}
@@ -195,7 +205,6 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 			CoChanges:       co,
 			G2:              g2,
 			Significance:    sig,
-			Lift:            lift,
 			Confidence:      confidence,
 			ConfidenceLevel: string(level),
 		})
@@ -216,11 +225,29 @@ func canonicalPairFK(a, b fileKey) pairKey {
 	return pairKey{repoA: a.repo, fileA: a.file, repoB: b.repo, fileB: b.file}
 }
 
-// sortCrossPairs sorts by G² (statistical significance) descending, then
-// coChanges descending, then lexicographically for determinism.
+// sortCrossPairs sorts by support tier then G², then co-change count, then
+// lexicographically for determinism.
+//
+// Primary key: well-supported pairs (co >= minConfidentSupport) always rank
+// above low-support pairs. G²/chi-square rewards perfection of association
+// regardless of sample size, so a 2-window perfect coincidence (co=2,
+// winA=winB=2) can score a higher raw G² than a loose genuine coupling (co=8,
+// winA=winB=10). The support tier prevents a thin coincidence from outranking
+// a well-supported pair. Within each tier, rank by G² descending.
+//
 // Exact-float G² compare is safe: identical integer inputs produce bit-identical G².
 func sortCrossPairs(out []CrossPair) {
 	sort.SliceStable(out, func(i, j int) bool {
+		// Tier 1: well-supported pairs (co >= minConfidentSupport) always rank
+		// above low-support pairs. G²/chi-square over-rewards perfect rare
+		// coincidences (a 2-window always-together pair can score higher G²
+		// than a loose-but-frequent genuine coupling); the support tier prevents
+		// a thin coincidence from outranking a well-supported pair.
+		si := out[i].CoChanges >= minConfidentSupport
+		sj := out[j].CoChanges >= minConfidentSupport
+		if si != sj {
+			return si // supported (true) sorts before unsupported (false)
+		}
 		if out[i].G2 != out[j].G2 {
 			return out[i].G2 > out[j].G2
 		}

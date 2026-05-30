@@ -190,19 +190,19 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 		{Slug: "oxpulse-chat", Root: chat},
 		{Slug: "oxpulse-partner-edge", Root: edge},
 	}
-	// minLift=0 → no floor, rank by smoothed lift only.
+	// minLift=0 → no floor, rank by support tier then G².
 	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
 	if len(pairs) == 0 {
 		t.Fatal("expected pairs")
 	}
 	// The genuine high-support coupling must rank FIRST — above the high-frequency
-	// noise (low lift) and above the rare coincidence (smoothing damps its lift).
+	// noise (low lift) and above the rare coincidence (support tier + G² penalizes it).
 	top := pairs[0]
 	isGenuine := (top.FileA == "api.rs" && top.FileB == "handler.go") ||
 		(top.FileA == "handler.go" && top.FileB == "api.rs")
 	if !isGenuine {
-		t.Fatalf("top must be the genuine api.rs↔handler.go coupling, got %s/%s↔%s/%s lift=%.3f co=%d",
-			top.RepoA, top.FileA, top.RepoB, top.FileB, top.Lift, top.CoChanges)
+		t.Fatalf("top must be the genuine api.rs↔handler.go coupling, got %s/%s↔%s/%s g2=%.3f co=%d",
+			top.RepoA, top.FileA, top.RepoB, top.FileB, top.G2, top.CoChanges)
 	}
 	// Find the coincidence pair and assert it is NOT labeled "high" confidence
 	// (co=2 < minConfidentSupport=3 must cap the label to "medium").
@@ -277,6 +277,119 @@ func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 			// co=2 < minConfidentSupport → significance capped, never strong/very_strong.
 			if p.Significance == "very_strong" || p.Significance == "strong" {
 				t.Fatalf("2-window coincidence must not be labeled %q (support cap)", p.Significance)
+			}
+		}
+	}
+}
+
+// TestCrossRepoCoChange_SupportTierBeatsRawG2 is the regression test for the
+// "perfection-inflation" defect: a perfect rare coincidence (co=2, winA=winB=2)
+// can score a higher raw G² than a loose genuine coupling (co=8, winA=winB=10),
+// because G² rewards perfection of association regardless of support.
+//
+// With pure G² ranking:
+//
+//	genuine loose:      G²≈2.36  (co=8, winA=winB=10, n=15)
+//	perfect coincidence: G²≈11.78 (co=2, winA=winB=2,  n=15)
+//
+// The support-tier fix ensures that pairs with co >= minConfidentSupport (well-
+// supported) ALWAYS outrank low-support pairs, regardless of their raw G².
+// Within each tier ranking is still by G² descending.
+func TestCrossRepoCoChange_SupportTierBeatsRawG2(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "oxpulse-chat")
+	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	gitInit(t, chat)
+	gitInit(t, edge)
+	configIdent(t, chat)
+	configIdent(t, edge)
+
+	weeks := []string{
+		"2026-01-05T10:00:00+00:00", "2026-01-12T10:00:00+00:00", "2026-01-19T10:00:00+00:00",
+		"2026-01-26T10:00:00+00:00", "2026-02-02T10:00:00+00:00", "2026-02-09T10:00:00+00:00",
+		"2026-02-16T10:00:00+00:00", "2026-02-23T10:00:00+00:00", "2026-03-02T10:00:00+00:00",
+		"2026-03-09T10:00:00+00:00", "2026-03-16T10:00:00+00:00", "2026-03-23T10:00:00+00:00",
+		"2026-03-30T10:00:00+00:00", "2026-04-06T10:00:00+00:00", "2026-04-13T10:00:00+00:00",
+	}
+	// Genuine LOOSE coupling: api.rs ↔ handler.go together in 8 windows, but
+	// each also changes alone in 2 more windows (winA=winB=10, co=8).
+	// The realistic shape: files don't always change in lockstep.
+	// G² (n=15, co=8, winA=winB=10) ≈ 2.36 — well below the perfect coincidence.
+	for _, d := range weeks[:8] {
+		commitAt(t, chat, "api.rs", d, "genuine-together")
+		commitAt(t, edge, "handler.go", d, "genuine-together")
+	}
+	for _, d := range weeks[8:10] {
+		commitAt(t, chat, "api.rs", d, "api-solo") // api.rs alone (winA=10, no co bump)
+	}
+	for _, d := range weeks[10:12] {
+		commitAt(t, edge, "handler.go", d, "handler-solo") // handler.go alone (winB=10, no co bump)
+	}
+	// Perfect rare coincidence: blip.md ↔ once.txt in exactly 2 windows, never solo.
+	// G² (n=15, co=2, winA=winB=2) ≈ 11.78 — ~5× higher than the genuine pair.
+	// Without the support tier, this coincidence would rank ABOVE the genuine pair.
+	for _, d := range weeks[12:14] {
+		commitAt(t, chat, "blip.md", d, "coincidence")
+		commitAt(t, edge, "once.txt", d, "coincidence")
+	}
+	// One background commit to make n=15 (one more window with only bg activity).
+	commitAt(t, chat, "bg.md", weeks[14], "bg")
+
+	repos := []RepoRef{
+		{Slug: "oxpulse-chat", Root: chat},
+		{Slug: "oxpulse-partner-edge", Root: edge},
+	}
+	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	if len(pairs) == 0 {
+		t.Fatal("expected pairs")
+	}
+
+	// Locate each pair and verify G² values match expectations.
+	var genuineG2, coincidenceG2 float64
+	var genuineIdx, coincidenceIdx = -1, -1
+	for idx, p := range pairs {
+		if (p.FileA == "api.rs" && p.FileB == "handler.go") || (p.FileA == "handler.go" && p.FileB == "api.rs") {
+			genuineG2 = p.G2
+			genuineIdx = idx
+		}
+		if p.FileA == "blip.md" || p.FileB == "blip.md" {
+			coincidenceG2 = p.G2
+			coincidenceIdx = idx
+		}
+	}
+	if genuineIdx < 0 {
+		t.Fatal("genuine api.rs↔handler.go pair not found in results")
+	}
+	if coincidenceIdx < 0 {
+		t.Fatal("coincidence blip.md↔once.txt pair not found in results")
+	}
+
+	// Verify the defect condition: coincidence has higher raw G² than genuine.
+	// If this fails, the test setup is wrong and needs adjustment.
+	if coincidenceG2 <= genuineG2 {
+		t.Logf("NOTE: coincidenceG²=%.4f genuineG²=%.4f — defect condition not met, test may need tuning", coincidenceG2, genuineG2)
+	}
+	t.Logf("genuine G²=%.4f (co=8, winA=winB=10, loose)", genuineG2)
+	t.Logf("coincidence G²=%.4f (co=2, winA=winB=2, perfect)", coincidenceG2)
+	t.Logf("genuine rank=%d  coincidence rank=%d", genuineIdx, coincidenceIdx)
+
+	// KEY ASSERTION: the loose genuine pair (co=8 >= minConfidentSupport=3) must
+	// rank ABOVE the perfect rare coincidence (co=2 < minConfidentSupport=3),
+	// even though the coincidence has a higher raw G². The support tier enforces this.
+	if genuineIdx >= coincidenceIdx {
+		t.Fatalf("support tier failed: genuine (co=8, G²=%.2f, rank=%d) must rank above coincidence (co=2, G²=%.2f, rank=%d) — support-tier fix not applied",
+			genuineG2, genuineIdx, coincidenceG2, coincidenceIdx)
+	}
+
+	// Confidence label: co=2 < minConfidentSupport=3 → capped to medium, not high.
+	for _, p := range pairs {
+		if p.FileA == "blip.md" || p.FileB == "blip.md" {
+			if p.ConfidenceLevel == "high" {
+				t.Fatalf("2-window coincidence must not be labeled high-confidence: %+v", p)
+			}
+			// Significance must be capped (strong/very_strong not allowed at co<minConfidentSupport).
+			if p.Significance == "strong" || p.Significance == "very_strong" {
+				t.Fatalf("2-window coincidence must not be labeled %q (support cap): %+v", p.Significance, p)
 			}
 		}
 	}

@@ -40,6 +40,9 @@ func logLikelihoodG2(co, winA, winB, n int) float64 {
 	b := float64(winA - co)
 	c := float64(winB - co)
 	d := float64(n - winA - winB + co)
+	if d < 0 {
+		return 0
+	}
 	nf := float64(n)
 	g2 := 2 * (xlnx(a) + xlnx(b) + xlnx(c) + xlnx(d) +
 		xlnx(nf) -
