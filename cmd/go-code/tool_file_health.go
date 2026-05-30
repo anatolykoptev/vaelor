@@ -101,18 +101,18 @@ var healthSourceBasenames = map[string]bool{
 // they share extensions with real source (e.g. pnpm-lock.yaml matches .yaml)
 // but carry zero defect signal — they churn mechanically on every dep bump.
 var healthLockedBasenames = map[string]bool{
-	"package-lock.json": true,
-	"yarn.lock":         true,
-	"pnpm-lock.yaml":    true,
-	"Cargo.lock":        true,
-	"Gemfile.lock":      true,
-	"poetry.lock":       true,
-	"go.sum":            true,
-	"composer.lock":     true,
-	"mix.lock":          true,
-	"pubspec.lock":      true,
+	"package-lock.json":  true,
+	"yarn.lock":          true,
+	"pnpm-lock.yaml":     true,
+	"Cargo.lock":         true,
+	"Gemfile.lock":       true,
+	"poetry.lock":        true,
+	"go.sum":             true,
+	"composer.lock":      true,
+	"mix.lock":           true,
+	"pubspec.lock":       true,
 	"packages.lock.json": true,
-	"Pipfile.lock":      true,
+	"Pipfile.lock":       true,
 }
 
 // healthExcludedDirSegments lists directory NAMES that exclude any path
@@ -155,7 +155,9 @@ func isHealthEligible(relPath string) bool {
 	if healthLockedBasenames[base] {
 		return false
 	}
-	for _, seg := range strings.Split(relPath, "/") {
+	// filepath.ToSlash normalises caller-supplied Windows paths
+	// ("web\\static\\foo") so segment match catches them too.
+	for _, seg := range strings.Split(filepath.ToSlash(relPath), "/") {
 		if healthExcludedDirSegments[seg] {
 			return false
 		}
