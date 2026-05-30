@@ -60,7 +60,8 @@ func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 		{Slug: "oxpulse-chat", Root: chat},
 		{Slug: "oxpulse-partner-edge", Root: edge},
 	}
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2) // 24h window, min 2
+	// minLift=0 → no floor; pairs returned if co ≥ minPairs.
+	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0) // 24h window, min 2
 	if len(pairs) == 0 {
 		t.Fatal("expected at least one cross-repo pair")
 	}
@@ -88,7 +89,7 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 	pairs := CrossRepoCoChange(context.Background(), []RepoRef{
 		{Slug: "oxpulse-chat", Root: chat},
 		{Slug: "oxpulse-partner-edge", Root: edge},
-	}, 24, 2)
+	}, 24, 2, 0)
 	if len(pairs) != 0 {
 		t.Fatalf("disjoint timelines → no pairs, got %v", pairs)
 	}
@@ -114,11 +115,100 @@ func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
 		{Slug: "oxpulse-partner-edge", Root: edge},
 	}
 	// Under a 24h window they co-occur (same bucket).
-	if got := CrossRepoCoChange(context.Background(), repos, 24, 1); len(got) == 0 {
+	// minLift=0 → no floor; minPairs=1 → single co-occurrence returned.
+	if got := CrossRepoCoChange(context.Background(), repos, 24, 1, 0); len(got) == 0 {
 		t.Fatal("3h-apart commits must pair under a 24h window")
 	}
 	// Under a 1h window they do NOT (different buckets).
-	if got := CrossRepoCoChange(context.Background(), repos, 1, 1); len(got) != 0 {
+	if got := CrossRepoCoChange(context.Background(), repos, 1, 1, 0); len(got) != 0 {
 		t.Fatalf("3h-apart commits must NOT pair under a 1h window, got %v", got)
+	}
+}
+
+// weeks15 is a fixed set of 15 strictly-increasing weekly timestamps used by
+// the realistic ranking regression test.
+var weeks15 = []string{
+	"2026-01-05T10:00:00+00:00",
+	"2026-01-12T10:00:00+00:00",
+	"2026-01-19T10:00:00+00:00",
+	"2026-01-26T10:00:00+00:00",
+	"2026-02-02T10:00:00+00:00",
+	"2026-02-09T10:00:00+00:00",
+	"2026-02-16T10:00:00+00:00",
+	"2026-02-23T10:00:00+00:00",
+	"2026-03-02T10:00:00+00:00",
+	"2026-03-09T10:00:00+00:00",
+	"2026-03-16T10:00:00+00:00",
+	"2026-03-23T10:00:00+00:00",
+	"2026-03-30T10:00:00+00:00",
+	"2026-04-06T10:00:00+00:00",
+	"2026-04-13T10:00:00+00:00",
+}
+
+// TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence verifies that
+// Laplace-smoothed lift ranks a genuine high-support coupling (api.rs ↔
+// handler.go, co=8 of 15 windows) ABOVE both a high-frequency noise pair
+// (noisy.ts ↔ util.go, always co-occurring but low lift) and a rare 2-window
+// coincidence (blip.md ↔ once.txt, would dominate raw lift without smoothing).
+//
+// This is a regression test for the rare-coincidence inflation class: without
+// smoothing, co=2 winA=2 winB=2 N=17 → raw lift ≈ 8.5, which buries the
+// genuine co=8 pair (raw lift ≈ 2.0). With liftSmoothingAlpha=8 the smoothed
+// lifts invert: genuine ≈ 3.9, coincidence ≈ 1.6.
+//
+// Also asserts that the 2-window coincidence is NOT labeled "high" confidence,
+// since minConfidentSupport=3 caps it to "medium".
+func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "oxpulse-chat")
+	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	gitInit(t, chat)
+	gitInit(t, edge)
+	configIdent(t, chat)
+	configIdent(t, edge)
+
+	// GENUINE coupling: api.rs ↔ handler.go change together in 8 of the 15 windows.
+	for _, d := range weeks15[:8] {
+		commitAt(t, chat, "api.rs", d, "genuine")
+		commitAt(t, edge, "handler.go", d, "genuine")
+	}
+	// HIGH-FREQUENCY but uncoupled: noisy.ts + util.go change in ALL 15 windows
+	// (co-occur 15× by sheer frequency — high raw count, low lift).
+	for _, d := range weeks15 {
+		commitAt(t, chat, "noisy.ts", d, "noise")
+		commitAt(t, edge, "util.go", d, "noise")
+	}
+	// RARE COINCIDENCE: blip.md ↔ once.txt co-occur in exactly 2 windows, each
+	// appearing ONLY in those 2 windows. Without smoothing: raw lift = 2·N/(2·2)
+	// which is enormous and buries the genuine pair.
+	for _, d := range weeks15[10:12] {
+		commitAt(t, chat, "blip.md", d, "coincidence")
+		commitAt(t, edge, "once.txt", d, "coincidence")
+	}
+
+	repos := []RepoRef{
+		{Slug: "oxpulse-chat", Root: chat},
+		{Slug: "oxpulse-partner-edge", Root: edge},
+	}
+	// minLift=0 → no floor, rank by smoothed lift only.
+	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	if len(pairs) == 0 {
+		t.Fatal("expected pairs")
+	}
+	// The genuine high-support coupling must rank FIRST — above the high-frequency
+	// noise (low lift) and above the rare coincidence (smoothing damps its lift).
+	top := pairs[0]
+	isGenuine := (top.FileA == "api.rs" && top.FileB == "handler.go") ||
+		(top.FileA == "handler.go" && top.FileB == "api.rs")
+	if !isGenuine {
+		t.Fatalf("top must be the genuine api.rs↔handler.go coupling, got %s/%s↔%s/%s lift=%.3f co=%d",
+			top.RepoA, top.FileA, top.RepoB, top.FileB, top.Lift, top.CoChanges)
+	}
+	// Find the coincidence pair and assert it is NOT labeled "high" confidence
+	// (co=2 < minConfidentSupport=3 must cap the label to "medium").
+	for _, p := range pairs {
+		if (p.FileA == "blip.md" || p.FileB == "blip.md") && p.ConfidenceLevel == "high" {
+			t.Fatalf("2-window coincidence must not be labeled high-confidence: %+v", p)
+		}
 	}
 }

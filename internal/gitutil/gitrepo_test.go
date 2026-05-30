@@ -172,3 +172,20 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 		t.Fatalf("writeTestFile %s: %v", name, err)
 	}
 }
+
+func TestOriginURL(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if got := OriginURL(context.Background(), dir); got != "" {
+		t.Fatalf("no-origin → \"\", got %q", got)
+	}
+	want := "git@github.com:anatolykoptev/oxpulse-chat.git"
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", want).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	if got := OriginURL(context.Background(), dir); got != want {
+		t.Fatalf("OriginURL = %q, want %q", got, want)
+	}
+}

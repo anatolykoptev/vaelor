@@ -25,6 +25,15 @@ var compiledExtensions = map[string]bool{
 	".min.css": true,
 }
 
+// compiledBasenames are exact file basenames that are always generated build
+// output (service workers emitted by SvelteKit/Workbox/Vite PWA plugins),
+// regardless of directory. They have no content-hash, so the hash heuristic
+// below misses them.
+var compiledBasenames = map[string]bool{
+	"sw.js":             true,
+	"service-worker.js": true,
+}
+
 // IsCompiledArtifact returns true when filePath looks like a build output
 // that should be excluded from coupling and other source-level analyses.
 func IsCompiledArtifact(filePath string) bool {
@@ -44,8 +53,18 @@ func IsCompiledArtifact(filePath string) bool {
 	if strings.HasSuffix(filePath, ".html") && strings.Contains(filePath, "assets/") {
 		return true
 	}
-	// Reject content-hashed JS/CSS filenames: name.HASH.js where HASH is 8+ hex chars.
+	// Hoist base here so both the service-worker checks and the content-hash
+	// block below can reuse it without redeclaring.
 	base := filepath.Base(filePath)
+	// Exact generated service-worker basenames.
+	if compiledBasenames[base] {
+		return true
+	}
+	// Workbox runtime chunks: workbox-<something>.js (generated PWA runtime).
+	if strings.HasPrefix(base, "workbox-") && strings.HasSuffix(base, ".js") {
+		return true
+	}
+	// Reject content-hashed JS/CSS filenames: name.HASH.js where HASH is 8+ hex chars.
 	ext := filepath.Ext(base)
 	if ext == ".js" || ext == ".css" {
 		stem := strings.TrimSuffix(base, ext)
