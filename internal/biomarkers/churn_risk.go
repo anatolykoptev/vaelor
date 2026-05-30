@@ -14,6 +14,27 @@ import (
 	"github.com/anatolykoptev/go-code/internal/compare"
 )
 
+// batchCreationCacheKey is the context value used by ScoreFile callers to
+// pre-populate initial-creation line counts in one git invocation (see
+// BatchInitialCreationLines). When present, ChurnRisk.Score reads from the
+// cache instead of spawning per-file git log.
+type batchCreationCacheKey struct{}
+
+// WithBatchCreationCache returns a context carrying pre-computed initial-
+// creation line counts keyed by repo-relative path. Tools that score many
+// files at once should call BatchInitialCreationLines first and attach the
+// result here.
+func WithBatchCreationCache(ctx context.Context, counts map[string]int) context.Context {
+	return context.WithValue(ctx, batchCreationCacheKey{}, counts)
+}
+
+// batchCreationFromContext returns the cache attached via
+// WithBatchCreationCache, or nil if absent.
+func batchCreationFromContext(ctx context.Context) map[string]int {
+	v, _ := ctx.Value(batchCreationCacheKey{}).(map[string]int)
+	return v
+}
+
 // ChurnRisk surfaces files whose post-creation rewrite churn exceeds their
 // current size — Nagappan & Ball's relative-churn predictor.
 //
@@ -40,7 +61,17 @@ func (ChurnRisk) Score(ctx context.Context, repoRoot, relPath string) (float64, 
 	if err != nil || loc == 0 {
 		return 0, "", nil
 	}
-	created := initialCreationLines(ctx, repoRoot, relPath)
+	var created int
+	if cache := batchCreationFromContext(ctx); cache != nil {
+		if c, ok := cache[relPath]; ok {
+			created = c
+		} else {
+			// Path not in cache → caller didn't batch it; fall back per-file.
+			created = initialCreationLines(ctx, repoRoot, relPath)
+		}
+	} else {
+		created = initialCreationLines(ctx, repoRoot, relPath)
+	}
 	// Subtract the one-time initial-creation additions, not the current LOC.
 	// A file that grew post-creation keeps that growth churn in the signal.
 	rawChurn := cs.Additions + cs.Deletions - created
