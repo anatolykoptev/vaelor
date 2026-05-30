@@ -60,6 +60,25 @@ func CommitsSince(ctx context.Context, root string, since time.Duration) map[str
 	return counts
 }
 
+// originURLTimeout bounds the `git remote get-url origin` call.
+const originURLTimeout = 5 * time.Second
+
+// OriginURL returns the configured origin remote URL for the repo at root.
+// Returns "" with a nil error when the repo has no origin remote; returns a
+// non-nil error only on an unexpected git failure (not a repo, timeout).
+// Best-effort, matching CommitsSince's degraded-mode convention.
+func OriginURL(ctx context.Context, root string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, originURLTimeout)
+	defer cancel()
+	//nolint:gosec // root is a trusted local path from repofind.Discover.
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output()
+	if err != nil {
+		// "No such remote 'origin'" (exit 2) is an expected, non-error state.
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // FileDiffSince returns a unified diff of file (relative to root) between
 // the commit at HEAD and the commit just before the since-duration window.
 // Caps output at maxLines diff lines (excluding git diff header). Returns ""
