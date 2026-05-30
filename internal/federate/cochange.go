@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/go-code/internal/artifactfilter"
 )
 
 // crossCoChangeGitTimeout bounds each per-repo git log.
@@ -171,17 +171,23 @@ func collectTouches(ctx context.Context, r RepoRef) []touch {
 			curFiles = nil
 			return
 		}
-		if len(curFiles) > maxFilesPerCommitFederate {
-			curFiles = nil
-			return
-		}
+		// Mirror compare.CollectCoupling: filter artifacts FIRST, then apply the
+		// bulk-commit cap to the source-file count.  A 21-file commit with 5
+		// artifacts (16 source ≤ 20) is kept; without this order it would be
+		// wrongly discarded.
+		var srcFiles []string
 		for _, f := range curFiles {
-			if compare.IsCompiledArtifact(f) {
-				continue
+			if !artifactfilter.IsCompiledArtifact(f) {
+				srcFiles = append(srcFiles, f)
 			}
-			touches = append(touches, touch{repo: r.Slug, file: f, ts: curTS})
 		}
 		curFiles = nil
+		if len(srcFiles) > maxFilesPerCommitFederate {
+			return
+		}
+		for _, f := range srcFiles {
+			touches = append(touches, touch{repo: r.Slug, file: f, ts: curTS})
+		}
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) //nolint:mnd
