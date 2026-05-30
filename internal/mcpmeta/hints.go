@@ -22,12 +22,17 @@ var explainQueryRE = regexp.MustCompile(`(?i)\b(why|how|describe|explain)\b`)
 // Uses simple substring match — Cyrillic words are unambiguous enough in practice.
 var explainQueryRURE = regexp.MustCompile(`(?i)(почему|как|опиши|объясни|расскажи)`)
 
-// HintAfterCodeSearch returns a calibrated chaining hint for a code_search
-// response, or "" when no hint is warranted.
+// HintAfterCodeSearch returns a calibrated chaining hint for any
+// single-symbol-style tool response, or "" when no hint is warranted.
+//
+// Used by: tool_code_search.go, tool_symbol_search.go, tool_semantic_search.go.
+// The same calibration rules apply across all three: silent on
+// explain-class queries (EN + RU), silent on zero-or-many hits, and
+// silent when no Go-style declaration could be extracted from the hit.
 //
 // Rules:
-//   - explain-class query → silent (caller wants prose, not chaining)
-//   - exactly 1 hit → suggest understand(symbol=...) on that symbol
+//   - explain-class query (why|how|describe|explain|почему|как|опиши|объясни|расскажи) → silent
+//   - exactly 1 hit → suggest understand(symbol=...) when an identifier was extracted
 //   - 0 or >1 hits → silent (too many to pin one symbol)
 func HintAfterCodeSearch(query string, nHits int, firstHitSymbol string) string {
 	if explainQueryRE.MatchString(query) || explainQueryRURE.MatchString(query) {

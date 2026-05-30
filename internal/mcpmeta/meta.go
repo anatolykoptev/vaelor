@@ -8,11 +8,15 @@
 package mcpmeta
 
 import (
-	"encoding/json"
 	"time"
 )
 
 // Envelope is the meta block attached to a tool response.
+//
+// Empty optional fields are omitted from the JSON payload via the
+// `omitempty` tags on Hint / StaleWarning / IndexedSHA / LiveSHA, so
+// the caller sees only signal. DurationMS is always populated (clamped
+// to >= 1 by Wrap to enforce the "always populated" contract).
 //
 // Convention:
 //   - DurationMS is always populated.
@@ -42,8 +46,3 @@ func Wrap(elapsed time.Duration, hint string) Envelope {
 	}
 }
 
-// MarshalJSON omits empty optional fields so callers see only signal.
-func (e Envelope) MarshalJSON() ([]byte, error) {
-	type alias Envelope
-	return json.Marshal(alias(e))
-}
