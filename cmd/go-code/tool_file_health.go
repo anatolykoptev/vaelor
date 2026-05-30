@@ -282,8 +282,9 @@ func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomark
 			fh = biomarkers.FileHealth{
 				Path:    p,
 				Score:   0,
-				Reasons: map[string]string{"error": serr.Error()},
+				Reasons: map[string]string{},
 				Raw:     map[string]float64{},
+				Error:   serr.Error(),
 			}
 		}
 		out.Files = append(out.Files, fh)

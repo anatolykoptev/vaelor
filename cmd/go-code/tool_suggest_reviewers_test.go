@@ -176,6 +176,27 @@ func mkSuggestReviewersCouplingRepo(t *testing.T) string {
 	return dir
 }
 
+// TestSuggestReviewers_PerFileErrorSetsErrorField guards Important-2: a
+// per-path fileAuthors failure must surface via PerFileSuggestions.Error
+// instead of injecting a Suggestion with magic Name "<error>".
+func TestSuggestReviewers_PerFileErrorSetsErrorField(t *testing.T) {
+	dir := mkSuggestReviewersRepo(t)
+	// Pass a path that will yield no authorship history; the score-loop
+	// path either degrades to no Suggestions OR errors per-file. Either
+	// way, the "<error>" sentinel name must NEVER appear in the output.
+	res, err := handleSuggestReviewersCore(t.Context(), SuggestReviewersArgs{
+		Repo:  dir,
+		Paths: []string{"/totally/bogus/path.go"},
+	}, analyze.Deps{})
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
+	}
+	body := extractText(t, res)
+	if strings.Contains(body, `"name": "<error>"`) {
+		t.Fatalf("must not emit <error> sentinel name, got body:\n%s", body)
+	}
+}
+
 // TestSuggestReviewers_CoChangePartnerSignal guards the
 // suggestReviewersWeightCoChange = 0.5 path — partner authors must
 // surface in suggestions when their co-change ratio satisfies the

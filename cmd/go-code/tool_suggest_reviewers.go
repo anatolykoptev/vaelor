@@ -52,6 +52,7 @@ type Suggestion struct {
 type PerFileSuggestions struct {
 	Path        string       `json:"path"`
 	Suggestions []Suggestion `json:"suggestions"`
+	Error       string       `json:"error,omitempty"` // per-file failure (non-empty when fileAuthors failed; replaces the "<error>" sentinel)
 }
 
 // SuggestReviewersResult is the JSON payload returned by the suggest_reviewers tool.
@@ -147,7 +148,8 @@ func scoreFileReviewers(ctx context.Context, root, path string, coupling []compa
 
 	authors, recentAuthors, authErr := fileAuthors(ctx, root, path)
 	if authErr != nil {
-		entry.Suggestions = []Suggestion{{Name: "<error>", Score: 0, Signal: authErr.Error()}}
+		entry.Error = authErr.Error()
+		entry.Suggestions = nil
 		return entry
 	}
 
