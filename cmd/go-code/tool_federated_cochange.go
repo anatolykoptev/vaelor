@@ -67,7 +67,11 @@ func handleFederatedCoChangeCore(ctx context.Context, args FederatedCoChangeArgs
 	for _, r := range repos {
 		roots[r.Slug] = r.Root
 	}
-	verified := coupling.VerifyPairs(ctx, rawPairs, roots, coupling.NewRouteVerifier())
+	verified := coupling.VerifyPairs(ctx, rawPairs, roots,
+		coupling.NewCompositeVerifier(
+			coupling.NewRouteVerifier(),
+			coupling.NewSymbolVerifier(),
+		))
 
 	// Normalize nil to empty slice so the JSON wire contract is always "pairs": []
 	// not "pairs": null. MCP consumers (JS/Python) iterate pairs directly and

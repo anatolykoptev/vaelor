@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,7 +32,7 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		exec.Command("git", "-C", d, "init").Run()       //nolint:errcheck
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
 		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
 		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
 	}
@@ -77,6 +78,72 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 	}
 }
 
+func TestFederatedCoChange_SymbolVerifiesProtocolToken(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
+	for _, d := range []string{chat, edge} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
+		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
+		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
+	}
+	commitContent := func(dir, file, content, date string) {
+		os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644) //nolint:errcheck
+		exec.Command("git", "-C", dir, "add", file).Run()              //nolint:errcheck
+		// --no-verify: these are isolated fixture repos in t.TempDir() — the global
+		// gitleaks hook would block RELAY_JWT_SECRET content, defeating the test's purpose.
+		c := exec.Command("git", "-C", dir, "commit", "--no-verify", "-m", "x")
+		c.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+		c.Run() //nolint:errcheck
+	}
+	// Each co-change iteration writes slightly different content (appends a revision
+	// comment) so git registers a real change and doesn't skip the commit.
+	// Both versions contain RELAY_JWT_SECRET and "peer_joined" — the two shared tokens
+	// that symbol verification must find.
+	for i, date := range []string{"2026-05-01T10:00:00+00:00", "2026-05-08T10:00:00+00:00"} {
+		chatSrc := fmt.Sprintf(`const secret = import.meta.env.RELAY_JWT_SECRET;
+socket.on("peer_joined", () => {}); // rev %d`, i)
+		edgeSrc := fmt.Sprintf(`let secret = std::env::var("RELAY_JWT_SECRET").unwrap();
+match m { "peer_joined" => fanout(), _ => {} } // rev %d`, i)
+		commitContent(chat, "signal.ts", chatSrc, date)
+		commitContent(edge, "fanout.rs", edgeSrc, date)
+	}
+	// Background commits so the protocol files appear in 2 of 4 windows (<85% ubiquity).
+	commitContent(chat, "bg.go", "package main", "2026-05-15T10:00:00+00:00")
+	commitContent(edge, "bg.rs", "fn bg() {}", "2026-05-22T10:00:00+00:00")
+
+	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
+	res, err := handleFederatedCoChangeCore(context.Background(), FederatedCoChangeArgs{
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
+	}, deps)
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
+	}
+	body := extractText(t, res)
+	var out FederatedCoChangeResult
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("parse: %v\nbody=%s", err, body)
+	}
+	// Find the signal.ts <-> fanout.rs pair and assert it is symbol-verified.
+	var found bool
+	for _, p := range out.Pairs {
+		if !p.Verified {
+			continue
+		}
+		for _, e := range p.Evidence {
+			if e.Kind == "symbol" && (e.Detail == "RELAY_JWT_SECRET" || e.Detail == "peer_joined") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a symbol-verified pair on RELAY_JWT_SECRET/peer_joined, body=%s", body)
+	}
+}
+
 func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "acme-web")
@@ -85,9 +152,9 @@ func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		exec.Command("git", "-C", d, "init").Run()                              //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run()    //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.name", "t").Run()         //nolint:errcheck
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
+		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
+		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
 	}
 	commit := func(dir, file, date string) {
 		os.WriteFile(filepath.Join(dir, file), []byte(date+"\n"), 0o644) //nolint:errcheck
