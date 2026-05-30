@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/compare"
 )
@@ -14,9 +15,7 @@ import (
 // current size. It implements a stable-size variant of Nagappan & Ball's
 // relative-churn predictor.
 //
-// Window: inherits compare.CollectChurn, which currently walks ALL git
-// history (no --since flag). To get a time-windowed variant, pass a
-// `since` parameter into CollectChurn in a follow-up PR.
+// Window: 90 days (compare.CollectChurn called with a 90-day since).
 //
 // Saturation: rawChurn >= 2 × LOC → score 1.0.
 //
@@ -34,7 +33,7 @@ func (ChurnRisk) Name() string { return "churn_risk" }
 
 // Score implements Biomarker.
 func (ChurnRisk) Score(ctx context.Context, repoRoot, relPath string) (float64, string, error) {
-	stats, err := compare.CollectChurn(ctx, repoRoot)
+	stats, err := compare.CollectChurn(ctx, repoRoot, 90*24*time.Hour)
 	if err != nil {
 		return 0, "", fmt.Errorf("collect churn: %w", err)
 	}
@@ -62,7 +61,7 @@ func (ChurnRisk) Score(ctx context.Context, repoRoot, relPath string) (float64, 
 		return 0, "below noise floor", nil
 	}
 	reason := fmt.Sprintf(
-		"post-creation churn %.1fx (%d post-creation lines / %d LOC) across history",
+		"post-creation churn %.1fx (%d post-creation lines / %d LOC) in last 90 days",
 		rel, rawChurn, loc,
 	)
 	return score, reason, nil

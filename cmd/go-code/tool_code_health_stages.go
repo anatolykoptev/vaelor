@@ -123,7 +123,7 @@ func gatherHealthFreshness(ctx context.Context, root string, metrics *compare.Re
 // gatherHealthHotspots runs git churn analysis and returns hotspot files.
 // Returns nil when git is unavailable.
 func gatherHealthHotspots(ctx context.Context, root, repoName string, snap *compare.RepoSnapshot) []compare.HotspotFile {
-	churn, err := compare.CollectChurn(ctx, root)
+	churn, err := compare.CollectChurn(ctx, root, 0)
 	if err != nil {
 		slog.Debug("code_health: churn collection failed", slog.String("repo", repoName), slog.Any("error", err))
 		return nil

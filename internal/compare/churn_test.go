@@ -60,8 +60,10 @@ func TestParseNumstatLine(t *testing.T) {
 }
 
 func TestParseNumstatOutput(t *testing.T) {
-	// Simulate git log output with two commits.
-	data := []byte("25\t3\ta.go\n10\t5\tb.go\n\n15\t2\ta.go\n\n")
+	// Simulate git log --pretty=format:%x00 output with two commits.
+	// Commit 1: a.go +25/-3, b.go +10/-5
+	// Commit 2: a.go +15/-2
+	data := []byte("\x00\n25\t3\ta.go\n10\t5\tb.go\n\x00\n15\t2\ta.go\n")
 
 	result := parseNumstatOutput(data)
 
@@ -90,7 +92,7 @@ func TestCollectChurn_RealRepo(t *testing.T) {
 
 	root := findRepoRootInternal(t)
 
-	churn, err := CollectChurn(context.Background(), root)
+	churn, err := CollectChurn(context.Background(), root, 0)
 	if err != nil {
 		t.Fatalf("CollectChurn: %v", err)
 	}
@@ -131,5 +133,25 @@ func TestChurnScore(t *testing.T) {
 	got := stats.ChurnScore()
 	if got != 5.0 {
 		t.Errorf("ChurnScore() = %f, want 5.0", got)
+	}
+}
+
+// TestParseNumstatOutput_CountsCommitsViaSentinel guards the BUG where
+// --format= produced no blank-line separators, collapsing every commit
+// into Commits=1. The %x00 sentinel marks each commit boundary.
+func TestParseNumstatOutput_CountsCommitsViaSentinel(t *testing.T) {
+	data := []byte("\x00\n1\t1\tfoo.go\n\x00\n2\t0\tfoo.go\n\x00\n1\t3\tbar.go\n")
+	got := parseNumstatOutput(data)
+	if got["foo.go"].Commits != 2 {
+		t.Errorf("foo.go Commits: got %d, want 2", got["foo.go"].Commits)
+	}
+	if got["bar.go"].Commits != 1 {
+		t.Errorf("bar.go Commits: got %d, want 1", got["bar.go"].Commits)
+	}
+	if got["foo.go"].Additions != 3 {
+		t.Errorf("foo.go Additions: got %d, want 3", got["foo.go"].Additions)
+	}
+	if got["foo.go"].Deletions != 1 {
+		t.Errorf("foo.go Deletions: got %d, want 1", got["foo.go"].Deletions)
 	}
 }

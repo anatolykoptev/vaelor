@@ -37,9 +37,11 @@ const numstatFields = 3
 
 // CollectChurn runs git log --numstat on the given repo root and returns
 // churn statistics per file (relative paths).
-// Returns nil map and nil error for non-git directories.
-func CollectChurn(ctx context.Context, root string) (map[string]ChurnStats, error) {
-	key := churnCacheKey(root)
+//
+// `since` bounds the history window (e.g. 90*24*time.Hour); pass 0 for
+// all history. Returns nil map and nil error for non-git directories.
+func CollectChurn(ctx context.Context, root string, since time.Duration) (map[string]ChurnStats, error) {
+	key := churnCacheKey(root, since)
 	if cached, ok := globalChurnCache.get(key); ok {
 		return cached, nil
 	}
@@ -47,10 +49,14 @@ func CollectChurn(ctx context.Context, root string) (map[string]ChurnStats, erro
 	ctx, cancel := context.WithTimeout(ctx, gitLogTimeout)
 	defer cancel()
 
+	args := []string{"-C", root, "log",
+		"--numstat", "--pretty=format:%x00", "--no-merges",
+		"--diff-filter=AMRC"}
+	if since > 0 {
+		args = append(args, fmt.Sprintf("--since=%d.hours", int(since.Hours())))
+	}
 	//nolint:gosec // root is a trusted local path from resolveRoot
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "log",
-		"--numstat", "--format=", "--no-merges",
-		"--diff-filter=AMRC")
+	cmd := exec.CommandContext(ctx, "git", args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -69,22 +75,33 @@ func CollectChurn(ctx context.Context, root string) (map[string]ChurnStats, erro
 	return result, nil
 }
 
-// parseNumstatOutput parses the full output of git log --numstat --format=.
+// parseNumstatOutput parses the output of
+// `git log --numstat --pretty=format:%x00`. Each commit's block starts
+// with a line beginning with the NUL sentinel (%x00); numstat lines
+// (ADD\tDEL\tPATH) follow until the next sentinel.
+//
+// The sentinel replaces the old blank-line boundary, which `--format=`
+// did not emit, causing every file's Commits to collapse to 1.
 func parseNumstatOutput(data []byte) map[string]ChurnStats {
 	result := make(map[string]ChurnStats)
 	var currentFiles map[string]struct{}
 
+	flush := func() {
+		for path := range currentFiles {
+			stats := result[path]
+			stats.Commits++
+			result[path] = stats
+		}
+		currentFiles = nil
+	}
+
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) //nolint:mnd
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		if line == "" {
-			// Commit boundary — flush current file set.
-			for path := range currentFiles {
-				stats := result[path]
-				stats.Commits++
-				result[path] = stats
-			}
+		if strings.HasPrefix(line, "\x00") {
+			flush()
 			currentFiles = make(map[string]struct{})
 			continue
 		}
@@ -93,7 +110,6 @@ func parseNumstatOutput(data []byte) map[string]ChurnStats {
 		if !ok {
 			continue
 		}
-
 		if currentFiles == nil {
 			currentFiles = make(map[string]struct{})
 		}
@@ -104,13 +120,7 @@ func parseNumstatOutput(data []byte) map[string]ChurnStats {
 		stats.Deletions += del
 		result[path] = stats
 	}
-
-	// Flush last commit block.
-	for path := range currentFiles {
-		stats := result[path]
-		stats.Commits++
-		result[path] = stats
-	}
+	flush()
 
 	return result
 }
