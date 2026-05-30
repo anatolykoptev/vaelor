@@ -4,15 +4,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/anatolykoptev/go-code/internal/gitutil"
+	"github.com/anatolykoptev/go-code/internal/repofind"
 )
 
 // RepoKeyFunc generates a graph key from a repo root path.
@@ -118,21 +116,8 @@ type repo struct{ key, root string }
 
 func discoverRepos(dirs []string, keyFn RepoKeyFunc) []repo {
 	var repos []repo
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			slog.Debug("autoindex: skip dir", slog.String("dir", dir), slog.Any("error", err))
-			continue
-		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			root := filepath.Join(dir, e.Name())
-			if gitutil.IsGitRepo(root) {
-				repos = append(repos, repo{key: keyFn(root), root: root})
-			}
-		}
+	for _, root := range repofind.Discover(dirs) {
+		repos = append(repos, repo{key: keyFn(root), root: root})
 	}
 	return repos
 }
