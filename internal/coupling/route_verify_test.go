@@ -102,3 +102,52 @@ export const callB = () => axios.post("/api/b", null);
 		t.Fatalf("different paths must not match, got %+v", ev)
 	}
 }
+
+// TestRouteVerifier_SkipsGenericPath — two unrelated repos both expose GET /health
+// (a path collision, not a real cross-repo dependency). The verifier must not emit
+// evidence for well-known generic endpoints.
+func TestRouteVerifier_SkipsGenericPath(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+
+	writeFile(t, rootA, "h.go", `package api
+func init() { r.Get("/health", handleHealth) }
+func handleHealth(w http.ResponseWriter, r *http.Request) {}
+`)
+	writeFile(t, rootB, "c.ts", `import axios from "axios";
+export const checkHealth = () => axios.get("/health");
+`)
+
+	v := NewRouteVerifier()
+	ev, _ := v.Verify(context.Background(),
+		FilePair{Repo: "a", Root: rootA, Rel: "h.go"},
+		FilePair{Repo: "b", Root: rootB, Rel: "c.ts"})
+	if len(ev) != 0 {
+		t.Fatalf("generic /health path must NOT count as evidence, got %+v", ev)
+	}
+}
+
+// TestRouteVerifier_SpecificPathStillMatches — a 2+ segment specific path
+// IS a real cross-repo dependency and must still produce evidence.
+func TestRouteVerifier_SpecificPathStillMatches(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+
+	writeFile(t, rootA, "h.go", `package api
+func init() { r.Post("/api/partner/register", handleRegister) }
+func handleRegister(w http.ResponseWriter, r *http.Request) {}
+`)
+	writeFile(t, rootB, "c.ts", `import axios from "axios";
+export async function registerPartner(data: unknown) {
+	return axios.post("/api/partner/register", data);
+}
+`)
+
+	v := NewRouteVerifier()
+	ev, _ := v.Verify(context.Background(),
+		FilePair{Repo: "a", Root: rootA, Rel: "h.go"},
+		FilePair{Repo: "b", Root: rootB, Rel: "c.ts"})
+	if len(ev) == 0 {
+		t.Fatalf("specific /api/partner/register must still match")
+	}
+}

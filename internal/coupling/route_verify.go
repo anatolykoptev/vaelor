@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/routes"
@@ -12,6 +13,40 @@ import (
 // maxVerifyFileBytes bounds a file read during verification. Routes never live
 // in huge files; skip anything larger to keep stage-2 cheap on the ARM box.
 const maxVerifyFileBytes = 512 * 1024
+
+// genericPaths are well-known endpoints that many unrelated services expose;
+// a match on one of these is not evidence of a real cross-repo dependency.
+var genericPaths = map[string]bool{
+	"/":            true,
+	"/health":      true,
+	"/healthz":     true,
+	"/metrics":     true,
+	"/ping":        true,
+	"/status":      true,
+	"/ready":       true,
+	"/readyz":      true,
+	"/live":        true,
+	"/livez":       true,
+	"/version":     true,
+	"/favicon.ico": true,
+}
+
+// isGenericRoute reports whether a normalized path is too generic to prove a
+// cross-repo dependency: a well-known shared endpoint, or a path with fewer
+// than 2 non-empty/non-wildcard segments (e.g. "/health", "/", "/*").
+func isGenericRoute(normPath string) bool {
+	if genericPaths[normPath] {
+		return true
+	}
+	var meaningful int
+	for _, seg := range strings.Split(normPath, "/") {
+		if seg == "" || seg == "*" {
+			continue
+		}
+		meaningful++
+	}
+	return meaningful < 2
+}
 
 // routeVerifier (T0) proves a provider↔consumer HTTP dependency: a server route
 // in one file matched to a client call to the same method + normalized path in
@@ -48,6 +83,12 @@ func (v *routeVerifier) Verify(_ context.Context, a, b FilePair) ([]Evidence, er
 			}
 			k := routeKey(x)
 			if seen[k] {
+				continue
+			}
+			// Skip ultra-generic endpoints (/health, /metrics, single-segment
+			// paths): a match on these is a path collision between unrelated
+			// services, not a proven dependency.
+			if _, path, ok := strings.Cut(k, " "); ok && isGenericRoute(path) {
 				continue
 			}
 			seen[k] = true
