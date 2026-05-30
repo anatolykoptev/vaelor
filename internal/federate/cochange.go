@@ -32,9 +32,21 @@ const crossCoChangeMaxWindowHours = 24 * 7
 // maxCrossPairs bounds the returned slice (mirrors compare.maxCouplingPairs).
 const maxCrossPairs = 20
 
-// defaultMinLift is the lift floor when the caller passes minLift <= 0: keep
-// only pairs that co-occur at least as often as independence predicts.
-const defaultMinLift = 1.0
+// liftSmoothingAlpha is additive (Laplace) smoothing applied to each file's
+// window count in the lift denominator. It damps the rare-coincidence noise
+// class: without it, a pair seen in only 2 windows where each file appears in
+// ONLY those 2 windows scores an enormous lift (co·N/(2·2)) and buries genuine
+// high-support couplings. alpha=8 is derived so a genuine pair (co≈10, win≈12)
+// outranks a 2-window coincidence (co=2, win=2) at realistic history sizes
+// (N≈100-200): need alpha > 6.1 for sqrt(5)*(2+alpha) > (12+alpha); 8 leaves
+// margin. Full significance-aware ranking (Dunning log-likelihood G²) is a
+// follow-up (Phase 3a.2); this smoothing is the pragmatic mitigation.
+const liftSmoothingAlpha = 8
+
+// minConfidentSupport is the minimum co-occurrence count for a pair to earn a
+// "high" confidence label. Below it, two-or-fewer samples can't support a
+// high-confidence claim even at confidence=1.0; the label is capped to medium.
+const minConfidentSupport = 3
 
 // CrossPair is two files in DIFFERENT repos that change together within a window.
 type CrossPair struct {
@@ -66,7 +78,8 @@ type fileKey struct {
 }
 
 // CrossRepoCoChange finds file-pairs spanning DIFFERENT repos that change
-// within windowHours of each other, at least minPairs times, with lift ≥ minLift.
+// within windowHours of each other, at least minPairs times, with smoothed
+// lift ≥ minLift.
 //
 // Per repo it runs one `git log --name-only --pretty=format:%x00%ct`, parses
 // (timestamp, files), and buckets each (repo, file) touch into a window of
@@ -75,11 +88,22 @@ type fileKey struct {
 // both appear counts as +1 regardless of how many touches each file has in that
 // window), which is what the lift statistic assumes.
 //
-// Lift = co(A,B) * N / (winA * winB) where N is the number of distinct non-empty
-// windows. Lift > 1 means the pair co-occurs more than independence predicts.
-// Confidence = co / min(winA, winB). Both metrics are populated on every returned pair.
+// Lift uses Laplace (additive) smoothing:
 //
-// Pairs are sorted by lift descending. minLift <= 0 defaults to defaultMinLift (1.0).
+//	lift = co(A,B) * N / ((winA + α) * (winB + α))
+//
+// where N is the number of distinct non-empty windows and α = liftSmoothingAlpha.
+// The smoothing damps rare-coincidence inflation: without it a pair with co=2,
+// winA=winB=2 dominates over a genuine co=8 coupling at realistic N. Ranking
+// is by smoothed lift descending.
+//
+// Confidence = co / min(winA, winB). Confidence label is capped to "medium"
+// when co < minConfidentSupport, regardless of the ratio.
+//
+// minLift <= 0 means no floor (rank by smoothed lift, return all pairs above
+// minPairs). Raise minLift explicitly to filter to stronger-than-chance
+// coupling. Smoothing compresses the lift scale relative to raw lift, so the
+// old default floor (1.0) does not translate directly.
 //
 // Returns nil when fewer than 2 repos, a non-positive window, or no touches
 // (best-effort, like CollectCoupling — a repo whose git log fails is skipped).
@@ -94,9 +118,8 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 	if windowHours > crossCoChangeMaxWindowHours {
 		windowHours = crossCoChangeMaxWindowHours
 	}
-	if minLift <= 0 {
-		minLift = defaultMinLift
-	}
+	// minLift <= 0 means no floor: rank by smoothed lift, return all pairs
+	// above minPairs. Callers raise minLift explicitly to filter.
 	var touches []touch
 	for _, r := range repos {
 		touches = append(touches, collectTouches(ctx, r)...)
@@ -150,8 +173,10 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		if winA == 0 || winB == 0 {
 			continue
 		}
-		lift := float64(co) * float64(n) / (float64(winA) * float64(winB))
-		if lift < minLift {
+		// Laplace-smoothed lift damps rare-coincidence inflation. See liftSmoothingAlpha.
+		lift := float64(co) * float64(n) /
+			((float64(winA) + liftSmoothingAlpha) * (float64(winB) + liftSmoothingAlpha))
+		if minLift > 0 && lift < minLift {
 			continue
 		}
 		minWin := winA
@@ -159,13 +184,19 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 			minWin = winB
 		}
 		confidence := float64(co) / float64(minWin)
+		level := score.ConfidenceFromScore(confidence)
+		// A pair with fewer than minConfidentSupport co-occurrences cannot support
+		// a "high" confidence claim even at confidence=1.0 (e.g. co=2, min=2).
+		if co < minConfidentSupport && level == score.ConfidenceHigh {
+			level = score.ConfidenceMedium
+		}
 		out = append(out, CrossPair{
 			RepoA: k.repoA, FileA: k.fileA,
 			RepoB: k.repoB, FileB: k.fileB,
 			CoChanges:       co,
 			Lift:            lift,
 			Confidence:      confidence,
-			ConfidenceLevel: string(score.ConfidenceFromScore(confidence)),
+			ConfidenceLevel: string(level),
 		})
 	}
 	sortCrossPairs(out)
