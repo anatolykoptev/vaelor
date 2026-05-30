@@ -25,7 +25,7 @@ type FederatedCoChangeArgs struct {
 	Repos       string  `json:"repos"                    jsonschema_description:"Repo pattern: 'all', a glob like 'oxpulse-*', or a single repo name/absolute path"`
 	WindowHours int     `json:"window_hours,omitempty"   jsonschema_description:"Co-change time window in hours (default 24)"`
 	MinPairs    int     `json:"min_pairs,omitempty"      jsonschema_description:"Minimum co-occurrences to report a pair (default 2)"`
-	MinLift     float64 `json:"min_lift,omitempty"       jsonschema_description:"Optional raw-lift floor (default 0 = no floor). Ranking is by G² statistical significance; min_lift optionally pre-filters by raw effect-size. Low co-occurrence counts (min_pairs) yield noisier values — raise min_pairs for higher-confidence pairs."`
+	MinLift     float64 `json:"min_lift,omitempty"       jsonschema_description:"Optional raw-lift pre-filter floor (default 0 = no floor). Ranking is by support tier first (co_changes >= 3 outrank low-support pairs) then G² significance; min_lift only pre-filters by raw effect-size before ranking. Low co-occurrence counts yield noisier values — raise min_pairs for higher-confidence pairs."`
 }
 
 // FederatedCoChangeResult is the JSON payload returned by the federated_cochange tool.
