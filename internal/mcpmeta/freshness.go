@@ -1,0 +1,187 @@
+package mcpmeta
+
+import (
+	"bufio"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// gitDir returns the absolute path to the real git directory for repoRoot.
+//
+// In a primary checkout, <repoRoot>/.git is a directory and is returned as-is.
+// In a linked worktree created by "git worktree add", <repoRoot>/.git is a
+// regular file whose single line is "gitdir: <path>" — absolute or relative to
+// repoRoot. gitDir resolves <path> to an absolute path and returns it.
+func gitDir(repoRoot string) (string, error) {
+	gitPath := filepath.Join(repoRoot, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return "", fmt.Errorf("stat .git: %w", err)
+	}
+	if info.IsDir() {
+		// Primary checkout — gitdir is the .git directory itself.
+		return gitPath, nil
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf(".git is neither file nor directory")
+	}
+
+	// Linked worktree: .git is a pointer file "gitdir: <path>".
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return "", fmt.Errorf("read .git pointer: %w", err)
+	}
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir: "
+	if !strings.HasPrefix(line, prefix) {
+		return "", fmt.Errorf(".git pointer: unexpected format %q", line)
+	}
+	gd := strings.TrimPrefix(line, prefix)
+	if !filepath.IsAbs(gd) {
+		gd = filepath.Join(repoRoot, gd)
+	}
+	return gd, nil
+}
+
+// commonDir returns the directory that holds shared refs (packed-refs, etc.)
+// for the given gitdir. In a linked worktree, git writes a "commondir" file
+// inside gitdir that points (one relative path) to the main repo's .git.
+// If no commondir file is present, gitdir itself is the common dir.
+func commonDir(gd string) string {
+	cdPath := filepath.Join(gd, "commondir")
+	data, err := os.ReadFile(cdPath)
+	if err != nil {
+		// No commondir — this is the main repo's .git or a standalone gitdir.
+		return gd
+	}
+	rel := strings.TrimSpace(string(data))
+	if filepath.IsAbs(rel) {
+		return rel
+	}
+	return filepath.Join(gd, rel)
+}
+
+// LiveHead returns the on-disk HEAD SHA for a git repo without spawning git.
+//
+// It handles both primary checkouts (where .git is a directory) and linked
+// worktrees created by "git worktree add" (where .git is a file containing a
+// "gitdir: <path>" pointer). The algorithm:
+//
+//  1. Resolve the real gitdir via gitDir (file or directory).
+//  2. Read <gitdir>/HEAD — if detached, return the SHA directly.
+//  3. If symbolic ("ref: refs/…"), look up the loose ref file under gitdir.
+//  4. Fall back to packed-refs from commonDir(gitdir), since worktrees share
+//     the main repo's packed refs via the commondir pointer.
+//
+// Returns "" + error if none of the above resolves.
+func LiveHead(repoRoot string) (string, error) {
+	gd, err := gitDir(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve gitdir: %w", err)
+	}
+
+	headPath := filepath.Join(gd, "HEAD")
+	headBytes, err := os.ReadFile(headPath)
+	if err != nil {
+		return "", fmt.Errorf("read HEAD: %w", err)
+	}
+	head := strings.TrimSpace(string(headBytes))
+
+	if len(head) == 40 && isHex(head) {
+		return head, nil
+	}
+
+	if !strings.HasPrefix(head, "ref: ") {
+		return "", fmt.Errorf("unrecognised HEAD: %q", head)
+	}
+	ref := strings.TrimPrefix(head, "ref: ")
+
+	// Loose ref lives under gitdir (worktree-specific refs are in the worktree's
+	// gitdir, shared refs like heads/tags are under commonDir).
+	loose := filepath.Join(gd, filepath.FromSlash(ref))
+	if data, err := os.ReadFile(loose); err == nil {
+		sha := strings.TrimSpace(string(data))
+		if len(sha) == 40 && isHex(sha) {
+			return sha, nil
+		}
+	}
+
+	// Loose ref not found — also check under commonDir (shared refs).
+	cd := commonDir(gd)
+	if cd != gd {
+		sharedLoose := filepath.Join(cd, filepath.FromSlash(ref))
+		if data, err := os.ReadFile(sharedLoose); err == nil {
+			sha := strings.TrimSpace(string(data))
+			if len(sha) == 40 && isHex(sha) {
+				return sha, nil
+			}
+		}
+	}
+
+	// packed-refs lives under commonDir (shared with main repo).
+	packed := filepath.Join(cd, "packed-refs")
+	f, err := os.Open(packed)
+	if err != nil {
+		return "", fmt.Errorf("ref not loose and no packed-refs: %w", err)
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 && parts[1] == ref && len(parts[0]) == 40 && isHex(parts[0]) {
+			return parts[0], nil
+		}
+	}
+	return "", fmt.Errorf("ref %q not in packed-refs", ref)
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// WithFreshness annotates an envelope with staleness fields when the
+// caller-supplied indexedSHA does not match the on-disk HEAD.
+//
+// Silent on match: silence is the calibrated signal.
+func WithFreshness(env Envelope, repoRoot, indexedSHA string) Envelope {
+	live, err := LiveHead(repoRoot)
+	if err != nil {
+		slog.Debug("mcpmeta.LiveHead failed",
+			"repo_root", repoRoot,
+			"err", err,
+		)
+		return env
+	}
+	if live == "" || indexedSHA == "" {
+		return env
+	}
+	if live == indexedSHA {
+		return env
+	}
+	env.StaleWarning = fmt.Sprintf(
+		"index built against %s, live HEAD is %s -- call code_graph refresh=true",
+		short(indexedSHA), short(live),
+	)
+	env.IndexedSHA = indexedSHA
+	env.LiveSHA = live
+	return env
+}
+
+func short(sha string) string {
+	if len(sha) < 7 {
+		return sha
+	}
+	return sha[:7]
+}

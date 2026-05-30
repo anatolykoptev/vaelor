@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-kit/embed"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -97,6 +99,8 @@ func handleSemanticSearch(
 	}
 	defer cleanup()
 
+	t0 := time.Now()
+
 	repoKey := codegraph.GraphNameFor(root)
 
 	// Embed query first (fast, ~1s).
@@ -117,7 +121,7 @@ func handleSemanticSearch(
 	}
 
 	if len(results) > 0 {
-		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist)
+		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
 	}
 
 	// No results — start background indexing if not already running.
@@ -146,6 +150,7 @@ func handleSemanticSearch(
 func handleSemanticHits(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, results []embeddings.SearchResult, topK int, maxDist float32,
+	t0 time.Time,
 ) (*mcp.CallToolResult, error) {
 	// Trigger background re-index for freshness.
 	if deps.Pipeline != nil {
@@ -193,7 +198,9 @@ func handleSemanticHits(
 			reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, flat, topK)
 			// Annotate with PageRank for architectural awareness.
 			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
-			return textResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)), nil
+			hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
+			env := mcpmeta.Wrap(time.Since(t0), hint)
+			return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
 		}
 	}
 	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
@@ -208,7 +215,18 @@ func handleSemanticHits(
 	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, filtered, topK)
 	// Annotate with PageRank for architectural awareness.
 	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
-	return textResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)), nil
+	hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
+	env := mcpmeta.Wrap(time.Since(t0), hint)
+	return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
+}
+
+// symbolNameFromResults returns the symbol name from the first result when there
+// is exactly one result, or "" otherwise. Used to build calibrated hints.
+func symbolNameFromResults(results []embeddings.SearchResult) string {
+	if len(results) == 1 {
+		return results[0].SymbolName
+	}
+	return ""
 }
 
 // annotateWithPageRank adds PageRank signals to results for architectural awareness.
