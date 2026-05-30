@@ -7,6 +7,37 @@ import (
 	"testing"
 )
 
+// TestBatchPriorDefect_PathNotInHistoryReturnsZero locks in the pre-fill
+// contract: paths passed in but absent from git history return a deterministic 0.
+func TestBatchPriorDefect_PathNotInHistoryReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t@t.t")
+	run("config", "user.name", "t")
+	if err := osWriteFile(filepath.Join(dir, "real.go"), []byte("v\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "real.go")
+	run("commit", "-m", "feat: a")
+
+	counts, err := BatchPriorDefect(context.Background(), dir, []string{"real.go", "ghost.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["ghost.go"] != 0 {
+		t.Fatalf("ghost.go: want 0 (pre-fill), got %d", counts["ghost.go"])
+	}
+	if _, ok := counts["real.go"]; !ok {
+		t.Fatal("real.go must be in result map even with 0 count")
+	}
+}
+
 func TestBatchPriorDefect_ReturnsCountsPerPath(t *testing.T) {
 	dir := t.TempDir()
 	run := func(env []string, args ...string) {

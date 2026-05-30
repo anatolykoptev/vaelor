@@ -97,7 +97,11 @@ func perFilePriorDefectCount(ctx context.Context, repoRoot, relPath string) (int
 	defer cancel()
 	//nolint:gosec // repoRoot and relPath are trusted local paths.
 	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot,
-		"log", "--since=180.days", "--pretty=format:%s", "--", relPath)
+		"log", "--since=180.days",
+		"--no-merges",
+		"--diff-filter=AMR",
+		"--pretty=format:%s",
+		"--", relPath)
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("git log: %w", err)

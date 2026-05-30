@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -264,7 +265,13 @@ func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomark
 	// Batch-fetch defect counts once; a single git log replaces 20 per-file calls
 	// (BUG-FH-2: 11.5s → ≤2s on 20 paths). Falls back to per-file if batch errors.
 	defectCounts, batchErr := biomarkers.BatchPriorDefect(ctx, root, paths)
-	if batchErr == nil && defectCounts != nil {
+	if batchErr != nil {
+		slog.Debug("biomarkers.BatchPriorDefect failed; falling back to per-file",
+			"repo_root", root,
+			"n_paths", len(paths),
+			"err", batchErr,
+		)
+	} else {
 		ctx = biomarkers.WithBatchDefectCache(ctx, defectCounts)
 	}
 
