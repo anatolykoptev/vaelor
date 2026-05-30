@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -174,6 +175,103 @@ func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
 	for _, f := range forbidden {
 		if strings.Contains(body, f) {
 			t.Fatalf("hint must not reference %q — does not exist as a tool / arg key", f)
+		}
+	}
+}
+
+// mkHotspotRepo creates a git repo where each path receives `commits` distinct
+// commits with churning content. Used to drive CollectChurn ranking.
+func mkHotspotRepo(t *testing.T, paths map[string]int) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t@t.t")
+	run("config", "user.name", "t")
+	for path, cycles := range paths {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < cycles; i++ {
+			body := strings.Repeat("a\n", 10)
+			if i%2 == 1 {
+				body = strings.Repeat("b\n", 10)
+			}
+			if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run("add", path)
+			run("commit", "-m", "churn cycle "+strconv.Itoa(i))
+		}
+	}
+	return dir
+}
+
+// TestTopHotspotPaths_SkipsMarkdown verifies markdown docs are excluded.
+func TestTopHotspotPaths_SkipsMarkdown(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"foo.go":       6,
+		"docs/PLAN.md": 8,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if strings.HasSuffix(p, ".md") {
+			t.Fatalf("markdown must be excluded, got %q in %v", p, paths)
+		}
+	}
+}
+
+// TestTopHotspotPaths_SkipsLockFiles guards lock-file pollution.
+func TestTopHotspotPaths_SkipsLockFiles(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"main.go":           5,
+		"package-lock.json": 8,
+		"Cargo.lock":        8,
+		"pnpm-lock.yaml":    8,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockSubstrings := []string{"package-lock.json", "Cargo.lock", "pnpm-lock.yaml"}
+	for _, p := range paths {
+		for _, lk := range lockSubstrings {
+			if strings.Contains(p, lk) {
+				t.Fatalf("lock-file %q must be excluded, got %v", p, paths)
+			}
+		}
+	}
+}
+
+// TestTopHotspotPaths_SkipsExcludedDirs verifies vendored / generated
+// content under known directories is excluded.
+func TestTopHotspotPaths_SkipsExcludedDirs(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"src/foo.go":              5,
+		"vendor/x/lib.go":         8,
+		"node_modules/p/index.js": 8,
+		"static/codec.js":         8,
+		"docs/plan.md":            8,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded := []string{"vendor/", "node_modules/", "static/", "docs/"}
+	for _, p := range paths {
+		for _, ex := range excluded {
+			if strings.HasPrefix(p, ex) {
+				t.Fatalf("path under %q must be excluded, got %q in %v", ex, p, paths)
+			}
 		}
 	}
 }

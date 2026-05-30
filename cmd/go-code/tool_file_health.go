@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -24,6 +26,65 @@ const (
 	// an advisory hint in the response meta.
 	hotspotHintThreshold = 7
 )
+
+// healthSourceExts is the allow-list of file extensions treated as
+// maintainable source code for health scoring. Excludes docs, configs,
+// lock files, and binary/generated content that churn high without
+// representing defect risk.
+var healthSourceExts = map[string]bool{
+	".go":     true,
+	".rs":     true,
+	".ts":     true,
+	".tsx":    true,
+	".js":     true,
+	".jsx":    true,
+	".mjs":    true,
+	".cjs":    true,
+	".svelte": true,
+	".astro":  true,
+	".py":     true,
+	".java":   true,
+	".kt":     true,
+	".swift":  true,
+	".rb":     true,
+	".cs":     true,
+	".cpp":    true,
+	".cc":     true,
+	".c":      true,
+	".h":      true,
+	".hpp":    true,
+	".php":    true,
+	".sh":     true,
+	".sql":    true,
+}
+
+// healthExcludedDirPrefixes lists relative-path prefixes whose contents
+// are excluded from health scoring (vendored, generated, doc-only,
+// build artefacts).
+var healthExcludedDirPrefixes = []string{
+	"vendor/",
+	"node_modules/",
+	"dist/",
+	"build/",
+	"static/",
+	"docs/",
+	".claude/",
+	".cache/",
+	"target/",
+	"third_party/",
+}
+
+// isHealthEligible reports whether a repo-relative path should be considered
+// for biomarker scoring. Skips non-source extensions and excluded directories.
+func isHealthEligible(relPath string) bool {
+	for _, prefix := range healthExcludedDirPrefixes {
+		if strings.HasPrefix(relPath, prefix) {
+			return false
+		}
+	}
+	ext := strings.ToLower(filepath.Ext(relPath))
+	return healthSourceExts[ext]
+}
 
 // defaultHealthWeights are the per-biomarker weights used by defaultHealthRegistry.
 // Weights must sum to 1.0 (enforced by NewAggregator).
@@ -71,6 +132,9 @@ func topHotspotPaths(ctx context.Context, repo string, max int) ([]string, error
 	}
 	entries := make([]entry, 0, len(churn))
 	for path, stats := range churn {
+		if !isHealthEligible(path) {
+			continue
+		}
 		entries = append(entries, entry{path: path, score: stats.ChurnScore()})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
