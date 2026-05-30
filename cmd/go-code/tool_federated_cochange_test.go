@@ -45,6 +45,10 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 		commit(chat, "rooms.rs", date)
 		commit(edge, "install.sh", date)
 	}
+	// Background commits so rooms.rs/install.sh appear in 2 of 4 windows (50% < 85%
+	// ubiquity threshold) — without these, 2/2=100% would trigger the stop-word filter.
+	commit(chat, "bg.go", "2026-05-15T10:00:00+00:00")
+	commit(edge, "bg.sh", "2026-05-22T10:00:00+00:00")
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 	res, err := handleFederatedCoChangeCore(context.Background(), FederatedCoChangeArgs{
