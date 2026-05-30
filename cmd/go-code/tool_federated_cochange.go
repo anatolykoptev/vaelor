@@ -59,6 +59,12 @@ func handleFederatedCoChangeCore(ctx context.Context, args FederatedCoChangeArgs
 	}
 
 	pairs := federate.CrossRepoCoChange(ctx, repos, window, minPairs)
+	// Normalize nil to empty slice so the JSON wire contract is always "pairs": []
+	// not "pairs": null. MCP consumers (JS/Python) iterate pairs directly and
+	// throw on null.
+	if pairs == nil {
+		pairs = []federate.CrossPair{}
+	}
 	out := FederatedCoChangeResult{
 		Pairs: pairs,
 		Meta:  mcpmeta.Wrap(time.Since(t0), ""),
