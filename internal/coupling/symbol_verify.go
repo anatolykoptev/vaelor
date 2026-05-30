@@ -27,7 +27,10 @@ func NewSymbolVerifier() *symbolVerifier {
 const maxSymbolEvidence = 5
 
 // Verify implements Verifier: returns one symbol Evidence per shared significant
-// token, sorted for determinism, capped at maxSymbolEvidence.
+// token, sorted for determinism, capped at maxSymbolEvidence. Assumes a and b
+// are distinct files in different repos (its only production caller, VerifyPairs
+// fed by CrossRepoCoChange, guarantees RepoA != RepoB); a self-pair would report
+// all of a file's own tokens as "shared".
 func (v *symbolVerifier) Verify(_ context.Context, a, b FilePair) ([]Evidence, error) {
 	sa := v.symbolsOf(a)
 	sb := v.symbolsOf(b)
@@ -38,7 +41,7 @@ func (v *symbolVerifier) Verify(_ context.Context, a, b FilePair) ([]Evidence, e
 	if len(sb) < len(sa) {
 		small, large = sb, sa
 	}
-	shared := make([]string, 0)
+	var shared []string
 	for tok := range small {
 		if _, ok := large[tok]; ok {
 			shared = append(shared, tok)
