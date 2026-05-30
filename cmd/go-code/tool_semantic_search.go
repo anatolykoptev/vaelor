@@ -200,6 +200,9 @@ func handleSemanticHits(
 			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
 			hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
 			env := mcpmeta.Wrap(time.Since(t0), hint)
+			if sha := deps.AnalyzeDeps.IndexedSHA(ctx, repoKey); sha != "" {
+				env = mcpmeta.WithFreshness(env, root, sha)
+			}
 			return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
 		}
 	}
@@ -217,6 +220,9 @@ func handleSemanticHits(
 	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
 	hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
 	env := mcpmeta.Wrap(time.Since(t0), hint)
+	if sha := deps.AnalyzeDeps.IndexedSHA(ctx, repoKey); sha != "" {
+		env = mcpmeta.WithFreshness(env, root, sha)
+	}
 	return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
 }
 

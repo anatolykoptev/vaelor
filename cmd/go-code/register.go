@@ -169,6 +169,16 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	if semDeps.Store != nil {
 		deps.SymbolBooster = &symbolBoostAdapter{store: semDeps.Store}
 		deps.RepoKeyFunc = codegraph.GraphNameFor
+		// Wire indexed-SHA resolver for WithFreshness staleness signal.
+		// Captures embedStore by closure; errors collapse to "" (cold-path guarantee).
+		embedStore := semDeps.Store
+		deps.IndexedSHAFunc = func(ctx context.Context, repoKey string) string {
+			sha, err := embedStore.GetRepoState(ctx, repoKey)
+			if err != nil {
+				return ""
+			}
+			return sha
+		}
 	}
 
 	registerRepoAnalyze(server, cfg, deps)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -147,6 +148,9 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 		}
 		hint := mcpmeta.HintAfterCodeSearch(input.Query, len(symbols), firstSym)
 		env := mcpmeta.Wrap(time.Since(t0), hint)
+		if sha := deps.IndexedSHA(ctx, codegraph.GraphNameFor(root)); sha != "" {
+			env = mcpmeta.WithFreshness(env, root, sha)
+		}
 		return metaLargeTextResult(formatSymbolSearchXML(input.Query, symbols, root), "symbol_search", outputDir, env), nil
 	})
 }
