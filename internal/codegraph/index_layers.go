@@ -7,6 +7,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/polyglot"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
@@ -21,7 +22,8 @@ const maxRoleSampleBytes = 500
 func buildCrossLanguageData(root string, allFiles []*ingest.File) ([]vertexData, []edgeData) {
 	structure := polyglot.DetectStructure(allFiles)
 
-	routeList := extractRoutes(root, allFiles)
+	repo := graphName(root)
+	routeList := extractRoutes(root, allFiles, repo)
 	classifyLayerRoles(structure.Layers, allFiles, routeList)
 	fileToLayer := buildFileToLayerMap(root, allFiles, structure.Layers)
 
@@ -45,22 +47,38 @@ func buildCrossLanguageData(root string, allFiles []*ingest.File) ([]vertexData,
 
 // extractRoutes reads source files and extracts HTTP routes across all
 // supported languages (excluding C/C++ which have no route matchers).
-func extractRoutes(root string, allFiles []*ingest.File) []routes.Route {
+//
+// Guards applied (both bump counters via repo label):
+//  1. Test files (langutil.IsTestFile) — skipped entirely; reason "test_file".
+//  2. Junk paths (routes.IsJunkPath) — routes dropped post-extraction; reason "junk".
+//
+// Kept routes bump routesExtractedTotal{repo, framework, side}.
+func extractRoutes(root string, allFiles []*ingest.File, repo string) []routes.Route {
 	var routeList []routes.Route
 	for _, f := range allFiles {
 		if f.Language == "" || f.Language == "c" || f.Language == "cpp" {
+			continue
+		}
+		// Guard 1: skip test files entirely.
+		if langutil.IsTestFile(f.Path) {
+			recordRouteRejected(repo, "test_file")
 			continue
 		}
 		src, err := os.ReadFile(f.Path)
 		if err != nil {
 			continue
 		}
-		fileRoutes := routes.ExtractAll(f.Language, src)
 		rel := relPath(f.Path, root)
-		for i := range fileRoutes {
-			fileRoutes[i].File = rel
+		for _, r := range routes.ExtractAll(f.Language, src) {
+			// Guard 2: drop junk paths.
+			if routes.IsJunkPath(r.Path) {
+				recordRouteRejected(repo, "junk")
+				continue
+			}
+			r.File = rel
+			recordRoutesExtracted(repo, r.Framework, r.Side)
+			routeList = append(routeList, r)
 		}
-		routeList = append(routeList, fileRoutes...)
 	}
 	return routeList
 }

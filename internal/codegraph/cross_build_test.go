@@ -1,9 +1,12 @@
 package codegraph
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/polyglot"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
@@ -307,5 +310,150 @@ func TestMatchKeyRoute(t *testing.T) {
 	}
 	if !strings.Contains(got, "path: '/api/users'") {
 		t.Errorf("matchKey(Route, GET:/api/users) = %q, missing path: '/api/users'", got)
+	}
+}
+
+// writeTestFile creates a file at dir/rel with the given content.
+func writeTestFile(t *testing.T, dir, rel, content string) string {
+	t.Helper()
+	p := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// TestExtractRoutes_JunkPathDropped verifies that a TypeScript file containing
+// only junk-path routes (headers.get / bare hex token) produces zero routes
+// after the receiver allow-list filter in the TS matcher.
+// Note: query-string paths still produce a client route from fetch() — they are
+// dropped at the ingest guard (extractRoutes junk filter), not in the matcher.
+func TestExtractRoutes_JunkPathDropped(t *testing.T) {
+	root := t.TempDir()
+	absPath := writeTestFile(t, root, "src/api.ts",
+		`// junk: non-router receiver
+const token = headers.get('Authorization');
+const v = map.get('/A');
+`)
+	f := &ingest.File{
+		Path:     absPath,
+		RelPath:  "src/api.ts",
+		Language: "typescript",
+	}
+
+	got := extractRoutes(root, []*ingest.File{f}, "test-repo")
+	if len(got) != 0 {
+		t.Errorf("extractRoutes: expected 0 routes from junk-only file, got %d: %+v", len(got), got)
+	}
+}
+
+// TestExtractRoutes_TestFileSkipped verifies that a *.test.ts file is entirely
+// skipped by extractRoutes (the test-file guard), and that the rejection counter
+// is bumped with reason "test_file".
+func TestExtractRoutes_TestFileSkipped(t *testing.T) {
+	root := t.TempDir()
+	absPath := writeTestFile(t, root, "src/api.test.ts",
+		`// test fixture — should be skipped at ingest
+app.get('/api/partner/register', handler);
+`)
+	f := &ingest.File{
+		Path:     absPath,
+		RelPath:  "src/api.test.ts",
+		Language: "typescript",
+	}
+
+	// Read the rejection counter before to detect the increment.
+	rejectBefore := readCounter(t,
+		routeRejectedTotal.WithLabelValues("test-repo", "test_file"))
+
+	got := extractRoutes(root, []*ingest.File{f}, "test-repo")
+	if len(got) != 0 {
+		t.Errorf("extractRoutes: expected 0 routes from test file, got %d", len(got))
+	}
+
+	rejectAfter := readCounter(t,
+		routeRejectedTotal.WithLabelValues("test-repo", "test_file"))
+	if rejectAfter-rejectBefore < 1 {
+		t.Errorf("routeRejectedTotal{test_file} did not increment: before=%.0f after=%.0f",
+			rejectBefore, rejectAfter)
+	}
+}
+
+// TestExtractRoutes_QueryStringJunkDropped verifies that a route whose path
+// contains '?' is dropped by the ingest junk filter (not the matcher — fetch()
+// still captures it as a client route, but extractRoutes post-filters it).
+func TestExtractRoutes_QueryStringJunkDropped(t *testing.T) {
+	root := t.TempDir()
+	absPath := writeTestFile(t, root, "src/xss_test_fixture.ts",
+		`// XSS test fixture
+const r = await fetch('/api/leak?c='+cookie);
+`)
+	f := &ingest.File{
+		Path:     absPath,
+		RelPath:  "src/xss_test_fixture.ts",
+		Language: "typescript",
+	}
+
+	rejectBefore := readCounter(t,
+		routeRejectedTotal.WithLabelValues("test-repo", "junk"))
+
+	got := extractRoutes(root, []*ingest.File{f}, "test-repo")
+	// The fetch() call still produces a client route in Match(), but extractRoutes
+	// must drop it because the path is junk (/api/leak?c=).
+	for _, r := range got {
+		if strings.Contains(r.RawPath, "?") {
+			t.Errorf("junk query-string route survived extractRoutes: %+v", r)
+		}
+	}
+
+	rejectAfter := readCounter(t,
+		routeRejectedTotal.WithLabelValues("test-repo", "junk"))
+	if rejectAfter-rejectBefore < 1 {
+		t.Errorf("routeRejectedTotal{junk} did not increment: before=%.0f after=%.0f",
+			rejectBefore, rejectAfter)
+	}
+}
+
+// TestExtractRoutes_RealRouteKept verifies that a legitimate route survives
+// extractRoutes and that routesExtractedTotal is bumped.
+func TestExtractRoutes_RealRouteKept(t *testing.T) {
+	root := t.TempDir()
+	absPath := writeTestFile(t, root, "src/server.ts",
+		`import express from 'express';
+const app = express();
+app.get('/api/partner/register', handleRegister);
+`)
+	f := &ingest.File{
+		Path:     absPath,
+		RelPath:  "src/server.ts",
+		Language: "typescript",
+	}
+
+	extractedBefore := readCounter(t,
+		routesExtractedTotal.WithLabelValues("test-repo", "express", "server"))
+
+	got := extractRoutes(root, []*ingest.File{f}, "test-repo")
+	if len(got) == 0 {
+		t.Fatal("extractRoutes: expected at least 1 route for /api/partner/register, got 0")
+	}
+
+	found := false
+	for _, r := range got {
+		if r.Path == "/api/partner/register" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("route /api/partner/register not found in: %+v", got)
+	}
+
+	extractedAfter := readCounter(t,
+		routesExtractedTotal.WithLabelValues("test-repo", "express", "server"))
+	if extractedAfter-extractedBefore < 1 {
+		t.Errorf("routesExtractedTotal did not increment: before=%.0f after=%.0f",
+			extractedBefore, extractedAfter)
 	}
 }
