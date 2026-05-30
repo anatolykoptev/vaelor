@@ -261,6 +261,13 @@ func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomark
 		}
 	}
 
+	// Batch-fetch defect counts once; a single git log replaces 20 per-file calls
+	// (BUG-FH-2: 11.5s → ≤2s on 20 paths). Falls back to per-file if batch errors.
+	defectCounts, batchErr := biomarkers.BatchPriorDefect(ctx, root, paths)
+	if batchErr == nil && defectCounts != nil {
+		ctx = biomarkers.WithBatchDefectCache(ctx, defectCounts)
+	}
+
 	out := FileHealthResult{}
 	for _, p := range paths {
 		fh, serr := agg.ScoreFile(ctx, root, p)
