@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/coupling"
 	"github.com/anatolykoptev/go-code/internal/federate"
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -30,8 +31,8 @@ type FederatedCoChangeArgs struct {
 
 // FederatedCoChangeResult is the JSON payload returned by the federated_cochange tool.
 type FederatedCoChangeResult struct {
-	Pairs []federate.CrossPair `json:"pairs"`
-	Meta  mcpmeta.Envelope     `json:"_meta"`
+	Pairs []coupling.VerifiedPair `json:"pairs"`
+	Meta  mcpmeta.Envelope        `json:"_meta"`
 }
 
 // handleFederatedCoChangeCore is the testable core of the federated_cochange tool.
@@ -59,15 +60,23 @@ func handleFederatedCoChangeCore(ctx context.Context, args FederatedCoChangeArgs
 		return errResult(fmt.Sprintf("federated co-change needs ≥2 repos, %q resolved to %d", args.Repos, len(repos))), nil
 	}
 
-	pairs := federate.CrossRepoCoChange(ctx, repos, window, minPairs, args.MinLift)
+	rawPairs := federate.CrossRepoCoChange(ctx, repos, window, minPairs, args.MinLift)
+
+	// Build slug→root map for stage-2 route verification.
+	roots := make(map[string]string, len(repos))
+	for _, r := range repos {
+		roots[r.Slug] = r.Root
+	}
+	verified := coupling.VerifyPairs(ctx, rawPairs, roots, coupling.NewRouteVerifier())
+
 	// Normalize nil to empty slice so the JSON wire contract is always "pairs": []
 	// not "pairs": null. MCP consumers (JS/Python) iterate pairs directly and
 	// throw on null.
-	if pairs == nil {
-		pairs = []federate.CrossPair{}
+	if verified == nil {
+		verified = []coupling.VerifiedPair{}
 	}
 	out := FederatedCoChangeResult{
-		Pairs: pairs,
+		Pairs: verified,
 		Meta:  mcpmeta.Wrap(time.Since(t0), ""),
 	}
 	body, merr := json.MarshalIndent(out, "", "  ")
