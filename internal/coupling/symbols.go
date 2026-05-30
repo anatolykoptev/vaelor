@@ -1,8 +1,8 @@
 package coupling
 
 import (
+	"fmt"
 	"regexp"
-	"strings"
 )
 
 const (
@@ -19,9 +19,14 @@ const (
 var screamingRe = regexp.MustCompile(`\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b`)
 
 // literalRe matches the CONTENTS of single/double/back-quoted string literals.
-// Group 1 captures the inner text; significance is decided in addToken.
-var literalRe = regexp.MustCompile("[\"'`]([^\"'`\\n]{" +
-	itoa(minTokenLen) + "," + itoa(maxTokenLen) + "})[\"'`]")
+// Group 1 captures the inner text; significance is decided in addToken. The
+// {min,max} quantifier is built from the named length consts (single source of
+// truth) — note this enforces length on the LITERAL path at match time, which
+// is why addToken's own length gate is load-bearing only for the screaming path.
+// Note: no escape handling — an escaped quote splits the literal; a partial
+// fragment is harmless noise downstream (intersection absorbs it).
+var literalRe = regexp.MustCompile(
+	fmt.Sprintf("[\"'`]([^\"'`\\n]{%d,%d})[\"'`]", minTokenLen, maxTokenLen))
 
 // structuredLiteralRe accepts a string-literal value only if it looks like a
 // protocol identifier: lowercase snake_case or kebab-case with ≥1 separator
@@ -65,6 +70,9 @@ func extractSignificantSymbols(src []byte) map[string]struct{} {
 // snake/kebab shape (for string literals); screaming tokens already proved their
 // structure via the required underscore in screamingRe.
 func addToken(out map[string]struct{}, tok string, structured bool) {
+	// Length gate. Redundant for the literal path (literalRe already enforces
+	// {minTokenLen,maxTokenLen} at match time) but the ONLY length bound for
+	// SCREAMING tokens — screamingRe has no length limit. Do not remove.
 	if len(tok) < minTokenLen || len(tok) > maxTokenLen {
 		return
 	}
@@ -75,22 +83,4 @@ func addToken(out map[string]struct{}, tok string, structured bool) {
 		return
 	}
 	out[tok] = struct{}{}
-}
-
-// itoa is a tiny stdlib-only int→string for building the literalRe pattern at
-// package-init (avoids importing strconv just for two constants).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b strings.Builder
-	var digits []byte
-	for n > 0 {
-		digits = append(digits, byte('0'+n%10))
-		n /= 10
-	}
-	for i := len(digits) - 1; i >= 0; i-- {
-		b.WriteByte(digits[i])
-	}
-	return b.String()
 }
