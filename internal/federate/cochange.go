@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/compare"
 )
 
 // crossCoChangeGitTimeout bounds each per-repo git log.
@@ -19,6 +21,15 @@ const crossCoChangeSinceDays = 365
 
 // maxFilesPerCommitFederate skips bulk/merge commits (mirror compare.maxFilesPerCommit).
 const maxFilesPerCommitFederate = 20
+
+// crossCoChangeMaxWindowHours caps the window so a pathological operator input
+// (e.g. a 1-year window) can't collapse all history into one O(k²) bucket.
+// One week is already generous for "coordinated change" — beyond it the
+// co-change signal is meaningless.
+const crossCoChangeMaxWindowHours = 24 * 7
+
+// maxCrossPairs bounds the returned slice (mirrors compare.maxCouplingPairs).
+const maxCrossPairs = 20
 
 // CrossPair is two files in DIFFERENT repos that change together within a window.
 type CrossPair struct {
@@ -59,6 +70,9 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 	if len(repos) < 2 || windowHours <= 0 {
 		return nil
 	}
+	if windowHours > crossCoChangeMaxWindowHours {
+		windowHours = crossCoChangeMaxWindowHours
+	}
 	var touches []touch
 	for _, r := range repos {
 		touches = append(touches, collectTouches(ctx, r)...)
@@ -76,6 +90,9 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 
 	counts := make(map[pairKey]int)
 	for _, group := range buckets {
+		if ctx.Err() != nil {
+			break
+		}
 		for i := 0; i < len(group); i++ {
 			for j := i + 1; j < len(group); j++ {
 				a, b := group[i], group[j]
@@ -112,11 +129,16 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		}
 		return out[i].FileB < out[j].FileB
 	})
+	if len(out) > maxCrossPairs {
+		out = out[:maxCrossPairs]
+	}
 	return out
 }
 
 // canonicalPair orders the two touches by (repo, file) so (chat/x, edge/y) and
-// (edge/y, chat/x) collapse to one key.
+// (edge/y, chat/x) collapse to one key. The same-repo branch is defensive and
+// unreachable in cross-repo use: callers already filter a.repo==b.repo before
+// calling this function.
 func canonicalPair(a, b touch) pairKey {
 	if a.repo > b.repo || (a.repo == b.repo && a.file > b.file) {
 		a, b = b, a
@@ -143,12 +165,20 @@ func collectTouches(ctx context.Context, r RepoRef) []touch {
 	var touches []touch
 	var curTS int64
 	var curFiles []string
+	curValid := true
 	flush := func() {
+		if !curValid {
+			curFiles = nil
+			return
+		}
 		if len(curFiles) > maxFilesPerCommitFederate {
 			curFiles = nil
 			return
 		}
 		for _, f := range curFiles {
+			if compare.IsCompiledArtifact(f) {
+				continue
+			}
 			touches = append(touches, touch{repo: r.Slug, file: f, ts: curTS})
 		}
 		curFiles = nil
@@ -160,8 +190,14 @@ func collectTouches(ctx context.Context, r RepoRef) []touch {
 		if strings.HasPrefix(line, "\x00") {
 			flush()
 			tsStr := strings.TrimPrefix(line, "\x00")
-			ts, _ := strconv.ParseInt(strings.TrimSpace(tsStr), 10, 64)
-			curTS = ts
+			ts, err := strconv.ParseInt(strings.TrimSpace(tsStr), 10, 64)
+			if err != nil {
+				curValid = false
+				curTS = 0
+			} else {
+				curValid = true
+				curTS = ts
+			}
 			continue
 		}
 		if line == "" {

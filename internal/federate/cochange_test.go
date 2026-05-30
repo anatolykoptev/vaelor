@@ -93,3 +93,32 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 		t.Fatalf("disjoint timelines → no pairs, got %v", pairs)
 	}
 }
+
+func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "oxpulse-chat")
+	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	gitInit(t, chat)
+	gitInit(t, edge)
+	configIdent(t, chat)
+	configIdent(t, edge)
+
+	// Two commits 3h apart on the same UTC day (mid-day, no midnight straddle):
+	// same 24h bucket, different 1h buckets. Explicit +00:00 so the unix %ct is
+	// deterministic regardless of the test host's timezone.
+	commitAt(t, chat, "rooms.rs", "2026-05-01T10:00:00+00:00", "signaling")
+	commitAt(t, edge, "install.sh", "2026-05-01T13:00:00+00:00", "sync")
+
+	repos := []RepoRef{
+		{Slug: "oxpulse-chat", Root: chat},
+		{Slug: "oxpulse-partner-edge", Root: edge},
+	}
+	// Under a 24h window they co-occur (same bucket).
+	if got := CrossRepoCoChange(context.Background(), repos, 24, 1); len(got) == 0 {
+		t.Fatal("3h-apart commits must pair under a 24h window")
+	}
+	// Under a 1h window they do NOT (different buckets).
+	if got := CrossRepoCoChange(context.Background(), repos, 1, 1); len(got) != 0 {
+		t.Fatalf("3h-apart commits must NOT pair under a 1h window, got %v", got)
+	}
+}
