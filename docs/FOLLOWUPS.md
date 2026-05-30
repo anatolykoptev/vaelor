@@ -79,3 +79,19 @@ Discovered after live smoke on PR #156 / v1.20.0. All non-blocking, but degrade 
 - `get_file_health` top file hint fires at score ≥7 ✓ — `"top file crates/signaling/src/rooms.rs scored 9/10..."`
 - Hotspot detection identifies real bug-class files (rooms.rs, useCall.svelte.ts, useGroupCall.svelte.ts, register.rs) — all known [[acme-web-turn-loopback-score-regression]], [[feedback_svelte5_hydration_double_mount]], [[acme-web-turn-tls-url-resync-bug]] hotspots
 
+
+---
+
+## Phase 2b smoke test (2026-05-30) — all 5 items verified in prod
+
+PR #158 / f7a0cb5 deployed + smoke-verified on acme-web:
+- Commits=1 fix: ranking shifted (i18n translations, main.rs, analytics/mod.rs now in top-20 by true commit frequency)
+- since window: ALL churn_risk reasons now say "in last 90 days" (was "across history")
+- churn growth: analytics/mod.rs churn 88.9x (4976 lines / 56 LOC grown) now scores 5 (was 0 pre-fix)
+- WithFreshness wiring: LIVE — code_search on /home/krolik/src/go-code emitted `stale_warning: index built against main 669a023, main is now f7a0cb5 -- call code_graph refresh=true`. Compares main-tip correctly (not working-tree HEAD).
+
+### NEW FOLLOWUP — BUG-FH-2b (MEDIUM): get_file_health cold latency regressed 8.9s to 34s
+**Where:** internal/biomarkers/churn_risk.go::initialCreationLines
+**Cause:** Phase 2b added a per-file git log --diff-filter=A --reverse --since=90.days spawn (one per scored file). Cold get_file_health on 20 files = 20 extra git spawns on top of CollectChurn + BatchPriorDefect. Warm = 212ms (CollectChurn cached), but initialCreationLines is NOT cached/batched.
+**Fix (Phase 2c):** batch initialCreationLines the way BatchPriorDefect batches prior_defect — one git log --diff-filter=A --name-only for all paths, attribute first-add per path. OR cache per (root, relPath) with the churn TTL.
+**Severity:** MEDIUM — cold path only, bounded by 90-day window + 15s per-file timeout; warm is fast. Acceptable trade-off for the growth-fix correctness gain, but should be batched before get_file_health becomes a hot path in PR review.
