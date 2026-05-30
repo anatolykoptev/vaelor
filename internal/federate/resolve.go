@@ -37,7 +37,7 @@ func ResolveRepos(pattern string, localDirs []string) ([]RepoRef, error) {
 	roots := repofind.Discover(localDirs)
 
 	if pattern == "all" {
-		return toRefs(roots), nil
+		return toRefs(dedupeByOrigin(roots)), nil
 	}
 
 	// Glob match on basename.
@@ -53,7 +53,7 @@ func ResolveRepos(pattern string, localDirs []string) ([]RepoRef, error) {
 		}
 	}
 	if len(matched) > 0 {
-		return toRefs(matched), nil
+		return toRefs(dedupeByOrigin(matched)), nil
 	}
 
 	// Fallback: exact basename match (pattern is a plain repo name).
