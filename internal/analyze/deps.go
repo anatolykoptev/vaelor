@@ -97,6 +97,22 @@ type Deps struct {
 	// RepoKeyFunc derives the embedding store repo key from a local root path.
 	// Must be set when SymbolBooster is non-nil. If nil, boosting is skipped.
 	RepoKeyFunc func(root string) string
+
+	// IndexedSHAFunc, when set, returns the last-indexed commit SHA for a repo
+	// key (or "" when unknown). Injected at construction to avoid an
+	// analyze→embeddings import cycle. nil → IndexedSHA always returns "".
+	IndexedSHAFunc func(ctx context.Context, repoKey string) string
+}
+
+// IndexedSHA returns the last-indexed commit SHA for a repo key, or ""
+// when no resolver is configured or the repo was never indexed. Never
+// errors — a missing resolver / row / DB error all collapse to "" so the
+// staleness signal stays silent (cold-path guarantee).
+func (d Deps) IndexedSHA(ctx context.Context, repoKey string) string {
+	if d.IndexedSHAFunc == nil {
+		return ""
+	}
+	return d.IndexedSHAFunc(ctx, repoKey)
 }
 
 // maxFileBytes returns the effective file size limit.

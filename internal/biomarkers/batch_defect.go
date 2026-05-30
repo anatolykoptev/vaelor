@@ -20,7 +20,11 @@ const batchDefectGitTimeout = 30 * time.Second
 // Filters: --no-merges (merge commits aren't real fixes) + --diff-filter=AMR
 // (skip Deleted/Copied/Type-changed — those don't represent "fixes" of the
 // file). The per-file fallback path (perFilePriorDefectCount in
-// prior_defect.go) MUST keep the same flags for score parity across paths.
+// prior_defect.go) shares most flags (--no-merges --diff-filter=AMR
+// --since=180.days) but deliberately adds --follow for single-path rename
+// tracking. Multi-path batch cannot use --follow, so renamed files score
+// slightly higher via the per-file path than the batch path. This asymmetry
+// is accepted: batch trades rename-tracking for one git invocation.
 //
 // Paths NOT touched by any matching commit return 0.
 // Returns an empty (non-nil) map for empty paths.

@@ -171,6 +171,47 @@ func TestPriorDefect_PerFileParity_DiffFilter(t *testing.T) {
 	}
 }
 
+// TestPriorDefect_FollowsRenames guards that a file's defect history
+// survives a rename via git log --follow in the per-file path.
+func TestPriorDefect_FollowsRenames(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t@t.t")
+	run("config", "user.name", "t")
+	// old.go: 2 defect commits.
+	if err := osWriteFile(filepath.Join(dir, "old.go"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "old.go")
+	run("commit", "-m", "fix: a")
+	if err := osWriteFile(filepath.Join(dir, "old.go"), []byte("2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "old.go")
+	run("commit", "-m", "fix: b")
+	// Rename old.go -> new.go.
+	run("mv", "old.go", "new.go")
+	run("commit", "-m", "chore: rename")
+
+	// Per-file path (no cache) must follow the rename and count 2 defects.
+	score, reason, err := PriorDefect{}.Score(context.Background(), dir, "new.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score == 0 {
+		t.Fatalf("renamed file must carry pre-rename defect history, got 0 (reason=%q)", reason)
+	}
+	if !strings.Contains(reason, "2 defect-commits") {
+		t.Fatalf("expected 2 defect-commits across rename, got %q", reason)
+	}
+}
+
 // TestPriorDefect_ScoreReadsCacheWhenAttached confirms the cache path of
 // PriorDefect.Score skips the per-file git log when the path is present in
 // the attached cache. Asserted by: the cache returns a synthetic value (7)

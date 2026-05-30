@@ -177,6 +177,9 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 	worstFile, worstCount := deadCodeWorstFile(symbols)
 	hint := mcpmeta.HintAfterDeadCode(worstFile, worstCount)
 	env := mcpmeta.Wrap(time.Since(t0), hint)
+	if sha := deps.IndexedSHA(ctx, codegraph.GraphNameFor(root)); sha != "" {
+		env = mcpmeta.WithFreshness(env, root, sha)
+	}
 	return metaXMLMarshalResult(resp, "dead_code", outputDir, env), nil
 }
 
