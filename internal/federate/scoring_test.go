@@ -5,31 +5,6 @@ import (
 	"testing"
 )
 
-func almostEqual(a, b float64) bool { return math.Abs(a-b) < 0.02 }
-
-func TestIDF_UbiquitousVsRare(t *testing.T) {
-	ubiquitous := idf(60, 100)
-	rare := idf(4, 100)
-	if ubiquitous >= rare {
-		t.Fatalf("rare file must have higher idf: rare=%.3f ubiq=%.3f", rare, ubiquitous)
-	}
-	if !almostEqual(ubiquitous, math.Log(100.0/60.0)) {
-		t.Fatalf("idf(60,100) = %.3f, want %.3f", ubiquitous, math.Log(100.0/60.0))
-	}
-	if got := idf(100, 100); got != 0 {
-		t.Fatalf("idf(N,N) must be 0, got %.3f", got)
-	}
-}
-
-func TestIDF_Degenerate(t *testing.T) {
-	if got := idf(0, 100); got != 0 {
-		t.Fatalf("idf(0,_) = %.3f, want 0", got)
-	}
-	if got := idf(5, 0); got != 0 {
-		t.Fatalf("idf(_,0) = %.3f, want 0", got)
-	}
-}
-
 func TestWilsonLowerBound_PenalizesThinSupport(t *testing.T) {
 	thin := wilsonLowerBound(2, 2, wilsonZ)
 	loose := wilsonLowerBound(8, 10, wilsonZ)
@@ -54,11 +29,22 @@ func TestWilsonLowerBound_Degenerate(t *testing.T) {
 	}
 }
 
-func TestCouplingScore_DemotesUbiquitous(t *testing.T) {
-	n := 100
-	genuine := couplingScore(8, 10, 10, n)
-	noise := couplingScore(8, 10, 60, n)
-	if noise >= genuine {
-		t.Fatalf("ubiquitous-partner pair must score lower: genuine=%.4f noise=%.4f", genuine, noise)
+func TestIsUbiquitous(t *testing.T) {
+	// CHANGELOG in every window → ubiquitous.
+	if !isUbiquitous(15, 15) {
+		t.Fatal("file in 100% of windows must be ubiquitous")
+	}
+	if !isUbiquitous(18, 20) { // 90%
+		t.Fatal("file in 90% of windows must be ubiquitous")
+	}
+	// An active genuine file (60-70%) must NOT be filtered.
+	if isUbiquitous(10, 15) { // 67%
+		t.Fatal("file in 67% of windows must NOT be ubiquitous (active genuine file)")
+	}
+	if isUbiquitous(2, 15) { // rare
+		t.Fatal("rare file must not be ubiquitous")
+	}
+	if isUbiquitous(5, 0) {
+		t.Fatal("n=0 guard")
 	}
 }

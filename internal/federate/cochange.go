@@ -40,7 +40,6 @@ type CrossPair struct {
 	FileB           string  `json:"fileB"`
 	CoChanges       int     `json:"coChanges"`
 	Score           float64 `json:"score"`
-	WilsonLB        float64 `json:"wilsonLb"`
 	G2              float64 `json:"g2"`
 	Significance    string  `json:"significance"`
 	Confidence      float64 `json:"confidence"`
@@ -75,24 +74,26 @@ type fileKey struct {
 // both appear counts as +1 regardless of how many touches each file has in that
 // window), which is what the G² statistic assumes.
 //
-// Ranking is by a composite Wilson-lower-bound × IDF score:
+// Ranking is by Wilson lower bound on directional confidence (support-aware,
+// continuous, never saturates):
 //
-//	score = wilsonLowerBound(co, min(winA,winB), z) · sqrt( idf(winA,n) · idf(winB,n) )
+//	score = wilsonLowerBound(co, min(winA,winB), z)
 //
-// The Wilson lower bound penalizes thin support continuously: a perfect rare
-// coincidence (co=2, winA=winB=2) is demoted below a well-supported loose
-// coupling (co=8, winA=winB=10) without any discrete tier. The IDF factor
-// down-weights files that change in many windows (CHANGELOGs, lockfiles,
-// generated files — their IDF approaches 0, collapsing their score to 0).
-// The composite score never saturates: more evidence and rarer files always
-// push a pair higher. On ties, co-change count breaks ties, then identity
-// for determinism.
+// wilsonLowerBound(pos, n, z) continuously penalizes thin support: a perfect
+// rare coincidence (co=2, winA=winB=2, score≈0.34) ranks well below a
+// well-supported loose coupling (co=8, winA=winB=10, score≈0.49). The score
+// grows monotonically with more evidence and is never distorted by file rarity.
+//
+// Ubiquitous files (touched in >85% of windows — CHANGELOGs, lockfiles,
+// generated files) are dropped as stop-words by a binary pre-filter before
+// scoring. The 85% threshold is intentionally high: genuine couplings often
+// involve active files (touched in 60-70% of windows), so a lower threshold
+// would wrongly suppress real signal.
 //
 // G²/significance are informational (un-capped): the Dunning log-likelihood
 // and its chi-square label are available for diagnostic use but do not drive
 // ranking. Confidence = co / min(winA, winB); confidenceLevel is derived
-// from the Wilson lower bound via score.ConfidenceFromScore so it reflects
-// evidence strength, not raw proportion.
+// from the Wilson score via score.ConfidenceFromScore.
 //
 // minLift is an optional raw-effect-size pre-filter (co·N / (winA·winB));
 // default 0 = no filter. Raw lift is NOT emitted in the result (it is an
@@ -170,7 +171,7 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		// Raw lift is used ONLY as an internal pre-filter; it is not stored in
 		// CrossPair because emitting it is a foot-gun for consumers (low-support
 		// pairs can have arbitrarily high lift and are sorted below well-supported
-		// ones by the two-tier sort anyway).
+		// ones by the Wilson score anyway).
 		lift := float64(co) * float64(n) / (float64(winA) * float64(winB))
 		if minLift > 0 && lift < minLift {
 			continue
@@ -179,20 +180,23 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		if winB < minWin {
 			minWin = winB
 		}
+		// Drop pairs involving a ubiquitous (stop-word) file — CHANGELOG /
+		// lockfile noise that co-occurs by sheer frequency, not real coupling.
+		if isUbiquitous(winA, n) || isUbiquitous(winB, n) {
+			continue
+		}
 		g2 := logLikelihoodG2(co, winA, winB, n)
 		wlb := wilsonLowerBound(co, minWin, wilsonZ)
-		s := couplingScore(co, winA, winB, n)
 		confidence := float64(co) / float64(minWin)
 		out = append(out, CrossPair{
 			RepoA: k.repoA, FileA: k.fileA,
 			RepoB: k.repoB, FileB: k.fileB,
 			CoChanges:       co,
-			Score:           s,
-			WilsonLB:        wlb,
+			Score:           wlb,
 			G2:              g2,
 			Significance:    significanceLabel(g2),
 			Confidence:      confidence,
-			ConfidenceLevel: string(score.ConfidenceFromScore(s)),
+			ConfidenceLevel: string(score.ConfidenceFromScore(wlb)),
 		})
 	}
 	sortCrossPairs(out)
@@ -211,9 +215,8 @@ func canonicalPairFK(a, b fileKey) pairKey {
 	return pairKey{repoA: a.repo, fileA: a.file, repoB: b.repo, fileB: b.file}
 }
 
-// sortCrossPairs sorts by composite Score descending, then CoChanges descending,
-// then lexicographically for determinism. Score = wilsonLowerBound × IDF, which
-// continuously penalizes thin support and ubiquitous files without discrete tiers.
+// sortCrossPairs sorts by Score (Wilson lower bound) descending, then CoChanges
+// descending, then lexicographically for determinism.
 // Exact-float Score compare is safe: identical integer inputs produce bit-identical Score.
 func sortCrossPairs(out []CrossPair) {
 	sort.SliceStable(out, func(i, j int) bool {
