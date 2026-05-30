@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/coupling"
 )
 
 func TestFederatedCoChange_RequiresRepos(t *testing.T) {
@@ -67,6 +68,12 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 	}
 	if !strings.Contains(body, "oxpulse-chat") || !strings.Contains(body, "oxpulse-partner-edge") {
 		t.Fatalf("pair must name both repos, body=%s", body)
+	}
+	// Pairs are now VerifiedPair (stage-2 output). The synthetic git fixtures have no real
+	// route files, so verified=false is expected — but the field must be present in the JSON.
+	_ = coupling.VerifiedPair{} // compile-time import check
+	if !strings.Contains(body, `"verified"`) {
+		t.Fatalf("VerifiedPair output must include verified field, body=%s", body)
 	}
 }
 
