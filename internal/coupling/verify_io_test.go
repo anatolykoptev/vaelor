@@ -27,15 +27,21 @@ func TestReadVerifyFile(t *testing.T) {
 		}
 	})
 	t.Run("markdown gives empty lang (skip signal)", func(t *testing.T) {
-		_, lang := readVerifyFile(dir, "README.md")
+		src, lang := readVerifyFile(dir, "README.md")
 		if lang != "" {
 			t.Errorf("lang = %q, want empty", lang)
 		}
+		if src != nil {
+			t.Errorf("src = %v, want nil on skip", src) // pins (nil,"") contract; kills dropped-guard mutant
+		}
 	})
 	t.Run("extensionless VERSION gives empty lang", func(t *testing.T) {
-		_, lang := readVerifyFile(dir, "VERSION")
+		src, lang := readVerifyFile(dir, "VERSION")
 		if lang != "" {
 			t.Errorf("lang = %q, want empty", lang)
+		}
+		if src != nil {
+			t.Errorf("src = %v, want nil on skip", src) // pins (nil,"") contract; kills dropped-guard mutant
 		}
 	})
 	t.Run("missing file returns nil/empty", func(t *testing.T) {
