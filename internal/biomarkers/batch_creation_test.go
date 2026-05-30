@@ -62,11 +62,13 @@ func TestBatchInitialCreationLines_EmptyPaths(t *testing.T) {
 	}
 }
 
-// TestChurnRisk_ScoreReadsCreationCache confirms the cache short-circuits the
-// per-file git spawn: a cache value is used verbatim instead of re-running git.
+// TestChurnRisk_ScoreReadsCreationCache PROVES the cache short-circuits the
+// per-file git spawn by injecting a SENTINEL value the real git could never
+// return. A weak version (injecting the true value) would pass whether or not
+// the cache is read, because the per-file fallback yields the same number —
+// it cannot distinguish "cache used" from "git silently spawned". The sentinel
+// makes the two paths produce DIFFERENT scores, so a green test = cache won.
 func TestChurnRisk_ScoreReadsCreationCache(t *testing.T) {
-	// Build a tiny real repo so CollectChurn + countLines have data, but
-	// inject a creation cache so initialCreationLines is NOT spawned.
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
@@ -88,14 +90,31 @@ func TestChurnRisk_ScoreReadsCreationCache(t *testing.T) {
 	run("add", "f.go")
 	run("commit", "-m", "grow")
 
-	// Cache says creation=50 (the real value). Score should use it and
-	// produce the same grown-file score as the no-cache path.
-	ctx := WithBatchCreationCache(context.Background(), map[string]int{"f.go": 50})
+	// Baseline: NO cache → per-file git returns the real creation (50) →
+	// rawChurn = (A+D) - 50 > 0 → score > 0.
+	baseScore, _, err := ChurnRisk{}.Score(context.Background(), dir, "f.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseScore == 0 {
+		t.Fatalf("no-cache grown file must score > 0, got 0")
+	}
+
+	// Sentinel: inject creation=9999, a value git could never return for this
+	// file. If the cache is read, rawChurn = (A+D) - 9999 < 0 → score 0,
+	// DIFFERENT from baseScore. If the cache were ignored (git spawned), the
+	// score would equal baseScore. Asserting score==0 ≠ baseScore proves the
+	// cache short-circuited git.
+	const sentinel = 9999
+	ctx := WithBatchCreationCache(context.Background(), map[string]int{"f.go": sentinel})
 	score, reason, err := ChurnRisk{}.Score(ctx, dir, "f.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if score == 0 {
-		t.Fatalf("cached creation=50 on grown file must score > 0, got 0 (reason=%q)", reason)
+	if score != 0 {
+		t.Fatalf("sentinel creation=%d must drive score to 0 (cache read), got %v (reason=%q) — cache NOT consulted", sentinel, score, reason)
+	}
+	if score == baseScore {
+		t.Fatalf("sentinel score must differ from no-cache baseline %v — cache was ignored", baseScore)
 	}
 }
