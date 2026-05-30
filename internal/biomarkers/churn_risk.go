@@ -65,26 +65,40 @@ func (ChurnRisk) Score(ctx context.Context, repoRoot, relPath string) (float64, 
 // churnRiskGitTimeout bounds the initial-creation git log call.
 const churnRiskGitTimeout = 15 * time.Second
 
+// numstatFields is the tab-separated field count in a git numstat line (add, del, path).
+const numstatFields = 3
+
 // initialCreationLines returns the additions of the commit that first
-// added relPath (git log --diff-filter=A --reverse, first numstat).
-// Returns 0 when the file has no add-commit in history (e.g. it always
-// existed in the initial import) — callers treat 0 as "subtract nothing".
+// added relPath within the --since=90.days window (git log --diff-filter=A
+// --reverse, first numstat). Returns 0 when the file has no add-commit in
+// the window (renamed, or created before the window) — callers treat 0 as
+// "subtract nothing".
+//
+// Renames are NOT followed: --follow is incompatible with --diff-filter=A
+// (a rename boundary is classified R, not A, so --follow yields empty).
+// A renamed file's pre-rename creation is therefore not subtracted, which
+// is consistent with CollectChurn also not following renames.
+//
+// On git error or timeout this returns 0 (subtract nothing), which
+// over-counts churn for that file rather than under-counts — a safe
+// degraded mode (flags a file as riskier, never hides risk).
 func initialCreationLines(ctx context.Context, repoRoot, relPath string) int {
 	ctx, cancel := context.WithTimeout(ctx, churnRiskGitTimeout)
 	defer cancel()
 	//nolint:gosec // trusted local paths
 	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot,
 		"log", "--diff-filter=A", "--reverse", "--numstat",
-		"--pretty=format:", "--follow", "--", relPath)
+		"--pretty=format:", "--since=90.days",
+		"--", relPath)
 	out, err := cmd.Output()
 	if err != nil {
 		return 0
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.SplitN(line, "\t", 3)
-		if len(fields) == 3 {
+		fields := strings.SplitN(line, "\t", numstatFields)
+		if len(fields) == numstatFields {
 			if n, err := strconv.Atoi(fields[0]); err == nil {
-				return n // first add-commit's additions
+				return n // first add-commit's additions within the 90-day window
 			}
 		}
 	}
