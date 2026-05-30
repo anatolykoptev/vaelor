@@ -25,7 +25,7 @@ type FederatedCoChangeArgs struct {
 	Repos       string  `json:"repos"                    jsonschema_description:"Repo pattern: 'all', a glob like 'oxpulse-*', or a single repo name/absolute path"`
 	WindowHours int     `json:"window_hours,omitempty"   jsonschema_description:"Co-change time window in hours (default 24)"`
 	MinPairs    int     `json:"min_pairs,omitempty"      jsonschema_description:"Minimum co-occurrences to report a pair (default 2)"`
-	MinLift     float64 `json:"min_lift,omitempty"       jsonschema_description:"Optional lift floor (default 0 = no floor, rank by lift only). Raise to filter to stronger-than-chance coupling. Low co-occurrence counts (min_pairs) yield noisier lift — raise min_pairs for higher-confidence pairs."`
+	MinLift     float64 `json:"min_lift,omitempty"       jsonschema_description:"Optional raw-lift floor (default 0 = no floor). Ranking is by G² statistical significance; min_lift optionally pre-filters by raw effect-size. Low co-occurrence counts (min_pairs) yield noisier values — raise min_pairs for higher-confidence pairs."`
 }
 
 // FederatedCoChangeResult is the JSON payload returned by the federated_cochange tool.
@@ -81,7 +81,7 @@ func handleFederatedCoChangeCore(ctx context.Context, args FederatedCoChangeArgs
 func registerFederatedCoChange(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "federated_cochange",
-		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. repos='all' | 'oxpulse-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another.",
+		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. Ranked by Dunning G² statistical significance (support-aware): genuine high-frequency couplings score high, rare coincidences score near-zero. repos='all' | 'oxpulse-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FederatedCoChangeArgs) (*mcp.CallToolResult, error) {
 		return handleFederatedCoChangeCore(ctx, args, deps)
 	})

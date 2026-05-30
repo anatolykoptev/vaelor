@@ -146,15 +146,15 @@ var weeks15 = []string{
 }
 
 // TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence verifies that
-// Laplace-smoothed lift ranks a genuine high-support coupling (api.rs ↔
-// handler.go, co=8 of 15 windows) ABOVE both a high-frequency noise pair
+// G²-ranked co-change places a genuine high-support coupling (api.rs ↔
+// handler.go, co=8 of 17 windows) ABOVE both a high-frequency noise pair
 // (noisy.ts ↔ util.go, always co-occurring but low lift) and a rare 2-window
-// coincidence (blip.md ↔ once.txt, would dominate raw lift without smoothing).
+// coincidence (blip.md ↔ once.txt).
 //
 // This is a regression test for the rare-coincidence inflation class: without
-// smoothing, co=2 winA=2 winB=2 N=17 → raw lift ≈ 8.5, which buries the
-// genuine co=8 pair (raw lift ≈ 2.0). With liftSmoothingAlpha=8 the smoothed
-// lifts invert: genuine ≈ 3.9, coincidence ≈ 1.6.
+// significance-aware ranking, co=2 winA=2 winB=2 N=17 → raw lift ≈ 8.5, which
+// buries the genuine co=8 pair (raw lift ≈ 2.0). G² (Dunning log-likelihood)
+// penalizes low-N pairs by construction: genuine G²≈23.5, coincidence G²≈12.3.
 //
 // Also asserts that the 2-window coincidence is NOT labeled "high" confidence,
 // since minConfidentSupport=3 caps it to "medium".
@@ -209,6 +209,75 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 	for _, p := range pairs {
 		if (p.FileA == "blip.md" || p.FileB == "blip.md") && p.ConfidenceLevel == "high" {
 			t.Fatalf("2-window coincidence must not be labeled high-confidence: %+v", p)
+		}
+	}
+}
+
+func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "oxpulse-chat")
+	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	gitInit(t, chat)
+	gitInit(t, edge)
+	configIdent(t, chat)
+	configIdent(t, edge)
+
+	weeks := []string{
+		"2026-01-05T10:00:00+00:00", "2026-01-12T10:00:00+00:00", "2026-01-19T10:00:00+00:00",
+		"2026-01-26T10:00:00+00:00", "2026-02-02T10:00:00+00:00", "2026-02-09T10:00:00+00:00",
+		"2026-02-16T10:00:00+00:00", "2026-02-23T10:00:00+00:00", "2026-03-02T10:00:00+00:00",
+		"2026-03-09T10:00:00+00:00", "2026-03-16T10:00:00+00:00", "2026-03-23T10:00:00+00:00",
+		"2026-03-30T10:00:00+00:00", "2026-04-06T10:00:00+00:00", "2026-04-13T10:00:00+00:00",
+	}
+	// Genuine, well-supported coupling: api.rs ↔ handler.go in 8 windows.
+	for _, d := range weeks[:8] {
+		commitAt(t, chat, "api.rs", d, "genuine")
+		commitAt(t, edge, "handler.go", d, "genuine")
+	}
+	// Rare coincidence: blip.md ↔ once.txt in only 2 windows (each file ONLY there).
+	for _, d := range weeks[10:12] {
+		commitAt(t, chat, "blip.md", d, "coincidence")
+		commitAt(t, edge, "once.txt", d, "coincidence")
+	}
+	// Background solo commits to inflate the total window count n=15.
+	// Without these, n=10 and G² is scale-invariant at identical coupling ratios.
+	// With n=15, genuine G²≈20.7 >> coincidence G²≈11.8 (G² grows with sample size).
+	for _, d := range weeks[8:10] {
+		commitAt(t, chat, "bg.md", d, "bg")
+	}
+	for _, d := range weeks[12:] {
+		commitAt(t, edge, "bg.sh", d, "bg")
+	}
+
+	repos := []RepoRef{
+		{Slug: "oxpulse-chat", Root: chat},
+		{Slug: "oxpulse-partner-edge", Root: edge},
+	}
+	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	if len(pairs) == 0 {
+		t.Fatal("expected pairs")
+	}
+	top := pairs[0]
+	isGenuine := (top.FileA == "api.rs" && top.FileB == "handler.go") ||
+		(top.FileA == "handler.go" && top.FileB == "api.rs")
+	if !isGenuine {
+		t.Fatalf("top by G² must be genuine api.rs↔handler.go, got %s↔%s g2=%.2f", top.FileA, top.FileB, top.G2)
+	}
+	if top.G2 <= 0 {
+		t.Fatalf("genuine pair must have G²>0, got %.4f", top.G2)
+	}
+	if top.Significance == "" {
+		t.Fatalf("significance label must be populated")
+	}
+	for _, p := range pairs {
+		if p.FileA == "blip.md" || p.FileB == "blip.md" {
+			if p.G2 >= top.G2 {
+				t.Fatalf("coincidence G²(%.2f) must be < genuine G²(%.2f)", p.G2, top.G2)
+			}
+			// co=2 < minConfidentSupport → significance capped, never strong/very_strong.
+			if p.Significance == "very_strong" || p.Significance == "strong" {
+				t.Fatalf("2-window coincidence must not be labeled %q (support cap)", p.Significance)
+			}
 		}
 	}
 }
