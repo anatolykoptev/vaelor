@@ -28,10 +28,22 @@ const (
 )
 
 // healthSourceExts is the allow-list of file extensions treated as
-// maintainable source code for health scoring. Excludes docs, configs,
-// lock files, and binary/generated content that churn high without
-// representing defect risk.
+// maintainable source code for health scoring. Covers programming
+// languages, schema-as-code (proto/thrift/graphql), infra-as-code
+// (terraform), and configuration-as-source-of-truth (yaml/toml).
+//
+// Excludes documentation (.md, .rst, .adoc), lock files, and binary
+// content that churn high without representing defect risk.
+//
+// Case-sensitive on purpose: matches the lowercase Go convention. A
+// repo with PascalCase extensions (rare) won't be scored.
+//
+// Known limitation: this is hand-maintained, NOT derived from
+// internal/parser/handler.Extensions(). A new language added to the
+// parser may be silently dropped from health scoring until added here
+// as well. Phase 2b follow-up tracks this.
 var healthSourceExts = map[string]bool{
+	// Programming languages
 	".go":     true,
 	".rs":     true,
 	".ts":     true,
@@ -56,34 +68,104 @@ var healthSourceExts = map[string]bool{
 	".php":    true,
 	".sh":     true,
 	".sql":    true,
+	// Schema-as-code
+	".proto":   true,
+	".thrift":  true,
+	".graphql": true,
+	".gql":     true,
+	// Infra-as-code
+	".tf":     true,
+	".tfvars": true,
+	// Config-as-source-of-truth (k8s manifests, GitHub Actions, etc.)
+	".yml":  true,
+	".yaml": true,
+	".toml": true,
 }
 
-// healthExcludedDirPrefixes lists relative-path prefixes whose contents
-// are excluded from health scoring (vendored, generated, doc-only,
-// build artefacts).
-var healthExcludedDirPrefixes = []string{
-	"vendor/",
-	"node_modules/",
-	"dist/",
-	"build/",
-	"static/",
-	"docs/",
-	".claude/",
-	".cache/",
-	"target/",
-	"third_party/",
+// healthSourceBasenames covers extension-less source files (build scripts,
+// dependency declarations). Used as a secondary check by isHealthEligible
+// after the extension allow-list returns false.
+var healthSourceBasenames = map[string]bool{
+	"Dockerfile":      true,
+	"Makefile":        true,
+	"Rakefile":        true,
+	"Gemfile":         true,
+	"BUILD":           true,
+	"WORKSPACE":       true,
+	"BUILD.bazel":     true,
+	"WORKSPACE.bazel": true,
+}
+
+// healthLockedBasenames is the deny-list of exact filenames that must never
+// be scored regardless of extension. Lock files are included here because
+// they share extensions with real source (e.g. pnpm-lock.yaml matches .yaml)
+// but carry zero defect signal — they churn mechanically on every dep bump.
+var healthLockedBasenames = map[string]bool{
+	"package-lock.json": true,
+	"yarn.lock":         true,
+	"pnpm-lock.yaml":    true,
+	"Cargo.lock":        true,
+	"Gemfile.lock":      true,
+	"poetry.lock":       true,
+	"go.sum":            true,
+	"composer.lock":     true,
+	"mix.lock":          true,
+	"pubspec.lock":      true,
+	"packages.lock.json": true,
+	"Pipfile.lock":      true,
+}
+
+// healthExcludedDirSegments lists directory NAMES that exclude any path
+// containing that segment. Catches both top-level (`static/foo`) and
+// nested (`web/static/foo`, `services/api/static/foo`) — the smoke that
+// motivated BUG-FH-1 hit `web/static/audio/c2dec.js`, which a top-level-
+// only prefix would miss.
+var healthExcludedDirSegments = map[string]bool{
+	"vendor":       true,
+	"node_modules": true,
+	"dist":         true,
+	"build":        true,
+	"static":       true,
+	"docs":         true,
+	".claude":      true,
+	".cache":       true,
+	"target":       true,
+	"third_party":  true,
+	"generated":    true,
+	"gen":          true,
+	".git":         true,
 }
 
 // isHealthEligible reports whether a repo-relative path should be considered
-// for biomarker scoring. Skips non-source extensions and excluded directories.
+// for biomarker scoring. Skips paths containing any excluded directory
+// segment (catches nested vendored content like web/static/) and paths
+// whose extension is not in the source allow-list.
+//
+// Path traversal is segment-based, not prefix-based: "web/static/foo.js"
+// is excluded by the "static" segment match, mirroring how operators
+// expect "vendored or generated" to behave irrespective of where in the
+// tree it sits.
+//
+// Check order: lock-file deny-list → segment exclusion → ext allow-list →
+// basename allow-list (for extension-less files like Dockerfile).
 func isHealthEligible(relPath string) bool {
-	for _, prefix := range healthExcludedDirPrefixes {
-		if strings.HasPrefix(relPath, prefix) {
+	base := filepath.Base(relPath)
+	// Lock files share extensions with real source (.yaml, .json) but have
+	// zero defect signal — they churn mechanically on every dependency bump.
+	if healthLockedBasenames[base] {
+		return false
+	}
+	for _, seg := range strings.Split(relPath, "/") {
+		if healthExcludedDirSegments[seg] {
 			return false
 		}
 	}
 	ext := strings.ToLower(filepath.Ext(relPath))
-	return healthSourceExts[ext]
+	if healthSourceExts[ext] {
+		return true
+	}
+	// Basename allow-list for ext-less source files (Dockerfile, Makefile, etc.).
+	return healthSourceBasenames[base]
 }
 
 // defaultHealthWeights are the per-biomarker weights used by defaultHealthRegistry.

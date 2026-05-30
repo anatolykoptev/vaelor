@@ -181,6 +181,10 @@ func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
 
 // mkHotspotRepo creates a git repo where each path receives `commits` distinct
 // commits with churning content. Used to drive CollectChurn ranking.
+//
+// NOTE: paths map iteration is Go's randomised map order. Tests that
+// depend on ordering OF COMMIT CONSTRUCTION will flake. Filter / set-
+// membership assertions (the T1 use case) are order-independent and safe.
 func mkHotspotRepo(t *testing.T, paths map[string]int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -272,6 +276,60 @@ func TestTopHotspotPaths_SkipsExcludedDirs(t *testing.T) {
 			if strings.HasPrefix(p, ex) {
 				t.Fatalf("path under %q must be excluded, got %q in %v", ex, p, paths)
 			}
+		}
+	}
+}
+
+// TestTopHotspotPaths_SkipsNestedStatic guards the specific smoke case
+// from BUG-FH-1: web/static/audio/c2dec.js (codec2 WASM) MUST be
+// excluded even though it lives at web/static/, not root-level static/.
+func TestTopHotspotPaths_SkipsNestedStatic(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"src/main.go":               5,
+		"web/static/audio/c2dec.js": 10,
+		"web/static/audio/c2enc.js": 10,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if strings.Contains(p, "static/") {
+			t.Fatalf("nested static path must be excluded, got %q in %v", p, paths)
+		}
+	}
+}
+
+// TestIsHealthEligible_BasenameAllowlist guards Dockerfile/Makefile inclusion.
+func TestIsHealthEligible_BasenameAllowlist(t *testing.T) {
+	cases := map[string]bool{
+		"Dockerfile":      true,
+		"Makefile":        true,
+		"app/Dockerfile":  true,
+		"deploy/Makefile": true,
+		"random.notext":   false,
+		"NotDockerfile":   false,
+	}
+	for p, want := range cases {
+		if got := isHealthEligible(p); got != want {
+			t.Errorf("isHealthEligible(%q): got %v want %v", p, got, want)
+		}
+	}
+}
+
+// TestIsHealthEligible_NewExtensions guards the schema/IaC additions.
+func TestIsHealthEligible_NewExtensions(t *testing.T) {
+	cases := []string{
+		"api/v1.proto",
+		"schema.graphql",
+		"infra/main.tf",
+		"vars.tfvars",
+		"k8s/deploy.yaml",
+		"config.toml",
+	}
+	for _, p := range cases {
+		if !isHealthEligible(p) {
+			t.Errorf("%q must be eligible (schema/IaC/config-as-code)", p)
 		}
 	}
 }
