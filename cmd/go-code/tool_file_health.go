@@ -275,6 +275,20 @@ func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomark
 		ctx = biomarkers.WithBatchDefectCache(ctx, defectCounts)
 	}
 
+	// Batch-fetch initial-creation line counts once; a single git log replaces
+	// N per-file spawns (BUG-FH-2b: 34s → bounded by one git log on 20 paths).
+	// Falls back to per-file if batch errors.
+	creationCounts, creationErr := biomarkers.BatchInitialCreationLines(ctx, root, paths)
+	if creationErr != nil {
+		slog.Debug("biomarkers.BatchInitialCreationLines failed; falling back to per-file",
+			"repo_root", root,
+			"n_paths", len(paths),
+			"err", creationErr,
+		)
+	} else {
+		ctx = biomarkers.WithBatchCreationCache(ctx, creationCounts)
+	}
+
 	out := FileHealthResult{}
 	for _, p := range paths {
 		fh, serr := agg.ScoreFile(ctx, root, p)
