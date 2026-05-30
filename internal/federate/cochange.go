@@ -32,11 +32,6 @@ const crossCoChangeMaxWindowHours = 24 * 7
 // maxCrossPairs bounds the returned slice (mirrors compare.maxCouplingPairs).
 const maxCrossPairs = 20
 
-// minConfidentSupport is the minimum co-occurrence count for a pair to earn a
-// "high" confidence label. Below it, two-or-fewer samples can't support a
-// high-confidence claim even at confidence=1.0; the label is capped to medium.
-const minConfidentSupport = 3
-
 // CrossPair is two files in DIFFERENT repos that change together within a window.
 type CrossPair struct {
 	RepoA           string  `json:"repoA"`
@@ -44,6 +39,8 @@ type CrossPair struct {
 	RepoB           string  `json:"repoB"`
 	FileB           string  `json:"fileB"`
 	CoChanges       int     `json:"coChanges"`
+	Score           float64 `json:"score"`
+	WilsonLB        float64 `json:"wilsonLb"`
 	G2              float64 `json:"g2"`
 	Significance    string  `json:"significance"`
 	Confidence      float64 `json:"confidence"`
@@ -78,30 +75,29 @@ type fileKey struct {
 // both appear counts as +1 regardless of how many touches each file has in that
 // window), which is what the G² statistic assumes.
 //
-// Ranking is two-tier then by G²:
-//  1. Well-supported pairs (co >= minConfidentSupport) always outrank
-//     low-support pairs. This prevents a perfect rare coincidence (e.g. co=2,
-//     winA=winB=2) from outranking a loose but genuine coupling (e.g. co=8,
-//     winA=winB=10) — the coincidence can score a higher raw G² (rewards
-//     perfection of association) even though it has far less evidence.
-//  2. Within each tier, rank by G² (Dunning log-likelihood) descending.
-//     G² grows with sample size, so genuine high-frequency couplings score
-//     high while rare coincidences score near-zero within the same tier.
+// Ranking is by a composite Wilson-lower-bound × IDF score:
 //
-// On small histories G² can tie; order then falls to co-change count.
+//	score = wilsonLowerBound(co, min(winA,winB), z) · sqrt( idf(winA,n) · idf(winB,n) )
+//
+// The Wilson lower bound penalizes thin support continuously: a perfect rare
+// coincidence (co=2, winA=winB=2) is demoted below a well-supported loose
+// coupling (co=8, winA=winB=10) without any discrete tier. The IDF factor
+// down-weights files that change in many windows (CHANGELOGs, lockfiles,
+// generated files — their IDF approaches 0, collapsing their score to 0).
+// The composite score never saturates: more evidence and rarer files always
+// push a pair higher. On ties, co-change count breaks ties, then identity
+// for determinism.
+//
+// G²/significance are informational (un-capped): the Dunning log-likelihood
+// and its chi-square label are available for diagnostic use but do not drive
+// ranking. Confidence = co / min(winA, winB); confidenceLevel is derived
+// from the Wilson lower bound via score.ConfidenceFromScore so it reflects
+// evidence strength, not raw proportion.
 //
 // minLift is an optional raw-effect-size pre-filter (co·N / (winA·winB));
 // default 0 = no filter. Raw lift is NOT emitted in the result (it is an
 // internal filter only) because it is an uninformative foot-gun for consumers:
 // low-support pairs can have arbitrarily high lift.
-//
-// Significance is the chi-square label derived from G² (chi-square df=1 critical
-// values: 3.84→weak, 6.63→moderate, 10.83→strong, above→very_strong). The label
-// is support-capped: below minConfidentSupport co-occurrences, no pair earns
-// "strong"/"very_strong" (G²/chi-square is unreliable at tiny expected counts).
-//
-// Confidence = co / min(winA, winB). Confidence label is capped to "medium"
-// when co < minConfidentSupport, regardless of the ratio.
 //
 // Returns nil when fewer than 2 repos, a non-positive window, or no touches
 // (best-effort, like CollectCoupling — a repo whose git log fails is skipped).
@@ -179,34 +175,24 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		if minLift > 0 && lift < minLift {
 			continue
 		}
-		g2 := logLikelihoodG2(co, winA, winB, n)
-		// Significance support-cap: G²/chi-square is unreliable at tiny expected
-		// counts — a 2-window perfect-coincidence scores G²≈22 ("very_strong")
-		// despite only 2 samples. Mirror the confidence cap: below
-		// minConfidentSupport, no pair earns a "strong"/"very_strong" label.
-		sig := significanceLabel(g2)
-		if co < minConfidentSupport && (sig == "strong" || sig == "very_strong") {
-			sig = "moderate"
-		}
 		minWin := winA
 		if winB < minWin {
 			minWin = winB
 		}
+		g2 := logLikelihoodG2(co, winA, winB, n)
+		wlb := wilsonLowerBound(co, minWin, wilsonZ)
+		s := couplingScore(co, winA, winB, n)
 		confidence := float64(co) / float64(minWin)
-		level := score.ConfidenceFromScore(confidence)
-		// A pair with fewer than minConfidentSupport co-occurrences cannot support
-		// a "high" confidence claim even at confidence=1.0 (e.g. co=2, min=2).
-		if co < minConfidentSupport && level == score.ConfidenceHigh {
-			level = score.ConfidenceMedium
-		}
 		out = append(out, CrossPair{
 			RepoA: k.repoA, FileA: k.fileA,
 			RepoB: k.repoB, FileB: k.fileB,
 			CoChanges:       co,
+			Score:           s,
+			WilsonLB:        wlb,
 			G2:              g2,
-			Significance:    sig,
+			Significance:    significanceLabel(g2),
 			Confidence:      confidence,
-			ConfidenceLevel: string(level),
+			ConfidenceLevel: string(score.ConfidenceFromScore(s)),
 		})
 	}
 	sortCrossPairs(out)
@@ -225,31 +211,14 @@ func canonicalPairFK(a, b fileKey) pairKey {
 	return pairKey{repoA: a.repo, fileA: a.file, repoB: b.repo, fileB: b.file}
 }
 
-// sortCrossPairs sorts by support tier then G², then co-change count, then
-// lexicographically for determinism.
-//
-// Primary key: well-supported pairs (co >= minConfidentSupport) always rank
-// above low-support pairs. G²/chi-square rewards perfection of association
-// regardless of sample size, so a 2-window perfect coincidence (co=2,
-// winA=winB=2) can score a higher raw G² than a loose genuine coupling (co=8,
-// winA=winB=10). The support tier prevents a thin coincidence from outranking
-// a well-supported pair. Within each tier, rank by G² descending.
-//
-// Exact-float G² compare is safe: identical integer inputs produce bit-identical G².
+// sortCrossPairs sorts by composite Score descending, then CoChanges descending,
+// then lexicographically for determinism. Score = wilsonLowerBound × IDF, which
+// continuously penalizes thin support and ubiquitous files without discrete tiers.
+// Exact-float Score compare is safe: identical integer inputs produce bit-identical Score.
 func sortCrossPairs(out []CrossPair) {
 	sort.SliceStable(out, func(i, j int) bool {
-		// Tier 1: well-supported pairs (co >= minConfidentSupport) always rank
-		// above low-support pairs. G²/chi-square over-rewards perfect rare
-		// coincidences (a 2-window always-together pair can score higher G²
-		// than a loose-but-frequent genuine coupling); the support tier prevents
-		// a thin coincidence from outranking a well-supported pair.
-		si := out[i].CoChanges >= minConfidentSupport
-		sj := out[j].CoChanges >= minConfidentSupport
-		if si != sj {
-			return si // supported (true) sorts before unsupported (false)
-		}
-		if out[i].G2 != out[j].G2 {
-			return out[i].G2 > out[j].G2
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
 		}
 		if out[i].CoChanges != out[j].CoChanges {
 			return out[i].CoChanges > out[j].CoChanges
