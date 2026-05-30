@@ -22,9 +22,10 @@ const (
 
 // FederatedCoChangeArgs is the input schema for the federated_cochange tool.
 type FederatedCoChangeArgs struct {
-	Repos       string `json:"repos"                    jsonschema_description:"Repo pattern: 'all', a glob like 'oxpulse-*', or a single repo name/absolute path"`
-	WindowHours int    `json:"window_hours,omitempty"   jsonschema_description:"Co-change time window in hours (default 24)"`
-	MinPairs    int    `json:"min_pairs,omitempty"      jsonschema_description:"Minimum co-occurrences to report a pair (default 2)"`
+	Repos       string  `json:"repos"                    jsonschema_description:"Repo pattern: 'all', a glob like 'oxpulse-*', or a single repo name/absolute path"`
+	WindowHours int     `json:"window_hours,omitempty"   jsonschema_description:"Co-change time window in hours (default 24)"`
+	MinPairs    int     `json:"min_pairs,omitempty"      jsonschema_description:"Minimum co-occurrences to report a pair (default 2)"`
+	MinLift     float64 `json:"min_lift,omitempty"       jsonschema_description:"Minimum lift to report a pair (default 1.0 = only stronger-than-chance coupling; raise to 2+ to surface only tight coupling)"`
 }
 
 // FederatedCoChangeResult is the JSON payload returned by the federated_cochange tool.
@@ -58,7 +59,7 @@ func handleFederatedCoChangeCore(ctx context.Context, args FederatedCoChangeArgs
 		return errResult(fmt.Sprintf("federated co-change needs ≥2 repos, %q resolved to %d", args.Repos, len(repos))), nil
 	}
 
-	pairs := federate.CrossRepoCoChange(ctx, repos, window, minPairs)
+	pairs := federate.CrossRepoCoChange(ctx, repos, window, minPairs, args.MinLift)
 	// Normalize nil to empty slice so the JSON wire contract is always "pairs": []
 	// not "pairs": null. MCP consumers (JS/Python) iterate pairs directly and
 	// throw on null.

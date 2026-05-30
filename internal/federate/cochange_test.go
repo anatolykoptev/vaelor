@@ -60,7 +60,8 @@ func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 		{Slug: "oxpulse-chat", Root: chat},
 		{Slug: "oxpulse-partner-edge", Root: edge},
 	}
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2) // 24h window, min 2
+	// minLift=0 → defaults to 1.0 internally; winA=winB=co=n=3 → lift=1.0 kept.
+	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0) // 24h window, min 2
 	if len(pairs) == 0 {
 		t.Fatal("expected at least one cross-repo pair")
 	}
@@ -88,7 +89,7 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 	pairs := CrossRepoCoChange(context.Background(), []RepoRef{
 		{Slug: "oxpulse-chat", Root: chat},
 		{Slug: "oxpulse-partner-edge", Root: edge},
-	}, 24, 2)
+	}, 24, 2, 0)
 	if len(pairs) != 0 {
 		t.Fatalf("disjoint timelines → no pairs, got %v", pairs)
 	}
@@ -114,11 +115,67 @@ func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
 		{Slug: "oxpulse-partner-edge", Root: edge},
 	}
 	// Under a 24h window they co-occur (same bucket).
-	if got := CrossRepoCoChange(context.Background(), repos, 24, 1); len(got) == 0 {
+	// minLift=0 → defaults to 1.0; 1 co-occurrence, winA=winB=1, n=1 → lift=1.0, kept.
+	if got := CrossRepoCoChange(context.Background(), repos, 24, 1, 0); len(got) == 0 {
 		t.Fatal("3h-apart commits must pair under a 24h window")
 	}
 	// Under a 1h window they do NOT (different buckets).
-	if got := CrossRepoCoChange(context.Background(), repos, 1, 1); len(got) != 0 {
+	if got := CrossRepoCoChange(context.Background(), repos, 1, 1, 0); len(got) != 0 {
 		t.Fatalf("3h-apart commits must NOT pair under a 1h window, got %v", got)
+	}
+}
+
+func TestCrossRepoCoChange_LiftDemotesHighFrequencyFile(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "oxpulse-chat")
+	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	gitInit(t, chat)
+	gitInit(t, edge)
+	configIdent(t, chat)
+	configIdent(t, edge)
+
+	// noisy.ts (chat) + install.sh (edge) change in EVERY window: high raw
+	// count, low lift (independently always-changing). rooms.rs (chat) +
+	// migrate.sql (edge) change in only the last 2 windows, ALWAYS together:
+	// low raw count, high lift (tight rare coupling).
+	weeks := []string{
+		"2026-01-05T10:00:00+00:00",
+		"2026-01-12T10:00:00+00:00",
+		"2026-01-19T10:00:00+00:00",
+		"2026-01-26T10:00:00+00:00",
+		"2026-02-02T10:00:00+00:00",
+	}
+	for _, d := range weeks {
+		commitAt(t, chat, "noisy.ts", d, "noise")
+		commitAt(t, edge, "install.sh", d, "noise")
+	}
+	for _, d := range weeks[3:] {
+		commitAt(t, chat, "rooms.rs", d, "signaling")
+		commitAt(t, edge, "migrate.sql", d, "schema")
+	}
+
+	repos := []RepoRef{
+		{Slug: "oxpulse-chat", Root: chat},
+		{Slug: "oxpulse-partner-edge", Root: edge},
+	}
+	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 1.0)
+	if len(pairs) == 0 {
+		t.Fatal("expected at least the tight rooms.rs↔migrate.sql pair")
+	}
+	top := pairs[0]
+	isTight := (top.FileA == "rooms.rs" && top.FileB == "migrate.sql") ||
+		(top.FileA == "migrate.sql" && top.FileB == "rooms.rs")
+	if !isTight {
+		t.Fatalf("top pair by lift must be rooms.rs↔migrate.sql, got %s/%s ↔ %s/%s lift=%.2f",
+			top.RepoA, top.FileA, top.RepoB, top.FileB, top.Lift)
+	}
+	if top.Lift <= 1.0 {
+		t.Fatalf("tight coupling must have lift > 1, got %.2f", top.Lift)
+	}
+	if top.Confidence <= 0 {
+		t.Fatalf("confidence must be populated, got %.2f", top.Confidence)
+	}
+	if top.ConfidenceLevel == "" {
+		t.Fatalf("confidence_level label must be populated")
 	}
 }

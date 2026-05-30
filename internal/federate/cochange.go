@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/artifactfilter"
+	"github.com/anatolykoptev/go-kit/score"
 )
 
 // crossCoChangeGitTimeout bounds each per-repo git log.
@@ -31,13 +32,20 @@ const crossCoChangeMaxWindowHours = 24 * 7
 // maxCrossPairs bounds the returned slice (mirrors compare.maxCouplingPairs).
 const maxCrossPairs = 20
 
+// defaultMinLift is the lift floor when the caller passes minLift <= 0: keep
+// only pairs that co-occur at least as often as independence predicts.
+const defaultMinLift = 1.0
+
 // CrossPair is two files in DIFFERENT repos that change together within a window.
 type CrossPair struct {
-	RepoA     string `json:"repoA"`
-	FileA     string `json:"fileA"`
-	RepoB     string `json:"repoB"`
-	FileB     string `json:"fileB"`
-	CoChanges int    `json:"coChanges"`
+	RepoA           string  `json:"repoA"`
+	FileA           string  `json:"fileA"`
+	RepoB           string  `json:"repoB"`
+	FileB           string  `json:"fileB"`
+	CoChanges       int     `json:"coChanges"`
+	Lift            float64 `json:"lift"`
+	Confidence      float64 `json:"confidence"`
+	ConfidenceLevel string  `json:"confidenceLevel"`
 }
 
 // touch is one (repo, file) change at a committer timestamp.
@@ -52,13 +60,26 @@ type pairKey struct {
 	repoA, fileA, repoB, fileB string
 }
 
+// fileKey identifies a (repo, file) across buckets.
+type fileKey struct {
+	repo, file string
+}
+
 // CrossRepoCoChange finds file-pairs spanning DIFFERENT repos that change
-// within windowHours of each other, at least minPairs times.
+// within windowHours of each other, at least minPairs times, with lift ≥ minLift.
 //
 // Per repo it runs one `git log --name-only --pretty=format:%x00%ct`, parses
 // (timestamp, files), and buckets each (repo, file) touch into a window of
 // windowHours. Two touches from different repos in the same bucket form a
-// cross-repo co-occurrence. Pairs are counted and filtered by minPairs.
+// cross-repo co-occurrence. Pairs are counted at bucket level (a window where
+// both appear counts as +1 regardless of how many touches each file has in that
+// window), which is what the lift statistic assumes.
+//
+// Lift = co(A,B) * N / (winA * winB) where N is the number of distinct non-empty
+// windows. Lift > 1 means the pair co-occurs more than independence predicts.
+// Confidence = co / min(winA, winB). Both metrics are populated on every returned pair.
+//
+// Pairs are sorted by lift descending. minLift <= 0 defaults to defaultMinLift (1.0).
 //
 // Returns nil when fewer than 2 repos, a non-positive window, or no touches
 // (best-effort, like CollectCoupling — a repo whose git log fails is skipped).
@@ -66,12 +87,15 @@ type pairKey struct {
 // The fixed ts/windowSec bucketing is a coarse approximation: two commits a
 // second apart but across a bucket boundary are missed. Accepted for "roughly
 // coordinated changes"; a sliding window would be heavier (YAGNI here).
-func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPairs int) []CrossPair {
+func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPairs int, minLift float64) []CrossPair {
 	if len(repos) < 2 || windowHours <= 0 {
 		return nil
 	}
 	if windowHours > crossCoChangeMaxWindowHours {
 		windowHours = crossCoChangeMaxWindowHours
+	}
+	if minLift <= 0 {
+		minLift = defaultMinLift
 	}
 	var touches []touch
 	for _, r := range repos {
@@ -82,39 +106,91 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 	}
 
 	windowSec := int64(windowHours) * 3600
-	buckets := make(map[int64][]touch)
+	// bucket -> set of distinct (repo,file) touched in that window.
+	buckets := make(map[int64]map[fileKey]struct{})
 	for _, t := range touches {
 		b := t.ts / windowSec
-		buckets[b] = append(buckets[b], t)
+		set := buckets[b]
+		if set == nil {
+			set = make(map[fileKey]struct{})
+			buckets[b] = set
+		}
+		set[fileKey{repo: t.repo, file: t.file}] = struct{}{}
 	}
 
+	n := len(buckets) // total non-empty windows
+	winCount := make(map[fileKey]int)
 	counts := make(map[pairKey]int)
-	for _, group := range buckets {
+	for _, set := range buckets {
 		if ctx.Err() != nil {
 			break
 		}
-		for i := 0; i < len(group); i++ {
-			for j := i + 1; j < len(group); j++ {
-				a, b := group[i], group[j]
-				if a.repo == b.repo {
+		files := make([]fileKey, 0, len(set))
+		for fk := range set {
+			files = append(files, fk)
+			winCount[fk]++
+		}
+		for i := 0; i < len(files); i++ {
+			for j := i + 1; j < len(files); j++ {
+				if files[i].repo == files[j].repo {
 					continue // same-repo coupling is CollectCoupling's job
 				}
-				counts[canonicalPair(a, b)]++
+				counts[canonicalPairFK(files[i], files[j])]++
 			}
 		}
 	}
 
-	var out []CrossPair
-	for k, n := range counts {
-		if n >= minPairs {
-			out = append(out, CrossPair{
-				RepoA: k.repoA, FileA: k.fileA,
-				RepoB: k.repoB, FileB: k.fileB,
-				CoChanges: n,
-			})
+	out := make([]CrossPair, 0)
+	for k, co := range counts {
+		if co < minPairs {
+			continue
 		}
+		winA := winCount[fileKey{repo: k.repoA, file: k.fileA}]
+		winB := winCount[fileKey{repo: k.repoB, file: k.fileB}]
+		if winA == 0 || winB == 0 {
+			continue
+		}
+		lift := float64(co) * float64(n) / (float64(winA) * float64(winB))
+		if lift < minLift {
+			continue
+		}
+		minWin := winA
+		if winB < minWin {
+			minWin = winB
+		}
+		confidence := float64(co) / float64(minWin)
+		out = append(out, CrossPair{
+			RepoA: k.repoA, FileA: k.fileA,
+			RepoB: k.repoB, FileB: k.fileB,
+			CoChanges:       co,
+			Lift:            lift,
+			Confidence:      confidence,
+			ConfidenceLevel: string(score.ConfidenceFromScore(confidence)),
+		})
 	}
+	sortCrossPairs(out)
+	if len(out) > maxCrossPairs {
+		out = out[:maxCrossPairs]
+	}
+	return out
+}
+
+// canonicalPairFK orders two distinct-repo file keys canonically so
+// (chat/x, edge/y) and (edge/y, chat/x) collapse to one key.
+func canonicalPairFK(a, b fileKey) pairKey {
+	if a.repo > b.repo || (a.repo == b.repo && a.file > b.file) {
+		a, b = b, a
+	}
+	return pairKey{repoA: a.repo, fileA: a.file, repoB: b.repo, fileB: b.file}
+}
+
+// sortCrossPairs sorts by lift descending, then coChanges descending, then
+// lexicographically for determinism.
+func sortCrossPairs(out []CrossPair) {
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Lift != out[j].Lift {
+			return out[i].Lift > out[j].Lift
+		}
 		if out[i].CoChanges != out[j].CoChanges {
 			return out[i].CoChanges > out[j].CoChanges
 		}
@@ -129,21 +205,6 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 		}
 		return out[i].FileB < out[j].FileB
 	})
-	if len(out) > maxCrossPairs {
-		out = out[:maxCrossPairs]
-	}
-	return out
-}
-
-// canonicalPair orders the two touches by (repo, file) so (chat/x, edge/y) and
-// (edge/y, chat/x) collapse to one key. The same-repo branch is defensive and
-// unreachable in cross-repo use: callers already filter a.repo==b.repo before
-// calling this function.
-func canonicalPair(a, b touch) pairKey {
-	if a.repo > b.repo || (a.repo == b.repo && a.file > b.file) {
-		a, b = b, a
-	}
-	return pairKey{repoA: a.repo, fileA: a.file, repoB: b.repo, fileB: b.file}
 }
 
 // collectTouches runs one git log for the repo and returns a touch per
