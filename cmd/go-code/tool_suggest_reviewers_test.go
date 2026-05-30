@@ -125,13 +125,13 @@ func TestSuggestReviewers_DirectAuthorshipWins(t *testing.T) {
 	top := file.Suggestions[0]
 	if top.Name != "Alice" {
 		t.Errorf("expected top reviewer = Alice (direct=2), got %q (score=%f signal=%q)",
-			top.Name, top.Score, top.Signal)
+			top.Name, top.Score, top.SignalBreakdown)
 	}
-	if !strings.Contains(top.Signal, "direct=2") {
-		t.Errorf("expected signal to contain 'direct=2', got %q", top.Signal)
+	if !strings.Contains(top.SignalBreakdown, "direct=2") {
+		t.Errorf("expected signal to contain 'direct=2', got %q", top.SignalBreakdown)
 	}
-	if !strings.Contains(top.Signal, "recent=true") {
-		t.Errorf("expected signal to contain 'recent=true', got %q", top.Signal)
+	if !strings.Contains(top.SignalBreakdown, "recent=true") {
+		t.Errorf("expected signal to contain 'recent=true', got %q", top.SignalBreakdown)
 	}
 }
 

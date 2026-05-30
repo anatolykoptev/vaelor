@@ -43,9 +43,9 @@ type SuggestReviewersArgs struct {
 
 // Suggestion is a single reviewer candidate with score and signal breakdown.
 type Suggestion struct {
-	Name   string  `json:"name"`
-	Score  float64 `json:"score"`
-	Signal string  `json:"signal_breakdown"`
+	Name            string  `json:"name"`
+	Score           float64 `json:"score"`
+	SignalBreakdown string  `json:"signal_breakdown"`
 }
 
 // PerFileSuggestions holds the ranked reviewer suggestions for one file path.
@@ -184,7 +184,7 @@ func buildSuggestions(
 			"direct=%d co-change=%d recent=%v",
 			authors[a], partnerCounts[a], recent[a],
 		)
-		suggestions = append(suggestions, Suggestion{Name: a, Score: score, Signal: sig})
+		suggestions = append(suggestions, Suggestion{Name: a, Score: score, SignalBreakdown: sig})
 	}
 	sort.SliceStable(suggestions, func(i, j int) bool {
 		if suggestions[i].Score != suggestions[j].Score {
@@ -235,7 +235,7 @@ func handleSuggestReviewersCore(ctx context.Context, args SuggestReviewersArgs, 
 func registerSuggestReviewers(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "suggest_reviewers",
-		Description: "Rank candidate reviewers for a list of PR file paths using direct authorship, co-change coupling, and recency. Returns top 5 per file.",
+		Description: "Rank candidate reviewers for a list of PR file paths using direct authorship, co-change coupling, and recency. Returns up to 5 distinct authors per file (fewer when the repo has fewer contributors with relevant history). Co-change signal only fires when a partner file pair has at least 2 joint commits — recently-introduced couplings won't show until they're exercised twice.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args SuggestReviewersArgs) (*mcp.CallToolResult, error) {
 		return handleSuggestReviewersCore(ctx, args, deps)
 	})

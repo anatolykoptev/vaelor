@@ -332,4 +332,5 @@ func registerFileHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FileHealthArgs) (*mcp.CallToolResult, error) {
 		return handleFileHealthCore(ctx, args, agg, cfg, deps)
 	})
+	_ = cfg // cfg reserved for future use (e.g. WorkspaceDir override)
 }

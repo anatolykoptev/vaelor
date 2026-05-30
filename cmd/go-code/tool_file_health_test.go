@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -23,7 +22,7 @@ func mkHealthRepo(t *testing.T, msgs []string) string {
 	dir := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -85,7 +84,7 @@ func textOf(t *testing.T, result *mcp.CallToolResult) string {
 // TestGetFileHealth_RequiresRepo verifies that an empty Repo field returns IsError=true.
 func TestGetFileHealth_RequiresRepo(t *testing.T) {
 	args := FileHealthArgs{Repo: ""}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +99,7 @@ func TestGetFileHealth_RequiresRepo(t *testing.T) {
 func TestGetFileHealth_EmptyRepo_ReturnsEmptyList(t *testing.T) {
 	dir := t.TempDir() // not a git repo
 	args := FileHealthArgs{Repo: dir, Paths: []string{}}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,7 +125,7 @@ func TestGetFileHealth_ExplicitPaths(t *testing.T) {
 		Repo:  dir,
 		Paths: []string{"foo.go"},
 	}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +161,7 @@ func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
 		Repo:  dir,
 		Paths: []string{"foo.go"},
 	}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
