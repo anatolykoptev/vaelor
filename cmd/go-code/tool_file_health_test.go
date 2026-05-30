@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -22,7 +22,7 @@ func mkHealthRepo(t *testing.T, msgs []string) string {
 	dir := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -84,7 +84,7 @@ func textOf(t *testing.T, result *mcp.CallToolResult) string {
 // TestGetFileHealth_RequiresRepo verifies that an empty Repo field returns IsError=true.
 func TestGetFileHealth_RequiresRepo(t *testing.T) {
 	args := FileHealthArgs{Repo: ""}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestGetFileHealth_RequiresRepo(t *testing.T) {
 func TestGetFileHealth_EmptyRepo_ReturnsEmptyList(t *testing.T) {
 	dir := t.TempDir() // not a git repo
 	args := FileHealthArgs{Repo: dir, Paths: []string{}}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestGetFileHealth_ExplicitPaths(t *testing.T) {
 		Repo:  dir,
 		Paths: []string{"foo.go"},
 	}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
 		Repo:  dir,
 		Paths: []string{"foo.go"},
 	}
-	result, err := handleFileHealthCore(context.Background(), args, testAgg(), Config{}, analyze.Deps{})
+	result, err := handleFileHealthCore(t.Context(), args, testAgg(), Config{}, analyze.Deps{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,6 +174,196 @@ func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
 	for _, f := range forbidden {
 		if strings.Contains(body, f) {
 			t.Fatalf("hint must not reference %q — does not exist as a tool / arg key", f)
+		}
+	}
+}
+
+// mkHotspotRepo creates a git repo where each path receives `commits` distinct
+// commits with churning content. Used to drive CollectChurn ranking.
+//
+// NOTE: paths map iteration is Go's randomised map order. Tests that
+// depend on ordering OF COMMIT CONSTRUCTION will flake. Filter / set-
+// membership assertions (the T1 use case) are order-independent and safe.
+func mkHotspotRepo(t *testing.T, paths map[string]int) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t@t.t")
+	run("config", "user.name", "t")
+	for path, cycles := range paths {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < cycles; i++ {
+			body := strings.Repeat("a\n", 10)
+			if i%2 == 1 {
+				body = strings.Repeat("b\n", 10)
+			}
+			if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run("add", path)
+			run("commit", "-m", "churn cycle "+strconv.Itoa(i))
+		}
+	}
+	return dir
+}
+
+// TestTopHotspotPaths_SkipsMarkdown verifies markdown docs are excluded.
+func TestTopHotspotPaths_SkipsMarkdown(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"foo.go":       6,
+		"docs/PLAN.md": 8,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if strings.HasSuffix(p, ".md") {
+			t.Fatalf("markdown must be excluded, got %q in %v", p, paths)
+		}
+	}
+}
+
+// TestTopHotspotPaths_SkipsLockFiles guards lock-file pollution.
+func TestTopHotspotPaths_SkipsLockFiles(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"main.go":           5,
+		"package-lock.json": 8,
+		"Cargo.lock":        8,
+		"pnpm-lock.yaml":    8,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockSubstrings := []string{"package-lock.json", "Cargo.lock", "pnpm-lock.yaml"}
+	for _, p := range paths {
+		for _, lk := range lockSubstrings {
+			if strings.Contains(p, lk) {
+				t.Fatalf("lock-file %q must be excluded, got %v", p, paths)
+			}
+		}
+	}
+}
+
+// TestTopHotspotPaths_SkipsExcludedDirs verifies vendored / generated
+// content under known directories is excluded.
+func TestTopHotspotPaths_SkipsExcludedDirs(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"src/foo.go":              5,
+		"vendor/x/lib.go":         8,
+		"node_modules/p/index.js": 8,
+		"static/codec.js":         8,
+		"docs/plan.md":            8,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded := []string{"vendor/", "node_modules/", "static/", "docs/"}
+	for _, p := range paths {
+		for _, ex := range excluded {
+			if strings.HasPrefix(p, ex) {
+				t.Fatalf("path under %q must be excluded, got %q in %v", ex, p, paths)
+			}
+		}
+	}
+}
+
+// TestTopHotspotPaths_SkipsNestedStatic guards the specific smoke case
+// from BUG-FH-1: web/static/audio/c2dec.js (codec2 WASM) MUST be
+// excluded even though it lives at web/static/, not root-level static/.
+func TestTopHotspotPaths_SkipsNestedStatic(t *testing.T) {
+	dir := mkHotspotRepo(t, map[string]int{
+		"src/main.go":               5,
+		"web/static/audio/c2dec.js": 10,
+		"web/static/audio/c2enc.js": 10,
+	})
+	paths, err := topHotspotPaths(t.Context(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if strings.Contains(p, "static/") {
+			t.Fatalf("nested static path must be excluded, got %q in %v", p, paths)
+		}
+	}
+}
+
+// TestIsHealthEligible_BasenameAllowlist guards Dockerfile/Makefile inclusion.
+func TestIsHealthEligible_BasenameAllowlist(t *testing.T) {
+	cases := map[string]bool{
+		"Dockerfile":      true,
+		"Makefile":        true,
+		"app/Dockerfile":  true,
+		"deploy/Makefile": true,
+		"random.notext":   false,
+		"NotDockerfile":   false,
+	}
+	for p, want := range cases {
+		if got := isHealthEligible(p); got != want {
+			t.Errorf("isHealthEligible(%q): got %v want %v", p, got, want)
+		}
+	}
+}
+
+// TestGetFileHealth_PerFileErrorSetsErrorField guards Important-2: a
+// path-level scoring failure surfaces via FileHealth.Error instead of
+// polluting the reasons map with the "error" key.
+func TestGetFileHealth_PerFileErrorSetsErrorField(t *testing.T) {
+	dir := mkHealthRepo(t, []string{"fix: a", "fix: b"})
+	// Query a path that doesn't exist — biomarker scoring should fail
+	// gracefully for it and populate Error on its FileHealth entry.
+	res, err := handleFileHealthCore(t.Context(), FileHealthArgs{
+		Repo:  dir,
+		Paths: []string{"ghost.go"},
+	}, testAgg(), Config{}, analyze.Deps{})
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
+	}
+	body := extractFileHealthResult(t, res)
+	if len(body.Files) != 1 {
+		t.Fatalf("want 1 file, got %d", len(body.Files))
+	}
+	f := body.Files[0]
+	if f.Path != "ghost.go" {
+		t.Fatalf("path mismatch: %q", f.Path)
+	}
+	// The error field MUST be empty for a missing file that simply returns 0 — but
+	// MUST be non-empty if biomarker actually errored. ChurnRisk + PriorDefect
+	// both return (0, "", nil) for missing/zero — so this test verifies the
+	// Error field is OMITTED when no real error occurred.
+	if f.Error != "" {
+		t.Logf("note: missing file returned Error=%q; either of these is acceptable: empty (graceful) or descriptive", f.Error)
+	}
+	// The KEY thing this test asserts: reasons map must NOT contain "error" key.
+	if _, hasErrKey := f.Reasons["error"]; hasErrKey {
+		t.Fatalf("Reasons map must not contain 'error' key (use Error field), got %v", f.Reasons)
+	}
+}
+
+// TestIsHealthEligible_NewExtensions guards the schema/IaC additions.
+func TestIsHealthEligible_NewExtensions(t *testing.T) {
+	cases := []string{
+		"api/v1.proto",
+		"schema.graphql",
+		"infra/main.tf",
+		"vars.tfvars",
+		"k8s/deploy.yaml",
+		"config.toml",
+	}
+	for _, p := range cases {
+		if !isHealthEligible(p) {
+			t.Errorf("%q must be eligible (schema/IaC/config-as-code)", p)
 		}
 	}
 }

@@ -63,7 +63,8 @@ func (r *Registry) Get(name string) Biomarker {
 // FileHealth is the aggregated health result for a single file.
 type FileHealth struct {
 	Path    string             `json:"path"`
-	Score   int                `json:"score"`   // 1 = healthy, 10 = on fire
-	Reasons map[string]string  `json:"reasons"` // biomarker name → human reason
-	Raw     map[string]float64 `json:"raw"`     // biomarker name → [0,1] score
+	Score   int                `json:"score"`           // 1 = healthy, 10 = on fire
+	Reasons map[string]string  `json:"reasons"`         // biomarker name → human reason
+	Raw     map[string]float64 `json:"raw"`             // biomarker name → [0,1] score
+	Error   string             `json:"error,omitempty"` // per-file failure (non-empty when scoring failed; consumers prefer this over Reasons["error"])
 }
