@@ -125,13 +125,13 @@ func TestSuggestReviewers_DirectAuthorshipWins(t *testing.T) {
 	top := file.Suggestions[0]
 	if top.Name != "Alice" {
 		t.Errorf("expected top reviewer = Alice (direct=2), got %q (score=%f signal=%q)",
-			top.Name, top.Score, top.Signal)
+			top.Name, top.Score, top.SignalBreakdown)
 	}
-	if !strings.Contains(top.Signal, "direct=2") {
-		t.Errorf("expected signal to contain 'direct=2', got %q", top.Signal)
+	if !strings.Contains(top.SignalBreakdown, "direct=2") {
+		t.Errorf("expected signal to contain 'direct=2', got %q", top.SignalBreakdown)
 	}
-	if !strings.Contains(top.Signal, "recent=true") {
-		t.Errorf("expected signal to contain 'recent=true', got %q", top.Signal)
+	if !strings.Contains(top.SignalBreakdown, "recent=true") {
+		t.Errorf("expected signal to contain 'recent=true', got %q", top.SignalBreakdown)
 	}
 }
 
@@ -174,6 +174,27 @@ func mkSuggestReviewersCouplingRepo(t *testing.T) string {
 	writeAdd("Bob", map[string]string{"a.go": "alpha + joint\n", "b.go": "beta init\n"})
 	writeAdd("Bob", map[string]string{"a.go": "alpha + joint v2\n", "b.go": "beta v2\n"})
 	return dir
+}
+
+// TestSuggestReviewers_PerFileErrorSetsErrorField guards Important-2: a
+// per-path fileAuthors failure must surface via PerFileSuggestions.Error
+// instead of injecting a Suggestion with magic Name "<error>".
+func TestSuggestReviewers_PerFileErrorSetsErrorField(t *testing.T) {
+	dir := mkSuggestReviewersRepo(t)
+	// Pass a path that will yield no authorship history; the score-loop
+	// path either degrades to no Suggestions OR errors per-file. Either
+	// way, the "<error>" sentinel name must NEVER appear in the output.
+	res, err := handleSuggestReviewersCore(t.Context(), SuggestReviewersArgs{
+		Repo:  dir,
+		Paths: []string{"/totally/bogus/path.go"},
+	}, analyze.Deps{})
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
+	}
+	body := extractText(t, res)
+	if strings.Contains(body, `"name": "<error>"`) {
+		t.Fatalf("must not emit <error> sentinel name, got body:\n%s", body)
+	}
 }
 
 // TestSuggestReviewers_CoChangePartnerSignal guards the

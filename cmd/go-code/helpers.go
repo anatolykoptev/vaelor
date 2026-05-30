@@ -49,6 +49,24 @@ func textResult(text string) *mcp.CallToolResult {
 	}
 }
 
+// appendMetaFooter returns `body` with an `<!-- meta: <json> -->` footer
+// when `env` carries any signal (non-zero duration, non-empty hint, or
+// staleness warning). Returns body unchanged otherwise.
+//
+// Centralises the empty-envelope check + marshal-error fallback that
+// metaResult / metaXMLMarshalResult / metaLargeTextResult previously
+// duplicated.
+func appendMetaFooter(body string, env mcpmeta.Envelope) string {
+	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
+		return body
+	}
+	js, err := json.Marshal(env)
+	if err != nil {
+		return body
+	}
+	return body + "\n\n<!-- meta: " + string(js) + " -->"
+}
+
 // metaResult returns a text CallToolResult and, when env is non-zero,
 // appends a JSON-encoded "_meta" footer separated by a sentinel marker
 // (HTML comment) so existing human readers and string-matching tests
@@ -57,14 +75,7 @@ func textResult(text string) *mcp.CallToolResult {
 // Empty envelope (zero timing AND no hint AND no staleness) falls back
 // to plain textResult.
 func metaResult(text string, env mcpmeta.Envelope) *mcp.CallToolResult {
-	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
-		return textResult(text)
-	}
-	js, err := env.MarshalJSON()
-	if err != nil {
-		return textResult(text)
-	}
-	return textResult(text + "\n\n<!-- meta: " + string(js) + " -->")
+	return textResult(appendMetaFooter(text, env))
 }
 
 // metaXMLMarshalResult is the envelope-aware variant of xmlMarshalResult.
@@ -75,15 +86,7 @@ func metaXMLMarshalResult(v any, toolName, outputDir string, env mcpmeta.Envelop
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err))
 	}
-	text := xml.Header + string(data)
-	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
-		return largeTextResult(text, toolName, outputDir)
-	}
-	js, jerr := env.MarshalJSON()
-	if jerr != nil {
-		return largeTextResult(text, toolName, outputDir)
-	}
-	return largeTextResult(text+"\n\n<!-- meta: "+string(js)+" -->", toolName, outputDir)
+	return largeTextResult(appendMetaFooter(xml.Header+string(data), env), toolName, outputDir)
 }
 
 // metaLargeTextResult is the envelope-aware variant of largeTextResult.
@@ -92,24 +95,23 @@ func metaXMLMarshalResult(v any, toolName, outputDir string, env mcpmeta.Envelop
 // agent always sees the hint and timing regardless of whether the body is
 // inline or file-backed.
 func metaLargeTextResult(text, toolName, outputDir string, env mcpmeta.Envelope) *mcp.CallToolResult {
+	// Short-circuit: avoid the Content[0] cast dance for the common empty-envelope path.
 	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
 		return largeTextResult(text, toolName, outputDir)
 	}
-	js, err := env.MarshalJSON()
-	if err != nil {
-		return largeTextResult(text, toolName, outputDir)
-	}
-	footer := "\n\n<!-- meta: " + string(js) + " -->"
 	res := largeTextResult(text, toolName, outputDir)
 	// Append the footer to the visible content of the result.
 	// When body was saved to file, res.Content[0] holds the short summary —
 	// that is the text the agent reads, so the footer must go there.
-	if len(res.Content) > 0 {
-		if tc, ok := res.Content[0].(*mcp.TextContent); ok {
-			tc.Text += footer
-			res.Content[0] = tc
-		}
+	if len(res.Content) == 0 {
+		return res
 	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return res
+	}
+	tc.Text = appendMetaFooter(tc.Text, env)
+	res.Content[0] = tc
 	return res
 }
 
