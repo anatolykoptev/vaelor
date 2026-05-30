@@ -1,13 +1,15 @@
 package main
 
 import (
-	"strings"
-	"path/filepath"
 	"context"
 	"encoding/xml"
 	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -112,6 +114,8 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 		}
 		defer cleanup()
 
+		t0 := time.Now()
+
 		symbols, err := analyze.SearchSymbols(ctx, analyze.SymbolSearchInput{
 			Root:        root,
 			Query:       input.Query,
@@ -127,13 +131,23 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 		if len(symbols) == 0 {
 			hint := indexedPathsHint()
 			if suggestions := semanticSuggest(ctx, sem, root, input.Query, input.Language); suggestions != "" {
-				return textResult(fmt.Sprintf("<response tool=\"symbol_search\">\n"+
+				env := mcpmeta.Wrap(time.Since(t0), "")
+				body := fmt.Sprintf("<response tool=\"symbol_search\">\n"+
 					"  <symbols query=\"%s\" count=\"0\"/>\n"+
-					"%s\n</response>\n\n%s", escapeXML(input.Query), suggestions, hint)), nil
+					"%s\n</response>\n\n%s", escapeXML(input.Query), suggestions, hint)
+				return metaResult(body, env), nil
 			}
 			return textResult(fmt.Sprintf("No symbols found matching %q.\n\n%s", input.Query, hint)), nil
 		}
-		return largeTextResult(formatSymbolSearchXML(input.Query, symbols, root), "symbol_search", outputDir), nil
+
+		// Extract hint: exactly 1 result → suggest understand on that symbol.
+		var firstSym string
+		if len(symbols) == 1 {
+			firstSym = symbols[0].Name
+		}
+		hint := mcpmeta.HintAfterCodeSearch(input.Query, len(symbols), firstSym)
+		env := mcpmeta.Wrap(time.Since(t0), hint)
+		return metaLargeTextResult(formatSymbolSearchXML(input.Query, symbols, root), "symbol_search", outputDir, env), nil
 	})
 }
 

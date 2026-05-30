@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compound"
+	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -52,6 +54,8 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
+
+	t0 := time.Now()
 
 	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
 		Root:               root,
@@ -116,7 +120,9 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
-	return textResult(string(data)), nil
+	// understand is a terminal call — no chaining hint.
+	env := mcpmeta.Wrap(time.Since(t0), "")
+	return metaResult(string(data), env), nil
 }
 
 // filterByFocus narrows a symbol list to those whose file path matches focus.
