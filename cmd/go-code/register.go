@@ -175,6 +175,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		deps.IndexedSHAFunc = func(ctx context.Context, repoKey string) string {
 			sha, err := embedStore.GetRepoState(ctx, repoKey)
 			if err != nil {
+				slog.Debug("freshness: GetRepoState failed", "repo_key", repoKey, "err", err)
 				return ""
 			}
 			return sha
