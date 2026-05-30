@@ -71,6 +71,46 @@ let secret = env::var("RELAY_JWT_SECRET").unwrap();`,
 	}
 }
 
+func TestExtractSignificantSymbols_GenericInfraFloor(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "ubiquitous infra env-vars excluded",
+			src:  `DATABASE_URL REDIS_URL MAX_RETRIES LOG_LEVEL LISTEN_ADDR CACHE_HOST SVC_PORT`,
+			want: []string{}, // all end in a generic-infra suffix
+		},
+		{
+			name: "domain secret survives (primary signal)",
+			src:  `let s = std::env::var("RELAY_JWT_SECRET"); const API_KEY = 1; let t = SESSION_TOKEN;`,
+			want: []string{"API_KEY", "RELAY_JWT_SECRET", "SESSION_TOKEN"}, // _SECRET/_KEY/_TOKEN are signal, not infra
+		},
+		{
+			name: "protocol literal survives",
+			src:  `ws.send("peer_joined"); emit("ice-candidate");`,
+			want: []string{"ice-candidate", "peer_joined"},
+		},
+		{
+			name: "infra-suffixed literal also excluded",
+			src:  `let x = "service_url"; let y = "redis_host";`,
+			want: []string{}, // literal values with infra suffixes are noise too
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := keys(extractSignificantSymbols([]byte(tt.src)))
+			if tt.want == nil {
+				tt.want = []string{}
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("extractSignificantSymbols() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // makeLong builds a quoted string content longer than maxTokenLen for the bounds test.
 func makeLong() string {
 	b := make([]byte, maxTokenLen+5)

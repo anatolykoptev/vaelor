@@ -69,9 +69,7 @@ func (v *symbolVerifier) symbolsOf(f FilePair) map[string]struct{} {
 	}
 	src, lang := readVerifyFile(f.Root, f.Rel)
 	var syms map[string]struct{}
-	if lang == "" {
-		syms = map[string]struct{}{} // noise file (markdown/lockfile) → no symbols
-	} else {
+	if lang != "" {
 		syms = extractSignificantSymbols(src)
 	}
 	v.cache[key] = syms

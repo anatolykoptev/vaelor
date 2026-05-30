@@ -3,6 +3,7 @@ package coupling
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 const (
@@ -49,6 +50,27 @@ var stopTokens = map[string]bool{
 	"STATUS_CODE":      true,
 }
 
+// genericInfraSuffixes mark a token as ubiquitous infrastructure config (shared
+// because two services use the same database/cache/transport, NOT because they
+// share a protocol contract). Checked case-insensitively against the token tail.
+// Deliberately EXCLUDES _SECRET/_KEY/_TOKEN/_PASSWORD: domain secrets like
+// RELAY_JWT_SECRET are real coupling signal and must survive.
+var genericInfraSuffixes = []string{
+	"_url", "_uri", "_host", "_port", "_addr", "_address", "_env", "_level",
+	"_timeout", "_retries", "_pool", "_dsn", "_endpoint", "_region", "_bucket",
+}
+
+// isGenericInfraToken reports whether tok is ubiquitous infra config (by suffix).
+func isGenericInfraToken(tok string) bool {
+	low := strings.ToLower(tok)
+	for _, suf := range genericInfraSuffixes {
+		if strings.HasSuffix(low, suf) {
+			return true
+		}
+	}
+	return false
+}
+
 // extractSignificantSymbols returns the set of high-signal tokens in src:
 // SCREAMING_SNAKE consts/env-vars and structured (snake/kebab) string literals,
 // minus the stop-set. Language-agnostic — operates on raw bytes, so it works
@@ -80,6 +102,9 @@ func addToken(out map[string]struct{}, tok string, structured bool) {
 		return
 	}
 	if structured && !structuredLiteralRe.MatchString(tok) {
+		return
+	}
+	if isGenericInfraToken(tok) {
 		return
 	}
 	out[tok] = struct{}{}
