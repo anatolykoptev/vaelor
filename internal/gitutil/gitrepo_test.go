@@ -178,15 +178,14 @@ func TestOriginURL(t *testing.T) {
 	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
-	// No origin yet → "" with no error.
-	if got, err := OriginURL(context.Background(), dir); err != nil || got != "" {
-		t.Fatalf("no-origin → (\"\", nil), got (%q, %v)", got, err)
+	if got := OriginURL(context.Background(), dir); got != "" {
+		t.Fatalf("no-origin → \"\", got %q", got)
 	}
 	want := "git@github.com:anatolykoptev/oxpulse-chat.git"
 	if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", want).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	if got, err := OriginURL(context.Background(), dir); err != nil || got != want {
-		t.Fatalf("OriginURL = (%q, %v), want (%q, nil)", got, err, want)
+	if got := OriginURL(context.Background(), dir); got != want {
+		t.Fatalf("OriginURL = %q, want %q", got, want)
 	}
 }

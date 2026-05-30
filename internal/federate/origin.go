@@ -16,7 +16,7 @@ func dedupeByOrigin(roots []string) []string {
 	seen := make(map[string]bool, len(roots))
 	out := make([]string, 0, len(roots))
 	for _, root := range roots {
-		origin, _ := gitutil.OriginURL(context.Background(), root)
+		origin := gitutil.OriginURL(context.Background(), root)
 		id := repoIdentity(origin)
 		if id != "" {
 			if seen[id] {

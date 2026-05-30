@@ -73,3 +73,46 @@ func TestRepoIdentity(t *testing.T) {
 		}
 	}
 }
+
+// A repo reachable via SSH and another via HTTPS but pointing at the SAME
+// GitHub repo must collapse (slugparse canonicalizes both to "owner/repo").
+func TestResolveRepos_DedupsAcrossSSHAndHTTPS(t *testing.T) {
+	parent := t.TempDir()
+	a := filepath.Join(parent, "svc-ssh")
+	b := filepath.Join(parent, "svc-https")
+	gitInit(t, a)
+	gitInit(t, b)
+	setOrigin(t, a, "git@github.com:anatolykoptev/oxpulse-chat.git")
+	setOrigin(t, b, "https://github.com/anatolykoptev/oxpulse-chat.git")
+
+	got, err := ResolveRepos("all", []string{parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("SSH+HTTPS of one repo must collapse to 1, got %d: %v", len(got), got)
+	}
+}
+
+// When two checkouts share an origin, the lexically-first directory wins
+// (Discover returns lexical order; dedupeByOrigin keeps the first occurrence).
+func TestResolveRepos_DedupKeepsLexicallyFirstCheckout(t *testing.T) {
+	parent := t.TempDir()
+	chat := filepath.Join(parent, "oxpulse-chat")
+	chatDev := filepath.Join(parent, "oxpulse-chat-dev")
+	gitInit(t, chat)
+	gitInit(t, chatDev)
+	setOrigin(t, chat, "git@github.com:anatolykoptev/oxpulse-chat.git")
+	setOrigin(t, chatDev, "git@github.com:anatolykoptev/oxpulse-chat.git")
+
+	got, err := ResolveRepos("oxpulse-*", []string{parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 after collapse, got %d: %v", len(got), got)
+	}
+	if got[0].Slug != "oxpulse-chat" {
+		t.Fatalf("lexically-first checkout must win: want oxpulse-chat, got %q", got[0].Slug)
+	}
+}
