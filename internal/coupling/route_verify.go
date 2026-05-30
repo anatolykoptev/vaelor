@@ -2,17 +2,10 @@ package coupling
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
-
-// maxVerifyFileBytes bounds a file read during verification. Routes never live
-// in huge files; skip anything larger to keep stage-2 cheap on the ARM box.
-const maxVerifyFileBytes = 512 * 1024
 
 // genericPaths are well-known endpoints that many unrelated services expose;
 // a match on one of these is not evidence of a real cross-repo dependency.
@@ -116,18 +109,9 @@ func (v *routeVerifier) routesOf(f FilePair) []routes.Route {
 }
 
 func extractFileRoutes(root, rel string) []routes.Route {
-	full := filepath.Join(root, rel)
-	info, err := os.Stat(full)
-	if err != nil || info.IsDir() || info.Size() > maxVerifyFileBytes {
-		return nil
-	}
-	src, err := os.ReadFile(full) //nolint:gosec // root+rel are trusted local paths from ResolveRepos
-	if err != nil {
-		return nil
-	}
-	lang := parser.DetectLanguageFromPath(rel)
+	src, lang := readVerifyFile(root, rel)
 	if lang == "" {
-		return nil // no matcher (markdown, lockfiles, etc.)
+		return nil
 	}
 	rs := routes.ExtractAll(lang, src)
 	for i := range rs {
