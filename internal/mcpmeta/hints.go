@@ -14,8 +14,13 @@ import (
 	"strings"
 )
 
-// explainQueryRE recognises questions that want prose, not chaining.
+// explainQueryRE recognises English explain-class queries that want prose, not chaining.
+// Go's RE2 \b is ASCII-only, so Cyrillic verbs are matched by explainQueryRURE instead.
 var explainQueryRE = regexp.MustCompile(`(?i)\b(why|how|describe|explain)\b`)
+
+// explainQueryRURE recognises Russian explain-class queries.
+// Uses simple substring match — Cyrillic words are unambiguous enough in practice.
+var explainQueryRURE = regexp.MustCompile(`(?i)(почему|как|опиши|объясни|расскажи)`)
 
 // HintAfterCodeSearch returns a calibrated chaining hint for a code_search
 // response, or "" when no hint is warranted.
@@ -25,7 +30,7 @@ var explainQueryRE = regexp.MustCompile(`(?i)\b(why|how|describe|explain)\b`)
 //   - exactly 1 hit → suggest understand(symbol=...) on that symbol
 //   - 0 or >1 hits → silent (too many to pin one symbol)
 func HintAfterCodeSearch(query string, nHits int, firstHitSymbol string) string {
-	if explainQueryRE.MatchString(query) {
+	if explainQueryRE.MatchString(query) || explainQueryRURE.MatchString(query) {
 		return ""
 	}
 	if nHits != 1 || firstHitSymbol == "" {
@@ -54,56 +59,50 @@ func HintAfterDeadCode(worstFile string, worstFileDeadCount int) string {
 	)
 }
 
-// declKeywords are Go declaration keywords that precede the symbol name.
-// When one of these is the first word of a hit line body, the symbol name
-// is the immediately following word.
-var declKeywords = map[string]bool{
-	"func":  true,
-	"type":  true,
-	"var":   true,
-	"const": true,
-}
+// goIdentRE matches a valid Go identifier (exported or unexported).
+var goIdentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// ExtractSymbolFromHit tries to parse "file.go:42:func Bar(...) {" → "Bar".
-// Handles both declaration-prefixed forms ("func Bar(", "type Foo struct")
-// and bare identifier lines. Returns "" on failure (which makes
-// HintAfterCodeSearch go silent — safe).
+// declKeywords are Go declaration keywords that precede the symbol name.
+var declKeywords = []string{"func", "type", "var", "const"}
+
+// ExtractSymbolFromHit returns the identifier from a declaration-style match
+// line like "foo.go:42:func Bar(...)". Returns "" for non-declaration lines
+// (call sites, string literals, comments, control flow) so HintAfterCodeSearch
+// stays silent rather than suggesting a bogus understand(symbol=...) call.
 func ExtractSymbolFromHit(hit string) string {
 	parts := strings.SplitN(hit, ":", 3)
 	if len(parts) < 3 {
 		return ""
 	}
 	body := strings.TrimSpace(parts[2])
-	if body == "" {
+
+	// Must start with one of the declaration keywords.
+	var rest string
+	for _, kw := range declKeywords {
+		if strings.HasPrefix(body, kw+" ") {
+			rest = strings.TrimSpace(body[len(kw):])
+			break
+		}
+	}
+	if rest == "" {
 		return ""
 	}
-	body = strings.TrimSuffix(body, " {")
-	body = strings.TrimSuffix(body, "{")
-	fields := strings.Fields(body)
+
+	// Take the first whitespace-separated token, strip trailing `(`/`{`/`:`.
+	fields := strings.Fields(rest)
 	if len(fields) == 0 {
 		return ""
 	}
-
-	// When the first token is a declaration keyword, the symbol name is the next token.
-	if declKeywords[fields[0]] && len(fields) >= 2 {
-		name := fields[1]
-		// Strip trailing punctuation like "(" or ":".
-		for _, c := range []string{"(", ":", "{"} {
-			if i := strings.Index(name, c); i > 0 {
-				name = name[:i]
-			}
-		}
-		if name != "" {
-			return name
-		}
-	}
-
-	// Fallback: take the last token and strip trailing punctuation.
-	last := fields[len(fields)-1]
+	sym := fields[0]
 	for _, c := range []string{"(", "{", ":"} {
-		if i := strings.Index(last, c); i > 0 {
-			last = last[:i]
+		if i := strings.Index(sym, c); i > 0 {
+			sym = sym[:i]
 		}
 	}
-	return last
+
+	// Must match a Go identifier shape.
+	if !goIdentRE.MatchString(sym) {
+		return ""
+	}
+	return sym
 }

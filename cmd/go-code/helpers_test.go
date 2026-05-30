@@ -97,3 +97,26 @@ func TestMetaXMLMarshalResult_NonEmptyEnvelope_AppendsFooter(t *testing.T) {
 		t.Fatalf("non-empty envelope must append meta comment, got:\n%s", got)
 	}
 }
+
+// TestMetaLargeTextResult_EnvelopeAppearsInSummaryWhenSavedToFile verifies that the
+// meta envelope footer is present in the visible summary message even when the body
+// is saved to a file (not returned inline).
+func TestMetaLargeTextResult_EnvelopeAppearsInSummaryWhenSavedToFile(t *testing.T) {
+	bigText := strings.Repeat("X", maxInlineCharsDefault*2)
+	env := mcpmeta.Wrap(50*time.Millisecond, "test hint")
+	tmpDir := t.TempDir()
+	res := metaLargeTextResult(bigText, "test_tool", tmpDir, env)
+	if res == nil || len(res.Content) == 0 {
+		t.Fatal("nil result")
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected *mcp.TextContent, got %T", res.Content[0])
+	}
+	if !strings.Contains(tc.Text, "<!-- meta:") {
+		t.Fatalf("envelope footer must appear in visible summary even when body saved to file, got: %q", tc.Text)
+	}
+	if !strings.Contains(tc.Text, "test hint") {
+		t.Fatalf("hint must surface in visible summary, got: %q", tc.Text)
+	}
+}

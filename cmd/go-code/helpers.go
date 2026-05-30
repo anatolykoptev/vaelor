@@ -87,6 +87,10 @@ func metaXMLMarshalResult(v any, toolName, outputDir string, env mcpmeta.Envelop
 }
 
 // metaLargeTextResult is the envelope-aware variant of largeTextResult.
+// When the body is saved to a file (large output), the envelope footer is
+// appended to the visible summary message rather than the file body — the
+// agent always sees the hint and timing regardless of whether the body is
+// inline or file-backed.
 func metaLargeTextResult(text, toolName, outputDir string, env mcpmeta.Envelope) *mcp.CallToolResult {
 	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
 		return largeTextResult(text, toolName, outputDir)
@@ -95,7 +99,18 @@ func metaLargeTextResult(text, toolName, outputDir string, env mcpmeta.Envelope)
 	if err != nil {
 		return largeTextResult(text, toolName, outputDir)
 	}
-	return largeTextResult(text+"\n\n<!-- meta: "+string(js)+" -->", toolName, outputDir)
+	footer := "\n\n<!-- meta: " + string(js) + " -->"
+	res := largeTextResult(text, toolName, outputDir)
+	// Append the footer to the visible content of the result.
+	// When body was saved to file, res.Content[0] holds the short summary —
+	// that is the text the agent reads, so the footer must go there.
+	if len(res.Content) > 0 {
+		if tc, ok := res.Content[0].(*mcp.TextContent); ok {
+			tc.Text += footer
+			res.Content[0] = tc
+		}
+	}
+	return res
 }
 
 // largeTextResult returns a text result, saving to file if content exceeds maxInlineCharsDefault.

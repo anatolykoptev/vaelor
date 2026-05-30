@@ -29,11 +29,16 @@ type Envelope struct {
 }
 
 // Wrap builds an Envelope from a measured tool duration and an optional hint.
-// Pass hint == "" when no next-call is obvious.
+// Pass hint == "" when no next-call is obvious. Sub-millisecond durations
+// are clamped to 1 so the envelope's "always populated" contract holds.
 func Wrap(elapsed time.Duration, hint string) Envelope {
+	ms := elapsed.Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
 	return Envelope{
-		DurationMS: elapsed.Milliseconds(),
-		Hint:     hint,
+		DurationMS: ms,
+		Hint:       hint,
 	}
 }
 

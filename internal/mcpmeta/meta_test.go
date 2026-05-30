@@ -37,6 +37,13 @@ func TestEnvelope_JSONShape(t *testing.T) {
 	}
 }
 
+func TestWrap_SubMillisecondClampedToOne(t *testing.T) {
+	env := Wrap(100*time.Microsecond, "")
+	if env.DurationMS != 1 {
+		t.Fatalf("sub-ms must clamp to 1, got %d", env.DurationMS)
+	}
+}
+
 func TestEnvelope_JSONShape_FullyPopulated(t *testing.T) {
 	env := Envelope{
 		DurationMS:   42,

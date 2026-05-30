@@ -1,10 +1,13 @@
 package mcpmeta
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestHintAfterCodeSearch_SingleHitSuggestsUnderstand(t *testing.T) {
 	h := HintAfterCodeSearch("foo", 1, "Bar")
-	if h == "" || !containsStr(h, "understand") || !containsStr(h, "Bar") {
+	if h == "" || !strings.Contains(h, "understand") || !strings.Contains(h, "Bar") {
 		t.Fatalf("expected understand+Bar, got %q", h)
 	}
 }
@@ -38,7 +41,7 @@ func TestHintAfterCodeSearch_ExplainQuerySilent(t *testing.T) {
 
 func TestHintAfterDeadCode_HighCountSuggestsHealth(t *testing.T) {
 	h := HintAfterDeadCode("foo.go", 7)
-	if h == "" || !containsStr(h, "get_file_health") || !containsStr(h, "foo.go") {
+	if h == "" || !strings.Contains(h, "get_file_health") || !strings.Contains(h, "foo.go") {
 		t.Fatalf("expected get_file_health+foo.go, got %q", h)
 	}
 }
@@ -82,16 +85,39 @@ func TestExtractSymbolFromHit(t *testing.T) {
 	}
 }
 
-// containsStr is a stdlib-only strings.Contains replacement to avoid
-// importing strings in this test file's helper (avoid shadowing).
-func containsStr(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
+func TestHintAfterCodeSearch_RussianExplainQuerySilent(t *testing.T) {
+	cases := []string{"почему X не работает", "как устроен Y", "опиши Z", "объясни flow", "расскажи про auth"}
+	for _, q := range cases {
+		if h := HintAfterCodeSearch(q, 1, "Sym"); h != "" {
+			t.Fatalf("russian explain query %q must be silent, got %q", q, h)
 		}
 	}
-	return false
+}
+
+func TestExtractSymbolFromHit_NonDeclarationSilent(t *testing.T) {
+	cases := []string{
+		"foo.go:42:\tfoo.Bar(x)",           // call site
+		`foo.go:42:msg := "feature-flag"`,  // string literal line
+		"foo.go:42:// comment with Foo",    // comment
+		"foo.go:42:    if foo {",           // control flow
+	}
+	for _, c := range cases {
+		if got := ExtractSymbolFromHit(c); got != "" {
+			t.Fatalf("non-declaration %q must return \"\", got %q", c, got)
+		}
+	}
+}
+
+func TestExtractSymbolFromHit_DeclarationsStillWork(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"foo.go:42:func Bar(", "Bar"},
+		{"foo.go:42:type Foo struct", "Foo"},
+		{"foo.go:42:var MaxSize = 100", "MaxSize"},
+		{"foo.go:42:const Pi = 3.14", "Pi"},
+	}
+	for _, c := range cases {
+		if got := ExtractSymbolFromHit(c.in); got != c.want {
+			t.Fatalf("decl %q: got %q want %q", c.in, got, c.want)
+		}
+	}
 }
