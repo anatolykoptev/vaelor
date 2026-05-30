@@ -226,6 +226,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerResolveFrame(server, cfg)
 	registerFileHealth(server, cfg, deps)
 	registerSuggestReviewers(server, cfg, deps)
+	registerFederatedCoChange(server, cfg, deps)
 
 	// Auto-index local repos in background.
 	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
