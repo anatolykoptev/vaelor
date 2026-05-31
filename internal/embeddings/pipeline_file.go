@@ -129,8 +129,9 @@ func (p *Pipeline) parseAndDiff(
 	// calls IndexFile per file from the git diff, so the guard must live here.
 	//
 	// Returning (nil, nil, result, nil) with Skipped=0 signals "nothing to do,
-	// no error" to the caller. The SHA-advance gate (len(Errors)==0) stays
-	// reachable even when every changed file is unsupported.
+	// no error" to the caller. The SHA-advance gate (len(IncrementalSyncResult.Errors)==0,
+	// checked in IncrementalSync one frame up) stays reachable even when every
+	// changed file is unsupported.
 	lang := ingest.DetectLanguage(filepath.Base(relPath))
 	if lang == "" {
 		incrementalFilesUnsupportedTotal.WithLabelValues("unsupported_ext").Inc()
@@ -142,12 +143,16 @@ func (p *Pipeline) parseAndDiff(
 		// Permanent IO error (permission denied, unreadable mount, etc).
 		// This error is not transient: retrying the same commit will hit the
 		// same result. Treat as a permanent skip so SHA can advance rather than
-		// freezing the repo forever. The error is logged at Warn so operators
-		// can investigate.
+		// freezing the repo forever.
 		//
-		// Contrast: transient embed-server failures return errors from
-		// embedAndUpsert (later in IndexFile), are appended to result.Errors,
-		// and correctly block SHA advance.
+		// DELIBERATE DECISION: skip + advance SHA, not block. Read errors on a
+		// local bind mount are rare; the read_error counter (incremented below)
+		// provides visibility. If the indexed filesystem is networked or flaky,
+		// reconsider: a transient-vs-permanent classifier would be needed.
+		//
+		// Contrast: transient embed-server failures are returned from embedAndUpsert
+		// (later in IndexFile), appended to IncrementalSyncResult.Errors by the
+		// caller (IncrementalSync), and correctly block SHA advance.
 		slog.Warn("indexFile: permanent read error — skipping file",
 			slog.String("repo", repoKey),
 			slog.String("file", relPath),

@@ -106,7 +106,7 @@ func TestIncrementalSync_AllUnsupportedFiles_SHAAdvances(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, prevSHA)
 
-	// Commit changes to only unsupported files (.md, .yml).
+	// Commit changes to only unsupported files (CHANGELOG.md + docs/guide.md).
 	commitChange(t, root, map[string]string{
 		"CHANGELOG.md": "# Changelog\n\nv2.0.0 released.\n",
 		"docs/guide.md": "# Guide\n\nNew guide content.\n",
@@ -218,16 +218,22 @@ func TestIncrementalSync_TransientError_BlocksSHAAdvance(t *testing.T) {
 }
 
 // TestIncrementalSync_PermanentParseError_DoesNotFreezeSHA verifies that a
-// genuinely permanent, non-retryable error (a corrupted/malformed source file
-// that cannot be parsed) does not freeze the SHA.
+// permanent IO read error on a supported file does NOT freeze the SHA.
 //
-// Strategy: write a file with an extension that IS supported but whose content
-// is deliberately malformed so parsing fails. The pipeline must log/skip/count
-// the permanent error but still advance the SHA so the repo is not frozen.
+// Strategy: chmod a committed Go file unreadable after the commit so that
+// os.ReadFile fails inside parseAndDiff. The pipeline must count the skip via
+// embed_incremental_unsupported_files_total{reason="read_error"}, NOT append to
+// result.Errors, and still advance the SHA.
 //
-// Note: this tests the gate-hardening logic at pipeline_incremental.go:157 —
-// the classification of errors into "permanent" (skip, advance SHA) vs
-// "transient" (block SHA advance).
+// The fix in pipeline_file.go returns (nil,nil,result,nil) on read error —
+// IndexFile returns nil error → the error is never appended to result.Errors.
+// Therefore the SHA-advance gate (len(result.Errors)==0) passes unconditionally.
+// This test asserts that REAL observable invariant, not the dead-branch
+// "if len(result.Errors)>0" form that passed even when the fix was reverted.
+//
+// Root-process guard: CAP_DAC_OVERRIDE lets root bypass chmod 000. We detect
+// this by reading the file after the chmod; if it is still readable we skip
+// rather than emit a false-green.
 func TestIncrementalSync_PermanentParseError_DoesNotFreezeSHA(t *testing.T) {
 	p, store := testPipeline(t)
 	ctx := context.Background()
@@ -247,41 +253,57 @@ func TestIncrementalSync_PermanentParseError_DoesNotFreezeSHA(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, prevSHA, "precondition: prevSHA set after bootstrap")
 
-	// Commit a change that adds a malformed Go file (parse will fail) alongside
-	// a valid change. The unsupported-extension guard already handles .md/.yml.
-	// For a truly permanent parse failure we need an IO error or a file that
-	// parses as a source type but has no valid symbols — since tree-sitter is
-	// tolerant and returns partial parses, the clearest permanent-permanent case
-	// is a file that becomes unreadable (permissions).
+	// Commit a change to the Go file so a new SHA exists.
 	commitChange(t, root, map[string]string{
 		"valid.go": goFileWithBody("ValidFunc", "_ = 1"),
 	}, nil)
 
-	// Make valid.go unreadable AFTER the commit (simulates a permanent IO error
-	// that is not transient network — it will persist across retries).
+	// Make valid.go unreadable AFTER the commit (permanent IO error — persists
+	// across retries unlike a transient embed-server 503).
 	absPath := filepath.Join(root, "valid.go")
 	require.NoError(t, os.Chmod(absPath, 0o000),
-		"precondition: must be able to remove read permission")
+		"precondition: must be able to set 0o000 permissions")
 	t.Cleanup(func() { _ = os.Chmod(absPath, 0o644) })
+
+	// Guard: if running as root (CAP_DAC_OVERRIDE bypasses permissions), the file
+	// is still readable and the read-error path is never triggered. Skip clearly
+	// rather than produce a false-green.
+	if _, readErr := os.ReadFile(absPath); readErr == nil {
+		t.Skip("running as root (or CAP_DAC_OVERRIDE): chmod 0o000 does not block reads; " +
+			"permanent read-error path untestable via filesystem permissions")
+	}
+
+	// Read the counter BEFORE the sync so we can assert the delta.
+	beforeCount := readCounterVec(t,
+		"embed_incremental_unsupported_files_total", "reason", "read_error")
 
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err, "IncrementalSync must not return top-level error even with permanent IO error")
 
-	// The error must be classified as permanent and NOT block SHA advance.
+	// INVARIANT 1: read error must NOT appear in result.Errors.
+	// The fix classifies it as permanent-skip (returns nil from parseAndDiff).
+	// If this fails, the fix was reverted and the error propagated up.
+	assert.Empty(t, result.Errors,
+		"permanent IO read error must NOT appear in result.Errors — it is classified as "+
+			"permanent-skip (pipeline_file.go read-error path returns nil error); "+
+			"non-empty Errors would block SHA advance (SHA-freeze regression guard)")
+
+	// INVARIANT 2: the read_error counter must have incremented by exactly 1.
+	// This is the LOAD-BEARING observability signal for this skip class.
+	afterCount := readCounterVec(t,
+		"embed_incremental_unsupported_files_total", "reason", "read_error")
+	assert.Equal(t, beforeCount+1, afterCount,
+		"embed_incremental_unsupported_files_total{reason=read_error} must increment by exactly 1 "+
+			"for the unreadable file (proves the read-error skip path is wired, not silently dropped)")
+
+	// INVARIANT 3: SHA must have advanced unconditionally (no if-guard).
+	// This is the core freeze-prevention invariant.
 	newSHA, err := store.GetRepoState(ctx, repo)
 	require.NoError(t, err)
-
-	// Anti-tautology: we must verify the classification actually happened.
-	// If the error IS in result.Errors AND SHA advanced → permanent classification worked.
-	// If the error is NOT in result.Errors → it was suppressed (also acceptable, logged).
-	// What is NOT acceptable: result.Errors non-empty AND newSHA == prevSHA (freeze).
-	if len(result.Errors) > 0 {
-		assert.NotEqual(t, prevSHA, newSHA,
-			"permanent IO read error must NOT freeze the SHA — errors classified as permanent "+
-				"should not block SetRepoState (gate hardening invariant)")
-	}
-	// If errors were suppressed/skipped at IndexFile level, SHA would advance normally.
-	// Either path is acceptable; both prove no freeze.
+	assert.NotEqual(t, prevSHA, newSHA,
+		"SHA must advance after a sync whose diff contains only a permanent-skip file — "+
+			"equal SHAs = SHA-freeze regression (gate hardening invariant)")
+	assert.NotEmpty(t, newSHA, "new SHA must be non-empty after successful incremental sync")
 }
 
 // ── Task 3: observability metrics ──────────────────────────────────────────

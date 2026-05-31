@@ -66,6 +66,26 @@ type IncrementalSyncResult struct {
 // catastrophic failures (DB connection lost). Per-file errors are collected
 // in Result.Errors, not returned — caller decides retry policy.
 func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
+	// Freshness lag gauge must be set on EVERY exit path, including early returns
+	// for fallback paths (no-git, bootstrap, diff-error). Without this, a repo
+	// that flips to a fallback path leaves a stale lag value — exactly when the
+	// operator needs it accurate. We capture pointers so the defer reads the final
+	// values at return time regardless of which path was taken.
+	var finalResult *IncrementalSyncResult
+	var finalErr error
+	defer func() {
+		if finalResult == nil {
+			return
+		}
+		// lag=0: fully up-to-date (SHA advanced or same-SHA skip or successful fallback).
+		// lag=1: SHA did not advance (partial embed failure or catastrophic fallback error).
+		lag := 0.0
+		if finalErr != nil || len(finalResult.Errors) > 0 {
+			lag = 1.0
+		}
+		indexFreshnessLag.WithLabelValues(repoKey).Set(lag)
+	}()
+
 	// Step 1: resolve current main-branch SHA.
 	// Treat both a real error (e.g. git repo with no main/master/HEAD ref) and an
 	// empty return (non-git path) identically: we have no usable fingerprint, so
@@ -77,6 +97,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 	if currentSHA == "" {
 		// No fingerprint available — fall through to full index.
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackNoGit)
+		finalResult, finalErr = res, fullErr
 		recordIncrementalSync(res, fullErr)
 		return res, fullErr
 	}
@@ -86,6 +107,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 	if prevSHA == "" {
 		// Never indexed — bootstrap.
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackBootstrap)
+		finalResult, finalErr = res, fullErr
 		recordIncrementalSync(res, fullErr)
 		return res, fullErr
 	}
@@ -101,6 +123,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			PrevSHA:    prevSHA,
 			CurrentSHA: currentSHA,
 		}
+		finalResult, finalErr = res, nil
 		recordIncrementalSync(res, nil)
 		return res, nil
 	}
@@ -114,6 +137,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			slog.String("current", currentSHA),
 			slog.Any("error", diffErr))
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackDiffError)
+		finalResult, finalErr = res, fullErr
 		recordIncrementalSync(res, fullErr)
 		return res, fullErr
 	}
@@ -161,14 +185,9 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		}
 	}
 
-	// Freshness lag gauge: 0 = fully up-to-date, 1 = SHA still behind.
-	// A persistent 1 signals repeated sync failures for this repo (previously
-	// the unsupported-file freeze; post-fix: genuine transient embed errors).
-	lag := 0.0
-	if len(result.Errors) > 0 {
-		lag = 1.0
-	}
-	indexFreshnessLag.WithLabelValues(repoKey).Set(lag)
+	// Wire finalResult so the deferred lag gauge sees the incremental result.
+	// The defer at the top handles indexFreshnessLag.Set for ALL exit paths.
+	finalResult = result
 
 	recordIncrementalSync(result, nil)
 	return result, nil
