@@ -7,174 +7,150 @@
 --
 -- Background: Before PR #173, acquireAGE dirtied the pool connection with
 --   SET search_path TO ag_catalog, "$user", public
---   and no AfterRelease reset. Any subsequent bare DML (INSERT/UPDATE/SELECT
---   on code_repo_state, code_embeddings, code_health_cache) resolved those
---   names against ag_catalog instead of public. Over time:
---     - 24+ repos have embeddings ONLY in ag_catalog.code_embeddings (~857 MB)
---     - Some repos have ag_catalog.code_repo_state rows newer than public
---     - code_health_cache has scattered rows in both schemas
+--   and no AfterRelease reset. Any subsequent bare DML on code_repo_state /
+--   code_embeddings / code_health_cache resolved against ag_catalog instead of
+--   public. Over time: ~24 repos have embeddings ONLY in ag_catalog (~857 MB);
+--   ~10 repos have ag_catalog.code_repo_state rows (1 newer than public);
+--   code_health_cache has scattered rows in both schemas.
 --
 -- Pre-conditions (VERIFY ALL before running):
---   1. SR-A (DISCARD ALL AfterRelease hook) is deployed and running.
---   2. gocode_schema_drift_total counter is NO LONGER climbing
---      (prometheus: rate(gocode_schema_drift_total[5m]) == 0 for >10 min).
---      If it is still rising, new rows are still being written to ag_catalog —
---      running this migration early will not help and may race with live writes.
---   3. No active indexing jobs are running (check go-code logs / /metrics).
---   4. You have a recent backup or can restore from the public.* tables
---      (these are the authoritative tables after SR-A ships).
+--   1. SR-A (DISCARD ALL AfterRelease hook, PR #173) is DEPLOYED and running.
+--   2. gocode_schema_drift_total is NO LONGER climbing
+--      (rate(gocode_schema_drift_total[5m]) == 0 for >10 min on :9897/metrics).
+--      If it is still rising, new rows are still leaking — fix SR-A deploy first.
+--   3. No active indexing jobs (check go-code logs / :9897/metrics).
+--   4. public.* are the authoritative tables after SR-A — have a backup.
 --
--- Run as: psql "$DATABASE_URL" -f 20260531_backfill_ag_catalog_leak.sql
+-- =====  RUN ORDER — TWO SEPARATE INVOCATIONS, DIFFERENT ROLES  ================
+--   PART A (backfill): safe, additive, idempotent. Run as the app role:
+--       psql "$DATABASE_URL"  -f this_file   (only PART A is uncommented)
+--       — every statement is schema-qualified, so it is also safe as -U memos.
+--   PART B (DROP): DESTRUCTIVE + IRREVERSIBLE. ag_catalog.code_{repo_state,
+--       health_cache} are owned by `memos` (not gocode_app) — DROP IF EXISTS
+--       does NOT bypass the ownership check, so PART B MUST run as the owner:
+--       psql -U memos -d gocode    (paste PART B only, after PART A verified)
 --
--- Estimated runtime: depends on embedding count. 857 MB of embeddings is
---   roughly 1–2 min on typical Postgres hardware. Run in a transaction so
---   the backfill and the DROP are atomic — if the DROP fails the backfill
---   rolls back and no data is lost.
+-- NOTE: backfill is NOT wrapped in a single transaction with the DROP. The two
+--   are independent, separately-gated steps. Each PART A section is individually
+--   idempotent (newer-wins upsert / ON CONFLICT DO NOTHING) and runs autocommit
+--   so the 818 MB embeddings copy does not hold a long transaction / WAL bloat /
+--   ROW-EXCLUSIVE lock on public.code_embeddings for its whole duration.
+--
+-- statement_timeout: the postgres container sets statement_timeout=30s on the
+--   command line; the 110k-row HNSW-indexed embeddings INSERT exceeds it and
+--   would be CANCELED. PART A raises it to 0 (unlimited) for this session only.
 -- =============================================================================
 
-BEGIN;
+
+-- #############################################################################
+-- ##  PART A — BACKFILL  (run as gocode_app via $DATABASE_URL; autocommit)    ##
+-- #############################################################################
+
+SET statement_timeout = 0;   -- session-scoped; the HNSW copy needs >30s
 
 -- -------------------------------------------------------------------------
--- SECTION 1: Backfill public.code_repo_state from ag_catalog.code_repo_state
---
--- Strategy: take the NEWER row (by indexed_at) per repo_key.
---   - Most repos have the same sha in both schemas.
---   - At least 1 repo has ag_catalog.indexed_at > public.indexed_at (operator
---     confirmed), meaning the ag_catalog copy is the most recent successful index.
---   - INSERT … ON CONFLICT DO UPDATE SET … WHERE EXCLUDED.indexed_at > indexed_at
---     upserts only if the ag_catalog row is genuinely newer.
+-- SECTION 1: public.code_repo_state ← ag_catalog.code_repo_state (newer-wins)
+--   ON CONFLICT DO UPDATE only when the ag_catalog row is genuinely newer by
+--   indexed_at; head_sha + indexed_at move together (no SHA/timestamp split).
 -- -------------------------------------------------------------------------
-
 DO $$
-DECLARE
-    r record;
-    backfilled int := 0;
+DECLARE backfilled int := 0;
 BEGIN
-    -- Only attempt if the source table exists.
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relname = 'code_repo_state' AND n.nspname = 'ag_catalog'
-    ) THEN
-        RAISE NOTICE 'ag_catalog.code_repo_state does not exist — nothing to backfill';
+    IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                   WHERE c.relname = 'code_repo_state' AND n.nspname = 'ag_catalog') THEN
+        RAISE NOTICE 'ag_catalog.code_repo_state absent — nothing to backfill';
         RETURN;
     END IF;
-
-    FOR r IN SELECT repo_key, head_sha, indexed_at FROM ag_catalog.code_repo_state LOOP
-        INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at)
-        VALUES (r.repo_key, r.head_sha, r.indexed_at)
-        ON CONFLICT (repo_key) DO UPDATE
-            SET head_sha   = EXCLUDED.head_sha,
-                indexed_at = EXCLUDED.indexed_at
-            WHERE EXCLUDED.indexed_at > public.code_repo_state.indexed_at;
-        backfilled := backfilled + 1;
-    END LOOP;
-
-    RAISE NOTICE 'code_repo_state: processed % ag_catalog rows (newer-wins upsert)', backfilled;
+    INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at)
+    SELECT repo_key, head_sha, indexed_at FROM ag_catalog.code_repo_state
+    ON CONFLICT (repo_key) DO UPDATE
+        SET head_sha = EXCLUDED.head_sha, indexed_at = EXCLUDED.indexed_at
+        WHERE EXCLUDED.indexed_at > public.code_repo_state.indexed_at;
+    GET DIAGNOSTICS backfilled = ROW_COUNT;
+    RAISE NOTICE 'code_repo_state: % rows inserted-or-updated (newer-wins)', backfilled;
 END $$;
 
 -- -------------------------------------------------------------------------
--- SECTION 2: Backfill public.code_embeddings from ag_catalog.code_embeddings
---
--- Strategy: INSERT … ON CONFLICT DO NOTHING — public rows are authoritative
--- (created/updated by embeddings.Store.Upsert which uses schema-qualified DML
--- post SR-B). The ag_catalog rows are the only copy for ~24 repos that were
--- exclusively indexed before PR #173. Inserting them fills the gap.
+-- SECTION 2: public.code_embeddings ← ag_catalog.code_embeddings
+--   SCOPED to repos that exist ONLY in ag_catalog. We do NOT gap-fill repos
+--   already present in public: their ag rows are pre-#173 symbols that public's
+--   later re-index may have intentionally dropped (deleted/renamed) — inserting
+--   them would re-pollute fresh repos with stale symbols. The ~24 ag-only repos
+--   are the real recovery target; everything else self-heals on next index.
 -- -------------------------------------------------------------------------
-
 DO $$
+DECLARE inserted int := 0;
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relname = 'code_embeddings' AND n.nspname = 'ag_catalog'
-    ) THEN
-        RAISE NOTICE 'ag_catalog.code_embeddings does not exist — nothing to backfill';
+    IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                   WHERE c.relname = 'code_embeddings' AND n.nspname = 'ag_catalog') THEN
+        RAISE NOTICE 'ag_catalog.code_embeddings absent — nothing to backfill';
         RETURN;
     END IF;
-
-    -- Ensure pgvector extension is present (required for the vector column).
-    CREATE EXTENSION IF NOT EXISTS vector;
-
     INSERT INTO public.code_embeddings
         (repo_key, file_path, symbol_name, symbol_kind, language,
          start_line, body_hash, embedding, updated_at)
-    SELECT
-        repo_key, file_path, symbol_name, symbol_kind, language,
-        start_line, body_hash, embedding, updated_at
+    SELECT repo_key, file_path, symbol_name, symbol_kind, language,
+           start_line, body_hash, embedding, updated_at
     FROM ag_catalog.code_embeddings
+    WHERE repo_key NOT IN (SELECT DISTINCT repo_key FROM public.code_embeddings)
     ON CONFLICT (repo_key, file_path, symbol_name) DO NOTHING;
-
-    RAISE NOTICE 'code_embeddings: backfill from ag_catalog complete (ON CONFLICT DO NOTHING)';
+    GET DIAGNOSTICS inserted = ROW_COUNT;
+    RAISE NOTICE 'code_embeddings: % rows inserted (ag-only repos)', inserted;
 END $$;
 
 -- -------------------------------------------------------------------------
--- SECTION 3: Backfill public.code_health_cache from ag_catalog.code_health_cache
---
--- Strategy: INSERT … ON CONFLICT DO NOTHING — public rows win; ag_catalog rows
--- fill gaps. Health cache is regenerated on the next code_health call so this
--- is low-stakes; backfill only to avoid stale "no data" responses.
+-- SECTION 3: public.code_health_cache ← ag_catalog.code_health_cache
+--   Low-stakes (regenerated on next code_health call). public wins; ag fills
+--   gaps. SELECT * is acceptable here — both schemas verified column-identical
+--   and the cache is disposable.
 -- -------------------------------------------------------------------------
-
 DO $$
+DECLARE inserted int := 0;
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relname = 'code_health_cache' AND n.nspname = 'ag_catalog'
-    ) THEN
-        RAISE NOTICE 'ag_catalog.code_health_cache does not exist — nothing to backfill';
+    IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                   WHERE c.relname = 'code_health_cache' AND n.nspname = 'ag_catalog') THEN
+        RAISE NOTICE 'ag_catalog.code_health_cache absent — nothing to backfill';
         RETURN;
     END IF;
-
     INSERT INTO public.code_health_cache
         SELECT * FROM ag_catalog.code_health_cache
     ON CONFLICT DO NOTHING;
-
-    RAISE NOTICE 'code_health_cache: backfill from ag_catalog complete';
+    GET DIAGNOSTICS inserted = ROW_COUNT;
+    RAISE NOTICE 'code_health_cache: % rows inserted', inserted;
 END $$;
 
--- -------------------------------------------------------------------------
--- SECTION 4: DROP the stale ag_catalog copies
+-- ===== VERIFY PART A before PART B =====
+--   SELECT COUNT(*) FROM public.code_repo_state;   -- expect +~10 vs pre-run
+--   SELECT COUNT(DISTINCT repo_key) FROM public.code_embeddings;  -- +~24 repos
+--   Spot-check semantic_search on a previously ag-only repo → returns results.
+
+
+-- #############################################################################
+-- ##  PART B — DROP ORPHANS   (DESTRUCTIVE — run as -U memos, OWNER)          ##
+-- ##  Run ONLY after PART A verified AND gocode_schema_drift_total flat >10m.  ##
+-- ##  ag_catalog.code_{repo_state,health_cache} are owned by `memos`; DROP     ##
+-- ##  IF EXISTS does not bypass ownership → must run as memos.                 ##
+-- ##                                                                           ##
+-- ##  DO NOT touch the 4 by-design AGE tables:                                 ##
+-- ##    ag_catalog.code_graph_meta, code_file_mtimes,                          ##
+-- ##    ag_catalog.code_graph_snapshots, code_dead_code_scores                 ##
+-- ##  DO NOT drop any ag_catalog.ag_* object (AGE internal state).             ##
+-- ##  Uncomment the three lines below to execute:                              ##
+-- #############################################################################
 --
--- OPERATOR ACK REQUIRED: these DROPs are DESTRUCTIVE and IRREVERSIBLE.
--- Only run after:
---   a) Sections 1–3 committed successfully (check NOTICE output above).
---   b) gocode_schema_drift_total counter is no longer climbing.
---   c) You have verified SELECT COUNT(*) on public.* tables matches expectations.
+-- DROP TABLE IF EXISTS ag_catalog.code_repo_state;
+-- DROP TABLE IF EXISTS ag_catalog.code_embeddings;
+-- DROP TABLE IF EXISTS ag_catalog.code_health_cache;
 --
--- Do NOT touch these 4 by-design ag_catalog tables (they are AGE bookkeeping):
---   ag_catalog.code_graph_meta
---   ag_catalog.code_file_mtimes
---   ag_catalog.code_graph_snapshots
---   ag_catalog.code_dead_code_scores
--- Do NOT drop any ag_catalog.ag_* objects (AGE internal state).
--- -------------------------------------------------------------------------
-
--- Uncomment to execute drops — intentionally commented out as a safety gate.
--- Remove the comment block below only after verifying sections 1–3 succeeded.
-
-/*
-DROP TABLE IF EXISTS ag_catalog.code_repo_state;
-DROP TABLE IF EXISTS ag_catalog.code_embeddings;
-DROP TABLE IF EXISTS ag_catalog.code_health_cache;
-*/
-
--- After uncommenting and running, verify with:
---   SELECT COUNT(*) FROM pg_class c
---   JOIN pg_namespace n ON n.oid = c.relnamespace
+-- Verify after: 0 rows expected →
+--   SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
 --   WHERE c.relname IN ('code_repo_state','code_embeddings','code_health_cache')
 --     AND n.nspname = 'ag_catalog';
--- Expected: 0 rows.
-
-COMMIT;
 
 -- =============================================================================
 -- Post-run checklist:
---   [ ] gocode_schema_drift_total == 0 for all three tables for >10 min post-run
---   [ ] Semantic search still returns results (spot-check 2–3 repos that were
---       ag_catalog-only, e.g. semantic_search on a recently-indexed repo)
---   [ ] code_repo_state row counts match pre-migration total
---       (SELECT COUNT(*) FROM public.code_repo_state)
---   [ ] No new ERRORs in go-code logs matching "schema_drift"
+--   [ ] gocode_schema_drift_total flat (==0 rate) for all 3 tables >10 min
+--   [ ] semantic_search returns results for 2-3 formerly ag-only repos
+--   [ ] public.code_repo_state count matches pre-migration + ag-only delta
+--   [ ] No new "schema_drift" ERRORs in go-code logs
 -- =============================================================================
