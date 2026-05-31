@@ -167,8 +167,10 @@ func (s *Store) DeleteFileMtimes(ctx context.Context, repoKey string) error {
 }
 
 // healthCacheTableSQL is the schema for storing code_health result cache.
+// SR-B: schema-qualified so this DDL resolves to public.code_health_cache
+// regardless of the connection's search_path.
 const healthCacheTableSQL = `
-CREATE TABLE IF NOT EXISTS code_health_cache (
+CREATE TABLE IF NOT EXISTS public.code_health_cache (
     repo_key     TEXT PRIMARY KEY,
     repo_path    TEXT NOT NULL,
     score        INT NOT NULL,
@@ -186,7 +188,7 @@ func (s *Store) UpsertHealthCache(ctx context.Context, repoKey, repoPath, grade,
 	}
 	defer conn.Release()
 	_, err = conn.Exec(ctx, `
-		INSERT INTO code_health_cache (repo_key, repo_path, score, grade, result_xml, computed_at, ttl_seconds)
+		INSERT INTO public.code_health_cache (repo_key, repo_path, score, grade, result_xml, computed_at, ttl_seconds)
 		VALUES ($1, $2, $3, $4, $5, now(), $6)
 		ON CONFLICT (repo_key) DO UPDATE SET
 			repo_path = EXCLUDED.repo_path, score = EXCLUDED.score, grade = EXCLUDED.grade,
@@ -216,7 +218,7 @@ func (s *Store) LoadHealthCache(ctx context.Context, repoKey string) *HealthCach
 	var e HealthCacheEntry
 	err = conn.QueryRow(ctx, `
 		SELECT result_xml, score, grade, computed_at, ttl_seconds
-		FROM code_health_cache WHERE repo_key = $1`, repoKey).
+		FROM public.code_health_cache WHERE repo_key = $1`, repoKey).
 		Scan(&e.ResultXML, &e.Score, &e.Grade, &e.ComputedAt, &e.TTLSeconds)
 	if err != nil {
 		return nil

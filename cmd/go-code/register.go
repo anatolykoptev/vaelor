@@ -22,6 +22,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -108,6 +109,23 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			slog.Warn("database: parse config failed", slog.Any("error", cfgErr))
 		} else {
 			poolCfg.MaxConns = 10 // code_graph build + concurrent queries need > default 4
+			// SR-A: reset search_path on every conn release so a conn dirtied by an AGE
+			// operation (which runs SET search_path TO ag_catalog, …) is safe for any
+			// subsequent data-path acquire.  acquireAGE re-applies ageSetup on every
+			// acquire, so AGE paths keep working.  AfterRelease is chosen over
+			// PrepareConn/BeforeAcquire because the right invariant is "clean the conn
+			// when it leaves user code, not when it enters" — one RESET per release
+			// instead of one per acquire.  Belt-and-suspenders: SR-B also qualifies
+			// the three data tables with public.* so they resolve correctly regardless.
+			poolCfg.AfterRelease = func(conn *pgx.Conn) bool {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if _, err := conn.Exec(ctx, "RESET search_path"); err != nil {
+					// Connection is unhealthy; destroy it rather than returning it.
+					return false
+				}
+				return true
+			}
 		}
 		p, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 		if err != nil {
@@ -124,6 +142,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 				slog.Error("database: preflight failed", slog.Any("error", err))
 				os.Exit(1)
 			}
+			// SR-OBS: boot-time drift guard — detect any table that leaked into
+			// ag_catalog and bump gocode_schema_drift_total so alerts fire immediately.
+			graphStore.AssertSchemaDrift(context.Background())
 		}
 	}
 

@@ -6,6 +6,57 @@ import (
 	"log/slog"
 )
 
+// dataTables are the three public-schema tables that must NOT appear in ag_catalog.
+// SR-OBS: AssertSchemaDrift checks each of these at startup.
+var dataTables = []string{
+	"code_repo_state",
+	"code_embeddings",
+	"code_health_cache",
+}
+
+// AssertSchemaDrift checks that none of the three data tables (code_repo_state,
+// code_embeddings, code_health_cache) exist in the ag_catalog schema. If any are
+// found there it logs an error and increments gocode_schema_drift_total{table}.
+//
+// Call once at startup, after Preflight, to detect search_path leak regressions.
+// The counters are pre-touched at 0 for all three tables regardless of findings
+// so Prometheus always exports the series.
+func (s *Store) AssertSchemaDrift(ctx context.Context) {
+	// Pre-touch all counters at 0 so Prometheus exports the series from boot.
+	for _, tbl := range dataTables {
+		schemaDriftTotal.WithLabelValues(tbl).Add(0)
+	}
+
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		slog.Warn("schema_drift: cannot acquire connection for drift check", slog.Any("error", err))
+		return
+	}
+	defer conn.Release()
+
+	for _, tbl := range dataTables {
+		var found bool
+		err := conn.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM pg_class c
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				WHERE c.relname = $1 AND n.nspname = 'ag_catalog'
+			)`, tbl).Scan(&found)
+		if err != nil {
+			slog.Warn("schema_drift: probe failed", slog.String("table", tbl), slog.Any("error", err))
+			continue
+		}
+		if found {
+			slog.Error("schema_drift: data table found in ag_catalog — search_path leak detected",
+				slog.String("table", tbl),
+				slog.String("expected_schema", "public"),
+				slog.String("found_schema", "ag_catalog"),
+			)
+			schemaDriftTotal.WithLabelValues(tbl).Inc()
+		}
+	}
+}
+
 // Preflight checks that the connected role has the minimum database-level
 // privileges go-code cannot acquire for itself. Call once at startup before
 // registering any tools; return the error to the caller to log and exit(1).
