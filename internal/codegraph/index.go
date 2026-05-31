@@ -63,9 +63,17 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	gname := repoKey
 	t0 := time.Now()
 
+	// Deferred outcome recorder: bumps graphBuildTotal{repo, status} exactly once
+	// per return path.  The variable is set to "error" by default and overridden to
+	// "skip" (cache-fresh) or "ok" (successful build+persist) at the appropriate
+	// terminal.  This avoids a double-bump when multiple error returns exist.
+	buildStatus := "error"
+	defer func() { recordGraphBuild(repoKey, buildStatus) }()
+
 	if cached, err := checkCache(ctx, store, repoKey, gname); err != nil {
 		return nil, err
 	} else if cached != nil {
+		buildStatus = "skip"
 		if ierr := store.EnsureIndexes(ctx, gname); ierr != nil {
 			slog.Warn("codegraph: ensure indexes on cache hit", slog.Any("error", ierr))
 		}
@@ -205,6 +213,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		}
 	}
 
+	buildStatus = "ok"
 	return meta, nil
 }
 
