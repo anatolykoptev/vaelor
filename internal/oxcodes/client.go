@@ -11,7 +11,12 @@ import (
 	"time"
 )
 
-const httpTimeout = 10 * time.Second
+// httpTimeout is a generous ceiling: a cold ast-grep structural search on a
+// large repo (go-code itself is ~3300 files) compiles the pattern + does a
+// first full scan, which can exceed 10s on the initial query. The timeout is
+// only a ceiling — warm/fast calls (regular search, dataflow) return well
+// before it.
+const httpTimeout = 30 * time.Second
 
 // Client calls ox-codes HTTP API.
 type Client struct {
