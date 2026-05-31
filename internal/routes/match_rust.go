@@ -39,6 +39,12 @@ var (
 	// following the opening paren.  Closures (move ||, |req|, async move) set
 	// group 3 to a keyword that is filtered out by axumHandler below.
 	// Captures: 1=path, 2=method-fn, 3=optional-ident (may be a keyword for closures).
+	//
+	// Known unsupported axum forms (acceptable gaps for a regex extractor — none
+	// used by partner-edge; revisit if a target repo needs them):
+	//   - method-chaining: .route("/p", get(h).post(h2)) captures only the first method
+	//   - .nest("/prefix", router) — nested sub-router routes
+	//   - .route_service("/p", svc) — tower Service routes
 	rustAxumRouteRe = regexp.MustCompile(
 		`\.route\(\s*"([^"]+)"\s*,\s*(get|post|put|delete|patch|head|options|any)\(([A-Za-z_][A-Za-z0-9_]*)?`,
 	)

@@ -231,6 +231,107 @@ func TestRustMatcher_LineCapture_AxumOnly(t *testing.T) {
 	}
 }
 
+// TestRustMatcher_PartnerEdgeRoutes feeds all three real partner-edge routes in a
+// single Router builder source and asserts that exactly three routes are extracted
+// with the correct method, path, Side, Framework, and a non-zero Line.
+// This directly guards the FU-CG.5 fix: before that fix, axum routes produced Line=0
+// and the graph indexer silently dropped them.
+func TestRustMatcher_PartnerEdgeRoutes(t *testing.T) {
+	t.Parallel()
+
+	source := `    let app = Router::new()
+        .route("/sfu/ws/{room_id}", any(ws_handler))
+        .route("/metrics", get(metrics_handler))
+        .route("/relay/connect", post(relay_connect));`
+
+	matcher := &RustMatcher{}
+	routes := matcher.Match([]byte(source))
+
+	if len(routes) != 3 {
+		t.Fatalf("got %d routes, want 3 (all three real partner-edge routes)", len(routes))
+	}
+
+	type want struct {
+		method  string
+		path    string
+		handler string
+	}
+	wantRoutes := []want{
+		{method: "*", path: "/sfu/ws/*", handler: "ws_handler"},
+		{method: "GET", path: "/metrics", handler: "metrics_handler"},
+		{method: "POST", path: "/relay/connect", handler: "relay_connect"},
+	}
+
+	for i, w := range wantRoutes {
+		r := routes[i]
+		if r.Method != w.method {
+			t.Errorf("routes[%d].Method = %q, want %q", i, r.Method, w.method)
+		}
+		if r.Path != w.path {
+			t.Errorf("routes[%d].Path = %q, want %q", i, r.Path, w.path)
+		}
+		if r.Handler != w.handler {
+			t.Errorf("routes[%d].Handler = %q, want %q", i, r.Handler, w.handler)
+		}
+		if r.Side != "server" {
+			t.Errorf("routes[%d].Side = %q, want server", i, r.Side)
+		}
+		if r.Framework != "axum" {
+			t.Errorf("routes[%d].Framework = %q, want axum", i, r.Framework)
+		}
+		if r.Line == 0 {
+			t.Errorf("routes[%d] %q: Line = 0, want non-zero (FU-CG.5)", i, r.Path)
+		}
+	}
+}
+
+// TestRustMatcher_AxumMultiLineMetrics verifies the multi-line closure form of
+// an axum route — the real partner-edge /metrics endpoint splits across lines:
+//
+//	.route(
+//	    "/metrics",
+//	    get(move || async move { render_metrics() }),
+//	)
+//
+// The regex must capture path=/metrics, method=GET, Handler="" (closure),
+// and Line set to the .route( line.  A future regex refactor that accidentally
+// breaks multi-line matching will fail here.
+func TestRustMatcher_AxumMultiLineMetrics(t *testing.T) {
+	t.Parallel()
+
+	source := `    .route(
+        "/metrics",
+        get(move || async move { render_metrics() }),
+    )`
+
+	matcher := &RustMatcher{}
+	routes := matcher.Match([]byte(source))
+
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes, want 1 (multi-line /metrics closure)", len(routes))
+	}
+
+	r := routes[0]
+	if r.Method != "GET" {
+		t.Errorf("Method = %q, want GET", r.Method)
+	}
+	if r.Path != "/metrics" {
+		t.Errorf("Path = %q, want /metrics", r.Path)
+	}
+	if r.Handler != "" {
+		t.Errorf("Handler = %q, want empty (closure, not a named fn)", r.Handler)
+	}
+	if r.Side != "server" {
+		t.Errorf("Side = %q, want server", r.Side)
+	}
+	if r.Framework != "axum" {
+		t.Errorf("Framework = %q, want axum", r.Framework)
+	}
+	if r.Line == 0 {
+		t.Errorf("Line = 0, want line of the .route( call")
+	}
+}
+
 // TestRustMatcher_ExistingPatternsStillWork verifies the pre-existing Actix/Rocket
 // patterns still extract routes correctly after the axum additions (regression guard).
 func TestRustMatcher_ExistingPatternsStillWork(t *testing.T) {
