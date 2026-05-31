@@ -161,6 +161,15 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		}
 	}
 
+	// Freshness lag gauge: 0 = fully up-to-date, 1 = SHA still behind.
+	// A persistent 1 signals repeated sync failures for this repo (previously
+	// the unsupported-file freeze; post-fix: genuine transient embed errors).
+	lag := 0.0
+	if len(result.Errors) > 0 {
+		lag = 1.0
+	}
+	indexFreshnessLag.WithLabelValues(repoKey).Set(lag)
+
 	recordIncrementalSync(result, nil)
 	return result, nil
 }

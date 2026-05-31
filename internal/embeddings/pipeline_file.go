@@ -122,12 +122,40 @@ func (p *Pipeline) parseAndDiff(
 ) (toEmbed []symbolEntry, currentNames []string, result *FileIndexResult, err error) {
 	result = &FileIndexResult{}
 
-	source, readErr := os.ReadFile(absPath)
-	if readErr != nil {
-		return nil, nil, nil, fmt.Errorf("indexFile: read %s: %w", relPath, readErr)
+	// Mirror the bulk path's language filter: unsupported extensions (e.g.
+	// .md, .yml, .yaml, .sql, .css, go.mod) are skipped rather than errored.
+	// The bulk path never reaches IndexFile for these files — ingest.Walk
+	// filters by extension before symbol collection. The incremental path
+	// calls IndexFile per file from the git diff, so the guard must live here.
+	//
+	// Returning (nil, nil, result, nil) with Skipped=0 signals "nothing to do,
+	// no error" to the caller. The SHA-advance gate (len(Errors)==0) stays
+	// reachable even when every changed file is unsupported.
+	lang := ingest.DetectLanguage(filepath.Base(relPath))
+	if lang == "" {
+		incrementalFilesUnsupportedTotal.WithLabelValues("unsupported_ext").Inc()
+		return nil, nil, result, nil
 	}
 
-	lang := ingest.DetectLanguage(filepath.Base(relPath))
+	source, readErr := os.ReadFile(absPath)
+	if readErr != nil {
+		// Permanent IO error (permission denied, unreadable mount, etc).
+		// This error is not transient: retrying the same commit will hit the
+		// same result. Treat as a permanent skip so SHA can advance rather than
+		// freezing the repo forever. The error is logged at Warn so operators
+		// can investigate.
+		//
+		// Contrast: transient embed-server failures return errors from
+		// embedAndUpsert (later in IndexFile), are appended to result.Errors,
+		// and correctly block SHA advance.
+		slog.Warn("indexFile: permanent read error — skipping file",
+			slog.String("repo", repoKey),
+			slog.String("file", relPath),
+			slog.Any("error", readErr))
+		incrementalFilesUnsupportedTotal.WithLabelValues("read_error").Inc()
+		return nil, nil, result, nil
+	}
+
 	pr, parseErr := parser.ParseFile(absPath, source, parser.ParseOpts{
 		Language:    lang,
 		IncludeBody: true,
