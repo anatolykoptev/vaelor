@@ -17,6 +17,7 @@ package embeddings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -386,14 +387,14 @@ func TestMetrics_UnsupportedFilesCounterIncrements(t *testing.T) {
 		"embed_incremental_unsupported_files_total{reason=unsupported_ext} must increment by 1 when IndexFile processes a .md file")
 }
 
-// TestMetrics_FreshnessLagGauge_AdvancesTo0 verifies that a successful
-// incremental sync sets gocode_index_freshness_lag{repo=...} to 0.
-// Guards: counter declared = counter wired.
-func TestMetrics_FreshnessLagGauge_AdvancesTo0(t *testing.T) {
+// TestMetrics_CommitsBehind_ZeroAfterSuccessfulSync verifies that a successful
+// incremental sync sets gocode_index_commits_behind{repo} to 0.
+// The persisted SHA matches main-tip after the sync, so the gauge must be 0.
+func TestMetrics_CommitsBehind_ZeroAfterSuccessfulSync(t *testing.T) {
 	p, store := testPipeline(t)
 	ctx := context.Background()
 
-	const repo = "test/metrics-freshness-lag"
+	const repo = "test/metrics-commits-behind-zero"
 	cleanRepoFull(t, store, repo)
 
 	root := initGitRepo(t, map[string]string{
@@ -409,54 +410,166 @@ func TestMetrics_FreshnessLagGauge_AdvancesTo0(t *testing.T) {
 		"lag_test.go": goFileWithBody("LagFunc", "_ = 1"),
 	}, nil)
 
-	// Incremental sync — must succeed, lag must be 0.
+	// Incremental sync — must succeed, commits_behind must be 0.
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err)
 	require.Empty(t, result.Errors, "precondition: no errors for successful sync")
 
-	val, found := readGaugeVec(t, "gocode_index_freshness_lag", "repo", repo)
+	val, found := readGaugeVec(t, "gocode_index_commits_behind", "repo", repo)
 	assert.True(t, found,
-		"gocode_index_freshness_lag{repo=%q} must be registered after IncrementalSync", repo)
+		"gocode_index_commits_behind{repo=%q} must be registered after IncrementalSync", repo)
 	assert.Equal(t, 0.0, val,
-		"gocode_index_freshness_lag must be 0 after a successful incremental sync (no lag)")
+		"gocode_index_commits_behind must be 0 after a successful incremental sync (persisted SHA = main-tip)")
 }
 
-// TestMetrics_FreshnessLagGauge_SetTo1OnPartialFailure verifies that
-// gocode_index_freshness_lag{repo=...} is set to 1 when IncrementalSync has
-// per-file errors (SHA did not advance). Guards the "persistent 1 = frozen repo"
-// signal operators watch for in Grafana.
-func TestMetrics_FreshnessLagGauge_SetTo1OnPartialFailure(t *testing.T) {
+// TestMetrics_CommitsBehind_NonZeroWhenSHAFrozen verifies that
+// gocode_index_commits_behind{repo} reflects the actual commit delta when the
+// persisted SHA is N commits behind main-tip.
+//
+// Strategy: bootstrap to get a persisted SHA, then make 2 commits but do NOT
+// advance the stored SHA (inject a failing embed server). The gauge must be 2.
+func TestMetrics_CommitsBehind_NonZeroWhenSHAFrozen(t *testing.T) {
 	ctx := context.Background()
 
-	// Always-failing embed server.
+	// Always-failing embed server on the second pipeline.
 	p, store := testPipelineWithEmbedHook(t, func(_ int) error {
 		return fmt.Errorf("embed 503")
 	})
 
-	const repo = "test/metrics-freshness-lag-partial"
+	const repo = "test/metrics-commits-behind-nonzero"
 	cleanRepoFull(t, store, repo)
 
-	// Bootstrap with a working pipeline.
+	// Bootstrap with a working pipeline to get a valid stored SHA.
 	pOK, _ := testPipeline(t)
 	root := initGitRepo(t, map[string]string{
-		"lagfile.go": goFile("LagPartialFunc"),
+		"file.go": goFile("CommitsBehindFunc"),
 	})
 	_, err := pOK.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err, "bootstrap must succeed")
 
-	// Commit a real change.
+	// Make 2 more commits — stored SHA stays at the bootstrap commit.
 	commitChange(t, root, map[string]string{
-		"lagfile.go": goFileWithBody("LagPartialFunc", "_ = 99"),
+		"file.go": goFileWithBody("CommitsBehindFunc", "_ = 1"),
+	}, nil)
+	commitChange(t, root, map[string]string{
+		"file.go": goFileWithBody("CommitsBehindFunc", "_ = 2"),
 	}, nil)
 
-	// Incremental sync with failing embed — partial failure.
+	// Run incremental sync with a failing embed server. SHA will NOT advance.
 	result, err := p.IncrementalSync(ctx, repo, root)
 	require.NoError(t, err, "IncrementalSync must not return top-level error on partial failure")
 	require.NotEmpty(t, result.Errors, "precondition: embed failure must produce per-file errors")
 
-	val, found := readGaugeVec(t, "gocode_index_freshness_lag", "repo", repo)
+	val, found := readGaugeVec(t, "gocode_index_commits_behind", "repo", repo)
 	assert.True(t, found,
-		"gocode_index_freshness_lag{repo=%q} must be registered after partial-failure sync", repo)
-	assert.Equal(t, 1.0, val,
-		"gocode_index_freshness_lag must be 1 when SHA did not advance (partial failure)")
+		"gocode_index_commits_behind{repo=%q} must be registered after partial-failure sync", repo)
+	assert.Equal(t, 2.0, val,
+		"gocode_index_commits_behind must be 2 when SHA is frozen 2 commits behind main-tip")
+}
+
+// TestMetrics_CommitsBehind_BootstrapIsZeroNotBogus verifies that when the
+// store returns stored=="" (never indexed), recordCommitsBehind emits 0 and
+// does NOT produce a bogus large value.
+//
+// This test calls recordCommitsBehind directly (as a unit) with a fake
+// repoStateGetter that returns stored="". It will FAIL if the stored==""
+// branch is broken (e.g. removed or changed to emit a non-zero value).
+//
+// Self-falsification: breaking the stored=="" branch to Set(999) makes this
+// RED because val != 0.0.
+func TestMetrics_CommitsBehind_BootstrapIsZeroNotBogus(t *testing.T) {
+	ctx := context.Background()
+
+	const repo = "test/metrics-commits-behind-bootstrap-unit"
+	// fake repoStateGetter that always returns stored="" (simulates no prior index).
+	fake := &fakeRepoStateGetter{stored: ""}
+
+	root := initGitRepo(t, map[string]string{
+		"main.go": goFile("BootstrapBehindUnitFunc"),
+	})
+	mainSHA, err := repoMainBranchSHA(root)
+	require.NoError(t, err)
+	require.NotEmpty(t, mainSHA, "initGitRepo must produce a valid git repo with a HEAD")
+
+	// Call the unit under test directly with stored="".
+	recordCommitsBehind(ctx, repo, root, fake, mainSHA)
+
+	val, found := readGaugeVec(t, "gocode_index_commits_behind", "repo", repo)
+	assert.True(t, found,
+		"gocode_index_commits_behind{repo=%q} must be set when stored==\"\"", repo)
+	assert.Equal(t, 0.0, val,
+		"gocode_index_commits_behind must be 0 for bootstrap (stored==\"\"), not a bogus value")
+}
+
+// fakeRepoStateGetter is a test-only repoStateGetter that returns a fixed sha.
+type fakeRepoStateGetter struct {
+	stored string
+	err    error
+}
+
+func (f *fakeRepoStateGetter) GetRepoState(_ context.Context, _ string) (string, error) {
+	return f.stored, f.err
+}
+
+// TestMetrics_RepoStateWriteFailures_CounterIncrements verifies that a
+// SetRepoState write failure increments embed_repo_state_write_failures_total
+// by exactly 1 via the production code path.
+//
+// Strategy: bootstrap a repo so the SHA is persisted, then call IncrementalSync
+// again on the same unchanged SHA (triggering the same-SHA fast path which calls
+// writeRepoState). Inject a failing writeRepoState via withWriteRepoStateFn so
+// the counter is driven by production code, not manually.
+//
+// Self-falsification: removing the repoStateWriteFailuresTotal.Inc() from
+// recordRepoStateWriteFailure (or the recordRepoStateWriteFailure call in the
+// same-SHA path) makes this test RED (before == after → assertion fails).
+func TestMetrics_RepoStateWriteFailures_CounterIncrements(t *testing.T) {
+	ctx := context.Background()
+
+	// Phase 1: bootstrap with a working pipeline to persist the SHA.
+	pOK, store := testPipeline(t)
+	const repo = "test/metrics-write-fail-counter"
+	cleanRepoFull(t, store, repo)
+
+	root := initGitRepo(t, map[string]string{
+		"write_fail.go": goFile("WriteFailFunc"),
+	})
+	_, err := pOK.IncrementalSync(ctx, repo, root)
+	require.NoError(t, err, "bootstrap must succeed so a SHA is persisted")
+
+	// Phase 2: build a pipeline with the same store but a failing writeRepoState.
+	// The same-SHA path fires immediately because the SHA has not changed.
+	writeFails := 0
+	failWriteFn := func(_ context.Context, _ string, _ string) error {
+		writeFails++
+		return errors.New("injected write failure")
+	}
+	pFail := NewPipeline(pOK.client, store, WithFileCache(nil), withWriteRepoStateFn(failWriteFn))
+
+	before := readCounter(t, "embed_repo_state_write_failures_total")
+
+	// Same SHA → same-SHA fast path → writeRepoState called → fails → counter ++.
+	_, err = pFail.IncrementalSync(ctx, repo, root)
+	require.NoError(t, err, "IncrementalSync must not return a top-level error on write failure")
+
+	after := readCounter(t, "embed_repo_state_write_failures_total")
+	require.Equal(t, 1, writeFails, "injected write fn must have been called exactly once")
+	assert.Equal(t, before+1, after,
+		"embed_repo_state_write_failures_total must increment by exactly 1 when SetRepoState fails via production code path")
+}
+
+// readCounter reads a plain Counter (no labels) by name.
+func readCounter(t *testing.T, name string) float64 {
+	t.Helper()
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			return m.GetCounter().GetValue()
+		}
+	}
+	return 0
 }
