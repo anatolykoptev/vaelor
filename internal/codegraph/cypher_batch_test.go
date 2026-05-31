@@ -154,14 +154,15 @@ func TestBuildEdgeBatchEmpty(t *testing.T) {
 func TestBuildEdgeUnwindBatch_ColonPathIntact(t *testing.T) {
 	t.Parallel()
 
-	// HANDLES edge: Symbol (setupRoutes in src/routes.ts) → Route (GET /peer1:unknown).
+	// HANDLES edge: Symbol (setupRoutes in src/routes.ts) → Route (GET /peer1:unknown, server).
 	// ToKey uses compositeKeyDelim — the actual delimiter used in production.
+	// CG-T5: Route ToKey is now 3-part (method\x00path\x00side); HANDLES → side=server.
 	edges := []edgeData{
 		{
 			FromLabel: "Symbol",
 			FromKey:   "setupRoutes" + compositeKeyDelim + "src/routes.ts",
 			ToLabel:   "Route",
-			ToKey:     "GET" + compositeKeyDelim + "/peer1:unknown",
+			ToKey:     "GET" + compositeKeyDelim + "/peer1:unknown" + compositeKeyDelim + "server",
 			EdgeLabel: "HANDLES",
 			Props:     map[string]string{},
 		},
@@ -186,6 +187,11 @@ func TestBuildEdgeUnwindBatch_ColonPathIntact(t *testing.T) {
 	// 3. The path must land in field tp (Route ToKey pre-split).
 	if !strings.Contains(cypher, "tp: '/peer1:unknown'") {
 		t.Errorf("Route path field 'tp: \\'/peer1:unknown\\'' missing in emitted Cypher:\n%s", cypher)
+	}
+
+	// 3b. CG-T5: The side must land in field ts (Route ToKey 3rd part).
+	if !strings.Contains(cypher, "ts: 'server'") {
+		t.Errorf("Route side field 'ts: \\'server\\'' missing in emitted Cypher:\n%s", cypher)
 	}
 
 	// 4. No literal '\x00' byte may appear in the emitted Cypher — the delimiter

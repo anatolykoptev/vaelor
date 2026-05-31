@@ -80,15 +80,17 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 
 	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
 
-	// Should have 1 deduplicated Route vertex (same method+path).
+	// CG-T5: same method+path but DIFFERENT sides → 2 distinct Route vertices.
+	// server GET /api/users and client GET /api/users are different endpoints of
+	// the same HTTP contract — they must not be deduplicated.
 	routeVertexCount := 0
 	for _, v := range vertices {
 		if v.Label == "Route" {
 			routeVertexCount++
 		}
 	}
-	if routeVertexCount != 1 {
-		t.Errorf("expected 1 Route vertex (deduplicated), got %d", routeVertexCount)
+	if routeVertexCount != 2 {
+		t.Errorf("expected 2 Route vertices (server+client distinct after CG-T5), got %d", routeVertexCount)
 	}
 
 	// Should have 1 HANDLES + 1 FETCHES edge.
@@ -102,7 +104,8 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 			if e.FromKey != want {
 				t.Errorf("HANDLES FromKey = %q, want %q", e.FromKey, want)
 			}
-			wantToKey := "GET" + compositeKeyDelim + "/api/users"
+			// CG-T5: 3-part Route ToKey — HANDLES points at server-sided vertex.
+			wantToKey := "GET" + compositeKeyDelim + "/api/users" + compositeKeyDelim + "server"
 			if e.ToKey != wantToKey {
 				t.Errorf("HANDLES ToKey = %q, want %q", e.ToKey, wantToKey)
 			}
@@ -308,13 +311,17 @@ func TestMatchKeyLayer(t *testing.T) {
 func TestMatchKeyRoute(t *testing.T) {
 	t.Parallel()
 
-	key := "GET" + compositeKeyDelim + "/api/users"
+	// CG-T5: Route key is now 3-part (method\x00path\x00side).
+	key := "GET" + compositeKeyDelim + "/api/users" + compositeKeyDelim + "server"
 	got := matchKey("Route", key)
 	if !strings.Contains(got, "method: 'GET'") {
 		t.Errorf("matchKey(Route) = %q, missing method: 'GET'", got)
 	}
 	if !strings.Contains(got, "path: '/api/users'") {
 		t.Errorf("matchKey(Route) = %q, missing path: '/api/users'", got)
+	}
+	if !strings.Contains(got, "side: 'server'") {
+		t.Errorf("matchKey(Route) = %q, missing side: 'server'", got)
 	}
 	// The NUL delimiter must not appear in the Cypher output.
 	if strings.Contains(got, "\x00") {
@@ -699,20 +706,24 @@ func TestColonInPath_ResolvesCorrectVertex(t *testing.T) {
 
 	method := "GET"
 	path := "/peer1:unknown" // colon inside the path
+	side := "server"
 
-	// Build the composite key via the same logic as buildCrossLanguageGraph.
-	key := method + compositeKeyDelim + path
+	// Build the 3-part composite key via the same logic as buildCrossLanguageGraph (CG-T5).
+	key := method + compositeKeyDelim + path + compositeKeyDelim + side
 
-	// Split must yield the exact original method and path.
-	parts := strings.SplitN(key, compositeKeyDelim, 2)
-	if len(parts) != 2 {
-		t.Fatalf("SplitN produced %d parts, want 2", len(parts))
+	// Split must yield the exact original method, path, and side.
+	parts := strings.SplitN(key, compositeKeyDelim, 3)
+	if len(parts) != 3 {
+		t.Fatalf("SplitN produced %d parts, want 3", len(parts))
 	}
 	if parts[0] != method {
 		t.Errorf("method = %q, want %q", parts[0], method)
 	}
 	if parts[1] != path {
 		t.Errorf("path = %q, want %q", parts[1], path)
+	}
+	if parts[2] != side {
+		t.Errorf("side = %q, want %q", parts[2], side)
 	}
 
 	// matchKey must reconstruct the Cypher property filter with the full path
@@ -727,29 +738,33 @@ func TestColonInPath_ResolvesCorrectVertex(t *testing.T) {
 	if !strings.Contains(cypher, "path: '/peer1:unknown'") {
 		t.Errorf("matchKey missing path: '/peer1:unknown' in %q", cypher)
 	}
+	if !strings.Contains(cypher, "side: 'server'") {
+		t.Errorf("matchKey missing side: 'server' in %q", cypher)
+	}
 }
 
-// TestCompositeKeyRoundTrip verifies that buildKey(method,path) → splitKey
-// restores the original method+path even when the path contains ':'.
+// TestCompositeKeyRoundTrip verifies that the Route 3-part key (method\x00path\x00side)
+// round-trips correctly even when the path contains ':'. This supersedes the old 2-part
+// Route key test; Symbol keys (name\x00file) remain 2-part and are tested separately.
 func TestCompositeKeyRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct{ method, path string }{
-		{"GET", "/api/users"},
-		{"POST", "/peer1:unknown"},
-		{"DELETE", "/a:b:c"},
-		{"GET", "/:id/profile"},
+	cases := []struct{ method, path, side string }{
+		{"GET", "/api/users", "server"},
+		{"POST", "/peer1:unknown", "server"},
+		{"DELETE", "/a:b:c", "client"},
+		{"GET", "/:id/profile", "server"},
 	}
 	for _, c := range cases {
-		key := c.method + compositeKeyDelim + c.path
-		parts := strings.SplitN(key, compositeKeyDelim, 2)
-		if len(parts) != 2 {
-			t.Errorf("method=%q path=%q: SplitN got %d parts", c.method, c.path, len(parts))
+		key := c.method + compositeKeyDelim + c.path + compositeKeyDelim + c.side
+		parts := strings.SplitN(key, compositeKeyDelim, 3)
+		if len(parts) != 3 {
+			t.Errorf("method=%q path=%q side=%q: SplitN got %d parts", c.method, c.path, c.side, len(parts))
 			continue
 		}
-		if parts[0] != c.method || parts[1] != c.path {
-			t.Errorf("round-trip fail: got method=%q path=%q, want method=%q path=%q",
-				parts[0], parts[1], c.method, c.path)
+		if parts[0] != c.method || parts[1] != c.path || parts[2] != c.side {
+			t.Errorf("round-trip fail: got method=%q path=%q side=%q, want method=%q path=%q side=%q",
+				parts[0], parts[1], parts[2], c.method, c.path, c.side)
 		}
 	}
 }
@@ -797,14 +812,17 @@ func TestNULNotInCypher(t *testing.T) {
 		t.Errorf("matchKey(Symbol) missing file: %q", gotSym)
 	}
 
-	// Route key: method\x00path
-	routeKey := "GET" + compositeKeyDelim + "/peer1:unknown"
+	// Route key: method\x00path\x00side (3-part, CG-T5).
+	routeKey := "GET" + compositeKeyDelim + "/peer1:unknown" + compositeKeyDelim + "server"
 	gotRoute := matchKey("Route", routeKey)
 	if strings.Contains(gotRoute, "\x00") {
 		t.Errorf("matchKey(Route) leaked \\x00: %q", gotRoute)
 	}
 	if !strings.Contains(gotRoute, "path: '/peer1:unknown'") {
 		t.Errorf("matchKey(Route) path wrong: %q", gotRoute)
+	}
+	if !strings.Contains(gotRoute, "side: 'server'") {
+		t.Errorf("matchKey(Route) missing side: %q", gotRoute)
 	}
 
 	// unwindEdgeMatch emits plain property-field references (e.fk, e.fn, e.tm, etc.)
@@ -817,6 +835,148 @@ func TestNULNotInCypher(t *testing.T) {
 	gotUnwindRoute := unwindEdgeMatch("Route", "tk")
 	if strings.Contains(gotUnwindRoute, "\x00") {
 		t.Errorf("unwindEdgeMatch(Route) contains \\x00 char: %q", gotUnwindRoute)
+	}
+}
+
+// TestRouteSide_ServerAndClientDistinct verifies that same method+path with
+// different sides produce TWO distinct Route vertices (not one deduplicated),
+// each carrying the correct side prop, and that HANDLES points at the
+// server-sided vertex while FETCHES points at the client-sided vertex.
+func TestRouteSide_ServerAndClientDistinct(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/api/x",
+			Handler:   "serverHandler",
+			Framework: "chi",
+			File:      "backend/handler.go",
+			Line:      10,
+			Side:      "server",
+		},
+		{
+			Method:    "GET",
+			Path:      "/api/x",
+			Handler:   "clientFetcher",
+			Framework: "fetch",
+			File:      "frontend/api.ts",
+			Line:      20,
+			Side:      "client",
+		},
+	}
+
+	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+
+	// Must have 2 distinct Route vertices (server and client are different vertices).
+	var routeVertices []vertexData
+	for _, v := range vertices {
+		if v.Label == "Route" {
+			routeVertices = append(routeVertices, v)
+		}
+	}
+	if len(routeVertices) != 2 {
+		t.Fatalf("expected 2 Route vertices (server+client distinct), got %d: %+v", len(routeVertices), routeVertices)
+	}
+
+	// Each vertex must carry the correct side prop.
+	sidesSeen := make(map[string]bool)
+	for _, v := range routeVertices {
+		if v.Props["method"] != "GET" {
+			t.Errorf("Route vertex method = %q, want GET", v.Props["method"])
+		}
+		if v.Props["path"] != "/api/x" {
+			t.Errorf("Route vertex path = %q, want /api/x", v.Props["path"])
+		}
+		side := v.Props["side"]
+		if side != "server" && side != "client" {
+			t.Errorf("Route vertex side = %q, want server or client", side)
+		}
+		sidesSeen[side] = true
+	}
+	if !sidesSeen["server"] {
+		t.Error("no Route vertex with side=server found")
+	}
+	if !sidesSeen["client"] {
+		t.Error("no Route vertex with side=client found")
+	}
+
+	// HANDLES edge ToKey must point at the server-sided Route vertex.
+	// FETCHES edge ToKey must point at the client-sided Route vertex.
+	wantHandlesToKey := "GET" + compositeKeyDelim + "/api/x" + compositeKeyDelim + "server"
+	wantFetchesToKey := "GET" + compositeKeyDelim + "/api/x" + compositeKeyDelim + "client"
+	for _, e := range edges {
+		switch e.EdgeLabel {
+		case "HANDLES":
+			if e.ToKey != wantHandlesToKey {
+				t.Errorf("HANDLES ToKey = %q, want %q", e.ToKey, wantHandlesToKey)
+			}
+		case "FETCHES":
+			if e.ToKey != wantFetchesToKey {
+				t.Errorf("FETCHES ToKey = %q, want %q", e.ToKey, wantFetchesToKey)
+			}
+		}
+	}
+}
+
+// TestRouteKey_IncludesSide verifies that the Route composite key for (GET,
+// /api/x, server) differs from (GET, /api/x, client), making them distinct
+// graph vertices.
+func TestRouteKey_IncludesSide(t *testing.T) {
+	t.Parallel()
+
+	serverVertex := vertexData{
+		Label: "Route",
+		Props: map[string]string{"method": "GET", "path": "/api/x", "side": "server"},
+	}
+	clientVertex := vertexData{
+		Label: "Route",
+		Props: map[string]string{"method": "GET", "path": "/api/x", "side": "client"},
+	}
+
+	keyServer := vertexKey(serverVertex)
+	keyClient := vertexKey(clientVertex)
+
+	if keyServer == keyClient {
+		t.Errorf("Route keys for server and client must differ, both = %q", keyServer)
+	}
+
+	// Each key must contain method, path, and side separated by compositeKeyDelim.
+	parts := strings.SplitN(keyServer, compositeKeyDelim, 3)
+	if len(parts) != 3 {
+		t.Fatalf("Route key splits into %d parts, want 3: %q", len(parts), keyServer)
+	}
+	if parts[0] != "GET" || parts[1] != "/api/x" || parts[2] != "server" {
+		t.Errorf("Route server key parts = %q,%q,%q, want GET,/api/x,server", parts[0], parts[1], parts[2])
+	}
+}
+
+// TestRouteKey_ThreePartRoundTrip verifies that a 3-part Route key containing a
+// colon-in-path (/peer1:unknown) round-trips cleanly through SplitN(key,delim,3).
+// Composition: CG-T4 (NUL delimiter for colon safety) + CG-T5 (3-part Route key).
+func TestRouteKey_ThreePartRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		method, path, side string
+	}{
+		{"GET", "/api/users", "server"},
+		{"GET", "/peer1:unknown", "server"}, // colon in path — CG-T4 regression
+		{"POST", "/a:b:c", "client"},        // multiple colons
+		{"DELETE", "/:id/profile", "server"},
+		{"GET", "/api/x", "client"},
+	}
+	for _, c := range cases {
+		key := c.method + compositeKeyDelim + c.path + compositeKeyDelim + c.side
+		parts := strings.SplitN(key, compositeKeyDelim, 3)
+		if len(parts) != 3 {
+			t.Errorf("method=%q path=%q side=%q: SplitN got %d parts", c.method, c.path, c.side, len(parts))
+			continue
+		}
+		if parts[0] != c.method || parts[1] != c.path || parts[2] != c.side {
+			t.Errorf("round-trip fail: got method=%q path=%q side=%q, want method=%q path=%q side=%q",
+				parts[0], parts[1], parts[2], c.method, c.path, c.side)
+		}
 	}
 }
 

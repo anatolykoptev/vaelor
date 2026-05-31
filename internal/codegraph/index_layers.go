@@ -347,10 +347,21 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 		})
 	}
 
-	// Route vertices — deduplicated by Method+compositeKeyDelim+Path.
+	// Route vertices — deduplicated by Method+compositeKeyDelim+Path+compositeKeyDelim+Side.
+	// A server GET /api/x and a client GET /api/x are DISTINCT vertices: they represent
+	// the two ends of the same HTTP contract (server provides, client consumes), and
+	// cross-repo provider↔consumer confirmation requires them to be separately addressable.
+	//
+	// Empty Side defaults to "server": a HANDLES edge implies a server-side handler;
+	// matchers that don't populate Side (e.g. legacy framework extractors) are assumed
+	// server-side. This preserves the existing behaviour for routes that predate Side.
 	routeSeen := make(map[string]bool)
 	for _, r := range routeList {
-		key := r.Method + compositeKeyDelim + r.Path
+		side := r.Side
+		if side == "" {
+			side = sideServer
+		}
+		key := r.Method + compositeKeyDelim + r.Path + compositeKeyDelim + side
 		if routeSeen[key] {
 			continue
 		}
@@ -361,6 +372,7 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 				"method":    r.Method,
 				"path":      r.Path,
 				"framework": r.Framework,
+				"side":      side,
 			},
 		})
 	}
@@ -394,7 +406,15 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 		resolved := r
 		resolved.Handler = handlerName
 
-		routeKey := r.Method + compositeKeyDelim + r.Path
+		// The Route ToKey is the 3-part composite key (method\x00path\x00side).
+		// HANDLES edges (server-side handler) point at the server-sided Route vertex.
+		// FETCHES edges (client-side caller) point at the client-sided Route vertex.
+		// This ensures the edge MATCHes the correctly-sided vertex in the graph.
+		routeSide := r.Side
+		if routeSide == "" {
+			routeSide = sideServer
+		}
+		routeKey := r.Method + compositeKeyDelim + r.Path + compositeKeyDelim + routeSide
 		edgeLabel := "HANDLES"
 		fromKey := handlesFromKey(resolved)
 		if r.Side == sideClient {

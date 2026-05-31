@@ -63,7 +63,11 @@ func buildEdgeBatch(graphName string, edges []edgeData) string {
 // vertexKey returns the primary key value for a vertex.
 // Package: keyed by path. File: keyed by path.
 // Symbol: keyed by "name\x00file" (compositeKeyDelim).
-// Route:  keyed by "method\x00path" (compositeKeyDelim).
+// Route:  keyed by "method\x00path\x00side" (compositeKeyDelim, 3-part).
+//
+// The 3-part Route key makes a server GET /api/x and a client GET /api/x into
+// DISTINCT vertices — the precondition for cross-repo provider↔consumer confirm
+// (server-route in repo A ∩ client-route in repo B, same method+path).
 func vertexKey(v vertexData) string {
 	switch v.Label {
 	case "Package":
@@ -80,7 +84,7 @@ func vertexKey(v vertexData) string {
 	case "Layer":
 		return v.Props["name"]
 	case "Route":
-		return v.Props["method"] + compositeKeyDelim + v.Props["path"]
+		return v.Props["method"] + compositeKeyDelim + v.Props["path"] + compositeKeyDelim + v.Props["side"]
 	default:
 		return v.Props["name"]
 	}
@@ -89,7 +93,7 @@ func vertexKey(v vertexData) string {
 // matchKey builds the Cypher property filter for a MATCH/MERGE by label and key.
 // Package: if key contains "/" match by path, else by name.
 // Symbol: split "name\x00file" (compositeKeyDelim) into name + file props.
-// Route:  split "method\x00path" (compositeKeyDelim) into method + path props.
+// Route:  split "method\x00path\x00side" (compositeKeyDelim, 3-part) into method + path + side props.
 // Everything else: match by path.
 // The compositeKeyDelim (\x00) is split away here and never appears in the
 // returned Cypher string.
@@ -109,7 +113,13 @@ func matchKey(label, key string) string {
 	case "Layer":
 		return fmt.Sprintf("name: '%s'", escapeCypher(key))
 	case "Route":
-		parts := strings.SplitN(key, compositeKeyDelim, 2)
+		// 3-part key: method\x00path\x00side — split into all three props.
+		parts := strings.SplitN(key, compositeKeyDelim, 3)
+		if len(parts) == 3 {
+			return fmt.Sprintf("method: '%s', path: '%s', side: '%s'",
+				escapeCypher(parts[0]), escapeCypher(parts[1]), escapeCypher(parts[2]))
+		}
+		// Legacy 2-part fallback (no side) — treat as path+method only (graceful degradation).
 		if len(parts) == 2 {
 			return fmt.Sprintf("method: '%s', path: '%s'", escapeCypher(parts[0]), escapeCypher(parts[1]))
 		}
@@ -216,7 +226,7 @@ func unwindVertexMatch(label string, keys []string) string {
 	case "Layer":
 		return "name: props.name"
 	case "Route":
-		return "method: props.method, path: props.path"
+		return "method: props.method, path: props.path, side: props.side"
 	default:
 		return "path: props.path"
 	}
@@ -231,17 +241,16 @@ type edgeGroupKey struct {
 // edgeUnwindFields returns the UNWIND map field names for an edge endpoint's key,
 // and the MATCH property expression referencing those fields.
 //
-// For Symbol and Route endpoints the composite key (name\x00file or method\x00path)
-// is pre-split in Go into separate fields so that compositeKeyDelim (\x00) NEVER
-// appears in the emitted Cypher.
+// For Symbol and Route endpoints the composite key is pre-split in Go into
+// separate fields so that compositeKeyDelim (\x00) NEVER appears in the emitted Cypher.
 //
 //   - Symbol FromKey (field="fk"):  stored as fn (name), ff (file).
 //   - Symbol ToKey   (field="tk"):  stored as tn (name), tf (file).
-//   - Route  FromKey (field="fk"):  stored as fm (method), fp (path).
-//   - Route  ToKey   (field="tk"):  stored as tm (method), tp (path).
+//   - Route  FromKey (field="fk"):  stored as fm (method), fp (path), fs (side).
+//   - Route  ToKey   (field="tk"):  stored as tm (method), tp (path), ts (side).
 //   - All other labels: single field (fk or tk) holding the raw key.
 //
-// splitCompositeKey extracts the two parts from a compositeKeyDelim key.
+// splitCompositeKey extracts the two parts from a compositeKeyDelim key (Symbol).
 // Returns ("", key) if the delimiter is absent (fallback for non-composite keys).
 func splitCompositeKey(key string) (part1, part2 string) {
 	parts := strings.SplitN(key, compositeKeyDelim, 2)
@@ -249,6 +258,17 @@ func splitCompositeKey(key string) (part1, part2 string) {
 		return parts[0], parts[1]
 	}
 	return "", key
+}
+
+// splitRouteKey extracts the three parts (method, path, side) from a 3-part
+// Route composite key (method\x00path\x00side). Returns ("","",key) when the
+// delimiter is absent (fallback for malformed keys).
+func splitRouteKey(key string) (method, path, side string) {
+	parts := strings.SplitN(key, compositeKeyDelim, 3)
+	if len(parts) == 3 {
+		return parts[0], parts[1], parts[2]
+	}
+	return "", "", key
 }
 
 // buildEdgeUnwindBatch generates UNWIND+MATCH+MERGE Cypher for a batch of
@@ -276,8 +296,8 @@ func buildEdgeUnwindBatch(graphName string, edges []edgeData) string {
 			n, f := splitCompositeKey(e.FromKey)
 			fmt.Fprintf(&sb, "fn: '%s', ff: '%s'", escapeCypher(n), escapeCypher(f))
 		case "Route":
-			m, p := splitCompositeKey(e.FromKey)
-			fmt.Fprintf(&sb, "fm: '%s', fp: '%s'", escapeCypher(m), escapeCypher(p))
+			m, p, s := splitRouteKey(e.FromKey)
+			fmt.Fprintf(&sb, "fm: '%s', fp: '%s', fs: '%s'", escapeCypher(m), escapeCypher(p), escapeCypher(s))
 		default:
 			fmt.Fprintf(&sb, "fk: '%s'", escapeCypher(e.FromKey))
 		}
@@ -288,8 +308,8 @@ func buildEdgeUnwindBatch(graphName string, edges []edgeData) string {
 			n, f := splitCompositeKey(e.ToKey)
 			fmt.Fprintf(&sb, "tn: '%s', tf: '%s'", escapeCypher(n), escapeCypher(f))
 		case "Route":
-			m, p := splitCompositeKey(e.ToKey)
-			fmt.Fprintf(&sb, "tm: '%s', tp: '%s'", escapeCypher(m), escapeCypher(p))
+			m, p, s := splitRouteKey(e.ToKey)
+			fmt.Fprintf(&sb, "tm: '%s', tp: '%s', ts: '%s'", escapeCypher(m), escapeCypher(p), escapeCypher(s))
 		default:
 			fmt.Fprintf(&sb, "tk: '%s'", escapeCypher(e.ToKey))
 		}
@@ -323,8 +343,8 @@ func unwindEdgeMatch(label, prefix string) string {
 	case "Layer":
 		return fmt.Sprintf("name: e.%sk", prefix)
 	case "Route":
-		// Pre-split fields: <prefix>m = method, <prefix>p = path.
-		return fmt.Sprintf("method: e.%sm, path: e.%sp", prefix, prefix)
+		// Pre-split fields: <prefix>m = method, <prefix>p = path, <prefix>s = side.
+		return fmt.Sprintf("method: e.%sm, path: e.%sp, side: e.%ss", prefix, prefix, prefix)
 	default:
 		return fmt.Sprintf("path: e.%sk", prefix)
 	}
