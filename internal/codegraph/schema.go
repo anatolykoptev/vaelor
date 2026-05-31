@@ -14,7 +14,7 @@ func GraphSchemaText() string {
 	b.WriteString("  - File (path, language, lines)\n")
 	b.WriteString("  - Symbol (name, kind, signature, file, start_line, end_line, complexity, lines, pagerank, community)\n")
 	b.WriteString("  - Layer (name, role, language, root_dir)\n")
-	b.WriteString("  - Route (method, path, framework)\n")
+	b.WriteString("  - Route (method, path, framework, side) — side is 'server' or 'client'; server and client routes for the same method+path are distinct vertices\n")
 	b.WriteString("\n")
 
 	b.WriteString("Edge labels:\n")

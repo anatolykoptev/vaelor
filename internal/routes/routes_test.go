@@ -209,6 +209,10 @@ func TestNormalizePath(t *testing.T) {
 		{"http://localhost:8080/api/v1//items", "/api/v1/items"},
 		{"api/users", "/api/users"},
 		{"/api//double//slash", "/api/double/slash"},
+		// FIX 1: optional param (:id?) must normalize to * not *? (was junk bug).
+		{"/users/:id?", "/users/*"},
+		{"/a/:b?", "/a/*"},
+		{"/users/:id?/profile", "/users/*/profile"},
 	}
 
 	for _, tt := range tests {

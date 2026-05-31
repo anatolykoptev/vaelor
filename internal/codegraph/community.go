@@ -26,7 +26,7 @@ func injectCommunities(vertices []vertexData, edges []edgeData) {
 	// Ensure all symbols are nodes (even if isolated).
 	for _, v := range vertices {
 		if v.Label == "Symbol" {
-			key := v.Props["name"] + ":" + v.Props["file"]
+			key := v.Props["name"] + compositeKeyDelim + v.Props["file"]
 			if graph[key] == nil {
 				graph[key] = make(map[string]int)
 			}
@@ -70,7 +70,7 @@ func injectCommunities(vertices []vertexData, edges []edgeData) {
 		if vertices[i].Label != "Symbol" {
 			continue
 		}
-		key := vertices[i].Props["name"] + ":" + vertices[i].Props["file"]
+		key := vertices[i].Props["name"] + compositeKeyDelim + vertices[i].Props["file"]
 		if cid, ok := communities[key]; ok {
 			vertices[i].Props["community"] = strconv.Itoa(cid)
 		}
