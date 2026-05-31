@@ -18,7 +18,6 @@ import (
 // registration line.
 type symbolSpan struct {
 	name      string
-	file      string
 	startLine uint32
 	endLine   uint32
 }
@@ -40,7 +39,6 @@ func buildFileSymbols(allSymbols []*parser.Symbol) map[string][]symbolSpan {
 		// must normalise before calling resolveEnclosingSymbol.
 		out[rel] = append(out[rel], symbolSpan{
 			name:      s.Name,
-			file:      rel,
 			startLine: s.StartLine,
 			endLine:   s.EndLine,
 		})
@@ -53,6 +51,9 @@ func buildFileSymbols(allSymbols []*parser.Symbol) map[string][]symbolSpan {
 // "Innermost" means the symbol with the smallest span (endLine - startLine).
 // If multiple symbols have the same span size (unlikely but possible), the
 // last one wins (stable under append order, adequate for the resolver's purpose).
+// Tie-break stability rests on parser.go's index-ordered symbol assembly: symbols
+// are appended in source order, so the last same-span symbol is the later one in
+// the file — deterministic for a given parse result.
 // Returns ("", false) when no symbol spans the given line.
 func resolveEnclosingSymbol(fileSymbols map[string][]symbolSpan, file string, line uint32) (string, bool) {
 	spans, ok := fileSymbols[file]
@@ -149,7 +150,10 @@ func extractRoutes(root string, allFiles []*ingest.File, repo string) []routes.R
 		if err != nil {
 			continue
 		}
-		rel := relPath(f.Path, root)
+		// Use f.RelPath (precomputed single source of truth) instead of
+		// recomputing relPath(f.Path, root) — prevents the seam from diverging
+		// from sampleLayerSources and buildFileToLayerMap which also use f.RelPath.
+		rel := f.RelPath
 		for _, r := range routes.ExtractAll(f.Language, src) {
 			// Guard 2: drop junk paths.
 			if routes.IsJunkPath(r.Path) {

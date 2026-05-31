@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/polyglot"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
@@ -313,6 +314,95 @@ func TestMatchKeyRoute(t *testing.T) {
 	}
 }
 
+// TestBuildCrossLanguageData_AbsoluteSymbolFileResolves is an integration test
+// for the buildCrossLanguageData → buildFileSymbols → relFileSymbols re-key seam.
+//
+// The existing unit tests hand-build fileSymbols with already-relative keys and
+// call buildCrossLanguageGraph directly, bypassing the re-key loop. This test
+// drives the real buildCrossLanguageData entrypoint so that:
+//
+//  1. parser.Symbol.File is an ABSOLUTE path (as produced by the real parser).
+//  2. routes.Route.File is a RELATIVE path (as produced by extractRoutes).
+//  3. The re-key loop (relPath(absPath, root)) must bridge the two — a divergence
+//     in how routes vs symbols derive their paths causes every empty-Handler route
+//     to silently drop while looking "explained" (route_handler_unresolved bumped).
+//
+// Mutation proof: keying relFileSymbols by the absolute path instead of the
+// relative path causes resolveEnclosingSymbol to miss the lookup (route.File is
+// relative, key is absolute → no match → unresolved) and the new test fails.
+func TestBuildCrossLanguageData_AbsoluteSymbolFileResolves(t *testing.T) {
+	// Build a real temp directory tree so extractRoutes can actually read the file.
+	root := t.TempDir()
+	const relFile = "src/routes.ts"
+	// Arrow-callback route inside a named function — Handler will be empty after
+	// extraction (TS arrow callbacks don't capture a named handler), so the
+	// enclosing-fn resolver must fire.
+	src := `import express from 'express';
+function setupRoutes(app) {
+  app.get('/api/users', (req, res) => {
+    res.json([]);
+  });
+}
+`
+	absPath := writeTestFile(t, root, relFile, src)
+
+	files := []*ingest.File{
+		{
+			Path:     absPath, // absolute — matches real ingest output
+			RelPath:  relFile, // relative — set by ingest at construction time
+			Language: "typescript",
+		},
+	}
+
+	// Symbol with ABSOLUTE File path — as produced by the real parser.
+	symbols := []*parser.Symbol{
+		{
+			Name:      "setupRoutes",
+			Kind:      parser.KindFunction,
+			File:      absPath, // absolute — the seam being tested
+			StartLine: 2,
+			EndLine:   6,
+		},
+	}
+
+	vertices, edges := buildCrossLanguageData(root, files, symbols)
+
+	// Sanity: at least one Route vertex for /api/users.
+	var routeVertex *vertexData
+	for i := range vertices {
+		if vertices[i].Label == "Route" && vertices[i].Props["path"] == "/api/users" {
+			v := vertices[i]
+			routeVertex = &v
+			break
+		}
+	}
+	if routeVertex == nil {
+		t.Fatalf("expected Route vertex for /api/users; vertices=%v", vertices)
+	}
+
+	// Core assertion: a HANDLES edge must be built whose FromKey is
+	// "setupRoutes:src/routes.ts" — the relative form. This proves that
+	// Symbol.File (absolute) was re-keyed to relative and matched route.File
+	// (already relative). If the re-key loop used the absolute path as key,
+	// resolveEnclosingSymbol would return ("", false) and no edge would be built.
+	wantFromKey := "setupRoutes:" + relFile
+	var handlesEdge *edgeData
+	for i := range edges {
+		if edges[i].EdgeLabel == "HANDLES" && edges[i].FromKey == wantFromKey {
+			e := edges[i]
+			handlesEdge = &e
+			break
+		}
+	}
+	if handlesEdge == nil {
+		t.Errorf("HANDLES edge with FromKey %q not found; edges=%v\n"+
+			"This means the absolute→relative re-key seam in buildCrossLanguageData "+
+			"is broken: Symbol.File (absolute) was not normalised to relative before "+
+			"being looked up against route.File (relative).",
+			wantFromKey, edges)
+	}
+}
+
 // writeTestFile creates a file at dir/rel with the given content.
 func writeTestFile(t *testing.T, dir, rel, content string) string {
 	t.Helper()
@@ -427,8 +517,8 @@ func TestResolveEnclosingSymbol_Innermost(t *testing.T) {
 	// outer: lines 1-20, inner: lines 5-10.
 	fileSymbols := map[string][]symbolSpan{
 		"src/handler.ts": {
-			{name: "outerFn", file: "src/handler.ts", startLine: 1, endLine: 20},
-			{name: "innerFn", file: "src/handler.ts", startLine: 5, endLine: 10},
+			{name: "outerFn", startLine: 1, endLine: 20},
+			{name: "innerFn", startLine: 5, endLine: 10},
 		},
 	}
 
@@ -476,7 +566,7 @@ func TestBuildCrossLang_ArrowCallbackResolvesEnclosingFn(t *testing.T) {
 	}
 	fileSymbols := map[string][]symbolSpan{
 		"src/routes.ts": {
-			{name: "setupRoutes", file: "src/routes.ts", startLine: 1, endLine: 20},
+			{name: "setupRoutes", startLine: 1, endLine: 20},
 		},
 	}
 
@@ -520,7 +610,7 @@ func TestBuildCrossLang_NamedHandlerUnchanged(t *testing.T) {
 	// Provide fileSymbols with an overlapping span — resolver must NOT be called.
 	fileSymbols := map[string][]symbolSpan{
 		"internal/admin/handler.go": {
-			{name: "shouldNotBeUsed", file: "internal/admin/handler.go", startLine: 1, endLine: 100},
+			{name: "shouldNotBeUsed", startLine: 1, endLine: 100},
 		},
 	}
 
@@ -563,7 +653,7 @@ func TestBuildCrossLang_NoEnclosingFn_Unresolved(t *testing.T) {
 	}
 	fileSymbols := map[string][]symbolSpan{
 		"src/orphan.ts": {
-			{name: "aFn", file: "src/orphan.ts", startLine: 1, endLine: 10},
+			{name: "aFn", startLine: 1, endLine: 10},
 		},
 	}
 
