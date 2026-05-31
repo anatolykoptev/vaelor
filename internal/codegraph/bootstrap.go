@@ -51,6 +51,10 @@ func (s *Store) AssertSchemaDrift(ctx context.Context) {
 				slog.String("table", tbl),
 				slog.String("expected_schema", "public"),
 				slog.String("found_schema", "ag_catalog"),
+				// Remediation: run docs/migrations/20260531_backfill_ag_catalog_leak.sql
+				// (backfills public.* from ag_catalog.*, then drops the stale ag_catalog copies).
+				// Do NOT run while the counter is still climbing — wait for SR-A to ship first.
+				slog.String("remediation_migration", "docs/migrations/20260531_backfill_ag_catalog_leak.sql"),
 			)
 			schemaDriftTotal.WithLabelValues(tbl).Inc()
 		}
