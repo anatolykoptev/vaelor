@@ -52,6 +52,45 @@ var indexFileDuration = promauto.NewHistogramVec(
 	[]string{"outcome"},
 )
 
+// embed_incremental_unsupported_files_total counts files in incremental diffs
+// that were permanently skipped due to a non-source-code reason, labelled by
+// reason:
+//
+//   - unsupported_ext: extension has no tree-sitter handler (e.g. .md, .yml)
+//   - read_error:      permanent IO error (permission denied, stale mount, etc)
+//
+// A non-zero rate of "unsupported_ext" is expected and benign (documentation
+// commits). A non-zero rate of "read_error" warrants operator investigation.
+//
+// Cardinality: 2 series.
+var incrementalFilesUnsupportedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "embed_incremental_unsupported_files_total",
+		Help: "Files in incremental diffs permanently skipped by reason (unsupported_ext | read_error).",
+	},
+	[]string{"reason"},
+)
+
+// gocode_index_freshness_lag is a per-repo gauge that records whether the repo's
+// indexed_sha is current after the last IncrementalSync run.
+//
+//   - 0: indexed_sha == mainSHA (fully up-to-date)
+//   - 1: indexed_sha != mainSHA after the run (lag detected)
+//
+// A persistent 1 for a repo indicates that repeated sync failures are preventing
+// SHA advance — the classic symptom of the unsupported-file freeze bug or a
+// permanent embed-server error for that repo.
+//
+// Label "repo" uses the repoKey (e.g. "github.com/org/repo"). Cardinality is
+// bounded by the number of indexed repos (typically 10-100).
+var indexFreshnessLag = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "gocode_index_freshness_lag",
+		Help: "1 if indexed_sha != mainSHA after IncrementalSync, 0 if up-to-date.",
+	},
+	[]string{"repo"},
+)
+
 // recordIncrementalSync increments embed_incremental_sync_total for the given
 // result. Called at every return point of IncrementalSync.
 // When err is non-nil (catastrophic failure), outcome = "error".
@@ -93,5 +132,8 @@ func init() {
 	}
 	for _, outcome := range []string{"success", "error"} {
 		indexFileDuration.WithLabelValues(outcome)
+	}
+	for _, reason := range []string{"unsupported_ext", "read_error"} {
+		incrementalFilesUnsupportedTotal.WithLabelValues(reason)
 	}
 }
