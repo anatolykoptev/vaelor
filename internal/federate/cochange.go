@@ -46,12 +46,17 @@ type CrossPair struct {
 	ConfidenceLevel string  `json:"confidenceLevel"`
 }
 
-// touch is one (repo, file) change at a committer timestamp.
-type touch struct {
+// RepoTouch is one (repo, file) change at a committer timestamp.
+// Exported so the resilience layer in the tool handler can pass pre-warmed
+// touches to CrossRepoCoChangeFromTouches without re-running git log.
+type RepoTouch struct {
 	repo string
 	file string
 	ts   int64
 }
+
+// touch is an alias for RepoTouch kept for internal brevity.
+type touch = RepoTouch
 
 // pairKey is the canonical identity of a cross-repo file-pair.
 type pairKey struct {
@@ -113,12 +118,18 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 	if windowHours > crossCoChangeMaxWindowHours {
 		windowHours = crossCoChangeMaxWindowHours
 	}
-	// minLift <= 0 means no floor: return all pairs above minPairs.
-	// Callers raise minLift explicitly to pre-filter by raw effect-size.
 	var touches []touch
 	for _, r := range repos {
-		touches = append(touches, collectTouches(ctx, r)...)
+		touches = append(touches, collectTouchesCached(ctx, r)...)
 	}
+	return CrossRepoCoChangeFromTouches(ctx, touches, windowHours, minPairs, minLift)
+}
+
+// CrossRepoCoChangeFromTouches computes cross-repo pairs from a pre-collected
+// slice of touches. Separated from CrossRepoCoChange so the resilience layer
+// can feed pre-warmed touches without re-running git log.
+// Exported for use by the deadline-race partial-result path in the tool handler.
+func CrossRepoCoChangeFromTouches(ctx context.Context, touches []touch, windowHours, minPairs int, minLift float64) []CrossPair {
 	if len(touches) == 0 {
 		return nil
 	}
@@ -237,6 +248,18 @@ func sortCrossPairs(out []CrossPair) {
 		}
 		return out[i].FileB < out[j].FileB
 	})
+}
+
+// collectTouchesCached returns touches for r, hitting globalTouchesCache first.
+// On a cache miss it calls collectTouches and populates the cache.
+func collectTouchesCached(ctx context.Context, r RepoRef) []touch {
+	key := touchesCacheKey(r.Root)
+	if cached, ok := globalTouchesCache.get(key); ok {
+		return cached
+	}
+	result := collectTouches(ctx, r)
+	globalTouchesCache.set(key, result)
+	return result
 }
 
 // collectTouches runs one git log for the repo and returns a touch per
