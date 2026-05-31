@@ -1,9 +1,22 @@
 package embeddings
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"log/slog"
+	"os/exec"
+	"strings"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+// repoStateGetter is a narrow interface for reading persisted indexed_sha.
+// *Store satisfies it; tests may substitute a fake implementation.
+type repoStateGetter interface {
+	GetRepoState(ctx context.Context, repoKey string) (string, error)
+}
 
 // embed_incremental_sync_total counts Pipeline.IncrementalSync invocations by
 // mode (the IncrementalSyncMode code path taken) and outcome.
@@ -71,25 +84,122 @@ var incrementalFilesUnsupportedTotal = promauto.NewCounterVec(
 	[]string{"reason"},
 )
 
-// gocode_index_freshness_lag is a per-repo gauge that records whether the repo's
-// indexed_sha is current after the last IncrementalSync run.
+// gocode_index_commits_behind is a per-repo gauge recording how many commits the
+// persisted indexed_sha is behind the repo's main branch tip after each
+// IncrementalSync run.
 //
-//   - 0: indexed_sha == mainSHA (fully up-to-date)
-//   - 1: indexed_sha != mainSHA after the run (lag detected)
+//   - 0: indexed_sha is at main-tip (fully up-to-date)
+//   - N>0: indexed_sha is N commits behind main-tip (lag detected)
 //
-// A persistent 1 for a repo indicates that repeated sync failures are preventing
-// SHA advance — the classic symptom of the unsupported-file freeze bug or a
-// permanent embed-server error for that repo.
+// Unlike the old gocode_index_freshness_lag (which read an in-memory error flag),
+// this gauge is computed from the PERSISTED state stored in code_repo_state
+// against the live git branch tip. It correctly detects staleness even when
+// SetRepoState failed silently (Errors==0 but write missed) or when a frozen
+// repo stopped producing per-file errors.
 //
 // Label "repo" uses the repoKey (e.g. "github.com/org/repo"). Cardinality is
 // bounded by the number of indexed repos (typically 10-100).
-var indexFreshnessLag = promauto.NewGaugeVec(
+var indexCommitsBehind = promauto.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Name: "gocode_index_freshness_lag",
-		Help: "1 if indexed_sha != mainSHA after IncrementalSync, 0 if up-to-date.",
+		Name: "gocode_index_commits_behind",
+		Help: "Commits the persisted indexed_sha is behind the repo's main branch; 0 = current.",
 	},
 	[]string{"repo"},
 )
+
+// embed_repo_state_write_failures_total counts SetRepoState write failures.
+// Any non-zero rate means indexed_sha is silently not advancing — the next run
+// will redo all work for affected files (cheap due to hash-skip, but the lag
+// gauge will stay elevated until a write succeeds).
+//
+// Cardinality: 1 series.
+var repoStateWriteFailuresTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "embed_repo_state_write_failures_total",
+		Help: "SetRepoState write failures; non-zero rate means indexed_sha is not persisting.",
+	},
+)
+
+// embed_index_commits_behind_compute_errors_total counts errors that prevented
+// gocode_index_commits_behind from being updated (git rev-list failure or
+// Sscanf parse error). A non-zero rate means the gauge may be stale/missing
+// for a repo — operators cannot distinguish "genuinely current" from
+// "git errored" without this counter.
+//
+// Cardinality: 1 series (label "reason": "git_error" | "parse_error").
+var indexCommitsBehindComputeErrors = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "embed_index_commits_behind_compute_errors_total",
+		Help: "Errors preventing gocode_index_commits_behind update, by reason (git_error | parse_error).",
+	},
+	[]string{"reason"},
+)
+
+// recordRepoStateWriteFailure is the canonical handler for a SetRepoState
+// failure: bumps embed_repo_state_write_failures_total and logs at Warn.
+// All 5 SetRepoState call-sites (2 in IncrementalSync, 3 in indexRepo) call
+// this instead of duplicating the counter-increment + log pattern.
+func recordRepoStateWriteFailure(repoKey, context string, err error) {
+	repoStateWriteFailuresTotal.Inc()
+	slog.Warn("SetRepoState failed",
+		slog.String("repo", repoKey),
+		slog.String("context", context),
+		slog.Any("error", err))
+}
+
+// recordCommitsBehind sets gocode_index_commits_behind{repo} to the number of
+// commits the PERSISTED indexed_sha is behind the repo's main-branch tip.
+//
+// It reads the persisted state from the store (the value the app actually serves)
+// and runs `git rev-list --count <stored>..<mainSHA>` to compute the delta.
+//
+// Edge cases:
+//   - stored == "": bootstrap, repo never indexed. Sets 0 and returns (no bogus gauge).
+//   - stored == mainSHA: 0 commits behind (up-to-date).
+//   - git error or parse error: logs at Debug, bumps compute-error counter, skips Set.
+func recordCommitsBehind(ctx context.Context, repoKey, root string, store repoStateGetter, mainSHA string) {
+	stored, err := store.GetRepoState(ctx, repoKey)
+	if err != nil {
+		slog.Debug("recordCommitsBehind: GetRepoState failed",
+			slog.String("repo", repoKey), slog.Any("error", err))
+		return
+	}
+	// Bootstrap: never indexed yet. Report 0 — not meaningful but not bogus.
+	if stored == "" {
+		indexCommitsBehind.WithLabelValues(repoKey).Set(0)
+		return
+	}
+	if stored == mainSHA {
+		indexCommitsBehind.WithLabelValues(repoKey).Set(0)
+		return
+	}
+	// Count commits between stored and mainSHA.
+	spec := stored + ".." + mainSHA
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-list", "--count", spec) //nolint:gosec // git subprocess with operator-controlled paths; same pattern as gitDiffNames
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, gitErr := cmd.Output()
+	if gitErr != nil {
+		slog.Debug("recordCommitsBehind: git rev-list failed",
+			slog.String("repo", repoKey),
+			slog.String("spec", spec),
+			slog.String("stderr", strings.TrimSpace(stderr.String())),
+			slog.Any("error", gitErr))
+		indexCommitsBehindComputeErrors.WithLabelValues("git_error").Inc()
+		return
+	}
+	var behind float64
+	n, scanErr := fmt.Sscanf(strings.TrimSpace(string(out)), "%f", &behind)
+	if scanErr != nil || n != 1 {
+		slog.Debug("recordCommitsBehind: parse error",
+			slog.String("repo", repoKey),
+			slog.String("output", strings.TrimSpace(string(out))),
+			slog.Any("error", scanErr))
+		indexCommitsBehindComputeErrors.WithLabelValues("parse_error").Inc()
+		return
+	}
+	indexCommitsBehind.WithLabelValues(repoKey).Set(behind)
+}
 
 // recordIncrementalSync increments embed_incremental_sync_total for the given
 // result. Called at every return point of IncrementalSync.
@@ -135,5 +245,8 @@ func init() {
 	}
 	for _, reason := range []string{"unsupported_ext", "read_error"} {
 		incrementalFilesUnsupportedTotal.WithLabelValues(reason)
+	}
+	for _, reason := range []string{"git_error", "parse_error"} {
+		indexCommitsBehindComputeErrors.WithLabelValues(reason)
 	}
 }

@@ -66,26 +66,6 @@ type IncrementalSyncResult struct {
 // catastrophic failures (DB connection lost). Per-file errors are collected
 // in Result.Errors, not returned — caller decides retry policy.
 func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
-	// Freshness lag gauge must be set on EVERY exit path, including early returns
-	// for fallback paths (no-git, bootstrap, diff-error). Without this, a repo
-	// that flips to a fallback path leaves a stale lag value — exactly when the
-	// operator needs it accurate. We capture pointers so the defer reads the final
-	// values at return time regardless of which path was taken.
-	var finalResult *IncrementalSyncResult
-	var finalErr error
-	defer func() {
-		if finalResult == nil {
-			return
-		}
-		// lag=0: fully up-to-date (SHA advanced or same-SHA skip or successful fallback).
-		// lag=1: SHA did not advance (partial embed failure or catastrophic fallback error).
-		lag := 0.0
-		if finalErr != nil || len(finalResult.Errors) > 0 {
-			lag = 1.0
-		}
-		indexFreshnessLag.WithLabelValues(repoKey).Set(lag)
-	}()
-
 	// Step 1: resolve current main-branch SHA.
 	// Treat both a real error (e.g. git repo with no main/master/HEAD ref) and an
 	// empty return (non-git path) identically: we have no usable fingerprint, so
@@ -97,8 +77,8 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 	if currentSHA == "" {
 		// No fingerprint available — fall through to full index.
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackNoGit)
-		finalResult, finalErr = res, fullErr
 		recordIncrementalSync(res, fullErr)
+		// No git repo → commits-behind is not meaningful; skip gauge.
 		return res, fullErr
 	}
 
@@ -107,24 +87,23 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 	if prevSHA == "" {
 		// Never indexed — bootstrap.
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackBootstrap)
-		finalResult, finalErr = res, fullErr
 		recordIncrementalSync(res, fullErr)
+		recordCommitsBehind(ctx, repoKey, root, p.store, currentSHA)
 		return res, fullErr
 	}
 
 	// Step 3: same-SHA fast path — bump timestamp only.
 	if prevSHA == currentSHA {
-		if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
-			slog.Debug("incrementalSync: SetRepoState (same-SHA) failed",
-				slog.String("repo", repoKey), slog.Any("error", err))
+		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			recordRepoStateWriteFailure(repoKey, "incrementalSync:same-sha", err)
 		}
 		res := &IncrementalSyncResult{
 			Mode:       IncrementalSyncSkipSHAMatch,
 			PrevSHA:    prevSHA,
 			CurrentSHA: currentSHA,
 		}
-		finalResult, finalErr = res, nil
 		recordIncrementalSync(res, nil)
+		recordCommitsBehind(ctx, repoKey, root, p.store, currentSHA)
 		return res, nil
 	}
 
@@ -137,8 +116,8 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			slog.String("current", currentSHA),
 			slog.Any("error", diffErr))
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackDiffError)
-		finalResult, finalErr = res, fullErr
 		recordIncrementalSync(res, fullErr)
+		recordCommitsBehind(ctx, repoKey, root, p.store, currentSHA)
 		return res, fullErr
 	}
 
@@ -179,17 +158,13 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 
 	// Step 7: advance SHA only on full success.
 	if len(result.Errors) == 0 {
-		if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
-			slog.Debug("incrementalSync: SetRepoState failed",
-				slog.String("repo", repoKey), slog.Any("error", err))
+		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			recordRepoStateWriteFailure(repoKey, "incrementalSync:sha-advance", err)
 		}
 	}
 
-	// Wire finalResult so the deferred lag gauge sees the incremental result.
-	// The defer at the top handles indexFreshnessLag.Set for ALL exit paths.
-	finalResult = result
-
 	recordIncrementalSync(result, nil)
+	recordCommitsBehind(ctx, repoKey, root, p.store, currentSHA)
 	return result, nil
 }
 

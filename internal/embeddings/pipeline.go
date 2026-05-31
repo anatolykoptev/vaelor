@@ -37,10 +37,11 @@ type indexProgress struct {
 
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
-	client    *embed.Client
-	store     *Store
-	progress  sync.Map // repoKey -> *indexProgress
-	fileCache *kitcache.Cache // optional per-file symbol-entry cache; nil disables.
+	client         *embed.Client
+	store          *Store
+	writeRepoState func(ctx context.Context, repoKey, sha string) error // defaults to store.SetRepoState; injectable for testing
+	progress       sync.Map                                             // repoKey -> *indexProgress
+	fileCache      *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
@@ -49,7 +50,11 @@ type Pipeline struct {
 // caching keyed on (repoKey, file.RelPath) and validated by file modTime+size.
 // When fileCache is nil, behavior is byte-identical to the v0.32.0 baseline.
 func NewPipeline(client *embed.Client, store *Store, opts ...PipelineOpt) *Pipeline {
-	p := &Pipeline{client: client, store: store}
+	p := &Pipeline{
+		client:         client,
+		store:          store,
+		writeRepoState: store.SetRepoState,
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -64,6 +69,13 @@ type PipelineOpt func(*Pipeline)
 // indexRepo pass after a file is touched. Pass nil to disable explicitly.
 func WithFileCache(c *kitcache.Cache) PipelineOpt {
 	return func(p *Pipeline) { p.fileCache = c }
+}
+
+// withWriteRepoStateFn overrides the SetRepoState implementation used by all
+// pipeline code paths. For testing only — allows injection of a failing writer
+// without touching the real Postgres store.
+func withWriteRepoStateFn(fn func(ctx context.Context, repoKey, sha string) error) PipelineOpt {
+	return func(p *Pipeline) { p.writeRepoState = fn }
 }
 
 // IsIndexing returns true if background indexing is running for the given repo.
@@ -146,9 +158,8 @@ func (p *Pipeline) indexRepo(
 			// Bump indexed_at so callers observe liveness even when no symbols
 			// changed. Mirrors the IncrementalSync same-SHA path behaviour.
 			// Best-effort: log and continue on failure.
-			if setErr := p.store.SetRepoState(ctx, repoKey, currentSHA); setErr != nil {
-				slog.Debug("indexRepo: SetRepoState (same-SHA) failed",
-					slog.String("repo", repoKey), slog.Any("error", setErr))
+			if setErr := p.writeRepoState(ctx, repoKey, currentSHA); setErr != nil {
+				recordRepoStateWriteFailure(repoKey, "indexRepo:same-sha", setErr)
 			}
 			return &IndexResult{Total: 0, Indexed: 0, Skipped: 0}, nil
 		}
@@ -192,9 +203,8 @@ func (p *Pipeline) indexRepo(
 		// boot can short-circuit. Without this we'd fall back to the parse
 		// path forever on stable repos.
 		if currentSHA != "" {
-			if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
-				slog.Debug("indexRepo: SetRepoState failed",
-					slog.String("repo", repoKey), slog.Any("error", err))
+			if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+				recordRepoStateWriteFailure(repoKey, "indexRepo:no-embed", err)
 			}
 		}
 		return result, nil
@@ -224,9 +234,8 @@ func (p *Pipeline) indexRepo(
 	}
 
 	if currentSHA != "" {
-		if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
-			slog.Debug("indexRepo: SetRepoState failed",
-				slog.String("repo", repoKey), slog.Any("error", err))
+		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			recordRepoStateWriteFailure(repoKey, "indexRepo:post-embed", err)
 		}
 	}
 
