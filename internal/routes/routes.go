@@ -54,7 +54,10 @@ func ExtractAll(language string, source []byte) []Route {
 }
 
 // paramColonRe matches colon-style path parameters like :id, :userId.
-var paramColonRe = regexp.MustCompile(`/:([A-Za-z_][A-Za-z0-9_]*)`)
+// The trailing \?? also consumes the optional-marker used by Express/NestJS/
+// path-to-regexp so that :id? normalizes to * (not *?) and is not classified
+// as a query-string fragment by IsJunkPath rule 1.
+var paramColonRe = regexp.MustCompile(`/:([A-Za-z_][A-Za-z0-9_]*)\??`)
 
 // paramBraceRe matches brace-style path parameters like {id}, {userId}.
 var paramBraceRe = regexp.MustCompile(`/\{([A-Za-z_][A-Za-z0-9_]*)\}`)

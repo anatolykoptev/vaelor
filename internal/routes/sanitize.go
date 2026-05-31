@@ -46,6 +46,17 @@ var httpHeaderNames = map[string]bool{
 	"location":          true,
 }
 
+// isRouterReceiver reports whether recv is a legitimate HTTP-router identifier in
+// TS/JS source.  It accepts identifiers in the tsRouterReceivers allow-list, plus
+// any identifier ending with "Router" or "Routes" (e.g. adminRouter, userRoutes),
+// which recovers custom-named routers while still rejecting map/headers/set/response.
+func isRouterReceiver(recv string) bool {
+	if tsRouterReceivers[recv] {
+		return true
+	}
+	return strings.HasSuffix(recv, "Router") || strings.HasSuffix(recv, "Routes")
+}
+
 // bareHexRe matches a path whose sole segment (after the leading slash) is a
 // run of hex characters 24 or more chars long (bare hash / UUID token).
 // Threshold 24 prevents matching version prefixes like "/v1" or short IDs.

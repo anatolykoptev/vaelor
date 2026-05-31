@@ -112,6 +112,29 @@ func TestIsJunkPath(t *testing.T) {
 			wantJunk: false,
 			reason:   "two-char segment is not single-char junk",
 		},
+		// FIX 1: optional-param routes after NormalizePath produce /users/* not /users/*? — must not be junk.
+		// (These tests use already-normalized paths as IsJunkPath receives them post-NormalizePath.)
+		{
+			path:     "/users/*",
+			wantJunk: false,
+			reason:   "normalized optional-param /users/:id? -> /users/* is a real route",
+		},
+		{
+			path:     "/a/*",
+			wantJunk: false,
+			reason:   "normalized optional-param /a/:b? -> /a/* is a real route",
+		},
+		{
+			path:     "/users/*/profile",
+			wantJunk: false,
+			reason:   "normalized optional-param /users/:id?/profile -> /users/*/profile is a real route",
+		},
+		// NIT: mixed-case 24+ hex must also be junk (locks the A-F branch of bareHexRe).
+		{
+			path:     "/AbCdEf0123456789AbCdEf01",
+			wantJunk: true,
+			reason:   "mixed-case 24-hex bare token",
+		},
 	}
 
 	for _, tt := range tests {
@@ -141,6 +164,30 @@ func TestTsRouterReceivers(t *testing.T) {
 	for _, recv := range blocked {
 		if tsRouterReceivers[recv] {
 			t.Errorf("tsRouterReceivers[%q] = true, want false", recv)
+		}
+	}
+}
+
+// TestIsRouterReceiver verifies the isRouterReceiver helper: allow-list entries +
+// *Router/*Routes suffixes pass; map/headers/set/response still fail.
+func TestIsRouterReceiver(t *testing.T) {
+	t.Parallel()
+
+	wantTrue := []string{
+		"app", "router", "r", "fastify", "server",
+		"adminRouter", "apiRouter", "v1Router",
+		"userRoutes", "adminRoutes",
+	}
+	for _, recv := range wantTrue {
+		if !isRouterReceiver(recv) {
+			t.Errorf("isRouterReceiver(%q) = false, want true", recv)
+		}
+	}
+
+	wantFalse := []string{"map", "headers", "set", "response", "cookie", "axios", "fetch"}
+	for _, recv := range wantFalse {
+		if isRouterReceiver(recv) {
+			t.Errorf("isRouterReceiver(%q) = true, want false", recv)
 		}
 	}
 }

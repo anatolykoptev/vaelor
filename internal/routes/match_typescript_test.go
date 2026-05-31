@@ -189,3 +189,60 @@ export class UsersController {
 		t.Errorf("NestJS decorator route Line = %d, want 3", got[0].Line)
 	}
 }
+
+// TestTypeScriptMatcher_SuffixReceivers verifies that *Router/*Routes suffixed
+// identifiers are accepted (FIX 2: recover custom-router-name routes).
+// Also verifies that headers.get and map.get still produce 0 routes.
+func TestTypeScriptMatcher_SuffixReceivers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		source         string
+		wantRouteCount int
+		wantPath       string
+	}{
+		{
+			name:           "adminRouter.get IS a route",
+			source:         `adminRouter.get('/admin/users', listAdminUsers);`,
+			wantRouteCount: 1,
+			wantPath:       "/admin/users",
+		},
+		{
+			name:           "apiRouter.post IS a route",
+			source:         `apiRouter.post('/items', createItem);`,
+			wantRouteCount: 1,
+			wantPath:       "/items",
+		},
+		{
+			name:           "userRoutes.get IS a route",
+			source:         `userRoutes.get('/profile', getProfile);`,
+			wantRouteCount: 1,
+			wantPath:       "/profile",
+		},
+		{
+			name:           "headers.get is still NOT a route",
+			source:         `const tok = headers.get('Authorization');`,
+			wantRouteCount: 0,
+		},
+		{
+			name:           "map.get is still NOT a route",
+			source:         `const v = map.get('/A');`,
+			wantRouteCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			matcher := &TypeScriptMatcher{}
+			got := matcher.Match([]byte(tt.source))
+			if len(got) != tt.wantRouteCount {
+				t.Fatalf("Match(%q): got %d routes, want %d", tt.source, len(got), tt.wantRouteCount)
+			}
+			if tt.wantRouteCount > 0 && got[0].Path != tt.wantPath {
+				t.Errorf("route[0].Path = %q, want %q", got[0].Path, tt.wantPath)
+			}
+		})
+	}
+}

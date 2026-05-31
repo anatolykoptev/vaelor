@@ -77,7 +77,7 @@ func (ts *TypeScriptMatcher) Match(source []byte) []Route {
 		if receiver == "axios" {
 			continue // handled by tsAxiosRe as client route
 		}
-		if !tsRouterReceivers[receiver] {
+		if !isRouterReceiver(receiver) {
 			continue // not a router identifier (e.g. headers, map, set)
 		}
 		method := normalizeMethod(string(source[loc[4]:loc[5]]))

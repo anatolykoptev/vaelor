@@ -387,13 +387,13 @@ app.get('/api/partner/register', handler);
 // still captures it as a client route, but extractRoutes post-filters it).
 func TestExtractRoutes_QueryStringJunkDropped(t *testing.T) {
 	root := t.TempDir()
-	absPath := writeTestFile(t, root, "src/xss_test_fixture.ts",
-		`// XSS test fixture
+	absPath := writeTestFile(t, root, "src/xss_fixture.ts",
+		`// XSS fixture
 const r = await fetch('/api/leak?c='+cookie);
 `)
 	f := &ingest.File{
 		Path:     absPath,
-		RelPath:  "src/xss_test_fixture.ts",
+		RelPath:  "src/xss_fixture.ts",
 		Language: "typescript",
 	}
 
