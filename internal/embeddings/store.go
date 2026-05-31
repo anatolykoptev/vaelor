@@ -21,17 +21,21 @@ const (
 	fieldsPerRec = 8
 )
 
+// schemaSQL creates the pgvector extension and the two public-schema data tables.
+// SR-B: all table references are schema-qualified (public.*) so they resolve
+// correctly regardless of the connection's search_path — belt-and-suspenders
+// alongside the SR-A pool AfterRelease hook that resets search_path on release.
 const schemaSQL = `CREATE EXTENSION IF NOT EXISTS vector;
-CREATE TABLE IF NOT EXISTS code_embeddings (
+CREATE TABLE IF NOT EXISTS public.code_embeddings (
     repo_key TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL,
     symbol_kind TEXT NOT NULL, language TEXT NOT NULL DEFAULT '',
     start_line INT NOT NULL DEFAULT 0, body_hash BIGINT NOT NULL DEFAULT 0,
     embedding vector(768) NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (repo_key, file_path, symbol_name));
-CREATE INDEX IF NOT EXISTS idx_code_embeddings_repo ON code_embeddings (repo_key);
-CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw ON code_embeddings
+CREATE INDEX IF NOT EXISTS idx_code_embeddings_repo ON public.code_embeddings (repo_key);
+CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw ON public.code_embeddings
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
-CREATE TABLE IF NOT EXISTS code_repo_state (
+CREATE TABLE IF NOT EXISTS public.code_repo_state (
     repo_key TEXT PRIMARY KEY,
     head_sha TEXT NOT NULL,
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
@@ -91,7 +95,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		}
 		// Best-effort ownership transfer so the connected role can TRUNCATE
 		// code_embeddings on reindex without needing explicit grants from an admin.
-		for _, tbl := range []string{"code_embeddings", "code_repo_state"} {
+		for _, tbl := range []string{"public.code_embeddings", "public.code_repo_state"} {
 			pgutil.TransferOwnership(ctx, s.pool, "embeddings", tbl)
 		}
 	})
@@ -116,7 +120,7 @@ func (s *Store) Upsert(ctx context.Context, records []EmbeddingRecord) error {
 
 func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) error {
 	var b strings.Builder
-	b.WriteString(`INSERT INTO code_embeddings
+	b.WriteString(`INSERT INTO public.code_embeddings
 		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embedding,updated_at) VALUES `)
 	args := make([]any, 0, len(records)*fieldsPerRec)
 	for i, r := range records {
@@ -138,7 +142,7 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 	b.WriteString(` ON CONFLICT (repo_key, file_path, symbol_name) DO UPDATE SET
 		symbol_kind=EXCLUDED.symbol_kind, language=EXCLUDED.language,
 		start_line=EXCLUDED.start_line, body_hash=EXCLUDED.body_hash,
-		embedding=EXCLUDED.embedding, updated_at=NOW()`)
+		embedding=EXCLUDED.embedding, updated_at=NOW()`) // table is schema-qualified above
 	_, err := s.pool.Exec(ctx, b.String(), args...)
 	return err
 }
@@ -167,7 +171,7 @@ func (s *Store) Search(ctx context.Context, query []float32, opts SearchOpts) ([
 		args = append(args, opts.MaxDistance)
 	}
 	q := `SELECT repo_key,file_path,symbol_name,symbol_kind,language,start_line,
-		embedding <=> $1 AS distance FROM code_embeddings`
+		embedding <=> $1 AS distance FROM public.code_embeddings`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -194,7 +198,7 @@ func (s *Store) DeleteRepo(ctx context.Context, repoKey string) error {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, "DELETE FROM code_embeddings WHERE repo_key=$1", repoKey)
+	_, err := s.pool.Exec(ctx, "DELETE FROM public.code_embeddings WHERE repo_key=$1", repoKey)
 	return err
 }
 
@@ -220,7 +224,7 @@ func (s *Store) GetSymbolsForFile(ctx context.Context, repoKey, filePath string)
 	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT symbol_name, body_hash, start_line
-		 FROM code_embeddings
+		 FROM public.code_embeddings
 		 WHERE repo_key = $1 AND file_path = $2
 		 ORDER BY symbol_name`,
 		repoKey, filePath)
@@ -256,7 +260,7 @@ func (s *Store) DeleteSymbolsForFile(ctx context.Context, repoKey, filePath stri
 
 	if len(keepSymbolNames) == 0 {
 		ct, err := s.pool.Exec(ctx,
-			`DELETE FROM code_embeddings WHERE repo_key = $1 AND file_path = $2`,
+			`DELETE FROM public.code_embeddings WHERE repo_key = $1 AND file_path = $2`,
 			repoKey, filePath)
 		if err != nil {
 			return 0, fmt.Errorf("delete symbols for file: %w", err)
@@ -264,7 +268,7 @@ func (s *Store) DeleteSymbolsForFile(ctx context.Context, repoKey, filePath stri
 		return ct.RowsAffected(), nil
 	}
 	ct, err := s.pool.Exec(ctx,
-		`DELETE FROM code_embeddings
+		`DELETE FROM public.code_embeddings
 		 WHERE repo_key = $1 AND file_path = $2
 		   AND symbol_name != ALL($3::text[])`,
 		repoKey, filePath, keepSymbolNames)
@@ -279,7 +283,7 @@ func (s *Store) Stats(ctx context.Context) (map[string]int, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, "SELECT repo_key,COUNT(*) FROM code_embeddings GROUP BY repo_key")
+	rows, err := s.pool.Query(ctx, "SELECT repo_key,COUNT(*) FROM public.code_embeddings GROUP BY repo_key")
 	if err != nil {
 		return nil, fmt.Errorf("embeddings stats: %w", err)
 	}
