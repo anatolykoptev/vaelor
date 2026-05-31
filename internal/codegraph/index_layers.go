@@ -366,8 +366,9 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 	}
 
 	// HANDLES / FETCHES edges (Symbol → Route).
-	// Both use composite "handler:file" Symbol keys so that AGE's
-	// unwindEdgeMatch("Symbol", "fk") can split on ':' into name+file.
+	// Both use composite "name\x00file" Symbol keys (compositeKeyDelim).
+	// buildEdgeUnwindBatch pre-splits them in Go into fn/ff fields so that
+	// compositeKeyDelim (\x00) never appears in the emitted Cypher.
 	//
 	// Hybrid resolution strategy:
 	//   1. Named handler present (r.Handler != "") — use it directly (go-nerv

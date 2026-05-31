@@ -126,10 +126,10 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 }
 
 // TestHtmxFetchesEdgeFromKey verifies that FETCHES edges for htmx (client-side)
-// routes use the composite "handler:file" Symbol key so that AGE's
-// unwindEdgeMatch("Symbol", "fk") can split it into name + file properties.
+// routes use the composite "name\x00file" Symbol key (compositeKeyDelim) so that
+// buildEdgeUnwindBatch can pre-split it in Go into fn/ff fields for the AGE MATCH.
 // Root cause: index_layers.go was passing r.Handler (bare name) which caused
-// split("hunt_jobs", ':')[1] → NULL → MATCH (f:Symbol {file: NULL}) → no match.
+// the file part to be absent → MATCH (f:Symbol {file: NULL}) → no match.
 func TestHtmxFetchesEdgeFromKey(t *testing.T) {
 	t.Parallel()
 
@@ -210,10 +210,10 @@ func TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey(t *testing.T) {
 }
 
 // TestHandlesEdgeFromKey verifies that HANDLES edges for Go (server-side)
-// routes use the composite "handler:file" Symbol key so that AGE's
-// unwindEdgeMatch("Symbol", "fk") can split it into name + file properties.
+// routes use the composite "name\x00file" Symbol key (compositeKeyDelim) so that
+// buildEdgeUnwindBatch can pre-split it in Go into fn/ff fields for the AGE MATCH.
 // Root cause: index_layers.go was passing r.Handler (bare name) which caused
-// split("handleHuntJobs", ':')[1] → NULL → MATCH (s:Symbol {file: NULL}) → no match.
+// the file part to be absent → MATCH (s:Symbol {file: NULL}) → no match.
 // go-nerv pattern: handler defined in same file as registration (internal/admin/handler.go).
 func TestHandlesEdgeFromKey(t *testing.T) {
 	t.Parallel()
@@ -807,11 +807,9 @@ func TestNULNotInCypher(t *testing.T) {
 		t.Errorf("matchKey(Route) path wrong: %q", gotRoute)
 	}
 
-	// unwindEdgeMatch must emit AGE split() on the delimiter, not ':'
-	// We can't easily assert the Cypher content without running AGE, but we
-	// can assert the generated Cypher does not contain a literal \x00 character
-	// (the delimiter is embedded in the split() call as an escaped literal,
-	// but the \x00 itself is not a printable character — check it's absent).
+	// unwindEdgeMatch emits plain property-field references (e.fk, e.fn, e.tm, etc.)
+	// because buildEdgeUnwindBatch already pre-split the composite key in Go.
+	// No Cypher-side split() is needed; assert the delimiter never appears in output.
 	gotUnwindSym := unwindEdgeMatch("Symbol", "fk")
 	if strings.Contains(gotUnwindSym, "\x00") {
 		t.Errorf("unwindEdgeMatch(Symbol) contains \\x00 char: %q", gotUnwindSym)
