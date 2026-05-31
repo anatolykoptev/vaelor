@@ -252,23 +252,36 @@ type edgeGroupKey struct {
 //
 // splitCompositeKey extracts the two parts from a compositeKeyDelim key (Symbol).
 // Returns ("", key) if the delimiter is absent (fallback for non-composite keys).
+//
+// The fallback strips any compositeKeyDelim (\x00) from the returned key so that
+// a malformed caller can never leak a NUL byte into emitted Cypher (CG-T4
+// defense-in-depth). All well-formed Symbol keys are 2-part, so this branch is
+// currently unreachable in production — the hardening is latent protection.
 func splitCompositeKey(key string) (part1, part2 string) {
 	parts := strings.SplitN(key, compositeKeyDelim, 2)
 	if len(parts) == 2 {
 		return parts[0], parts[1]
 	}
-	return "", key
+	// Malformed (no delimiter): strip any stray \x00 before returning.
+	return "", strings.ReplaceAll(key, compositeKeyDelim, "")
 }
 
 // splitRouteKey extracts the three parts (method, path, side) from a 3-part
-// Route composite key (method\x00path\x00side). Returns ("","",key) when the
-// delimiter is absent (fallback for malformed keys).
+// Route composite key (method\x00path\x00side). Returns ("","",stripped) when
+// the key is not a well-formed 3-part key.
+//
+// The fallback strips any compositeKeyDelim (\x00) from the returned value so
+// that a malformed key can never leak a NUL byte into emitted Cypher (CG-T4
+// defense-in-depth). All well-formed Route ToKeys are built 3-part, so this
+// branch is currently unreachable in production — the hardening is latent
+// protection against future callers or key-construction bugs.
 func splitRouteKey(key string) (method, path, side string) {
 	parts := strings.SplitN(key, compositeKeyDelim, 3)
 	if len(parts) == 3 {
 		return parts[0], parts[1], parts[2]
 	}
-	return "", "", key
+	// Malformed (fewer than 3 parts): strip any stray \x00 before returning.
+	return "", "", strings.ReplaceAll(key, compositeKeyDelim, "")
 }
 
 // buildEdgeUnwindBatch generates UNWIND+MATCH+MERGE Cypher for a batch of

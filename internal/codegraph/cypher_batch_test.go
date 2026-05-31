@@ -136,6 +136,115 @@ func TestBuildEdgeBatchEmpty(t *testing.T) {
 	}
 }
 
+// TestSplitRouteKey_MalformedNoNUL verifies that splitRouteKey, when given a
+// malformed key (1-part or 2-part, missing the third compositeKeyDelim segment),
+// returns strings that contain NO \x00 byte.
+//
+// Threat: a malformed Route key that contains \x00 (the compositeKeyDelim) but
+// fewer than 3 parts falls into the fallback branch, which returns ("","",key).
+// If key contains \x00 and that value were emitted into Cypher before reaching
+// escapeCypher, it would defeat CG-T4's "no \x00 in Cypher" guarantee.
+// This is a latent footgun on the critical path — currently unreachable because
+// all Route ToKeys are built 3-part, but defense-in-depth requires the split
+// function itself to be safe.
+//
+// Hardening choice: strip compositeKeyDelim from all returned strings in the
+// fallback branch (strings.ReplaceAll(x, compositeKeyDelim, "")) rather than
+// returning all-empty — a malformed key can still convey partial information to
+// the caller, but no NUL survives into the returned values.
+func TestSplitRouteKey_MalformedNoNUL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{
+			name: "1-part with no delimiter",
+			key:  "GET/api/users", // no \x00 at all — degenerate input
+		},
+		{
+			name: "1-part with embedded NUL",
+			// A 1-part key that somehow contains a single \x00 — malformed.
+			// splitRouteKey with SplitN(...,3) returns 2 parts ["", "/api/users"],
+			// which falls through to the fallback ("","",key).
+			key: "\x00/api/users", // 2 parts but lacks the full 3-part structure
+		},
+		{
+			name: "2-part key (method+path, no side)",
+			key:  "GET" + compositeKeyDelim + "/api/users", // only 2 parts
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			method, path, side := splitRouteKey(tc.key)
+			for _, field := range []struct {
+				name  string
+				value string
+			}{
+				{"method", method},
+				{"path", path},
+				{"side", side},
+			} {
+				if strings.Contains(field.value, "\x00") {
+					t.Errorf("splitRouteKey(%q) returned %s=%q containing \\x00 — NUL would leak into Cypher",
+						tc.key, field.name, field.value)
+				}
+			}
+		})
+	}
+}
+
+// TestSplitCompositeKey_MalformedNoNUL verifies that splitCompositeKey, when
+// given a malformed (1-part) key, returns strings that contain NO \x00 byte.
+//
+// Same threat class as TestSplitRouteKey_MalformedNoNUL: the fallback branch
+// returns ("", key); if key contains \x00 the second returned value carries it.
+func TestSplitCompositeKey_MalformedNoNUL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{
+			name: "1-part with no delimiter",
+			key:  "myHandler", // normal Symbol name without file — degenerate
+		},
+		{
+			name: "key is just the delimiter",
+			key:  compositeKeyDelim, // a single \x00 — both parts empty after split
+		},
+		{
+			name: "key has leading NUL (degenerate)",
+			key:  compositeKeyDelim + "internal/foo.go", // \x00file — 2 parts but part1==""
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			part1, part2 := splitCompositeKey(tc.key)
+			for _, field := range []struct {
+				name  string
+				value string
+			}{
+				{"part1", part1},
+				{"part2", part2},
+			} {
+				if strings.Contains(field.value, "\x00") {
+					t.Errorf("splitCompositeKey(%q) returned %s=%q containing \\x00 — NUL would leak into Cypher",
+						tc.key, field.name, field.value)
+				}
+			}
+		})
+	}
+}
+
 // TestBuildEdgeUnwindBatch_ColonPathIntact is the red→green proof for the actual
 // bug scenario (CG-T4): a Route edge whose path contains a colon (e.g. the
 // colon-in-path WebRTC path /peer1:unknown) must keep its full path through

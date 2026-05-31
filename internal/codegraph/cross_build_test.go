@@ -980,6 +980,92 @@ func TestRouteKey_ThreePartRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRouteSide_EmptyDefaultsToServer_VertexAndEdgeAgree verifies that when
+// r.Side is "" (empty), BOTH the Route vertex Props["side"] AND the edge
+// ToKey's 3rd part are independently "server".
+//
+// The default is applied at two sites in index_layers.go:
+//
+//	(a) vertex Props["side"] ~:360-363  — `side := r.Side; if side == "" { side = sideServer }`
+//	(b) edge routeKey ~:413-417         — `routeSide := r.Side; if routeSide == "" { routeSide = sideServer }`
+//
+// If a future edit diverges the two defaults (e.g. changes the vertex default to
+// "client" but leaves the edge default as "server"), the MATCH in AGE will silently
+// miss the vertex — the "invisible re-break" class this whole branch fixes.  This
+// test fails in that scenario because the vertex side will not equal the edge ToKey
+// side, so the MERGE vertex is unreachable via the HANDLES edge key.
+//
+// Mutation proof (verified during development): changing index_layers.go so that
+// the vertex site emits `side = sideClient` while the edge site keeps `sideServer`
+// causes:
+//   - vertex Props["side"] == "client"   (want "server")  → t.Errorf fires
+//   - edge ToKey 3rd part == "server"    (want "server")  — passes
+//
+// The new test goes RED because the vertex assertion fails, catching the divergence.
+// Restoring both defaults to "server" makes the test GREEN.
+func TestRouteSide_EmptyDefaultsToServer_VertexAndEdgeAgree(t *testing.T) {
+	t.Parallel()
+
+	// Route with explicitly empty Side — both defaults must fire and agree.
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/api/default-side",
+			Handler:   "defaultHandler", // named handler → edge is built via HANDLES path
+			Framework: "chi",
+			File:      "backend/handler.go",
+			Line:      5,
+			Side:      "", // ← the key: empty Side triggers the default at both sites
+		},
+	}
+
+	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+
+	// (a) Assert the Route VERTEX was built with Props["side"] == "server".
+	var routeVertex *vertexData
+	for i := range vertices {
+		if vertices[i].Label == "Route" && vertices[i].Props["path"] == "/api/default-side" {
+			v := vertices[i]
+			routeVertex = &v
+			break
+		}
+	}
+	if routeVertex == nil {
+		t.Fatal("Route vertex for /api/default-side not found")
+	}
+	if routeVertex.Props["side"] != "server" {
+		t.Errorf("Route vertex Props[\"side\"] = %q, want \"server\" (empty-Side default at vertex site)", routeVertex.Props["side"])
+	}
+
+	// (b) Assert the HANDLES edge ToKey 3rd part == "server".
+	var handlesEdge *edgeData
+	for i := range edges {
+		if edges[i].EdgeLabel == "HANDLES" {
+			e := edges[i]
+			handlesEdge = &e
+			break
+		}
+	}
+	if handlesEdge == nil {
+		t.Fatal("HANDLES edge not found")
+	}
+	edgeMethod, _, edgeSide := splitRouteKey(handlesEdge.ToKey)
+	if edgeMethod != "GET" {
+		t.Errorf("HANDLES ToKey method = %q, want \"GET\"", edgeMethod)
+	}
+	if edgeSide != "server" {
+		t.Errorf("HANDLES ToKey side (3rd part of routeKey) = %q, want \"server\" (empty-Side default at edge site)", edgeSide)
+	}
+
+	// (c) Divergence guard: vertex side and edge side must AGREE — otherwise the MERGE
+	// vertex is unreachable via the HANDLES edge key (the invisible re-break).
+	if routeVertex.Props["side"] != edgeSide {
+		t.Errorf("vertex Props[\"side\"] = %q but edge ToKey side = %q — the two empty-Side defaults diverged; "+
+			"AGE HANDLES MATCH would miss the vertex",
+			routeVertex.Props["side"], edgeSide)
+	}
+}
+
 // TestExtractRoutes_RealRouteKept verifies that a legitimate route survives
 // extractRoutes and that routesExtractedTotal is bumped.
 func TestExtractRoutes_RealRouteKept(t *testing.T) {
