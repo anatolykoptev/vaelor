@@ -45,7 +45,7 @@ func TestGraphSchemaTextContainsKeyProperties(t *testing.T) {
 		// Layer properties
 		"role", "root_dir",
 		// Route properties
-		"method", "framework",
+		"method", "framework", "side",
 		// Edge properties
 		"alias", "line",
 	}
