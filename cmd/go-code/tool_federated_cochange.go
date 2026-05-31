@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,11 @@ const (
 	// federatedCoChangeRetryAfter is the suggested retry interval returned in a
 	// partial/building response.
 	federatedCoChangeRetryAfter = 30 // seconds
+
+	// status string constants — hoisted to avoid goconst findings.
+	fedStatusReady    = "ready"
+	fedStatusPartial  = "partial"
+	fedStatusBuilding = "building"
 )
 
 // FederatedCoChangeArgs is the input schema for the federated_cochange tool.
@@ -46,12 +52,12 @@ type FederatedCoChangeArgs struct {
 // Progress, and RetryAfterSeconds are omitted when Status is "ready" (zero-value omitempty).
 // Existing consumers that only read "pairs" continue to work unchanged.
 type FederatedCoChangeResult struct {
-	Pairs              []coupling.VerifiedPair `json:"pairs"`
-	Status             string                  `json:"status,omitempty"`              // "ready" | "partial" | "building"
-	PendingRepos       []string                `json:"pending_repos,omitempty"`       // repos not yet warm when status != "ready"
-	Progress           string                  `json:"progress,omitempty"`            // e.g. "2/4 repos"
-	RetryAfterSeconds  int                     `json:"retry_after_seconds,omitempty"` // hint: call again after this many seconds
-	Meta               mcpmeta.Envelope        `json:"_meta"`
+	Pairs             []coupling.VerifiedPair `json:"pairs"`
+	Status            string                  `json:"status,omitempty"`              // "ready" | "partial" | "building"
+	PendingRepos      []string                `json:"pending_repos,omitempty"`       // repos not yet warm when status != "ready"
+	Progress          string                  `json:"progress,omitempty"`            // e.g. "2/4 repos"
+	RetryAfterSeconds int                     `json:"retry_after_seconds,omitempty"` // hint: call again after this many seconds
+	Meta              mcpmeta.Envelope        `json:"_meta"`
 }
 
 // federatedCoChangeCacheEntry holds a completed result or an in-progress marker.
@@ -68,6 +74,11 @@ var (
 	// fedInFlight deduplicates concurrent background workers for the same key.
 	// Mirrors buildingRepos in tool_code_graph.go.
 	fedInFlight sync.Map // key string → struct{}
+
+	// fedBgComputeHook is called once per background worker launch (after the
+	// LoadOrStore guard succeeds).  Nil in production; set in tests to count
+	// actual compute invocations and verify the dedup guard.
+	fedBgComputeHook func()
 )
 
 // federatedCoChangeCacheKey builds a stable key from the normalized args.
@@ -146,6 +157,14 @@ func handleFederatedCoChangeCoreWithBudget(
 
 	resultCh := make(chan *FederatedCoChangeResult, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("federated_cochange inline goroutine panic", "err", r)
+				// Send an empty result so the select doesn't block; budget will expire
+				// and the partial path will take over.
+				resultCh <- &FederatedCoChangeResult{Pairs: []coupling.VerifiedPair{}}
+			}
+		}()
 		rawPairs := federate.CrossRepoCoChange(budgetCtx, repos, window, minPairs, args.MinLift)
 		roots := reposToRootsMap(repos)
 		verified := coupling.VerifyPairs(budgetCtx, rawPairs, roots,
@@ -173,21 +192,42 @@ func handleFederatedCoChangeCoreWithBudget(
 	}
 
 	// Step 3: build guaranteed partial from warm-cache repos only.
+	partial := buildPartialResult(ctx, repos, args, window, minPairs, t0)
+
+	// Step 4: kick background job (dedup via fedInFlight).
+	kickFedBackground(cacheKey, repos, args, window, minPairs)
+
+	return marshalFedResult(partial, t0)
+}
+
+// buildPartialResult assembles the partial response from warm-cache repo touches.
+// Returns status "building" when fewer than 2 repos are warm (no cross-repo pairs
+// possible yet), "partial" when ≥2 repos are warm and pairs may exist.
+// The consumer should keep polling until status is "ready".
+func buildPartialResult(
+	ctx context.Context,
+	repos []federate.RepoRef,
+	args FederatedCoChangeArgs,
+	window, minPairs int,
+	t0 time.Time,
+) *FederatedCoChangeResult {
 	var warmTouches []federate.RepoTouch
 	var pendingRepos []string
+	var warmRepoCount int
 	for _, r := range repos {
 		if wt := federate.WarmTouches(r.Root); wt != nil {
 			warmTouches = append(warmTouches, wt...)
+			warmRepoCount++
 		} else {
 			pendingRepos = append(pendingRepos, r.Slug)
 		}
 	}
 
 	var partialPairs []coupling.VerifiedPair
-	if len(warmTouches) > 0 {
+	if warmRepoCount >= 2 {
 		rawWarm := federate.CrossRepoCoChangeFromTouches(ctx, warmTouches, window, minPairs, args.MinLift)
-		// Return warm pairs unverified (stage-2 VerifyPairs is blocked by the
-		// background job; verified:false is accurate and safe for consumers).
+		// Return warm pairs unverified (stage-2 VerifyPairs runs in the background;
+		// verified:false is accurate and safe for consumers).
 		partialPairs = make([]coupling.VerifiedPair, len(rawWarm))
 		for i, p := range rawWarm {
 			partialPairs[i] = coupling.VerifiedPair{CrossPair: p}
@@ -197,12 +237,15 @@ func handleFederatedCoChangeCoreWithBudget(
 		partialPairs = []coupling.VerifiedPair{}
 	}
 
-	status := "partial"
-	if len(warmTouches) == 0 {
-		status = "building"
+	// Need ≥2 warm repos for cross-repo pairs.  A single warm repo can't yield
+	// cross-repo pairs, so the consumer must keep polling — return "building".
+	status := fedStatusPartial
+	if warmRepoCount < 2 {
+		status = fedStatusBuilding
 	}
+
 	warmCount := len(repos) - len(pendingRepos)
-	partial := &FederatedCoChangeResult{
+	return &FederatedCoChangeResult{
 		Pairs:             partialPairs,
 		Status:            status,
 		PendingRepos:      pendingRepos,
@@ -210,36 +253,73 @@ func handleFederatedCoChangeCoreWithBudget(
 		RetryAfterSeconds: federatedCoChangeRetryAfter,
 		Meta:              mcpmeta.Wrap(time.Since(t0), fmt.Sprintf("retry in %ds for complete result", federatedCoChangeRetryAfter)),
 	}
+}
 
-	// Step 4: kick background job (dedup via fedInFlight).
-	if _, alreadyRunning := fedInFlight.LoadOrStore(cacheKey, struct{}{}); !alreadyRunning {
-		bgRepos := repos // capture
-		bgArgs := args
-		bgWindow := window
-		bgMinPairs := minPairs
-		go func() {
-			defer fedInFlight.Delete(cacheKey)
-			bgCtx, bgCancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer bgCancel()
-			rawPairs := federate.CrossRepoCoChange(bgCtx, bgRepos, bgWindow, bgMinPairs, bgArgs.MinLift)
-			roots := reposToRootsMap(bgRepos)
-			verified := coupling.VerifyPairs(bgCtx, rawPairs, roots,
-				coupling.NewCompositeVerifier(
-					coupling.NewRouteVerifier(),
-					coupling.NewSymbolVerifier(),
-				))
-			if verified == nil {
-				verified = []coupling.VerifiedPair{}
-			}
-			full := &FederatedCoChangeResult{
-				Pairs: verified,
-				Meta:  mcpmeta.Wrap(0, ""),
-			}
-			federatedCoChangeCache.Store(cacheKey, &federatedCoChangeCacheEntry{result: full, done: true})
-		}()
+// kickFedBackground launches a background worker for the given cacheKey if none
+// is already running (dedup via fedInFlight).  The worker caches only successful,
+// non-degenerate results; transient failures (timeout, context cancel) are logged
+// and do NOT mark the entry done, so the next poll triggers a fresh attempt.
+func kickFedBackground(
+	cacheKey string,
+	repos []federate.RepoRef,
+	args FederatedCoChangeArgs,
+	window, minPairs int,
+) {
+	if _, alreadyRunning := fedInFlight.LoadOrStore(cacheKey, struct{}{}); alreadyRunning {
+		return
 	}
 
-	return marshalFedResult(partial, t0)
+	bgRepos := repos // capture
+	bgArgs := args
+	bgWindow := window
+	bgMinPairs := minPairs
+	go func() { //nolint:gosec // intentional ctx detach — request ctx is cancelled when the partial returns; the background job must outlive it to populate the cache for the next poll
+		// fedBgComputeHook is nil in production; called once per launch inside the
+		// goroutine (not in the caller) so tests can block here without stalling callers.
+		if h := fedBgComputeHook; h != nil {
+			h()
+		}
+		defer fedInFlight.Delete(cacheKey)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("federated_cochange background panic", "err", r)
+				// Do NOT mark done — leave the entry absent so the next poll retries.
+				fedInFlight.Delete(cacheKey)
+			}
+		}()
+
+		bgCtx, bgCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer bgCancel()
+
+		rawPairs := federate.CrossRepoCoChange(bgCtx, bgRepos, bgWindow, bgMinPairs, bgArgs.MinLift)
+		roots := reposToRootsMap(bgRepos)
+		verified := coupling.VerifyPairs(bgCtx, rawPairs, roots,
+			coupling.NewCompositeVerifier(
+				coupling.NewRouteVerifier(),
+				coupling.NewSymbolVerifier(),
+			))
+
+		// Do NOT cache if the context expired (definite failure — transient).
+		// A legitimate empty result (no cross-repo pairs in the window) IS cached:
+		// rawPairs==0 with ≥2 repos is indistinguishable from a quiet window and
+		// caching it avoids a retry storm.  The bgCtx.Err() guard handles the
+		// definite-timeout failure class.
+		if bgCtx.Err() != nil {
+			slog.Warn("federated_cochange background timed out — not caching",
+				slog.String("key", cacheKey), slog.Any("err", bgCtx.Err()))
+			return
+		}
+		if verified == nil {
+			verified = []coupling.VerifiedPair{}
+		}
+		full := &FederatedCoChangeResult{
+			Pairs: verified,
+			Meta:  mcpmeta.Wrap(0, ""),
+		}
+		slog.Info("federated_cochange background complete",
+			slog.String("key", cacheKey), slog.Int("pairs", len(verified)))
+		federatedCoChangeCache.Store(cacheKey, &federatedCoChangeCacheEntry{result: full, done: true})
+	}()
 }
 
 // reposToRootsMap builds a slug→root map for VerifyPairs.

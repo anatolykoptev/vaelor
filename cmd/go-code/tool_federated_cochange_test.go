@@ -36,14 +36,14 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck,noctx // test fixture: no timeout needed for git init
+		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck,noctx // test fixture: git config
+		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck,noctx // test fixture: git config
 	}
 	commit := func(dir, file, date string) {
 		os.WriteFile(filepath.Join(dir, file), []byte(date+"\n"), 0o644) //nolint:errcheck
-		exec.Command("git", "-C", dir, "add", file).Run()                //nolint:errcheck
-		c := exec.Command("git", "-C", dir, "commit", "-m", "x")
+		exec.Command("git", "-C", dir, "add", file).Run()                //nolint:errcheck,noctx // test fixture: git add
+		c := exec.Command("git", "-C", dir, "commit", "-m", "x")         //nolint:noctx // test fixture: git commit
 		c.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
 		c.Run() //nolint:errcheck
 	}
@@ -90,16 +90,16 @@ func TestFederatedCoChange_SymbolVerifiesProtocolToken(t *testing.T) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck,noctx // test fixture: git init
+		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck,noctx // test fixture: git config
+		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck,noctx // test fixture: git config
 	}
 	commitContent := func(dir, file, content, date string) {
 		os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644) //nolint:errcheck
-		exec.Command("git", "-C", dir, "add", file).Run()              //nolint:errcheck
+		exec.Command("git", "-C", dir, "add", file).Run()              //nolint:errcheck,noctx // test fixture: git add
 		// --no-verify: these are isolated fixture repos in t.TempDir() — the global
 		// gitleaks hook would block RELAY_JWT_SECRET content, defeating the test's purpose.
-		c := exec.Command("git", "-C", dir, "commit", "--no-verify", "-m", "x")
+		c := exec.Command("git", "-C", dir, "commit", "--no-verify", "-m", "x") //nolint:noctx // test fixture: git commit
 		c.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
 		c.Run() //nolint:errcheck
 	}
@@ -156,14 +156,14 @@ func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck,noctx // test fixture: git init
+		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck,noctx // test fixture: git config
+		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck,noctx // test fixture: git config
 	}
 	commit := func(dir, file, date string) {
 		os.WriteFile(filepath.Join(dir, file), []byte(date+"\n"), 0o644) //nolint:errcheck
-		exec.Command("git", "-C", dir, "add", file).Run()                //nolint:errcheck
-		c := exec.Command("git", "-C", dir, "commit", "-m", "x")
+		exec.Command("git", "-C", dir, "add", file).Run()                //nolint:errcheck,noctx // test fixture: git add
+		c := exec.Command("git", "-C", dir, "commit", "-m", "x")         //nolint:noctx // test fixture: git commit
 		c.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
 		c.Run() //nolint:errcheck
 	}
@@ -201,14 +201,14 @@ func makeCoChangeTempRepos(t *testing.T) (parent, chatDir, edgeDir string) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck
-		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck
+		exec.Command("git", "-C", d, "init").Run()                          //nolint:errcheck,noctx // test fixture: git init
+		exec.Command("git", "-C", d, "config", "user.email", "t@t.t").Run() //nolint:errcheck,noctx // test fixture: git config
+		exec.Command("git", "-C", d, "config", "user.name", "t").Run()      //nolint:errcheck,noctx // test fixture: git config
 	}
 	commit := func(dir, file, date string) {
 		os.WriteFile(filepath.Join(dir, file), []byte(date+"\n"), 0o644) //nolint:errcheck
-		exec.Command("git", "-C", dir, "add", file).Run()                //nolint:errcheck
-		c := exec.Command("git", "-C", dir, "commit", "-m", "x")
+		exec.Command("git", "-C", dir, "add", file).Run()                //nolint:errcheck,noctx // test fixture: git add
+		c := exec.Command("git", "-C", dir, "commit", "-m", "x")         //nolint:noctx // test fixture: git commit
 		c.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
 		c.Run() //nolint:errcheck
 	}
@@ -248,7 +248,7 @@ func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &out); err != nil {
 		t.Fatalf("response must be valid JSON: %v\nbody=%s", err, body)
 	}
-	if out.Status != "partial" && out.Status != "building" {
+	if out.Status != fedStatusPartial && out.Status != fedStatusBuilding {
 		t.Fatalf("expected status partial|building, got %q; body=%s", out.Status, body)
 	}
 	if out.RetryAfterSeconds <= 0 {
@@ -264,7 +264,7 @@ func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
 // touches cache (by letting a full-budget call populate it) causes a subsequent
 // tight-budget call to return warm pairs immediately.
 func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
-	parent, chatDir, _ := makeCoChangeTempRepos(t)
+	parent, chatDir, edgeDir := makeCoChangeTempRepos(t)
 
 	// Clean state.
 	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
@@ -277,9 +277,11 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
 	}, deps, 60*time.Second)
 
-	// If chatDir is not warm, git didn't finish in 60s — skip in slow env.
-	if !federate.IsRepoWarm(chatDir) {
-		t.Skip("touches cache not warm after 60s — skip in slow CI")
+	// Both repos must be warm for the status assertion below to be valid.
+	// Skip only when BOTH repos failed to warm — a single-repo skip would make
+	// the status assertion vacuous (one warm repo → "building", not "partial").
+	if !federate.IsRepoWarm(chatDir) || !federate.IsRepoWarm(edgeDir) {
+		t.Skip("touches cache not warm for both repos after 60s — skip in slow CI")
 	}
 	if federate.WarmTouches(chatDir) == nil {
 		t.Fatal("WarmTouches returned nil but IsRepoWarm true — inconsistency")
@@ -305,14 +307,10 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &out); err != nil {
 		t.Fatalf("response must be valid JSON: %v\nbody=%s", err, body)
 	}
-	// Must be partial or building (not an error), with valid status.
-	validStatus := out.Status == "" || out.Status == "ready" || out.Status == "partial" || out.Status == "building"
-	if !validStatus {
-		t.Fatalf("unknown status %q; body=%s", out.Status, body)
-	}
-	// Touches were warm for both repos → status should be "partial" (not "building").
-	if out.Status == "building" {
-		t.Logf("status=building — touches cache may have been evicted between warm-call and tight-budget call; this is acceptable but verify")
+	// Both repos were warm (skip guard above). With ≥2 warm repos the handler
+	// must return "partial" or "ready" — not "building" (building = <2 warm repos).
+	if out.Status != fedStatusPartial && out.Status != fedStatusReady && out.Status != "" {
+		t.Fatalf("expected status partial|ready (both repos warm), got %q; body=%s", out.Status, body)
 	}
 }
 
@@ -349,7 +347,7 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 		t.Fatalf("parse: %v\nbody=%s", err, body)
 	}
 	// status "ready" is emitted as omitempty empty string — both empty and "ready" are acceptable.
-	if out.Status != "" && out.Status != "ready" {
+	if out.Status != "" && out.Status != fedStatusReady {
 		t.Fatalf("expected ready/empty status on cache hit, got %q; body=%s", out.Status, body)
 	}
 	if len(out.Pairs) == 0 {
@@ -365,7 +363,13 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 }
 
 // TestFederatedCoChange_DeduplicatesConcurrentCalls verifies that concurrent calls
-// with the same args result in at most one background goroutine (fedInFlight guard).
+// with the same args launch exactly one background worker (fedInFlight LoadOrStore guard).
+//
+// Design: inject fedBgComputeHook to count actual compute invocations AND block the
+// background goroutine until all N callers have raced (using a gate channel).  All N
+// calls arrive with a 1ns budget → all hit the background path → only the first
+// LoadOrStore succeeds → hook fires exactly once.  Releasing the gate lets the worker
+// finish.  The test FAILS if the LoadOrStore guard is removed (hook fires N times).
 func TestFederatedCoChange_DeduplicatesConcurrentCalls(t *testing.T) {
 	parent, _, _ := makeCoChangeTempRepos(t)
 
@@ -373,37 +377,41 @@ func TestFederatedCoChange_DeduplicatesConcurrentCalls(t *testing.T) {
 	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
+	// gate blocks the background worker until we release it, ensuring all 10
+	// concurrent callers arrive BEFORE the first worker finishes and deletes its
+	// fedInFlight entry (which would allow a second worker to be launched).
+	gate := make(chan struct{})
+	var computeCount atomic.Int64
+	fedBgComputeHook = func() {
+		computeCount.Add(1)
+		<-gate // block until the test releases
+	}
+	t.Cleanup(func() { fedBgComputeHook = nil })
+
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 	args := FederatedCoChangeArgs{Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2}
-	budget := time.Nanosecond // force deadline on every call
+	budget := time.Nanosecond // force deadline on every call — all go to background path
 
-	// Track how many LoadOrStore calls succeed (new entry created).
-	var launchCount int64
-	expectedKey := federatedCoChangeCacheKey(args.Repos, federatedCoChangeDefaultWindowHours, federatedCoChangeDefaultMinPairs, 0, deps.LocalRepoDirs)
-
+	const concurrency = 10
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_, _ = handleFederatedCoChangeCoreWithBudget(context.Background(), args, deps, budget)
 		}()
 	}
-	wg.Wait()
+	wg.Wait() // all callers have returned; background worker is blocked on gate
 
-	// Count in-flight entries for our key — there should be at most 1.
-	// (The goroutine may have already finished and deleted the entry, so 0 is also valid.)
-	var inFlightCount int
-	fedInFlight.Range(func(k, _ any) bool {
-		if k.(string) == expectedKey {
-			inFlightCount++
-			atomic.AddInt64(&launchCount, 1)
-		}
-		return true
-	})
-	if inFlightCount > 1 {
-		t.Fatalf("expected ≤1 in-flight goroutine for the same key, got %d", inFlightCount)
+	// Assert exactly 1 worker was launched while all 10 callers were in-flight.
+	got := computeCount.Load()
+	if got != 1 {
+		close(gate) // release before fatal so cleanup doesn't deadlock
+		t.Fatalf("expected exactly 1 background compute, got %d — LoadOrStore dedup guard may be broken", got)
 	}
+
+	// Release the gate and let the worker finish.
+	close(gate)
 }
 
 // TestFederatedCoChange_BackCompatPairsAlwaysArray verifies the back-compat
