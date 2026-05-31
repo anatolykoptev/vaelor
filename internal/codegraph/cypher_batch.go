@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// compositeKeyDelim is the delimiter used to join and split composite vertex/edge
+// keys such as Symbol ("name\x00file") and Route ("method\x00path").
+//
+// NUL (\x00) is chosen because it cannot appear in a method name, path segment,
+// symbol name, or file path, making the split unambiguous even when the path or
+// name contains ':' (e.g. /peer1:unknown, :id params). The delimiter is split
+// away before any Cypher is emitted — it never appears in the generated query.
+const compositeKeyDelim = "\x00"
 
 // buildVertexBatch generates a Cypher statement that MERGEs all vertices in batch.
 func buildVertexBatch(graphName string, vertices []vertexData) string {
@@ -51,8 +59,11 @@ func buildEdgeBatch(graphName string, edges []edgeData) string {
 	sb.WriteString("RETURN 1")
 	return sb.String()
 }
+
 // vertexKey returns the primary key value for a vertex.
-// Package: keyed by path. File: keyed by path. Symbol: keyed by "name:file".
+// Package: keyed by path. File: keyed by path.
+// Symbol: keyed by "name\x00file" (compositeKeyDelim).
+// Route:  keyed by "method\x00path" (compositeKeyDelim).
 func vertexKey(v vertexData) string {
 	switch v.Label {
 	case "Package":
@@ -65,11 +76,11 @@ func vertexKey(v vertexData) string {
 	case "Symbol":
 		name := v.Props["name"]
 		file := v.Props["file"]
-		return name + ":" + file
+		return name + compositeKeyDelim + file
 	case "Layer":
 		return v.Props["name"]
 	case "Route":
-		return v.Props["method"] + ":" + v.Props["path"]
+		return v.Props["method"] + compositeKeyDelim + v.Props["path"]
 	default:
 		return v.Props["name"]
 	}
@@ -77,8 +88,11 @@ func vertexKey(v vertexData) string {
 
 // matchKey builds the Cypher property filter for a MATCH/MERGE by label and key.
 // Package: if key contains "/" match by path, else by name.
-// Symbol: split "name:file" into name + file props.
+// Symbol: split "name\x00file" (compositeKeyDelim) into name + file props.
+// Route:  split "method\x00path" (compositeKeyDelim) into method + path props.
 // Everything else: match by path.
+// The compositeKeyDelim (\x00) is split away here and never appears in the
+// returned Cypher string.
 func matchKey(label, key string) string {
 	switch label {
 	case "Package":
@@ -87,17 +101,15 @@ func matchKey(label, key string) string {
 		}
 		return fmt.Sprintf("name: '%s'", escapeCypher(key))
 	case "Symbol":
-		idx := strings.Index(key, ":")
-		if idx >= 0 {
-			name := key[:idx]
-			file := key[idx+1:]
-			return fmt.Sprintf("name: '%s', file: '%s'", escapeCypher(name), escapeCypher(file))
+		parts := strings.SplitN(key, compositeKeyDelim, 2)
+		if len(parts) == 2 {
+			return fmt.Sprintf("name: '%s', file: '%s'", escapeCypher(parts[0]), escapeCypher(parts[1]))
 		}
 		return fmt.Sprintf("name: '%s'", escapeCypher(key))
 	case "Layer":
 		return fmt.Sprintf("name: '%s'", escapeCypher(key))
 	case "Route":
-		parts := strings.SplitN(key, ":", 2)
+		parts := strings.SplitN(key, compositeKeyDelim, 2)
 		if len(parts) == 2 {
 			return fmt.Sprintf("method: '%s', path: '%s'", escapeCypher(parts[0]), escapeCypher(parts[1]))
 		}
@@ -216,9 +228,35 @@ type edgeGroupKey struct {
 	FromLabel, ToLabel, EdgeLabel string
 }
 
+// edgeUnwindFields returns the UNWIND map field names for an edge endpoint's key,
+// and the MATCH property expression referencing those fields.
+//
+// For Symbol and Route endpoints the composite key (name\x00file or method\x00path)
+// is pre-split in Go into separate fields so that compositeKeyDelim (\x00) NEVER
+// appears in the emitted Cypher.
+//
+//   - Symbol FromKey (field="fk"):  stored as fn (name), ff (file).
+//   - Symbol ToKey   (field="tk"):  stored as tn (name), tf (file).
+//   - Route  FromKey (field="fk"):  stored as fm (method), fp (path).
+//   - Route  ToKey   (field="tk"):  stored as tm (method), tp (path).
+//   - All other labels: single field (fk or tk) holding the raw key.
+//
+// splitCompositeKey extracts the two parts from a compositeKeyDelim key.
+// Returns ("", key) if the delimiter is absent (fallback for non-composite keys).
+func splitCompositeKey(key string) (part1, part2 string) {
+	parts := strings.SplitN(key, compositeKeyDelim, 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", key
+}
+
 // buildEdgeUnwindBatch generates UNWIND+MATCH+MERGE Cypher for a batch of
 // edges sharing the same FromLabel, ToLabel, and EdgeLabel.
 // AGE 1.7.0: MATCH after UNWIND works; MATCH after MERGE does not.
+//
+// Symbol and Route composite keys are pre-split in Go so that compositeKeyDelim
+// (\x00) is never embedded in the emitted Cypher string.
 func buildEdgeUnwindBatch(graphName string, edges []edgeData) string {
 	if len(edges) == 0 {
 		return ""
@@ -231,33 +269,64 @@ func buildEdgeUnwindBatch(graphName string, edges []edgeData) string {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
-		fmt.Fprintf(&sb, "{fk: '%s', tk: '%s'}", escapeCypher(e.FromKey), escapeCypher(e.ToKey))
+		sb.WriteString("{")
+		// From-endpoint fields.
+		switch e0.FromLabel {
+		case "Symbol":
+			n, f := splitCompositeKey(e.FromKey)
+			fmt.Fprintf(&sb, "fn: '%s', ff: '%s'", escapeCypher(n), escapeCypher(f))
+		case "Route":
+			m, p := splitCompositeKey(e.FromKey)
+			fmt.Fprintf(&sb, "fm: '%s', fp: '%s'", escapeCypher(m), escapeCypher(p))
+		default:
+			fmt.Fprintf(&sb, "fk: '%s'", escapeCypher(e.FromKey))
+		}
+		sb.WriteString(", ")
+		// To-endpoint fields.
+		switch e0.ToLabel {
+		case "Symbol":
+			n, f := splitCompositeKey(e.ToKey)
+			fmt.Fprintf(&sb, "tn: '%s', tf: '%s'", escapeCypher(n), escapeCypher(f))
+		case "Route":
+			m, p := splitCompositeKey(e.ToKey)
+			fmt.Fprintf(&sb, "tm: '%s', tp: '%s'", escapeCypher(m), escapeCypher(p))
+		default:
+			fmt.Fprintf(&sb, "tk: '%s'", escapeCypher(e.ToKey))
+		}
+		sb.WriteString("}")
 	}
 	sb.WriteString("] AS e\n")
 
-	fmt.Fprintf(&sb, "MATCH (f:%s {%s})\n", e0.FromLabel, unwindEdgeMatch(e0.FromLabel, "fk"))
-	fmt.Fprintf(&sb, "MATCH (t:%s {%s})\n", e0.ToLabel, unwindEdgeMatch(e0.ToLabel, "tk"))
+	fmt.Fprintf(&sb, "MATCH (f:%s {%s})\n", e0.FromLabel, unwindEdgeMatch(e0.FromLabel, "f"))
+	fmt.Fprintf(&sb, "MATCH (t:%s {%s})\n", e0.ToLabel, unwindEdgeMatch(e0.ToLabel, "t"))
 	fmt.Fprintf(&sb, "MERGE (f)-[:%s]->(t)\n", e0.EdgeLabel)
 	sb.WriteString("RETURN count(*)")
 	return sb.String()
 }
 
 // unwindEdgeMatch builds the MATCH property expression for an edge endpoint.
-func unwindEdgeMatch(label, field string) string {
+// prefix is "f" for FromLabel endpoints and "t" for ToLabel endpoints.
+//
+// For Symbol and Route the composite key has already been pre-split in Go by
+// buildEdgeUnwindBatch into separate UNWIND fields (fn/ff, tm/tp, etc.), so no
+// Cypher-side split() is needed and compositeKeyDelim (\x00) never appears in
+// the generated query.
+func unwindEdgeMatch(label, prefix string) string {
 	switch label {
 	case "Symbol":
-		// Symbol FromKey/ToKey is "name:file" — split in Cypher.
-		return fmt.Sprintf("name: split(e.%s, ':')[0], file: split(e.%s, ':')[1]", field, field)
+		// Pre-split fields: <prefix>n = name, <prefix>f = file.
+		return fmt.Sprintf("name: e.%sn, file: e.%sf", prefix, prefix)
 	case "Package":
-		return fmt.Sprintf("path: e.%s", field)
+		return fmt.Sprintf("path: e.%sk", prefix)
 	case "File":
-		return fmt.Sprintf("path: e.%s", field)
+		return fmt.Sprintf("path: e.%sk", prefix)
 	case "Layer":
-		return fmt.Sprintf("name: e.%s", field)
+		return fmt.Sprintf("name: e.%sk", prefix)
 	case "Route":
-		return fmt.Sprintf("method: split(e.%s, ':')[0], path: split(e.%s, ':')[1]", field, field)
+		// Pre-split fields: <prefix>m = method, <prefix>p = path.
+		return fmt.Sprintf("method: e.%sm, path: e.%sp", prefix, prefix)
 	default:
-		return fmt.Sprintf("path: e.%s", field)
+		return fmt.Sprintf("path: e.%sk", prefix)
 	}
 }
 

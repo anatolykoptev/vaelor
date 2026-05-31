@@ -21,10 +21,14 @@ func TestExtractTestedByEdges_Go(t *testing.T) {
 	for _, e := range edges {
 		found[e.FromKey+"->"+e.ToKey] = true
 	}
-	if !found["TestProcessOrder:order_test.go->ProcessOrder:order.go"] {
+	wantTP := "TestProcessOrder" + compositeKeyDelim + "order_test.go" +
+		"->" + "ProcessOrder" + compositeKeyDelim + "order.go"
+	if !found[wantTP] {
 		t.Error("missing TestProcessOrder -> ProcessOrder")
 	}
-	if !found["Test_ProcessOrder_empty:order_test.go->ProcessOrder:order.go"] {
+	wantTE := "Test_ProcessOrder_empty" + compositeKeyDelim + "order_test.go" +
+		"->" + "ProcessOrder" + compositeKeyDelim + "order.go"
+	if !found[wantTE] {
 		t.Error("missing Test_ProcessOrder_empty -> ProcessOrder")
 	}
 	if len(edges) < 2 {

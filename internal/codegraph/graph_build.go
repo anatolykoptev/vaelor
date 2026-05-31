@@ -100,9 +100,9 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 		calleeRelFile := relPath(ce.Callee.File, in.Root)
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
-			FromKey:   ce.Caller.Name + ":" + callerRelFile,
+			FromKey:   ce.Caller.Name + compositeKeyDelim + callerRelFile,
 			ToLabel:   "Symbol",
-			ToKey:     ce.Callee.Name + ":" + calleeRelFile,
+			ToKey:     ce.Callee.Name + compositeKeyDelim + calleeRelFile,
 			EdgeLabel: "CALLS",
 			Props: map[string]string{
 				"line": strconv.Itoa(int(ce.Line)),
@@ -147,7 +147,7 @@ func buildSymbolGraph(root string, symbols []*parser.Symbol, prScores map[string
 
 	for _, sym := range symbols {
 		relFile := relPath(sym.File, root)
-		symKey := sym.Name + ":" + relFile
+		symKey := sym.Name + compositeKeyDelim + relFile
 		props := map[string]string{
 			"name":       sym.Name,
 			"kind":       string(sym.Kind),

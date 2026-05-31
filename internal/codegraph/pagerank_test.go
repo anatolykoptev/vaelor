@@ -29,8 +29,8 @@ func TestComputeSymbolPageRank(t *testing.T) {
 	}
 
 	// helper has most incoming edges (called by main and handler).
-	helperKey := "helper:internal/helper.go"
-	handlerKey := "handler:internal/handler.go"
+	helperKey := "helper" + compositeKeyDelim + "internal/helper.go"
+	handlerKey := "handler" + compositeKeyDelim + "internal/handler.go"
 
 	if scores[helperKey] <= scores[handlerKey] {
 		t.Errorf("helper (%.4f) should rank higher than handler (%.4f)",

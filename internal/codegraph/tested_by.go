@@ -37,8 +37,8 @@ func ExtractTestedByEdges(root string, symbols []*parser.Symbol) []edgeData {
 		}
 
 		for _, tgt := range targets {
-			fromKey := s.Name + ":" + relPathOrSelf(s.File, root)
-			toKey := tgt.Name + ":" + relPathOrSelf(tgt.File, root)
+			fromKey := s.Name + compositeKeyDelim + relPathOrSelf(s.File, root)
+			toKey := tgt.Name + compositeKeyDelim + relPathOrSelf(tgt.File, root)
 			key := fromKey + "->" + toKey
 			if seen[key] {
 				continue

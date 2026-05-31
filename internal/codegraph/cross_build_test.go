@@ -98,18 +98,21 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 		switch e.EdgeLabel {
 		case "HANDLES":
 			handlesCount++
-			if e.FromKey != "handleGetUsers:backend/handler.go" {
-				t.Errorf("HANDLES FromKey = %q, want handleGetUsers:backend/handler.go", e.FromKey)
+			want := "handleGetUsers" + compositeKeyDelim + "backend/handler.go"
+			if e.FromKey != want {
+				t.Errorf("HANDLES FromKey = %q, want %q", e.FromKey, want)
 			}
-			if e.ToKey != "GET:/api/users" {
-				t.Errorf("HANDLES ToKey = %q, want GET:/api/users", e.ToKey)
+			wantToKey := "GET" + compositeKeyDelim + "/api/users"
+			if e.ToKey != wantToKey {
+				t.Errorf("HANDLES ToKey = %q, want %q", e.ToKey, wantToKey)
 			}
 		case "FETCHES":
 			fetchesCount++
-			// FETCHES uses composite "handler:file" key so AGE can split on ':'
-			// into the Symbol's name and file properties (Wave 5 fix).
-			if e.FromKey != "fetchUsers:frontend/api.ts" {
-				t.Errorf("FETCHES FromKey = %q, want fetchUsers:frontend/api.ts", e.FromKey)
+			// FETCHES uses composite "handler\x00file" key so buildEdgeUnwindBatch
+			// can pre-split it into the Symbol's name and file properties.
+			want := "fetchUsers" + compositeKeyDelim + "frontend/api.ts"
+			if e.FromKey != want {
+				t.Errorf("FETCHES FromKey = %q, want %q", e.FromKey, want)
 			}
 		}
 	}
@@ -141,7 +144,7 @@ func TestHtmxFetchesEdgeFromKey(t *testing.T) {
 	}
 
 	got := htmxFetchesFromKey(route)
-	want := "hunt_jobs:internal/admin/templates/hunt_jobs.html"
+	want := "hunt_jobs" + compositeKeyDelim + "internal/admin/templates/hunt_jobs.html"
 	if got != want {
 		t.Errorf("htmxFetchesFromKey = %q, want %q", got, want)
 	}
@@ -200,7 +203,7 @@ func TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey(t *testing.T) {
 		t.Fatal("expected 1 FETCHES edge, got 0")
 	}
 
-	want := "hunt_jobs:internal/admin/templates/hunt_jobs.html"
+	want := "hunt_jobs" + compositeKeyDelim + "internal/admin/templates/hunt_jobs.html"
 	if fetchEdge.FromKey != want {
 		t.Errorf("FETCHES FromKey = %q, want %q", fetchEdge.FromKey, want)
 	}
@@ -226,7 +229,7 @@ func TestHandlesEdgeFromKey(t *testing.T) {
 	}
 
 	got := handlesFromKey(route)
-	want := "handleHuntJobsList:internal/admin/handler.go"
+	want := "handleHuntJobsList" + compositeKeyDelim + "internal/admin/handler.go"
 	if got != want {
 		t.Errorf("handlesFromKey = %q, want %q", got, want)
 	}
@@ -286,7 +289,7 @@ func TestBuildCrossLanguageGraph_HandlesCompositeKey(t *testing.T) {
 		t.Fatal("expected 1 HANDLES edge, got 0")
 	}
 
-	want := "handleHuntJobsList:internal/admin/handler.go"
+	want := "handleHuntJobsList" + compositeKeyDelim + "internal/admin/handler.go"
 	if handlesEdge.FromKey != want {
 		t.Errorf("HANDLES FromKey = %q, want %q", handlesEdge.FromKey, want)
 	}
@@ -305,12 +308,17 @@ func TestMatchKeyLayer(t *testing.T) {
 func TestMatchKeyRoute(t *testing.T) {
 	t.Parallel()
 
-	got := matchKey("Route", "GET:/api/users")
+	key := "GET" + compositeKeyDelim + "/api/users"
+	got := matchKey("Route", key)
 	if !strings.Contains(got, "method: 'GET'") {
-		t.Errorf("matchKey(Route, GET:/api/users) = %q, missing method: 'GET'", got)
+		t.Errorf("matchKey(Route) = %q, missing method: 'GET'", got)
 	}
 	if !strings.Contains(got, "path: '/api/users'") {
-		t.Errorf("matchKey(Route, GET:/api/users) = %q, missing path: '/api/users'", got)
+		t.Errorf("matchKey(Route) = %q, missing path: '/api/users'", got)
+	}
+	// The NUL delimiter must not appear in the Cypher output.
+	if strings.Contains(got, "\x00") {
+		t.Errorf("matchKey(Route) leaked \\x00 into Cypher: %q", got)
 	}
 }
 
@@ -385,7 +393,7 @@ function setupRoutes(app) {
 	// Symbol.File (absolute) was re-keyed to relative and matched route.File
 	// (already relative). If the re-key loop used the absolute path as key,
 	// resolveEnclosingSymbol would return ("", false) and no edge would be built.
-	wantFromKey := "setupRoutes:" + relFile
+	wantFromKey := "setupRoutes" + compositeKeyDelim + relFile
 	var handlesEdge *edgeData
 	for i := range edges {
 		if edges[i].EdgeLabel == "HANDLES" && edges[i].FromKey == wantFromKey {
@@ -584,7 +592,7 @@ func TestBuildCrossLang_ArrowCallbackResolvesEnclosingFn(t *testing.T) {
 		t.Fatal("expected 1 HANDLES edge via enclosing-fn resolver, got 0")
 	}
 
-	want := "setupRoutes:src/routes.ts"
+	want := "setupRoutes" + compositeKeyDelim + "src/routes.ts"
 	if handlesEdge.FromKey != want {
 		t.Errorf("HANDLES FromKey = %q, want %q", handlesEdge.FromKey, want)
 	}
@@ -628,7 +636,7 @@ func TestBuildCrossLang_NamedHandlerUnchanged(t *testing.T) {
 		t.Fatal("expected 1 HANDLES edge for named handler, got 0")
 	}
 
-	want := "myHandler:internal/admin/handler.go"
+	want := "myHandler" + compositeKeyDelim + "internal/admin/handler.go"
 	if handlesEdge.FromKey != want {
 		t.Errorf("HANDLES FromKey = %q, want %q (named-handler path must be unchanged)", handlesEdge.FromKey, want)
 	}
@@ -674,6 +682,143 @@ func TestBuildCrossLang_NoEnclosingFn_Unresolved(t *testing.T) {
 	if unresolvedAfter-unresolvedBefore < 1 {
 		t.Errorf("routeHandlerUnresolvedTotal did not increment: before=%.0f after=%.0f",
 			unresolvedBefore, unresolvedAfter)
+	}
+}
+
+// TestColonInPath_ResolvesCorrectVertex verifies that a route whose path
+// contains ':' (e.g. /peer1:unknown) produces a composite key that can be
+// split back into the original method and path intact.
+//
+// With the old ':' delimiter, strings.SplitN("GET:/peer1:unknown", ":", 2)
+// returns ["GET", "/peer1:unknown"] — which happens to work for the Route case
+// but strings.Index("GET:/peer1:unknown", ":") is fragile when the same logic
+// is applied to AGE's split() which splits on first ':' only. The NUL delimiter
+// removes the ambiguity entirely.
+func TestColonInPath_ResolvesCorrectVertex(t *testing.T) {
+	t.Parallel()
+
+	method := "GET"
+	path := "/peer1:unknown" // colon inside the path
+
+	// Build the composite key via the same logic as buildCrossLanguageGraph.
+	key := method + compositeKeyDelim + path
+
+	// Split must yield the exact original method and path.
+	parts := strings.SplitN(key, compositeKeyDelim, 2)
+	if len(parts) != 2 {
+		t.Fatalf("SplitN produced %d parts, want 2", len(parts))
+	}
+	if parts[0] != method {
+		t.Errorf("method = %q, want %q", parts[0], method)
+	}
+	if parts[1] != path {
+		t.Errorf("path = %q, want %q", parts[1], path)
+	}
+
+	// matchKey must reconstruct the Cypher property filter with the full path
+	// including the colon — and the NUL delimiter must NOT appear in the output.
+	cypher := matchKey("Route", key)
+	if strings.Contains(cypher, "\x00") {
+		t.Errorf("matchKey emitted \\x00 into Cypher: %q", cypher)
+	}
+	if !strings.Contains(cypher, "method: 'GET'") {
+		t.Errorf("matchKey missing method: 'GET' in %q", cypher)
+	}
+	if !strings.Contains(cypher, "path: '/peer1:unknown'") {
+		t.Errorf("matchKey missing path: '/peer1:unknown' in %q", cypher)
+	}
+}
+
+// TestCompositeKeyRoundTrip verifies that buildKey(method,path) → splitKey
+// restores the original method+path even when the path contains ':'.
+func TestCompositeKeyRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ method, path string }{
+		{"GET", "/api/users"},
+		{"POST", "/peer1:unknown"},
+		{"DELETE", "/a:b:c"},
+		{"GET", "/:id/profile"},
+	}
+	for _, c := range cases {
+		key := c.method + compositeKeyDelim + c.path
+		parts := strings.SplitN(key, compositeKeyDelim, 2)
+		if len(parts) != 2 {
+			t.Errorf("method=%q path=%q: SplitN got %d parts", c.method, c.path, len(parts))
+			continue
+		}
+		if parts[0] != c.method || parts[1] != c.path {
+			t.Errorf("round-trip fail: got method=%q path=%q, want method=%q path=%q",
+				parts[0], parts[1], c.method, c.path)
+		}
+	}
+}
+
+// TestSymbolCompositeKeyRoundTrip verifies that Symbol "name\x00file" round-trips
+// correctly even when name or file contains ':'.
+func TestSymbolCompositeKeyRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ name, file string }{
+		{"handleFoo", "internal/admin/handler.go"},
+		{"hunt_jobs", "internal/admin/templates/hunt_jobs.html"},
+		{"setup:Special", "src/weird:name.go"}, // extreme: both parts contain ':'
+	}
+	for _, c := range cases {
+		key := c.name + compositeKeyDelim + c.file
+		parts := strings.SplitN(key, compositeKeyDelim, 2)
+		if len(parts) != 2 {
+			t.Errorf("name=%q file=%q: SplitN got %d parts", c.name, c.file, len(parts))
+			continue
+		}
+		if parts[0] != c.name || parts[1] != c.file {
+			t.Errorf("round-trip fail: got name=%q file=%q, want name=%q file=%q",
+				parts[0], parts[1], c.name, c.file)
+		}
+	}
+}
+
+// TestNULNotInCypher verifies that the \x00 compositeKeyDelim does NOT leak
+// into the Cypher strings emitted by matchKey or unwindEdgeMatch.
+// The delimiter must be split away before Cypher is built.
+func TestNULNotInCypher(t *testing.T) {
+	t.Parallel()
+
+	// Symbol key: name\x00file
+	symKey := "myHandler" + compositeKeyDelim + "internal/admin/handler.go"
+	gotSym := matchKey("Symbol", symKey)
+	if strings.Contains(gotSym, "\x00") {
+		t.Errorf("matchKey(Symbol) leaked \\x00: %q", gotSym)
+	}
+	if !strings.Contains(gotSym, "name: 'myHandler'") {
+		t.Errorf("matchKey(Symbol) missing name: %q", gotSym)
+	}
+	if !strings.Contains(gotSym, "file: 'internal/admin/handler.go'") {
+		t.Errorf("matchKey(Symbol) missing file: %q", gotSym)
+	}
+
+	// Route key: method\x00path
+	routeKey := "GET" + compositeKeyDelim + "/peer1:unknown"
+	gotRoute := matchKey("Route", routeKey)
+	if strings.Contains(gotRoute, "\x00") {
+		t.Errorf("matchKey(Route) leaked \\x00: %q", gotRoute)
+	}
+	if !strings.Contains(gotRoute, "path: '/peer1:unknown'") {
+		t.Errorf("matchKey(Route) path wrong: %q", gotRoute)
+	}
+
+	// unwindEdgeMatch must emit AGE split() on the delimiter, not ':'
+	// We can't easily assert the Cypher content without running AGE, but we
+	// can assert the generated Cypher does not contain a literal \x00 character
+	// (the delimiter is embedded in the split() call as an escaped literal,
+	// but the \x00 itself is not a printable character — check it's absent).
+	gotUnwindSym := unwindEdgeMatch("Symbol", "fk")
+	if strings.Contains(gotUnwindSym, "\x00") {
+		t.Errorf("unwindEdgeMatch(Symbol) contains \\x00 char: %q", gotUnwindSym)
+	}
+	gotUnwindRoute := unwindEdgeMatch("Route", "tk")
+	if strings.Contains(gotUnwindRoute, "\x00") {
+		t.Errorf("unwindEdgeMatch(Route) contains \\x00 char: %q", gotUnwindRoute)
 	}
 }
 

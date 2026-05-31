@@ -24,14 +24,14 @@ func computeSymbolPageRank(root string, symbols []*parser.Symbol, cg *callgraph.
 		if edge.Caller == nil || edge.Callee == nil {
 			continue
 		}
-		callerKey := edge.Caller.Name + ":" + relPath(edge.Caller.File, root)
-		calleeKey := edge.Callee.Name + ":" + relPath(edge.Callee.File, root)
+		callerKey := edge.Caller.Name + compositeKeyDelim + relPath(edge.Caller.File, root)
+		calleeKey := edge.Callee.Name + compositeKeyDelim + relPath(edge.Callee.File, root)
 		graph[callerKey] = append(graph[callerKey], calleeKey)
 	}
 
 	// Ensure all symbols are nodes (even if they have no edges).
 	for _, sym := range symbols {
-		key := sym.Name + ":" + relPath(sym.File, root)
+		key := sym.Name + compositeKeyDelim + relPath(sym.File, root)
 		if _, ok := graph[key]; !ok {
 			graph[key] = nil
 		}

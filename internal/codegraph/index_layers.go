@@ -291,21 +291,22 @@ func matchesLayer(relPath, rootDir string) bool {
 	return strings.HasPrefix(relPath, rootDir+"/") || relPath == rootDir
 }
 
-// htmxFetchesFromKey returns the Symbol composite key ("name:file") for a
-// client-side htmx Route so that AGE's unwindEdgeMatch("Symbol", "fk") can
-// split it into the name and file properties required for a MATCH.
+// htmxFetchesFromKey returns the Symbol composite key ("name\x00file") for a
+// client-side htmx Route so that buildEdgeUnwindBatch can pre-split it into
+// the name and file properties required for an AGE MATCH.
 // Returns "" when Handler is empty (callers must skip the edge in that case).
 func htmxFetchesFromKey(r routes.Route) string {
 	if r.Handler == "" {
 		return ""
 	}
-	return r.Handler + ":" + r.File
+	return r.Handler + compositeKeyDelim + r.File
 }
 
-// handlesFromKey returns the composite "Handler:File" key for the server-side
+// handlesFromKey returns the composite "Handler\x00File" key for the server-side
 // HANDLES edge from a Symbol vertex to a Route vertex. Symbol vertices are
-// keyed by "name:file"; HANDLES needs to match against that composite, same
-// as FETCHES (see htmxFetchesFromKey for the parallel fix on client side).
+// keyed by "name\x00file" (compositeKeyDelim); HANDLES needs to match against
+// that composite, same as FETCHES (see htmxFetchesFromKey for the parallel fix
+// on client side).
 //
 // Constraint: assumes the handler symbol is defined in the same file where
 // the route is registered (typical Go pattern — e.g. go-nerv internal/admin/handler.go
@@ -316,7 +317,7 @@ func handlesFromKey(r routes.Route) string {
 	if r.Handler == "" || r.File == "" {
 		return ""
 	}
-	return r.Handler + ":" + r.File
+	return r.Handler + compositeKeyDelim + r.File
 }
 
 // buildCrossLanguageGraph constructs Layer and Route vertices, plus HANDLES
@@ -346,10 +347,10 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 		})
 	}
 
-	// Route vertices — deduplicated by Method+":"+Path.
+	// Route vertices — deduplicated by Method+compositeKeyDelim+Path.
 	routeSeen := make(map[string]bool)
 	for _, r := range routeList {
-		key := r.Method + ":" + r.Path
+		key := r.Method + compositeKeyDelim + r.Path
 		if routeSeen[key] {
 			continue
 		}
@@ -392,7 +393,7 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 		resolved := r
 		resolved.Handler = handlerName
 
-		routeKey := r.Method + ":" + r.Path
+		routeKey := r.Method + compositeKeyDelim + r.Path
 		edgeLabel := "HANDLES"
 		fromKey := handlesFromKey(resolved)
 		if r.Side == sideClient {

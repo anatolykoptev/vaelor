@@ -72,9 +72,9 @@ func buildRelationshipEdges(root string, rels []parser.TypeRelationship, symbols
 
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
-			FromKey:   r.Subject + ":" + subjectRelFile,
+			FromKey:   r.Subject + compositeKeyDelim + subjectRelFile,
 			ToLabel:   "Symbol",
-			ToKey:     targetSym.Name + ":" + targetRelFile,
+			ToKey:     targetSym.Name + compositeKeyDelim + targetRelFile,
 			EdgeLabel: edgeLabel,
 			Props:     map[string]string{},
 		})
