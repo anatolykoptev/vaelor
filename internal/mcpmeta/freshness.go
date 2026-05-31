@@ -212,7 +212,7 @@ func WithFreshness(env Envelope, repoRoot, indexedSHA string) Envelope {
 		return env
 	}
 	env.StaleWarning = fmt.Sprintf(
-		"index built against main %s, main is now %s -- call code_graph refresh=true",
+		"index built against main %s, main is now %s -- live-read tools (code_search/symbol_search/understand) read working-tree files and are current; this marker advances only on a service re-index, NOT code_graph refresh=true (which rebuilds the AGE graph layer only and leaves this marker unchanged)",
 		short(indexedSHA), short(live),
 	)
 	env.IndexedSHA = indexedSHA
