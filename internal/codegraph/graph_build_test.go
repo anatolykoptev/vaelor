@@ -83,8 +83,10 @@ func TestBuildGraphInheritsEdges(t *testing.T) {
 	_, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, Rels: rels})
 
 	found := false
+	wantFrom := "MyReader" + compositeKeyDelim + "main.go"
+	wantTo := "Reader" + compositeKeyDelim + "main.go"
 	for _, e := range edges {
-		if e.EdgeLabel == "INHERITS" && e.FromKey == "MyReader:main.go" && e.ToKey == "Reader:main.go" {
+		if e.EdgeLabel == "INHERITS" && e.FromKey == wantFrom && e.ToKey == wantTo {
 			found = true
 		}
 	}

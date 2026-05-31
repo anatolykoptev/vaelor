@@ -135,3 +135,185 @@ func TestBuildEdgeBatchEmpty(t *testing.T) {
 		t.Errorf("expected empty string for nil edges, got %q", got)
 	}
 }
+
+// TestSplitRouteKey_MalformedNoNUL verifies that splitRouteKey, when given a
+// malformed key (1-part or 2-part, missing the third compositeKeyDelim segment),
+// returns strings that contain NO \x00 byte.
+//
+// Threat: a malformed Route key that contains \x00 (the compositeKeyDelim) but
+// fewer than 3 parts falls into the fallback branch, which returns ("","",key).
+// If key contains \x00 and that value were emitted into Cypher before reaching
+// escapeCypher, it would defeat CG-T4's "no \x00 in Cypher" guarantee.
+// This is a latent footgun on the critical path — currently unreachable because
+// all Route ToKeys are built 3-part, but defense-in-depth requires the split
+// function itself to be safe.
+//
+// Hardening choice: strip compositeKeyDelim from all returned strings in the
+// fallback branch (strings.ReplaceAll(x, compositeKeyDelim, "")) rather than
+// returning all-empty — a malformed key can still convey partial information to
+// the caller, but no NUL survives into the returned values.
+func TestSplitRouteKey_MalformedNoNUL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{
+			name: "1-part with no delimiter",
+			key:  "GET/api/users", // no \x00 at all — degenerate input
+		},
+		{
+			name: "1-part with embedded NUL",
+			// A 1-part key that somehow contains a single \x00 — malformed.
+			// splitRouteKey with SplitN(...,3) returns 2 parts ["", "/api/users"],
+			// which falls through to the fallback ("","",key).
+			key: "\x00/api/users", // 2 parts but lacks the full 3-part structure
+		},
+		{
+			name: "2-part key (method+path, no side)",
+			key:  "GET" + compositeKeyDelim + "/api/users", // only 2 parts
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			method, path, side := splitRouteKey(tc.key)
+			for _, field := range []struct {
+				name  string
+				value string
+			}{
+				{"method", method},
+				{"path", path},
+				{"side", side},
+			} {
+				if strings.Contains(field.value, "\x00") {
+					t.Errorf("splitRouteKey(%q) returned %s=%q containing \\x00 — NUL would leak into Cypher",
+						tc.key, field.name, field.value)
+				}
+			}
+		})
+	}
+}
+
+// TestSplitCompositeKey_MalformedNoNUL verifies that splitCompositeKey, when
+// given a malformed (1-part) key, returns strings that contain NO \x00 byte.
+//
+// Same threat class as TestSplitRouteKey_MalformedNoNUL: the fallback branch
+// returns ("", key); if key contains \x00 the second returned value carries it.
+func TestSplitCompositeKey_MalformedNoNUL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{
+			name: "1-part with no delimiter",
+			key:  "myHandler", // normal Symbol name without file — degenerate
+		},
+		{
+			name: "key is just the delimiter",
+			key:  compositeKeyDelim, // a single \x00 — both parts empty after split
+		},
+		{
+			name: "key has leading NUL (degenerate)",
+			key:  compositeKeyDelim + "internal/foo.go", // \x00file — 2 parts but part1==""
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			part1, part2 := splitCompositeKey(tc.key)
+			for _, field := range []struct {
+				name  string
+				value string
+			}{
+				{"part1", part1},
+				{"part2", part2},
+			} {
+				if strings.Contains(field.value, "\x00") {
+					t.Errorf("splitCompositeKey(%q) returned %s=%q containing \\x00 — NUL would leak into Cypher",
+						tc.key, field.name, field.value)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildEdgeUnwindBatch_ColonPathIntact is the red→green proof for the actual
+// bug scenario (CG-T4): a Route edge whose path contains a colon (e.g. the
+// colon-in-path WebRTC path /peer1:unknown) must keep its full path through
+// buildEdgeUnwindBatch — the LIVE production edge-insert path.
+//
+// matchKey / splitCompositeKey tests only cover helper functions. buildEdgeUnwindBatch
+// is the path that actually emits the UNWIND Cypher AGE executes; if its Go
+// pre-split broke on a colon path, no prior test would have caught it.
+//
+// Under the old ':' delimiter design this would have been fragile: splitting
+// "GET:/peer1:unknown" on ':' with SplitN(..., 2) still yields ["GET", "/peer1:unknown"]
+// which is correct, but once the code was changed to use '\x00' the pre-split
+// must use the new delimiter exclusively. This test proves the live path is
+// colon-safe: the full path reaches the UNWIND map and no '\x00' leaks into
+// the emitted Cypher.
+func TestBuildEdgeUnwindBatch_ColonPathIntact(t *testing.T) {
+	t.Parallel()
+
+	// HANDLES edge: Symbol (setupRoutes in src/routes.ts) → Route (GET /peer1:unknown, server).
+	// ToKey uses compositeKeyDelim — the actual delimiter used in production.
+	// CG-T5: Route ToKey is now 3-part (method\x00path\x00side); HANDLES → side=server.
+	edges := []edgeData{
+		{
+			FromLabel: "Symbol",
+			FromKey:   "setupRoutes" + compositeKeyDelim + "src/routes.ts",
+			ToLabel:   "Route",
+			ToKey:     "GET" + compositeKeyDelim + "/peer1:unknown" + compositeKeyDelim + "server",
+			EdgeLabel: "HANDLES",
+			Props:     map[string]string{},
+		},
+	}
+
+	cypher := buildEdgeUnwindBatch("code_test", edges)
+
+	if cypher == "" {
+		t.Fatal("buildEdgeUnwindBatch returned empty string for a non-empty edge slice")
+	}
+
+	// 1. The full path "/peer1:unknown" must appear intact — not truncated to "/peer1".
+	if !strings.Contains(cypher, "/peer1:unknown") {
+		t.Errorf("full path '/peer1:unknown' not found in emitted Cypher — colon truncation bug:\n%s", cypher)
+	}
+
+	// 2. The method "GET" must appear as the Route method field (tm).
+	if !strings.Contains(cypher, "tm: 'GET'") {
+		t.Errorf("Route method field 'tm: \\'GET\\'' missing in emitted Cypher:\n%s", cypher)
+	}
+
+	// 3. The path must land in field tp (Route ToKey pre-split).
+	if !strings.Contains(cypher, "tp: '/peer1:unknown'") {
+		t.Errorf("Route path field 'tp: \\'/peer1:unknown\\'' missing in emitted Cypher:\n%s", cypher)
+	}
+
+	// 3b. CG-T5: The side must land in field ts (Route ToKey 3rd part).
+	if !strings.Contains(cypher, "ts: 'server'") {
+		t.Errorf("Route side field 'ts: \\'server\\'' missing in emitted Cypher:\n%s", cypher)
+	}
+
+	// 4. No literal '\x00' byte may appear in the emitted Cypher — the delimiter
+	//    must have been split away in Go before Cypher is built.
+	if strings.Contains(cypher, "\x00") {
+		t.Errorf("compositeKeyDelim (\\x00) leaked into emitted Cypher:\n%q", cypher)
+	}
+
+	// 5. The Symbol FromKey fields must also be correctly split (fn/ff).
+	if !strings.Contains(cypher, "fn: 'setupRoutes'") {
+		t.Errorf("Symbol name field 'fn: \\'setupRoutes\\'' missing in emitted Cypher:\n%s", cypher)
+	}
+	if !strings.Contains(cypher, "ff: 'src/routes.ts'") {
+		t.Errorf("Symbol file field 'ff: \\'src/routes.ts\\'' missing in emitted Cypher:\n%s", cypher)
+	}
+}
