@@ -22,6 +22,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -108,6 +109,36 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			slog.Warn("database: parse config failed", slog.Any("error", cfgErr))
 		} else {
 			poolCfg.MaxConns = 10 // code_graph build + concurrent queries need > default 4
+			// SR-A: DISCARD ALL on every conn release closes ALL session state leaks in
+			// one command: search_path (dirtied by acquireAGE / ageExpandSetup), session
+			// GUCs (synchronous_commit=off + statement_timeout=0 set by BulkCopyInsert),
+			// temp objects, and server-side prepared statements.
+			//
+			// Why DISCARD ALL over RESET search_path:
+			//   BulkCopyInsert sets synchronous_commit=off + statement_timeout=0 with no
+			//   explicit reset; a conn returned after a bulk-copy with those GUCs active
+			//   could silently lose acknowledged writes on crash.  DISCARD ALL resets all
+			//   three GUCs + the expand.go SET search_path leak in one stroke.
+			//
+			// Safety: the pool uses pgx default exec mode (simple protocol / extended
+			// query with no server-side statement cache).  No server-side prepared
+			// statements survive an AfterRelease boundary regardless, so DISCARD ALL's
+			// prepared-statement reset is a no-op in practice but costs nothing.
+			// No session-level temp tables are shared across acquire/release boundaries.
+			// acquireAGE re-applies ageSetup on every acquire, so AGE paths work fine
+			// after the discard.  AfterRelease is chosen over BeforeAcquire so the conn
+			// is clean when it leaves user code, not when it enters.
+			// Belt-and-suspenders: SR-B also qualifies the three data tables with public.*
+			// so they resolve correctly regardless.
+			poolCfg.AfterRelease = func(conn *pgx.Conn) bool {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if _, err := conn.Exec(ctx, "DISCARD ALL"); err != nil {
+					// Connection is unhealthy; destroy it rather than returning it.
+					return false
+				}
+				return true
+			}
 		}
 		p, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 		if err != nil {
@@ -124,6 +155,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 				slog.Error("database: preflight failed", slog.Any("error", err))
 				os.Exit(1)
 			}
+			// SR-OBS: boot-time drift guard — detect any table that leaked into
+			// ag_catalog and bump gocode_schema_drift_total so alerts fire immediately.
+			graphStore.AssertSchemaDrift(context.Background())
 		}
 	}
 

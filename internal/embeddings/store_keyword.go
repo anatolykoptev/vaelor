@@ -16,7 +16,7 @@ type FileLineHit struct {
 
 const matchKeywordQuery = `
 SELECT symbol_name, start_line
-FROM code_embeddings
+FROM public.code_embeddings
 WHERE repo_key = $1 AND file_path = $2 AND start_line <= $3
 ORDER BY start_line DESC
 LIMIT 1`
@@ -124,7 +124,7 @@ func (s *Store) SearchBySymbolName(
 	q := `
 		SELECT file_path, symbol_name, symbol_kind, language, start_line,
 		       (similarity(symbol_name, $3) * 2.0 + similarity(file_path, $3)) / 3.0 AS score
-		FROM code_embeddings
+		FROM public.code_embeddings
 		WHERE repo_key = $1
 		  AND ($2 = '' OR language = $2)
 		  AND (
@@ -171,7 +171,7 @@ func (s *Store) searchBySymbolNameFallback(ctx context.Context, repoKey string, 
 		patterns[i] = "%" + kw + "%"
 	}
 	q := `SELECT file_path, symbol_name, symbol_kind, language, start_line
-		FROM code_embeddings
+		FROM public.code_embeddings
 		WHERE repo_key = $1 AND ($2 = '' OR language = $2)
 		  AND symbol_name ILIKE ANY($3::text[])
 		LIMIT $4`

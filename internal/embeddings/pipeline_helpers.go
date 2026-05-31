@@ -101,7 +101,7 @@ func (s *Store) GetHashes(ctx context.Context, repoKey string) (map[string]uint6
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx,
-		"SELECT file_path, symbol_name, body_hash FROM code_embeddings WHERE repo_key=$1", repoKey)
+		"SELECT file_path, symbol_name, body_hash FROM public.code_embeddings WHERE repo_key=$1", repoKey)
 	if err != nil {
 		return nil, fmt.Errorf("query hashes: %w", err)
 	}
