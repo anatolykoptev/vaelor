@@ -133,9 +133,20 @@ func CrossRepoCoChangeFromTouches(ctx context.Context, touches []touch, windowHo
 	if len(touches) == 0 {
 		return nil
 	}
-
 	windowSec := int64(windowHours) * 3600
-	// bucket -> set of distinct (repo,file) touched in that window.
+	buckets := buildBuckets(touches, windowSec)
+	n, winCount, counts := countPairs(ctx, buckets)
+	out := scorePairs(counts, winCount, n, minPairs, minLift)
+	sortCrossPairs(out)
+	if len(out) > maxCrossPairs {
+		out = out[:maxCrossPairs]
+	}
+	return out
+}
+
+// buildBuckets groups touches into fixed-width time windows.
+// Each bucket maps (repo,file) → present-in-window.
+func buildBuckets(touches []touch, windowSec int64) map[int64]map[fileKey]struct{} {
 	buckets := make(map[int64]map[fileKey]struct{})
 	for _, t := range touches {
 		b := t.ts / windowSec
@@ -146,8 +157,14 @@ func CrossRepoCoChangeFromTouches(ctx context.Context, touches []touch, windowHo
 		}
 		set[fileKey{repo: t.repo, file: t.file}] = struct{}{}
 	}
+	return buckets
+}
 
-	n := len(buckets) // total non-empty windows
+// countPairs iterates buckets and accumulates per-file window counts and
+// cross-repo pair co-occurrence counts.
+// Returns total window count n, per-file window counts, and pair co-counts.
+func countPairs(ctx context.Context, buckets map[int64]map[fileKey]struct{}) (int, map[fileKey]int, map[pairKey]int) {
+	n := len(buckets)
 	winCount := make(map[fileKey]int)
 	counts := make(map[pairKey]int)
 	for _, set := range buckets {
@@ -168,7 +185,12 @@ func CrossRepoCoChangeFromTouches(ctx context.Context, touches []touch, windowHo
 			}
 		}
 	}
+	return n, winCount, counts
+}
 
+// scorePairs applies minPairs / minLift / ubiquity filters and computes
+// Wilson lower-bound score + G² statistics for each qualifying pair.
+func scorePairs(counts map[pairKey]int, winCount map[fileKey]int, n, minPairs int, minLift float64) []CrossPair {
 	out := make([]CrossPair, 0)
 	for k, co := range counts {
 		if co < minPairs {
@@ -209,10 +231,6 @@ func CrossRepoCoChangeFromTouches(ctx context.Context, touches []touch, windowHo
 			Confidence:      confidence,
 			ConfidenceLevel: string(score.ConfidenceFromScore(wlb)),
 		})
-	}
-	sortCrossPairs(out)
-	if len(out) > maxCrossPairs {
-		out = out[:maxCrossPairs]
 	}
 	return out
 }

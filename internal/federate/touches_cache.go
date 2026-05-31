@@ -1,7 +1,6 @@
 package federate
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -73,7 +72,7 @@ func (c *touchesCache) removeFromOrder(key string) {
 
 // touchesCacheKey produces a stable per-repo cache key.
 func touchesCacheKey(root string) string {
-	return fmt.Sprintf("touches::%s", root)
+	return "touches::" + root
 }
 
 // IsRepoWarm reports whether repo root has a live (non-expired) touches entry.
