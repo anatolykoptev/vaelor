@@ -19,7 +19,7 @@ func TestBuildLayerVertices(t *testing.T) {
 		{Name: "frontend", Role: "client", RootDir: "frontend", Language: "typescript", Files: 15},
 	}
 
-	vertices, _ := buildCrossLanguageGraph(layers, nil, nil)
+	vertices, _ := buildCrossLanguageGraph("", layers, nil, nil, nil)
 
 	layerCount := 0
 	for _, v := range vertices {
@@ -77,7 +77,7 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 		},
 	}
 
-	vertices, edges := buildCrossLanguageGraph(nil, routeList, nil)
+	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
 
 	// Should have 1 deduplicated Route vertex (same method+path).
 	routeVertexCount := 0
@@ -185,7 +185,7 @@ func TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey(t *testing.T) {
 		},
 	}
 
-	_, edges := buildCrossLanguageGraph(nil, routeList, nil)
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
 
 	var fetchEdge *edgeData
 	for i := range edges {
@@ -271,7 +271,7 @@ func TestBuildCrossLanguageGraph_HandlesCompositeKey(t *testing.T) {
 		},
 	}
 
-	_, edges := buildCrossLanguageGraph(nil, routeList, nil)
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
 
 	var handlesEdge *edgeData
 	for i := range edges {
@@ -414,6 +414,176 @@ const r = await fetch('/api/leak?c='+cookie);
 	if rejectAfter-rejectBefore < 1 {
 		t.Errorf("routeRejectedTotal{junk} did not increment: before=%.0f after=%.0f",
 			rejectBefore, rejectAfter)
+	}
+}
+
+// TestResolveEnclosingSymbol_Innermost verifies that the resolver returns the
+// innermost (smallest-span) function symbol whose [startLine, endLine] range
+// contains the query line, and falls back to the outer function when the query
+// line is outside the inner span.
+func TestResolveEnclosingSymbol_Innermost(t *testing.T) {
+	t.Parallel()
+
+	// outer: lines 1-20, inner: lines 5-10.
+	fileSymbols := map[string][]symbolSpan{
+		"src/handler.ts": {
+			{name: "outerFn", file: "src/handler.ts", startLine: 1, endLine: 20},
+			{name: "innerFn", file: "src/handler.ts", startLine: 5, endLine: 10},
+		},
+	}
+
+	// Line 7 is inside both spans — must return inner (smaller span).
+	got, ok := resolveEnclosingSymbol(fileSymbols, "src/handler.ts", 7)
+	if !ok {
+		t.Fatal("resolveEnclosingSymbol: expected ok=true for line 7, got false")
+	}
+	if got != "innerFn" {
+		t.Errorf("resolveEnclosingSymbol(line=7) = %q, want innerFn", got)
+	}
+
+	// Line 15 is inside outer only — must return outer.
+	got, ok = resolveEnclosingSymbol(fileSymbols, "src/handler.ts", 15)
+	if !ok {
+		t.Fatal("resolveEnclosingSymbol: expected ok=true for line 15, got false")
+	}
+	if got != "outerFn" {
+		t.Errorf("resolveEnclosingSymbol(line=15) = %q, want outerFn", got)
+	}
+
+	// Line 25 is outside all spans — must return ok=false.
+	_, ok = resolveEnclosingSymbol(fileSymbols, "src/handler.ts", 25)
+	if ok {
+		t.Errorf("resolveEnclosingSymbol(line=25) = ok=true, want false")
+	}
+}
+
+// TestBuildCrossLang_ArrowCallbackResolvesEnclosingFn verifies that a TS route
+// with an empty Handler and a Line inside an enclosing function's span produces
+// a HANDLES edge whose FromKey is "<enclosingFn>:<file>" (hybrid resolver path).
+func TestBuildCrossLang_ArrowCallbackResolvesEnclosingFn(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/api/items",
+			Handler:   "", // empty — arrow callback, no named handler captured
+			Framework: "express",
+			Side:      "server",
+			File:      "src/routes.ts",
+			Line:      8,
+		},
+	}
+	fileSymbols := map[string][]symbolSpan{
+		"src/routes.ts": {
+			{name: "setupRoutes", file: "src/routes.ts", startLine: 1, endLine: 20},
+		},
+	}
+
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, fileSymbols)
+
+	var handlesEdge *edgeData
+	for i := range edges {
+		if edges[i].EdgeLabel == "HANDLES" {
+			e := edges[i]
+			handlesEdge = &e
+			break
+		}
+	}
+	if handlesEdge == nil {
+		t.Fatal("expected 1 HANDLES edge via enclosing-fn resolver, got 0")
+	}
+
+	want := "setupRoutes:src/routes.ts"
+	if handlesEdge.FromKey != want {
+		t.Errorf("HANDLES FromKey = %q, want %q", handlesEdge.FromKey, want)
+	}
+}
+
+// TestBuildCrossLang_NamedHandlerUnchanged verifies that a Go route with an
+// explicit Handler name bypasses the enclosing-fn resolver entirely and
+// produces the same "handler:file" edge as before (go-nerv regression guard).
+func TestBuildCrossLang_NamedHandlerUnchanged(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/admin/users",
+			Handler:   "myHandler",
+			Framework: "chi",
+			Side:      "server",
+			File:      "internal/admin/handler.go",
+			Line:      42,
+		},
+	}
+	// Provide fileSymbols with an overlapping span — resolver must NOT be called.
+	fileSymbols := map[string][]symbolSpan{
+		"internal/admin/handler.go": {
+			{name: "shouldNotBeUsed", file: "internal/admin/handler.go", startLine: 1, endLine: 100},
+		},
+	}
+
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, fileSymbols)
+
+	var handlesEdge *edgeData
+	for i := range edges {
+		if edges[i].EdgeLabel == "HANDLES" {
+			e := edges[i]
+			handlesEdge = &e
+			break
+		}
+	}
+	if handlesEdge == nil {
+		t.Fatal("expected 1 HANDLES edge for named handler, got 0")
+	}
+
+	want := "myHandler:internal/admin/handler.go"
+	if handlesEdge.FromKey != want {
+		t.Errorf("HANDLES FromKey = %q, want %q (named-handler path must be unchanged)", handlesEdge.FromKey, want)
+	}
+}
+
+// TestBuildCrossLang_NoEnclosingFn_Unresolved verifies that a route with an
+// empty Handler and a Line NOT inside any symbol span produces no edge and
+// bumps routeHandlerUnresolvedTotal.
+func TestBuildCrossLang_NoEnclosingFn_Unresolved(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/orphan",
+			Handler:   "", // empty — no enclosing fn either
+			Framework: "express",
+			Side:      "server",
+			File:      "src/orphan.ts",
+			Line:      99, // outside all symbol spans
+		},
+	}
+	fileSymbols := map[string][]symbolSpan{
+		"src/orphan.ts": {
+			{name: "aFn", file: "src/orphan.ts", startLine: 1, endLine: 10},
+		},
+	}
+
+	unresolvedBefore := readCounter(t,
+		routeHandlerUnresolvedTotal.WithLabelValues("test-repo"))
+
+	_, edges := buildCrossLanguageGraph("test-repo", nil, routeList, nil, fileSymbols)
+
+	// No edge must be built.
+	for _, e := range edges {
+		if e.EdgeLabel == "HANDLES" || e.EdgeLabel == "FETCHES" {
+			t.Errorf("unexpected edge %q built for unresolvable route", e.EdgeLabel)
+		}
+	}
+
+	unresolvedAfter := readCounter(t,
+		routeHandlerUnresolvedTotal.WithLabelValues("test-repo"))
+	if unresolvedAfter-unresolvedBefore < 1 {
+		t.Errorf("routeHandlerUnresolvedTotal did not increment: before=%.0f after=%.0f",
+			unresolvedBefore, unresolvedAfter)
 	}
 }
 

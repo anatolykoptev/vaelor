@@ -8,9 +8,75 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/langutil"
+	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/polyglot"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
+
+// symbolSpan captures the line-span of a function or method symbol, used by
+// resolveEnclosingSymbol to find the innermost function containing a route
+// registration line.
+type symbolSpan struct {
+	name      string
+	file      string
+	startLine uint32
+	endLine   uint32
+}
+
+// buildFileSymbols groups function and method symbols from the parsed symbol
+// slice into a per-file map of symbolSpans. Only function/method kinds are
+// included because the enclosing-fn resolver needs callable symbols whose span
+// can contain a route registration line.
+func buildFileSymbols(allSymbols []*parser.Symbol) map[string][]symbolSpan {
+	out := make(map[string][]symbolSpan)
+	for _, s := range allSymbols {
+		if s.Kind != parser.KindFunction && s.Kind != parser.KindMethod {
+			continue
+		}
+		if s.StartLine == 0 || s.EndLine == 0 {
+			continue
+		}
+		rel := s.File // Symbol.File is absolute; callers that use relative paths
+		// must normalise before calling resolveEnclosingSymbol.
+		out[rel] = append(out[rel], symbolSpan{
+			name:      s.Name,
+			file:      rel,
+			startLine: s.StartLine,
+			endLine:   s.EndLine,
+		})
+	}
+	return out
+}
+
+// resolveEnclosingSymbol returns the name of the innermost function/method
+// symbol in fileSymbols[file] whose [startLine, endLine] span contains line.
+// "Innermost" means the symbol with the smallest span (endLine - startLine).
+// If multiple symbols have the same span size (unlikely but possible), the
+// last one wins (stable under append order, adequate for the resolver's purpose).
+// Returns ("", false) when no symbol spans the given line.
+func resolveEnclosingSymbol(fileSymbols map[string][]symbolSpan, file string, line uint32) (string, bool) {
+	spans, ok := fileSymbols[file]
+	if !ok {
+		return "", false
+	}
+	var best *symbolSpan
+	var bestSpan uint32
+	for i := range spans {
+		s := &spans[i]
+		if line < s.startLine || line > s.endLine {
+			continue
+		}
+		size := s.endLine - s.startLine
+		if best == nil || size <= bestSpan {
+			best = s
+			bestSpan = size
+		}
+	}
+	if best == nil {
+		return "", false
+	}
+	return best.name, true
+}
 
 // maxRoleSampleBytes limits how much source code is read per file for role
 // classification.
@@ -19,7 +85,11 @@ const maxRoleSampleBytes = 500
 // buildCrossLanguageData performs polyglot detection, route extraction, role
 // classification, and returns cross-language vertices and edges ready for
 // insertion. It also produces BELONGS_TO edges (File -> Layer).
-func buildCrossLanguageData(root string, allFiles []*ingest.File) ([]vertexData, []edgeData) {
+//
+// allSymbols is the full parsed symbol slice from ingestAndParse; it is used
+// to build the per-file function symbol index required by the enclosing-fn
+// resolver in buildCrossLanguageGraph.
+func buildCrossLanguageData(root string, allFiles []*ingest.File, allSymbols []*parser.Symbol) ([]vertexData, []edgeData) {
 	structure := polyglot.DetectStructure(allFiles)
 
 	repo := graphName(root)
@@ -27,8 +97,19 @@ func buildCrossLanguageData(root string, allFiles []*ingest.File) ([]vertexData,
 	classifyLayerRoles(structure.Layers, allFiles, routeList)
 	fileToLayer := buildFileToLayerMap(root, allFiles, structure.Layers)
 
+	// Build per-file function symbol index for the enclosing-fn resolver.
+	fileSymbols := buildFileSymbols(allSymbols)
+	// Routes use relative file paths (r.File is relative to root), but
+	// parser.Symbol.File is absolute. Re-key fileSymbols by relative path so
+	// resolveEnclosingSymbol receives the same key form as r.File.
+	relFileSymbols := make(map[string][]symbolSpan, len(fileSymbols))
+	for absPath, spans := range fileSymbols {
+		rel := relPath(absPath, root)
+		relFileSymbols[rel] = spans
+	}
+
 	// Build Layer/Route vertices and HANDLES/FETCHES edges.
-	crossVertices, crossEdges := buildCrossLanguageGraph(structure.Layers, routeList, fileToLayer)
+	crossVertices, crossEdges := buildCrossLanguageGraph(repo, structure.Layers, routeList, fileToLayer, relFileSymbols)
 
 	// Append BELONGS_TO edges (File -> Layer).
 	for file, layerName := range fileToLayer {
@@ -236,7 +317,15 @@ func handlesFromKey(r routes.Route) string {
 
 // buildCrossLanguageGraph constructs Layer and Route vertices, plus HANDLES
 // and FETCHES edges connecting symbols to routes.
-func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string) ([]vertexData, []edgeData) {
+//
+// repo is the graph name (graphName(root)) used for observability counters.
+//
+// fileSymbols is a per-file map of function/method symbol spans (keyed by
+// relative path, same form as r.File). It is used by the enclosing-fn resolver
+// as a fallback when r.Handler is empty (arrow callbacks, inline handlers, fetch
+// calls that don't name a function). Named handlers (go-nerv pattern) bypass
+// the resolver entirely — their path is byte-identical to the previous behaviour.
+func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string, fileSymbols map[string][]symbolSpan) ([]vertexData, []edgeData) {
 	var vertices []vertexData
 	var edges []edgeData
 
@@ -274,19 +363,37 @@ func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, 
 	// HANDLES / FETCHES edges (Symbol → Route).
 	// Both use composite "handler:file" Symbol keys so that AGE's
 	// unwindEdgeMatch("Symbol", "fk") can split on ':' into name+file.
-	// HANDLES (server side): handlesFromKey — assumes handler defined in same
-	// file as route registration (typical Go pattern; see Wave 6 constraint doc).
-	// FETCHES (client side): htmxFetchesFromKey — Wave 5 fix.
+	//
+	// Hybrid resolution strategy:
+	//   1. Named handler present (r.Handler != "") — use it directly (go-nerv
+	//      path; byte-identical to pre-CG-T3 behaviour; resolver NOT invoked).
+	//   2. Handler empty + enclosing fn found — use the enclosing fn's name.
+	//   3. Handler empty + no enclosing fn — drop the edge, bump unresolved counter.
 	for _, r := range routeList {
-		if r.Handler == "" {
-			continue
+		handlerName := r.Handler
+		if handlerName == "" {
+			// Fallback: resolve the innermost function symbol whose span
+			// contains the route's source line.
+			if name, ok := resolveEnclosingSymbol(fileSymbols, r.File, r.Line); ok {
+				handlerName = name
+			} else {
+				recordRouteHandlerUnresolved(repo)
+				continue
+			}
 		}
+
+		// Build a synthetic Route with the resolved handler name so that the
+		// existing handlesFromKey / htmxFetchesFromKey helpers produce the
+		// correct "name:file" composite key without modification.
+		resolved := r
+		resolved.Handler = handlerName
+
 		routeKey := r.Method + ":" + r.Path
 		edgeLabel := "HANDLES"
-		fromKey := handlesFromKey(r)
+		fromKey := handlesFromKey(resolved)
 		if r.Side == sideClient {
 			edgeLabel = "FETCHES"
-			fromKey = htmxFetchesFromKey(r)
+			fromKey = htmxFetchesFromKey(resolved)
 		}
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
@@ -298,6 +405,7 @@ func buildCrossLanguageGraph(layers []polyglot.Layer, routeList []routes.Route, 
 				"line": strconv.Itoa(int(r.Line)),
 			},
 		})
+		recordRouteEdgeBuilt(repo, edgeLabel)
 	}
 
 	return vertices, edges

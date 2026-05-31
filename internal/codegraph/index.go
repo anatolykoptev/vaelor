@@ -144,7 +144,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.Duration("elapsed", time.Since(t3)))
 
 	// Cross-language analysis (non-fatal).
-	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles)
+	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles, allSymbols)
 	if len(crossVertices) > 0 {
 		if err := insertBatches(ctx, writer, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
 			slog.Warn("codegraph: cross-language vertices", slog.Any("error", err))
