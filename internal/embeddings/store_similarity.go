@@ -81,7 +81,7 @@ func (s *Store) FindSimilarPairs(ctx context.Context, opts SimilarPairOpts) ([]S
 	q := `SELECT a.symbol_name, a.file_path, a.start_line,
 	             b.symbol_name, b.file_path, b.start_line,
 	             1 - (a.embedding <=> b.embedding) AS similarity
-	      FROM code_embeddings a, code_embeddings b
+	      FROM public.code_embeddings a, public.code_embeddings b
 	      WHERE a.repo_key = $1 AND b.repo_key = $1
 	        AND (a.file_path || ':' || a.symbol_name) < (b.file_path || ':' || b.symbol_name)
 	        AND (a.embedding <=> b.embedding) < $2

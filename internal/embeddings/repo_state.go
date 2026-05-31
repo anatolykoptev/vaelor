@@ -41,7 +41,7 @@ func (s *Store) GetRepoState(ctx context.Context, repoKey string) (string, error
 	}
 	var sha string
 	err := s.pool.QueryRow(ctx,
-		`SELECT head_sha FROM code_repo_state WHERE repo_key = $1`, repoKey).
+		`SELECT head_sha FROM public.code_repo_state WHERE repo_key = $1`, repoKey).
 		Scan(&sha)
 	if err != nil {
 		// pgx returns ErrNoRows on empty — caller treats as "first index".
@@ -59,7 +59,7 @@ func (s *Store) SetRepoState(ctx context.Context, repoKey, sha string) error {
 		return err
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO code_repo_state (repo_key, head_sha, indexed_at)
+		`INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at)
 		 VALUES ($1, $2, NOW())
 		 ON CONFLICT (repo_key) DO UPDATE SET head_sha = EXCLUDED.head_sha, indexed_at = NOW()`,
 		repoKey, sha)
