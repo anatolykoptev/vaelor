@@ -17,6 +17,7 @@ package embeddings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -466,75 +467,95 @@ func TestMetrics_CommitsBehind_NonZeroWhenSHAFrozen(t *testing.T) {
 		"gocode_index_commits_behind must be 2 when SHA is frozen 2 commits behind main-tip")
 }
 
-// TestMetrics_CommitsBehind_BootstrapIsZeroNotBogus verifies that a bootstrap
-// run (no prior stored SHA) sets gocode_index_commits_behind to 0, not a bogus
-// value. Guards: recordCommitsBehind bootstrap branch emits 0.
+// TestMetrics_CommitsBehind_BootstrapIsZeroNotBogus verifies that when the
+// store returns stored=="" (never indexed), recordCommitsBehind emits 0 and
+// does NOT produce a bogus large value.
+//
+// This test calls recordCommitsBehind directly (as a unit) with a fake
+// repoStateGetter that returns stored="". It will FAIL if the stored==""
+// branch is broken (e.g. removed or changed to emit a non-zero value).
+//
+// Self-falsification: breaking the stored=="" branch to Set(999) makes this
+// RED because val != 0.0.
 func TestMetrics_CommitsBehind_BootstrapIsZeroNotBogus(t *testing.T) {
-	p, store := testPipeline(t)
 	ctx := context.Background()
 
-	const repo = "test/metrics-commits-behind-bootstrap"
-	cleanRepoFull(t, store, repo)
+	const repo = "test/metrics-commits-behind-bootstrap-unit"
+	// fake repoStateGetter that always returns stored="" (simulates no prior index).
+	fake := &fakeRepoStateGetter{stored: ""}
 
 	root := initGitRepo(t, map[string]string{
-		"main.go": goFile("BootstrapBehindFunc"),
+		"main.go": goFile("BootstrapBehindUnitFunc"),
 	})
-
-	// First call — bootstrap path, no prior stored SHA.
-	_, err := p.IncrementalSync(ctx, repo, root)
+	mainSHA, err := repoMainBranchSHA(root)
 	require.NoError(t, err)
+	require.NotEmpty(t, mainSHA, "initGitRepo must produce a valid git repo with a HEAD")
+
+	// Call the unit under test directly with stored="".
+	recordCommitsBehind(ctx, repo, root, fake, mainSHA)
 
 	val, found := readGaugeVec(t, "gocode_index_commits_behind", "repo", repo)
 	assert.True(t, found,
-		"gocode_index_commits_behind{repo=%q} must be registered after bootstrap IncrementalSync", repo)
+		"gocode_index_commits_behind{repo=%q} must be set when stored==\"\"", repo)
 	assert.Equal(t, 0.0, val,
-		"gocode_index_commits_behind must be 0 after a bootstrap run (not a bogus value)")
+		"gocode_index_commits_behind must be 0 for bootstrap (stored==\"\"), not a bogus value")
+}
+
+// fakeRepoStateGetter is a test-only repoStateGetter that returns a fixed sha.
+type fakeRepoStateGetter struct {
+	stored string
+	err    error
+}
+
+func (f *fakeRepoStateGetter) GetRepoState(_ context.Context, _ string) (string, error) {
+	return f.stored, f.err
 }
 
 // TestMetrics_RepoStateWriteFailures_CounterIncrements verifies that a
 // SetRepoState write failure increments embed_repo_state_write_failures_total
-// by exactly 1.
+// by exactly 1 via the production code path.
 //
-// Strategy: use a fake store whose SetRepoState returns an error, then run
-// the step-7 (SHA-advance) path by injecting the error via a direct call to
-// recordCommitsBehind + the production code path (same-SHA SetRepoState path).
+// Strategy: bootstrap a repo so the SHA is persisted, then call IncrementalSync
+// again on the same unchanged SHA (triggering the same-SHA fast path which calls
+// writeRepoState). Inject a failing writeRepoState via withWriteRepoStateFn so
+// the counter is driven by production code, not manually.
 //
-// We test via the same-SHA fast path: bootstrap, then call IncrementalSync
-// again with the same SHA but inject a SetRepoState failure via a wrapping
-// store. Since Pipeline.store is concrete *Store, we test the counter wiring
-// by calling SetRepoState on a pool pointed at a non-existent table.
+// Self-falsification: removing the repoStateWriteFailuresTotal.Inc() from
+// recordRepoStateWriteFailure (or the recordRepoStateWriteFailure call in the
+// same-SHA path) makes this test RED (before == after → assertion fails).
 func TestMetrics_RepoStateWriteFailures_CounterIncrements(t *testing.T) {
 	ctx := context.Background()
 
-	pool := testPool(t)
-	// Create a store whose SetRepoState will fail: point at a bad table name
-	// by dropping the schema first, then calling SetRepoState directly to
-	// ensure the counter path is exercised. We do this by calling SetRepoState
-	// on a store whose pool targets a temp schema we've dropped.
-	//
-	// Simpler approach: call the metric functions directly since the counter
-	// is package-level and the wiring is what we're testing.
-	store := NewStore(pool)
-	require.NoError(t, store.EnsureSchema(ctx))
+	// Phase 1: bootstrap with a working pipeline to persist the SHA.
+	pOK, store := testPipeline(t)
+	const repo = "test/metrics-write-fail-counter"
+	cleanRepoFull(t, store, repo)
+
+	root := initGitRepo(t, map[string]string{
+		"write_fail.go": goFile("WriteFailFunc"),
+	})
+	_, err := pOK.IncrementalSync(ctx, repo, root)
+	require.NoError(t, err, "bootstrap must succeed so a SHA is persisted")
+
+	// Phase 2: build a pipeline with the same store but a failing writeRepoState.
+	// The same-SHA path fires immediately because the SHA has not changed.
+	writeFails := 0
+	failWriteFn := func(_ context.Context, _ string, _ string) error {
+		writeFails++
+		return errors.New("injected write failure")
+	}
+	pFail := NewPipeline(pOK.client, store, WithFileCache(nil), withWriteRepoStateFn(failWriteFn))
 
 	before := readCounter(t, "embed_repo_state_write_failures_total")
 
-	// Force a write failure by trying to SET against a non-existent repo_key
-	// column — actually SetRepoState never fails on valid args; instead we use
-	// a closed pool to produce a real write error.
-	closedPool := testPool(t)
-	closedPool.Close() // closed pool → any Exec returns error
-	failStore := NewStore(closedPool)
-
-	err := failStore.SetRepoState(ctx, "test/write-fail-repo", "deadbeef")
-	require.Error(t, err, "closed pool must produce a write error")
-
-	// Now simulate what IncrementalSync does on SetRepoState failure.
-	repoStateWriteFailuresTotal.Inc()
+	// Same SHA → same-SHA fast path → writeRepoState called → fails → counter ++.
+	_, err = pFail.IncrementalSync(ctx, repo, root)
+	require.NoError(t, err, "IncrementalSync must not return a top-level error on write failure")
 
 	after := readCounter(t, "embed_repo_state_write_failures_total")
+	require.Equal(t, 1, writeFails, "injected write fn must have been called exactly once")
 	assert.Equal(t, before+1, after,
-		"embed_repo_state_write_failures_total must increment by exactly 1 when SetRepoState fails")
+		"embed_repo_state_write_failures_total must increment by exactly 1 when SetRepoState fails via production code path")
 }
 
 // readCounter reads a plain Counter (no labels) by name.

@@ -94,10 +94,8 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 
 	// Step 3: same-SHA fast path — bump timestamp only.
 	if prevSHA == currentSHA {
-		if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
-			repoStateWriteFailuresTotal.Inc()
-			slog.Warn("incrementalSync: SetRepoState (same-SHA) failed",
-				slog.String("repo", repoKey), slog.Any("error", err))
+		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			recordRepoStateWriteFailure(repoKey, "incrementalSync:same-sha", err)
 		}
 		res := &IncrementalSyncResult{
 			Mode:       IncrementalSyncSkipSHAMatch,
@@ -160,10 +158,8 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 
 	// Step 7: advance SHA only on full success.
 	if len(result.Errors) == 0 {
-		if err := p.store.SetRepoState(ctx, repoKey, currentSHA); err != nil {
-			repoStateWriteFailuresTotal.Inc()
-			slog.Warn("incrementalSync: SetRepoState failed",
-				slog.String("repo", repoKey), slog.Any("error", err))
+		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			recordRepoStateWriteFailure(repoKey, "incrementalSync:sha-advance", err)
 		}
 	}
 
