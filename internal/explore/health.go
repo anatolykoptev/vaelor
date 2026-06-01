@@ -48,42 +48,78 @@ type HealthSummary struct {
 	Grade string `json:"grade"`
 }
 
+// symbolMetrics holds per-symbol counters accumulated by collectSymbolMetrics.
+type symbolMetrics struct {
+	funcCount       int
+	totalComplexity int
+	maxComplexity   int
+	totalFuncLines  int
+	exportedCount   int
+	documentedCount int
+}
+
+// healthSubScores holds the five normalized sub-scores in [0, 1].
+type healthSubScores struct {
+	complexity    float64
+	maxComplexity float64
+	test          float64
+	doc           float64
+	funcSize      float64
+}
+
 // computeHealth produces a health score from already-parsed symbols and files.
 func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummary {
 	if len(files) == 0 {
 		return nil
 	}
 
-	var (
-		funcCount       int
-		totalComplexity int
-		maxComplexity   int
-		totalFuncLines  int
-		exportedCount   int
-		documentedCount int
-	)
+	sm := collectSymbolMetrics(symbols)
+	testFiles := collectTestFileCount(symbols, files)
 
+	// Invariants: counters must be non-negative; divisions guarded below.
+	goutil.Assertf(sm.funcCount >= 0, "funcCount must be >= 0, got %d", sm.funcCount)
+	goutil.Assertf(testFiles >= 0 && testFiles <= len(files),
+		"testFiles %d out of range [0, %d]", testFiles, len(files))
+	goutil.Assertf(sm.documentedCount >= 0 && sm.documentedCount <= sm.exportedCount,
+		"documentedCount %d > exportedCount %d", sm.documentedCount, sm.exportedCount)
+
+	ss := computeSubScores(sm, testFiles, len(files))
+	score := weighAndRound(ss)
+	grade := scoreToGrade(score)
+
+	return &HealthSummary{Score: score, Grade: grade}
+}
+
+// collectSymbolMetrics accumulates function-level and export/doc counters from
+// the symbol list.  Pure function: reads symbols, returns counters.
+func collectSymbolMetrics(symbols []*parser.Symbol) symbolMetrics {
+	var sm symbolMetrics
 	for _, sym := range symbols {
 		if sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod {
-			funcCount++
-			totalComplexity += sym.Complexity
-			if sym.Complexity > maxComplexity {
-				maxComplexity = sym.Complexity
+			sm.funcCount++
+			sm.totalComplexity += sym.Complexity
+			if sym.Complexity > sm.maxComplexity {
+				sm.maxComplexity = sym.Complexity
 			}
 			if sym.EndLine > sym.StartLine {
-				totalFuncLines += int(sym.EndLine - sym.StartLine)
+				sm.totalFuncLines += int(sym.EndLine - sym.StartLine)
 			}
 		}
 		if isExportedName(sym.Name) {
-			exportedCount++
+			sm.exportedCount++
 			if sym.DocComment != "" {
-				documentedCount++
+				sm.documentedCount++
 			}
 		}
 	}
+	return sm
+}
 
-	// Test ratio: test files / total files.
-	// Collect files containing Rust test attributes (#[test], #[cfg(test)]).
+// collectTestFileCount returns how many files in the repo are test files.
+// It recognises both Go/Python/Rust test-file naming conventions (via
+// langutil.IsTestFile) and Rust inline test modules (via #[test] attributes).
+func collectTestFileCount(symbols []*parser.Symbol, files []*ingest.File) int {
+	// Collect files that contain Rust test attributes (#[test], #[cfg(test)]).
 	rustTestFiles := make(map[string]struct{})
 	for _, sym := range symbols {
 		for _, attr := range sym.Attributes {
@@ -105,56 +141,59 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 			testFiles++
 		}
 	}
+	return testFiles
+}
 
-	// Invariants: counters must be non-negative; divisions guarded below.
-	goutil.Assertf(funcCount >= 0, "funcCount must be >= 0, got %d", funcCount)
-	goutil.Assertf(testFiles >= 0 && testFiles <= len(files),
-		"testFiles %d out of range [0, %d]", testFiles, len(files))
-	goutil.Assertf(documentedCount >= 0 && documentedCount <= exportedCount,
-		"documentedCount %d > exportedCount %d", documentedCount, exportedCount)
-
+// computeSubScores derives the five normalized [0, 1] sub-scores from the
+// accumulated metrics.  Same formulas as compare/grade.go.
+func computeSubScores(sm symbolMetrics, testFiles, fileCount int) healthSubScores {
 	var avgComplexity, avgFuncLines, testRatio, docRatio float64
-	if funcCount > 0 {
-		avgComplexity = float64(totalComplexity) / float64(funcCount)
-		avgFuncLines = float64(totalFuncLines) / float64(funcCount)
+	if sm.funcCount > 0 {
+		avgComplexity = float64(sm.totalComplexity) / float64(sm.funcCount)
+		avgFuncLines = float64(sm.totalFuncLines) / float64(sm.funcCount)
 	}
-	if len(files) > 0 {
-		testRatio = float64(testFiles) / float64(len(files))
+	if fileCount > 0 {
+		testRatio = float64(testFiles) / float64(fileCount)
 	}
-	if exportedCount > 0 {
-		docRatio = float64(documentedCount) / float64(exportedCount)
+	if sm.exportedCount > 0 {
+		docRatio = float64(sm.documentedCount) / float64(sm.exportedCount)
 	}
 
-	// Sub-scores in [0, 1] — same formulas as compare/grade.go.
-	complexityScore := healthClamp01(1.0 - (avgComplexity-healthTargetCyclomaticAvg)/healthRangeCyclomaticAvg)
-	maxComplexityScore := healthClamp01(1.0 - (float64(maxComplexity)-healthTargetCyclomaticMax)/healthRangeCyclomaticMax)
-	testScore := healthClamp01(testRatio / healthTargetTestRatio)
-	docScore := healthClamp01(docRatio / healthTargetDocRatio)
-	funcSizeScore := healthClamp01(1.0 - (avgFuncLines-healthTargetFuncSize)/healthRangeFuncSize)
+	return healthSubScores{
+		complexity:    healthClamp01(1.0 - (avgComplexity-healthTargetCyclomaticAvg)/healthRangeCyclomaticAvg),
+		maxComplexity: healthClamp01(1.0 - (float64(sm.maxComplexity)-healthTargetCyclomaticMax)/healthRangeCyclomaticMax),
+		test:          healthClamp01(testRatio / healthTargetTestRatio),
+		doc:           healthClamp01(docRatio / healthTargetDocRatio),
+		funcSize:      healthClamp01(1.0 - (avgFuncLines-healthTargetFuncSize)/healthRangeFuncSize),
+	}
+}
 
-	total := complexityScore*healthWeightComplexity +
-		maxComplexityScore*healthWeightMaxComplexity +
-		testScore*healthWeightTestCoverage +
-		docScore*healthWeightDocCoverage +
-		funcSizeScore*healthWeightFuncSize
+// weighAndRound applies the five weights to the sub-scores and returns the
+// rounded integer score in [0, 100].
+func weighAndRound(ss healthSubScores) int {
+	total := ss.complexity*healthWeightComplexity +
+		ss.maxComplexity*healthWeightMaxComplexity +
+		ss.test*healthWeightTestCoverage +
+		ss.doc*healthWeightDocCoverage +
+		ss.funcSize*healthWeightFuncSize
 
-	score := int(math.Round(total * healthPercentScale))
+	return int(math.Round(total * healthPercentScale))
+}
 
-	var grade string
+// scoreToGrade converts a numeric score to an A-F letter grade.
+func scoreToGrade(score int) string {
 	switch {
 	case score >= gradeAThreshold:
-		grade = "A"
+		return "A"
 	case score >= gradeBThreshold:
-		grade = "B"
+		return "B"
 	case score >= gradeCThreshold:
-		grade = "C"
+		return "C"
 	case score >= gradeDThreshold:
-		grade = "D"
+		return "D"
 	default:
-		grade = "F"
+		return "F"
 	}
-
-	return &HealthSummary{Score: score, Grade: grade}
 }
 
 func isExportedName(name string) bool {
