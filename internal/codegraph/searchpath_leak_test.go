@@ -101,9 +101,14 @@ func TestSearchPathLeak_MaxConns1_RowLandsInPublic(t *testing.T) {
 
 	t.Cleanup(func() {
 		bg := context.Background()
-		// Remove fixture rows from both schemas so no cross-run pollution.
+		// public.code_repo_state is the REAL table — only delete our fixture row.
 		_, _ = pool.Exec(bg, "DELETE FROM public.code_repo_state WHERE repo_key=$1", repoKey)
-		_, _ = pool.Exec(bg, "DELETE FROM ag_catalog.code_repo_state WHERE repo_key=$1", repoKey)
+		// ag_catalog.code_repo_state must NOT exist in steady state — it is purely a
+		// leak orphan / this test's fixture. DROP it (not just DELETE the row): a
+		// leftover empty table trips AssertSchemaDrift (gocode_schema_drift_total) on
+		// the next boot when these tests run against the live gocode DB. Matches the
+		// cleanup in TestSchemaDriftAssertion_CounterBumped.
+		_, _ = pool.Exec(bg, "DROP TABLE IF EXISTS ag_catalog.code_repo_state")
 	})
 
 	// Step 1: dirty the single connection with AGE search_path.
@@ -225,7 +230,11 @@ func TestSchemaDriftAssertion_CounterBumped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer pool.Close()
+	// t.Cleanup, NOT defer: the DROP cleanup below is registered later, so LIFO
+	// runs DROP first (pool still open) then Close. With `defer pool.Close()` the
+	// pool would close before t.Cleanup ran → the DROP would hit a closed pool and
+	// silently no-op, leaking ag_catalog.code_repo_state into the live gocode DB.
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 
 	// Check if ag_catalog exists (requires AGE to be installed).
