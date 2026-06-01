@@ -35,14 +35,19 @@ var calleesEmittedTotal = promauto.NewCounterVec(
 // at process start. The first user request lands on a warm cache and returns
 // tier=enhanced from request #1 (instead of tier=basic on cold-cache miss).
 //
-// Outcomes (cardinality 3, no repo label to keep cardinality bounded):
-//   - started   — goroutine kicked off for a repo
-//   - completed — go build returned without error
-//   - failed    — go build or packages.Load returned an error (non-fatal)
+// Outcomes (cardinality 4, no repo label to keep cardinality bounded):
+//   - started          — vendor/ present; goroutine kicked off the go build
+//   - completed        — go build returned without error
+//   - failed           — go build returned an error, OR vendor/ stat returned
+//     a non-ENOENT IO error (broken symlink, EPERM, etc.)
+//   - skipped_no_vendor — vendor/ directory absent (ENOENT); repo uses the
+//     module proxy workflow; -mod=vendor would always fail with "inconsistent
+//     vendoring" so no build is attempted. This is distinct from completed so
+//     the started/completed ratio remains meaningful for repos that do build.
 var eagerWarmTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_callgraph_eager_warm_total",
-		Help: "Eager startup GOCACHE pre-warm outcomes per repo, labelled by outcome (started, completed, failed).",
+		Help: "Eager startup GOCACHE pre-warm outcomes per repo, labelled by outcome (started, completed, failed, skipped_no_vendor).",
 	},
 	[]string{"outcome"},
 )
