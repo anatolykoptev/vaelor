@@ -85,50 +85,8 @@ func ExtractAstro(src []byte) *VirtualSource {
 		}
 	}
 
-	// ---- <script> blocks ----
-	for pos < len(src) {
-		idx := bytes.Index(src[pos:], []byte("<script"))
-		if idx < 0 {
-			break
-		}
-		tagStart := pos + idx
-
-		// Limit lookahead to one line or 512 bytes, whichever is shorter.
-		tagEndLimit := tagStart + tagOpenScanLimit
-		if tagEndLimit > len(src) {
-			tagEndLimit = len(src)
-		}
-		if nl := bytes.IndexByte(src[tagStart:tagEndLimit], '\n'); nl >= 0 {
-			// Allow '>' on the same line as the newline if it precedes it; cap at newline+1.
-			tagEndLimit = tagStart + nl + 1
-		}
-		gtIdx := bytes.IndexByte(src[tagStart:tagEndLimit], '>')
-		if gtIdx < 0 {
-			break
-		}
-		contentStart := tagStart + gtIdx + 1
-
-		closeTag := []byte("</script>")
-		closeIdx := bytes.Index(src[contentStart:], closeTag)
-		var contentEnd int
-		if closeIdx < 0 {
-			contentEnd = len(src)
-		} else {
-			contentEnd = contentStart + closeIdx
-		}
-
-		if !first {
-			b.AppendBlankLine()
-		}
-		first = false
-
-		b.AppendBlock(src, contentStart, contentEnd)
-
-		if closeIdx < 0 {
-			break
-		}
-		pos = contentEnd + len(closeTag)
-	}
+	// ---- <script> blocks (shared byte-walker with ExtractSvelte) ----
+	appendScriptBlocks(b, src, pos, first)
 
 	return b.Build()
 }
