@@ -109,31 +109,39 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			slog.Warn("database: parse config failed", slog.Any("error", cfgErr))
 		} else {
 			poolCfg.MaxConns = 10 // code_graph build + concurrent queries need > default 4
-			// SR-A: DISCARD ALL on every conn release closes ALL session state leaks in
-			// one command: search_path (dirtied by acquireAGE / ageExpandSetup), session
-			// GUCs (synchronous_commit=off + statement_timeout=0 set by BulkCopyInsert),
-			// temp objects, and server-side prepared statements.
+			// SR-A: RESET ALL on every conn release resets every session GUC dirtied by
+			// user code back to its role/database default in one command:
+			// search_path (dirtied by acquireAGE / ageExpandSetup) and the
+			// synchronous_commit=off + statement_timeout=0 that BulkCopyInsert sets with
+			// no explicit reset (a conn returned with those active could silently lose
+			// acknowledged writes on crash). RESET ALL covers all three at once.
 			//
-			// Why DISCARD ALL over RESET search_path:
-			//   BulkCopyInsert sets synchronous_commit=off + statement_timeout=0 with no
-			//   explicit reset; a conn returned after a bulk-copy with those GUCs active
-			//   could silently lose acknowledged writes on crash.  DISCARD ALL resets all
-			//   three GUCs + the expand.go SET search_path leak in one stroke.
+			// Why RESET ALL, NOT DISCARD ALL:
+			//   The pool runs pgx's DEFAULT exec mode = QueryExecModeCacheStatement, which
+			//   keeps a PER-CONNECTION server-side prepared-statement cache (the
+			//   `stmtcache_<hash>` names). DISCARD ALL includes DEALLOCATE ALL, which drops
+			//   those statements server-side while pgx's client-side LRU still believes
+			//   they exist → the next reuse fails with `prepared statement "stmtcache_…"
+			//   does not exist (SQLSTATE 26000)`. That regression broke SetRepoState on
+			//   every same-sha sync (embed_repo_state_write_failures_total climbed, indexed
+			//   SHA stopped persisting). RESET ALL resets GUCs ONLY — it leaves prepared
+			//   statements, cursors, temp tables and plan caches intact, so pgx's cache
+			//   stays consistent with the server.
 			//
-			// Safety: the pool uses pgx default exec mode (simple protocol / extended
-			// query with no server-side statement cache).  No server-side prepared
-			// statements survive an AfterRelease boundary regardless, so DISCARD ALL's
-			// prepared-statement reset is a no-op in practice but costs nothing.
-			// No session-level temp tables are shared across acquire/release boundaries.
-			// acquireAGE re-applies ageSetup on every acquire, so AGE paths work fine
-			// after the discard.  AfterRelease is chosen over BeforeAcquire so the conn
-			// is clean when it leaves user code, not when it enters.
-			// Belt-and-suspenders: SR-B also qualifies the three data tables with public.*
-			// so they resolve correctly regardless.
+			// No session-level temp tables are shared across acquire/release boundaries,
+			// so dropping DISCARD's temp/sequence reset costs nothing. acquireAGE re-applies
+			// ageSetup on every acquire, so AGE paths work fine after the reset.
+			// AfterRelease is chosen over BeforeAcquire so the conn is clean when it leaves
+			// user code, not when it enters. NOTE: RESET ALL resets search_path to the pool
+			// ROLE's default, not a hardcoded value — safe because the pool connects as
+			// gocode_app (default `"$user", public`). If the DSN ever switched to a role
+			// whose default search_path leads with ag_catalog (e.g. memos), RESET ALL alone
+			// would re-leak; SR-B (public.* qualification on the data tables) is the
+			// belt-and-suspenders that keeps routing correct regardless of role default.
 			poolCfg.AfterRelease = func(conn *pgx.Conn) bool {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
-				if _, err := conn.Exec(ctx, "DISCARD ALL"); err != nil {
+				if _, err := conn.Exec(ctx, "RESET ALL"); err != nil {
 					// Connection is unhealthy; destroy it rather than returning it.
 					return false
 				}
