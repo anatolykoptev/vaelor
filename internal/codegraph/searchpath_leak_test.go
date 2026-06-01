@@ -2,11 +2,13 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dto "github.com/prometheus/client_model/go"
 )
@@ -17,9 +19,10 @@ import (
 // re-acquired by the next caller — if the hook does not clean the conn, the
 // data-path statement runs inside the ag_catalog search_path set by acquireAGE.
 //
-// The hook uses DISCARD ALL (matches register.go) — this resets search_path,
-// session GUCs (synchronous_commit, statement_timeout), temp objects, and
-// prepared statements in one command.
+// The hook uses RESET ALL (matches register.go) — this resets search_path and
+// every other session GUC (synchronous_commit, statement_timeout) to the role
+// default, WITHOUT deallocating prepared statements (DISCARD ALL would, which
+// breaks pgx's statement cache — see TestPreparedStmtSurvivesRelease_MaxConns1).
 func testPoolMaxConns1(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
@@ -32,14 +35,14 @@ func testPoolMaxConns1(t *testing.T) *pgxpool.Pool {
 	}
 	cfg.MaxConns = 1
 	// Wire the same AfterRelease hook that register.go installs in production.
-	// DISCARD ALL resets: search_path, all session-level GUCs (synchronous_commit,
-	// statement_timeout, etc.), temp tables, and server-side prepared statements.
-	// Safe here: the pool uses pgx default exec mode (simple protocol) — no
-	// server-side prepared statements survive across Release boundaries anyway.
+	// RESET ALL resets search_path + all session-level GUCs (synchronous_commit,
+	// statement_timeout, etc.) to their role default. It deliberately does NOT
+	// run DEALLOCATE ALL: pgx default exec mode caches prepared statements
+	// per-conn and DISCARD ALL would invalidate them server-side, yielding 26000.
 	cfg.AfterRelease = func(conn *pgx.Conn) bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if _, err := conn.Exec(ctx, "DISCARD ALL"); err != nil {
+		if _, err := conn.Exec(ctx, "RESET ALL"); err != nil {
 			return false
 		}
 		return true
@@ -57,13 +60,13 @@ func testPoolMaxConns1(t *testing.T) *pgxpool.Pool {
 //
 // Setup: MaxConns=1 forces the pool's single physical connection to be reused
 // across acquire/release cycles. The test dirties the connection with an AGE
-// search_path via acquireAGE, releases it (triggering AfterRelease → DISCARD ALL),
+// search_path via acquireAGE, releases it (triggering AfterRelease → RESET ALL),
 // then issues a BARE (unqualified) INSERT INTO code_repo_state. With the hook the
 // bare name resolves to public.code_repo_state; without it the name resolves to
 // ag_catalog.code_repo_state (the AGE-dirty search_path wins).
 //
 // Falsification (red-on-revert): stash the AfterRelease body (replace with
-// `return true` — no DISCARD ALL), run the test, confirm it fails at assertion B
+// `return true` — no RESET ALL), run the test, confirm it fails at assertion B
 // with "row leaked into ag_catalog.code_repo_state". Restore → GREEN.
 // Real evidence captured during PR #173 review: see commit message.
 func TestSearchPathLeak_MaxConns1_RowLandsInPublic(t *testing.T) {
@@ -109,7 +112,7 @@ func TestSearchPathLeak_MaxConns1_RowLandsInPublic(t *testing.T) {
 	if err != nil {
 		t.Skipf("AGE not available: %v", err)
 	}
-	// Release triggers AfterRelease → DISCARD ALL → search_path reset to default.
+	// Release triggers AfterRelease → RESET ALL → search_path reset to default.
 	conn.Release()
 
 	// Step 2: bare (unqualified) INSERT into code_repo_state.
@@ -149,7 +152,60 @@ func TestSearchPathLeak_MaxConns1_RowLandsInPublic(t *testing.T) {
 		t.Errorf("ag_catalog.code_repo_state probe failed: %v", err)
 	}
 	if leaked {
-		t.Errorf("row leaked into ag_catalog.code_repo_state — AfterRelease DISCARD ALL hook is not working")
+		t.Errorf("row leaked into ag_catalog.code_repo_state — AfterRelease RESET ALL hook is not working")
+	}
+}
+
+// TestPreparedStmtSurvivesRelease_MaxConns1 is the falsification test for the
+// DISCARD-ALL regression that broke SetRepoState in production (the
+// `prepared statement "stmtcache_…" does not exist (SQLSTATE 26000)` storm).
+//
+// Root cause: pgx's DEFAULT exec mode (QueryExecModeCacheStatement) keeps a
+// per-connection server-side prepared-statement cache. DISCARD ALL includes
+// DEALLOCATE ALL, which drops those statements server-side while pgx's
+// client-side LRU still references them — the next reuse across a Release
+// boundary fails with 26000. RESET ALL resets GUCs only and leaves the
+// statements intact, so the cache stays consistent.
+//
+// Setup: MaxConns=1 forces the single physical connection to be reused. We run
+// the SAME parameterised query twice through pool.QueryRow; the first call
+// prepares+caches the statement, the Release between them fires AfterRelease,
+// and the second call reuses the cached statement on the same conn.
+//
+// Falsification (red-on-revert): change the hook in testPoolMaxConns1 back to
+// `DISCARD ALL` and the second QueryRow fails with SQLSTATE 26000 → test FAILS.
+// With RESET ALL it succeeds → GREEN.
+func TestPreparedStmtSurvivesRelease_MaxConns1(t *testing.T) {
+	pool := testPoolMaxConns1(t)
+	ctx := context.Background()
+
+	// Parameterised query → pgx uses the extended protocol and caches the
+	// prepared statement on the connection (stmtcache_<hash>).
+	const q = "SELECT $1::int AS n"
+
+	// Call 1: prepares + caches the statement, then Release fires the hook.
+	var n1 int
+	if err := pool.QueryRow(ctx, q, 1).Scan(&n1); err != nil {
+		t.Fatalf("first QueryRow (prime statement cache): %v", err)
+	}
+	if n1 != 1 {
+		t.Fatalf("first QueryRow returned %d, want 1", n1)
+	}
+
+	// Call 2: reuses the cached statement on the same (MaxConns=1) connection
+	// across the Release boundary. Under DISCARD ALL this is where 26000 fires.
+	var n2 int
+	err := pool.QueryRow(ctx, q, 2).Scan(&n2)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "26000" {
+			t.Fatalf("prepared statement deallocated across Release (SQLSTATE 26000): %v — "+
+				"AfterRelease must NOT run DISCARD ALL / DEALLOCATE ALL with pgx statement caching", err)
+		}
+		t.Fatalf("second QueryRow (reuse cached statement): %v", err)
+	}
+	if n2 != 2 {
+		t.Fatalf("second QueryRow returned %d, want 2", n2)
 	}
 }
 
