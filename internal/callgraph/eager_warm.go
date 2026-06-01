@@ -25,6 +25,11 @@ const eagerWarmTimeout = 5 * time.Minute
 // without paying the packages.Load cost.
 var warmGoBuildFn = runGoBuildPrewarm
 
+// recordEagerWarmFn is the metric-bump hook for eager-warm outcomes.
+// Tests may replace it to intercept recorded outcomes without relying on
+// Prometheus counter state, which is global and not reset between tests.
+var recordEagerWarmFn = recordEagerWarm
+
 // EagerWarmRepos enumerates immediate subdirectories of each path in dirs
 // that contain a go.mod, then runs the GOCACHE prewarm for each in parallel
 // (bounded by eagerWarmParallelism). Returns when all warmups have settled.
@@ -48,13 +53,47 @@ func EagerWarmRepos(ctx context.Context, dirs []string) {
 		go func(r string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			recordEagerWarm("started")
+
+			// Check for vendor/ before dispatching: repos without vendor/ use
+			// the module proxy workflow and -mod=vendor would always fail with
+			// "inconsistent vendoring". Skip them with a distinct counter outcome
+			// so started/completed ratios remain meaningful.
+			//
+			// We use Lstat (not Stat) first to detect the path's own existence
+			// without following symlinks. If vendor/ is a dangling symlink, Lstat
+			// succeeds but Stat returns ENOENT for the target — that is a broken
+			// configuration the operator should fix, not a silent skip.
+			vendorPath := filepath.Join(r, "vendor")
+			if _, lstatErr := os.Lstat(vendorPath); lstatErr != nil {
+				if os.IsNotExist(lstatErr) {
+					recordEagerWarmFn("skipped_no_vendor")
+					slog.Debug("eager warm: skipping repo without vendor/", "root", r)
+					return
+				}
+				// Non-ENOENT Lstat error (EPERM, etc.) — real IO problem.
+				recordEagerWarmFn("failed")
+				slog.Warn("eager warm: stat vendor/ failed", "root", r, "stat_err", lstatErr)
+				return
+			}
+			// vendor/ exists as a filesystem entry. Verify it resolves (detects
+			// dangling symlinks: Lstat succeeds but Stat returns ENOENT for target).
+			if _, statErr := os.Stat(vendorPath); statErr != nil {
+				recordEagerWarmFn("failed")
+				slog.Warn("eager warm: vendor/ is a broken symlink or unreadable", "root", r, "stat_err", statErr)
+				return
+			}
+
+			recordEagerWarmFn("started")
 			if err := warmGoBuildFn(ctx, r); err != nil {
-				recordEagerWarm("failed")
+				// recordEagerWarmFn (f20d840): testable outcome hook. slog.Debug (main
+				// a487fbe): build-failure noise was deliberately demoted. f20d840's WARN
+				// contract governs the broken-symlink path (line ~82, kept Warn), NOT this
+				// build-failure path — so both intents are preserved.
+				recordEagerWarmFn("failed")
 				slog.Debug("eager warm: prewarm failed", "root", r, "err", err)
 				return
 			}
-			recordEagerWarm("completed")
+			recordEagerWarmFn("completed")
 			slog.Info("eager warm: prewarm complete", "root", r)
 		}(root)
 	}
@@ -96,16 +135,11 @@ func discoverGoRepos(dirs []string) []string {
 // GOCACHE). Bounded by eagerWarmTimeout to avoid hung builds blocking the
 // startup goroutine indefinitely.
 //
-// Repos without a vendor/ directory are silently skipped (DEBUG log, nil
-// return). Missing vendor is an operator decision — module proxy workflow or
-// archived repo — not a build failure. Running -mod=vendor without vendor/
-// always fails with "inconsistent vendoring"; the WARN it previously produced
-// was noise with no remediation path.
+// The caller (EagerWarmRepos goroutine) is responsible for checking whether
+// vendor/ exists before calling this function. runGoBuildPrewarm assumes vendor/
+// is present and simply executes the build. If vendor/ is absent or broken the
+// build command will fail and the error is returned to the caller.
 func runGoBuildPrewarm(ctx context.Context, root string) error {
-	if _, err := os.Stat(filepath.Join(root, "vendor")); err != nil {
-		slog.Debug("eager warm: skipping repo without vendor/", "root", root)
-		return nil
-	}
 	warmCtx, cancel := context.WithTimeout(ctx, eagerWarmTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(warmCtx, "go", "build", "-mod=vendor", "./...")
