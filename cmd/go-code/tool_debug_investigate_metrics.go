@@ -166,8 +166,16 @@ func analyzeFailureCandidate(ctx context.Context, prom *promclient.Client, servi
 // Candidates run in parallel (bounded by promQueryConcurrency); per-candidate
 // window + baseline queries run serially within each goroutine.
 // metricNames is the pre-fetched list from promclient.Client.MetricNames.
-func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
-	candidates := discoverFailureMetrics(metricNames)
+// spikeAnalyzer analyzes one metric candidate over a window vs baseline and
+// returns a spike (or nil) plus the count of Prometheus RPCs attempted.
+type spikeAnalyzer func(ctx context.Context, prom *promclient.Client, service, name string, start, end, baselineStart, baselineEnd time.Time) (*MetricSpike, int)
+
+// computeSpikes runs analyze over candidates in parallel (bounded by
+// promQueryConcurrency), deriving the baseline window (1h before start, same
+// duration) once, and merges the non-nil spikes on the calling goroutine.
+// It is the shared engine behind computeFailureSpikes / computeLatencySpikes /
+// computeSaturationSpikes — they differ only in candidate discovery + analyzer.
+func computeSpikes(ctx context.Context, prom *promclient.Client, service string, candidates []string, start, end time.Time, diags *investigate.Diagnostics, analyze spikeAnalyzer) []MetricSpike {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -187,7 +195,7 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 	for i, name := range candidates {
 		i, name := i, name
 		g.Go(func() error {
-			spike, queries := analyzeFailureCandidate(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
+			spike, queries := analyze(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
 			results[i] = result{spike: spike, queries: queries}
 			return nil // best-effort phase: errors absorbed per-candidate
 		})
@@ -203,6 +211,10 @@ func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service 
 		}
 	}
 	return spikes
+}
+
+func computeFailureSpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
+	return computeSpikes(ctx, prom, service, discoverFailureMetrics(metricNames), start, end, diags, analyzeFailureCandidate)
 }
 func computeAnomalyScore(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) (float64, []MetricSpike) {
 	fail := computeFailureSpikes(ctx, prom, service, metricNames, start, end, diags)
@@ -374,41 +386,7 @@ func analyzeLatencyCandidate(ctx context.Context, prom *promclient.Client, servi
 // window + baseline queries run serially within each goroutine.
 // metricNames is the pre-fetched list from promclient.Client.MetricNames.
 func computeLatencySpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
-	candidates := discoverLatencyHistograms(metricNames)
-	if len(candidates) == 0 {
-		return nil
-	}
-
-	windowDur := end.Sub(start)
-	baselineEnd := start.Add(-1 * time.Hour)
-	baselineStart := baselineEnd.Add(-windowDur)
-
-	type result struct {
-		spike   *MetricSpike
-		queries int
-	}
-	results := make([]result, len(candidates))
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(promQueryConcurrency)
-	for i, name := range candidates {
-		i, name := i, name
-		g.Go(func() error {
-			spike, queries := analyzeLatencyCandidate(gctx, prom, service, name, start, end, baselineStart, baselineEnd)
-			results[i] = result{spike: spike, queries: queries}
-			return nil // best-effort phase: errors absorbed per-candidate
-		})
-	}
-	_ = g.Wait() // SetLimit only; never errors (best-effort phase)
-
-	var spikes []MetricSpike
-	for _, r := range results {
-		diags.MetricsQueried += r.queries
-		if r.spike != nil {
-			spikes = append(spikes, *r.spike)
-		}
-	}
-	return spikes
+	return computeSpikes(ctx, prom, service, discoverLatencyHistograms(metricNames), start, end, diags, analyzeLatencyCandidate)
 }
 
 // saturationQueueRegex matches gauge metrics representing queue depths and
@@ -512,41 +490,10 @@ func analyzeSaturationCandidate(ctx context.Context, prom *promclient.Client, se
 // promQueryConcurrency) using errgroup.
 // metricNames is the pre-fetched list from promclient.Client.MetricNames.
 func computeSaturationSpikes(ctx context.Context, prom *promclient.Client, service string, metricNames []string, start, end time.Time, diags *investigate.Diagnostics) []MetricSpike {
-	windowDur := end.Sub(start)
-	baselineEnd := start.Add(-1 * time.Hour)
-	baselineStart := baselineEnd.Add(-windowDur)
-
-	wildcards := discoverQueueMetrics(metricNames)
-
-	// Combine sentinels + wildcards into a single parallel fan-out.
-	allMetrics := make([]string, 0, len(sentinelSaturationMetrics)+len(wildcards))
-	allMetrics = append(allMetrics, sentinelSaturationMetrics...)
-	allMetrics = append(allMetrics, wildcards...)
-
-	type result struct {
-		spike   *MetricSpike
-		queries int
-	}
-	results := make([]result, len(allMetrics))
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(promQueryConcurrency)
-	for i, metricName := range allMetrics {
-		i, metricName := i, metricName
-		g.Go(func() error {
-			spike, queries := analyzeSaturationCandidate(gctx, prom, service, metricName, start, end, baselineStart, baselineEnd)
-			results[i] = result{spike: spike, queries: queries}
-			return nil // best-effort phase: errors absorbed per-candidate
-		})
-	}
-	_ = g.Wait() // SetLimit only; never errors (best-effort phase)
-
-	var spikes []MetricSpike
-	for _, r := range results {
-		diags.MetricsQueried += r.queries
-		if r.spike != nil {
-			spikes = append(spikes, *r.spike)
-		}
-	}
-	return spikes
+	// Saturation combines always-present sentinels + discovered queue/active
+	// gauges into one candidate list, then shares the parallel fan-out.
+	candidates := make([]string, 0, len(sentinelSaturationMetrics)+len(metricNames))
+	candidates = append(candidates, sentinelSaturationMetrics...)
+	candidates = append(candidates, discoverQueueMetrics(metricNames)...)
+	return computeSpikes(ctx, prom, service, candidates, start, end, diags, analyzeSaturationCandidate)
 }
