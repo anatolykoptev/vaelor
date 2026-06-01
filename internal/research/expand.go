@@ -12,7 +12,7 @@ type importNode struct {
 	deps []string
 }
 
-func (n importNode) NodeID() string    { return n.id }
+func (n importNode) NodeID() string     { return n.id }
 func (n importNode) NodeDeps() []string { return n.deps }
 
 // expandResult holds the outcome of DAG expansion for one file.
@@ -109,35 +109,6 @@ func expandFromSeeds(
 		}
 	}
 	return out
-}
-
-// buildImportFileGraph converts the package-level import graph into a file-level one.
-// pkgGraph maps package dir → set of imported package dirs.
-// pkgFiles maps package dir → []relPath of files in that package.
-func buildImportFileGraph(
-	pkgGraph map[string]map[string]struct{},
-	pkgFiles map[string][]string,
-) map[string][]string {
-	fileGraph := make(map[string][]string)
-	for pkg, imports := range pkgGraph {
-		srcFiles := pkgFiles[pkg]
-		for dep := range imports {
-			dstFiles := pkgFiles[dep]
-			if len(dstFiles) == 0 {
-				// Try suffix resolution.
-				for localPkg, files := range pkgFiles {
-					if strings.HasSuffix(dep, "/"+localPkg) || dep == localPkg {
-						dstFiles = files
-						break
-					}
-				}
-			}
-			for _, src := range srcFiles {
-				fileGraph[src] = append(fileGraph[src], dstFiles...)
-			}
-		}
-	}
-	return fileGraph
 }
 
 func buildWhyLinked(direction, via, neighbour string) string {
