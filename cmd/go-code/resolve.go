@@ -110,13 +110,3 @@ func localCheckoutFor(ctx context.Context, slug string, dirs []string) string {
 	}
 	return ""
 }
-
-// cloneToken returns the token to use for authenticated git clones.
-// Prefers CloneTokenFunc (GitHub App installation token) when set;
-// falls back to the static GithubToken PAT.
-func cloneToken(ctx context.Context, deps analyze.Deps) (string, error) {
-	if deps.CloneTokenFunc != nil {
-		return deps.CloneTokenFunc(ctx)
-	}
-	return deps.GithubToken, nil
-}
