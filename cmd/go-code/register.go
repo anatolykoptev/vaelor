@@ -27,6 +27,51 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const (
+	// agePoolMaxConns sizes the Apache AGE pool: graph build + concurrent queries need
+	// more than pgx's default 4.
+	agePoolMaxConns int32 = 8
+	// dataPoolMaxConns sizes the pgvector / relational pool: read-mostly semantic
+	// queries, lighter than graph build.
+	dataPoolMaxConns int32 = 6
+)
+
+// newGocodePool opens a pgxpool against dsn with maxConns connections.
+//
+// resetOnRelease=true installs the SR-A AfterRelease hook that runs RESET ALL on every
+// connection return. It is REQUIRED for the AGE pool, whose connections get their
+// search_path (acquireAGE / ageExpandSetup) and session GUCs (synchronous_commit,
+// statement_timeout — the bulk-copy path) dirtied by user code. RESET ALL resets those
+// GUCs to the role default but deliberately does NOT run DEALLOCATE ALL: pgx's default
+// exec mode (QueryExecModeCacheStatement) caches prepared statements per connection, and
+// DISCARD ALL's DEALLOCATE would invalidate them server-side → `prepared statement
+// "stmtcache_…" does not exist (SQLSTATE 26000)` on reuse (see PR #176).
+//
+// resetOnRelease=false is for the data pool: nothing on it ever runs SET search_path or
+// dirties GUCs, so its connections are pristine by construction and a reset hook would be
+// dead weight. This is what makes the search_path leak structurally impossible on the
+// data path — a data query cannot inherit ag_catalog because no code path ever sets it
+// on a dataPool connection.
+func newGocodePool(ctx context.Context, dsn string, maxConns int32, resetOnRelease bool) (*pgxpool.Pool, error) {
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	poolCfg.MaxConns = maxConns
+	if resetOnRelease {
+		poolCfg.AfterRelease = func(conn *pgx.Conn) bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if _, err := conn.Exec(ctx, "RESET ALL"); err != nil {
+				// Connection is unhealthy; destroy it rather than returning it.
+				return false
+			}
+			return true
+		}
+	}
+	return pgxpool.NewWithConfig(ctx, poolCfg)
+}
+
 // registerTools registers all MCP tool handlers on the server.
 // Each tool has its own file: tool_<name>.go
 // Returns the analyze.Deps for use by other components (e.g., webhook handler).
@@ -100,61 +145,37 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		Learnings:      buildLearningsStore(cfg),
 	}
 
-	// Database pool (optional — needs DATABASE_URL). Shared by code_graph and semantic_search.
+	// Database pools (optional — need DATABASE_URL). Tier-2: TWO pools, separated by
+	// session-state needs so the search_path leak is structurally impossible on the
+	// data path — see newGocodePool for the per-pool hook decision.
+	//   agePool  — Apache AGE consumers (codegraph.Store, embeddings.Expander). They run
+	//              `SET search_path TO ag_catalog,…` on every acquire and dirty session
+	//              GUCs in the bulk-copy path, so agePool carries the RESET ALL release hook.
+	//   dataPool — pure relational / pgvector consumers (embeddings.Store, designmd.Store).
+	//              Nothing on this pool ever runs SET search_path or touches session GUCs,
+	//              so its connections are pristine by construction: a data query CANNOT
+	//              inherit ag_catalog because no code path sets it on a dataPool conn.
+	//              (SR-B public.* qualification on the data tables remains as a backstop.)
+	// Both pools share one DSN, so they succeed or fail together; on partial failure we
+	// disable both to preserve the "both or neither" invariant the gates below rely on.
 	var graphStore *codegraph.Store
-	var dbPool *pgxpool.Pool
+	var agePool, dataPool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
-		poolCfg, cfgErr := pgxpool.ParseConfig(cfg.DatabaseURL)
-		if cfgErr != nil {
-			slog.Warn("database: parse config failed", slog.Any("error", cfgErr))
-		} else {
-			poolCfg.MaxConns = 10 // code_graph build + concurrent queries need > default 4
-			// SR-A: RESET ALL on every conn release resets every session GUC dirtied by
-			// user code back to its role/database default in one command:
-			// search_path (dirtied by acquireAGE / ageExpandSetup) and the
-			// synchronous_commit=off + statement_timeout=0 that BulkCopyInsert sets with
-			// no explicit reset (a conn returned with those active could silently lose
-			// acknowledged writes on crash). RESET ALL covers all three at once.
-			//
-			// Why RESET ALL, NOT DISCARD ALL:
-			//   The pool runs pgx's DEFAULT exec mode = QueryExecModeCacheStatement, which
-			//   keeps a PER-CONNECTION server-side prepared-statement cache (the
-			//   `stmtcache_<hash>` names). DISCARD ALL includes DEALLOCATE ALL, which drops
-			//   those statements server-side while pgx's client-side LRU still believes
-			//   they exist → the next reuse fails with `prepared statement "stmtcache_…"
-			//   does not exist (SQLSTATE 26000)`. That regression broke SetRepoState on
-			//   every same-sha sync (embed_repo_state_write_failures_total climbed, indexed
-			//   SHA stopped persisting). RESET ALL resets GUCs ONLY — it leaves prepared
-			//   statements, cursors, temp tables and plan caches intact, so pgx's cache
-			//   stays consistent with the server.
-			//
-			// No session-level temp tables are shared across acquire/release boundaries,
-			// so dropping DISCARD's temp/sequence reset costs nothing. acquireAGE re-applies
-			// ageSetup on every acquire, so AGE paths work fine after the reset.
-			// AfterRelease is chosen over BeforeAcquire so the conn is clean when it leaves
-			// user code, not when it enters. NOTE: RESET ALL resets search_path to the pool
-			// ROLE's default, not a hardcoded value — safe because the pool connects as
-			// gocode_app (default `"$user", public`). If the DSN ever switched to a role
-			// whose default search_path leads with ag_catalog (e.g. memos), RESET ALL alone
-			// would re-leak; SR-B (public.* qualification on the data tables) is the
-			// belt-and-suspenders that keeps routing correct regardless of role default.
-			poolCfg.AfterRelease = func(conn *pgx.Conn) bool {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				if _, err := conn.Exec(ctx, "RESET ALL"); err != nil {
-					// Connection is unhealthy; destroy it rather than returning it.
-					return false
-				}
-				return true
+		var ageErr, dataErr error
+		agePool, ageErr = newGocodePool(context.Background(), cfg.DatabaseURL, agePoolMaxConns, true)
+		dataPool, dataErr = newGocodePool(context.Background(), cfg.DatabaseURL, dataPoolMaxConns, false)
+		if ageErr != nil || dataErr != nil {
+			slog.Warn("database: pool init failed, code_graph and semantic_search disabled",
+				slog.Any("age_error", ageErr), slog.Any("data_error", dataErr))
+			if agePool != nil {
+				agePool.Close()
 			}
-		}
-		p, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-		if err != nil {
-			slog.Warn("database: failed to connect, code_graph and semantic_search disabled",
-				slog.Any("error", err))
+			if dataPool != nil {
+				dataPool.Close()
+			}
+			agePool, dataPool = nil, nil
 		} else {
-			dbPool = p
-			graphStore = codegraph.NewStore(dbPool)
+			graphStore = codegraph.NewStore(agePool)
 			// Preflight verifies AGE is server-preloaded (#111: per-connection LOAD removed)
 			// and that the role has ag_catalog USAGE + database CREATE privileges (#112).
 			// Fail fast at startup so operators get clear instructions rather than a
@@ -185,12 +206,12 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
 	// Created early so tools can use semantic fallback.
 	var semDeps SemanticDeps
-	if cfg.EmbedURL != "" && dbPool != nil {
+	if cfg.EmbedURL != "" && dataPool != nil {
 		ec, err := newCodeEmbedder(cfg)
 		if err != nil {
 			slog.Warn("embed: code client disabled", slog.Any("error", err))
 		} else {
-			es := embeddings.NewStore(dbPool)
+			es := embeddings.NewStore(dataPool)
 			var pipelineOpts []embeddings.PipelineOpt
 			if cfg.EmbedPipelineCache {
 				pipelineOpts = append(pipelineOpts, embeddings.WithFileCache(embeddings.NewPipelineCache()))
@@ -200,7 +221,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 				Store:       es,
 				Pipeline:    embeddings.NewPipeline(ec, es, pipelineOpts...),
 				AnalyzeDeps: deps,
-				Expander:    embeddings.NewExpander(dbPool),
+				Expander:    embeddings.NewExpander(agePool),
 				OxCodes:     buildOxCodesClient(cfg),
 				RRFWeights:  rrfWeights,
 			}
@@ -251,14 +272,14 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerDataflow(server, cfg, deps)
 	// Design search deps (optional — needs DESIGN_EMBED_URL + DATABASE_URL).
 	var designDeps DesignDeps
-	if cfg.DesignEmbedURL != "" && dbPool != nil {
+	if cfg.DesignEmbedURL != "" && dataPool != nil {
 		dc, err := newDesignEmbedder(cfg)
 		if err != nil {
 			slog.Warn("embed: design client disabled", slog.Any("error", err))
 		} else {
 			designDeps = DesignDeps{
 				Client: dc,
-				Store:  designmd.NewStore(dbPool),
+				Store:  designmd.NewStore(dataPool),
 			}
 		}
 	}
