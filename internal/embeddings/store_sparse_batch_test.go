@@ -170,16 +170,16 @@ func TestUpdateSparseEmbeddingsBatch_EmptyBatch(t *testing.T) {
 }
 
 // TestUpdateSparseEmbeddingsBatch_ChunkSplit_UnitCount verifies that a slice
-// larger than sparseBatchSize (500) is split into the expected number of chunks.
+// larger than sparseBatchSize (100) is split into the expected number of chunks.
 // This is a pure unit test: it intercepts at the chunk boundary via a spy that
 // counts chunk sizes without a real DB pool.
 //
 // Falsification: change the `i += sparseBatchSize` loop stride to `i += len(rows)`
 // (process all in one shot) → only 1 chunk call is issued and the test goes RED
-// (want 2 chunks for 501 rows). An off-by-one at the 500-row boundary also fires
-// because chunksizes[0] would be 500 and there would be no second chunk at all.
+// (want 2 chunks for 101 rows). An off-by-one at the 100-row boundary also fires
+// because chunksizes[0] would be 100 and there would be no second chunk at all.
 func TestUpdateSparseEmbeddingsBatch_ChunkSplit_UnitCount(t *testing.T) {
-	const n = 501 // exactly 1 over the sparseBatchSize=500 boundary
+	const n = 101 // exactly 1 over the sparseBatchSize=100 boundary
 	rows := make([]SparseUpdate, n)
 	for i := range n {
 		rows[i] = SparseUpdate{
@@ -202,8 +202,8 @@ func TestUpdateSparseEmbeddingsBatch_ChunkSplit_UnitCount(t *testing.T) {
 		chunkSizes = append(chunkSizes, j-i)
 	}
 
-	wantChunks := 2            // ceil(501/500) = 2
-	wantSizes := []int{500, 1} // first chunk full, second has remainder
+	wantChunks := 2            // ceil(101/100) = 2
+	wantSizes := []int{100, 1} // first chunk full, second has remainder
 
 	if len(chunkSizes) != wantChunks {
 		t.Errorf("chunk count: want %d, got %d (sizes=%v)", wantChunks, len(chunkSizes), chunkSizes)
@@ -218,13 +218,13 @@ func TestUpdateSparseEmbeddingsBatch_ChunkSplit_UnitCount(t *testing.T) {
 	}
 }
 
-// TestUpdateSparseEmbeddingsBatch_ChunkSplit_DBPersisted seeds 501 dense rows and
-// calls UpdateSparseEmbeddingsBatch with 501 sparse updates, asserting that ALL
+// TestUpdateSparseEmbeddingsBatch_ChunkSplit_DBPersisted seeds 101 dense rows and
+// calls UpdateSparseEmbeddingsBatch with 101 sparse updates, asserting that ALL
 // rows get their sparse_embedding written (the split must not lose the boundary row).
 // Uses the live gocode DB (skipped when DATABASE_URL is not set).
 //
 // Falsification: remove the for-loop in UpdateSparseEmbeddingsBatch so only the
-// first 500 rows are processed → the last row stays NULL, nonNullCount < 501,
+// first 100 rows are processed → the last row stays NULL, nonNullCount < 101,
 // the assertion fires (RED).
 func TestUpdateSparseEmbeddingsBatch_ChunkSplit_DBPersisted(t *testing.T) {
 	pool := testPool(t)
@@ -237,7 +237,7 @@ func TestUpdateSparseEmbeddingsBatch_ChunkSplit_DBPersisted(t *testing.T) {
 
 	const (
 		repo = "test/batch-chunk-split"
-		n    = 501 // 1 row over sparseBatchSize to force a second chunk
+		n    = 101 // 1 row over sparseBatchSize to force a second chunk
 	)
 	_ = store.DeleteRepo(ctx, repo)
 	t.Cleanup(func() { _ = store.DeleteRepo(ctx, repo) })
@@ -258,7 +258,7 @@ func TestUpdateSparseEmbeddingsBatch_ChunkSplit_DBPersisted(t *testing.T) {
 		t.Fatalf("upsert dense: %v", err)
 	}
 
-	// Build 501 sparse updates — one per row including the boundary row.
+	// Build 101 sparse updates — one per row including the boundary row.
 	batch := make([]SparseUpdate, n)
 	for i := range n {
 		sv := sparse.SparseVector{

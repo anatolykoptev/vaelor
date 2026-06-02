@@ -471,13 +471,17 @@ func TestBackfill_BatchWrite_OneCallPerPage(t *testing.T) {
 	}
 }
 
-// TestBackfill_BatchWriteFailure_NonFatal verifies that a batch UPDATE failure
-// counts ALL rows in the batch as embed_failed (by row count, not by 1), leaves
-// them NULL, and does not propagate a fatal error upward.
+// TestBackfill_BatchWriteFailure_NonFatal verifies that a batch UPDATE failure:
+//   - counts ALL rows as write_failed (NOT embed_failed — embed succeeded),
+//   - does NOT increment embed_failed (those are separate failure classes),
+//   - leaves rows NULL (WriteFailed, not Backfilled),
+//   - does not propagate a fatal error upward.
 //
-// Falsification: revert the counter to Inc() (per-item) and change the assertion
-// → delta != nSymbols, or remove the batch write call → no rows are counted,
-// both go RED.
+// Falsification (write_failed path):
+//   - Change backfillOutcomeWriteFailed → backfillOutcomeEmbedFailed in the write-
+//     error branch → write_failed delta stays 0, test goes RED.
+//   - Remove the counter increment entirely → both deltas stay 0, test goes RED.
+//   - Change result.WriteFailed += n → omit → result.WriteFailed stays 0, RED.
 func TestBackfill_BatchWriteFailure_NonFatal(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
@@ -504,7 +508,8 @@ func TestBackfill_BatchWriteFailure_NonFatal(t *testing.T) {
 	}
 
 	result := &BackfillResult{}
-	before := backfillCounterValue(backfillOutcomeEmbedFailed)
+	beforeWrite := backfillCounterValue(backfillOutcomeWriteFailed)
+	beforeEmbed := backfillCounterValue(backfillOutcomeEmbedFailed)
 
 	store := &Store{}
 	store.backfillPage(
@@ -512,19 +517,28 @@ func TestBackfill_BatchWriteFailure_NonFatal(t *testing.T) {
 		&fakeSparseEmbedder{},
 		rows,
 		func(_ string) (string, bool) { return dir, true },
-		func(_ context.Context, batch []SparseUpdate) error {
+		func(_ context.Context, _ []SparseUpdate) error {
 			return errors.New("injected batch write failure")
 		},
 		result,
 	)
 
-	after := backfillCounterValue(backfillOutcomeEmbedFailed)
-	delta := after - before
-	if int(delta) != nSymbols {
-		t.Errorf("embed_failed counter: expected delta %d (one per row in batch), got %g", nSymbols, delta)
+	afterWrite := backfillCounterValue(backfillOutcomeWriteFailed)
+	afterEmbed := backfillCounterValue(backfillOutcomeEmbedFailed)
+
+	// write_failed must increment by nSymbols — the WRITE timed out, embed was fine.
+	if writeDelta := afterWrite - beforeWrite; int(writeDelta) != nSymbols {
+		t.Errorf("write_failed counter: expected delta %d (one per row in batch), got %g", nSymbols, writeDelta)
 	}
-	if result.EmbedFailed != nSymbols {
-		t.Errorf("result.EmbedFailed: expected %d, got %d", nSymbols, result.EmbedFailed)
+	// embed_failed must NOT increment — embed succeeded, only the write failed.
+	if embedDelta := afterEmbed - beforeEmbed; embedDelta != 0 {
+		t.Errorf("embed_failed counter must not change on write failure, got delta %g", embedDelta)
+	}
+	if result.WriteFailed != nSymbols {
+		t.Errorf("result.WriteFailed: expected %d, got %d", nSymbols, result.WriteFailed)
+	}
+	if result.EmbedFailed != 0 {
+		t.Errorf("result.EmbedFailed must be 0 when only the write failed, got %d", result.EmbedFailed)
 	}
 	if result.Backfilled != 0 {
 		t.Errorf("no row must be counted as backfilled when batch write fails, got %d", result.Backfilled)
