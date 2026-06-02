@@ -23,10 +23,19 @@ const (
 	fieldsPerDense = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
 
 	// sparseBatchSize is the maximum rows per single multi-row sparse UPDATE.
-	// Postgres caps total bind parameters at 65535; with 4 params per row
-	// (repo_key, file_path, symbol_name, vec) that allows up to 16383 rows per
-	// statement. 500 is well under that ceiling and keeps each statement fast.
-	sparseBatchSize    = 500
+	//
+	// The binding constraint is NOT the Postgres 65535-param ceiling (4 params/row
+	// allows up to 16383 rows). The real constraint is the sparsevec text literal
+	// size: each row carries up to sparseMaxTerms (256) "idx:val" pairs, ~6 bytes
+	// each, yielding up to ~1.5 KB per literal. At 500 rows that is ~750 KB of
+	// sparsevec text in a single statement — enough parse+write work to exceed the
+	// pool's statement_timeout (live evidence: SQLSTATE 57014 on 499-row batches).
+	//
+	// At 100 rows: ~150 KB/statement, well within statement_timeout on any
+	// Postgres statement_timeout ≥ 1 s, with comfortable headroom.
+	// Raising beyond 100 requires re-measuring against the actual statement_timeout
+	// and indexing load, not just the param ceiling.
+	sparseBatchSize    = 100
 	sparseParamsPerRow = 4 // repo_key, file_path, symbol_name, vec
 
 	// sparseColRepoKey … sparseColVec are 1-based positional offsets within one
@@ -200,9 +209,11 @@ type SparseUpdate struct {
 //	  FROM (VALUES ($1,$2,$3,$4::text), ...) AS v(repo_key,file_path,symbol_name,vec)
 //	 WHERE c.repo_key=v.repo_key AND c.file_path=v.file_path AND c.symbol_name=v.symbol_name
 //
-// Batches are capped at sparseBatchSize (500) rows; callers may pass any number
-// and this method splits internally. Non-fatal contract: failure leaves those rows NULL
-// failure is the caller's responsibility to log+count; no row is written on error.
+// Batches are capped at sparseBatchSize (100) rows; callers may pass any number
+// and this method splits internally. The cap is data-size-bound (sparsevec literal
+// text ~1.5 KB/row × 100 = ~150 KB/statement), not param-count-bound. Non-fatal
+// contract: failure leaves those rows NULL; the caller is responsible for
+// logging+counting; no row is written on error.
 func (s *Store) UpdateSparseEmbeddingsBatch(ctx context.Context, rows []SparseUpdate) error {
 	if len(rows) == 0 {
 		return nil

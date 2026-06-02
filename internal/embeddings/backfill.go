@@ -24,6 +24,11 @@ import (
 //   - "skipped_drift"    — body_hash mismatch (disk drifted from index); row stays NULL
 //   - "skipped_missing"  — repo or file not found on disk; row stays NULL
 //   - "embed_failed"     — embed-server returned error; row stays NULL (retried next run)
+//   - "write_failed"     — DB batch UPDATE timed out or errored (SQLSTATE 57014 or
+//                          other write error); embed succeeded but the row was not
+//                          persisted and stays NULL for retry on the next run.
+//                          Distinguishable from embed_failed on /metrics so alert
+//                          rules can identify DB write pressure vs embed-server issues.
 //
 // gocode_sparse_backfill_remaining is a per-call gauge set to the NULL row count
 // BEFORE each page — useful for progress monitoring via /metrics.
@@ -45,7 +50,13 @@ var (
 
 func init() {
 	// Pre-touch all label values so the counter family is always visible on /metrics.
-	for _, outcome := range []string{backfillOutcomeBackfilled, backfillOutcomeDrift, backfillOutcomeMissing, backfillOutcomeEmbedFailed} {
+	for _, outcome := range []string{
+		backfillOutcomeBackfilled,
+		backfillOutcomeDrift,
+		backfillOutcomeMissing,
+		backfillOutcomeEmbedFailed,
+		backfillOutcomeWriteFailed,
+	} {
 		sparseBackfillTotal.WithLabelValues(outcome).Add(0)
 	}
 }
@@ -55,6 +66,7 @@ const (
 	backfillOutcomeDrift       = "skipped_drift"
 	backfillOutcomeMissing     = "skipped_missing"
 	backfillOutcomeEmbedFailed = "embed_failed"
+	backfillOutcomeWriteFailed = "write_failed"
 
 	// backfillPageSize is the number of NULL rows fetched per SQL page.
 	// Keeps peak memory bounded for large repos (103K rows ≈ 207 pages).
@@ -78,6 +90,7 @@ type BackfillResult struct {
 	SkippedDrift int
 	SkippedMiss  int
 	EmbedFailed  int
+	WriteFailed  int // batch DB write timed out or errored; rows stay NULL for retry
 	Total        int // rows examined
 }
 
@@ -198,6 +211,7 @@ func (s *Store) BackfillSparse(
 		slog.Int("skipped_drift", result.SkippedDrift),
 		slog.Int("skipped_missing", result.SkippedMiss),
 		slog.Int("embed_failed", result.EmbedFailed),
+		slog.Int("write_failed", result.WriteFailed),
 		slog.Int("total", result.Total),
 	)
 	return result, nil
@@ -404,13 +418,19 @@ func backfillWriteVecs(
 	// One batch UPDATE for all surviving rows in this page.
 	if werr := writeSparsesBatch(ctx, batch); werr != nil {
 		n := len(batch)
+		// Embed succeeded; the WRITE failed (e.g. SQLSTATE 57014 statement_timeout).
+		// Count as write_failed — distinct from embed_failed — so dashboards can
+		// separate DB write pressure from embed-server issues.
+		// sparseEmbedFailTotal{stage="write"} is the pipeline-level counter for
+		// all write failures (shared with the inline pipeline path); the backfill-
+		// specific write_failed outcome gives per-run granularity on /metrics.
 		sparseEmbedFailTotal.WithLabelValues("write").Add(float64(n))
 		for range n {
-			sparseBackfillTotal.WithLabelValues(backfillOutcomeEmbedFailed).Inc()
+			sparseBackfillTotal.WithLabelValues(backfillOutcomeWriteFailed).Inc()
 		}
-		result.EmbedFailed += n
-		embedFailed += n
-		slog.Warn("sparse backfill: batch write failed; rows stay NULL",
+		result.WriteFailed += n
+		embedFailed += n // embedFailed drives the all-permanent-skip termination check
+		slog.Warn("sparse backfill: batch write failed; rows stay NULL (IS NULL cursor retries next run)",
 			slog.Int("rows", n),
 			slog.Any("error", werr),
 		)
