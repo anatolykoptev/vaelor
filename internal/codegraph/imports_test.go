@@ -299,3 +299,69 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildGraphRelativeTSImportResolvesToContainer verifies that TS/JS-style
+// relative imports ("./x", "../x", index dirs) resolve to the target file's
+// package (container) dir instead of becoming orphan external nodes.
+//
+// Falsification (red-on-revert): drop the resolveRelativeImport dispatch and the
+// edges target the raw "./chat" string + duplicate external vertices appear.
+func TestBuildGraphRelativeTSImportResolvesToContainer(t *testing.T) {
+	t.Parallel()
+
+	root := "/repo"
+	files := []*ingest.File{
+		{Path: "/repo/web/src/lib/app.ts", RelPath: "web/src/lib/app.ts", Language: "typescript", Size: 100},
+		{Path: "/repo/web/src/lib/chat.ts", RelPath: "web/src/lib/chat.ts", Language: "typescript", Size: 100},
+		{Path: "/repo/web/src/lib/video/index.ts", RelPath: "web/src/lib/video/index.ts", Language: "typescript", Size: 100},
+		{Path: "/repo/web/src/util/fmt.ts", RelPath: "web/src/util/fmt.ts", Language: "typescript", Size: 100},
+	}
+	cg := &callgraph.CallGraph{}
+	fileImports := map[string][]string{
+		"web/src/lib/app.ts": {
+			"./chat",         // extensionless → chat.ts, container web/src/lib
+			"./video",        // dir index → video/index.ts, container web/src/lib/video
+			"../util/fmt.ts", // explicit ext, parent dir → container web/src/util
+			"react",          // external — stays external
+		},
+	}
+
+	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+
+	wantEdge := map[string]string{
+		"./chat":         "web/src/lib",
+		"./video":        "web/src/lib/video",
+		"../util/fmt.ts": "web/src/util",
+	}
+	got := make(map[string]string)
+	for _, e := range edges {
+		if e.EdgeLabel == "IMPORTS" && e.FromKey == "web/src/lib/app.ts" {
+			got[e.ToKey] = e.ToKey
+		}
+	}
+	for imp, container := range wantEdge {
+		if _, hasRaw := got[imp]; hasRaw {
+			t.Errorf("relative import %q left unresolved as raw ToKey (want container %q)", imp, container)
+		}
+		if _, hasContainer := got[container]; !hasContainer {
+			t.Errorf("relative import %q did not resolve to container %q; edges=%v", imp, container, got)
+		}
+	}
+
+	// No external vertex for a resolved relative import.
+	for _, v := range vertices {
+		if v.Label == "Package" && (v.Props["path"] == "./chat" || v.Props["path"] == "./video" || v.Props["path"] == "../util/fmt.ts") {
+			t.Errorf("duplicate external vertex created for resolved relative import %q", v.Props["path"])
+		}
+	}
+	// External import still gets its own vertex.
+	ext := false
+	for _, v := range vertices {
+		if v.Label == "Package" && v.Props["path"] == "react" && v.Props["repo"] == "external" {
+			ext = true
+		}
+	}
+	if !ext {
+		t.Error("external import 'react' should remain its own external vertex")
+	}
+}
