@@ -1,48 +1,52 @@
 package codegraph
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-kit/rerank"
 )
 
 const (
-	rerankURL           = "http://embed-server:8082/v1/rerank"
 	rerankModel         = "gte-multi-rerank"
 	rerankDeadCodeQuery = "orphaned function with no callers that is a bug risk"
 	rerankTopN          = 20
 	// rerankPreFilterN is the max docs sent to reranker; ~4s for 20 docs on ARM.
 	rerankPreFilterN = 20
+	// defaultRerankTimeout bounds a dead_code rerank call (~0.2s/doc on ARM).
+	defaultRerankTimeout = 35 * time.Second
 )
 
-var rerankTimeout = 35 * time.Second // set in init via parseTimeoutSecs
-var rerankHTTPClient *http.Client
+var rerankTimeout = defaultRerankTimeout // set in init via parseTimeoutSecs
+
+// rerankClient is the shared cross-encoder client (go-kit/rerank). It is
+// configured from EMBED_URL + EMBED_TOKEN — the same embedding server used for
+// semantic_search — so dead_code and semantic rerank reach whatever host
+// EMBED_URL points at (local embed-server or the embed.krolik.tools edge),
+// authenticated via the EMBED_TOKEN bearer.
+//
+// Timeout is left at 0 so each caller bounds the call with its own ctx deadline
+// (dead_code 35s, semantic 15s). When EMBED_URL is empty the client reports
+// Available()==false and callers skip reranking, preserving byte-identical
+// output (cold-path guarantee).
+var rerankClient *rerank.Client
 
 func init() {
-	rerankTimeout = parseTimeoutSecs("GOCODE_RERANK_TIMEOUT_S", 35*time.Second)
-	rerankHTTPClient = &http.Client{Timeout: rerankTimeout}
-}
-
-// rerankRequest is the Cohere-compatible rerank API request.
-type rerankRequest struct {
-	Model     string   `json:"model"`
-	Query     string   `json:"query"`
-	Documents []string `json:"documents"`
-}
-
-// rerankResponse is the rerank API response.
-type rerankResponse struct {
-	Results []struct {
-		Index          int     `json:"index"`
-		RelevanceScore float64 `json:"relevance_score"`
-	} `json:"results"`
+	rerankTimeout = parseTimeoutSecs("GOCODE_RERANK_TIMEOUT_S", defaultRerankTimeout)
+	rerankClient = rerank.New(rerank.Config{
+		URL:    os.Getenv("EMBED_URL"),
+		Model:  rerankModel,
+		APIKey: os.Getenv("EMBED_TOKEN"),
+		// MaxDocs sizes to the build-time path's upper bound (it sends ALL
+		// candidates, up to maxOrphanCandidates). Runtime callsites pre-filter
+		// to rerankPreFilterN themselves, so a larger cap never truncates them.
+		MaxDocs: maxOrphanCandidates,
+	}, slog.Default())
 }
 
 // RerankDeadCode reranks dead_code Cypher rows by likelihood of being
@@ -52,7 +56,8 @@ type rerankResponse struct {
 // reranker — gte-multi-rerank takes ~0.2s/doc on ARM, so 20 docs ≈ 4s total.
 //
 // Returns the top rerankTopN rows sorted by relevance_score DESC.
-// Falls back to original rows (capped at rerankTopN) on any error (non-fatal).
+// Falls back to original rows (capped at rerankTopN) when the reranker is not
+// configured or any error occurs (non-fatal).
 func RerankDeadCode(_ context.Context, rows [][]string) [][]string {
 	if len(rows) == 0 {
 		return rows
@@ -81,12 +86,22 @@ func RerankDeadCode(_ context.Context, rows [][]string) [][]string {
 	}
 	candidates = candidates[:limit]
 
-	// Build document strings for the reranker.
-	docs := make([]string, len(candidates))
 	candidateRows := make([][]string, len(candidates))
 	for i, c := range candidates {
-		docs[i] = formatDeadCodeDoc(c.row[0])
 		candidateRows[i] = c.row
+	}
+
+	// Cold-path guarantee: with no reranker configured, return the original
+	// (complexity-sorted) order capped at rerankTopN — byte-identical to the
+	// pre-rerank behaviour.
+	if !rerankClient.Available() {
+		return capRows(candidateRows, rerankTopN)
+	}
+
+	// Build documents for the reranker.
+	docs := make([]rerank.Doc, len(candidates))
+	for i, c := range candidates {
+		docs[i] = rerank.Doc{Text: formatDeadCodeDoc(c.row[0])}
 	}
 
 	// Use a background context so the reranker call is not bound by the
@@ -94,34 +109,27 @@ func RerankDeadCode(_ context.Context, rows [][]string) [][]string {
 	rerankCtx, cancel := context.WithTimeout(context.Background(), rerankTimeout)
 	defer cancel()
 
-	// Call reranker.
-	ranked, err := callReranker(rerankCtx, rerankDeadCodeQuery, docs)
-	if err != nil {
-		slog.Warn("codegraph: dead_code rerank failed, using original order",
-			slog.Any("error", err))
-		if len(candidateRows) > rerankTopN {
-			return candidateRows[:rerankTopN]
-		}
-		return candidateRows
+	// RerankWithResult returns docs sorted by relevance DESC on success; on a
+	// degraded/skipped call it returns the input order unchanged (Score=0,
+	// OrigRank=i), so the fallback below is the original complexity order capped
+	// at rerankTopN.
+	res, _ := rerankClient.RerankWithResult(rerankCtx, rerankDeadCodeQuery, docs)
+	if res == nil {
+		return capRows(candidateRows, rerankTopN)
 	}
+	scored := res.Scored
 
-	// Sort by score DESC and take top N.
-	sort.Slice(ranked.Results, func(i, j int) bool {
-		return ranked.Results[i].RelevanceScore > ranked.Results[j].RelevanceScore
-	})
-
-	limit = min(rerankTopN, len(ranked.Results))
-
+	limit = min(rerankTopN, len(scored))
 	reranked := make([][]string, 0, limit)
-	for _, r := range ranked.Results[:limit] {
-		if r.Index < len(candidateRows) {
-			reranked = append(reranked, candidateRows[r.Index])
+	for _, s := range scored[:limit] {
+		if s.OrigRank >= 0 && s.OrigRank < len(candidateRows) {
+			reranked = append(reranked, candidateRows[s.OrigRank])
 		}
 	}
 
 	topScore := 0.0
-	if len(ranked.Results) > 0 {
-		topScore = ranked.Results[0].RelevanceScore
+	if len(scored) > 0 {
+		topScore = float64(scored[0].Score)
 	}
 
 	slog.Info("codegraph: dead_code reranked",
@@ -130,6 +138,14 @@ func RerankDeadCode(_ context.Context, rows [][]string) [][]string {
 		slog.Float64("top_score", topScore))
 
 	return reranked
+}
+
+// capRows returns rows truncated to at most n entries.
+func capRows(rows [][]string, n int) [][]string {
+	if len(rows) > n {
+		return rows[:n]
+	}
+	return rows
 }
 
 // formatDeadCodeDoc extracts key fields from an AGE vertex JSON string
@@ -188,13 +204,6 @@ func extractFieldRerank(s, field string) string {
 	return rest[:end]
 }
 
-// callReranker makes a POST request to the embed-server rerank endpoint using
-// the package-default rerankHTTPClient. It delegates to callRerankerWithClient
-// so request/response handling lives in exactly one place.
-func callReranker(ctx context.Context, query string, documents []string) (*rerankResponse, error) {
-	return callRerankerWithClient(ctx, rerankHTTPClient, query, documents)
-}
-
 // parseIntField parses an integer field from an AGE vertex JSON string.
 func parseIntField(s, field string) int {
 	val := extractFieldRerank(s, field)
@@ -208,38 +217,4 @@ func parseIntField(s, field string) int {
 		}
 	}
 	return n
-}
-
-// callRerankerWithClient is like callReranker but uses a caller-supplied
-// http.Client — for build-time scoring that needs longer timeout than rerankHTTPClient.
-func callRerankerWithClient(ctx context.Context, client *http.Client, query string, documents []string) (*rerankResponse, error) {
-	body, err := json.Marshal(rerankRequest{Model: rerankModel, Query: query, Documents: documents})
-	if err != nil {
-		return nil, fmt.Errorf("marshal: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rerankURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rerank returned %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-	var result rerankResponse
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("unmarshal: %w", err)
-	}
-	if len(result.Results) == 0 {
-		return nil, fmt.Errorf("empty results")
-	}
-	return &result, nil
 }
