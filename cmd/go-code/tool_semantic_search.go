@@ -13,6 +13,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-kit/embed"
+	"github.com/anatolykoptev/go-kit/sparse"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -35,8 +36,12 @@ type SemanticDeps struct {
 	Expander    *embeddings.Expander
 	OxCodes     *oxcodes.Client
 	// RRFWeights are the per-retriever weights threaded into MergeRRF.
-	// Defaults to (1.0, 1.0) — byte-identical to unweighted RRF.
+	// Defaults to (1.0, 1.0, 0.0) — Sparse is dark-launched at 0.0 (P4).
 	RRFWeights embeddings.RRFWeights
+	// SparseClient is the SPLADE sparse embedder used for query-time retrieval
+	// (P4 dark-launch). Nil when SPARSE_EMBED_URL is unset — arm is bypassed
+	// entirely, yielding byte-identical behavior to the 2-arm baseline.
+	SparseClient sparse.SparseEmbedder
 	// storeSearcher is the interface used by semanticSuggest for trigram name
 	// lookup. Production leaves this nil and semanticSuggest falls back to Store.
 	// Tests wire a spy here to avoid a real Postgres connection.
@@ -44,8 +49,8 @@ type SemanticDeps struct {
 }
 
 const (
-	defaultSemanticTopK      = 10
-	maxSemanticTopK          = 50
+	defaultSemanticTopK = 10
+	maxSemanticTopK     = 50
 	// semanticRerankCandidates is the minimum candidate pool for CE reranker.
 	// Ensures at least 20 candidates regardless of topK.
 	semanticRerankCandidates = 20
@@ -174,7 +179,8 @@ func handleSemanticHits(
 		}
 	}
 
-	// Hybrid: run keyword search and merge with RRF.
+	// Hybrid: run keyword search and (P4 dark-launch) sparse retrieval, then
+	// merge all arms with 3-way weighted RRF.
 	// Overretrieve before CE reranking so the reranker sees more candidates.
 	rerankCap := max(topK*2, semanticRerankCandidates)
 	var keyHits []embeddings.FileLineHit
@@ -183,11 +189,33 @@ func handleSemanticHits(
 	} else {
 		keyHits = runKeywordSearch(ctx, input.Query, root)
 	}
-	if len(keyHits) > 0 {
-		matched, matchErr := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
-		if matchErr == nil && len(matched) > 0 {
+
+	// SPLADE sparse arm (P4 dark-launch): nil client → no DB hit, empty slice.
+	// Failure inside SearchSparse is logged + counter-bumped there; we always
+	// get back a (possibly empty) slice — never an error we must handle here.
+	// Empty sparse arm + weight 0.0 → byte-identical 2-arm output (guaranteed
+	// by WeightedRRF math, verified by TestMergeRRF_EmptySparseArmIdentical).
+	var sparseHits []embeddings.SparseHit
+	if deps.SparseClient != nil && deps.Store != nil {
+		sparseHits, _ = deps.Store.SearchSparse(ctx, input.Query, deps.SparseClient, embeddings.SearchOpts{
+			RepoKey:  repoKey,
+			Language: input.Language,
+			TopK:     rerankCap,
+		})
+	}
+
+	if len(keyHits) > 0 || len(sparseHits) > 0 {
+		var matched []embeddings.KeywordHit
+		if len(keyHits) > 0 {
+			var matchErr error
+			matched, matchErr = deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
+			if matchErr != nil {
+				matched = nil
+			}
+		}
+		if len(matched) > 0 || len(sparseHits) > 0 {
 			// Merge with an enlarged pool so CE reranker can pick the best topK.
-			hybrid := embeddings.MergeRRF(results, matched, rerankCap, deps.RRFWeights)
+			hybrid := embeddings.MergeRRF(results, matched, sparseHits, rerankCap, deps.RRFWeights)
 			// Flatten HybridResult → SearchResult for CE reranker.
 			flat := make([]embeddings.SearchResult, len(hybrid))
 			for i, h := range hybrid {
