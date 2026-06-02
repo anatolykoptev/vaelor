@@ -10,16 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/anatolykoptev/go-code/internal/pgutil"
+	"github.com/anatolykoptev/go-kit/sparse"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
 const (
-	defaultTopK  = 20
-	maxTopK      = 100
-	dimSize      = 768  // jina-code-v2 dense embedding dimension
-	sparseDim    = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size (P1: column DDL, P3: HNSW index deferred — sparsevec HNSW unsupported in pgvector 0.8.2)
-	batchSize    = 50
-	fieldsPerRec = 8
+	defaultTopK    = 20
+	maxTopK        = 100
+	dimSize        = 768   // jina-code-v2 dense embedding dimension
+	sparseDim      = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size (P1: column DDL, P3: HNSW index deferred — sparsevec HNSW unsupported in pgvector 0.8.2)
+	batchSize      = 50
+	fieldsPerDense = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
 )
 
 // schemaSQL creates the pgvector extension and the two public-schema data tables.
@@ -45,14 +46,15 @@ CREATE TABLE IF NOT EXISTS public.code_repo_state (
 
 // EmbeddingRecord holds a single symbol embedding for storage.
 type EmbeddingRecord struct {
-	RepoKey    string
-	FilePath   string
-	SymbolName string
-	SymbolKind string // function, method, class, etc.
-	Language   string
-	StartLine  int
-	BodyHash   uint64 // for change detection
-	Embedding  []float32
+	RepoKey         string
+	FilePath        string
+	SymbolName      string
+	SymbolKind      string // function, method, class, etc.
+	Language        string
+	StartLine       int
+	BodyHash        uint64              // for change detection
+	Embedding       []float32           // dense jina-code-v2 vector (768-dim)
+	SparseEmbedding sparse.SparseVector // SPLADE sparse vector (30522-dim); zero value → NULL in DB
 }
 
 // SearchOpts controls search filtering and result count.
@@ -123,16 +125,19 @@ func (s *Store) Upsert(ctx context.Context, records []EmbeddingRecord) error {
 
 func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) error {
 	var b strings.Builder
+	// Dense-only INSERT: no sparse_embedding column here. Sparse is written via a
+	// separate best-effort UPDATE (see UpdateSparseEmbedding) so a malformed
+	// sparsevec literal cannot roll back the dense rows for the whole batch.
 	b.WriteString(`INSERT INTO public.code_embeddings
 		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embedding,updated_at) VALUES `)
-	args := make([]any, 0, len(records)*fieldsPerRec)
+	args := make([]any, 0, len(records)*fieldsPerDense)
 	for i, r := range records {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		off := i * fieldsPerRec
+		off := i * fieldsPerDense
 		b.WriteByte('(')
-		for j := 1; j <= fieldsPerRec; j++ {
+		for j := 1; j <= fieldsPerDense; j++ {
 			if j > 1 {
 				b.WriteByte(',')
 			}
@@ -145,8 +150,22 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 	b.WriteString(` ON CONFLICT (repo_key, file_path, symbol_name) DO UPDATE SET
 		symbol_kind=EXCLUDED.symbol_kind, language=EXCLUDED.language,
 		start_line=EXCLUDED.start_line, body_hash=EXCLUDED.body_hash,
-		embedding=EXCLUDED.embedding, updated_at=NOW()`) // table is schema-qualified above
+		embedding=EXCLUDED.embedding,
+		updated_at=NOW()`) // sparse_embedding intentionally excluded: written by UpdateSparseEmbedding
 	_, err := s.pool.Exec(ctx, b.String(), args...)
+	return err
+}
+
+// UpdateSparseEmbedding writes a single row's sparse_embedding. Called after
+// upsertBatch succeeds, on a best-effort basis: failure only affects ranking
+// quality, not dense search correctness. The row's sparse_embedding is left NULL
+// on failure so the Phase-5 IS NULL backfill cursor can retry it later.
+func (s *Store) UpdateSparseEmbedding(ctx context.Context, repoKey, filePath, symbolName string, vec string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE public.code_embeddings
+		 SET sparse_embedding = $1::sparsevec, updated_at = NOW()
+		 WHERE repo_key = $2 AND file_path = $3 AND symbol_name = $4`,
+		vec, repoKey, filePath, symbolName)
 	return err
 }
 
