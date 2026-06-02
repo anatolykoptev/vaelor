@@ -38,11 +38,14 @@ type buildGraphInput struct {
 
 // buildGraph constructs vertices and edges from ingested files and parsed symbols.
 func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
-	// Collect unique packages (directories).
+	// Collect unique packages (directories) and the set of all indexed file paths
+	// (fileSet is used to resolve relative TS/JS imports to their target file's dir).
 	pkgDirs := make(map[string]struct{})
+	fileSet := make(map[string]struct{}, len(in.Files))
 	for _, f := range in.Files {
 		dir := filepath.Dir(f.RelPath)
 		pkgDirs[dir] = struct{}{}
+		fileSet[f.RelPath] = struct{}{}
 	}
 
 	var vertices []vertexData
@@ -119,7 +122,7 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 	edges = append(edges, testedByEdges...)
 
 	// IMPORTS edges (File→Package) + external Package vertices.
-	impVertices, impEdges := buildImportsGraph(pkgDirs, in.FileImports)
+	impVertices, impEdges := buildImportsGraph(pkgDirs, fileSet, in.FileImports)
 	vertices = append(vertices, impVertices...)
 	edges = append(edges, impEdges...)
 
