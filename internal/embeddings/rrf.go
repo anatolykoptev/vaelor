@@ -25,10 +25,18 @@ type SparseHit struct {
 	Line       int // start_line from the index row
 }
 
+// Source constants for HybridResult.Source attribution.
+const (
+	sourceSemantic = "semantic"
+	sourceKeyword  = "keyword"
+	sourceSparse   = "sparse"
+	sourceHybrid   = "hybrid"
+)
+
 // HybridResult extends SearchResult with source attribution.
 type HybridResult struct {
 	SearchResult
-	Source   string  // "semantic", "keyword", or "hybrid"
+	Source   string  // "semantic", "keyword", "sparse", or "hybrid"
 	RRFScore float64 // combined reciprocal rank fusion score
 }
 
@@ -131,30 +139,9 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit,
 		if e == nil {
 			continue
 		}
-		armCount := 0
-		if e.inSemantic {
-			armCount++
-		}
-		if e.inKeyword {
-			armCount++
-		}
-		if e.inSparse {
-			armCount++
-		}
-		var source string
-		switch {
-		case armCount > 1:
-			source = "hybrid"
-		case e.inKeyword:
-			source = "keyword"
-		case e.inSparse:
-			source = "sparse"
-		default:
-			source = "semantic"
-		}
 		results = append(results, HybridResult{
 			SearchResult: e.result,
-			Source:       source,
+			Source:       attributeSource(e.inSemantic, e.inKeyword, e.inSparse),
 			RRFScore:     f.Score,
 		})
 	}
@@ -170,4 +157,31 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit,
 		results = results[:topK]
 	}
 	return results
+}
+
+// attributeSource maps per-arm membership flags to a source label.
+// When a result appears in more than one retrieval arm it is "hybrid";
+// otherwise the label matches the single contributing arm.
+func attributeSource(inSem, inKw, inSparse bool) string {
+	arms := 0
+	if inSem {
+		arms++
+	}
+	if inKw {
+		arms++
+	}
+	if inSparse {
+		arms++
+	}
+	if arms > 1 {
+		return sourceHybrid
+	}
+	switch {
+	case inKw:
+		return sourceKeyword
+	case inSparse:
+		return sourceSparse
+	default:
+		return sourceSemantic
+	}
 }

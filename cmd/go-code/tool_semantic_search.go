@@ -207,7 +207,11 @@ func handleSemanticHits(
 	if len(keyHits) > 0 || len(sparseHits) > 0 {
 		var matched []embeddings.KeywordHit
 		if len(keyHits) > 0 {
-			matched, _ = deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
+			var matchErr error
+			matched, matchErr = deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
+			if matchErr != nil {
+				matched = nil
+			}
 		}
 		if len(matched) > 0 || len(sparseHits) > 0 {
 			// Merge with an enlarged pool so CE reranker can pick the best topK.
