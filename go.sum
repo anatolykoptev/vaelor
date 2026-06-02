@@ -1,8 +1,8 @@
 entgo.io/ent v0.14.3 h1:wokAV/kIlH9TeklJWGGS7AYJdVckr0DloWjIcO9iIIQ=
 entgo.io/ent v0.14.3/go.mod h1:aDPE/OziPEu8+OWbzy4UlvWmD2/kbRuWfK2A40hcxJM=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/anatolykoptev/go-kit v0.73.0 h1:qsmUzh1NHGXMzDt9hFB70su/CZlUcqZF3dFyqjiDt9A=
-github.com/anatolykoptev/go-kit v0.73.0/go.mod h1:MHxQfTaJIEjYdiR3U+Q/n4SR0uz0H5mdvwWpz72df+I=
+github.com/anatolykoptev/go-kit v0.77.0 h1:/NCcAf0vst5YbSfEWiF2NATmI1inMA8kiR6LgMfKbRY=
+github.com/anatolykoptev/go-kit v0.77.0/go.mod h1:MHxQfTaJIEjYdiR3U+Q/n4SR0uz0H5mdvwWpz72df+I=
 github.com/anatolykoptev/go-mcpserver v0.13.0 h1:vG4hDzcTYho4t27E64K84XyD3E4QHRWs+5A5EYx0/tE=
 github.com/anatolykoptev/go-mcpserver v0.13.0/go.mod h1:pQfKlzExLv/evW42l940ZHMMcliv1OU98oExwfBnIWQ=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
