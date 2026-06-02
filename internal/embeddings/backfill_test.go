@@ -53,7 +53,7 @@ func TestBackfill_MissingRepo_CountedSkippedMiss(t *testing.T) {
 		&fakeSparseEmbedder{},
 		rows,
 		func(_ string) (string, bool) { return "", false },
-		func(_ context.Context, _, _, _, _ string) error { return nil },
+		func(_ context.Context, _ []SparseUpdate) error { return nil },
 		result,
 	)
 
@@ -110,7 +110,7 @@ func TestBackfill_HashDrift_RowStaysNullAndCountedDrift(t *testing.T) {
 		&fakeSparseEmbedder{},
 		rows,
 		func(_ string) (string, bool) { return dir, true },
-		func(_ context.Context, _, _, _, _ string) error {
+		func(_ context.Context, _ []SparseUpdate) error {
 			writeCalled = true
 			return nil
 		},
@@ -167,8 +167,10 @@ func TestBackfill_HappyPath_BackfillsNullRow(t *testing.T) {
 		&fakeSparseEmbedder{},
 		rows,
 		func(_ string) (string, bool) { return dir, true },
-		func(_ context.Context, _, filePath, symbolName, vec string) error {
-			writeArgs = append(writeArgs, symbolName+":"+vec)
+		func(_ context.Context, batch []SparseUpdate) error {
+			for _, r := range batch {
+				writeArgs = append(writeArgs, r.SymbolName+":"+r.Literal)
+			}
 			return nil
 		},
 		result,
@@ -181,8 +183,9 @@ func TestBackfill_HappyPath_BackfillsNullRow(t *testing.T) {
 	if result.Backfilled != 1 {
 		t.Errorf("result.Backfilled: expected 1, got %d", result.Backfilled)
 	}
+	// One batch call containing 1 row.
 	if len(writeArgs) != 1 {
-		t.Errorf("writeSparse called %d times, expected 1", len(writeArgs))
+		t.Errorf("batch write contained %d rows, expected 1", len(writeArgs))
 	}
 }
 
@@ -225,15 +228,17 @@ func TestBackfill_Resumability_RerunOnlyTouchesRemainingNulls(t *testing.T) {
 		sparse.SparseVector{Indices: []uint32{10}, Values: []float32{0.9}},
 		sparseDim,
 	)
-	if err := store.UpdateSparseEmbedding(ctx, repo, "z.go", "Zap", lit); err != nil {
-		t.Fatalf("UpdateSparseEmbedding: %v", err)
+	if err := store.UpdateSparseEmbeddingsBatch(ctx, []SparseUpdate{
+		{RepoKey: repo, FilePath: "z.go", SymbolName: "Zap", Literal: lit},
+	}); err != nil {
+		t.Fatalf("UpdateSparseEmbeddingsBatch: %v", err)
 	}
 
 	// Now run BackfillSparse — the row has a sparse vector, so IS NULL returns 0 rows.
 	result, err := store.BackfillSparse(ctx, &fakeSparseEmbedder{}, BackfillOpts{
-		RepoKey:        repo,
-		RepoRootLookup: func(_ string) (string, bool) { return "", false }, // not needed
-		WriteSparse:    func(_ context.Context, _, _, _, _ string) error { return nil },
+		RepoKey:           repo,
+		RepoRootLookup:    func(_ string) (string, bool) { return "", false }, // not needed
+		WriteSparsesBatch: func(_ context.Context, _ []SparseUpdate) error { return nil },
 	})
 	if err != nil {
 		t.Fatalf("BackfillSparse: %v", err)
@@ -284,7 +289,7 @@ func TestBackfill_BatchBy32_RespectsServerCap(t *testing.T) {
 		fake,
 		rows,
 		func(_ string) (string, bool) { return dir, true },
-		func(_ context.Context, _, _, _, _ string) error { return nil },
+		func(_ context.Context, _ []SparseUpdate) error { return nil },
 		result,
 	)
 
@@ -334,7 +339,7 @@ func TestBackfill_EmbedFailed_RowStaysNullAndCounted(t *testing.T) {
 		failEmb,
 		rows,
 		func(_ string) (string, bool) { return dir, true },
-		func(_ context.Context, _, _, _, _ string) error {
+		func(_ context.Context, _ []SparseUpdate) error {
 			writeCalled = true
 			return nil
 		},
@@ -389,9 +394,9 @@ func TestBackfill_AllPermanentSkip_Terminates(t *testing.T) {
 	// rootLookup returns a dir where the file doesn't exist → skipped_missing.
 	emptyDir := t.TempDir()
 	result, err := store.BackfillSparse(ctx, &fakeSparseEmbedder{}, BackfillOpts{
-		RepoKey:        repo,
-		RepoRootLookup: func(_ string) (string, bool) { return emptyDir, true },
-		WriteSparse:    func(_ context.Context, _, _, _, _ string) error { return nil },
+		RepoKey:           repo,
+		RepoRootLookup:    func(_ string) (string, bool) { return emptyDir, true },
+		WriteSparsesBatch: func(_ context.Context, _ []SparseUpdate) error { return nil },
 	})
 	if err != nil {
 		t.Fatalf("BackfillSparse returned unexpected error: %v", err)
@@ -401,6 +406,128 @@ func TestBackfill_AllPermanentSkip_Terminates(t *testing.T) {
 		t.Logf("result: %+v", result)
 		// Accept either missing or drift depending on whether the file was found.
 		// Either way, the function must terminate.
+	}
+}
+
+// TestBackfill_BatchWrite_OneCallPerPage verifies that backfillPage accumulates
+// all surviving candidates and issues exactly ONE batch UPDATE call (not one per
+// row). Uses a WriteSparsesBatch spy that counts calls and records rows.
+//
+// Falsification: revert backfillWriteVecs to the old per-row writeSparse loop →
+// the spy would be called N times (not once), batchCalls != 1, test goes RED.
+func TestBackfill_BatchWrite_OneCallPerPage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const nSymbols = 5
+	var rows []BackfillRow
+	for i := range nSymbols {
+		name := fmt.Sprintf("BatchSym%d", i)
+		content := []byte("package p\n\nfunc " + name + "() {}\n")
+		fname := fmt.Sprintf("bf%d.go", i)
+		if err := os.WriteFile(filepath.Join(dir, fname), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		realHash := computeRealHash(t, dir, fname, name, "go")
+		rows = append(rows, BackfillRow{
+			RepoKey:    "test/batch-one-call",
+			FilePath:   fname,
+			SymbolName: name,
+			Language:   "go",
+			BodyHash:   realHash,
+		})
+	}
+
+	var batchCalls int
+	var batchedRows []SparseUpdate
+	result := &BackfillResult{}
+
+	store := &Store{}
+	store.backfillPage(
+		context.Background(),
+		&fakeSparseEmbedder{},
+		rows,
+		func(_ string) (string, bool) { return dir, true },
+		func(_ context.Context, batch []SparseUpdate) error {
+			batchCalls++
+			batchedRows = append(batchedRows, batch...)
+			return nil
+		},
+		result,
+	)
+
+	if result.Backfilled != nSymbols {
+		t.Errorf("expected %d backfilled, got %d (miss=%d drift=%d failed=%d)",
+			nSymbols, result.Backfilled, result.SkippedMiss, result.SkippedDrift, result.EmbedFailed)
+	}
+	// Key assertion: one batch call, not N per-row calls.
+	if batchCalls != 1 {
+		t.Errorf("expected 1 batch write call for %d rows, got %d", nSymbols, batchCalls)
+	}
+	if len(batchedRows) != nSymbols {
+		t.Errorf("batch contained %d rows, want %d", len(batchedRows), nSymbols)
+	}
+}
+
+// TestBackfill_BatchWriteFailure_NonFatal verifies that a batch UPDATE failure
+// counts ALL rows in the batch as embed_failed (by row count, not by 1), leaves
+// them NULL, and does not propagate a fatal error upward.
+//
+// Falsification: revert the counter to Inc() (per-item) and change the assertion
+// → delta != nSymbols, or remove the batch write call → no rows are counted,
+// both go RED.
+func TestBackfill_BatchWriteFailure_NonFatal(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const nSymbols = 3
+	var rows []BackfillRow
+	for i := range nSymbols {
+		name := fmt.Sprintf("FailSym%d", i)
+		content := []byte("package p\n\nfunc " + name + "() {}\n")
+		fname := fmt.Sprintf("fail%d.go", i)
+		if err := os.WriteFile(filepath.Join(dir, fname), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		realHash := computeRealHash(t, dir, fname, name, "go")
+		rows = append(rows, BackfillRow{
+			RepoKey:    "test/batch-fail",
+			FilePath:   fname,
+			SymbolName: name,
+			Language:   "go",
+			BodyHash:   realHash,
+		})
+	}
+
+	result := &BackfillResult{}
+	before := backfillCounterValue(backfillOutcomeEmbedFailed)
+
+	store := &Store{}
+	store.backfillPage(
+		context.Background(),
+		&fakeSparseEmbedder{},
+		rows,
+		func(_ string) (string, bool) { return dir, true },
+		func(_ context.Context, batch []SparseUpdate) error {
+			return errors.New("injected batch write failure")
+		},
+		result,
+	)
+
+	after := backfillCounterValue(backfillOutcomeEmbedFailed)
+	delta := after - before
+	if int(delta) != nSymbols {
+		t.Errorf("embed_failed counter: expected delta %d (one per row in batch), got %g", nSymbols, delta)
+	}
+	if result.EmbedFailed != nSymbols {
+		t.Errorf("result.EmbedFailed: expected %d, got %d", nSymbols, result.EmbedFailed)
+	}
+	if result.Backfilled != 0 {
+		t.Errorf("no row must be counted as backfilled when batch write fails, got %d", result.Backfilled)
 	}
 }
 

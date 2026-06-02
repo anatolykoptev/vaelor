@@ -63,9 +63,9 @@ func handleSparseBackfill(
 	rootLookup := buildRepoRootLookup(autoIndexDirs(cfg))
 
 	result, err := deps.Store.BackfillSparse(ctx, deps.SparseClient, embeddings.BackfillOpts{
-		RepoKey:        input.RepoKey,
-		RepoRootLookup: rootLookup,
-		WriteSparse:    deps.Store.UpdateSparseEmbedding,
+		RepoKey:           input.RepoKey,
+		RepoRootLookup:    rootLookup,
+		WriteSparsesBatch: deps.Store.UpdateSparseEmbeddingsBatch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sparse_backfill: %w", err)

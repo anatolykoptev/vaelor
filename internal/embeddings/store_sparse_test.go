@@ -259,20 +259,18 @@ func TestSearchSparse_ReturnsRankedResults(t *testing.T) {
 		t.Fatalf("upsert dense: %v", err)
 	}
 
-	// Write sparse vectors directly via UpdateSparseEmbedding.
+	// Write sparse vectors via UpdateSparseEmbeddingsBatch.
 	// AlphaFunc: strong token 100 (weight=0.9), weak token 200 (weight=0.1).
 	// BetaFunc:  weak token 100 (weight=0.1), strong token 300 (weight=0.9).
 	alphaVec := sparse.SparseVector{Indices: []uint32{100, 200}, Values: []float32{0.9, 0.1}}
 	betaVec := sparse.SparseVector{Indices: []uint32{100, 300}, Values: []float32{0.1, 0.9}}
 
-	alphaLit := SanitizeAndFormatSparseVector(alphaVec, sparseDim)
-	betaLit := SanitizeAndFormatSparseVector(betaVec, sparseDim)
-
-	if err := store.UpdateSparseEmbedding(ctx, repo, "alpha.go", "AlphaFunc", alphaLit); err != nil {
-		t.Fatalf("write sparse AlphaFunc: %v", err)
+	sparseBatch := []SparseUpdate{
+		{RepoKey: repo, FilePath: "alpha.go", SymbolName: "AlphaFunc", Literal: SanitizeAndFormatSparseVector(alphaVec, sparseDim)},
+		{RepoKey: repo, FilePath: "beta.go", SymbolName: "BetaFunc", Literal: SanitizeAndFormatSparseVector(betaVec, sparseDim)},
 	}
-	if err := store.UpdateSparseEmbedding(ctx, repo, "beta.go", "BetaFunc", betaLit); err != nil {
-		t.Fatalf("write sparse BetaFunc: %v", err)
+	if err := store.UpdateSparseEmbeddingsBatch(ctx, sparseBatch); err != nil {
+		t.Fatalf("write sparse batch: %v", err)
 	}
 
 	// Query: strong weight on token 100. IP with AlphaFunc = 0.9*0.9 + 0.1*0.1 = 0.82 (< 0)
@@ -330,7 +328,9 @@ func TestSearchSparse_IsNullSkipsUnseededRows(t *testing.T) {
 		sparse.SparseVector{Indices: []uint32{50}, Values: []float32{1.0}},
 		sparseDim,
 	)
-	if err := store.UpdateSparseEmbedding(ctx, repo, "x.go", "WithSparse", sparseLit); err != nil {
+	if err := store.UpdateSparseEmbeddingsBatch(ctx, []SparseUpdate{
+		{RepoKey: repo, FilePath: "x.go", SymbolName: "WithSparse", Literal: sparseLit},
+	}); err != nil {
 		t.Fatalf("write sparse: %v", err)
 	}
 
