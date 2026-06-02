@@ -406,7 +406,7 @@ func loadConfig() (Config, error) {
 		SparseEmbedURL:         env.Str("SPARSE_EMBED_URL", ""),
 		SparseEmbedModel:       env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
 		SparseEmbedMaxArray:    env.Int("SPARSE_EMBED_MAX_ARRAY", defaultSparseEmbedMaxArray),
-		SparseBackfillDeadline: time.Duration(env.Int("SPARSE_BACKFILL_DEADLINE_S", defaultSparseBackfillDeadlineS)) * time.Second,
+		SparseBackfillDeadline: clampSparseBackfillDeadline(env.Int("SPARSE_BACKFILL_DEADLINE_S", defaultSparseBackfillDeadlineS)),
 		PrometheusURL:          env.Str("PROMETHEUS_URL", ""),
 		DozorURL:               env.Str("DOZOR_URL", "http://dozor:8765"),
 		DozorAPIToken:          env.Str("DOZOR_API_TOKEN", ""),
@@ -509,6 +509,18 @@ func loadGithubAppConfig() forge.AppConfig {
 		InstallationID: installID,
 		KeyPEM:         pem,
 	}
+}
+
+// clampSparseBackfillDeadline converts SPARSE_BACKFILL_DEADLINE_S to a Duration,
+// clamping ≤0 values to the default (600s). An operator setting the env to 0
+// would otherwise produce a 0-duration deadline that the MCP harness treats as
+// "use global default" (90s), silently re-introducing the truncation this config
+// option was created to fix (root cause: 103K-row backfill cancelled after 90s).
+func clampSparseBackfillDeadline(secs int) time.Duration {
+	if secs <= 0 {
+		return defaultSparseBackfillDeadlineS * time.Second
+	}
+	return time.Duration(secs) * time.Second
 }
 
 func parsePathMappings(raw string) []analyze.PathMapping {

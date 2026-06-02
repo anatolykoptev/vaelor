@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 )
@@ -58,4 +59,42 @@ func TestLoadConfig_NegativeWeightRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "ANALYZE_RANK_WEIGHT_BM25") {
 		t.Errorf("loadConfig error = %v; want mention of ANALYZE_RANK_WEIGHT_BM25", err)
 	}
+}
+
+// TestLoadConfig_SparseBackfillDeadline_ZeroClamped guards the footgun where
+// SPARSE_BACKFILL_DEADLINE_S=0 would produce a 0-duration deadline, causing the
+// MCP harness to fall back to its 90s global default — silently re-introducing
+// the truncation this field was added to fix (103K-row backfill > 90s).
+//
+// Falsification: revert clampSparseBackfillDeadline to the bare multiplication
+// `time.Duration(secs) * time.Second` → zero input → 0s deadline stored →
+// cfg.SparseBackfillDeadline == 0 ≠ defaultDeadline, test goes RED.
+func TestLoadConfig_SparseBackfillDeadline_ZeroClamped(t *testing.T) {
+	const defaultDeadline = defaultSparseBackfillDeadlineS * time.Second
+
+	for _, input := range []string{"0", "-1", "-600"} {
+		t.Run("env="+input, func(t *testing.T) {
+			t.Setenv("SPARSE_BACKFILL_DEADLINE_S", input)
+			cfg, err := loadConfig()
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			if cfg.SparseBackfillDeadline != defaultDeadline {
+				t.Errorf("SPARSE_BACKFILL_DEADLINE_S=%s: want %s (clamped to default), got %s",
+					input, defaultDeadline, cfg.SparseBackfillDeadline)
+			}
+		})
+	}
+
+	// Positive value must pass through unchanged.
+	t.Run("env=120", func(t *testing.T) {
+		t.Setenv("SPARSE_BACKFILL_DEADLINE_S", "120")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if cfg.SparseBackfillDeadline != 120*time.Second {
+			t.Errorf("SPARSE_BACKFILL_DEADLINE_S=120: want 120s, got %s", cfg.SparseBackfillDeadline)
+		}
+	})
 }

@@ -97,31 +97,14 @@ type BackfillOpts struct {
 	// instead of one per row). Non-fatal contract: failure leaves those rows NULL
 	// and they are retried on the next backfill run via the IS NULL cursor.
 	WriteSparsesBatch func(ctx context.Context, rows []SparseUpdate) error
-	// WriteSparse is the legacy per-row UPDATE writer, kept for tests that
-	// inject it. Production code always uses WriteSparsesBatch.
-	//
-	// Deprecated: use WriteSparsesBatch. Ignored when WriteSparsesBatch is set.
-	WriteSparse func(ctx context.Context, repoKey, filePath, symbolName, vec string) error
 }
 
 // resolveWriteSparsesBatch returns the effective batch writer from opts:
-//   - opts.WriteSparsesBatch if set (production path: store.UpdateSparseEmbeddingsBatch)
-//   - a shim wrapping opts.WriteSparse (legacy test path: per-row spy)
+//   - opts.WriteSparsesBatch if set (production or test injection)
 //   - store.UpdateSparseEmbeddingsBatch as the default
 func (s *Store) resolveWriteSparsesBatch(opts BackfillOpts) func(context.Context, []SparseUpdate) error {
 	if opts.WriteSparsesBatch != nil {
 		return opts.WriteSparsesBatch
-	}
-	if opts.WriteSparse != nil {
-		legacyFn := opts.WriteSparse
-		return func(ctx context.Context, rows []SparseUpdate) error {
-			for _, r := range rows {
-				if err := legacyFn(ctx, r.RepoKey, r.FilePath, r.SymbolName, r.Literal); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
 	}
 	return s.UpdateSparseEmbeddingsBatch
 }
@@ -384,7 +367,6 @@ func backfillWriteVecs(
 	if err != nil {
 		// embedSparseBatched already bumped sparseEmbedFailTotal{stage="index"}.
 		n := len(candidates)
-		sparseEmbedFailTotal.WithLabelValues("write").Add(0) // ensure label exists
 		for range n {
 			sparseBackfillTotal.WithLabelValues(backfillOutcomeEmbedFailed).Inc()
 		}
@@ -399,14 +381,12 @@ func backfillWriteVecs(
 
 	// Build the batch: sanitize each vector; skip degenerate ones (counted as drift).
 	var batch []SparseUpdate
-	driftCount := 0
 	for i, c := range candidates {
 		lit := SanitizeAndFormatSparseVector(vecs[i], sparseDim)
 		if lit == "" {
 			// Sanitized to empty (all-zero / all-OOB after expansion) — treat as drift.
 			sparseBackfillTotal.WithLabelValues(backfillOutcomeDrift).Inc()
 			result.SkippedDrift++
-			driftCount++
 			continue
 		}
 		batch = append(batch, SparseUpdate{
@@ -443,7 +423,6 @@ func backfillWriteVecs(
 	}
 	result.Backfilled += n
 	backfilled += n
-	_ = driftCount // already counted in SkippedDrift above
 	return backfilled, embedFailed
 }
 

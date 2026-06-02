@@ -42,13 +42,19 @@ const (
 // SR-B: all table references are schema-qualified (public.*) so they resolve
 // correctly regardless of the connection's search_path — belt-and-suspenders
 // alongside the SR-A pool AfterRelease hook that resets search_path on release.
+//
+// Symbol identity: (repo_key, file_path, symbol_name) is the canonical 3-part key.
+// All three places below must be updated together on any PK migration:
+//  1. PRIMARY KEY declaration here
+//  2. ON CONFLICT clause in upsertBatch
+//  3. WHERE join condition in updateSparseEmbeddingsBatchChunk
 const schemaSQL = `CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS public.code_embeddings (
     repo_key TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL,
     symbol_kind TEXT NOT NULL, language TEXT NOT NULL DEFAULT '',
     start_line INT NOT NULL DEFAULT 0, body_hash BIGINT NOT NULL DEFAULT 0,
     embedding vector(768) NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (repo_key, file_path, symbol_name));
+    PRIMARY KEY (repo_key, file_path, symbol_name)); -- identity key [1/3]
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_repo ON public.code_embeddings (repo_key);
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw ON public.code_embeddings
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
@@ -143,7 +149,7 @@ func (s *Store) Upsert(ctx context.Context, records []EmbeddingRecord) error {
 func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) error {
 	var b strings.Builder
 	// Dense-only INSERT: no sparse_embedding column here. Sparse is written via a
-	// separate best-effort UPDATE (see UpdateSparseEmbedding) so a malformed
+	// separate best-effort batch UPDATE (UpdateSparseEmbeddingsBatch) so a malformed
 	// sparsevec literal cannot roll back the dense rows for the whole batch.
 	b.WriteString(`INSERT INTO public.code_embeddings
 		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embedding,updated_at) VALUES `)
@@ -164,25 +170,12 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 		args = append(args, r.RepoKey, r.FilePath, r.SymbolName, r.SymbolKind,
 			r.Language, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding))
 	}
-	b.WriteString(` ON CONFLICT (repo_key, file_path, symbol_name) DO UPDATE SET
+	b.WriteString(` ON CONFLICT (repo_key, file_path, symbol_name) DO UPDATE SET -- identity key [2/3]
 		symbol_kind=EXCLUDED.symbol_kind, language=EXCLUDED.language,
 		start_line=EXCLUDED.start_line, body_hash=EXCLUDED.body_hash,
 		embedding=EXCLUDED.embedding,
-		updated_at=NOW()`) // sparse_embedding intentionally excluded: written by UpdateSparseEmbedding
+		updated_at=NOW()`) // sparse_embedding intentionally excluded: written by UpdateSparseEmbeddingsBatch
 	_, err := s.pool.Exec(ctx, b.String(), args...)
-	return err
-}
-
-// UpdateSparseEmbedding writes a single row's sparse_embedding. Called after
-// upsertBatch succeeds, on a best-effort basis: failure only affects ranking
-// quality, not dense search correctness. The row's sparse_embedding is left NULL
-// on failure so the Phase-5 IS NULL backfill cursor can retry it later.
-func (s *Store) UpdateSparseEmbedding(ctx context.Context, repoKey, filePath, symbolName string, vec string) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE public.code_embeddings
-		 SET sparse_embedding = $1::sparsevec, updated_at = NOW()
-		 WHERE repo_key = $2 AND file_path = $3 AND symbol_name = $4`,
-		vec, repoKey, filePath, symbolName)
 	return err
 }
 
@@ -208,7 +201,7 @@ type SparseUpdate struct {
 //	 WHERE c.repo_key=v.repo_key AND c.file_path=v.file_path AND c.symbol_name=v.symbol_name
 //
 // Batches are capped at sparseBatchSize (500) rows; callers may pass any number
-// and this method splits internally. Non-fatal contract mirrors UpdateSparseEmbedding:
+// and this method splits internally. Non-fatal contract: failure leaves those rows NULL
 // failure is the caller's responsibility to log+count; no row is written on error.
 func (s *Store) UpdateSparseEmbeddingsBatch(ctx context.Context, rows []SparseUpdate) error {
 	if len(rows) == 0 {
@@ -247,7 +240,7 @@ func (s *Store) updateSparseEmbeddingsBatchChunk(ctx context.Context, rows []Spa
 		args = append(args, r.RepoKey, r.FilePath, r.SymbolName, r.Literal)
 	}
 	b.WriteString(`) AS v(repo_key,file_path,symbol_name,vec)
-	WHERE c.repo_key=v.repo_key AND c.file_path=v.file_path AND c.symbol_name=v.symbol_name`)
+	WHERE c.repo_key=v.repo_key AND c.file_path=v.file_path AND c.symbol_name=v.symbol_name`) // identity key [3/3]
 	_, err := s.pool.Exec(ctx, b.String(), args...)
 	return err
 }

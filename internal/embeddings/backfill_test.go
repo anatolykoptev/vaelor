@@ -228,15 +228,17 @@ func TestBackfill_Resumability_RerunOnlyTouchesRemainingNulls(t *testing.T) {
 		sparse.SparseVector{Indices: []uint32{10}, Values: []float32{0.9}},
 		sparseDim,
 	)
-	if err := store.UpdateSparseEmbedding(ctx, repo, "z.go", "Zap", lit); err != nil {
-		t.Fatalf("UpdateSparseEmbedding: %v", err)
+	if err := store.UpdateSparseEmbeddingsBatch(ctx, []SparseUpdate{
+		{RepoKey: repo, FilePath: "z.go", SymbolName: "Zap", Literal: lit},
+	}); err != nil {
+		t.Fatalf("UpdateSparseEmbeddingsBatch: %v", err)
 	}
 
 	// Now run BackfillSparse — the row has a sparse vector, so IS NULL returns 0 rows.
 	result, err := store.BackfillSparse(ctx, &fakeSparseEmbedder{}, BackfillOpts{
-		RepoKey:        repo,
-		RepoRootLookup: func(_ string) (string, bool) { return "", false }, // not needed
-		WriteSparse:    func(_ context.Context, _, _, _, _ string) error { return nil },
+		RepoKey:           repo,
+		RepoRootLookup:    func(_ string) (string, bool) { return "", false }, // not needed
+		WriteSparsesBatch: func(_ context.Context, _ []SparseUpdate) error { return nil },
 	})
 	if err != nil {
 		t.Fatalf("BackfillSparse: %v", err)
@@ -392,9 +394,9 @@ func TestBackfill_AllPermanentSkip_Terminates(t *testing.T) {
 	// rootLookup returns a dir where the file doesn't exist → skipped_missing.
 	emptyDir := t.TempDir()
 	result, err := store.BackfillSparse(ctx, &fakeSparseEmbedder{}, BackfillOpts{
-		RepoKey:        repo,
-		RepoRootLookup: func(_ string) (string, bool) { return emptyDir, true },
-		WriteSparse:    func(_ context.Context, _, _, _, _ string) error { return nil },
+		RepoKey:           repo,
+		RepoRootLookup:    func(_ string) (string, bool) { return emptyDir, true },
+		WriteSparsesBatch: func(_ context.Context, _ []SparseUpdate) error { return nil },
 	})
 	if err != nil {
 		t.Fatalf("BackfillSparse returned unexpected error: %v", err)
