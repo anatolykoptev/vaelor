@@ -126,20 +126,48 @@ func queryGodPackages(ctx context.Context, store *codegraph.Store, graph string)
 func queryCircularDeps(ctx context.Context, store *codegraph.Store, graph string) []CircularDep {
 	// AGE limitation: id(a) < id(b) doesn't work for deduplication.
 	// Strategy: fetch all package-level imports, build adjacency in Go, find 2-cycles.
+	// f.path is returned so we can exclude test-file imports (see cyclesFromRows).
 	rows, err := store.ExecCypher(ctx, graph,
 		`MATCH (p1:Package)-[:CONTAINS]->(f:File)-[:IMPORTS]->(p2:Package)
 		 WHERE p1.name <> p2.name
-		 RETURN DISTINCT p1.name, p2.name`, 2)
+		 RETURN DISTINCT p1.name, p2.name, f.path`, 2)
 	if err != nil {
 		slog.Debug("archgraph: package imports query failed", "err", err)
 		return nil
 	}
+	return cyclesFromRows(rows)
+}
 
-	// Build adjacency: A imports B.
+// cyclesFromRows builds a package import adjacency from (p1, p2, file_path) rows
+// and returns the 2-cycles (A→B and B→A), deduplicated.
+//
+// Imports originating from a *_test.go file are SKIPPED. Go compiles an external
+// test package (`package foo_test`) as a separate unit linked after both foo and
+// its dependencies, so a foo_test.go file importing a package that imports foo is
+// NOT a real import cycle. But the graph attributes files to their package by
+// directory (goutil.PackageDir), folding foo_test.go into the `foo` node — which
+// would manufacture a phantom foo→X edge. Internal white-box test files
+// (`package foo`) importing X-that-imports-foo cannot exist (the Go compiler
+// rejects that real cycle), so dropping ALL *_test.go imports loses no genuine
+// cycle while removing the phantom ones.
+// importRowCols is the column count of an ExecCypher row: p1.name, p2.name, f.path.
+const importRowCols = 3
+
+func cyclesFromRows(rows [][]string) []CircularDep {
+	return find2Cycles(buildImportAdjacency(rows))
+}
+
+// buildImportAdjacency turns (p1, p2, file_path) rows into an A→B import map,
+// skipping imports that originate from a *_test.go file (see cyclesFromRows).
+func buildImportAdjacency(rows [][]string) map[string]map[string]bool {
 	imports := make(map[string]map[string]bool)
 	for _, row := range rows {
-		if len(row) < 2 {
+		if len(row) < importRowCols {
 			continue
+		}
+		path := strings.Trim(row[2], `"`)
+		if strings.HasSuffix(path, "_test.go") {
+			continue // test-file import: never a real package-level cycle
 		}
 		a := strings.Trim(row[0], `"`)
 		b := strings.Trim(row[1], `"`)
@@ -148,24 +176,28 @@ func queryCircularDeps(ctx context.Context, store *codegraph.Store, graph string
 		}
 		imports[a][b] = true
 	}
+	return imports
+}
 
-	// Find 2-cycles (A→B and B→A). Deduplicate by alphabetical ordering.
+// find2Cycles returns the mutual A→B / B→A package pairs, deduplicated by
+// lexicographic ordering of the pair.
+func find2Cycles(imports map[string]map[string]bool) []CircularDep {
 	seen := make(map[string]bool)
 	var result []CircularDep
 	for a, deps := range imports {
 		for b := range deps {
-			if imports[b] != nil && imports[b][a] {
-				// Canonical key: lexicographically smaller first.
-				key := a + "|" + b
-				if a > b {
-					key = b + "|" + a
-				}
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				result = append(result, CircularDep{PackageA: a, PackageB: b})
+			if imports[b] == nil || !imports[b][a] {
+				continue
 			}
+			key := a + "|" + b
+			if a > b {
+				key = b + "|" + a
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, CircularDep{PackageA: a, PackageB: b})
 		}
 	}
 	return result
