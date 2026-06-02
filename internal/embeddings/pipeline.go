@@ -38,13 +38,14 @@ type indexProgress struct {
 
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
-	client           *embed.Client
-	store            *Store
-	writeRepoState   func(ctx context.Context, repoKey, sha string) error // defaults to store.SetRepoState; injectable for testing
-	progress         sync.Map                                             // repoKey -> *indexProgress
-	fileCache        *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
-	sparseClient     sparse.SparseEmbedder                               // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
-	sparseMaxBatch   int                                                 // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
+	client         *embed.Client
+	store          *Store
+	writeRepoState func(ctx context.Context, repoKey, sha string) error                       // defaults to store.SetRepoState; injectable for testing
+	writeSparse    func(ctx context.Context, repoKey, filePath, symbolName, vec string) error // defaults to store.UpdateSparseEmbedding; injectable for testing
+	progress       sync.Map                                                                   // repoKey -> *indexProgress
+	fileCache      *kitcache.Cache                                                            // optional per-file symbol-entry cache; nil disables.
+	sparseClient   sparse.SparseEmbedder                                                      // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
+	sparseMaxBatch int                                                                        // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
@@ -57,6 +58,7 @@ func NewPipeline(client *embed.Client, store *Store, opts ...PipelineOpt) *Pipel
 		client:         client,
 		store:          store,
 		writeRepoState: store.SetRepoState,
+		writeSparse:    store.UpdateSparseEmbedding,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -108,6 +110,13 @@ func WithSparseMaxBatch(n int) PipelineOpt {
 // without touching the real Postgres store.
 func withWriteRepoStateFn(fn func(ctx context.Context, repoKey, sha string) error) PipelineOpt {
 	return func(p *Pipeline) { p.writeRepoState = fn }
+}
+
+// withWriteSparseFn overrides the UpdateSparseEmbedding implementation. For
+// testing only — allows a spy that returns an error to drive the write-failure
+// counter branch in runSparseWrites without a real Postgres store.
+func withWriteSparseFn(fn func(ctx context.Context, repoKey, filePath, symbolName, vec string) error) PipelineOpt {
+	return func(p *Pipeline) { p.writeSparse = fn }
 }
 
 // IsIndexing returns true if background indexing is running for the given repo.
@@ -343,27 +352,39 @@ func (p *Pipeline) embedAndUpsert(
 	// 4. Sparse write — best-effort UPDATE per row, completely independent of step 3.
 	//    A failure here never aborts the batch or blocks SHA advance.
 	if p.sparseClient != nil {
-		for i, r := range records {
-			sv := sparseVecs[i]
-			if sv.IsEmpty() {
-				continue // NULL already in DB from INSERT default; skip UPDATE
-			}
-			lit := SanitizeAndFormatSparseVector(sv, sparseDim)
-			if lit == "" {
-				// Sanitized to nothing (all-zero / all-OOB); leave NULL.
-				continue
-			}
-			if werr := p.store.UpdateSparseEmbedding(ctx, r.RepoKey, r.FilePath, r.SymbolName, lit); werr != nil {
-				sparseEmbedFailTotal.WithLabelValues("write").Inc()
-				slog.Warn("sparse write failed; row stays NULL",
-					slog.String("repo", repoKey),
-					slog.String("symbol", r.SymbolName),
-					slog.Any("error", werr))
-			}
-		}
+		p.runSparseWrites(ctx, repoKey, records, sparseVecs)
 	}
 
 	return len(chunk), nil
+}
+
+// runSparseWrites issues best-effort sparse_embedding UPDATEs for every record
+// whose sparse vector survived sanitization. Failures bump the write counter and
+// log at WARN but are never propagated — leaving a row with NULL sparse_embedding
+// is correct (the Phase-5 IS NULL backfill cursor will retry it later).
+//
+// writeSparse is used instead of p.store.UpdateSparseEmbedding directly so that
+// tests can inject a spy and verify the counter branch fires on failure without
+// a real Postgres store.
+func (p *Pipeline) runSparseWrites(ctx context.Context, repoKey string, records []EmbeddingRecord, sparseVecs []sparse.SparseVector) {
+	for i, r := range records {
+		sv := sparseVecs[i]
+		if sv.IsEmpty() {
+			continue // NULL already in DB from INSERT default; skip UPDATE
+		}
+		lit := SanitizeAndFormatSparseVector(sv, sparseDim)
+		if lit == "" {
+			// Sanitized to nothing (all-zero / all-OOB); leave NULL.
+			continue
+		}
+		if werr := p.writeSparse(ctx, r.RepoKey, r.FilePath, r.SymbolName, lit); werr != nil {
+			sparseEmbedFailTotal.WithLabelValues("write").Inc()
+			slog.Warn("sparse write failed; row stays NULL",
+				slog.String("repo", repoKey),
+				slog.String("symbol", r.SymbolName),
+				slog.Any("error", werr))
+		}
+	}
 }
 
 // symbolEntry pairs a symbol with its source file, precomputed hash, and embed text.

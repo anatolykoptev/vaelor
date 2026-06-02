@@ -15,12 +15,12 @@ import (
 )
 
 const (
-	defaultTopK      = 20
-	maxTopK          = 100
-	dimSize          = 768   // jina-code-v2 dense embedding dimension
-	sparseDim        = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size (P1: column DDL, P3: HNSW index deferred — sparsevec HNSW unsupported in pgvector 0.8.2)
-	batchSize        = 50
-	fieldsPerDense   = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
+	defaultTopK    = 20
+	maxTopK        = 100
+	dimSize        = 768   // jina-code-v2 dense embedding dimension
+	sparseDim      = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size (P1: column DDL, P3: HNSW index deferred — sparsevec HNSW unsupported in pgvector 0.8.2)
+	batchSize      = 50
+	fieldsPerDense = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
 )
 
 // schemaSQL creates the pgvector extension and the two public-schema data tables.
@@ -52,8 +52,8 @@ type EmbeddingRecord struct {
 	SymbolKind      string // function, method, class, etc.
 	Language        string
 	StartLine       int
-	BodyHash        uint64             // for change detection
-	Embedding       []float32          // dense jina-code-v2 vector (768-dim)
+	BodyHash        uint64              // for change detection
+	Embedding       []float32           // dense jina-code-v2 vector (768-dim)
 	SparseEmbedding sparse.SparseVector // SPLADE sparse vector (30522-dim); zero value → NULL in DB
 }
 

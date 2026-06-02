@@ -18,6 +18,16 @@ import (
 // /embed_sparse request exceeds the server limit.
 const sparseServerMaxDocs = 32
 
+// sparseMaxTerms is the maximum number of non-zero terms kept per sparse vector
+// after sanitization. pgvector HNSW on sparsevec_ip_ops has a hard 1000-nonzero
+// cap per indexed vector — exceeding it silently degrades the row to brute-force
+// scan once the P3 HNSW index is added. SPLADE doc-side expansion on long code
+// files routinely exceeds 1000 terms. We cap at 256 (well under the 1000 ceiling,
+// ~2 KB/row) which matches production SPLADE top-k pruning practice and keeps
+// memory and index size bounded. Only the highest-weight 256 terms are retained;
+// the rest contribute negligible ranking signal anyway.
+const sparseMaxTerms = 256
+
 // gocode_sparse_embed_failures_total counts all sparse-embedding failures by
 // stage ("index" when batching document texts, "write" when persisting to DB).
 // Pre-touched at 0 so the counter is always present on /metrics regardless of
@@ -74,12 +84,12 @@ func embedSparseBatched(ctx context.Context, e sparse.SparseEmbedder, texts []st
 //   - drops entries with zero weight (pgvector rejects them)
 //   - deduplicates indices (keeps the last occurrence, matching SPLADE convention)
 //   - drops entries with index ≥ dim (out-of-range for the column's sparsevec(dim))
+//   - prunes to the top sparseMaxTerms (256) highest-weight entries (pgvector HNSW
+//     on sparsevec_ip_ops hard-caps at 1000 nonzero terms; SPLADE doc-side can exceed)
 //
 // After sanitization an empty result is formatted as "" (not `{}/dim`) so callers
 // can detect a fully-degenerate vector and bind NULL instead. Non-empty results
 // are always index-ascending (required by pgvector).
-//
-// Use FormatSparseVector for already-clean vectors (no sanitization overhead).
 func SanitizeAndFormatSparseVector(v sparse.SparseVector, dim int) string {
 	type pair struct {
 		idx uint32
@@ -102,52 +112,18 @@ func SanitizeAndFormatSparseVector(v sparse.SparseVector, dim int) string {
 	for idx, val := range seen {
 		pairs = append(pairs, pair{idx, val})
 	}
+	// Top-K prune: pgvector HNSW on sparsevec_ip_ops hard-caps at 1000 nonzero
+	// terms per row; exceeding it degrades the row to brute-force scan once the
+	// P3 index lands. Cap at sparseMaxTerms (256) by discarding the lowest-weight
+	// tail — those terms contribute negligible IP ranking signal anyway.
+	if len(pairs) > sparseMaxTerms {
+		sort.Slice(pairs, func(i, j int) bool { return pairs[i].val > pairs[j].val }) // weight desc
+		pairs = pairs[:sparseMaxTerms]
+	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].idx < pairs[j].idx })
 
 	const sparseVecHeaderBytes = 16
 	b := make([]byte, 0, len(pairs)*12+sparseVecHeaderBytes)
-	b = append(b, '{')
-	for i, p := range pairs {
-		if i > 0 {
-			b = append(b, ',')
-		}
-		b = fmt.Appendf(b, "%d:%g", p.idx, p.val)
-	}
-	b = append(b, '}')
-	b = fmt.Appendf(b, "/%d", dim)
-	return string(b)
-}
-
-// FormatSparseVector formats a sparse.SparseVector as a pgvector sparsevec
-// text literal: `{i1:w1,i2:w2,…}/dim`.
-//
-// pgvector requires indices to be sorted ascending. SPLADE output is
-// weight-descending, so we sort a copy — we never mutate the caller's slice
-// (per the sparse.SparseVector ownership comment in the go-kit/sparse package).
-// An empty vector formats as `{}/dim`; callers should check v.IsEmpty() and
-// bind nil (SQL NULL) rather than calling FormatSparseVector on empty inputs —
-// this keeps un-backfilled rows as NULL for the Phase-5 IS NULL cursor.
-//
-// For untrusted SPLADE server output use SanitizeAndFormatSparseVector instead —
-// it strips zero-weight, deduplicates indices, and drops out-of-range entries
-// before formatting.
-func FormatSparseVector(v sparse.SparseVector, dim int) string {
-	n := v.Len()
-	if n == 0 {
-		return fmt.Sprintf("{}/%d", dim)
-	}
-	type pair struct {
-		idx uint32
-		val float32
-	}
-	pairs := make([]pair, n)
-	for i := range n {
-		pairs[i] = pair{v.Indices[i], v.Values[i]}
-	}
-	sort.Slice(pairs, func(i, j int) bool { return pairs[i].idx < pairs[j].idx })
-
-	const sparseVecHeaderBytes = 16 // "{" + "/30522\0" with some slack for large dim literals
-	b := make([]byte, 0, n*12+sparseVecHeaderBytes)
 	b = append(b, '{')
 	for i, p := range pairs {
 		if i > 0 {

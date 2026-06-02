@@ -3,8 +3,8 @@ package embeddings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,56 +14,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
-
-// --- FormatSparseVector ---
-
-func TestFormatSparseVector_Empty(t *testing.T) {
-	got := FormatSparseVector(sparse.SparseVector{}, 30522)
-	want := "{}/30522"
-	if got != want {
-		t.Errorf("FormatSparseVector empty: got %q want %q", got, want)
-	}
-}
-
-func TestFormatSparseVector_SortedAscending(t *testing.T) {
-	// SPLADE output is weight-descending (high weight first); pgvector requires
-	// index-ascending. Verify the formatter sorts a copy without mutating the input.
-	v := sparse.SparseVector{
-		Indices: []uint32{500, 100, 300},
-		Values:  []float32{0.9, 0.5, 0.7},
-	}
-	origIndices := append([]uint32(nil), v.Indices...)
-	got := FormatSparseVector(v, 30522)
-	// indices must appear ascending
-	if !strings.Contains(got, "100:") {
-		t.Errorf("got %q: expected index 100", got)
-	}
-	pos100 := strings.Index(got, "100:")
-	pos300 := strings.Index(got, "300:")
-	pos500 := strings.Index(got, "500:")
-	if pos100 >= pos300 || pos300 >= pos500 {
-		t.Errorf("indices not ascending in %q", got)
-	}
-	// verify input slice not mutated
-	for i, idx := range v.Indices {
-		if idx != origIndices[i] {
-			t.Errorf("input mutated at [%d]: want %d got %d", i, origIndices[i], idx)
-		}
-	}
-	// dim suffix
-	if !strings.HasSuffix(got, "/30522") {
-		t.Errorf("missing dim suffix in %q", got)
-	}
-}
-
-func TestFormatSparseVector_SingleEntry(t *testing.T) {
-	v := sparse.SparseVector{Indices: []uint32{42}, Values: []float32{1.5}}
-	got := FormatSparseVector(v, 30522)
-	want := "{42:1.5}/30522"
-	if got != want {
-		t.Errorf("got %q want %q", got, want)
-	}
-}
 
 // --- embedSparseBatched ---
 
@@ -90,8 +40,8 @@ func (f *fakeSparseEmbedder) EmbedSparse(_ context.Context, texts []string) ([]s
 func (f *fakeSparseEmbedder) EmbedSparseQuery(ctx context.Context, text string) (sparse.SparseVector, error) {
 	return sparse.EmbedSparseQueryViaEmbed(ctx, f, text)
 }
-func (f *fakeSparseEmbedder) VocabSize() int  { return 30522 }
-func (f *fakeSparseEmbedder) Close() error    { return nil }
+func (f *fakeSparseEmbedder) VocabSize() int { return 30522 }
+func (f *fakeSparseEmbedder) Close() error   { return nil }
 
 func TestEmbedSparseBatched_SubBatchesByMaxBatch(t *testing.T) {
 	// 70 texts, maxBatch=32 → ceil(70/32)=3 calls of sizes 32, 32, 6.
@@ -338,6 +288,62 @@ func TestSanitizeAndFormat_ValidVectorUnchanged(t *testing.T) {
 	}
 }
 
+// TestSanitizeAndFormat_TopKPrune verifies that when a vector has more than
+// sparseMaxTerms (256) non-zero entries, only the highest-weight 256 are kept
+// and the result is still index-ascending.
+//
+// Design: 400 entries all with non-zero weight 1 + i*0.001 (lowest = index 0
+// at weight 1.0, highest = index 399 at weight 1.399). Top-256 = indices 144..399.
+// Index 0 (weight 1.0) falls below the pruning threshold so it must be absent.
+//
+// Falsification: remove the top-K prune block from SanitizeAndFormatSparseVector
+// → nnz will be 400 and the count assertion goes RED.
+func TestSanitizeAndFormat_TopKPrune(t *testing.T) {
+	const n = 400 // > sparseMaxTerms (256)
+	indices := make([]uint32, n)
+	values := make([]float32, n)
+	for i := range n {
+		indices[i] = uint32(i)
+		values[i] = 1.0 + float32(i)*0.001 // weight 1.0+i*0.001: all non-zero; highest = index 399
+	}
+	v := sparse.SparseVector{Indices: indices, Values: values}
+	got := SanitizeAndFormatSparseVector(v, 30522)
+
+	// Count number of entries in the result.
+	// Format is {i1:w1,i2:w2,...}/dim — one colon per "idx:val" pair.
+	open := strings.Index(got, "{")
+	close := strings.Index(got, "}")
+	if open < 0 || close < 0 || close <= open+1 {
+		t.Fatalf("malformed result: %q", got)
+	}
+	inner := got[open+1 : close]
+	nnz := strings.Count(inner, ":") // one colon per entry
+	if nnz != sparseMaxTerms {
+		t.Errorf("top-K prune: expected %d terms, got %d", sparseMaxTerms, nnz)
+	}
+
+	// Top-256 = indices 144..399 (highest 256 by weight 1+i*0.001).
+	// Index 0 (weight 1.0) is not in the top 256, so it must be absent.
+	// Check by looking for "0:" at start of inner (index 0 would be the first
+	// entry if it were present since the result is index-ascending).
+	if strings.HasPrefix(inner, "0:") {
+		t.Errorf("lowest-weight entry (index 0) must be pruned but appears in result: %q", got[:min(80, len(got))])
+	}
+
+	// Result must be index-ascending.
+	prev := -1
+	for _, part := range strings.Split(inner, ",") {
+		var idx int
+		if _, err := fmt.Sscanf(part, "%d:", &idx); err != nil {
+			t.Fatalf("cannot parse index from %q: %v", part, err)
+		}
+		if idx <= prev {
+			t.Errorf("index %d not strictly ascending after %d in %q", idx, prev, got[:min(80, len(got))])
+		}
+		prev = idx
+	}
+}
+
 // --- VocabSize guard (MINOR fix) ---
 
 // wrongVocabEmbedder reports a vocab size that does not match sparseDim.
@@ -362,7 +368,7 @@ func TestWithSparseEmbedder_CorrectVocabEnablesSparse(t *testing.T) {
 	}
 }
 
-// --- stage="write" counter (MAJOR-2 fix) ---
+// --- stage="write" counter ---
 
 // counterValue reads the current float64 value of a Prometheus counter by
 // writing a single sample into a dto.Metric. No external testutil needed.
@@ -378,52 +384,80 @@ func counterValue(c prometheus.Counter) float64 {
 }
 
 // TestSparseWriteFailure_BumpsWriteCounter verifies that a sparse UPDATE failure
-// increments gocode_sparse_embed_failures_total{stage="write"}.
+// drives the production branch in runSparseWrites and increments
+// gocode_sparse_embed_failures_total{stage="write"}.
 //
 // Falsification: comment out `sparseEmbedFailTotal.WithLabelValues("write").Inc()`
-// in pipeline.go and this test goes red (counter delta stays 0).
+// inside runSparseWrites in pipeline.go → counter delta stays 0, test goes RED.
+// This was verified by removing the Inc() call and confirming failure.
 func TestSparseWriteFailure_BumpsWriteCounter(t *testing.T) {
+	// Inject a spy UpdateSparseEmbedding that always returns an error.
+	writeErr := errors.New("injected sparse write error")
+	var writeCalls int
+	p := NewPipeline(nil, nil,
+		WithSparseEmbedder(&fakeSparseEmbedder{}),
+		withWriteSparseFn(func(_ context.Context, _, _, _, _ string) error {
+			writeCalls++
+			return writeErr
+		}),
+	)
+
+	// Build 2 records with non-empty sparse vectors so both trigger writeSparse.
+	records := []EmbeddingRecord{
+		{RepoKey: "repo", FilePath: "a.go", SymbolName: "Alpha"},
+		{RepoKey: "repo", FilePath: "b.go", SymbolName: "Beta"},
+	}
+	sparseVecs := []sparse.SparseVector{
+		{Indices: []uint32{1}, Values: []float32{0.9}},
+		{Indices: []uint32{2}, Values: []float32{0.8}},
+	}
+
 	c := sparseEmbedFailTotal.WithLabelValues("write")
 	before := counterValue(c)
 
-	// Simulate the exact branch that fires on a DB write failure.
-	sparseEmbedFailTotal.WithLabelValues("write").Inc()
+	// Drive the PRODUCTION runSparseWrites — this is the code path under test,
+	// not an open-coded Inc(). Deleting the Inc() in runSparseWrites makes this RED.
+	p.runSparseWrites(context.Background(), "repo", records, sparseVecs)
 
 	after := counterValue(c)
-	if after-before != 1 {
-		t.Errorf("stage=write counter: expected delta 1, got %g (before=%g after=%g)", after-before, before, after)
+	if delta := after - before; delta != 2 {
+		t.Errorf("stage=write counter: expected delta 2 (one per failing row), got %g (before=%g after=%g)", delta, before, after)
+	}
+	if writeCalls != 2 {
+		t.Errorf("spy called %d times, want 2", writeCalls)
 	}
 }
 
-// TestSparseWriteFailure_WriterCounterWiredInEmbedAndUpsert proves the counter
-// is wired into the real embedAndUpsert code path (not just an open-coded Inc()).
-// We build a pipeline with a real sparseClient and a store whose UpdateSparseEmbedding
-// always fails, then drive embedAndUpsert through a helper that bypasses the real DB.
+// TestSparseWriteSuccess_NoCounterBump verifies that a successful sparse write
+// does NOT bump the failure counter — ensuring the counter is not always-fired.
 //
-// Falsification: remove the sparseEmbedFailTotal.Inc() call from the UpdateSparseEmbedding
-// failure branch in pipeline.go → counter delta stays 0, test goes red.
-func TestSparseWriteFailure_WriterCounterWiredInEmbedAndUpsert(t *testing.T) {
-	// We can't call embedAndUpsert directly without a real dense embed client,
-	// so we directly test the counter-wired code path by calling the sparse
-	// write failure path inline (same as what embedAndUpsert does per row).
-	//
-	// The key assertion: the production path is:
-	//   if werr := p.store.UpdateSparseEmbedding(...); werr != nil {
-	//       sparseEmbedFailTotal.WithLabelValues("write").Inc()
-	//   }
-	// We exercise this by checking the increment happens on a non-nil error.
-	_ = io.Discard // keep import used
+// Falsification: move the Inc() call outside the `werr != nil` branch → counter
+// would increment even on success, this test goes RED.
+func TestSparseWriteSuccess_NoCounterBump(t *testing.T) {
+	var writeCalls int
+	p := NewPipeline(nil, nil,
+		WithSparseEmbedder(&fakeSparseEmbedder{}),
+		withWriteSparseFn(func(_ context.Context, _, _, _, _ string) error {
+			writeCalls++
+			return nil // success
+		}),
+	)
+	records := []EmbeddingRecord{
+		{RepoKey: "repo", FilePath: "c.go", SymbolName: "Gamma"},
+	}
+	sparseVecs := []sparse.SparseVector{
+		{Indices: []uint32{5}, Values: []float32{0.7}},
+	}
 
 	c := sparseEmbedFailTotal.WithLabelValues("write")
 	before := counterValue(c)
-
-	// Simulate 3 rows each failing UpdateSparseEmbedding.
-	for range 3 {
-		sparseEmbedFailTotal.WithLabelValues("write").Inc()
-	}
-
+	p.runSparseWrites(context.Background(), "repo", records, sparseVecs)
 	after := counterValue(c)
-	if delta := after - before; delta != 3 {
-		t.Errorf("expected delta 3 for 3 sparse write failures, got %g", delta)
+
+	if delta := after - before; delta != 0 {
+		t.Errorf("stage=write counter must NOT increment on success, got delta=%g", delta)
+	}
+	if writeCalls != 1 {
+		t.Errorf("spy called %d times, want 1", writeCalls)
 	}
 }
