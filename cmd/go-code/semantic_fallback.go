@@ -31,6 +31,16 @@ type symbolNameSearcher interface {
 // than at runtime when the trigram fallback path first fires.
 var _ symbolNameSearcher = (*embeddings.Store)(nil)
 
+// bm25Searcher is the minimal interface that runKeywordArm needs from the
+// embedding store when KeywordArm == "bm25f". *embeddings.Store satisfies it
+// via BM25Search (BM25F P3). Extracted to allow test spies without a live pool.
+type bm25Searcher interface {
+	BM25Search(ctx context.Context, repoKey, queryText, language string, topK int) ([]embeddings.KeywordHit, error)
+}
+
+// Compile-time assertion: *embeddings.Store satisfies bm25Searcher.
+var _ bm25Searcher = (*embeddings.Store)(nil)
+
 // semanticSuggest runs a trigram fuzzy name match as fallback when the primary
 // tool found no symbol. Uses pg_trgm on code_embeddings.symbol_name (GIN
 // trigram index) — independent of the embed-server / jina worker availability.
