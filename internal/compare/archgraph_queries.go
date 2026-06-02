@@ -97,10 +97,17 @@ func queryGodPackages(ctx context.Context, store *codegraph.Store, graph string)
 	// IMPORTS edges go File→Package, not Package→Package.
 	// Derive package-level importers via: Package-[:CONTAINS]->File-[:IMPORTS]->Package.
 	// Use DISTINCT p1 to count unique importing packages.
+	//
+	// Group by p2.PATH (full import path), NOT p2.name (filepath.Base). Distinct
+	// packages can share a base name — stdlib `embed` vs go-kit `.../embed`, or every
+	// `.../v2` module collapsing to "v2". Grouping by name would SUM their importer
+	// counts into one meaningless inflated entry (measured: "embed"=7 was 3+4 of two
+	// unrelated packages, falsely crossing the god-package threshold). Since #185
+	// unified local package nodes, p2.path is now a stable per-package identity.
 	rows, err := store.ExecCypher(ctx, graph,
 		`MATCH (p1:Package)-[:CONTAINS]->(f:File)-[:IMPORTS]->(p2:Package)
-		 WHERE p1.name <> p2.name
-		 RETURN p2.name, count(DISTINCT p1) AS importers
+		 WHERE p1.path <> p2.path
+		 RETURN p2.path, count(DISTINCT p1) AS importers
 		 ORDER BY importers DESC
 		 LIMIT 50`, 2)
 	if err != nil {
@@ -127,10 +134,18 @@ func queryCircularDeps(ctx context.Context, store *codegraph.Store, graph string
 	// AGE limitation: id(a) < id(b) doesn't work for deduplication.
 	// Strategy: fetch all package-level imports, build adjacency in Go, find 2-cycles.
 	// f.path is returned so we can exclude test-file imports (see cyclesFromRows).
+	//
+	// Identity is p.path (full import path), NOT p.name (filepath.Base): two distinct
+	// packages sharing a base name must not be conflated into a phantom cycle. This is
+	// only correct because #185 unified local package nodes — before it, a local
+	// import resolved to a separate import-path node whose path format (full module
+	// path) did not match the container's relative dir, so path-keying would have
+	// failed to join the two ends of a cycle. Post-unify, local imports land on the
+	// container node and both ends share the relative-dir path format.
 	rows, err := store.ExecCypher(ctx, graph,
 		`MATCH (p1:Package)-[:CONTAINS]->(f:File)-[:IMPORTS]->(p2:Package)
-		 WHERE p1.name <> p2.name
-		 RETURN DISTINCT p1.name, p2.name, f.path`, 2)
+		 WHERE p1.path <> p2.path
+		 RETURN DISTINCT p1.path, p2.path, f.path`, 2)
 	if err != nil {
 		slog.Debug("archgraph: package imports query failed", "err", err)
 		return nil
