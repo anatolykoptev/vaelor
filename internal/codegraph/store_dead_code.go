@@ -6,21 +6,34 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net/http"
 	"sort"
 	"time"
+
+	"github.com/anatolykoptev/go-kit/rerank"
 )
 
+// deadCodeBuildRerankTimeout bounds build-time dead_code scoring. There is no
+// user-facing deadline here (runs inside IndexRepo); ~100 docs take 35-40s on ARM.
+const deadCodeBuildRerankTimeout = 90 * time.Second
+
+// maxOrphanCandidates is the upper bound on dead_code candidates scored per
+// repo. It also sizes the shared rerank client's MaxDocs (rerank.go) so the
+// build-time path — which sends ALL candidates, not a pre-filtered 20 — has
+// every candidate scored by the server rather than truncated to a fabricated
+// zero score. Keep these in sync.
+const maxOrphanCandidates = 200
+
 // orphanCandidateLimit returns a repo-relative limit for dead_code scoring.
-// Scales with symbol count but stays in [50, 200] to bound reranker time (~90s max).
+// Scales with symbol count but stays in [50, maxOrphanCandidates] to bound
+// reranker time (~90s max).
 func orphanCandidateLimit(symbolCount int) int {
-	const minLimit, maxLimit = 50, 200
+	const minLimit = 50
 	l := symbolCount / 60 // ~1 candidate per 60 symbols
 	if l < minLimit {
 		return minLimit
 	}
-	if l > maxLimit {
-		return maxLimit
+	if l > maxOrphanCandidates {
+		return maxOrphanCandidates
 	}
 	return l
 }
@@ -64,6 +77,28 @@ func ceScoreToProbability(rawScore float64) float32 {
 	return float32(1.0 / (1.0 + math.Exp(-rawScore)))
 }
 
+// orphanCandidate pairs a dead_code Cypher row with its parsed complexity.
+type orphanCandidate struct {
+	row []string
+	cx  int
+}
+
+// orphansByComplexity parses each row's complexity and returns the candidates
+// sorted by complexity DESC. Empty rows are skipped.
+func orphansByComplexity(rows [][]string) []orphanCandidate {
+	candidates := make([]orphanCandidate, 0, len(rows))
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		candidates = append(candidates, orphanCandidate{row: row, cx: parseIntField(row[0], "complexity")})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].cx > candidates[j].cx
+	})
+	return candidates
+}
+
 // ScoreDeadCodeCandidates finds orphan functions in the graph, reranks
 // them via the CE reranker, and persists scores to code_dead_code_scores.
 // Non-fatal: logging only on any error. Scores are available immediately
@@ -100,58 +135,61 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 	slog.Info("codegraph: scoring dead_code candidates",
 		slog.String("repo", repoKey), slog.Int("limit", limit), slog.Int("candidates", len(rows)))
 
-	// Step 2: Pre-filter top-20 by complexity (highest complexity first —
-	// most interesting dead code targets).
-	type rowWithCx struct {
-		row []string
-		cx  int
+	// Step 2: Sort candidates by complexity DESC (highest complexity first —
+	// most interesting dead code targets). No cap: all Cypher candidates go to
+	// the reranker. At build time there is no user-facing timeout — 100 docs
+	// take ~10s, well within IndexRepo total. Better coverage → better ranking.
+	candidates := orphansByComplexity(rows)
+	if len(candidates) == 0 || !rerankClient.Available() {
+		return nil // no reranker configured — nothing to score (non-fatal)
 	}
-	candidates := make([]rowWithCx, 0, len(rows))
-	for _, row := range rows {
-		if len(row) == 0 {
-			continue
-		}
-		cx := parseIntField(row[0], "complexity")
-		candidates = append(candidates, rowWithCx{row, cx})
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].cx > candidates[j].cx
-	})
-	// No cap: all Cypher candidates go to the reranker.
-	// At build time there is no user-facing timeout — 100 docs takes ~10s,
-	// well within IndexRepo total. Better coverage -> better ranking quality.
 
-	// Step 3: Build document strings and call reranker with generous timeout —
-	// this runs at graph build time, not in a user request.
-	docs := make([]string, len(candidates))
+	// Step 3: Build documents and call reranker with a generous timeout —
+	// this runs at graph build time, not in a user request, so the shared
+	// client's per-call deadline is overridden via a 90s ctx (rerankClient has
+	// Timeout=0; 100 docs take ~35-40s on ARM).
+	docs := make([]rerank.Doc, len(candidates))
 	for i, c := range candidates {
-		docs[i] = formatDeadCodeDoc(c.row[0])
+		docs[i] = rerank.Doc{Text: formatDeadCodeDoc(c.row[0])}
 	}
-	// Use a dedicated HTTP client with longer timeout for build-time scoring.
-	// rerankHTTPClient has 35s — insufficient for 100 docs (~35-40s on ARM).
-	buildClient := &http.Client{Timeout: 90 * time.Second}
-	rerankCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	rerankCtx, cancel := context.WithTimeout(context.Background(), deadCodeBuildRerankTimeout)
 	defer cancel()
-	scored, rerankErr := callRerankerWithClient(rerankCtx, buildClient, rerankDeadCodeQuery, docs)
-	if rerankErr != nil {
+	// RerankWithResult exposes a typed Status so build-time scoring persists
+	// ONLY genuine scores — a skipped/degraded call must not write Score=0 rows.
+	res, rerankErr := rerankClient.RerankWithResult(rerankCtx, rerankDeadCodeQuery, docs)
+	if rerankErr != nil || res == nil ||
+		res.Status == rerank.StatusSkipped || res.Status == rerank.StatusDegraded {
 		slog.Warn("codegraph: dead_code reranker unavailable, skipping pre-score",
 			slog.String("repo", repoKey), slog.Any("error", rerankErr))
 		return nil // non-fatal
 	}
 
 	// Step 4: Persist scores to PostgreSQL.
+	if err := s.upsertDeadCodeScores(ctx, repoKey, candidates, res.Scored); err != nil {
+		return err
+	}
+
+	slog.Info("codegraph: dead_code scores persisted",
+		slog.String("repo", repoKey), slog.Int("scored", len(res.Scored)))
+	return nil
+}
+
+// upsertDeadCodeScores writes each scored candidate's CE probability to
+// code_dead_code_scores (ON CONFLICT updates for re-indexed repos). OrigRank
+// maps each scored doc back to its candidate index. Per-row upsert failures are
+// logged and skipped; only acquiring the connection is fatal.
+func (s *Store) upsertDeadCodeScores(ctx context.Context, repoKey string, candidates []orphanCandidate, scored []rerank.Scored) error {
 	conn, err := s.acquireAGE(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire: %w", err)
 	}
 	defer conn.Release()
 
-	// Upsert scores (ON CONFLICT updates the score for re-indexed repos).
-	for _, r := range scored.Results {
-		if r.Index >= len(candidates) {
+	for _, sc := range scored {
+		if sc.OrigRank < 0 || sc.OrigRank >= len(candidates) {
 			continue
 		}
-		row0 := candidates[r.Index].row[0]
+		row0 := candidates[sc.OrigRank].row[0]
 		name := extractFieldRerank(row0, "name")
 		file := extractFieldRerank(row0, "file")
 		if name == "" || file == "" {
@@ -162,15 +200,12 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 			VALUES ($1, $2, $3, $4, now())
 			ON CONFLICT (repo_key, name, file) DO UPDATE
 			SET score = EXCLUDED.score, scored_at = EXCLUDED.scored_at`,
-			repoKey, name, file, ceScoreToProbability(r.RelevanceScore))
+			repoKey, name, file, ceScoreToProbability(float64(sc.Score)))
 		if uErr != nil {
 			slog.Warn("codegraph: upsert dead_code score",
 				slog.String("name", name), slog.Any("error", uErr))
 		}
 	}
-
-	slog.Info("codegraph: dead_code scores persisted",
-		slog.String("repo", repoKey), slog.Int("scored", len(scored.Results)))
 	return nil
 }
 
