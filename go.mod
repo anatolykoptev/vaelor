@@ -2,6 +2,8 @@ module github.com/anatolykoptev/go-code
 
 go 1.26.0
 
+toolchain go1.26.3
+
 require (
 	github.com/anatolykoptev/go-kit v0.77.0
 	github.com/anatolykoptev/go-mcpserver v0.13.0
