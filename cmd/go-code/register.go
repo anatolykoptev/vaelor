@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-kit/env"
 	"github.com/anatolykoptev/go-kit/llm"
 	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
+	"github.com/anatolykoptev/go-kit/sparse"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
@@ -216,6 +217,17 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			if cfg.EmbedPipelineCache {
 				pipelineOpts = append(pipelineOpts, embeddings.WithFileCache(embeddings.NewPipelineCache()))
 			}
+			// Sparse embed (P2): optional SPLADE indexing gate. When SPARSE_EMBED_URL
+			// is empty the sparseClient is nil and Pipeline stays byte-identical to
+			// dense-only. Token auto-resolved from EMBED_TOKEN env by go-kit/sparse v2.
+			if sc := newSparseEmbedder(cfg); sc != nil {
+				pipelineOpts = append(pipelineOpts, embeddings.WithSparseEmbedder(sc))
+				pipelineOpts = append(pipelineOpts, embeddings.WithSparseMaxBatch(cfg.SparseEmbedMaxArray))
+				slog.Info("sparse embed: enabled",
+					slog.String("url", cfg.SparseEmbedURL),
+					slog.String("model", cfg.SparseEmbedModel),
+					slog.Int("max_array", cfg.SparseEmbedMaxArray))
+			}
 			semDeps = SemanticDeps{
 				Client:      ec,
 				Store:       es,
@@ -385,6 +397,22 @@ func newDesignEmbedder(cfg Config) (*embed.Client, error) {
 		embed.WithBackend("http"),
 		embed.WithModel(cfg.DesignEmbedModel),
 		embed.WithDim(designEmbedDim),
+	)
+}
+
+// newSparseEmbedder constructs the SPLADE sparse embedder when SPARSE_EMBED_URL
+// is configured. Returns nil when URL is empty — the Pipeline then uses the
+// dense-only cold-path (byte-identical to pre-P2 behaviour). Bearer token is
+// auto-resolved from EMBED_TOKEN env by go-kit/sparse v2 NewHTTPSparseEmbedder.
+func newSparseEmbedder(cfg Config) sparse.SparseEmbedder {
+	if cfg.SparseEmbedURL == "" {
+		return nil
+	}
+	return sparse.NewHTTPSparseEmbedder(
+		cfg.SparseEmbedURL,
+		cfg.SparseEmbedModel,
+		nil, // logger: nil → slog.Default()
+		sparse.WithBearerToken(os.Getenv("EMBED_TOKEN")),
 	)
 }
 

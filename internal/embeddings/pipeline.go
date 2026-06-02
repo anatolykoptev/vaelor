@@ -9,6 +9,7 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 	"github.com/anatolykoptev/go-kit/embed"
+	"github.com/anatolykoptev/go-kit/sparse"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -37,11 +38,13 @@ type indexProgress struct {
 
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
-	client         *embed.Client
-	store          *Store
-	writeRepoState func(ctx context.Context, repoKey, sha string) error // defaults to store.SetRepoState; injectable for testing
-	progress       sync.Map                                             // repoKey -> *indexProgress
-	fileCache      *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
+	client           *embed.Client
+	store            *Store
+	writeRepoState   func(ctx context.Context, repoKey, sha string) error // defaults to store.SetRepoState; injectable for testing
+	progress         sync.Map                                             // repoKey -> *indexProgress
+	fileCache        *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
+	sparseClient     sparse.SparseEmbedder                               // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
+	sparseMaxBatch   int                                                 // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
@@ -69,6 +72,30 @@ type PipelineOpt func(*Pipeline)
 // indexRepo pass after a file is touched. Pass nil to disable explicitly.
 func WithFileCache(c *kitcache.Cache) PipelineOpt {
 	return func(p *Pipeline) { p.fileCache = c }
+}
+
+// WithSparseEmbedder wires a SparseEmbedder into the indexing pipeline. When
+// set, each batch of symbols also gets a SPLADE sparse vector, written to the
+// sparse_embedding column (Phase P2). When nil (default), the pipeline is
+// byte-identical to the dense-only path — no sparse calls, no sparse writes.
+//
+// Sparse embedding is additive: a failure in the sparse leg logs, bumps
+// gocode_sparse_embed_failures_total{stage="index"}, and falls back to a NULL
+// sparse_embedding for the affected batch — the dense vector is always persisted.
+func WithSparseEmbedder(e sparse.SparseEmbedder) PipelineOpt {
+	return func(p *Pipeline) { p.sparseClient = e }
+}
+
+// WithSparseMaxBatch overrides the per-request input cap for the sparse server
+// (EMBED_MAX_INPUT_ARRAY on the embed-server side). The default is
+// sparseServerMaxDocs (32). Override when the server cap changes without a
+// go-code redeploy (via SPARSE_EMBED_MAX_ARRAY → Config.SparseEmbedMaxArray).
+func WithSparseMaxBatch(n int) PipelineOpt {
+	return func(p *Pipeline) {
+		if n > 0 {
+			p.sparseMaxBatch = n
+		}
+	}
 }
 
 // withWriteRepoStateFn overrides the SetRepoState implementation used by all
@@ -243,6 +270,12 @@ func (p *Pipeline) indexRepo(
 }
 
 // embedAndUpsert embeds a chunk of symbols and upserts them into the store.
+//
+// Dense path: always calls p.client.Embed and writes embedding. Failure is fatal.
+// Sparse path: when p.sparseClient != nil, also calls embedSparseBatched
+// (sub-batched by sparseServerMaxDocs=32) and writes sparse_embedding. Failure
+// is non-fatal: logged + counter bumped + sparse_embedding set to NULL for the
+// batch. Dense vector is always persisted regardless of sparse outcome.
 func (p *Pipeline) embedAndUpsert(
 	ctx context.Context, repoKey string, chunk []symbolEntry,
 ) (int, error) {
@@ -251,22 +284,43 @@ func (p *Pipeline) embedAndUpsert(
 		texts[i] = e.embedText
 	}
 
+	// 1. Dense embed (load-bearing; failure aborts the chunk).
 	vectors, err := p.client.Embed(ctx, texts)
 	if err != nil {
 		return 0, fmt.Errorf("embed symbols: %w", err)
 	}
 
+	// 2. Sparse embed (additive; failure degrades ranking only, never fatal).
+	//    sparseVecs[i] is zero-valued (→ NULL) when the sparse leg is disabled
+	//    or fails, preserving byte-identical behaviour on the dense path.
+	sparseVecs := make([]sparse.SparseVector, len(chunk)) // zero-valued = empty = NULL
+	if p.sparseClient != nil {
+		svecs, serr := embedSparseBatched(ctx, p.sparseClient, texts, p.sparseMaxBatch)
+		if serr != nil {
+			// Non-fatal: log once per chunk failure; counter already bumped inside
+			// embedSparseBatched. Rows upserted with NULL sparse_embedding — the
+			// Phase-5 backfill will fill them on the next resumable pass.
+			slog.Warn("sparse embed failed; writing NULL sparse_embedding for chunk",
+				slog.String("repo", repoKey),
+				slog.Int("chunk_size", len(chunk)),
+				slog.Any("error", serr))
+		} else {
+			sparseVecs = svecs
+		}
+	}
+
 	records := make([]EmbeddingRecord, len(chunk))
 	for i, e := range chunk {
 		records[i] = EmbeddingRecord{
-			RepoKey:    repoKey,
-			FilePath:   e.file.RelPath,
-			SymbolName: e.sym.Name,
-			SymbolKind: string(e.sym.Kind),
-			Language:   e.sym.Language,
-			StartLine:  int(e.sym.StartLine),
-			BodyHash:   e.hash,
-			Embedding:  vectors[i],
+			RepoKey:         repoKey,
+			FilePath:        e.file.RelPath,
+			SymbolName:      e.sym.Name,
+			SymbolKind:      string(e.sym.Kind),
+			Language:        e.sym.Language,
+			StartLine:       int(e.sym.StartLine),
+			BodyHash:        e.hash,
+			Embedding:       vectors[i],
+			SparseEmbedding: sparseVecs[i],
 		}
 	}
 

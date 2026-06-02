@@ -10,16 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/anatolykoptev/go-code/internal/pgutil"
+	"github.com/anatolykoptev/go-kit/sparse"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
 const (
 	defaultTopK  = 20
 	maxTopK      = 100
-	dimSize      = 768  // jina-code-v2 dense embedding dimension
+	dimSize      = 768   // jina-code-v2 dense embedding dimension
 	sparseDim    = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size (P1: column DDL, P3: HNSW index deferred — sparsevec HNSW unsupported in pgvector 0.8.2)
 	batchSize    = 50
-	fieldsPerRec = 8
+	fieldsPerRec = 9 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding, sparse_embedding
 )
 
 // schemaSQL creates the pgvector extension and the two public-schema data tables.
@@ -45,14 +46,15 @@ CREATE TABLE IF NOT EXISTS public.code_repo_state (
 
 // EmbeddingRecord holds a single symbol embedding for storage.
 type EmbeddingRecord struct {
-	RepoKey    string
-	FilePath   string
-	SymbolName string
-	SymbolKind string // function, method, class, etc.
-	Language   string
-	StartLine  int
-	BodyHash   uint64 // for change detection
-	Embedding  []float32
+	RepoKey         string
+	FilePath        string
+	SymbolName      string
+	SymbolKind      string // function, method, class, etc.
+	Language        string
+	StartLine       int
+	BodyHash        uint64             // for change detection
+	Embedding       []float32          // dense jina-code-v2 vector (768-dim)
+	SparseEmbedding sparse.SparseVector // SPLADE sparse vector (30522-dim); zero value → NULL in DB
 }
 
 // SearchOpts controls search filtering and result count.
@@ -124,7 +126,7 @@ func (s *Store) Upsert(ctx context.Context, records []EmbeddingRecord) error {
 func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) error {
 	var b strings.Builder
 	b.WriteString(`INSERT INTO public.code_embeddings
-		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embedding,updated_at) VALUES `)
+		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embedding,sparse_embedding,updated_at) VALUES `)
 	args := make([]any, 0, len(records)*fieldsPerRec)
 	for i, r := range records {
 		if i > 0 {
@@ -136,16 +138,30 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 			if j > 1 {
 				b.WriteByte(',')
 			}
-			fmt.Fprintf(&b, "$%d", off+j)
+			// sparse_embedding ($9 per row) is cast ::sparsevec to handle
+			// both NULL (nil arg, un-configured / failed) and the text literal.
+			if j == fieldsPerRec {
+				fmt.Fprintf(&b, "$%d::sparsevec", off+j)
+			} else {
+				fmt.Fprintf(&b, "$%d", off+j)
+			}
 		}
 		b.WriteString(",NOW())")
+		// sparse_embedding: bind NULL when empty (no sparse embedder or batch failure),
+		// bind formatted text literal otherwise. pgx casts text→sparsevec via the ::sparsevec above.
+		var sparseArg any
+		if !r.SparseEmbedding.IsEmpty() {
+			sparseArg = FormatSparseVector(r.SparseEmbedding, sparseDim)
+		}
 		args = append(args, r.RepoKey, r.FilePath, r.SymbolName, r.SymbolKind,
-			r.Language, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding))
+			r.Language, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding), sparseArg)
 	}
 	b.WriteString(` ON CONFLICT (repo_key, file_path, symbol_name) DO UPDATE SET
 		symbol_kind=EXCLUDED.symbol_kind, language=EXCLUDED.language,
 		start_line=EXCLUDED.start_line, body_hash=EXCLUDED.body_hash,
-		embedding=EXCLUDED.embedding, updated_at=NOW()`) // table is schema-qualified above
+		embedding=EXCLUDED.embedding,
+		sparse_embedding=EXCLUDED.sparse_embedding,
+		updated_at=NOW()`) // table is schema-qualified above
 	_, err := s.pool.Exec(ctx, b.String(), args...)
 	return err
 }
