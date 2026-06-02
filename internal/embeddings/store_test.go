@@ -29,6 +29,41 @@ func makeVec(vals ...float32) []float32 {
 	return v
 }
 
+// TestEnsureSchema_SparseEmbeddingColumn asserts that after EnsureSchema, the
+// code_embeddings table has a nullable sparsevec(30522) column. This test
+// fails (red) if the ADD COLUMN statement is removed from schemaSQL.
+func TestEnsureSchema_SparseEmbeddingColumn(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewStore(pool)
+
+	if err := store.EnsureSchema(ctx); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	// information_schema.columns is schema-qualified and does not depend on
+	// search_path, so this query is safe regardless of the pool's path reset.
+	const q = `
+SELECT data_type, udt_name, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name   = 'code_embeddings'
+  AND column_name  = 'sparse_embedding'`
+
+	var dataType, udtName, isNullable string
+	if err := pool.QueryRow(ctx, q).Scan(&dataType, &udtName, &isNullable); err != nil {
+		t.Fatalf("column query: %v — sparse_embedding column missing after EnsureSchema", err)
+	}
+
+	// pgvector sparsevec maps to data_type = "USER-DEFINED", udt_name = "sparsevec".
+	if dataType != "USER-DEFINED" || udtName != "sparsevec" {
+		t.Errorf("expected USER-DEFINED/sparsevec, got %s/%s", dataType, udtName)
+	}
+	if isNullable != "YES" {
+		t.Errorf("sparse_embedding must be nullable (existing rows backfilled in P5), got is_nullable=%s", isNullable)
+	}
+}
+
 func TestSearch_DistanceThreshold(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()

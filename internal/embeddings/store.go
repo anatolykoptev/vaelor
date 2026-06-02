@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	defaultTopK = 20
-	maxTopK     = 100
-	dimSize     = 768
-	batchSize   = 50
+	defaultTopK  = 20
+	maxTopK      = 100
+	dimSize      = 768  // jina-code-v2 dense embedding dimension
+	sparseDim    = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size (P1: column DDL, P3: HNSW index deferred — sparsevec HNSW unsupported in pgvector 0.8.2)
+	batchSize    = 50
 	fieldsPerRec = 8
 )
 
@@ -35,6 +36,8 @@ CREATE TABLE IF NOT EXISTS public.code_embeddings (
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_repo ON public.code_embeddings (repo_key);
 CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw ON public.code_embeddings
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+ALTER TABLE public.code_embeddings
+    ADD COLUMN IF NOT EXISTS sparse_embedding sparsevec(30522);
 CREATE TABLE IF NOT EXISTS public.code_repo_state (
     repo_key TEXT PRIMARY KEY,
     head_sha TEXT NOT NULL,
