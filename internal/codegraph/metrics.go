@@ -70,3 +70,37 @@ func init() {
 func recordRerankBatch(outcome string) {
 	deadCodeRerankBatchTotal.WithLabelValues(outcome).Inc()
 }
+
+// semanticDupCollapsedTotal counts duplicate file:symbol pairs that were
+// collapsed before reaching the caller. Two labels:
+//
+//   - "semantic_only" — collapsed in semanticOnlyResult (dense + trigram-name
+//     arms both returned the same symbol; no MergeRRF dedup ran).
+//   - "ce_rerank"     — collapsed in RerankSemanticResults before CE reranker
+//     (defensive layer: hardens against phantom rows from Bug B or any future
+//     upstream path that skips MergeRRF).
+//
+// Pre-touched at 0 so both series always export, making regressions visible
+// immediately without needing a live duplicate to trigger the first scrape:
+//
+//	gocode_semantic_dup_collapsed_total{path="semantic_only"} 0
+//	gocode_semantic_dup_collapsed_total{path="ce_rerank"} 0
+var semanticDupCollapsedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_semantic_dup_collapsed_total",
+		Help: "Duplicate file:symbol pairs collapsed before semantic search output, labelled by path (semantic_only|ce_rerank).",
+	},
+	[]string{"path"},
+)
+
+func init() {
+	semanticDupCollapsedTotal.WithLabelValues("semantic_only").Add(0)
+	semanticDupCollapsedTotal.WithLabelValues("ce_rerank").Add(0)
+}
+
+// RecordSemanticDupCollapsed bumps the dup-collapsed counter for the given path
+// ("semantic_only" or "ce_rerank"). Exported so cmd/go-code can call it from
+// semanticOnlyResult (which already imports codegraph for RerankSemanticResults).
+func RecordSemanticDupCollapsed(path string) {
+	semanticDupCollapsedTotal.WithLabelValues(path).Inc()
+}
