@@ -79,11 +79,16 @@ func WithFileCache(c *kitcache.Cache) PipelineOpt {
 // sparse_embedding column (Phase P2). When nil (default), the pipeline is
 // byte-identical to the dense-only path — no sparse calls, no sparse writes.
 //
-// Sparse embedding is additive: a failure in the sparse leg logs, bumps
-// gocode_sparse_embed_failures_total{stage="index"}, and falls back to a NULL
-// sparse_embedding for the affected batch — the dense vector is always persisted.
+// Sparse embedding is strictly additive: the dense vector is always persisted
+// regardless of sparse outcome. Failures in the sparse leg (embed call or DB
+// write) log at WARN, bump gocode_sparse_embed_failures_total, and leave that
+// row's sparse_embedding NULL — never blocking dense persistence or SHA advance.
+//
+// VocabSize guard: if e.VocabSize() != 30522 (the sparsevec column dimension),
+// sparse indexing is refused (logs WARN, pipeline stays dense-only). This
+// prevents out-of-range index corruption when a non-standard SPLADE head is wired.
 func WithSparseEmbedder(e sparse.SparseEmbedder) PipelineOpt {
-	return func(p *Pipeline) { p.sparseClient = e }
+	return func(p *Pipeline) { p.sparseClient = newSparseEmbedder(e) }
 }
 
 // WithSparseMaxBatch overrides the per-request input cap for the sparse server
@@ -271,11 +276,17 @@ func (p *Pipeline) indexRepo(
 
 // embedAndUpsert embeds a chunk of symbols and upserts them into the store.
 //
-// Dense path: always calls p.client.Embed and writes embedding. Failure is fatal.
-// Sparse path: when p.sparseClient != nil, also calls embedSparseBatched
-// (sub-batched by sparseServerMaxDocs=32) and writes sparse_embedding. Failure
-// is non-fatal: logged + counter bumped + sparse_embedding set to NULL for the
-// batch. Dense vector is always persisted regardless of sparse outcome.
+// Dense path: always calls p.client.Embed and writes the dense vector. Failure is fatal.
+// Sparse path: when p.sparseClient != nil, also calls embedSparseBatched then writes
+// each row's sparse_embedding via a separate best-effort UPDATE — completely decoupled
+// from the dense INSERT. A sparse UPDATE failure:
+//   - does NOT roll back the dense row (the INSERT committed independently)
+//   - logs at WARN
+//   - bumps gocode_sparse_embed_failures_total{stage="write"}
+//   - leaves that row's sparse_embedding NULL (Phase-5 IS NULL cursor retries later)
+//   - NEVER propagates fatal to embedAndUpsert or IncrementalSync
+//
+// The dense vector is always persisted regardless of sparse outcome.
 func (p *Pipeline) embedAndUpsert(
 	ctx context.Context, repoKey string, chunk []symbolEntry,
 ) (int, error) {
@@ -324,8 +335,32 @@ func (p *Pipeline) embedAndUpsert(
 		}
 	}
 
+	// 3. Dense upsert — always the source of truth; sparse decoupled below.
 	if err := p.store.Upsert(ctx, records); err != nil {
 		return 0, fmt.Errorf("upsert embeddings: %w", err)
+	}
+
+	// 4. Sparse write — best-effort UPDATE per row, completely independent of step 3.
+	//    A failure here never aborts the batch or blocks SHA advance.
+	if p.sparseClient != nil {
+		for i, r := range records {
+			sv := sparseVecs[i]
+			if sv.IsEmpty() {
+				continue // NULL already in DB from INSERT default; skip UPDATE
+			}
+			lit := SanitizeAndFormatSparseVector(sv, sparseDim)
+			if lit == "" {
+				// Sanitized to nothing (all-zero / all-OOB); leave NULL.
+				continue
+			}
+			if werr := p.store.UpdateSparseEmbedding(ctx, r.RepoKey, r.FilePath, r.SymbolName, lit); werr != nil {
+				sparseEmbedFailTotal.WithLabelValues("write").Inc()
+				slog.Warn("sparse write failed; row stays NULL",
+					slog.String("repo", repoKey),
+					slog.String("symbol", r.SymbolName),
+					slog.Any("error", werr))
+			}
+		}
 	}
 
 	return len(chunk), nil

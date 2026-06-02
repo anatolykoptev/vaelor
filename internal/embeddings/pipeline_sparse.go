@@ -3,6 +3,7 @@ package embeddings
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -66,6 +67,57 @@ func embedSparseBatched(ctx context.Context, e sparse.SparseEmbedder, texts []st
 	return out, nil
 }
 
+// SanitizeAndFormatSparseVector sanitizes v and formats it as a pgvector sparsevec
+// text literal: `{i1:w1,i2:w2,…}/dim`.
+//
+// Sanitization (applied before formatting, never mutates the caller's slice):
+//   - drops entries with zero weight (pgvector rejects them)
+//   - deduplicates indices (keeps the last occurrence, matching SPLADE convention)
+//   - drops entries with index ≥ dim (out-of-range for the column's sparsevec(dim))
+//
+// After sanitization an empty result is formatted as "" (not `{}/dim`) so callers
+// can detect a fully-degenerate vector and bind NULL instead. Non-empty results
+// are always index-ascending (required by pgvector).
+//
+// Use FormatSparseVector for already-clean vectors (no sanitization overhead).
+func SanitizeAndFormatSparseVector(v sparse.SparseVector, dim int) string {
+	type pair struct {
+		idx uint32
+		val float32
+	}
+	// Deduplicate: keep last value for each index (SPLADE convention).
+	seen := make(map[uint32]float32, v.Len())
+	for i := range v.Len() {
+		idx := v.Indices[i]
+		val := v.Values[i]
+		if val == 0 || idx >= uint32(dim) { //nolint:gosec // G115: dim is always 30522, no overflow risk
+			continue // drop zero-weight and out-of-range entries
+		}
+		seen[idx] = val // last-wins dedup
+	}
+	if len(seen) == 0 {
+		return "" // fully degenerate — caller binds NULL
+	}
+	pairs := make([]pair, 0, len(seen))
+	for idx, val := range seen {
+		pairs = append(pairs, pair{idx, val})
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].idx < pairs[j].idx })
+
+	const sparseVecHeaderBytes = 16
+	b := make([]byte, 0, len(pairs)*12+sparseVecHeaderBytes)
+	b = append(b, '{')
+	for i, p := range pairs {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = fmt.Appendf(b, "%d:%g", p.idx, p.val)
+	}
+	b = append(b, '}')
+	b = fmt.Appendf(b, "/%d", dim)
+	return string(b)
+}
+
 // FormatSparseVector formats a sparse.SparseVector as a pgvector sparsevec
 // text literal: `{i1:w1,i2:w2,…}/dim`.
 //
@@ -75,6 +127,10 @@ func embedSparseBatched(ctx context.Context, e sparse.SparseEmbedder, texts []st
 // An empty vector formats as `{}/dim`; callers should check v.IsEmpty() and
 // bind nil (SQL NULL) rather than calling FormatSparseVector on empty inputs —
 // this keeps un-backfilled rows as NULL for the Phase-5 IS NULL cursor.
+//
+// For untrusted SPLADE server output use SanitizeAndFormatSparseVector instead —
+// it strips zero-weight, deduplicates indices, and drops out-of-range entries
+// before formatting.
 func FormatSparseVector(v sparse.SparseVector, dim int) string {
 	n := v.Len()
 	if n == 0 {
@@ -102,4 +158,17 @@ func FormatSparseVector(v sparse.SparseVector, dim int) string {
 	b = append(b, '}')
 	b = fmt.Appendf(b, "/%d", dim)
 	return string(b)
+}
+
+// newSparseEmbedder validates that the embedder's vocab size matches the
+// sparsevec column dimension (30522). Returns nil with a WARN log on mismatch,
+// keeping sparse disabled rather than corrupting writes with out-of-range indices.
+func newSparseEmbedder(e sparse.SparseEmbedder) sparse.SparseEmbedder {
+	if vs := e.VocabSize(); vs != sparseDim {
+		slog.Warn("sparse embedder VocabSize mismatch: sparse indexing disabled",
+			slog.Int("embedder_vocab_size", vs),
+			slog.Int("column_dim", sparseDim))
+		return nil
+	}
+	return e
 }
