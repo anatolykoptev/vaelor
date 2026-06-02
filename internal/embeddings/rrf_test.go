@@ -18,7 +18,7 @@ func TestRRFMerge(t *testing.T) {
 		{FilePath: "qux.go", SymbolName: "Qux", Line: 20},
 	}
 
-	results := MergeRRF(semantic, keyword, 10, DefaultRRFWeights())
+	results := MergeRRF(semantic, keyword, nil, 10, DefaultRRFWeights())
 
 	if len(results) == 0 {
 		t.Fatal("expected non-empty results")
@@ -49,7 +49,7 @@ func TestRRFMergeEmptySemantic(t *testing.T) {
 		{FilePath: "b.go", SymbolName: "Beta", Line: 5},
 	}
 
-	results := MergeRRF(nil, keyword, 10, DefaultRRFWeights())
+	results := MergeRRF(nil, keyword, nil, 10, DefaultRRFWeights())
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -67,7 +67,7 @@ func TestRRFMergeEmptyKeyword(t *testing.T) {
 		{FilePath: "y.go", SymbolName: "Y", Distance: 0.2},
 	}
 
-	results := MergeRRF(semantic, nil, 10, DefaultRRFWeights())
+	results := MergeRRF(semantic, nil, nil, 10, DefaultRRFWeights())
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -94,7 +94,7 @@ func TestRRFMergeTopK(t *testing.T) {
 		semantic[i].SymbolName = "Sym" + string(rune('A'+i))
 	}
 
-	results := MergeRRF(semantic, nil, 5, DefaultRRFWeights())
+	results := MergeRRF(semantic, nil, nil, 5, DefaultRRFWeights())
 
 	if len(results) != 5 {
 		t.Errorf("expected exactly 5 results with topK=5, got %d", len(results))
@@ -102,7 +102,7 @@ func TestRRFMergeTopK(t *testing.T) {
 }
 
 func TestRRFMergeBothEmpty(t *testing.T) {
-	results := MergeRRF(nil, nil, 10, DefaultRRFWeights())
+	results := MergeRRF(nil, nil, nil, 10, DefaultRRFWeights())
 	if len(results) != 0 {
 		t.Errorf("expected empty results, got %d", len(results))
 	}
@@ -123,7 +123,7 @@ func TestMergeRRFWeighted_AllOnesEqualsRRF(t *testing.T) {
 		{FilePath: "d.go", SymbolName: "Delta", Line: 9},
 	}
 
-	weighted := MergeRRF(semantic, keyword, 10, DefaultRRFWeights())
+	weighted := MergeRRF(semantic, keyword, nil, 10, DefaultRRFWeights())
 
 	// Reference: build the exact same input lists, run plain RRF, compare scores.
 	semIDs := []string{"a.go:Alpha", "b.go:Beta", "c.go:Gamma"}
@@ -163,7 +163,7 @@ func TestMergeRRFWeighted_SemanticHeavier(t *testing.T) {
 		{FilePath: "kw.go", SymbolName: "OnlyKw", Line: 1},
 	}
 
-	results := MergeRRF(semantic, keyword, 10, RRFWeights{Semantic: 2.0, Keyword: 1.0})
+	results := MergeRRF(semantic, keyword, nil, 10, RRFWeights{Semantic: 2.0, Keyword: 1.0})
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -189,7 +189,7 @@ func TestMergeRRFWeighted_KeywordHeavier(t *testing.T) {
 		{FilePath: "kw.go", SymbolName: "OnlyKw", Line: 1},
 	}
 
-	results := MergeRRF(semantic, keyword, 10, RRFWeights{Semantic: 1.0, Keyword: 2.0})
+	results := MergeRRF(semantic, keyword, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 2.0})
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -222,5 +222,166 @@ func TestMergeRRFWeighted_NegativePanics(t *testing.T) {
 		{FilePath: "b.go", SymbolName: "B", Line: 1},
 	}
 
-	_ = MergeRRF(semantic, keyword, 10, RRFWeights{Semantic: -0.1, Keyword: 1.0})
+	_ = MergeRRF(semantic, keyword, nil, 10, RRFWeights{Semantic: -0.1, Keyword: 1.0})
+}
+
+// TestMergeRRF_EmptySparseArmIdentical is the load-bearing dark-launch safety
+// test. It drives the real MergeRRF with a non-empty sparse arm but weight=0.0,
+// and asserts that the fused ranking and scores are byte-identical to the 2-arm
+// fusion. Source attribution is metadata and may differ (a doc also in the sparse
+// arm's index map will show "hybrid" in source even at weight 0), but ranking must
+// be unaffected.
+//
+// Why this proves the guarantee: WeightedRRF contribution of arm i to doc d is
+// weight_i/(k+rank_i(d)). With weight_i=0 WeightedRRF explicitly skips the arm
+// (confirmed in vendor: `if w == 0 { continue }`). Docs appearing only in the
+// sparse arm cannot enter the fused output via score (0-contribution), so the
+// ranked list of docs with positive scores is identical. The test verifies this
+// on the REAL MergeRRF path (not reimplemented fusion), so it goes RED if a
+// future change accidentally promotes zero-weight sparse docs into results.
+func TestMergeRRF_EmptySparseArmIdentical(t *testing.T) {
+	semantic := []SearchResult{
+		{FilePath: "a.go", SymbolName: "Alpha", Distance: 0.1},
+		{FilePath: "b.go", SymbolName: "Beta", Distance: 0.2},
+		{FilePath: "c.go", SymbolName: "Gamma", Distance: 0.3},
+	}
+	keyword := []KeywordHit{
+		{FilePath: "b.go", SymbolName: "Beta", Line: 5},
+		{FilePath: "d.go", SymbolName: "Delta", Line: 9},
+	}
+	// A non-empty sparse arm. "Echo" would only surface via positive Sparse weight.
+	// "Alpha" overlaps with semantic — its inSparse flag is set but its score is
+	// unchanged (sparse contributes 0 at weight=0).
+	sparseArm := []SparseHit{
+		{FilePath: "e.go", SymbolName: "Echo", Line: 1},
+		{FilePath: "a.go", SymbolName: "Alpha", Line: 3},
+	}
+
+	w := RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.0}
+
+	// 2-arm reference (no sparse).
+	ref := MergeRRF(semantic, keyword, nil, 10, w)
+
+	// 3-arm with non-empty sparse at weight 0.
+	got := MergeRRF(semantic, keyword, sparseArm, 10, w)
+
+	// Ranking invariant: same count (sparse-only docs must NOT appear), same
+	// order, same RRFScores. Source attribution may differ (metadata only).
+	if len(got) != len(ref) {
+		t.Fatalf("sparse arm at weight 0 changed result count: ref=%d got=%d\n"+
+			"(sparse-only docs must not appear in output at weight=0)",
+			len(ref), len(got))
+	}
+	for i := range ref {
+		rKey := ref[i].FilePath + ":" + ref[i].SymbolName
+		gKey := got[i].FilePath + ":" + got[i].SymbolName
+		if rKey != gKey {
+			t.Errorf("rank %d identity mismatch: ref=%q got=%q", i, rKey, gKey)
+		}
+		if math.Abs(ref[i].RRFScore-got[i].RRFScore) > 1e-12 {
+			t.Errorf("rank %d score drift for %q: ref=%.18f got=%.18f",
+				i, rKey, ref[i].RRFScore, got[i].RRFScore)
+		}
+	}
+}
+
+// TestMergeRRF_SparseContributesWhenWeightPositive verifies the positive case:
+// a doc found ONLY by the sparse arm surfaces in fused results when Sparse=0.5,
+// and does NOT appear when Sparse=0.0.
+//
+// This is a falsifiable test: revert weights.Sparse from 0.0 to 0.5 in the
+// second call and the "SparseOnly" should NOT surface — confirming the test
+// accurately tracks the production guard.
+func TestMergeRRF_SparseContributesWhenWeightPositive(t *testing.T) {
+	semantic := []SearchResult{
+		{FilePath: "sem.go", SymbolName: "SemOnly", Distance: 0.1},
+	}
+	keyword := []KeywordHit{
+		{FilePath: "kw.go", SymbolName: "KwOnly", Line: 1},
+	}
+	// SparseOnly is unique to the sparse arm.
+	sparseArm := []SparseHit{
+		{FilePath: "sp.go", SymbolName: "SparseOnly", Line: 7},
+	}
+
+	// With Sparse=0.0: SparseOnly must NOT appear.
+	darkLaunch := MergeRRF(semantic, keyword, sparseArm, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.0})
+	for _, r := range darkLaunch {
+		if r.SymbolName == "SparseOnly" {
+			t.Errorf("Sparse=0.0: SparseOnly must not appear, but got source=%q", r.Source)
+		}
+	}
+
+	// With Sparse=0.5: SparseOnly MUST appear and carry source="sparse".
+	active := MergeRRF(semantic, keyword, sparseArm, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.5})
+	found := false
+	for _, r := range active {
+		if r.SymbolName == "SparseOnly" {
+			found = true
+			if r.Source != "sparse" {
+				t.Errorf("Sparse=0.5: SparseOnly source want %q got %q", "sparse", r.Source)
+			}
+		}
+	}
+	if !found {
+		t.Error("Sparse=0.5: SparseOnly did not surface in fused results")
+	}
+}
+
+// TestMergeRRF_SparseNilClientIdentical verifies that passing a nil sparse arm
+// produces the same output as passing an empty slice — the nil-client gate in
+// handleSemanticHits is safe.
+func TestMergeRRF_SparseNilClientIdentical(t *testing.T) {
+	semantic := []SearchResult{
+		{FilePath: "a.go", SymbolName: "A", Distance: 0.1},
+		{FilePath: "b.go", SymbolName: "B", Distance: 0.2},
+	}
+	keyword := []KeywordHit{
+		{FilePath: "b.go", SymbolName: "B", Line: 3},
+	}
+
+	w := RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0}
+
+	withNil := MergeRRF(semantic, keyword, nil, 10, w)
+	withEmpty := MergeRRF(semantic, keyword, []SparseHit{}, 10, w)
+
+	if len(withNil) != len(withEmpty) {
+		t.Fatalf("nil vs empty sparse: count mismatch nil=%d empty=%d", len(withNil), len(withEmpty))
+	}
+	for i := range withNil {
+		if withNil[i].SymbolName != withEmpty[i].SymbolName {
+			t.Errorf("rank %d: nil=%q empty=%q", i, withNil[i].SymbolName, withEmpty[i].SymbolName)
+		}
+		if math.Abs(withNil[i].RRFScore-withEmpty[i].RRFScore) > 1e-12 {
+			t.Errorf("rank %d score drift: nil=%.18f empty=%.18f",
+				i, withNil[i].RRFScore, withEmpty[i].RRFScore)
+		}
+	}
+}
+
+// TestMergeRRF_SparseThreeWayHybrid confirms that a doc appearing in all three
+// arms carries source="hybrid".
+func TestMergeRRF_SparseThreeWayHybrid(t *testing.T) {
+	semantic := []SearchResult{
+		{FilePath: "x.go", SymbolName: "Tri", Distance: 0.1},
+	}
+	keyword := []KeywordHit{
+		{FilePath: "x.go", SymbolName: "Tri", Line: 5},
+	}
+	sparseArm := []SparseHit{
+		{FilePath: "x.go", SymbolName: "Tri", Line: 5},
+	}
+
+	results := MergeRRF(semantic, keyword, sparseArm, 10,
+		RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0})
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 deduped result, got %d", len(results))
+	}
+	if results[0].SymbolName != "Tri" {
+		t.Fatalf("expected Tri, got %s", results[0].SymbolName)
+	}
+	if results[0].Source != "hybrid" {
+		t.Errorf("three-way overlap: expected source=hybrid, got %q", results[0].Source)
+	}
 }

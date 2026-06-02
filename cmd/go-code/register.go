@@ -196,12 +196,13 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 
 	// RRF weights: published once at startup so /metrics records the deployed
 	// values, and threaded into SemanticDeps so MergeRRF picks them up. Logged
-	// for ops visibility — defaults (1.0, 1.0) are byte-identical to v0.32.0.
+	// for ops visibility — Sparse defaults to 0.0 (dark-launched P4).
 	rrfWeights := cfg.RRFWeights()
 	embeddings.PublishRRFWeights(rrfWeights)
 	slog.Info("rrf weights",
 		slog.Float64("semantic", rrfWeights.Semantic),
 		slog.Float64("keyword", rrfWeights.Keyword),
+		slog.Float64("sparse", rrfWeights.Sparse),
 	)
 
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
@@ -217,25 +218,31 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			if cfg.EmbedPipelineCache {
 				pipelineOpts = append(pipelineOpts, embeddings.WithFileCache(embeddings.NewPipelineCache()))
 			}
-			// Sparse embed (P2): optional SPLADE indexing gate. When SPARSE_EMBED_URL
-			// is empty the sparseClient is nil and Pipeline stays byte-identical to
-			// dense-only. Token auto-resolved from EMBED_TOKEN env by go-kit/sparse v2.
+			// Sparse embed (P2+P4): optional SPLADE gate. When SPARSE_EMBED_URL is
+			// empty the sparseClient is nil — Pipeline stays dense-only AND the P4
+			// sparse retrieval arm in handleSemanticHits is skipped entirely
+			// (byte-identical to pre-P4 behavior). Token auto-resolved from
+			// EMBED_TOKEN env by go-kit/sparse v2 NewHTTPSparseEmbedder.
+			var sparseClient sparse.SparseEmbedder
 			if sc := newSparseEmbedder(cfg); sc != nil {
+				sparseClient = sc
 				pipelineOpts = append(pipelineOpts, embeddings.WithSparseEmbedder(sc))
 				pipelineOpts = append(pipelineOpts, embeddings.WithSparseMaxBatch(cfg.SparseEmbedMaxArray))
-				slog.Info("sparse embed: enabled",
+				slog.Info("sparse embed: enabled (P4 dark-launch: rrf_weight_sparse=0.0 until A/B)",
 					slog.String("url", cfg.SparseEmbedURL),
 					slog.String("model", cfg.SparseEmbedModel),
-					slog.Int("max_array", cfg.SparseEmbedMaxArray))
+					slog.Int("max_array", cfg.SparseEmbedMaxArray),
+					slog.Float64("rrf_weight_sparse", rrfWeights.Sparse))
 			}
 			semDeps = SemanticDeps{
-				Client:      ec,
-				Store:       es,
-				Pipeline:    embeddings.NewPipeline(ec, es, pipelineOpts...),
-				AnalyzeDeps: deps,
-				Expander:    embeddings.NewExpander(agePool),
-				OxCodes:     buildOxCodesClient(cfg),
-				RRFWeights:  rrfWeights,
+				Client:       ec,
+				Store:        es,
+				Pipeline:     embeddings.NewPipeline(ec, es, pipelineOpts...),
+				AnalyzeDeps:  deps,
+				Expander:     embeddings.NewExpander(agePool),
+				OxCodes:      buildOxCodesClient(cfg),
+				RRFWeights:   rrfWeights,
+				SparseClient: sparseClient,
 			}
 		}
 	}
