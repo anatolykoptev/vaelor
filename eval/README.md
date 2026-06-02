@@ -55,13 +55,14 @@ the relevant metric reports `p < 0.05`.
 
 | Flag           | Default                  | Notes                                                |
 |----------------|--------------------------|------------------------------------------------------|
-| `--golden-dir` | `eval/golden`            | Directory of `<repo>.jsonl` files.                   |
-| `--target-url` | `http://127.0.0.1:8897`  | MCP base URL; harness calls `/api/tools/...` on it.  |
-| `--output`     | stdout                   | JSON report path. `-` writes to stdout.              |
-| `--baseline`   | (none)                   | Prior report path; enables the `delta` block.        |
-| `--workers`    | `8`                      | Concurrent HTTP workers.                             |
-| `--top-k`      | `20`                     | `top_k` passed to `semantic_search`. Min 20.         |
-| `--timeout`    | `30m`                    | Overall harness timeout.                             |
+| `--golden-dir`    | `eval/golden`            | Directory of `<repo>.jsonl` files.                         |
+| `--target-url`    | `http://127.0.0.1:8897`  | MCP base URL; harness calls `/api/tools/...` on it.        |
+| `--output`        | stdout                   | JSON report path. `-` writes to stdout.                    |
+| `--baseline`      | (none)                   | Prior report path; enables the `delta` block.              |
+| `--splade-weight` | (none)                   | RRF_WEIGHT_SPARSE value used in candidate run. Enables the `splade_gate` verdict. Requires `--baseline`. |
+| `--workers`       | `8`                      | Concurrent HTTP workers.                                   |
+| `--top-k`         | `20`                     | `top_k` passed to `semantic_search`. Min 20.               |
+| `--timeout`       | `30m`                    | Overall harness timeout.                                   |
 
 ## Output schema
 
@@ -92,9 +93,75 @@ the relevant metric reports `p < 0.05`.
     "recall10": "+0.0280 (p=0.0450)",
     "recall20": "+0.0190 (p=0.0810)",
     "mrr":      "+0.0510 (p=0.0080)"
+  },
+  "splade_gate": {                        // only set when --splade-weight is given with --baseline
+    "verdict": "PASS",                    // PASS | FAIL | INSUFFICIENT_DATA
+    "tested_weight": 0.3,
+    "recommended_action": "Set RRF_WEIGHT_SPARSE=0.30 in production. …",
+    "ndcg10_delta": 0.034,
+    "ndcg10_p": 0.012,
+    "recall20_delta": 0.019,
+    "recall20_p": 0.081,
+    "paired_queries": 49,
+    "ndcg10_significant": true,
+    "recall20_non_inferior": true,
+    "explanation": "nDCG@10 improved by +0.0340 (p=0.0120 < 0.05) …"
   }
 }
 ```
+
+## SPLADE A/B gate (Phase P6)
+
+Use the harness to decide whether to flip `RRF_WEIGHT_SPARSE` from 0.
+
+### Prerequisites
+
+1. **P5 backfill complete**: `sparse_embedding` column must be populated
+   for the target repos (check `gocode_sparse_backfill_remaining` gauge in
+   Prometheus — should be 0 or near 0).
+2. **`SPARSE_EMBED_URL` set** on the go-code server: enables sparse embed
+   and retrieval. Without it the sparse arm is a no-op.
+
+### Procedure
+
+```bash
+# Step 1: baseline run — RRF_WEIGHT_SPARSE=0 (sparse arm inert)
+# Set RRF_WEIGHT_SPARSE=0 in go-code environment, restart, then:
+/tmp/go-code-eval \
+  --golden-dir eval/golden \
+  --target-url http://127.0.0.1:8897 \
+  --output /tmp/eval-baseline.json
+
+# Step 2: candidate run — set RRF_WEIGHT_SPARSE=0.3, restart go-code, then:
+/tmp/go-code-eval \
+  --golden-dir eval/golden \
+  --target-url http://127.0.0.1:8897 \
+  --output /tmp/eval-cand.json \
+  --baseline /tmp/eval-baseline.json \
+  --splade-weight 0.3
+
+# Inspect the verdict:
+jq .splade_gate /tmp/eval-cand.json
+```
+
+Sweep multiple weights (0.2, 0.3, 0.4 per the research-recommended range)
+and pick the weight with the best `ndcg10_delta` and a PASS verdict.
+
+### Gate rule
+
+**PASS** (flip `RRF_WEIGHT_SPARSE` to tested weight) when ALL of:
+- nDCG@10 delta > 0 with p < 0.05 (paired t-test, two-tailed)
+- Recall@20 delta ≥ −2% OR Recall@20 p ≥ 0.05 (non-inferior)
+
+**FAIL** otherwise — do not flip the weight. Leave at 0 and revisit.
+
+### Future step: Team Draft Interleaving (TDI)
+
+TDI interleaves two ranking systems on live traffic and measures
+click-through preference with higher sensitivity than offline nDCG.
+After this offline PASS, TDI is the recommended online validation
+before making `RRF_WEIGHT_SPARSE > 0` the permanent default.
+TDI requires live traffic instrumentation and is out of scope for P6.
 
 ## Recommended sprint workflow
 

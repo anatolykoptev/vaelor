@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -352,6 +353,176 @@ func TestLoadGolden_RejectsBadRecords(t *testing.T) {
 	}
 	if _, err := LoadGolden(dir); err == nil {
 		t.Error("expected error for empty query")
+	}
+}
+
+// ──────────────────── SPLADE A/B gate ────────────────────
+
+// makeResults builds a synthetic []QueryResult slice for gate tests.
+// Each query q_N gets nDCG10=ndcgBase+ndcgDelta and Recall20=r20Base+r20Delta.
+func makeResults(repo string, n int, ndcg, r20 float64) []QueryResult {
+	out := make([]QueryResult, n)
+	for i := range n {
+		out[i] = QueryResult{
+			Repo:     repo,
+			Query:    fmt.Sprintf("q%d", i),
+			NDCG10:   ndcg,
+			Recall20: r20,
+		}
+	}
+	return out
+}
+
+// TestEvaluateGate_Pass verifies that a statistically significant nDCG@10
+// improvement with non-inferior Recall@20 yields GatePass.
+//
+// Falsification: remove the ndcgSig condition in EvaluateGate (always false)
+// → verdict becomes GateFail and this test goes RED.
+func TestEvaluateGate_Pass(t *testing.T) {
+	// Candidate consistently +0.12 on nDCG, +0.05 on Recall20.
+	// With 20 pairs and zero within-pair variance this is maximally significant.
+	n := 20
+	bl := makeResults("r", n, 0.50, 0.60)
+	cn := makeResults("r", n, 0.62, 0.65)
+
+	g := EvaluateGate(bl, cn, 0.3)
+
+	if g.Verdict != GatePass {
+		t.Errorf("verdict = %s, want PASS; ndcg_delta=%.4f p=%.4f recall20_delta=%.4f p=%.4f",
+			g.Verdict, g.NDCG10Delta, g.NDCG10P, g.Recall20Delta, g.Recall20P)
+	}
+	if !g.NDCGSignificant {
+		t.Error("NDCGSignificant = false, want true")
+	}
+	if !g.Recall20NonInferior {
+		t.Error("Recall20NonInferior = false, want true")
+	}
+	if g.PairedQueries != n {
+		t.Errorf("PairedQueries = %d, want %d", g.PairedQueries, n)
+	}
+	if g.TestedWeight != 0.3 {
+		t.Errorf("TestedWeight = %f, want 0.3", g.TestedWeight)
+	}
+}
+
+// TestEvaluateGate_Fail_NoSignificance verifies that a small, noisy nDCG
+// improvement that does not clear p<0.05 yields GateFail.
+//
+// Falsification: lower pAlpha to 0.5 in abgate.go (always "significant") →
+// verdict flips to PASS and this test goes RED.
+func TestEvaluateGate_Fail_NoSignificance(t *testing.T) {
+	// Symmetric noise: tiny alternating effect, zero net improvement.
+	// pairedTTest will return p≈1.
+	bl := []QueryResult{
+		{Repo: "r", Query: "q0", NDCG10: 0.50, Recall20: 0.60},
+		{Repo: "r", Query: "q1", NDCG10: 0.55, Recall20: 0.65},
+		{Repo: "r", Query: "q2", NDCG10: 0.45, Recall20: 0.55},
+		{Repo: "r", Query: "q3", NDCG10: 0.52, Recall20: 0.62},
+		{Repo: "r", Query: "q4", NDCG10: 0.48, Recall20: 0.58},
+	}
+	// Candidate differs by +0.01/-0.01 alternating → near-zero mean delta, high p.
+	cn := []QueryResult{
+		{Repo: "r", Query: "q0", NDCG10: 0.51, Recall20: 0.61},
+		{Repo: "r", Query: "q1", NDCG10: 0.54, Recall20: 0.64},
+		{Repo: "r", Query: "q2", NDCG10: 0.46, Recall20: 0.56},
+		{Repo: "r", Query: "q3", NDCG10: 0.51, Recall20: 0.61},
+		{Repo: "r", Query: "q4", NDCG10: 0.49, Recall20: 0.59},
+	}
+
+	g := EvaluateGate(bl, cn, 1.0)
+
+	if g.Verdict != GateFail {
+		t.Errorf("verdict = %s, want FAIL; ndcg_delta=%.4f p=%.4f",
+			g.Verdict, g.NDCG10Delta, g.NDCG10P)
+	}
+	if g.NDCGSignificant {
+		t.Errorf("NDCGSignificant = true, want false (p=%.4f should be > 0.05)", g.NDCG10P)
+	}
+}
+
+// TestEvaluateGate_Fail_Recall20Regression verifies that a significant nDCG
+// gain paired with a significant Recall@20 regression yields GateFail.
+//
+// Falsification: remove the !r20NonInf branch in EvaluateGate (collapse to
+// single ndcgSig check) → verdict flips to PASS and this test goes RED.
+func TestEvaluateGate_Fail_Recall20Regression(t *testing.T) {
+	// nDCG improves significantly (+0.15 with zero variance → p≈0).
+	// Recall@20 regresses significantly (-0.05, beyond nonInferiorMargin=0.02).
+	n := 15
+	bl := makeResults("r", n, 0.50, 0.70)
+	cn := makeResults("r", n, 0.65, 0.65) // R20 drops 0.05 > margin 0.02
+
+	g := EvaluateGate(bl, cn, 0.5)
+
+	if g.Verdict != GateFail {
+		t.Errorf("verdict = %s, want FAIL (Recall@20 regressed beyond margin); "+
+			"ndcg_delta=%.4f ndcg_p=%.4f recall20_delta=%.4f recall20_p=%.4f",
+			g.Verdict, g.NDCG10Delta, g.NDCG10P, g.Recall20Delta, g.Recall20P)
+	}
+	if g.Recall20NonInferior {
+		t.Errorf("Recall20NonInferior = true, want false (delta=%.4f < -%.2f margin)",
+			g.Recall20Delta, nonInferiorMargin)
+	}
+}
+
+// TestEvaluateGate_InsufficientData verifies the INSUFFICIENT_DATA verdict
+// when fewer than 2 paired queries exist.
+//
+// Falsification: lower the pairs<2 threshold in EvaluateGate to pairs<0 →
+// the insufficient branch never fires and verdict becomes PASS/FAIL instead
+// of INSUFFICIENT_DATA; test goes RED.
+func TestEvaluateGate_InsufficientData(t *testing.T) {
+	// Only 1 query in baseline → 1 pair at most.
+	bl := []QueryResult{{Repo: "r", Query: "q0", NDCG10: 0.5, Recall20: 0.6}}
+	cn := []QueryResult{{Repo: "r", Query: "q0", NDCG10: 0.7, Recall20: 0.7}}
+
+	g := EvaluateGate(bl, cn, 0.3)
+
+	if g.Verdict != GateInsufficient {
+		t.Errorf("verdict = %s, want INSUFFICIENT_DATA", g.Verdict)
+	}
+}
+
+// TestEvaluateGate_TestedWeightRecorded verifies the tested weight is carried
+// through to GateResult regardless of verdict.
+func TestEvaluateGate_TestedWeightRecorded(t *testing.T) {
+	bl := makeResults("r", 10, 0.5, 0.6)
+	cn := makeResults("r", 10, 0.5, 0.6) // identical → FAIL (no sig improvement)
+
+	g := EvaluateGate(bl, cn, 0.42)
+
+	if g.TestedWeight != 0.42 {
+		t.Errorf("TestedWeight = %f, want 0.42", g.TestedWeight)
+	}
+}
+
+// TestEvaluateGate_ErrorQueriesExcluded verifies that queries with a non-empty
+// Error field are excluded from pairing (error on one side → pair is skipped).
+//
+// Falsification: remove the `if r.Error != ""` guards in EvaluateGate →
+// the errored pair is included, the pair count goes from 1 to 2, and since
+// the errored query has zero-value metrics the aggregate shifts; for the
+// INSUFFICIENT_DATA case (only 1 healthy pair) the verdict may flip to
+// GateFail which would red-fail this test.
+func TestEvaluateGate_ErrorQueriesExcluded(t *testing.T) {
+	bl := []QueryResult{
+		{Repo: "r", Query: "ok", NDCG10: 0.5, Recall20: 0.6},
+		{Repo: "r", Query: "bad", NDCG10: 0.9, Recall20: 0.9, Error: "embed timeout"},
+	}
+	cn := []QueryResult{
+		{Repo: "r", Query: "ok", NDCG10: 0.7, Recall20: 0.7},
+		{Repo: "r", Query: "bad", NDCG10: 0.1, Recall20: 0.1, Error: "embed timeout"},
+	}
+
+	g := EvaluateGate(bl, cn, 0.3)
+
+	// Only 1 healthy pair → INSUFFICIENT_DATA (not PASS/FAIL from polluted metrics).
+	if g.Verdict != GateInsufficient {
+		t.Errorf("verdict = %s, want INSUFFICIENT_DATA (1 healthy pair); "+
+			"paired=%d", g.Verdict, g.PairedQueries)
+	}
+	if g.PairedQueries != 1 {
+		t.Errorf("PairedQueries = %d, want 1", g.PairedQueries)
 	}
 }
 
