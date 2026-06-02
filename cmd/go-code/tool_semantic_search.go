@@ -42,10 +42,18 @@ type SemanticDeps struct {
 	// (P4 dark-launch). Nil when SPARSE_EMBED_URL is unset — arm is bypassed
 	// entirely, yielding byte-identical behavior to the 2-arm baseline.
 	SparseClient sparse.SparseEmbedder
+	// KeywordArm selects the lexical retriever for the Keyword slot of MergeRRF.
+	// "grep" (default) → byte-identical to pre-BM25F behavior.
+	// "bm25f" → BM25F over trigram-prefiltered candidates (BM25F P4 dark-launch).
+	// runKeywordArm() reads this field and falls back to grep on bm25f error.
+	KeywordArm string
 	// storeSearcher is the interface used by semanticSuggest for trigram name
 	// lookup. Production leaves this nil and semanticSuggest falls back to Store.
 	// Tests wire a spy here to avoid a real Postgres connection.
 	storeSearcher symbolNameSearcher
+	// bm25searcher is the BM25Search test seam. Production leaves this nil and
+	// runKeywordArm falls back to Store. Tests wire a spy to avoid a live pool.
+	bm25searcher bm25Searcher
 }
 
 const (
@@ -183,12 +191,12 @@ func handleSemanticHits(
 	// merge all arms with 3-way weighted RRF.
 	// Overretrieve before CE reranking so the reranker sees more candidates.
 	rerankCap := max(topK*2, semanticRerankCandidates)
-	var keyHits []embeddings.FileLineHit
-	if scopedHits := runScopedKeywordSearch(ctx, deps.OxCodes, input.Query, root, input.Language); len(scopedHits) > 0 {
-		keyHits = scopedHits
-	} else {
-		keyHits = runKeywordSearch(ctx, input.Query, root)
-	}
+
+	// Keyword arm: flag-gated (KEYWORD_ARM=grep|bm25f, default grep).
+	// runKeywordArm returns []KeywordHit ready for MergeRRF — no MatchKeywordHits
+	// needed when bm25f supplies hits directly (it already maps to KeywordHit).
+	// grep path still returns FileLineHit and requires MatchKeywordHits (below).
+	keyHits, matched := runKeywordArm(ctx, deps, input.Query, repoKey, root, input.Language, rerankCap)
 
 	// SPLADE sparse arm (P4 dark-launch): nil client → no DB hit, empty slice.
 	// Failure inside SearchSparse is logged + counter-bumped there; we always
@@ -204,36 +212,46 @@ func handleSemanticHits(
 		})
 	}
 
-	if len(keyHits) > 0 || len(sparseHits) > 0 {
-		var matched []embeddings.KeywordHit
-		if len(keyHits) > 0 {
-			var matchErr error
-			matched, matchErr = deps.Store.MatchKeywordHits(ctx, repoKey, keyHits)
-			if matchErr != nil {
-				matched = nil
-			}
-		}
-		if len(matched) > 0 || len(sparseHits) > 0 {
-			// Merge with an enlarged pool so CE reranker can pick the best topK.
-			hybrid := embeddings.MergeRRF(results, matched, sparseHits, rerankCap, deps.RRFWeights)
-			// Flatten HybridResult → SearchResult for CE reranker.
-			flat := make([]embeddings.SearchResult, len(hybrid))
-			for i, h := range hybrid {
-				flat[i] = h.SearchResult
-				flat[i].Source = h.Source
-			}
-			// CE reranking: reorder by cross-encoder relevance score.
-			reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, flat, topK)
-			// Annotate with PageRank for architectural awareness.
-			reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
-			hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
-			env := mcpmeta.Wrap(time.Since(t0), hint)
-			if sha := deps.AnalyzeDeps.IndexedSHA(ctx, repoKey); sha != "" {
-				env = mcpmeta.WithFreshness(env, root, sha)
-			}
-			return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
+	// grep path: FileLineHit → KeywordHit via MatchKeywordHits (DB symbol resolve).
+	// bm25f path: already KeywordHit, keyHits is nil.
+	if len(keyHits) > 0 && deps.Store != nil {
+		if resolved, err := deps.Store.MatchKeywordHits(ctx, repoKey, keyHits); err == nil {
+			matched = resolved
 		}
 	}
+
+	if len(matched) > 0 || len(sparseHits) > 0 {
+		return hybridResult(ctx, input, deps, repoKey, root, results, matched, sparseHits, rerankCap, topK, t0)
+	}
+	return semanticOnlyResult(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
+}
+
+// hybridResult runs the hybrid RRF merge → CE rerank → annotate → format pipeline.
+// Called when at least one non-semantic arm (keyword or sparse) produced hits.
+func hybridResult(
+	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
+	repoKey, root string, semantic []embeddings.SearchResult,
+	matched []embeddings.KeywordHit, sparse []embeddings.SparseHit,
+	rerankCap, topK int, t0 time.Time,
+) (*mcp.CallToolResult, error) {
+	// Merge with an enlarged pool so CE reranker can pick the best topK.
+	hybrid := embeddings.MergeRRF(semantic, matched, sparse, rerankCap, deps.RRFWeights)
+	// Flatten HybridResult → SearchResult for CE reranker.
+	flat := make([]embeddings.SearchResult, len(hybrid))
+	for i, h := range hybrid {
+		flat[i] = h.SearchResult
+		flat[i].Source = h.Source
+	}
+	return finalResult(ctx, input, deps, repoKey, root, flat, topK, t0)
+}
+
+// semanticOnlyResult filters by distance then applies CE rerank → annotate → format.
+// Called when keyword and sparse arms yielded no hits.
+func semanticOnlyResult(
+	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
+	repoKey, root string, results []embeddings.SearchResult,
+	topK int, maxDist float32, t0 time.Time,
+) (*mcp.CallToolResult, error) {
 	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
 	filtered := make([]embeddings.SearchResult, 0, len(results))
 	for _, r := range results {
@@ -242,9 +260,17 @@ func handleSemanticHits(
 		}
 		filtered = append(filtered, r)
 	}
-	// CE reranking on pure semantic fallback path.
-	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, filtered, topK)
-	// Annotate with PageRank for architectural awareness.
+	return finalResult(ctx, input, deps, repoKey, root, filtered, topK, t0)
+}
+
+// finalResult runs CE reranking → PageRank annotation → freshness wrap → format.
+// Shared terminal step for both the hybrid and semantic-only paths.
+func finalResult(
+	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
+	repoKey, root string, candidates []embeddings.SearchResult,
+	topK int, t0 time.Time,
+) (*mcp.CallToolResult, error) {
+	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, candidates, topK)
 	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
 	hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
 	env := mcpmeta.Wrap(time.Since(t0), hint)

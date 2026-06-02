@@ -172,6 +172,14 @@ type Config struct {
 	// Tune via RRF_WEIGHT_SPARSE env. Must be ≥ 0.
 	RRFWeightSparse float64
 
+	// KeywordArm selects the lexical retriever that feeds the Keyword slot of
+	// MergeRRF. Allowed values: "grep" (default, byte-identical to today) |
+	// "bm25f" (BM25F over trigram-prefiltered candidates, BM25F P4).
+	// Invalid values WARN and fall back to "grep".
+	// Env: KEYWORD_ARM. Dark-launch: flip to "bm25f" only after Phase 5 A/B
+	// gate clears (non-inferiority on nDCG@10). Operator-ack required per git §4.
+	KeywordArm string
+
 	// SparseEmbedURL is the base URL for the SPLADE sparse-embedding server
 	// (e.g. http://embed-server:8082). Empty means sparse indexing is disabled
 	// (nil sparseClient in Pipeline — byte-identical dense-only cold-path).
@@ -318,6 +326,15 @@ const (
 	// post-A/B per SPLADE landscape research (2026-06-01).
 	defaultRRFWeightSparse = 0.0
 
+	// defaultKeywordArm: "grep" = byte-identical to pre-BM25F behavior.
+	// Dark-launched: no prod change until operator sets KEYWORD_ARM=bm25f after
+	// Phase 5 A/B gate (non-inferiority on nDCG@10). Valid values: grep | bm25f.
+	defaultKeywordArm = keywordArmGrep
+
+	// keywordArm* are the allowed values for KEYWORD_ARM.
+	keywordArmGrep  = "grep"
+	keywordArmBM25F = "bm25f"
+
 	// Sparse embed defaults — Phase P2 (indexing).
 	// defaultSparseBackfillDeadlineS: 600s = 10 min. Chosen to cover 103K-row
 	// full backfill: 207 pages × ~0.5s/page (batch write + embed) ≈ 104s worst
@@ -403,6 +420,7 @@ func loadConfig() (Config, error) {
 		RRFWeightSemantic:      env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
 		RRFWeightKeyword:       env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
 		RRFWeightSparse:        env.Float("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse),
+		KeywordArm:             parseKeywordArm(env.Str("KEYWORD_ARM", defaultKeywordArm)),
 		SparseEmbedURL:         env.Str("SPARSE_EMBED_URL", ""),
 		SparseEmbedModel:       env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
 		SparseEmbedMaxArray:    env.Int("SPARSE_EMBED_MAX_ARRAY", defaultSparseEmbedMaxArray),
@@ -435,6 +453,23 @@ func parseFusionMode(raw string) (analyze.FusionMode, error) {
 	default:
 		return "", fmt.Errorf("invalid ANALYZE_RANK_FUSION_MODE %q: must be %q or %q",
 			raw, analyze.FusionModeMinmax, analyze.FusionModeRRF)
+	}
+}
+
+// parseKeywordArm validates KEYWORD_ARM. Valid values are "grep" and "bm25f".
+// Any other value WARNs and falls back to "grep" so operators see a clear signal
+// without crashing (contrast parseFusionMode which returns an error — keyword arm
+// misconfiguration degrades gracefully to today's behavior rather than refusing startup).
+func parseKeywordArm(raw string) string {
+	switch raw {
+	case keywordArmGrep, keywordArmBM25F:
+		return raw
+	default:
+		slog.Warn("invalid KEYWORD_ARM: falling back to grep",
+			slog.String("value", raw),
+			slog.String("allowed", keywordArmGrep+"|"+keywordArmBM25F),
+		)
+		return keywordArmGrep
 	}
 }
 
