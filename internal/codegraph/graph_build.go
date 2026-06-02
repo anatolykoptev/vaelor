@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -47,6 +48,12 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 		pkgDirs[dir] = struct{}{}
 		fileSet[f.RelPath] = struct{}{}
 	}
+
+	// Build alias config by walking the repo from disk. BuildConfig discovers
+	// svelte.config.* and package.json files directly — ingest drops .json (unknown
+	// language), so reading from in.Files would always produce an empty Workspace,
+	// making @scope resolution dead in production.
+	aliasCfg := importresolve.BuildConfig(in.Root)
 
 	var vertices []vertexData
 	var edges []edgeData
@@ -122,7 +129,7 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 	edges = append(edges, testedByEdges...)
 
 	// IMPORTS edges (File→Package) + external Package vertices.
-	impVertices, impEdges := buildImportsGraph(pkgDirs, fileSet, in.FileImports)
+	impVertices, impEdges := buildImportsGraph(pkgDirs, fileSet, in.FileImports, aliasCfg)
 	vertices = append(vertices, impVertices...)
 	edges = append(edges, impEdges...)
 

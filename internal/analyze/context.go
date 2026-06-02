@@ -105,7 +105,7 @@ func computeImportedByCounts(root string, results []fileParseResult) map[string]
 	for _, pr := range results {
 		pkgDirs[goutil.PackageDir(root, pr.file.Path)] = struct{}{}
 	}
-	r := importresolve.New(pkgDirs, nil)
+	r := importresolve.New(pkgDirs, nil, importresolve.Config{})
 
 	// Build reverse index: for each local package, how many packages import it.
 	// Use importingPkg (the key) so that relative imports resolve against the
