@@ -16,6 +16,15 @@ type KeywordHit struct {
 	Line       int
 }
 
+// SparseHit is a single SPLADE sparse-retrieval result. Shape is symmetric with
+// KeywordHit so P4 can fuse all three arms via the same FilePath:SymbolName key
+// already used by MergeRRF. Source is always "sparse" before fusion.
+type SparseHit struct {
+	FilePath   string
+	SymbolName string
+	Line       int // start_line from the index row
+}
+
 // HybridResult extends SearchResult with source attribution.
 type HybridResult struct {
 	SearchResult
