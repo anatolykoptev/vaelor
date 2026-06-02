@@ -16,6 +16,16 @@ import (
 // user-facing deadline here (runs inside IndexRepo); ~100 docs take 35-40s on ARM.
 const deadCodeBuildRerankTimeout = 90 * time.Second
 
+// rerankServerMaxDocs is the per-request document cap enforced by the embed
+// server's /v1/rerank endpoint (RERANK_MAX_INPUT_DOCS, default 32, aligned with
+// EMBED_MAX_INPUT_ARRAY) to bound cross-encoder attention-scratch allocations.
+// Requests above it are rejected with HTTP 400. The build-time path sends ALL
+// candidates (up to maxOrphanCandidates), so it splits them into server-sized
+// chunks — exactly as the embed client chunks embeddings — and merges the
+// scores, which are per-(query,doc) independent and thus comparable across
+// chunks under a single query.
+const rerankServerMaxDocs = 32
+
 // maxOrphanCandidates is the upper bound on dead_code candidates scored per
 // repo. It also sizes the shared rerank client's MaxDocs (rerank.go) so the
 // build-time path — which sends ALL candidates, not a pre-filtered 20 — has
@@ -144,34 +154,73 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 		return nil // no reranker configured — nothing to score (non-fatal)
 	}
 
-	// Step 3: Build documents and call reranker with a generous timeout —
-	// this runs at graph build time, not in a user request, so the shared
-	// client's per-call deadline is overridden via a 90s ctx (rerankClient has
-	// Timeout=0; 100 docs take ~35-40s on ARM).
-	docs := make([]rerank.Doc, len(candidates))
-	for i, c := range candidates {
-		docs[i] = rerank.Doc{Text: formatDeadCodeDoc(c.row[0])}
-	}
+	// Step 3: Rerank in server-sized batches (the endpoint caps each request at
+	// rerankServerMaxDocs). Build-time scoring is not user-facing, so a generous
+	// 90s ctx overrides the shared client's per-call deadline.
 	rerankCtx, cancel := context.WithTimeout(context.Background(), deadCodeBuildRerankTimeout)
 	defer cancel()
-	// RerankWithResult exposes a typed Status so build-time scoring persists
-	// ONLY genuine scores — a skipped/degraded call must not write Score=0 rows.
-	res, rerankErr := rerankClient.RerankWithResult(rerankCtx, rerankDeadCodeQuery, docs)
-	if rerankErr != nil || res == nil ||
-		res.Status == rerank.StatusSkipped || res.Status == rerank.StatusDegraded {
+	scored, anyScored := s.rerankCandidateBatches(rerankCtx, repoKey, candidates)
+	if !anyScored {
 		slog.Warn("codegraph: dead_code reranker unavailable, skipping pre-score",
-			slog.String("repo", repoKey), slog.Any("error", rerankErr))
+			slog.String("repo", repoKey))
 		return nil // non-fatal
 	}
 
 	// Step 4: Persist scores to PostgreSQL.
-	if err := s.upsertDeadCodeScores(ctx, repoKey, candidates, res.Scored); err != nil {
+	if err := s.upsertDeadCodeScores(ctx, repoKey, candidates, scored); err != nil {
 		return err
 	}
 
 	slog.Info("codegraph: dead_code scores persisted",
-		slog.String("repo", repoKey), slog.Int("scored", len(res.Scored)))
+		slog.String("repo", repoKey), slog.Int("scored", len(scored)))
 	return nil
+}
+
+// rerankCandidateBatches scores all candidates in rerankServerMaxDocs-sized
+// chunks (the embed server rejects larger /v1/rerank requests with HTTP 400) and
+// returns the merged Scored slice with OrigRank globalised back into candidates.
+// A failed/degraded batch is logged, counted (outcome="skipped"), and skipped
+// without aborting the rest; anyScored reports whether at least one batch
+// produced genuine scores.
+//
+// Partial-coverage note: persistence is ON CONFLICT DO UPDATE with no prior-row
+// cleanup, so a skipped batch leaves its candidates' PRIOR scores in place while
+// the rest refresh. This is intentional (stale ranking hint ≥ none); the
+// code_dead_code_rerank_batch_total{outcome="skipped"} counter makes such
+// partial-coverage indexes observable rather than silent.
+func (s *Store) rerankCandidateBatches(ctx context.Context, repoKey string, candidates []orphanCandidate) ([]rerank.Scored, bool) {
+	scored := make([]rerank.Scored, 0, len(candidates))
+	anyScored := false
+	for start := 0; start < len(candidates); start += rerankServerMaxDocs {
+		end := min(start+rerankServerMaxDocs, len(candidates))
+		chunk := candidates[start:end]
+
+		docs := make([]rerank.Doc, len(chunk))
+		for i, c := range chunk {
+			docs[i] = rerank.Doc{Text: formatDeadCodeDoc(c.row[0])}
+		}
+
+		// RerankWithResult exposes a typed Status so build-time scoring persists
+		// ONLY genuine scores — a skipped/degraded batch must not write Score=0.
+		res, err := rerankClient.RerankWithResult(ctx, rerankDeadCodeQuery, docs)
+		if err != nil || res == nil ||
+			res.Status == rerank.StatusSkipped || res.Status == rerank.StatusDegraded {
+			recordRerankBatch("skipped")
+			slog.Warn("codegraph: dead_code rerank batch failed, skipping batch",
+				slog.String("repo", repoKey), slog.Int("batch_start", start), slog.Any("error", err))
+			continue
+		}
+		recordRerankBatch("ok")
+		anyScored = true
+		for _, sc := range res.Scored {
+			if sc.OrigRank < 0 || sc.OrigRank >= len(chunk) {
+				continue
+			}
+			sc.OrigRank += start // globalise the index back into candidates
+			scored = append(scored, sc)
+		}
+	}
+	return scored, anyScored
 }
 
 // upsertDeadCodeScores writes each scored candidate's CE probability to
