@@ -118,4 +118,3 @@ func ParseComposeService(labels string) string {
 	}
 	return ""
 }
-

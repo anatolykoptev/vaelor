@@ -15,8 +15,8 @@ import (
 
 // healthSnapshotResult bundles the snapshot and resolved focus flags.
 type healthSnapshotResult struct {
-	snap         *compare.RepoSnapshot
-	isMagicMode  bool
+	snap          *compare.RepoSnapshot
+	isMagicMode   bool
 	isSemanticDup bool
 }
 

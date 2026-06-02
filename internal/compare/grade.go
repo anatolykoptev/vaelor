@@ -57,8 +57,8 @@ const (
 	// Multipliers for ratio-based scores (score = 1 - ratio * multiplier).
 	fileSizeMultiplier    = 2.0
 	duplicationMultiplier = 5.0
-	magicNumberMultiplier    = 3.0
-	semanticDupMultiplier    = 4.0
+	magicNumberMultiplier = 3.0
+	semanticDupMultiplier = 4.0
 
 	// Target for dependency freshness ratio.
 	targetDepFreshness = 0.8

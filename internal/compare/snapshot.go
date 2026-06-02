@@ -219,7 +219,6 @@ func snapshotDominantLanguage(files []*ingest.File) string {
 	return best
 }
 
-
 // computeBodyHashes sets BodyHash on each symbol that has a non-empty Body.
 func computeBodyHashes(symbols []*parser.Symbol) {
 	for _, sym := range symbols {

@@ -7,13 +7,13 @@ import (
 
 // Default base URLs for package registries.
 const (
-	DefaultGoProxyURL   = "https://proxy.golang.org"
-	DefaultNpmURL       = "https://registry.npmjs.org"
-	DefaultPyPIURL      = "https://pypi.org"
-	DefaultCratesURL    = "https://crates.io"
-	DefaultMavenURL     = "https://search.maven.org"
-	DefaultRubyGemsURL  = "https://rubygems.org"
-	DefaultNuGetURL     = "https://api.nuget.org"
+	DefaultGoProxyURL  = "https://proxy.golang.org"
+	DefaultNpmURL      = "https://registry.npmjs.org"
+	DefaultPyPIURL     = "https://pypi.org"
+	DefaultCratesURL   = "https://crates.io"
+	DefaultMavenURL    = "https://search.maven.org"
+	DefaultRubyGemsURL = "https://rubygems.org"
+	DefaultNuGetURL    = "https://api.nuget.org"
 )
 
 // Registry looks up the latest version of a package.

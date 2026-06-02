@@ -271,4 +271,3 @@ func removeSemanticMatched(unmatchedA, unmatchedB []*parser.Symbol, semanticMatc
 
 	return filteredA, filteredB
 }
-

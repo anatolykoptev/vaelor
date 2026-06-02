@@ -49,10 +49,10 @@ type sourceItem struct {
 
 // mcpRequest is the JSON-RPC request for MCP tool calls.
 type mcpRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      int         `json:"id"`
-	Method  string      `json:"method"`
-	Params  mcpParams   `json:"params"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      int       `json:"id"`
+	Method  string    `json:"method"`
+	Params  mcpParams `json:"params"`
 }
 
 type mcpParams struct {

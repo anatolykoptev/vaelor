@@ -228,8 +228,8 @@ func TestIngestRepoContextCancel(t *testing.T) {
 // TestShouldIgnoreDir verifies the default ignore directory list.
 func TestShouldIgnoreDir(t *testing.T) {
 	cases := []struct {
-		name   string
-		want   bool
+		name string
+		want bool
 	}{
 		{".git", true},
 		{"node_modules", true},
@@ -400,9 +400,9 @@ func TestMatchGitignoreAnchored(t *testing.T) {
 		isDir   bool
 		want    bool
 	}{
-		{"go-content", false, true},         // root-level binary: matched
-		{"go-content", true, true},          // root-level dir: matched
-		{"cmd/go-content", true, false},     // nested dir: NOT matched
+		{"go-content", false, true},              // root-level binary: matched
+		{"go-content", true, true},               // root-level dir: matched
+		{"cmd/go-content", true, false},          // nested dir: NOT matched
 		{"cmd/go-content/main.go", false, false}, // file in nested dir: NOT matched
 	}
 

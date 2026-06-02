@@ -206,4 +206,3 @@ func gitDiffNames(ctx context.Context, root, prevSHA, currentSHA string) ([]stri
 	}
 	return files, nil
 }
-

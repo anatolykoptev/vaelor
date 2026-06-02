@@ -9,9 +9,9 @@ import (
 	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/graphx"
 	"github.com/anatolykoptev/go-code/internal/learnings"
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).

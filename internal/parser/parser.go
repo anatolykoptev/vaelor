@@ -123,7 +123,6 @@ type ParseOpts struct {
 
 	// IncludeImports includes import declarations in the result.
 	IncludeImports bool
-
 }
 
 // ParseFile parses a single source file and returns its symbol table.

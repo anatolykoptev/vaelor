@@ -43,7 +43,7 @@ func TestReverseToHost_RelativePath_ReturnsUnchanged(t *testing.T) {
 func TestReverseToHost_MultipleMappings_FirstMatch(t *testing.T) {
 	mappings := []analyze.PathMapping{
 		{External: "/home/user/src/foo", Internal: "/host/src/foo"},
-		{External: "/home/user/src",     Internal: "/host/src"},
+		{External: "/home/user/src", Internal: "/host/src"},
 	}
 	// Should match the first mapping (more specific) — but the impl iterates in order.
 	// The /host/src/foo prefix matches the first mapping.

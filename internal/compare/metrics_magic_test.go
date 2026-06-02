@@ -128,14 +128,14 @@ func TestCountMagicNumbers(t *testing.T) {
 			want: 0,
 		},
 		{
-			name: "nolint:mnd skips line",
-			body: "func Foo() {\n\tx := 42 //nolint:mnd\n\ty := 100\n}",
+			name:     "nolint:mnd skips line",
+			body:     "func Foo() {\n\tx := 42 //nolint:mnd\n\ty := 100\n}",
 			language: "go",
 			want:     1, // only 100 is magic, 42 skipped by nolint
 		},
 		{
-			name: "nolint:mnd with reason",
-			body: "func Foo() {\n\tx := 42 //nolint:mnd // default timeout\n}",
+			name:     "nolint:mnd with reason",
+			body:     "func Foo() {\n\tx := 42 //nolint:mnd // default timeout\n}",
 			language: "go",
 			want:     0,
 		},
@@ -221,23 +221,23 @@ func TestComputeMagicNumberRatio(t *testing.T) {
 	symbols := []*parser.Symbol{
 		{
 			Kind: parser.KindFunction, File: "/repo/server.go",
-			Body: `func Handle() { timeout := 30; retries := 5 }`,
+			Body:      `func Handle() { timeout := 30; retries := 5 }`,
 			StartLine: 1, EndLine: 5,
 		},
 		{
 			Kind: parser.KindFunction, File: "/repo/util.go",
-			Body: `func Add(a, b int) int { return a + b }`, // no magic
+			Body:      `func Add(a, b int) int { return a + b }`, // no magic
 			StartLine: 1, EndLine: 3,
 		},
 		{
 			Kind: parser.KindFunction, File: "/repo/config.go",
-			Body: `func Defaults() { port := 8080; workers := 16 }`,
+			Body:      `func Defaults() { port := 8080; workers := 16 }`,
 			StartLine: 1, EndLine: 5,
 		},
 		// Test file — excluded.
 		{
 			Kind: parser.KindFunction, File: "/repo/server_test.go",
-			Body: `func TestFoo() { assert.Equal(t, 42, result) }`,
+			Body:      `func TestFoo() { assert.Equal(t, 42, result) }`,
 			StartLine: 1, EndLine: 3,
 		},
 		// Non-function — excluded.
@@ -270,12 +270,12 @@ func TestComputeMagicNumberRatio_AllClean(t *testing.T) {
 	symbols := []*parser.Symbol{
 		{
 			Kind: parser.KindFunction, File: "/repo/a.go",
-			Body: `func Foo() { return 0 }`,
+			Body:      `func Foo() { return 0 }`,
 			StartLine: 1, EndLine: 3,
 		},
 		{
 			Kind: parser.KindFunction, File: "/repo/b.go",
-			Body: `func Bar() { return 1 }`,
+			Body:      `func Bar() { return 1 }`,
 			StartLine: 1, EndLine: 3,
 		},
 	}
@@ -332,7 +332,7 @@ func TestMagicNumbersInOutliers(t *testing.T) {
 			},
 			{
 				Kind: parser.KindFunction, File: "/repo/b.go", Name: "Dirty",
-				Body: `func Dirty() { x := 42; y := 100; z := 3.14; w := 255 }`,
+				Body:      `func Dirty() { x := 42; y := 100; z := 3.14; w := 255 }`,
 				StartLine: 10, EndLine: 15,
 			},
 		},
@@ -353,7 +353,7 @@ func TestMagicNumbersRecommendation(t *testing.T) {
 		AvgComplexity: 2.0, MaxComplexity: 5,
 		TestRatio: 0.35, DocRatio: 0.8,
 		ErrorHandlingRatio: 0.7,
-		MagicNumberRatio: 0.6, // bad
+		MagicNumberRatio:   0.6, // bad
 	}
 	out := Outliers{}
 	recs := ComputeRecommendations(m, out, 0)
@@ -377,7 +377,7 @@ func TestSemanticDupRecommendation(t *testing.T) {
 		AvgComplexity: 2.0, MaxComplexity: 5,
 		TestRatio: 0.35, DocRatio: 0.8,
 		ErrorHandlingRatio: 0.7,
-		SemanticDupRatio: 0.5,
+		SemanticDupRatio:   0.5,
 	}
 	recs := ComputeRecommendations(m, Outliers{}, 0)
 

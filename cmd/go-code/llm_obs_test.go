@@ -6,10 +6,10 @@ import (
 	"sort"
 	"testing"
 
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/client_golang/prometheus"
-	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	kitllm "github.com/anatolykoptev/go-kit/llm"
+	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 )
 
 func TestClassifyOutcome(t *testing.T) {

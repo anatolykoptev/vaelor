@@ -25,7 +25,6 @@ type EmbedStore interface {
 	Search(ctx context.Context, vec []float32, opts embeddings.SearchOpts) ([]embeddings.SearchResult, error)
 }
 
-
 // SymbolSearcher finds indexed symbols whose names match query keywords.
 // Enables pg_trgm symbol name augmentation — catches functions with abbreviated
 // names that vector search misses (e.g. "init" -> "initializes"). Optional.

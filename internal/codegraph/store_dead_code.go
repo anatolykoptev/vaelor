@@ -352,7 +352,6 @@ func (s *Store) LoadDeadCodeScores(ctx context.Context, repoKey string, rows [][
 	return result
 }
 
-
 // DeadCodeCandidate is a high-confidence dead code function from code_dead_code_scores.
 type DeadCodeCandidate struct {
 	Name  string

@@ -58,8 +58,8 @@ var skipDirs = map[string]bool{
 
 // IndexResult holds the path to the generated index and an optional cleanup function.
 type IndexResult struct {
-	IndexPath string        // path to the index.scip file
-	Cleanup   func()        // removes temp dir if one was created; nil if dir was writable
+	IndexPath string // path to the index.scip file
+	Cleanup   func() // removes temp dir if one was created; nil if dir was writable
 }
 
 // RunIndexerSafe runs the indexer in dir, copying to a temp dir first if dir

@@ -184,4 +184,3 @@ func matchPriority(m *SymbolMatch) int {
 		return priorityDefault
 	}
 }
-

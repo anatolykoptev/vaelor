@@ -39,7 +39,7 @@ func TestComputeRecommendations_Sorting(t *testing.T) {
 		Files: 20, TotalLines: 2000,
 		AvgFuncLines: 35, AvgComplexity: 8, MaxComplexity: 20,
 		TestRatio: 0.05, DocRatio: 0.1,
-		ErrorHandlingRatio: 0.2,
+		ErrorHandlingRatio:     0.2,
 		AvgCognitiveComplexity: 18, MaxNestingDepth: 7,
 		LargeFileRatio: 0.4, DuplicationRatio: 0.3,
 	}
@@ -68,7 +68,7 @@ func TestComputeRecommendations_MaxItems(t *testing.T) {
 		Files: 20, TotalLines: 2000,
 		AvgFuncLines: 35, AvgComplexity: 8, MaxComplexity: 20,
 		TestRatio: 0.05, DocRatio: 0.1,
-		ErrorHandlingRatio: 0.2,
+		ErrorHandlingRatio:     0.2,
 		AvgCognitiveComplexity: 18, MaxNestingDepth: 7,
 	}
 	recs := ComputeRecommendations(m, Outliers{}, 3)
