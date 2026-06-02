@@ -8,6 +8,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/lextoken"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/ranking"
 )
@@ -283,22 +284,7 @@ func BoostBySymbolNames(
 
 // extractKeywordsForBoost splits a query into meaningful keywords for symbol matching,
 // removing stopwords and short tokens (min 3 chars). Returns lowercase terms.
+// Delegates to lextoken.KeywordTokenize — the canonical implementation.
 func extractKeywordsForBoost(query string) []string {
-	stopwords := map[string]bool{
-		"the": true, "and": true, "for": true, "that": true, "with": true,
-		"this": true, "from": true, "are": true, "not": true, "have": true,
-		"function": true, "method": true, "code": true, "file": true,
-		"which": true, "where": true, "when": true, "how": true, "what": true,
-	}
-	seen := make(map[string]bool)
-	var keywords []string
-	for _, word := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
-	}) {
-		if len(word) >= 3 && !stopwords[word] && !seen[word] {
-			seen[word] = true
-			keywords = append(keywords, word)
-		}
-	}
-	return keywords
+	return lextoken.KeywordTokenize(query)
 }

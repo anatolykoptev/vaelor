@@ -1,13 +1,12 @@
 package analyze
 
 import (
-	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/lextoken"
 )
 
 // Depth level constants.
@@ -131,105 +130,9 @@ func computeImportedByCounts(root string, results []fileParseResult) map[string]
 	return counts
 }
 
-// nonAlphanumRe matches characters that are not letters, digits, or underscores.
-var nonAlphanumRe = regexp.MustCompile(`[^\w]`)
-
-// splitCamelCase splits a camelCase or PascalCase identifier into lowercase subwords.
-func splitCamelCase(s string) []string {
-	if s == "" {
-		return nil
-	}
-	var parts []string
-	runes := []rune(s)
-	start := 0
-
-	for i := 1; i < len(runes); i++ {
-		if isCamelBoundary(runes, i) {
-			part := strings.ToLower(string(runes[start:i]))
-			if len(part) >= 2 { //nolint:mnd // minimum subword length
-				parts = append(parts, part)
-			}
-			start = i
-		}
-	}
-
-	if start < len(runes) {
-		part := strings.ToLower(string(runes[start:]))
-		if len(part) >= 2 { //nolint:mnd // minimum subword length
-			parts = append(parts, part)
-		}
-	}
-
-	return parts
-}
-
-// isCamelBoundary returns true if position i in runes is a camelCase split point.
-func isCamelBoundary(runes []rune, i int) bool {
-	prev, cur := runes[i-1], runes[i]
-
-	if unicode.IsLower(prev) && unicode.IsUpper(cur) {
-		return true
-	}
-	if unicode.IsLetter(prev) && unicode.IsDigit(cur) {
-		return true
-	}
-	if unicode.IsDigit(prev) && unicode.IsLetter(cur) {
-		return true
-	}
-	if unicode.IsUpper(prev) && unicode.IsUpper(cur) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
-		return true
-	}
-	return false
-}
-
-// splitIdentifier splits an identifier on underscores, then splits each part by camelCase.
-func splitIdentifier(s string) []string {
-	snakeParts := strings.Split(s, "_")
-	var result []string
-
-	for _, part := range snakeParts {
-		if part == "" {
-			continue
-		}
-		camelParts := splitCamelCase(part)
-		result = append(result, camelParts...)
-	}
-
-	return result
-}
-
 // extractQueryTerms splits the query into lowercase alphanumeric terms for matching.
+// Delegates to lextoken.Tokenize — the canonical implementation shared with
+// internal/embeddings (BM25F arm, Phase 3+).
 func extractQueryTerms(query string) []string {
-	seen := make(map[string]struct{})
-	var terms []string
-
-	addTerm := func(t string) {
-		if _, ok := seen[t]; !ok && len(t) >= 3 { //nolint:mnd // minimum term length to avoid noise
-			seen[t] = struct{}{}
-			terms = append(terms, t)
-		}
-	}
-
-	rawWords := strings.Fields(query)
-
-	for _, raw := range rawWords {
-		lower := strings.ToLower(raw)
-		cleaned := nonAlphanumRe.ReplaceAllString(lower, "")
-		if len(cleaned) >= 3 { //nolint:mnd // minimum term length to avoid noise
-			addTerm(cleaned)
-		}
-	}
-
-	for _, raw := range rawWords {
-		cleaned := nonAlphanumRe.ReplaceAllString(raw, "")
-		if len(cleaned) < 3 { //nolint:mnd // minimum term length to avoid noise
-			continue
-		}
-		subwords := splitIdentifier(cleaned)
-		for _, sw := range subwords {
-			addTerm(sw)
-		}
-	}
-
-	return terms
+	return lextoken.Tokenize(query)
 }
