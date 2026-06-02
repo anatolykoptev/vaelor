@@ -215,6 +215,16 @@ func main() {
 		},
 	}
 
+	// Merge static toolTimeouts with runtime-configurable overrides.
+	// sparse_backfill deadline is driven by SPARSE_BACKFILL_DEADLINE_S because
+	// the default 90s harness value silently cancelled mid-batch on large repos
+	// (440 rows lost, root cause: 90s < time for 207-page full backfill).
+	runtimeTimeouts := make(map[string]time.Duration, len(toolTimeouts)+1)
+	for k, v := range toolTimeouts {
+		runtimeTimeouts[k] = v
+	}
+	runtimeTimeouts["sparse_backfill"] = cfg.SparseBackfillDeadline
+
 	if err := mcpserver.Run(server, mcpserver.Config{
 		Name:                   serviceName,
 		Version:                version,
@@ -227,8 +237,8 @@ func main() {
 		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
 		RESTBridge:             true,
 		Routes:                 combinedRoutes,
-		LogSkipPaths: []string{"/health", "/health/live", "/health/ready", "/metrics"},
-		ToolTimeouts: toolTimeouts,
+		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
+		ToolTimeouts:           runtimeTimeouts,
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
