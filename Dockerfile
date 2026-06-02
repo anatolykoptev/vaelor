@@ -3,7 +3,7 @@
 # The runtime image includes git for repository cloning operations.
 
 # ── Stage 1: Builder ─────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.3-alpine AS builder
 
 # Install C toolchain for CGO (tree-sitter grammars are C libraries).
 RUN apk add --no-cache gcc musl-dev git
@@ -20,7 +20,7 @@ RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
     CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o go-code ./cmd/go-code
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM golang:1.26-alpine
+FROM golang:1.26.3-alpine
 
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
 # git: shallow cloning of repositories for analysis.
