@@ -41,21 +41,19 @@ type buildGraphInput struct {
 func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 	// Collect unique packages (directories) and the set of all indexed file paths
 	// (fileSet is used to resolve relative TS/JS imports to their target file's dir).
-	// Also build the relPath→absPath map used by BuildConfig to detect SvelteKit roots
-	// and workspace package names.
 	pkgDirs := make(map[string]struct{})
 	fileSet := make(map[string]struct{}, len(in.Files))
-	relToAbs := make(map[string]string, len(in.Files))
 	for _, f := range in.Files {
 		dir := filepath.Dir(f.RelPath)
 		pkgDirs[dir] = struct{}{}
 		fileSet[f.RelPath] = struct{}{}
-		relToAbs[f.RelPath] = f.Path
 	}
 
-	// Build alias config from the indexed file set (detects svelte.config.* and
-	// package.json name fields; skips node_modules). Zero files → zero config.
-	aliasCfg := importresolve.BuildConfig(relToAbs)
+	// Build alias config by walking the repo from disk. BuildConfig discovers
+	// svelte.config.* and package.json files directly — ingest drops .json (unknown
+	// language), so reading from in.Files would always produce an empty Workspace,
+	// making @scope resolution dead in production.
+	aliasCfg := importresolve.BuildConfig(in.Root)
 
 	var vertices []vertexData
 	var edges []edgeData

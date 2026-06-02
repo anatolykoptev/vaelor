@@ -314,22 +314,28 @@ func TestResolve_WorkspaceAlias_ZeroConfig(t *testing.T) {
 // BuildConfig tests
 // ---------------------------------------------------------------------------
 
-// TestBuildConfig verifies that BuildConfig:
-//   - records LibDirs for every dir containing svelte.config.js or svelte.config.ts
-//   - maps package.json "name" → dir for non-node_modules packages
-//   - skips package.json files under node_modules/
+// TestBuildConfig_RealDisk is the canonical BuildConfig test: it writes actual
+// files to a temp directory on disk and calls BuildConfig(root), proving that
+// the implementation walks the filesystem rather than reading from an in-memory
+// map. This is the test that catches the BLOCKER (ingest drops .json so
+// in.Files-based BuildConfig had an always-empty Workspace in production).
 //
-// Falsification: remove node_modules exclusion → extraneous workspace entries appear.
-func TestBuildConfig(t *testing.T) {
+// Falsification (red-on-revert): if BuildConfig is reverted to the in.Files
+// approach (taking map[string]string), this test will not compile. If
+// node_modules exclusion is removed, Workspace["junk"] will appear and the
+// assertion at the bottom fails.
+func TestBuildConfig_RealDisk(t *testing.T) {
 	t.Parallel()
 
-	// Build a tiny temp-dir fixture:
-	//   web/svelte.config.js         → LibDirs should contain "web"
-	//   packages/mesh-core/package.json (name: @oxpulse/mesh-core) → Workspace entry
-	//   node_modules/foo/package.json (name: foo) → must be IGNORED
+	// Fixture layout:
+	//   web/svelte.config.js               → LibDirs must contain "web"
+	//   packages/mesh-core/package.json    → Workspace["@oxpulse/mesh-core"] = "packages/mesh-core"
+	//   packages/mesh-core/index.ts        → a real source file (non-config)
+	//   node_modules/junk/package.json     → must be IGNORED (node_modules exclusion)
 	tmp := t.TempDir()
 
 	writeFile := func(rel, content string) {
+		t.Helper()
 		full := filepath.Join(tmp, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
@@ -341,20 +347,13 @@ func TestBuildConfig(t *testing.T) {
 
 	writeFile("web/svelte.config.js", "export default {};")
 	writeFile("packages/mesh-core/package.json", `{"name":"@oxpulse/mesh-core","version":"1.0.0"}`)
-	writeFile("node_modules/foo/package.json", `{"name":"foo","version":"1.2.3"}`)
+	writeFile("packages/mesh-core/index.ts", "export {};")
+	writeFile("node_modules/junk/package.json", `{"name":"junk","version":"0.0.1"}`)
 
-	// Build the relPath→absPath map as BuildConfig expects.
-	files := map[string]string{
-		"web/svelte.config.js":            filepath.Join(tmp, "web/svelte.config.js"),
-		"packages/mesh-core/package.json": filepath.Join(tmp, "packages/mesh-core/package.json"),
-		"node_modules/foo/package.json":   filepath.Join(tmp, "node_modules/foo/package.json"),
-		// A non-config file to ensure it's silently ignored.
-		"web/src/lib/i18n.ts": filepath.Join(tmp, "web/src/lib/i18n.ts"),
-	}
+	// Call with the repo root — no in.Files map, just a path.
+	cfg := importresolve.BuildConfig(tmp)
 
-	cfg := importresolve.BuildConfig(files)
-
-	// LibDirs must include "web" (dir of svelte.config.js).
+	// LibDirs must contain "web" (dir of svelte.config.js).
 	foundWeb := false
 	for _, d := range cfg.LibDirs {
 		if d == "web" {
@@ -365,20 +364,54 @@ func TestBuildConfig(t *testing.T) {
 		t.Errorf("LibDirs = %v, want to contain %q", cfg.LibDirs, "web")
 	}
 
-	// Workspace must map @oxpulse/mesh-core → packages/mesh-core.
+	// Workspace must map "@oxpulse/mesh-core" → "packages/mesh-core".
 	if got, ok := cfg.Workspace["@oxpulse/mesh-core"]; !ok || got != "packages/mesh-core" {
 		t.Errorf("Workspace[@oxpulse/mesh-core] = %q (ok=%v), want %q", got, ok, "packages/mesh-core")
 	}
 
-	// node_modules entry must be absent.
-	if _, found := cfg.Workspace["foo"]; found {
-		t.Error("Workspace must not contain package.json entries from node_modules/")
+	// node_modules entry must be absent — path-segment exclusion.
+	if _, found := cfg.Workspace["junk"]; found {
+		t.Error("Workspace must not contain package.json entries from node_modules/ (path-segment skip)")
 	}
 
-	// Non-config file must not appear in LibDirs.
+	// Non-config source files must NOT appear in LibDirs.
 	for _, d := range cfg.LibDirs {
-		if d == "web/src/lib" {
+		if d == "packages/mesh-core" {
 			t.Errorf("LibDirs unexpectedly contains %q (should only be svelte.config dirs)", d)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MAJOR 1: workspace alias must not return local when path not in pkgDirs/fileSet
+// ---------------------------------------------------------------------------
+
+// TestResolve_WorkspaceAlias_NotInPkgDirs_FallsThrough verifies that when a
+// workspace entry maps "@scope/pkg" to a dir that is NOT in pkgDirs and NOT in
+// fileSet, resolveWorkspaceAlias returns ("", false) so an external vertex is
+// created rather than a silently-dropped edge.
+//
+// Before the fix the permissive branch returned (wsDir, true) even when wsDir
+// was not a known package — callers assumed isLocal=true meant a vertex existed
+// and skipped external-vertex creation, dropping the IMPORTS edge entirely.
+//
+// Falsification (red-on-revert): revert resolveWorkspaceAlias to the permissive
+// "return wsDir, true" for package-root imports → this test fails because ok=true.
+func TestResolve_WorkspaceAlias_NotInPkgDirs_FallsThrough(t *testing.T) {
+	t.Parallel()
+	// Workspace says "@external/pkg" lives at "packages/external-pkg", but that
+	// dir is NOT in pkgDirs and there are no files under it in fileSet.
+	cfg := importresolve.Config{Workspace: map[string]string{"@external/pkg": "packages/external-pkg"}}
+	r := mkResolverCfg(
+		[]string{"packages/mesh-core"}, // external-pkg NOT here
+		nil,                            // no files either
+		cfg,
+	)
+	dir, ok := r.Resolve("@external/pkg", "web/src/lib/app.ts")
+	if ok {
+		t.Errorf("expected ok=false when wsDir not in pkgDirs, got dir=%q", dir)
+	}
+	if dir != "" {
+		t.Errorf("expected empty dir when wsDir not in pkgDirs, got %q", dir)
 	}
 }

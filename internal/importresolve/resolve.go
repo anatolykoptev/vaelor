@@ -16,6 +16,7 @@ package importresolve
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,51 +69,65 @@ func New(pkgDirs, fileSet map[string]struct{}, cfg Config) *Resolver {
 	}
 }
 
-// BuildConfig scans a relPath→absPath map of all indexed files and produces a
-// Config by:
+// BuildConfig walks the repository at root and produces a Config by:
 //   - recording the repo-relative dir of every svelte.config.js or svelte.config.ts
-//     as a LibDir (so "$lib" → "<dir>/src/lib");
-//   - reading every package.json (via its absPath) and mapping its "name" field to
-//     the repo-relative dir, excluding any file under node_modules/.
+//     as a LibDir (so "$lib" → "<libDir>/src/lib");
+//   - reading every package.json and mapping its "name" field to the repo-relative
+//     dir, building the Workspace alias map.
 //
-// BuildConfig reads from the real filesystem (os.ReadFile). Files that cannot be
-// read or parsed are silently skipped — a missing package.json is not fatal.
-func BuildConfig(files map[string]string) Config {
+// "node_modules" and any dot-directory (".git", ".svelte-kit", ".claude/worktrees",
+// …) are skipped entirely via filepath.SkipDir (path-segment match, not substring).
+// Skipping dot-dirs matters because some repos keep nested git worktrees (full repo
+// copies) under e.g. .claude/worktrees/; descending into them would register a
+// duplicate svelte.config / package.json and let a worktree copy win the $lib root
+// or a Workspace name by last-write. Config files live in non-dot dirs, so this is
+// safe. Files that cannot be read or parsed are silently skipped — one bad manifest
+// must never fail the build.
+//
+// BuildConfig is decoupled from ingest: it walks the repo from disk so that
+// package.json files (which have no registered language and are excluded by the
+// ingest language filter) are still discovered. This fixes the production bug where
+// Config.Workspace was always empty because ingest.IngestRepo dropped .json files
+// before BuildConfig could see them.
+func BuildConfig(root string) Config {
 	var libDirs []string
 	workspace := make(map[string]string)
 
-	for rel, abs := range files {
-		base := filepath.Base(rel)
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip inaccessible entries
+		}
+		if d.IsDir() {
+			name := d.Name()
+			// Skip node_modules and any dot-dir (.git, .svelte-kit, .claude, …) —
+			// the latter can hold nested repo worktrees whose duplicate manifests
+			// would otherwise shadow the real ones. Never skip root itself (".").
+			if name == "node_modules" || (name != "." && strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 
-		// Detect SvelteKit config files.
-		if base == "svelte.config.js" || base == "svelte.config.ts" {
+		base := d.Name()
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+
+		switch base {
+		case "svelte.config.js", "svelte.config.ts":
 			libDirs = append(libDirs, filepath.Dir(rel))
-			continue
+		case "package.json":
+			name, ok := readPackageName(path)
+			if !ok || name == "" {
+				return nil
+			}
+			workspace[name] = filepath.Dir(rel)
 		}
-
-		// Process package.json, skipping node_modules.
-		if base != "package.json" {
-			continue
-		}
-		if isUnderNodeModules(rel) {
-			continue
-		}
-		name, ok := readPackageName(abs)
-		if !ok || name == "" {
-			continue
-		}
-		workspace[name] = filepath.Dir(rel)
-	}
+		return nil
+	})
 
 	return Config{LibDirs: libDirs, Workspace: workspace}
-}
-
-// isUnderNodeModules reports whether a repo-relative path is inside a
-// node_modules directory.
-func isUnderNodeModules(rel string) bool {
-	// Normalise to forward slashes for consistent matching across OS.
-	normalised := filepath.ToSlash(rel)
-	return strings.Contains(normalised, "node_modules/")
 }
 
 // readPackageName reads just the "name" field from a package.json at absPath.
@@ -169,6 +184,14 @@ func (r *Resolver) Resolve(imp, importingDir string) (string, bool) {
 // resolveLibAlias resolves a "$lib" or "$lib/subpath" import using cfg.LibDirs.
 // For each LibDir, the canonical lib root is "<libDir>/src/lib". The subpath (if
 // any) is resolved against that root via resolveAbsSubpath.
+//
+// Multi-root assumption: when LibDirs has 2+ entries (multi-SvelteKit-app monorepo),
+// this returns the first LibDir whose lib root contains the target. It does NOT
+// disambiguate by which SvelteKit app is doing the importing — that would require
+// per-importer LibDir scoping which is not implemented. For single-app repos (the
+// common case) this is correct. For multi-app monorepos, $lib resolution may
+// occasionally resolve to the wrong app's lib; callers should be aware of this
+// single-app assumption.
 func (r *Resolver) resolveLibAlias(imp string) (string, bool) {
 	if len(r.cfg.LibDirs) == 0 {
 		return "", false
@@ -201,6 +224,13 @@ func (r *Resolver) resolveLibAlias(imp string) (string, bool) {
 // using cfg.Workspace. The package name is the first two path segments (the
 // scoped name including "@scope/"). A subpath is appended to the workspace dir
 // and resolved via resolveAbsSubpath.
+//
+// For a package-root import (no subpath), the mapped wsDir is only returned as
+// local when it is a known pkgDir or when resolveAbsSubpath finds an actual file
+// under it. If wsDir is not in pkgDirs and has no indexed files, this returns
+// ("", false) so the caller falls through to creating a proper external vertex.
+// Returning local for an unknown path would cause the IMPORTS edge to be silently
+// dropped (the edge persistence is MATCH/MATCH/MERGE — no vertex means no edge).
 func (r *Resolver) resolveWorkspaceAlias(imp string) (string, bool) {
 	if len(r.cfg.Workspace) == 0 {
 		return "", false
@@ -214,9 +244,17 @@ func (r *Resolver) resolveWorkspaceAlias(imp string) (string, bool) {
 	}
 
 	if rest == "" {
-		// Package root import — workspace entry found; return the mapped dir.
-		// Be permissive even if wsDir is not yet in pkgDirs (sparse file set).
-		return wsDir, true
+		// Package root import: only resolve as local when the dir is a known
+		// pkgDir or an indexed file exists directly inside it. Without this
+		// guard an unknown wsDir causes a silently-dropped IMPORTS edge because
+		// callers treat isLocal=true as "vertex exists" and skip external-vertex
+		// creation, but the MATCH/MATCH/MERGE edge write has no vertex to attach to.
+		if _, known := r.pkgDirs[wsDir]; known {
+			return wsDir, true
+		}
+		// Fall through: try resolveAbsSubpath with empty subpath to probe for
+		// index files. If none found, return ("", false) → external vertex.
+		return r.resolveAbsSubpath(wsDir, "")
 	}
 
 	return r.resolveAbsSubpath(wsDir, rest)
