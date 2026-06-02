@@ -198,6 +198,78 @@ func TestBuildGraphDeduplicatesExternalPackages(t *testing.T) {
 	}
 }
 
+// TestBuildGraphFullImportPathMapsToLocalContainer is the regression guard for
+// the duplicate-package-node bug. Real Go imports are full module paths
+// (github.com/x/y/internal/fleet/docker), but pkgDirs is keyed by repo-relative
+// dir (internal/fleet/docker). The IMPORTS edge for a local import must point at
+// the CONTAINER vertex (path = relative dir), NOT create a second "external" node
+// keyed by the full import path — otherwise the package graph splits into two
+// disconnected halves (CONTAINS on one node, IMPORTS on the other).
+//
+// Falsification (red-on-revert): restore the bare `pkgDirs[imp]` lookup and this
+// test fails — the edge ToKey becomes the full import path and a duplicate
+// external vertex appears.
+func TestBuildGraphFullImportPathMapsToLocalContainer(t *testing.T) {
+	t.Parallel()
+
+	const localImport = "github.com/anatolykoptev/go-code/internal/fleet/docker"
+	root := "/repo"
+	files := []*ingest.File{
+		{Path: "/repo/internal/fleet/fleet.go", RelPath: "internal/fleet/fleet.go", Language: "go", Size: 100},
+		{Path: "/repo/internal/fleet/docker/driver.go", RelPath: "internal/fleet/docker/driver.go", Language: "go", Size: 200},
+	}
+	cg := &callgraph.CallGraph{}
+	fileImports := map[string][]string{
+		// fleet.go imports the docker subpackage by its FULL module path.
+		"internal/fleet/fleet.go": {localImport},
+		// docker/driver.go imports an unrelated EXTERNAL package that shares the
+		// base name "docker" — must NOT be conflated with the local docker dir.
+		"internal/fleet/docker/driver.go": {"github.com/docker/docker/client"},
+	}
+
+	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+
+	// The local IMPORTS edge must target the container dir, not the full path.
+	var localEdgeToKey string
+	for _, e := range edges {
+		if e.EdgeLabel == "IMPORTS" && e.FromKey == "internal/fleet/fleet.go" {
+			localEdgeToKey = e.ToKey
+		}
+	}
+	if localEdgeToKey != "internal/fleet/docker" {
+		t.Errorf("local IMPORTS ToKey = %q, want %q (container dir, not full import path)",
+			localEdgeToKey, "internal/fleet/docker")
+	}
+
+	// No Package vertex should exist for the full local import path (no duplicate).
+	for _, v := range vertices {
+		if v.Label == "Package" && v.Props["path"] == localImport {
+			t.Errorf("duplicate Package vertex created for local import %q (should reuse container)", localImport)
+		}
+	}
+
+	// The same-base EXTERNAL import must still get its own external vertex and a
+	// full-path edge (not collapsed into the local docker dir).
+	extVertex := false
+	for _, v := range vertices {
+		if v.Label == "Package" && v.Props["path"] == "github.com/docker/docker/client" && v.Props["repo"] == "external" {
+			extVertex = true
+		}
+	}
+	if !extVertex {
+		t.Error("external same-base import github.com/docker/docker/client should be its own external vertex")
+	}
+	extEdge := false
+	for _, e := range edges {
+		if e.EdgeLabel == "IMPORTS" && e.ToKey == "github.com/docker/docker/client" {
+			extEdge = true
+		}
+	}
+	if !extEdge {
+		t.Error("external import edge ToKey should remain the full path, not the local docker dir")
+	}
+}
+
 // TestBuildGraphEmptyImports verifies that buildGraph handles nil/empty
 // fileImports without panicking and produces no IMPORTS edges.
 func TestBuildGraphEmptyImports(t *testing.T) {
