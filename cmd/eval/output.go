@@ -14,15 +14,15 @@ import (
 // QueryResult is one row of harness output: the query, the retrieved hits
 // (top-K, capped to 20 to keep the file readable), and per-query metrics.
 type QueryResult struct {
-	Repo       string   `json:"repo"`
-	Query      string   `json:"query"`
-	Expected   []string `json:"expected_top_3"`
-	Retrieved  []string `json:"retrieved_top_20"`
-	NDCG10     float64  `json:"ndcg10"`
-	Recall10   float64  `json:"recall10"`
-	Recall20   float64  `json:"recall20"`
-	MRR        float64  `json:"mrr"`
-	Error      string   `json:"error,omitempty"`
+	Repo      string   `json:"repo"`
+	Query     string   `json:"query"`
+	Expected  []string `json:"expected_top_3"`
+	Retrieved []string `json:"retrieved_top_20"`
+	NDCG10    float64  `json:"ndcg10"`
+	Recall10  float64  `json:"recall10"`
+	Recall20  float64  `json:"recall20"`
+	MRR       float64  `json:"mrr"`
+	Error     string   `json:"error,omitempty"`
 }
 
 // Aggregates is the mean of each metric across all queries.
@@ -60,12 +60,14 @@ type Metadata struct {
 }
 
 // Report is the full harness output. Delta is omitted when --baseline is unset.
+// Gate is populated when --baseline and --splade-weight are both provided.
 type Report struct {
 	Metadata   Metadata           `json:"metadata"`
 	PerQuery   []QueryResult      `json:"per_query"`
 	PerRepo    []PerRepoAggregate `json:"per_repo"`
 	Aggregates Aggregates         `json:"aggregates"`
 	Delta      *DeltaBlock        `json:"delta,omitempty"`
+	Gate       *GateResult        `json:"splade_gate,omitempty"`
 }
 
 // computeAggregates returns mean metrics across all non-error queries.
