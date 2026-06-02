@@ -178,4 +178,3 @@ func nestingDepthBrace(body, language string) int {
 	}
 	return maxDepth
 }
-

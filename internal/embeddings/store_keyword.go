@@ -2,10 +2,10 @@ package embeddings
 
 import (
 	"context"
-	"time"
 	"fmt"
 	"math"
 	"strings"
+	"time"
 )
 
 // FileLineHit is a file path + line number from keyword search.

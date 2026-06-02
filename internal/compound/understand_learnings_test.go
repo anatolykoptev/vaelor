@@ -70,12 +70,12 @@ func TestUnderstand_PriorLearnings_OneRecord(t *testing.T) {
 	cg := testCallGraphFoo(target)
 	store := &fakeLearnings{records: []learnings.Record{
 		{
-			Repo:    "r",
-			Symbol:  "Foo",
+			Repo:          "r",
+			Symbol:        "Foo",
 			ReviewOutcome: "bad",
-			Flag:    "missing-input-validation",
-			Note:    wantNote,
-			PRURL:   "https://github.com/o/r/pull/42",
+			Flag:          "missing-input-validation",
+			Note:          wantNote,
+			PRURL:         "https://github.com/o/r/pull/42",
 		},
 	}}
 

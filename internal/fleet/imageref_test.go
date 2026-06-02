@@ -8,12 +8,12 @@ import (
 
 func TestParseImageRef(t *testing.T) {
 	tests := []struct {
-		name                string
-		ref                 string
-		wantImage           string
-		wantTag             string
-		wantDigest          string
-		wantInvalidDigest   string // non-empty means we expect invalidDigestReason != ""
+		name              string
+		ref               string
+		wantImage         string
+		wantTag           string
+		wantDigest        string
+		wantInvalidDigest string // non-empty means we expect invalidDigestReason != ""
 	}{
 		{
 			name:      "image only, no tag, no digest → latest",
@@ -60,18 +60,18 @@ func TestParseImageRef(t *testing.T) {
 			wantTag:   "1.0",
 		},
 		{
-			name:                "invalid digest prefix silently noted",
-			ref:                 "registry.io/img:1.0@md5:notvalid",
-			wantImage:           "registry.io/img",
-			wantTag:             "1.0",
-			wantDigest:          "",
-			wantInvalidDigest:   "md5",
+			name:              "invalid digest prefix silently noted",
+			ref:               "registry.io/img:1.0@md5:notvalid",
+			wantImage:         "registry.io/img",
+			wantTag:           "1.0",
+			wantDigest:        "",
+			wantInvalidDigest: "md5",
 		},
 		{
-			name:      "image with no tag but has digest — no latest applied",
-			ref:       "ubuntu@sha256:deadbeef",
-			wantImage: "ubuntu",
-			wantTag:   "",
+			name:       "image with no tag but has digest — no latest applied",
+			ref:        "ubuntu@sha256:deadbeef",
+			wantImage:  "ubuntu",
+			wantTag:    "",
 			wantDigest: "sha256:deadbeef",
 		},
 		{

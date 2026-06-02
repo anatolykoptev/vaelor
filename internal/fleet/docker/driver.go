@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/anatolykoptev/go-code/internal/fleet"
 	"net"
 	"strings"
 	"time"
-	"github.com/anatolykoptev/go-code/internal/fleet"
 )
 
 // Sentinel errors exposed for callers to errors.Is against.
@@ -159,4 +159,3 @@ func resolveContainerName(names []string, id string) string {
 	}
 	return id
 }
-

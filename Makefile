@@ -2,12 +2,20 @@ BINARY  = bin/go-code
 SERVICE = go-code
 COMPOSE = cd $(HOME)/deploy/example-server && docker compose
 
-.PHONY: build lint test run deploy clean vendor
+.PHONY: build lint fmt-check test run deploy clean vendor
 
 build:
 	GOWORK=off CGO_ENABLED=1 go build -o $(BINARY) ./cmd/go-code
 
-lint:
+fmt-check:
+	@out=$$(GOWORK=off gofmt -l cmd internal eval); \
+	if [ -n "$$out" ]; then \
+	  echo "gofmt drift detected:" >&2; \
+	  echo "$$out" >&2; \
+	  exit 1; \
+	fi
+
+lint: fmt-check
 	GOWORK=off golangci-lint run ./...
 
 test:

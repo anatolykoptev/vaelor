@@ -269,12 +269,12 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 //   - blip.md ↔ once.txt:  co=2, winA=2, winB=2 → wlb≈0.342 (thin support, ranks second)
 //
 // The test verifies:
-//   1. G² is populated (>0) for all pairs — available for diagnostics.
-//   2. Significance label is populated (non-empty) for all pairs.
-//   3. Genuine G² > coincidence G² (G² grows with sample size — still true at n=15).
-//   4. The Score field (Wilson-LB) drives ranking (top pair = genuine with highest Score).
-//   5. G²/Significance are not capped — the coincidence CAN earn "strong"/"very_strong"
-//      since significance caps were removed (informational, not a ranking signal).
+//  1. G² is populated (>0) for all pairs — available for diagnostics.
+//  2. Significance label is populated (non-empty) for all pairs.
+//  3. Genuine G² > coincidence G² (G² grows with sample size — still true at n=15).
+//  4. The Score field (Wilson-LB) drives ranking (top pair = genuine with highest Score).
+//  5. G²/Significance are not capped — the coincidence CAN earn "strong"/"very_strong"
+//     since significance caps were removed (informational, not a ranking signal).
 func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "acme-web")

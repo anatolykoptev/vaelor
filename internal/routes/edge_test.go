@@ -6,52 +6,52 @@ import (
 
 func TestGoMatcherEdgeCases(t *testing.T) {
 	cases := []struct {
-		name    string
-		source  string
-		wantN   int
-		checks  []struct{ method, path, handler, side string }
+		name   string
+		source string
+		wantN  int
+		checks []struct{ method, path, handler, side string }
 	}{
 		{
-			name: "Go 1.22 pattern with method",
+			name:   "Go 1.22 pattern with method",
 			source: `mux.HandleFunc("POST /api/users", s.CreateUser)`,
-			wantN: 1,
+			wantN:  1,
 			checks: []struct{ method, path, handler, side string }{
 				{"POST", "/api/users", "CreateUser", "server"},
 			},
 		},
 		{
-			name: "Go 1.22 pattern without method (just path)",
+			name:   "Go 1.22 pattern without method (just path)",
 			source: `mux.HandleFunc("/legacy/path", legacyHandler)`,
-			wantN: 1,
+			wantN:  1,
 			checks: []struct{ method, path, handler, side string }{
 				{"*", "/legacy/path", "legacyHandler", "server"},
 			},
 		},
 		{
-			name: "anonymous handler (should still match path)",
+			name:   "anonymous handler (should still match path)",
 			source: `http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {})`,
-			wantN: 0, // anonymous func doesn't match [A-Za-z_] handler pattern
+			wantN:  0, // anonymous func doesn't match [A-Za-z_] handler pattern
 		},
 		{
-			name: "http.Handle with named handler variable",
+			name:   "http.Handle with named handler variable",
 			source: `http.Handle("/static/", fileServer)`,
-			wantN: 1,
+			wantN:  1,
 			checks: []struct{ method, path, handler, side string }{
 				{"*", "/static", "fileServer", "server"},
 			},
 		},
 		{
-			name: "chi route with path params",
+			name:   "chi route with path params",
 			source: `r.Get("/users/{id}/posts/{postID}", GetUserPosts)`,
-			wantN: 1,
+			wantN:  1,
 			checks: []struct{ method, path, handler, side string }{
 				{"GET", "/users/*/posts/*", "GetUserPosts", "server"},
 			},
 		},
 		{
-			name: "client http.NewRequestWithContext with variable URL",
+			name:   "client http.NewRequestWithContext with variable URL",
 			source: `http.NewRequestWithContext(ctx, "DELETE", "/api/items/"+id, nil)`,
-			wantN: 0, // URL is concatenated, not a string literal
+			wantN:  0, // URL is concatenated, not a string literal
 		},
 		{
 			name: "multiple routes in one source",
@@ -63,17 +63,17 @@ func TestGoMatcherEdgeCases(t *testing.T) {
 			wantN: 3,
 		},
 		{
-			name: "Go 1.22 with host pattern",
+			name:   "Go 1.22 with host pattern",
 			source: `mux.HandleFunc("GET example.com/api/data", s.GetData)`,
-			wantN: 1,
+			wantN:  1,
 			checks: []struct{ method, path, handler, side string }{
 				{"GET", "/api/data", "GetData", "server"},
 			},
 		},
 		{
-			name: "http.Get client call with full URL",
+			name:   "http.Get client call with full URL",
 			source: `http.Get("https://api.example.com/v1/data")`,
-			wantN: 1,
+			wantN:  1,
 			checks: []struct{ method, path, handler, side string }{
 				{"GET", "/v1/data", "", "client"},
 			},
@@ -262,7 +262,9 @@ func TestPythonMatcherEdgeCases(t *testing.T) {
 				return
 			}
 			for i, check := range tc.checks {
-				if i >= len(routes) { break }
+				if i >= len(routes) {
+					break
+				}
 				r := routes[i]
 				if check.method != "" && r.Method != check.method {
 					t.Errorf("route[%d] method: got %q, want %q", i, r.Method, check.method)

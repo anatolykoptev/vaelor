@@ -98,4 +98,3 @@ func CacheKey(dir string) string {
 func (c *Cache) entryPath(key string) string {
 	return filepath.Join(c.dir, key+".scip")
 }
-

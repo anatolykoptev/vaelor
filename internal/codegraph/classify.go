@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/prompts"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // Classification holds the result of classifying a natural-language query.

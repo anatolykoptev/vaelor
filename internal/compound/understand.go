@@ -4,8 +4,8 @@ package compound
 
 import (
 	"context"
-	"strings"
 	"log/slog"
+	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/graphx"

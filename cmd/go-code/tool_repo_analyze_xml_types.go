@@ -67,20 +67,20 @@ type xmlFile struct {
 }
 
 type xmlFileSym struct {
-	Kind       string   `xml:"kind,attr"`
-	Name       string   `xml:"name,attr"`
-	Line       uint32   `xml:"line,attr"`
-	End        uint32   `xml:"end,attr,omitempty"`
-	Complexity int      `xml:"complexity,attr,omitempty"`
-	Doc        string   `xml:"doc,attr,omitempty"`
+	Kind       string    `xml:"kind,attr"`
+	Name       string    `xml:"name,attr"`
+	Line       uint32    `xml:"line,attr"`
+	End        uint32    `xml:"end,attr,omitempty"`
+	Complexity int       `xml:"complexity,attr,omitempty"`
+	Doc        string    `xml:"doc,attr,omitempty"`
 	Signature  *xmlCDATA `xml:"signature,omitempty"`
 }
 
 type xmlSymbol struct {
-	Kind      string   `xml:"kind,attr"`
-	Name      string   `xml:"name,attr"`
-	File      string   `xml:"file,attr"`
-	Line      uint32   `xml:"line,attr"`
+	Kind      string    `xml:"kind,attr"`
+	Name      string    `xml:"name,attr"`
+	File      string    `xml:"file,attr"`
+	Line      uint32    `xml:"line,attr"`
 	Signature *xmlCDATA `xml:"signature,omitempty"`
 }
 
@@ -114,8 +114,8 @@ type xmlFreshnessSummary struct {
 // xmlArchCentral holds the top architecturally central symbols by PageRank.
 // When Available is false the graph has no snapshot for this repo.
 type xmlArchCentral struct {
-	Available bool             `xml:"available,attr"`
-	Symbols   []xmlArchSymbol  `xml:"symbol,omitempty"`
+	Available bool            `xml:"available,attr"`
+	Symbols   []xmlArchSymbol `xml:"symbol,omitempty"`
 }
 
 // xmlArchSymbol is a single entry in the arch_central section.

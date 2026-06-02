@@ -16,9 +16,9 @@ func TestIsCompiledArtifact_ServiceWorkers(t *testing.T) {
 		{"sw.js", true},
 		{"web/static/service-worker.js", true},
 		{"web/static/workbox-abc123.js", true},
-		{"src/lib/workbox-window.ts", false}, // a real .ts source file that merely starts with "workbox"
+		{"src/lib/workbox-window.ts", false},           // a real .ts source file that merely starts with "workbox"
 		{"web/src/lib/i18n/translations/ru.ts", false}, // real source — must NOT be filtered
-		{"internal/sw/handler.go", false},   // "sw" path segment but a .go source file
+		{"internal/sw/handler.go", false},              // "sw" path segment but a .go source file
 	}
 	for _, c := range cases {
 		if got := artifactfilter.IsCompiledArtifact(c.path); got != c.want {

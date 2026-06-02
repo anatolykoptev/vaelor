@@ -30,7 +30,6 @@ func TestStoreRoundtrip(t *testing.T) {
 	}
 }
 
-
 // fakeEmbedder returns pre-seeded embeddings for known inputs. Unknown inputs
 // fall through to the default vector so callers still get a non-empty result.
 type fakeEmbedder struct {
