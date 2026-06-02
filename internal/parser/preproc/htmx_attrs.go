@@ -39,224 +39,230 @@ var hxMethodAttrs = []struct {
 //   - HTML comments <!-- ... --> are skipped.
 //   - hx-on:* / hx-on::* attributes are not URL-emitting and are ignored.
 //   - Both double-quoted and single-quoted attribute values are handled.
-func ScanHtmxRefs(src []byte) []HtmxRef { //nolint:gocognit // byte-walker inherently sequential; matches scanTemplateRefs pattern in astro_refs.go
-	skips := collectSkipRanges(src)
-
-	// defineStack tracks open {{define "X"}} blocks AND non-define block
-	// keywords ({{range}}/{{if}}/{{with}}/{{block}}) so {{end}} pops correctly
-	// even when blocks nest inside a define. Non-define blocks push "" so the
-	// pop accounting matches Go template's flat block grammar.
-	//
-	// currentTemplate walks the stack top→bottom returning the first non-empty
-	// name. This preserves "innermost define wins" semantics for nested defines
-	// (rare, non-standard) while letting nested non-define blocks transparently
-	// inherit the enclosing define — the dominant real-world htmx pattern:
-	//   {{define "list"}}{{range .Items}}<button hx-get="/x">{{end}}{{end}}
-	// without this walk, the hx-get inside {{range}} would mask out to "".
-	var defineStack []string
-
-	currentTemplate := func() string {
-		for k := len(defineStack) - 1; k >= 0; k-- {
-			if defineStack[k] != "" {
-				return defineStack[k]
-			}
+func ScanHtmxRefs(src []byte) []HtmxRef {
+	w := &htmxWalker{
+		src:   src,
+		skips: collectSkipRanges(src),
+		line:  1,
+	}
+	var refs []HtmxRef
+	for w.i < len(src) {
+		if ref, ok := w.step(); ok {
+			refs = append(refs, ref)
 		}
-		return ""
+	}
+	return refs
+}
+
+// htmxWalker holds the mutable byte-walker state for ScanHtmxRefs.
+//
+// defineStack tracks open {{define "X"}} blocks AND non-define block keywords
+// ({{range}}/{{if}}/{{with}}/{{block}}) so {{end}} pops correctly even when
+// blocks nest inside a define. Non-define blocks push "" so the pop accounting
+// matches Go template's flat block grammar. currentTemplate walks the stack
+// top→bottom returning the first non-empty name, preserving "innermost define
+// wins" semantics while letting nested non-define blocks transparently inherit
+// the enclosing define — the dominant real-world htmx pattern:
+//
+//	{{define "list"}}{{range .Items}}<button hx-get="/x">{{end}}{{end}}
+type htmxWalker struct {
+	src         []byte
+	skips       []skipRange // opaque type from astro.go
+	i           int
+	line        int
+	defineStack []string
+}
+
+// currentTemplate returns the innermost define name, or "" if at top level.
+func (w *htmxWalker) currentTemplate() string {
+	for k := len(w.defineStack) - 1; k >= 0; k-- {
+		if w.defineStack[k] != "" {
+			return w.defineStack[k]
+		}
+	}
+	return ""
+}
+
+// step advances the walker by one logical unit and returns an HtmxRef when one
+// is found at the current position. The walker guarantees w.i advances on every
+// call so the outer loop always terminates.
+func (w *htmxWalker) step() (HtmxRef, bool) {
+	b := w.src[w.i]
+
+	if b == '\n' {
+		w.line++
+		w.i++
+		return HtmxRef{}, false
+	}
+	if inSkipRanges(w.i, w.skips) {
+		w.i++
+		return HtmxRef{}, false
+	}
+	if w.skipComment() {
+		return HtmxRef{}, false
+	}
+	if isGoTemplateStart(w.src, w.i) {
+		w.advanceTemplateAction()
+		return HtmxRef{}, false
+	}
+	if b != 'h' || !isAttrBoundary(w.src, w.i) {
+		w.i++
+		return HtmxRef{}, false
+	}
+	return w.matchAttr()
+}
+
+// skipComment handles "<!-- ... -->". Returns true when src[w.i] is "<!--".
+// On an unclosed comment, advances w.i to end-of-src so the outer loop exits.
+func (w *htmxWalker) skipComment() bool {
+	if !bytes.HasPrefix(w.src[w.i:], []byte("<!--")) {
+		return false
+	}
+	end := bytes.Index(w.src[w.i:], []byte("-->"))
+	if end < 0 {
+		w.i = len(w.src)
+		return true
+	}
+	advance := end + 3
+	for _, c := range w.src[w.i : w.i+advance] {
+		if c == '\n' {
+			w.line++
+		}
+	}
+	w.i += advance
+	return true
+}
+
+// advanceTemplateAction processes one Go template action starting at w.src[w.i].
+// It updates w.defineStack and advances w.i past the closing "}}".
+// On an unclosed action, w.i is advanced by 2 (past "{{").
+func (w *htmxWalker) advanceTemplateAction() {
+	actionEnd := findActionClose(w.src, w.i+2)
+	if actionEnd < 0 {
+		w.i += 2
+		return
+	}
+	body := actionBody(w.src, w.i, actionEnd)
+	keyword, name := parseActionKeyword(body)
+	switch keyword {
+	case "define", "range", "if", "with", "block":
+		// Push a new scope. Only "define" carries a meaningful name;
+		// other block keywords push "" so that {{end}} pops correctly
+		// when nested inside a define.
+		if keyword == "define" {
+			w.defineStack = append(w.defineStack, name)
+		} else {
+			w.defineStack = append(w.defineStack, "")
+		}
+	case "end":
+		if len(w.defineStack) > 0 {
+			w.defineStack = w.defineStack[:len(w.defineStack)-1]
+		}
+	}
+	for _, c := range w.src[w.i:actionEnd] {
+		if c == '\n' {
+			w.line++
+		}
+	}
+	w.i = actionEnd
+}
+
+// matchAttr tries to match an hx-METHOD attribute at w.src[w.i].
+// On a match it advances w.i past the value and returns (ref, true).
+// On no match it advances w.i by 1 and returns (HtmxRef{}, false).
+func (w *htmxWalker) matchAttr() (HtmxRef, bool) {
+	for _, attr := range hxMethodAttrs {
+		if !bytes.HasPrefix(w.src[w.i:], attr.suffix) {
+			continue
+		}
+		j := w.i + len(attr.suffix)
+
+		// Must be followed by '=' (optionally with whitespace).
+		for j < len(w.src) && (w.src[j] == ' ' || w.src[j] == '\t') {
+			j++
+		}
+		if j >= len(w.src) || w.src[j] != '=' {
+			continue
+		}
+		j++ // skip '='
+
+		for j < len(w.src) && (w.src[j] == ' ' || w.src[j] == '\t') {
+			j++
+		}
+		if j >= len(w.src) {
+			continue
+		}
+
+		url, newJ, startLine, endLine := extractAttrValue(w.src, j, w.line)
+		w.line = endLine
+		w.i = newJ
+		return HtmxRef{
+			Method:            attr.method,
+			URL:               url,
+			StartLine:         startLine,
+			EndLine:           endLine,
+			EnclosingTemplate: w.currentTemplate(),
+		}, url != ""
+	}
+	w.i++
+	return HtmxRef{}, false
+}
+
+// extractAttrValue reads an attribute value starting at src[j] (the character
+// immediately after '=' and any whitespace). Handles both quoted
+// (single/double) and unquoted values. Returns the raw value string (which
+// may contain {{...}} Go template actions), the position just past the
+// consumed value, and the start/end line numbers of the value.
+func extractAttrValue(src []byte, j, line int) (url string, newJ, startLine, endLine int) {
+	if src[j] != '"' && src[j] != '\'' {
+		// Unquoted attribute value — read until whitespace or '>'.
+		valStart := j
+		for j < len(src) && src[j] != ' ' && src[j] != '\t' && src[j] != '>' && src[j] != '\n' {
+			j++
+		}
+		return string(src[valStart:j]), j, line, line
 	}
 
-	var refs []HtmxRef
-	i := 0
-	line := 1
-
-	for i < len(src) {
-		b := src[i]
-
-		// Track line numbers.
-		if b == '\n' {
+	// Quoted value: find closing quote, preserving {{...}} actions.
+	quote := src[j]
+	j++
+	valStart := j
+	startLine = line
+	endLine = line
+	for j < len(src) {
+		c := src[j]
+		if c == '\n' {
+			endLine++
 			line++
-			i++
+			j++
 			continue
 		}
-
-		// Skip bytes inside <script>/<style> blocks.
-		if inSkipRanges(i, skips) {
-			i++
-			continue
-		}
-
-		// HTML comment: <!-- ... -->
-		if bytes.HasPrefix(src[i:], []byte("<!--")) {
-			end := bytes.Index(src[i:], []byte("-->"))
-			if end < 0 {
-				break
-			}
-			advance := end + 3
-			for _, c := range src[i : i+advance] {
-				if c == '\n' {
-					line++
-				}
-			}
-			i += advance
-			continue
-		}
-
-		// Go template action: {{...}}
-		// Track {{define "X"}} and {{end}} to maintain the enclosing-template
-		// scope stack.  We process this BEFORE the hx-* check so that a
-		// {{define}} on the same line as an hx-* attribute is handled first.
-		// Note: skip-ranges have already been checked above; {{define}} inside
-		// a <script> block is therefore ignored (correct, it can't happen in
-		// valid Go templates anyway).
-		if b == '{' && i+1 < len(src) && src[i+1] == '{' {
-			actionEnd := findActionClose(src, i+2)
-			if actionEnd < 0 {
-				// Unclosed action — skip past the opening "{{" and continue.
-				i += 2
-				continue
-			}
-			body := actionBody(src, i, actionEnd)
-			keyword, name := parseActionKeyword(body)
-			switch keyword {
-			case "define", "range", "if", "with", "block":
-				// Push a new scope.  Only "define" carries a meaningful name;
-				// other block keywords push "" so that {{end}} pops correctly
-				// if they are nested inside a define.
-				if keyword == "define" {
-					defineStack = append(defineStack, name)
-				} else {
-					defineStack = append(defineStack, "")
-				}
-			case "end":
-				if len(defineStack) > 0 {
-					defineStack = defineStack[:len(defineStack)-1]
-				}
-			}
-			// Count newlines consumed by the action span.
-			for _, c := range src[i:actionEnd] {
-				if c == '\n' {
-					line++
-				}
-			}
-			i = actionEnd
-			continue
-		}
-
-		// Look for the start of an hx-* attribute. We only care about bytes
-		// that could start "hx-" so fast-path everything else.
-		if b != 'h' {
-			i++
-			continue
-		}
-
-		// Left-boundary guard: 'h' must sit at attribute-slot position.
-		// Previous byte must be whitespace or '<' (very-first-attr position).
-		// Without this guard, occurrences inside other attribute values fire:
-		//   <input name="hx-get=test">     → emits GET "test\""
-		//   <button onclick="x.hx-get=1">  → emits GET "1\""
-		// Both pollute Phase B AGE graph with malformed URLs.
-		if i > 0 {
-			prev := src[i-1]
-			if prev != ' ' && prev != '\t' && prev != '\n' && prev != '\r' && prev != '<' {
-				i++
-				continue
-			}
-		}
-
-		// Check for each hx-METHOD attr.
-		matched := false
-		for _, attr := range hxMethodAttrs {
-			if !bytes.HasPrefix(src[i:], attr.suffix) {
-				continue
-			}
-			afterAttr := i + len(attr.suffix)
-			// Must be followed by '=' (optionally with whitespace).
-			j := afterAttr
-			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
-				j++
-			}
-			if j >= len(src) || src[j] != '=' {
-				// Not an attribute assignment — could be a prefix of another attr
-				// (unlikely but guard it).
-				continue
-			}
-			j++ // skip '='
-
-			// Skip optional whitespace after '='.
-			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
-				j++
-			}
-			if j >= len(src) {
-				continue
-			}
-
-			// Read quoted value.
-			var quote byte
-			if src[j] == '"' || src[j] == '\'' {
-				quote = src[j]
-				j++
-			} else {
-				// Unquoted attribute value — read until whitespace or '>'.
-				valStart := j
-				for j < len(src) && src[j] != ' ' && src[j] != '\t' && src[j] != '>' && src[j] != '\n' {
-					j++
-				}
-				url := string(src[valStart:j])
-				if url != "" {
-					refs = append(refs, HtmxRef{
-						Method:            attr.method,
-						URL:               url,
-						StartLine:         line,
-						EndLine:           line,
-						EnclosingTemplate: currentTemplate(),
-					})
-				}
-				// Advance i to just after attr name so we don't re-scan.
-				i = j
-				matched = true
-				break
-			}
-
-			// Quoted value: find closing quote, preserving {{...}} actions.
-			valStart := j
-			startLine := line
-			endLine := line
-			for j < len(src) {
-				c := src[j]
-				if c == '\n' {
-					endLine++
-					line++
-					j++
-					continue
-				}
-				if c == quote {
-					break
-				}
-				// Skip {{...}} actions as opaque spans (no need to count braces
-				// since the closing quote terminates the value, not braces).
-				j++
-			}
-			url := string(src[valStart:j])
-			if j < len(src) {
-				j++ // consume closing quote
-			}
-			if url != "" {
-				refs = append(refs, HtmxRef{
-					Method:            attr.method,
-					URL:               url,
-					StartLine:         startLine,
-					EndLine:           endLine,
-					EnclosingTemplate: currentTemplate(),
-				})
-			}
-			i = j
-			matched = true
+		if c == quote {
 			break
 		}
-
-		if !matched {
-			i++
-		}
+		// Skip {{...}} actions as opaque spans (no need to count braces
+		// since the closing quote terminates the value, not braces).
+		j++
 	}
+	url = string(src[valStart:j])
+	if j < len(src) {
+		j++ // consume closing quote
+	}
+	return url, j, startLine, endLine
+}
 
-	return refs
+// isGoTemplateStart reports whether src[i:] begins with "{{".
+func isGoTemplateStart(src []byte, i int) bool {
+	return src[i] == '{' && i+1 < len(src) && src[i+1] == '{'
+}
+
+// isAttrBoundary reports whether position i is a valid HTML attribute start:
+// the preceding byte must be whitespace or '<' (first-attr position).
+// Returns true for i==0 (start of file).
+func isAttrBoundary(src []byte, i int) bool {
+	if i == 0 {
+		return true
+	}
+	prev := src[i-1]
+	return prev == ' ' || prev == '\t' || prev == '\n' || prev == '\r' || prev == '<'
 }
