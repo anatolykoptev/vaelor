@@ -5,13 +5,32 @@
 // and writes a JSON report. Optional --baseline runs a paired t-test against
 // a prior report and reports per-metric significance.
 //
-// Usage:
+// SPLADE A/B gate mode (Phase P6):
 //
-//	go-code-eval \
-//	  --golden-dir eval/golden \
-//	  --target-url http://127.0.0.1:8897 \
-//	  --output     /tmp/eval-candidate.json \
-//	  --baseline   /tmp/eval-baseline.json   # optional
+// Run the harness twice — once with RRF_WEIGHT_SPARSE=0 (baseline) and once
+// with the candidate weight — then use --baseline + --splade-weight to emit a
+// go/no-go verdict for flipping the production env var:
+//
+//	# Step 1: baseline run (RRF_WEIGHT_SPARSE=0 on the server)
+//	go-code-eval --golden-dir eval/golden \
+//	             --target-url http://127.0.0.1:8897 \
+//	             --output /tmp/eval-baseline.json
+//
+//	# Step 2: candidate run (RRF_WEIGHT_SPARSE=0.3 on the server)
+//	go-code-eval --golden-dir eval/golden \
+//	             --target-url http://127.0.0.1:8897 \
+//	             --output /tmp/eval-cand.json \
+//	             --baseline /tmp/eval-baseline.json \
+//	             --splade-weight 0.3
+//
+//	# The report's "splade_gate" field contains the PASS/FAIL verdict.
+//	jq .splade_gate /tmp/eval-cand.json
+//
+// Gate: PASS iff nDCG@10 improves at p<0.05 AND Recall@20 is non-inferior
+// (delta >= -2% OR p >= 0.05). See abgate.go for the full rule.
+//
+// Future online step: Team Draft Interleaving (TDI) on live traffic provides
+// higher sensitivity; this offline harness is the prerequisite gate.
 //
 // The harness is read-only against the target server: every query is a
 // semantic_search call. Use against a non-prod target for fair benchmarking.
@@ -22,6 +41,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -44,12 +64,17 @@ const (
 // version is set at build time via -ldflags; "dev" for local builds.
 var version = "dev"
 
+// noSPLADEWeight is the sentinel that signals "splade-weight not provided".
+const noSPLADEWeight = -1.0
+
 func main() {
 	fs := flag.NewFlagSet("eval", flag.ExitOnError)
 	goldenDir := fs.String("golden-dir", "eval/golden", "directory of <repo>.jsonl golden files")
 	targetURL := fs.String("target-url", "http://127.0.0.1:8897", "go-code MCP base URL (REST bridge at /api/tools)")
 	output := fs.String("output", "", "JSON output path (default: stdout)")
 	baseline := fs.String("baseline", "", "optional baseline report path for A/B comparison")
+	splaDeWeight := fs.Float64("splade-weight", noSPLADEWeight,
+		"RRF_WEIGHT_SPARSE used in the candidate run; enables SPLADE go/no-go gate in output (requires --baseline)")
 	workers := fs.Int("workers", defaultWorkers, "concurrent HTTP workers")
 	topK := fs.Int("top-k", minTopK, "top_k passed to semantic_search (≥10 for Recall@10/@20)")
 	timeout := fs.Duration("timeout", defaultTimeout, "overall harness timeout")
@@ -62,13 +87,17 @@ func main() {
 		return
 	}
 
-	if err := run(*goldenDir, *targetURL, *output, *baseline, *workers, *topK, *timeout); err != nil {
+	w := *splaDeWeight
+	if w == noSPLADEWeight {
+		w = math.NaN()
+	}
+	if err := run(*goldenDir, *targetURL, *output, *baseline, w, *workers, *topK, *timeout); err != nil {
 		slog.Error("eval failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(goldenDir, targetURL, output, baseline string, workers, topK int, timeout time.Duration) error {
+func run(goldenDir, targetURL, output, baseline string, splaDeWeight float64, workers, topK int, timeout time.Duration) error {
 	if topK < minTopK {
 		// Recall@20 requires the candidate pool to have at least 20 items.
 		topK = minTopK
@@ -118,6 +147,21 @@ func run(goldenDir, targetURL, output, baseline string, workers, topK int, timeo
 			return fmt.Errorf("baseline: %w", err)
 		}
 		report.Delta = computeDelta(base.PerQuery, results)
+
+		// Emit the SPLADE go/no-go gate when --splade-weight is provided.
+		// math.NaN() is the sentinel meaning "not provided" (set in main).
+		if !math.IsNaN(splaDeWeight) {
+			gate := EvaluateGate(base.PerQuery, results, splaDeWeight)
+			report.Gate = &gate
+			slog.Info("SPLADE gate",
+				slog.String("verdict", string(gate.Verdict)),
+				slog.Float64("ndcg10_delta", gate.NDCG10Delta),
+				slog.Float64("ndcg10_p", gate.NDCG10P),
+				slog.Float64("recall20_delta", gate.Recall20Delta),
+				slog.Float64("recall20_p", gate.Recall20P),
+				slog.Int("paired_queries", gate.PairedQueries),
+			)
+		}
 	}
 
 	if err := writeReport(output, report); err != nil {
