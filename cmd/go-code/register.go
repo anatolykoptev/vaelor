@@ -205,6 +205,14 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		slog.Float64("sparse", rrfWeights.Sparse),
 	)
 
+	// Keyword arm: published at startup (gauge + log) so ops can see which arm
+	// is live without issuing a query. Default "grep" = byte-identical to pre-P4.
+	publishKeywordArm(cfg.KeywordArm)
+	slog.Info("keyword arm",
+		slog.String("arm", cfg.KeywordArm),
+		slog.String("note", "set KEYWORD_ARM=bm25f after Phase 5 A/B gate clears"),
+	)
+
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
 	// Created early so tools can use semantic fallback.
 	var semDeps SemanticDeps
@@ -243,6 +251,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 				OxCodes:      buildOxCodesClient(cfg),
 				RRFWeights:   rrfWeights,
 				SparseClient: sparseClient,
+				KeywordArm:   cfg.KeywordArm,
 			}
 		}
 	}
