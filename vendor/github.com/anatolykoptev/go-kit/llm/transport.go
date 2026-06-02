@@ -103,7 +103,21 @@ func (c *Client) executeInner(ctx context.Context, req *ChatRequest) (*ChatRespo
 			if ep.Model != "" {
 				epReq.Model = ep.Model
 			}
-			result, err := c.doWithRetry(ctx, ep.URL, ep.Key, &epReq)
+
+			// Per-attempt timeout: derive a child ctx bounded by d, but only when
+			// d > 0 and WithEndpoints is in use. The outer ctx remains the absolute
+			// ceiling — context.WithTimeout takes min(d, time-left-on-outer).
+			attemptCtx := ctx
+			var cancelAttempt context.CancelFunc
+			if c.perAttemptTimeout > 0 {
+				attemptCtx, cancelAttempt = context.WithTimeout(ctx, c.perAttemptTimeout)
+			}
+
+			result, err := c.doWithRetry(attemptCtx, ep.URL, ep.Key, &epReq)
+
+			if cancelAttempt != nil {
+				cancelAttempt()
+			}
 			if c.endpointObserver != nil {
 				c.endpointObserver(ep, err)
 			}
@@ -111,6 +125,16 @@ func (c *Client) executeInner(ctx context.Context, req *ChatRequest) (*ChatRespo
 				return result, nil
 			}
 			lastErr = err
+
+			// A per-attempt DeadlineExceeded where the outer ctx is still alive
+			// means this endpoint was slow (not a genuine give-up by the caller).
+			// Treat it as retryable-advance: continue to the next endpoint.
+			// If the outer ctx is also done, fall through to the asRetryable gate,
+			// which will return non-retryable → abort the chain (correct).
+			if c.perAttemptTimeout > 0 && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				continue
+			}
+
 			if !asRetryable(err) {
 				return nil, err
 			}

@@ -1,4 +1,4 @@
-# github.com/anatolykoptev/go-kit v0.73.0
+# github.com/anatolykoptev/go-kit v0.77.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-kit/cache
 github.com/anatolykoptev/go-kit/embed
@@ -8,6 +8,7 @@ github.com/anatolykoptev/go-kit/metrics
 github.com/anatolykoptev/go-kit/metrics/mcpmw
 github.com/anatolykoptev/go-kit/rerank
 github.com/anatolykoptev/go-kit/score
+github.com/anatolykoptev/go-kit/sparse
 github.com/anatolykoptev/go-kit/tracing
 github.com/anatolykoptev/go-kit/tracing/httpmw
 github.com/anatolykoptev/go-kit/tracing/mcpmw
