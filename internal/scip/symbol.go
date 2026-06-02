@@ -45,9 +45,10 @@ func isFuncSymbol(sym string) bool {
 // SCIP global symbol format: "<scheme> <manager> <package> <descriptor>..."
 // Descriptors are separated by /  #  .  ()  — we want the name part.
 // Examples:
-//   "scip-typescript npm pkg 1.0.0 `main.ts`/run()." → "run"
-//   "scip-typescript npm pkg 1.0.0 `main.ts`/Greeter#greet()." → "greet"
-//   "scip-typescript npm pkg 1.0.0 `main.ts`/Greeter#greet().(name)" → "greet"
+//
+//	"scip-typescript npm pkg 1.0.0 `main.ts`/run()." → "run"
+//	"scip-typescript npm pkg 1.0.0 `main.ts`/Greeter#greet()." → "greet"
+//	"scip-typescript npm pkg 1.0.0 `main.ts`/Greeter#greet().(name)" → "greet"
 func parseSymbolName(sym string) string {
 	parts := strings.Fields(sym)
 	if len(parts) == 0 {
@@ -98,4 +99,3 @@ func pkgFromSymbol(sym string) string {
 	}
 	return parts[scipSymbolPkgIndex]
 }
-

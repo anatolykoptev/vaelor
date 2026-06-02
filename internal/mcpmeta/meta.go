@@ -45,4 +45,3 @@ func Wrap(elapsed time.Duration, hint string) Envelope {
 		Hint:       hint,
 	}
 }
-

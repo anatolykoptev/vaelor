@@ -3,5 +3,3 @@
 // No github.com/docker/docker SDK is used — stdlib net, net/http, bufio,
 // encoding/json only.
 package docker
-
-

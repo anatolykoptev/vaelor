@@ -22,7 +22,7 @@ var wpPluginRe = regexp.MustCompile(
 )
 
 const (
-	wpAPIURL        = "https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&slug=%s"
+	wpAPIURL          = "https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&slug=%s"
 	wpDownloadTimeout = 60 * time.Second
 	wpMetaTimeout     = 15 * time.Second
 	wpDirPrefix       = "wp_"
@@ -203,4 +203,3 @@ func FetchWPPlugin(ctx context.Context, opts WPPluginOpts) (*CloneResult, error)
 
 	return &CloneResult{LocalPath: destDir}, nil
 }
-

@@ -16,7 +16,7 @@ func renderSummary(graph importGraph) string {
 	fmt.Fprintf(&sb, "Packages: %d | Edges: %d\n\n", pkgCount, edgeCount)
 
 	fanIn := computeFanIn(graph)
-	writeTopN(&sb, "Top fan-in (most imported)", fanIn, 5)  //nolint:mnd
+	writeTopN(&sb, "Top fan-in (most imported)", fanIn, 5)              //nolint:mnd
 	writeTopN(&sb, "Top fan-out (most dependencies)", fanOut(graph), 5) //nolint:mnd
 
 	cycles := detectCycles(graph)

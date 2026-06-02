@@ -66,8 +66,8 @@ func (h *htmlHandler) Parse(path string, src []byte, _ ParseOpts) (*ParseResult,
 
 	for _, d := range defines {
 		res.Symbols = append(res.Symbols, &Symbol{
-			Name:     d.Name,
-			Kind:     KindFunction, // KindTemplate does not exist; template names
+			Name: d.Name,
+			Kind: KindFunction, // KindTemplate does not exist; template names
 			// behave as callable units — KindFunction is the established
 			// fallback (matches Astro/Svelte symbol convention).
 			Language:  "html",

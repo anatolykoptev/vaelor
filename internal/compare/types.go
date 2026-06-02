@@ -230,4 +230,3 @@ type CompareResult struct {
 	ArchMetricsB    *ArchMetrics       `json:"arch_metrics_b,omitempty"`
 	CrossLangReport *CrossLangReport   `json:"cross_lang_report,omitempty"`
 }
-

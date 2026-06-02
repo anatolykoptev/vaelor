@@ -46,25 +46,25 @@ type SymbolSearchInput struct {
 }
 
 type xmlSymbolSearchResponse struct {
-	XMLName xml.Name          `xml:"response"`
-	Symbols xmlSymbolResults  `xml:"symbols"`
+	XMLName xml.Name         `xml:"response"`
+	Symbols xmlSymbolResults `xml:"symbols"`
 }
 
 type xmlSymbolResults struct {
-	Query string              `xml:"query,attr"`
-	Count int                 `xml:"count,attr"`
-	Items []xmlSymSearchItem  `xml:"symbol"`
+	Query string             `xml:"query,attr"`
+	Count int                `xml:"count,attr"`
+	Items []xmlSymSearchItem `xml:"symbol"`
 }
 
 type xmlSymSearchItem struct {
-	Kind       string `xml:"kind,attr"`
-	Name       string `xml:"name,attr"`
-	File       string `xml:"file,attr"`
-	Line       uint32 `xml:"line,attr"`
-	End        uint32 `xml:"end,attr"`
-	Complexity int    `xml:"complexity,attr,omitempty"`
+	Kind       string    `xml:"kind,attr"`
+	Name       string    `xml:"name,attr"`
+	File       string    `xml:"file,attr"`
+	Line       uint32    `xml:"line,attr"`
+	End        uint32    `xml:"end,attr"`
+	Complexity int       `xml:"complexity,attr,omitempty"`
 	Signature  *xmlCDATA `xml:"signature,omitempty"`
-	Doc        string   `xml:"doc,omitempty"`
+	Doc        string    `xml:"doc,omitempty"`
 	Body       *xmlCDATA `xml:"body,omitempty"`
 }
 

@@ -30,15 +30,15 @@ func TestGitHubFetchRepoMeta(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"full_name":      "foo/bar",
-			"description":    "test repo",
-			"default_branch": "main",
-			"language":       "Go",
+			"full_name":        "foo/bar",
+			"description":      "test repo",
+			"default_branch":   "main",
+			"language":         "Go",
 			"stargazers_count": 42,
-			"forks_count":    7,
-			"clone_url":      "https://github.com/foo/bar.git",
-			"private":        false,
-			"size":           1024,
+			"forks_count":      7,
+			"clone_url":        "https://github.com/foo/bar.git",
+			"private":          false,
+			"size":             1024,
 		})
 	})
 

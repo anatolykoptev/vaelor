@@ -373,8 +373,8 @@ func TestIsStructuralKind(t *testing.T) {
 func TestRemoveNested(t *testing.T) {
 	input := []replacement{
 		{startLine: 1, endLine: 10, action: actionSignatures},
-		{startLine: 3, endLine: 5, action: actionSignatures},  // nested in first
-		{startLine: 7, endLine: 9, action: actionSignatures},  // nested in first
+		{startLine: 3, endLine: 5, action: actionSignatures},   // nested in first
+		{startLine: 7, endLine: 9, action: actionSignatures},   // nested in first
 		{startLine: 15, endLine: 20, action: actionSignatures}, // independent
 	}
 

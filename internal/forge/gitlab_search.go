@@ -110,19 +110,19 @@ func (g *GitLabForge) SearchIssues(ctx context.Context, query string) (_ []Issue
 	}
 
 	var raw []struct {
-		IID       int    `json:"iid"`
-		Title     string `json:"title"`
-		WebURL    string `json:"web_url"`
-		State     string `json:"state"`
-		Author    struct {
+		IID    int    `json:"iid"`
+		Title  string `json:"title"`
+		WebURL string `json:"web_url"`
+		State  string `json:"state"`
+		Author struct {
 			Username string `json:"username"`
 		} `json:"author"`
 		Labels []struct {
 			Title string `json:"title"`
 		} `json:"labels"`
-		Description   string `json:"description"`
-		UserNotesCount int   `json:"user_notes_count"`
-		CreatedAt     string `json:"created_at"`
+		Description    string `json:"description"`
+		UserNotesCount int    `json:"user_notes_count"`
+		CreatedAt      string `json:"created_at"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode search issues response: %w", err)

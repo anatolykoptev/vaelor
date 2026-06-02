@@ -86,4 +86,3 @@ func TestGradeScore_DepFreshnessImpact(t *testing.T) {
 		t.Fatalf("dep freshness impact = %.1f, want ~6", diff)
 	}
 }
-

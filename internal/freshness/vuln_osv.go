@@ -29,10 +29,10 @@ type osvResponse struct {
 
 // osvVuln represents a single vulnerability from OSV.
 type osvVuln struct {
-	ID               string          `json:"id"`
-	Summary          string          `json:"summary"`
-	Severity         []osvSeverity   `json:"severity"`
-	DatabaseSpecific *osvDBSpecific  `json:"database_specific"`
+	ID               string         `json:"id"`
+	Summary          string         `json:"summary"`
+	Severity         []osvSeverity  `json:"severity"`
+	DatabaseSpecific *osvDBSpecific `json:"database_specific"`
 }
 
 // osvSeverity holds a severity score from OSV.

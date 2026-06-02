@@ -96,10 +96,10 @@ func TestHintAfterCodeSearch_RussianExplainQuerySilent(t *testing.T) {
 
 func TestExtractSymbolFromHit_NonDeclarationSilent(t *testing.T) {
 	cases := []string{
-		"foo.go:42:\tfoo.Bar(x)",           // call site
-		`foo.go:42:msg := "feature-flag"`,  // string literal line
-		"foo.go:42:// comment with Foo",    // comment
-		"foo.go:42:    if foo {",           // control flow
+		"foo.go:42:\tfoo.Bar(x)",          // call site
+		`foo.go:42:msg := "feature-flag"`, // string literal line
+		"foo.go:42:// comment with Foo",   // comment
+		"foo.go:42:    if foo {",          // control flow
 	}
 	for _, c := range cases {
 		if got := ExtractSymbolFromHit(c); got != "" {

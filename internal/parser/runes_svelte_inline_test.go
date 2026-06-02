@@ -187,6 +187,7 @@ func TestRuneLineNumbers(t *testing.T) {
 		t.Errorf("missing symbol 'doubled'")
 	}
 }
+
 // TestRuneDualEmit verifies that bound rune declarations emit BOTH the variable name
 // and the line-disambiguated rune token name as separate KindRune symbols.
 //

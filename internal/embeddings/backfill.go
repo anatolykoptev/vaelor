@@ -25,10 +25,10 @@ import (
 //   - "skipped_missing"  — repo or file not found on disk; row stays NULL
 //   - "embed_failed"     — embed-server returned error; row stays NULL (retried next run)
 //   - "write_failed"     — DB batch UPDATE timed out or errored (SQLSTATE 57014 or
-//                          other write error); embed succeeded but the row was not
-//                          persisted and stays NULL for retry on the next run.
-//                          Distinguishable from embed_failed on /metrics so alert
-//                          rules can identify DB write pressure vs embed-server issues.
+//     other write error); embed succeeded but the row was not
+//     persisted and stays NULL for retry on the next run.
+//     Distinguishable from embed_failed on /metrics so alert
+//     rules can identify DB write pressure vs embed-server issues.
 //
 // gocode_sparse_backfill_remaining is a per-call gauge set to the NULL row count
 // BEFORE each page — useful for progress monitoring via /metrics.

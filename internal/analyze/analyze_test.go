@@ -385,11 +385,11 @@ func TestExtractQueryTerms(t *testing.T) {
 func TestExtractQueryTerms_CamelCase(t *testing.T) {
 	terms := extractQueryTerms("handleUserAuth middleware")
 	want := map[string]bool{
-		"handle":          true,
-		"user":            true,
-		"auth":            true,
-		"handleuserauth":  true,
-		"middleware":       true,
+		"handle":         true,
+		"user":           true,
+		"auth":           true,
+		"handleuserauth": true,
+		"middleware":     true,
 	}
 	got := make(map[string]bool)
 	for _, term := range terms {

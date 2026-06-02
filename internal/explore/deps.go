@@ -98,7 +98,7 @@ func topN(counts map[string]int, n int) []DepEntry {
 // hasCycle performs a DFS to detect any cycle in the graph.
 func hasCycle(graph map[string]map[string]struct{}) bool {
 	white := make(map[string]bool, len(graph)) // unvisited
-	gray := make(map[string]bool)               // in current path
+	gray := make(map[string]bool)              // in current path
 
 	for node := range graph {
 		white[node] = true
@@ -132,4 +132,3 @@ func hasCycle(graph map[string]map[string]struct{}) bool {
 	}
 	return false
 }
-

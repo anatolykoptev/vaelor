@@ -8,7 +8,7 @@ const langCSharp = "csharp"
 
 // csprojProject represents the relevant fields of a .csproj file.
 type csprojProject struct {
-	XMLName    xml.Name       `xml:"Project"`
+	XMLName    xml.Name          `xml:"Project"`
 	ItemGroups []csprojItemGroup `xml:"ItemGroup"`
 }
 

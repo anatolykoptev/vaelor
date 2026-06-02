@@ -21,7 +21,7 @@ type pomDepSection struct {
 type pomDep struct {
 	GroupID    string `xml:"groupId"`
 	ArtifactID string `xml:"artifactId"`
-	Version   string `xml:"version"`
+	Version    string `xml:"version"`
 }
 
 // ParsePomXML extracts dependencies from Maven pom.xml content.

@@ -220,4 +220,3 @@ func applyReplacements(lines []string, replacements []replacement) string {
 
 	return out.String()
 }
-

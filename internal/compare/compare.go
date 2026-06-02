@@ -259,4 +259,3 @@ func collectHotspots(ctx context.Context, root string, snap *RepoSnapshot) []Hot
 	}
 	return ComputeHotspots(churn, FileComplexityFromSnapshot(snap))
 }
-

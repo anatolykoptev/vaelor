@@ -53,7 +53,6 @@ CREATE TABLE IF NOT EXISTS code_dead_code_scores (
     PRIMARY KEY (repo_key, name, file)
 )`
 
-
 // Store wraps a pgxpool for Apache AGE graph operations on code repositories.
 type Store struct {
 	pool        *pgxpool.Pool
@@ -247,7 +246,6 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 
 	return nil
 }
-
 
 // CypherWriter is implemented by *Store and *BulkWriter.
 // insertBatches and insertEdgeBatches accept this interface so they can
