@@ -1,6 +1,8 @@
 package codegraph
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -362,6 +364,130 @@ func TestBuildGraphRelativeTSImportResolvesToContainer(t *testing.T) {
 		}
 	}
 	if !ext {
+		t.Error("external import 'react' should remain its own external vertex")
+	}
+}
+
+// TestBuildGraphSvelteKitLibAliasResolvesToContainer verifies the end-to-end
+// path: buildGraph reads svelte.config.js from in.Files (via BuildConfig), so
+// that "$lib/i18n" imports in the fileImports map resolve to the container
+// "web/src/lib" instead of becoming orphan external nodes.
+//
+// Falsification (red-on-revert): remove the aliasCfg/BuildConfig wiring in
+// buildGraph → edge ToKey stays "$lib/i18n" (unresolved) and an external vertex
+// is created for it instead.
+func TestBuildGraphSvelteKitLibAliasResolvesToContainer(t *testing.T) {
+	t.Parallel()
+
+	// Write a real svelte.config.js so BuildConfig can detect the SvelteKit root.
+	tmp := t.TempDir()
+	svelteConfig := filepath.Join(tmp, "web", "svelte.config.js")
+	if err := os.MkdirAll(filepath.Dir(svelteConfig), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(svelteConfig, []byte("export default {};"), 0o644); err != nil {
+		t.Fatalf("write svelte.config.js: %v", err)
+	}
+
+	root := tmp
+	files := []*ingest.File{
+		// svelte.config.js must be in in.Files so BuildConfig sees it.
+		{Path: svelteConfig, RelPath: "web/svelte.config.js", Language: "javascript", Size: 18},
+		// The importing Svelte route.
+		{Path: filepath.Join(tmp, "web/src/routes/+page.svelte"), RelPath: "web/src/routes/+page.svelte", Language: "svelte", Size: 50},
+		// The target file inside $lib.
+		{Path: filepath.Join(tmp, "web/src/lib/i18n.ts"), RelPath: "web/src/lib/i18n.ts", Language: "typescript", Size: 30},
+	}
+	cg := &callgraph.CallGraph{}
+	fileImports := map[string][]string{
+		"web/src/routes/+page.svelte": {"$lib/i18n", "svelte"},
+	}
+
+	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+
+	// The IMPORTS edge for "$lib/i18n" must target "web/src/lib", not "$lib/i18n".
+	var libEdgeToKey string
+	for _, e := range edges {
+		if e.EdgeLabel == "IMPORTS" && e.FromKey == "web/src/routes/+page.svelte" && e.ToKey != "svelte" {
+			libEdgeToKey = e.ToKey
+		}
+	}
+	if libEdgeToKey != "web/src/lib" {
+		t.Errorf("$lib/i18n IMPORTS ToKey = %q, want %q (container dir)", libEdgeToKey, "web/src/lib")
+	}
+
+	// No external Package vertex for "$lib/i18n" (resolved → no orphan node).
+	for _, v := range vertices {
+		if v.Label == "Package" && v.Props["path"] == "$lib/i18n" {
+			t.Error("external vertex created for $lib/i18n — should have resolved to container")
+		}
+	}
+}
+
+// TestBuildGraphWorkspaceAliasResolvesToContainer verifies the end-to-end path:
+// buildGraph reads a workspace package.json from in.Files (via BuildConfig), so
+// that "@oxpulse/mesh-core" imports resolve to "packages/mesh-core" instead of
+// becoming orphan external nodes.
+//
+// Falsification (red-on-revert): remove the aliasCfg/BuildConfig wiring in
+// buildGraph → edge ToKey stays "@oxpulse/mesh-core" and an external vertex is
+// created instead of pointing at the local container.
+func TestBuildGraphWorkspaceAliasResolvesToContainer(t *testing.T) {
+	t.Parallel()
+
+	// Write a real package.json so BuildConfig can read the name field.
+	tmp := t.TempDir()
+	pkgJSON := filepath.Join(tmp, "packages", "mesh-core", "package.json")
+	if err := os.MkdirAll(filepath.Dir(pkgJSON), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	const pkgContent = `{"name":"@oxpulse/mesh-core","version":"0.1.0"}`
+	if err := os.WriteFile(pkgJSON, []byte(pkgContent), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	root := tmp
+	files := []*ingest.File{
+		// package.json must be in in.Files so BuildConfig sees it.
+		{Path: pkgJSON, RelPath: "packages/mesh-core/package.json", Language: "json", Size: int64(len(pkgContent))},
+		// A source file in the workspace package (makes "packages/mesh-core" a pkgDir).
+		{Path: filepath.Join(tmp, "packages/mesh-core/index.ts"), RelPath: "packages/mesh-core/index.ts", Language: "typescript", Size: 10},
+		// The importing file in the web package.
+		{Path: filepath.Join(tmp, "web/src/lib/app.ts"), RelPath: "web/src/lib/app.ts", Language: "typescript", Size: 50},
+	}
+	cg := &callgraph.CallGraph{}
+	fileImports := map[string][]string{
+		"web/src/lib/app.ts": {"@oxpulse/mesh-core", "react"},
+	}
+
+	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+
+	// The IMPORTS edge for "@oxpulse/mesh-core" must target "packages/mesh-core".
+	var meshEdgeToKey string
+	for _, e := range edges {
+		if e.EdgeLabel == "IMPORTS" && e.FromKey == "web/src/lib/app.ts" && e.ToKey != "react" {
+			meshEdgeToKey = e.ToKey
+		}
+	}
+	if meshEdgeToKey != "packages/mesh-core" {
+		t.Errorf("@oxpulse/mesh-core IMPORTS ToKey = %q, want %q", meshEdgeToKey, "packages/mesh-core")
+	}
+
+	// No external Package vertex for "@oxpulse/mesh-core".
+	for _, v := range vertices {
+		if v.Label == "Package" && v.Props["path"] == "@oxpulse/mesh-core" {
+			t.Error("external vertex created for @oxpulse/mesh-core — should have resolved to local container")
+		}
+	}
+
+	// "react" must still be external.
+	reactExt := false
+	for _, v := range vertices {
+		if v.Label == "Package" && v.Props["path"] == "react" && v.Props["repo"] == "external" {
+			reactExt = true
+		}
+	}
+	if !reactExt {
 		t.Error("external import 'react' should remain its own external vertex")
 	}
 }

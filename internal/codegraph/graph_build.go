@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
@@ -40,13 +41,21 @@ type buildGraphInput struct {
 func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 	// Collect unique packages (directories) and the set of all indexed file paths
 	// (fileSet is used to resolve relative TS/JS imports to their target file's dir).
+	// Also build the relPath→absPath map used by BuildConfig to detect SvelteKit roots
+	// and workspace package names.
 	pkgDirs := make(map[string]struct{})
 	fileSet := make(map[string]struct{}, len(in.Files))
+	relToAbs := make(map[string]string, len(in.Files))
 	for _, f := range in.Files {
 		dir := filepath.Dir(f.RelPath)
 		pkgDirs[dir] = struct{}{}
 		fileSet[f.RelPath] = struct{}{}
+		relToAbs[f.RelPath] = f.Path
 	}
+
+	// Build alias config from the indexed file set (detects svelte.config.* and
+	// package.json name fields; skips node_modules). Zero files → zero config.
+	aliasCfg := importresolve.BuildConfig(relToAbs)
 
 	var vertices []vertexData
 	var edges []edgeData
@@ -122,7 +131,7 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 	edges = append(edges, testedByEdges...)
 
 	// IMPORTS edges (File→Package) + external Package vertices.
-	impVertices, impEdges := buildImportsGraph(pkgDirs, fileSet, in.FileImports)
+	impVertices, impEdges := buildImportsGraph(pkgDirs, fileSet, in.FileImports, aliasCfg)
 	vertices = append(vertices, impVertices...)
 	edges = append(edges, impEdges...)
 
