@@ -33,32 +33,45 @@ type HybridResult struct {
 }
 
 // RRFWeights are per-retriever weights for the WeightedRRF fusion in MergeRRF.
-// Both fields must be ≥ 0 (negative values panic in go-kit/rerank.WeightedRRF
-// — programmer error, not runtime). Weights == (1.0, 1.0) is mathematically
-// identical to plain RRF (Cormack-Clarke 2009); use that for byte-identical
-// rollback.
+// All fields must be ≥ 0 (negative values panic in go-kit/rerank.WeightedRRF
+// — programmer error, not runtime). Weights == (1.0, 1.0, 0.0) preserves
+// byte-identical rollback to the pre-SPLADE 2-arm baseline: the Sparse arm
+// is DARK-LAUNCHED at 0.0 by default (see defaultRRFWeightSparse in config.go).
+// Weights == (1.0, 1.0) in the 2-arm sense is mathematically identical to
+// plain RRF (Cormack-Clarke 2009).
 type RRFWeights struct {
 	Semantic float64
 	Keyword  float64
+	// Sparse is the per-list weight for the SPLADE sparse-retrieval arm.
+	// Default env value: 0.0 (dark-launched — plumbed but inert until A/B
+	// in Phase 6 clears the gate). Post-A/B recommended value: 0.2–0.4
+	// (below dense per research note in 2026-06-01 SPLADE landscape report).
+	Sparse float64
 }
 
-// DefaultRRFWeights returns the (1.0, 1.0) baseline that reproduces the
-// pre-Stream-1 unweighted rerank.RRF behavior. Tests and callers that don't
-// thread per-deployment config should use this.
+// DefaultRRFWeights returns the (1.0, 1.0, 1.0) math identity used by tests
+// that don't thread per-deployment config. The deployed env default for Sparse
+// is 0.0 (dark-launch); DefaultRRFWeights() is the math identity, not the
+// rollout policy. See defaultRRFWeightSparse in cmd/go-code/config.go.
 func DefaultRRFWeights() RRFWeights {
-	return RRFWeights{Semantic: 1.0, Keyword: 1.0}
+	return RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0}
 }
 
-// MergeRRF combines semantic and keyword results using Reciprocal Rank Fusion.
-// Backed by go-kit/rerank.WeightedRRF (Cormack-Clarke 2009 with per-list
-// weights, k=60). Key = FilePath + ":" + SymbolName for dedup; results in both
-// lists get boosted ("hybrid" source). Returns at most topK results.
+// MergeRRF combines semantic, keyword, and sparse results using Weighted
+// Reciprocal Rank Fusion. Backed by go-kit/rerank.WeightedRRF (Cormack-Clarke
+// 2009 with per-list weights, k=60). Key = FilePath + ":" + SymbolName for
+// dedup; results in multiple lists are attributed "hybrid". Returns at most
+// topK results.
 //
-// weights are env-driven (RRF_WEIGHT_SEMANTIC / RRF_WEIGHT_KEYWORD) and
-// surfaced via Prometheus gauge gocode_rrf_weights{retriever}. Pass
-// DefaultRRFWeights() for byte-identical legacy behavior.
-func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int, weights RRFWeights) []HybridResult {
-	if len(semantic) == 0 && len(keyword) == 0 {
+// weights are env-driven (RRF_WEIGHT_SEMANTIC / RRF_WEIGHT_KEYWORD /
+// RRF_WEIGHT_SPARSE) and surfaced via Prometheus gauge gocode_rrf_weights{retriever}.
+//
+// Dark-launch guarantee: when weights.Sparse == 0 OR sparse is empty, the fused
+// output is BYTE-IDENTICAL to the 2-arm result. A 0-weight arm contributes
+// 1/(k+rank)*0 = 0 to every doc, so the existing 2-arm ordering is preserved.
+// Verified by TestMergeRRF_EmptySparseArmIdentical.
+func MergeRRF(semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit, topK int, weights RRFWeights) []HybridResult {
+	if len(semantic) == 0 && len(keyword) == 0 && len(sparse) == 0 {
 		return nil
 	}
 
@@ -66,10 +79,12 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int, weights R
 		result     SearchResult
 		inSemantic bool
 		inKeyword  bool
+		inSparse   bool
 	}
-	index := make(map[string]*entry, len(semantic)+len(keyword))
+	index := make(map[string]*entry, len(semantic)+len(keyword)+len(sparse))
 	semIDs := make([]string, 0, len(semantic))
 	kwIDs := make([]string, 0, len(keyword))
+	sparseIDs := make([]string, 0, len(sparse))
 
 	for _, r := range semantic {
 		key := r.FilePath + ":" + r.SymbolName
@@ -93,7 +108,22 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int, weights R
 		kwIDs = append(kwIDs, key)
 	}
 
-	fused := rerank.WeightedRRF(rrfK, []float64{weights.Semantic, weights.Keyword}, semIDs, kwIDs)
+	for _, h := range sparse {
+		key := h.FilePath + ":" + h.SymbolName
+		if _, ok := index[key]; !ok {
+			index[key] = &entry{result: SearchResult{
+				FilePath:   h.FilePath,
+				SymbolName: h.SymbolName,
+				StartLine:  h.Line,
+			}}
+		}
+		index[key].inSparse = true
+		sparseIDs = append(sparseIDs, key)
+	}
+
+	fused := rerank.WeightedRRF(rrfK,
+		[]float64{weights.Semantic, weights.Keyword, weights.Sparse},
+		semIDs, kwIDs, sparseIDs)
 
 	results := make([]HybridResult, 0, len(fused))
 	for _, f := range fused {
@@ -101,12 +131,24 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, topK int, weights R
 		if e == nil {
 			continue
 		}
+		armCount := 0
+		if e.inSemantic {
+			armCount++
+		}
+		if e.inKeyword {
+			armCount++
+		}
+		if e.inSparse {
+			armCount++
+		}
 		var source string
 		switch {
-		case e.inSemantic && e.inKeyword:
+		case armCount > 1:
 			source = "hybrid"
 		case e.inKeyword:
 			source = "keyword"
+		case e.inSparse:
+			source = "sparse"
 		default:
 			source = "semantic"
 		}

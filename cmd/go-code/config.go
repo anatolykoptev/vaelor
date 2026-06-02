@@ -164,6 +164,14 @@ type Config struct {
 	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
 	RRFWeightKeyword float64
 
+	// RRFWeightSparse is the per-list weight applied to the SPLADE sparse
+	// retrieval arm inside MergeRRF (SPLADE P4). Default 0.0 — DARK-LAUNCHED:
+	// the arm is plumbed and exercised in prod but contributes nothing to
+	// ranking until Phase 6 A/B clears the gate. Post-A/B recommended value:
+	// 0.2–0.4 (below dense per 2026-06-01 SPLADE landscape research).
+	// Tune via RRF_WEIGHT_SPARSE env. Must be ≥ 0.
+	RRFWeightSparse float64
+
 	// SparseEmbedURL is the base URL for the SPLADE sparse-embedding server
 	// (e.g. http://embed-server:8082). Empty means sparse indexing is disabled
 	// (nil sparseClient in Pipeline — byte-identical dense-only cold-path).
@@ -297,12 +305,17 @@ const (
 	// via the offline harness.
 	defaultRRFWeightSemantic = 1.0
 	defaultRRFWeightKeyword  = 1.0
+	// defaultRRFWeightSparse: 0.0 = DARK-LAUNCHED. The arm is plumbed (P4)
+	// but contributes nothing to ranking until Phase 6 A/B validates the
+	// quality gain (target p<0.05 nDCG@10 improvement). Flip to 0.2–0.4
+	// post-A/B per SPLADE landscape research (2026-06-01).
+	defaultRRFWeightSparse = 0.0
 
 	// Sparse embed defaults — Phase P2 (indexing).
 	// defaultSparseEmbedModel: splade-v3-distilbert matches the embed-server
 	// default and go-kit/sparse.httpSparseDefaultModel; no override needed
 	// unless a second SPLADE model is deployed.
-	defaultSparseEmbedModel    = "splade-v3-distilbert"
+	defaultSparseEmbedModel = "splade-v3-distilbert"
 	// defaultSparseEmbedMaxArray: embed-server EMBED_MAX_INPUT_ARRAY cap (32).
 	// Sub-batching by this value prevents 400 "input too large" errors.
 	// Override via SPARSE_EMBED_MAX_ARRAY if the server cap is raised.
@@ -377,6 +390,7 @@ func loadConfig() (Config, error) {
 
 		RRFWeightSemantic:     env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
 		RRFWeightKeyword:      env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
+		RRFWeightSparse:       env.Float("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse),
 		SparseEmbedURL:        env.Str("SPARSE_EMBED_URL", ""),
 		SparseEmbedModel:      env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
 		SparseEmbedMaxArray:   env.Int("SPARSE_EMBED_MAX_ARRAY", defaultSparseEmbedMaxArray),
@@ -412,11 +426,13 @@ func parseFusionMode(raw string) (analyze.FusionMode, error) {
 }
 
 // RRFWeights returns the configured per-retriever weights for embeddings.MergeRRF.
-// Defaults to (1.0, 1.0) which is byte-identical to the unweighted RRF baseline.
+// Semantic and Keyword default to 1.0 (byte-identical to the unweighted RRF
+// baseline). Sparse defaults to 0.0 (dark-launched — inert until Phase 6 A/B).
 func (c Config) RRFWeights() embeddings.RRFWeights {
 	return embeddings.RRFWeights{
 		Semantic: c.RRFWeightSemantic,
 		Keyword:  c.RRFWeightKeyword,
+		Sparse:   c.RRFWeightSparse,
 	}
 }
 
