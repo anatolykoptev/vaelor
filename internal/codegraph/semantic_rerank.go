@@ -5,27 +5,26 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/go-kit/rerank"
 )
 
 const (
-	semanticRerankTopN    = 20 // max docs sent to reranker
-	codeSignatureLines    = 5  // lines to read for CE context
+	semanticRerankTopN = 20 // max docs sent to reranker
+	codeSignatureLines = 5  // lines to read for CE context
+	// defaultSemanticRerankTimeout bounds a semantic_search CE rerank call.
+	defaultSemanticRerankTimeout = 15 * time.Second
 )
 
-var semanticRerankTimeout = 15 * time.Second // set in init via parseTimeoutSecs
-var semanticRerankClient *http.Client
+var semanticRerankTimeout = defaultSemanticRerankTimeout // set in init via parseTimeoutSecs
 
 func init() {
-	semanticRerankTimeout = parseTimeoutSecs("GOCODE_SEMANTIC_RERANK_TIMEOUT_S", 15*time.Second)
-	semanticRerankClient = &http.Client{Timeout: semanticRerankTimeout}
+	semanticRerankTimeout = parseTimeoutSecs("GOCODE_SEMANTIC_RERANK_TIMEOUT_S", defaultSemanticRerankTimeout)
 }
 
 // readCodeSignature reads the first nLines lines from a source file starting
@@ -76,10 +75,13 @@ func RerankSemanticResults(
 
 	// Bail early if the inbound context is already cancelled.
 	if err := ctx.Err(); err != nil {
-		if topK < len(results) {
-			return results[:topK]
-		}
-		return results
+		return cappedResults(results, topK)
+	}
+
+	// Cold-path guarantee: with no reranker configured, return the original
+	// order capped at topK — byte-identical to the pre-rerank behaviour.
+	if !rerankClient.Available() {
+		return cappedResults(results, topK)
 	}
 
 	// Cap input: send at most semanticRerankTopN to the reranker.
@@ -88,57 +90,31 @@ func RerankSemanticResults(
 		candidates = candidates[:semanticRerankTopN]
 	}
 
-	// Format each result as a document for the CE model.
-	// Includes code signature (first codeSignatureLines lines from StartLine)
-	// so CE can distinguish same-named symbols in different files/contexts.
-	docs := make([]string, len(candidates))
-	for i, r := range candidates {
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "symbol: %s", r.SymbolName)
-		if r.SymbolKind != "" {
-			fmt.Fprintf(&sb, " (%s)", r.SymbolKind)
-		}
-		if r.FilePath != "" {
-			fmt.Fprintf(&sb, "\nfile: %s", r.FilePath)
-		}
-		if r.Language != "" {
-			fmt.Fprintf(&sb, "\nlanguage: %s", r.Language)
-		}
-		// Include code signature for richer CE context.
-		sig := readCodeSignature(root, r.FilePath, r.StartLine, codeSignatureLines)
-		if sig != "" {
-			fmt.Fprintf(&sb, "\ncode:\n%s", sig)
-		}
-		docs[i] = sb.String()
-	}
+	docs := buildSemanticDocs(root, candidates)
 
 	// Use a background context so the reranker call is not bound by the
 	// MCP request context (which may be near its 60s deadline already).
 	rerankCtx, cancel := context.WithTimeout(context.Background(), semanticRerankTimeout)
 	defer cancel()
 
-	scored, err := callRerankerWithClient(rerankCtx, semanticRerankClient, query, docs)
-	if err != nil {
-		slog.Warn("semantic_search: CE rerank failed, using original order",
-			slog.Any("error", err))
-		if topK < len(results) {
-			return results[:topK]
-		}
-		return results
+	// RerankWithResult returns docs sorted by relevance DESC on success. On a
+	// degraded/skipped call, fall back to the original order WITHOUT relabelling
+	// results as "ce_reranked" — the provenance must not claim a rerank that did
+	// not happen (matches the pre-migration error path).
+	res, _ := rerankClient.RerankWithResult(rerankCtx, query, docs)
+	if res == nil || (res.Status != rerank.StatusOk && res.Status != rerank.StatusFallback) {
+		return cappedResults(results, topK)
 	}
+	scored := res.Scored
 
-	// Sort by CE relevance score DESC.
-	sort.Slice(scored.Results, func(i, j int) bool {
-		return scored.Results[i].RelevanceScore > scored.Results[j].RelevanceScore
-	})
-
-	// Build reranked result list.
-	out := make([]embeddings.SearchResult, 0, min(topK, len(scored.Results)))
-	for _, r := range scored.Results {
-		if r.Index >= len(candidates) {
+	// Build reranked result list. OrigRank maps each scored doc back to its
+	// candidate index.
+	out := make([]embeddings.SearchResult, 0, min(topK, len(scored)))
+	for _, s := range scored {
+		if s.OrigRank < 0 || s.OrigRank >= len(candidates) {
 			continue
 		}
-		res := candidates[r.Index]
+		res := candidates[s.OrigRank]
 		res.Source = "ce_reranked"
 		out = append(out, res)
 		if len(out) >= topK {
@@ -151,4 +127,38 @@ func RerankSemanticResults(
 		slog.Int("output", len(out)))
 
 	return out
+}
+
+// cappedResults returns results truncated to at most topK entries.
+func cappedResults(results []embeddings.SearchResult, topK int) []embeddings.SearchResult {
+	if topK < len(results) {
+		return results[:topK]
+	}
+	return results
+}
+
+// buildSemanticDocs formats each search result as a reranker document, including
+// a short code signature (first codeSignatureLines lines from StartLine) so the
+// cross-encoder can distinguish same-named symbols in different files/contexts.
+func buildSemanticDocs(root string, candidates []embeddings.SearchResult) []rerank.Doc {
+	docs := make([]rerank.Doc, len(candidates))
+	for i, r := range candidates {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "symbol: %s", r.SymbolName)
+		if r.SymbolKind != "" {
+			fmt.Fprintf(&sb, " (%s)", r.SymbolKind)
+		}
+		if r.FilePath != "" {
+			fmt.Fprintf(&sb, "\nfile: %s", r.FilePath)
+		}
+		if r.Language != "" {
+			fmt.Fprintf(&sb, "\nlanguage: %s", r.Language)
+		}
+		sig := readCodeSignature(root, r.FilePath, r.StartLine, codeSignatureLines)
+		if sig != "" {
+			fmt.Fprintf(&sb, "\ncode:\n%s", sig)
+		}
+		docs[i] = rerank.Doc{Text: sb.String()}
+	}
+	return docs
 }
