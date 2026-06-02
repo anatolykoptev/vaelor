@@ -73,13 +73,21 @@ func RerankSemanticResults(
 		return results
 	}
 
+	// Defensive dedup: collapse FilePath+":"+SymbolName duplicates before any
+	// output path (CE rerank, cold-path cappedResults, context-cancelled cap).
+	// The hybrid path deduplicates via MergeRRF; the semantic-only path via
+	// semanticOnlyResult. This layer hardens against phantom rows from Bug B
+	// (stale AGE index) or any future upstream path that bypasses those dedup
+	// points. Keeps lowest Distance. Key form = MergeRRF (rrf.go:98).
+	results = dedupByFileSymbol(results, "ce_rerank")
+
 	// Bail early if the inbound context is already cancelled.
 	if err := ctx.Err(); err != nil {
 		return cappedResults(results, topK)
 	}
 
 	// Cold-path guarantee: with no reranker configured, return the original
-	// order capped at topK — byte-identical to the pre-rerank behaviour.
+	// order (now deduped) capped at topK.
 	if !rerankClient.Available() {
 		return cappedResults(results, topK)
 	}
@@ -135,6 +143,28 @@ func cappedResults(results []embeddings.SearchResult, topK int) []embeddings.Sea
 		return results[:topK]
 	}
 	return results
+}
+
+// dedupByFileSymbol deduplicates results by FilePath+":"+SymbolName, keeping
+// the entry with the lowest Distance (best cosine match) and preserving
+// relative order. Bumps RecordSemanticDupCollapsed(path) per dropped entry.
+// Key form matches MergeRRF (internal/embeddings/rrf.go:98).
+func dedupByFileSymbol(results []embeddings.SearchResult, path string) []embeddings.SearchResult {
+	seen := make(map[string]int, len(results)) // key → index in out
+	out := make([]embeddings.SearchResult, 0, len(results))
+	for _, r := range results {
+		key := r.FilePath + ":" + r.SymbolName
+		if idx, ok := seen[key]; ok {
+			if r.Distance < out[idx].Distance {
+				out[idx] = r
+			}
+			RecordSemanticDupCollapsed(path)
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, r)
+	}
+	return out
 }
 
 // buildSemanticDocs formats each search result as a reranker document, including
