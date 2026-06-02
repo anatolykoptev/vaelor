@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
+	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 )
 
@@ -93,21 +94,27 @@ func computeSymbolCounts(results []fileParseResult) map[string]int {
 }
 
 // computeImportedByCounts returns how many packages import the package of each file.
-// Uses the package-level import graph with suffix matching for import resolution.
+// Uses the package-level import graph with the shared importresolve.Resolver for
+// import resolution. This handles both Go-style suffix matches and TS/JS-style
+// relative imports ("./x", "../x") that the old suffix-only implementation missed.
 func computeImportedByCounts(root string, results []fileParseResult) map[string]int {
 	pkgGraph := buildImportGraph(root, results, false)
 
-	// Collect local package names.
-	localPkgs := make(map[string]struct{})
+	// Collect local package dirs (fileSet is empty — analyze works at pkg granularity).
+	pkgDirs := make(map[string]struct{})
 	for _, pr := range results {
-		localPkgs[goutil.PackageDir(root, pr.file.Path)] = struct{}{}
+		pkgDirs[goutil.PackageDir(root, pr.file.Path)] = struct{}{}
 	}
+	r := importresolve.New(pkgDirs, nil)
 
 	// Build reverse index: for each local package, how many packages import it.
+	// Use importingPkg (the key) so that relative imports resolve against the
+	// correct importing directory — the old loop discarded the key, making relative
+	// resolution impossible.
 	pkgImportedBy := make(map[string]int)
-	for _, deps := range pkgGraph {
+	for importingPkg, deps := range pkgGraph {
 		for dep := range deps {
-			if resolved := resolveImportToPkg(dep, localPkgs); resolved != "" {
+			if resolved, ok := r.Resolve(dep, importingPkg); ok {
 				pkgImportedBy[resolved]++
 			}
 		}
@@ -122,19 +129,6 @@ func computeImportedByCounts(root string, results []fileParseResult) map[string]
 		}
 	}
 	return counts
-}
-
-// resolveImportToPkg resolves an import path to a local package name using suffix matching.
-func resolveImportToPkg(importPath string, localPkgs map[string]struct{}) string {
-	if _, ok := localPkgs[importPath]; ok {
-		return importPath
-	}
-	for pkg := range localPkgs {
-		if strings.HasSuffix(importPath, "/"+pkg) {
-			return pkg
-		}
-	}
-	return ""
 }
 
 // nonAlphanumRe matches characters that are not letters, digits, or underscores.
