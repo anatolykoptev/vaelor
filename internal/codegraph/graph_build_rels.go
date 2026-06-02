@@ -21,15 +21,16 @@ import (
 // import-path-keyed "external" node (IMPORTS, no CONTAINS) — fragmenting the
 // package graph into two disconnected halves bridged only by base name.
 // importresolve.Resolver (via localPkgDir for Go-style imports, resolveRelative for
-// TS/JS-style "./x"/"../x" imports) maps each import back to its container dir so
-// both edge kinds land on one node. fileSet is the set of all indexed file paths,
-// needed to resolve a relative import to its target file's directory.
-func buildImportsGraph(pkgDirs, fileSet map[string]struct{}, fileImports map[string][]string) ([]vertexData, []edgeData) {
+// TS/JS-style "./x"/"../x" imports, and alias resolution for $lib/@scope when cfg
+// is provided) maps each import back to its container dir so both edge kinds land
+// on one node. fileSet is the set of all indexed file paths, needed to resolve a
+// relative import to its target file's directory.
+func buildImportsGraph(pkgDirs, fileSet map[string]struct{}, fileImports map[string][]string, cfg importresolve.Config) ([]vertexData, []edgeData) {
 	var vertices []vertexData
 	var edges []edgeData
 	importedPkgs := make(map[string]bool)
 
-	r := importresolve.New(pkgDirs, fileSet)
+	r := importresolve.New(pkgDirs, fileSet, cfg)
 
 	for relFile, imports := range fileImports {
 		importingDir := filepath.Dir(relFile)
