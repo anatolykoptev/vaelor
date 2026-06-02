@@ -190,6 +190,13 @@ type Config struct {
 	// without a go-code redeploy. Env: SPARSE_EMBED_MAX_ARRAY.
 	SparseEmbedMaxArray int
 
+	// SparseBackfillDeadline is the per-call MCP tool deadline for sparse_backfill.
+	// The previous 90s harness default was too short for bulk backfill of large
+	// repos (103K rows ≈ 207 pages × ~32 embed calls/page). Default 600s (10 min).
+	// Set via SPARSE_BACKFILL_DEADLINE_S (integer seconds).
+	// Env: SPARSE_BACKFILL_DEADLINE_S.
+	SparseBackfillDeadline time.Duration
+
 	// Debug-investigate tool dependencies. Empty values disable the tool
 	// (handler returns "configuration missing" instead of running).
 	PrometheusURL string
@@ -312,6 +319,11 @@ const (
 	defaultRRFWeightSparse = 0.0
 
 	// Sparse embed defaults — Phase P2 (indexing).
+	// defaultSparseBackfillDeadlineS: 600s = 10 min. Chosen to cover 103K-row
+	// full backfill: 207 pages × ~0.5s/page (batch write + embed) ≈ 104s worst
+	// case; 600s leaves 5.8× headroom for slow embed-server or disk I/O spikes.
+	defaultSparseBackfillDeadlineS = 600
+
 	// defaultSparseEmbedModel: splade-v3-distilbert matches the embed-server
 	// default and go-kit/sparse.httpSparseDefaultModel; no override needed
 	// unless a second SPLADE model is deployed.
@@ -388,17 +400,18 @@ func loadConfig() (Config, error) {
 		AnalyzeRankWeightPageRank: wPR,
 		AnalyzeRankWeightSeed:     wSeed,
 
-		RRFWeightSemantic:     env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
-		RRFWeightKeyword:      env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
-		RRFWeightSparse:       env.Float("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse),
-		SparseEmbedURL:        env.Str("SPARSE_EMBED_URL", ""),
-		SparseEmbedModel:      env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
-		SparseEmbedMaxArray:   env.Int("SPARSE_EMBED_MAX_ARRAY", defaultSparseEmbedMaxArray),
-		PrometheusURL:         env.Str("PROMETHEUS_URL", ""),
-		DozorURL:              env.Str("DOZOR_URL", "http://dozor:8765"),
-		DozorAPIToken:         env.Str("DOZOR_API_TOKEN", ""),
-		JaegerURL:             env.Str("JAEGER_URL", ""),
-		SourcemapAllowedHosts: env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
+		RRFWeightSemantic:      env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
+		RRFWeightKeyword:       env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
+		RRFWeightSparse:        env.Float("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse),
+		SparseEmbedURL:         env.Str("SPARSE_EMBED_URL", ""),
+		SparseEmbedModel:       env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
+		SparseEmbedMaxArray:    env.Int("SPARSE_EMBED_MAX_ARRAY", defaultSparseEmbedMaxArray),
+		SparseBackfillDeadline: time.Duration(env.Int("SPARSE_BACKFILL_DEADLINE_S", defaultSparseBackfillDeadlineS)) * time.Second,
+		PrometheusURL:          env.Str("PROMETHEUS_URL", ""),
+		DozorURL:               env.Str("DOZOR_URL", "http://dozor:8765"),
+		DozorAPIToken:          env.Str("DOZOR_API_TOKEN", ""),
+		JaegerURL:              env.Str("JAEGER_URL", ""),
+		SourcemapAllowedHosts:  env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
 
 		// Fleet probe settings — safe-by-default (SSH off, standard socket).
 		FleetDefaultHost:     env.Str("GOCODE_FLEET_DEFAULT_HOST", ""),

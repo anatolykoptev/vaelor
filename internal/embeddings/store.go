@@ -21,6 +21,21 @@ const (
 	sparseDim      = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size
 	batchSize      = 50
 	fieldsPerDense = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
+
+	// sparseBatchSize is the maximum rows per single multi-row sparse UPDATE.
+	// Postgres caps total bind parameters at 65535; with 4 params per row
+	// (repo_key, file_path, symbol_name, vec) that allows up to 16383 rows per
+	// statement. 500 is well under that ceiling and keeps each statement fast.
+	sparseBatchSize    = 500
+	sparseParamsPerRow = 4 // repo_key, file_path, symbol_name, vec
+
+	// sparseColRepoKey … sparseColVec are 1-based positional offsets within one
+	// VALUES row in the multi-row sparse UPDATE. Named to avoid mnd magic-number
+	// violations on the off+N arithmetic below.
+	sparseColRepoKey = 1
+	sparseColFile    = 2
+	sparseColSymbol  = 3
+	sparseColVec     = 4
 )
 
 // schemaSQL creates the pgvector extension and the two public-schema data tables.
@@ -168,6 +183,72 @@ func (s *Store) UpdateSparseEmbedding(ctx context.Context, repoKey, filePath, sy
 		 SET sparse_embedding = $1::sparsevec, updated_at = NOW()
 		 WHERE repo_key = $2 AND file_path = $3 AND symbol_name = $4`,
 		vec, repoKey, filePath, symbolName)
+	return err
+}
+
+// SparseUpdate holds the identity and literal vector for one batch sparse write.
+type SparseUpdate struct {
+	RepoKey    string
+	FilePath   string
+	SymbolName string
+	// Literal is the pre-formatted sparsevec text literal as returned by
+	// SanitizeAndFormatSparseVector. Must be non-empty; callers skip empty ones.
+	Literal string
+}
+
+// UpdateSparseEmbeddingsBatch writes sparse_embedding for a slice of rows in a
+// single multi-row UPDATE statement, reducing round-trips from O(N) to O(1) per
+// batch.
+//
+// The UPDATE shape:
+//
+//	UPDATE public.code_embeddings AS c
+//	   SET sparse_embedding = v.vec::sparsevec, updated_at = NOW()
+//	  FROM (VALUES ($1,$2,$3,$4::text), ...) AS v(repo_key,file_path,symbol_name,vec)
+//	 WHERE c.repo_key=v.repo_key AND c.file_path=v.file_path AND c.symbol_name=v.symbol_name
+//
+// Batches are capped at sparseBatchSize (500) rows; callers may pass any number
+// and this method splits internally. Non-fatal contract mirrors UpdateSparseEmbedding:
+// failure is the caller's responsibility to log+count; no row is written on error.
+func (s *Store) UpdateSparseEmbeddingsBatch(ctx context.Context, rows []SparseUpdate) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	for i := 0; i < len(rows); i += sparseBatchSize {
+		j := min(i+sparseBatchSize, len(rows))
+		if err := s.updateSparseEmbeddingsBatchChunk(ctx, rows[i:j]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// updateSparseEmbeddingsBatchChunk executes one multi-row UPDATE for up to
+// sparseBatchSize rows. The VALUES list is built dynamically; each row occupies
+// sparseParamsPerRow (4) bind parameters.
+func (s *Store) updateSparseEmbeddingsBatchChunk(ctx context.Context, rows []SparseUpdate) error {
+	// Build: UPDATE … FROM (VALUES ($1,$2,$3,$4::text), ($5,$6,$7,$8::text), …)
+	// We cast the 4th column to ::text explicitly in VALUES so Postgres infers the
+	// correct type for the VALUES row; the SET clause then casts it to sparsevec.
+	var b strings.Builder
+	b.WriteString(`UPDATE public.code_embeddings AS c
+	SET sparse_embedding = v.vec::sparsevec, updated_at = NOW()
+	FROM (VALUES `)
+	args := make([]any, 0, len(rows)*sparseParamsPerRow)
+	for i, r := range rows {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		off := i * sparseParamsPerRow
+		// ($N,$N+1,$N+2,$N+3::text) — the ::text cast on the vec column avoids
+		// "could not determine data type of parameter" on the VALUES subquery.
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d::text)",
+			off+sparseColRepoKey, off+sparseColFile, off+sparseColSymbol, off+sparseColVec)
+		args = append(args, r.RepoKey, r.FilePath, r.SymbolName, r.Literal)
+	}
+	b.WriteString(`) AS v(repo_key,file_path,symbol_name,vec)
+	WHERE c.repo_key=v.repo_key AND c.file_path=v.file_path AND c.symbol_name=v.symbol_name`)
+	_, err := s.pool.Exec(ctx, b.String(), args...)
 	return err
 }
 

@@ -91,9 +91,39 @@ type BackfillOpts struct {
 	// Injected rather than computed internally to avoid an import cycle
 	// between internal/embeddings and internal/codegraph.
 	RepoRootLookup func(repoKey string) (root string, ok bool)
-	// WriteSparse is the per-row UPDATE writer. Defaults to store.UpdateSparseEmbedding.
-	// Injectable for testing without a real Postgres store.
+	// WriteSparsesBatch is the batch UPDATE writer. Defaults to
+	// store.UpdateSparseEmbeddingsBatch. Injectable for testing.
+	// A single batch covers all surviving candidates in one page (one round-trip
+	// instead of one per row). Non-fatal contract: failure leaves those rows NULL
+	// and they are retried on the next backfill run via the IS NULL cursor.
+	WriteSparsesBatch func(ctx context.Context, rows []SparseUpdate) error
+	// WriteSparse is the legacy per-row UPDATE writer, kept for tests that
+	// inject it. Production code always uses WriteSparsesBatch.
+	//
+	// Deprecated: use WriteSparsesBatch. Ignored when WriteSparsesBatch is set.
 	WriteSparse func(ctx context.Context, repoKey, filePath, symbolName, vec string) error
+}
+
+// resolveWriteSparsesBatch returns the effective batch writer from opts:
+//   - opts.WriteSparsesBatch if set (production path: store.UpdateSparseEmbeddingsBatch)
+//   - a shim wrapping opts.WriteSparse (legacy test path: per-row spy)
+//   - store.UpdateSparseEmbeddingsBatch as the default
+func (s *Store) resolveWriteSparsesBatch(opts BackfillOpts) func(context.Context, []SparseUpdate) error {
+	if opts.WriteSparsesBatch != nil {
+		return opts.WriteSparsesBatch
+	}
+	if opts.WriteSparse != nil {
+		legacyFn := opts.WriteSparse
+		return func(ctx context.Context, rows []SparseUpdate) error {
+			for _, r := range rows {
+				if err := legacyFn(ctx, r.RepoKey, r.FilePath, r.SymbolName, r.Literal); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	return s.UpdateSparseEmbeddingsBatch
 }
 
 // BackfillSparse populates sparse_embedding for all rows where it is NULL.
@@ -124,11 +154,7 @@ func (s *Store) BackfillSparse(
 		return nil, fmt.Errorf("sparse backfill: ensure schema: %w", err)
 	}
 
-	writeSparse := opts.WriteSparse
-	if writeSparse == nil {
-		writeSparse = s.UpdateSparseEmbedding
-	}
-
+	writeSparsesBatch := s.resolveWriteSparsesBatch(opts)
 	rootLookup := opts.RepoRootLookup
 	if rootLookup == nil {
 		rootLookup = func(_ string) (string, bool) { return "", false }
@@ -165,7 +191,7 @@ func (s *Store) BackfillSparse(
 		)
 
 		pageBackfilled, pageEmbedFailed := s.backfillPage(
-			ctx, sparseClient, rows, rootLookup, writeSparse, result,
+			ctx, sparseClient, rows, rootLookup, writeSparsesBatch, result,
 		)
 
 		// All-permanent-skip termination: if this page produced zero DB writes
@@ -205,20 +231,21 @@ type backfillCandidate struct {
 // to detect the all-permanent-skip termination condition.
 //
 // Groups rows by file to amortize disk reads, then embeds surviving candidates
-// in batches of sparseServerMaxDocs (32) via embedSparseBatched.
+// in batches of sparseServerMaxDocs (32) via embedSparseBatched. All resulting
+// vectors are written in one batch UPDATE (one round-trip per page).
 func (s *Store) backfillPage(
 	ctx context.Context,
 	sparseClient sparse.SparseEmbedder,
 	rows []BackfillRow,
 	rootLookup func(string) (string, bool),
-	writeSparse func(ctx context.Context, repoKey, filePath, symbolName, vec string) error,
+	writeSparsesBatch func(ctx context.Context, rows []SparseUpdate) error,
 	result *BackfillResult,
 ) (backfilled, embedFailed int) {
 	candidates := backfillPageCandidates(rows, rootLookup, result)
 	if len(candidates) == 0 {
 		return 0, 0
 	}
-	return backfillWriteVecs(ctx, sparseClient, candidates, writeSparse, result)
+	return backfillWriteVecs(ctx, sparseClient, candidates, writeSparsesBatch, result)
 }
 
 // backfillPageCandidates groups rows by file, reads + parses each file, checks
@@ -332,13 +359,18 @@ func backfillFileGroup(
 	return candidates
 }
 
-// backfillWriteVecs embeds candidates in batches and writes the resulting sparse
-// vectors. Returns (backfilled, embedFailed) counts.
+// backfillWriteVecs embeds candidates in batches and writes all resulting sparse
+// vectors in a single batch UPDATE (one round-trip per page).
+// Returns (backfilled, embedFailed) counts.
+//
+// Batch-write non-fatal contract: if the batch UPDATE fails, ALL rows in the
+// page are counted as embed_failed and left NULL. They are retried on the next
+// backfill run via the IS NULL cursor. Dense rows are never touched here.
 func backfillWriteVecs(
 	ctx context.Context,
 	sparseClient sparse.SparseEmbedder,
 	candidates []backfillCandidate,
-	writeSparse func(ctx context.Context, repoKey, filePath, symbolName, vec string) error,
+	writeSparsesBatch func(ctx context.Context, rows []SparseUpdate) error,
 	result *BackfillResult,
 ) (backfilled, embedFailed int) {
 	texts := make([]string, len(candidates))
@@ -351,41 +383,67 @@ func backfillWriteVecs(
 	vecs, err := embedSparseBatched(ctx, sparseClient, texts, sparseServerMaxDocs)
 	if err != nil {
 		// embedSparseBatched already bumped sparseEmbedFailTotal{stage="index"}.
-		for range candidates {
+		n := len(candidates)
+		sparseEmbedFailTotal.WithLabelValues("write").Add(0) // ensure label exists
+		for range n {
 			sparseBackfillTotal.WithLabelValues(backfillOutcomeEmbedFailed).Inc()
-			result.EmbedFailed++
-			embedFailed++
 		}
+		result.EmbedFailed += n
+		embedFailed += n
 		slog.Warn("sparse backfill: embed batch failed; page candidates marked embed_failed",
-			slog.Int("count", len(candidates)),
+			slog.Int("count", n),
 			slog.Any("error", err),
 		)
 		return 0, embedFailed
 	}
 
+	// Build the batch: sanitize each vector; skip degenerate ones (counted as drift).
+	var batch []SparseUpdate
+	driftCount := 0
 	for i, c := range candidates {
 		lit := SanitizeAndFormatSparseVector(vecs[i], sparseDim)
 		if lit == "" {
 			// Sanitized to empty (all-zero / all-OOB after expansion) — treat as drift.
 			sparseBackfillTotal.WithLabelValues(backfillOutcomeDrift).Inc()
 			result.SkippedDrift++
+			driftCount++
 			continue
 		}
-		if werr := writeSparse(ctx, c.row.RepoKey, c.row.FilePath, c.row.SymbolName, lit); werr != nil {
-			sparseEmbedFailTotal.WithLabelValues("write").Inc()
-			sparseBackfillTotal.WithLabelValues(backfillOutcomeEmbedFailed).Inc()
-			result.EmbedFailed++
-			embedFailed++
-			slog.Warn("sparse backfill: write failed; row stays NULL",
-				slog.String("symbol", c.row.SymbolName),
-				slog.Any("error", werr),
-			)
-			continue
-		}
-		sparseBackfillTotal.WithLabelValues(backfillOutcomeBackfilled).Inc()
-		result.Backfilled++
-		backfilled++
+		batch = append(batch, SparseUpdate{
+			RepoKey:    c.row.RepoKey,
+			FilePath:   c.row.FilePath,
+			SymbolName: c.row.SymbolName,
+			Literal:    lit,
+		})
 	}
+
+	if len(batch) == 0 {
+		return 0, 0
+	}
+
+	// One batch UPDATE for all surviving rows in this page.
+	if werr := writeSparsesBatch(ctx, batch); werr != nil {
+		n := len(batch)
+		sparseEmbedFailTotal.WithLabelValues("write").Add(float64(n))
+		for range n {
+			sparseBackfillTotal.WithLabelValues(backfillOutcomeEmbedFailed).Inc()
+		}
+		result.EmbedFailed += n
+		embedFailed += n
+		slog.Warn("sparse backfill: batch write failed; rows stay NULL",
+			slog.Int("rows", n),
+			slog.Any("error", werr),
+		)
+		return 0, embedFailed
+	}
+
+	n := len(batch)
+	for range n {
+		sparseBackfillTotal.WithLabelValues(backfillOutcomeBackfilled).Inc()
+	}
+	result.Backfilled += n
+	backfilled += n
+	_ = driftCount // already counted in SkippedDrift above
 	return backfilled, embedFailed
 }
 
