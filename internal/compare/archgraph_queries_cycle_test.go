@@ -2,6 +2,38 @@ package compare
 
 import "testing"
 
+// TestCyclesFromRows_PathIdentityAvoidsBaseNameCollapse documents why
+// queryCircularDeps RETURNs p1.path / p2.path (full paths) rather than the base
+// names. Two distinct packages can share a base name (internal/fleet/ssh and
+// golang.org/x/crypto/ssh both base "ssh"). The SAME import topology is a phantom
+// cycle when keyed by base name but no cycle when keyed by full path:
+//
+//	a/ssh → b/target  (file a/ssh/x.go)
+//	b/target → c/ssh  (file b/target/y.go)
+//
+// Full path: a/ssh ≠ c/ssh → no mutual edge → no cycle. Base name: both collapse
+// to "ssh" → phantom "ssh"↔"target". cyclesFromRows is key-agnostic, so this test
+// proves the projection (path vs name) is what matters.
+func TestCyclesFromRows_PathIdentityAvoidsBaseNameCollapse(t *testing.T) {
+	pathRows := [][]string{
+		{"a/ssh", "b/target", "a/ssh/x.go"},
+		{"b/target", "c/ssh", "b/target/y.go"},
+	}
+	if got := cyclesFromRows(pathRows); len(got) != 0 {
+		t.Fatalf("path-keyed: distinct same-base packages reported as cycle: %+v", got)
+	}
+
+	// Same topology keyed by base name (the pre-fix `RETURN p1.name, p2.name`
+	// projection) DOES collapse to a phantom cycle — asserting the bug is real.
+	nameRows := [][]string{
+		{"ssh", "target", "a/ssh/x.go"},
+		{"target", "ssh", "b/target/y.go"},
+	}
+	if got := cyclesFromRows(nameRows); len(got) != 1 {
+		t.Fatalf("base-name projection should collapse to 1 phantom cycle, got %d: %+v", len(got), got)
+	}
+}
+
 // TestCyclesFromRows_PhantomTestImportIsNotACycle is the regression guard for the
 // false-positive circular dependency that code_health reported for
 // callgraph↔goanalysis: goanalysis/convert_test.go (package goanalysis_test) imports
