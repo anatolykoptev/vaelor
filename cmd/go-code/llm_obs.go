@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	kitllm "github.com/anatolykoptev/go-kit/llm"
+	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 )
 
 // llmObs holds LLM call metrics registered against the application registry.

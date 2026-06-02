@@ -60,7 +60,7 @@ func TestIncrementalSync_UnsupportedFileInDiff_SkipsNotErrors(t *testing.T) {
 	// The .md file simulates a .changeset/README.md, CHANGELOG.md, or any
 	// documentation file that legitimately appears in git diffs.
 	commitChange(t, root, map[string]string{
-		"main.go":             goFileWithBody("BootstrapFunc", "_ = 1"),
+		"main.go":              goFileWithBody("BootstrapFunc", "_ = 1"),
 		".changeset/README.md": "# Changesets\n\nSome markdown content.\n",
 	}, nil)
 
@@ -96,7 +96,7 @@ func TestIncrementalSync_AllUnsupportedFiles_SHAAdvances(t *testing.T) {
 	cleanRepoFull(t, store, repo)
 
 	root := initGitRepo(t, map[string]string{
-		"main.go":     goFile("DocRepoFunc"),
+		"main.go":      goFile("DocRepoFunc"),
 		"CHANGELOG.md": "# Changelog\n",
 	})
 
@@ -109,7 +109,7 @@ func TestIncrementalSync_AllUnsupportedFiles_SHAAdvances(t *testing.T) {
 
 	// Commit changes to only unsupported files (CHANGELOG.md + docs/guide.md).
 	commitChange(t, root, map[string]string{
-		"CHANGELOG.md": "# Changelog\n\nv2.0.0 released.\n",
+		"CHANGELOG.md":  "# Changelog\n\nv2.0.0 released.\n",
 		"docs/guide.md": "# Guide\n\nNew guide content.\n",
 	}, nil)
 

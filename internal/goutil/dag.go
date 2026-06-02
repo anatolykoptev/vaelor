@@ -40,11 +40,11 @@ func RunDAG[T DAGNode](ctx context.Context, nodes []T, workers int, fn func(T) e
 	}
 
 	var (
-		mu      sync.Mutex
-		cond    = sync.NewCond(&mu)
-		done    = make(map[string]bool, len(nodes))
-		pending = make(map[string]bool, len(nodes))
-		runErr  error
+		mu       sync.Mutex
+		cond     = sync.NewCond(&mu)
+		done     = make(map[string]bool, len(nodes))
+		pending  = make(map[string]bool, len(nodes))
+		runErr   error
 		inFlight int // nodes dispatched but not yet complete
 	)
 	for _, n := range nodes {

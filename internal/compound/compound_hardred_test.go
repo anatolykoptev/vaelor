@@ -152,7 +152,7 @@ func TestPrepareChange_DeadExportedSymbol(t *testing.T) {
 		Tier:    "basic",
 	}
 
-	result := PrepareChange(context.Background(), cg,"ExportedFunc", PrepareChangeOpts{})
+	result := PrepareChange(context.Background(), cg, "ExportedFunc", PrepareChangeOpts{})
 	if !result.Found {
 		t.Fatal("expected symbol found")
 	}
@@ -174,7 +174,7 @@ func TestPrepareChange_ZeroDepthDefault(t *testing.T) {
 		Tier:    "enhanced",
 	}
 
-	result := PrepareChange(context.Background(), cg,"foo", PrepareChangeOpts{MaxDepth: 0})
+	result := PrepareChange(context.Background(), cg, "foo", PrepareChangeOpts{MaxDepth: 0})
 	if !result.Found {
 		t.Fatal("expected symbol found")
 	}
@@ -190,9 +190,9 @@ func TestPrepareChange_SymbolInfoPopulated(t *testing.T) {
 	sym := &parser.Symbol{
 		Name: "Process", Kind: parser.KindMethod,
 		File: "handler.go", StartLine: 10, EndLine: 50,
-		Signature: "func (h *Handler) Process(ctx context.Context) error",
+		Signature:  "func (h *Handler) Process(ctx context.Context) error",
 		Complexity: 12,
-		Receiver:  "Handler",
+		Receiver:   "Handler",
 	}
 	caller := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "main.go", StartLine: 1, EndLine: 5}
 	cg := &callgraph.CallGraph{
@@ -201,7 +201,7 @@ func TestPrepareChange_SymbolInfoPopulated(t *testing.T) {
 		Tier:    "enhanced",
 	}
 
-	result := PrepareChange(context.Background(), cg,"Process", PrepareChangeOpts{})
+	result := PrepareChange(context.Background(), cg, "Process", PrepareChangeOpts{})
 	if result.Symbol.Name != "Process" {
 		t.Errorf("expected Process, got %s", result.Symbol.Name)
 	}

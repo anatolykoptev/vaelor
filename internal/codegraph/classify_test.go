@@ -10,28 +10,28 @@ func TestParseClassification(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		input       string
-		wantTmpl    string
-		wantParams  map[string]string
-		wantErr     bool
+		name       string
+		input      string
+		wantTmpl   string
+		wantParams map[string]string
+		wantErr    bool
 	}{
 		{
-			name:     "valid known template with params",
-			input:    `{"template": "who_calls", "params": {"name": "HandleRequest"}}`,
-			wantTmpl: "who_calls",
+			name:       "valid known template with params",
+			input:      `{"template": "who_calls", "params": {"name": "HandleRequest"}}`,
+			wantTmpl:   "who_calls",
 			wantParams: map[string]string{"name": "HandleRequest"},
 		},
 		{
-			name:     "freeform template passthrough",
-			input:    `{"template": "freeform", "params": {}}`,
-			wantTmpl: "freeform",
+			name:       "freeform template passthrough",
+			input:      `{"template": "freeform", "params": {}}`,
+			wantTmpl:   "freeform",
 			wantParams: map[string]string{},
 		},
 		{
-			name: "markdown-wrapped JSON extracted correctly",
-			input: "```json\n{\"template\": \"calls_of\", \"params\": {\"name\": \"Serve\"}}\n```",
-			wantTmpl: "calls_of",
+			name:       "markdown-wrapped JSON extracted correctly",
+			input:      "```json\n{\"template\": \"calls_of\", \"params\": {\"name\": \"Serve\"}}\n```",
+			wantTmpl:   "calls_of",
 			wantParams: map[string]string{"name": "Serve"},
 		},
 		{
@@ -45,21 +45,21 @@ func TestParseClassification(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:     "unknown template falls back to freeform",
-			input:    `{"template": "nonexistent_template", "params": {"x": "y"}}`,
-			wantTmpl: "freeform",
+			name:       "unknown template falls back to freeform",
+			input:      `{"template": "nonexistent_template", "params": {"x": "y"}}`,
+			wantTmpl:   "freeform",
 			wantParams: map[string]string{"x": "y"},
 		},
 		{
-			name:     "nil params becomes empty map",
-			input:    `{"template": "dead_code"}`,
-			wantTmpl: "dead_code",
+			name:       "nil params becomes empty map",
+			input:      `{"template": "dead_code"}`,
+			wantTmpl:   "dead_code",
 			wantParams: map[string]string{},
 		},
 		{
-			name:     "markdown fence without language tag",
-			input:    "```\n{\"template\": \"imports_of\", \"params\": {\"path\": \"internal/llm\"}}\n```",
-			wantTmpl: "imports_of",
+			name:       "markdown fence without language tag",
+			input:      "```\n{\"template\": \"imports_of\", \"params\": {\"path\": \"internal/llm\"}}\n```",
+			wantTmpl:   "imports_of",
 			wantParams: map[string]string{"path": "internal/llm"},
 		},
 	}

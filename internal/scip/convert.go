@@ -206,4 +206,3 @@ func isFuncOcc(occ *sciplib.Occurrence, symLookup map[string]*sciplib.SymbolInfo
 	}
 	return isFuncSymbol(occ.Symbol)
 }
-

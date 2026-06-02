@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/go-code/internal/prompts"
+	"github.com/anatolykoptev/go-kit/llm"
 )
 
 // reCodeBlock matches a fenced code block, optionally with a language tag.

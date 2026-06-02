@@ -10,9 +10,9 @@ func TestParseTimeoutSecs(t *testing.T) {
 	const def = 30 * time.Second
 
 	tests := []struct {
-		name    string
-		envVal  string // empty string means unset
-		want    time.Duration
+		name   string
+		envVal string // empty string means unset
+		want   time.Duration
 	}{
 		{
 			name:   "unset env returns default",

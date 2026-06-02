@@ -8,10 +8,10 @@ import (
 
 func TestDetectIndexer(t *testing.T) {
 	tests := []struct {
-		lang      string
-		wantOK    bool
-		wantName  string
-		wantArgs  []string
+		lang     string
+		wantOK   bool
+		wantName string
+		wantArgs []string
 	}{
 		// "go" is intentionally absent from the registry; Go uses go/types instead.
 		{"go", false, "", nil},
@@ -20,10 +20,10 @@ func TestDetectIndexer(t *testing.T) {
 		{"python", true, "scip-python", []string{"index", "."}},
 		{"java", true, "scip-java", []string{"index"}},
 		{"rust", true, "rust-analyzer", []string{"scip", "."}},
-		{"ruby", true, "scip-ruby", nil},   // deferred: no linux/aarch64 prebuilt
+		{"ruby", true, "scip-ruby", nil},     // deferred: no linux/aarch64 prebuilt
 		{"csharp", true, "scip-dotnet", nil}, // deferred: Docker-image-only distribution
-		{"c", true, "scip-clang", nil},      // deferred: no linux/aarch64 prebuilt
-		{"cpp", true, "scip-clang", nil},    // deferred: no linux/aarch64 prebuilt
+		{"c", true, "scip-clang", nil},       // deferred: no linux/aarch64 prebuilt
+		{"cpp", true, "scip-clang", nil},     // deferred: no linux/aarch64 prebuilt
 		{"php", false, "", nil},
 		{"unknown", false, "", nil},
 		{"", false, "", nil},

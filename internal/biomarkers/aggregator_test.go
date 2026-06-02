@@ -13,7 +13,7 @@ type stubBM struct {
 	r    string
 }
 
-func (b stubBM) Name() string                                                   { return b.name }
+func (b stubBM) Name() string                                                  { return b.name }
 func (b stubBM) Score(_ context.Context, _, _ string) (float64, string, error) { return b.s, b.r, nil }
 
 func TestAggregator_AllZeroIsOne(t *testing.T) {
@@ -102,7 +102,7 @@ func TestAggregator_BiomarkerErrorWrapsName(t *testing.T) {
 // failBM is a test double that always errors.
 type failBM struct{ name string }
 
-func (b failBM) Name() string                                                   { return b.name }
+func (b failBM) Name() string { return b.name }
 func (b failBM) Score(_ context.Context, _, _ string) (float64, string, error) {
 	return 0, "", errors.New("synthetic failure")
 }

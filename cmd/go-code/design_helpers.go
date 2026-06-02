@@ -165,4 +165,3 @@ func formatDesignResults(query string, hits []brandHit, meta map[string]designmd
 	sb.WriteString("  </results>\n</response>")
 	return sb.String()
 }
-

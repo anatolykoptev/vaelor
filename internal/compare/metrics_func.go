@@ -122,8 +122,8 @@ var errorHandlingPatterns = []string{
 	"errors.As(",
 	"errors.Join(",
 	".Error()",
-	"except ",  // Python
-	"catch (",  // Java/TS
+	"except ", // Python
+	"catch (", // Java/TS
 	"catch(",
 	"rescue ",       // Ruby
 	"filepath.Skip", // Go sentinel errors (SkipDir, SkipAll)
@@ -165,4 +165,3 @@ func computeErrorHandlingRatio(symbols []*parser.Symbol) float64 {
 	}
 	return float64(withHandling) / float64(eligible)
 }
-

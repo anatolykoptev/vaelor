@@ -185,10 +185,10 @@ func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts Auto
 
 // Retry reasons used as low-cardinality Prometheus labels.
 const (
-	retryReasonDeadline      = "deadline_exceeded"
-	retryReasonConnRefused   = "connection_refused"
-	retryReason5xx           = "embed_5xx"
-	retryReasonNonRetryable  = "non_retryable"
+	retryReasonDeadline     = "deadline_exceeded"
+	retryReasonConnRefused  = "connection_refused"
+	retryReason5xx          = "embed_5xx"
+	retryReasonNonRetryable = "non_retryable"
 )
 
 // classifyAutoIndexError maps an IndexRepo error to a retry reason label.
@@ -226,4 +226,3 @@ func normalizeOpts(opts AutoIndexOpts) AutoIndexOpts {
 	}
 	return opts
 }
-

@@ -244,11 +244,11 @@ func TestGitLabSearchIssues(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{
-				"iid":    7,
-				"title":  "Fix nil pointer",
+				"iid":     7,
+				"title":   "Fix nil pointer",
 				"web_url": "https://gitlab.com/owner/repo/-/issues/7",
-				"state":  "opened",
-				"author": map[string]any{"username": "alice"},
+				"state":   "opened",
+				"author":  map[string]any{"username": "alice"},
 				"labels": []map[string]any{
 					{"title": "bug"},
 				},

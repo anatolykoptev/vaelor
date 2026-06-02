@@ -15,7 +15,7 @@ type testNode struct {
 	deps []string
 }
 
-func (n testNode) NodeID() string    { return n.id }
+func (n testNode) NodeID() string     { return n.id }
 func (n testNode) NodeDeps() []string { return n.deps }
 
 func nodes(specs ...string) []testNode {

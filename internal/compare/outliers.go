@@ -16,11 +16,11 @@ type OutlierFunc struct {
 
 // Outliers holds the worst-offending function for each key metric.
 type Outliers struct {
-	MaxCyclomatic    OutlierFunc
-	MaxCognitive     OutlierFunc
-	MaxFuncLines     OutlierFunc
-	MaxNesting       OutlierFunc
-	MaxMagicNumbers  OutlierFunc
+	MaxCyclomatic   OutlierFunc
+	MaxCognitive    OutlierFunc
+	MaxFuncLines    OutlierFunc
+	MaxNesting      OutlierFunc
+	MaxMagicNumbers OutlierFunc
 }
 
 // CollectOutliers iterates snapshot symbols and records which function

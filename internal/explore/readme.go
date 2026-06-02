@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	readmeMaxBytes    = 2048
-	readmeMaxChars    = 500
+	readmeMaxBytes     = 2048
+	readmeMaxChars     = 500
 	readmeMaxSentences = 3
 )
 
