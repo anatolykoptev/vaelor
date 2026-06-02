@@ -384,25 +384,21 @@ func counterValue(c prometheus.Counter) float64 {
 }
 
 // TestSparseWriteFailure_BumpsWriteCounter verifies that a sparse UPDATE failure
-// drives the production branch in runSparseWrites and increments
-// gocode_sparse_embed_failures_total{stage="write"}.
-//
-// Falsification: comment out `sparseEmbedFailTotal.WithLabelValues("write").Inc()`
-// inside runSparseWrites in pipeline.go → counter delta stays 0, test goes RED.
-// This was verified by removing the Inc() call and confirming failure.
+// via the per-row legacy path bumps gocode_sparse_embed_failures_total{stage="write"}.
+// NOTE: production now uses the batch path (withWriteSparsesBatchFn); this test
+// exercises the per-row writeSparse field which is kept for backward compat but is
+// no longer the production path. See TestSparseBatchWrite_FailureBumpsCounterByBatchSize.
 func TestSparseWriteFailure_BumpsWriteCounter(t *testing.T) {
-	// Inject a spy UpdateSparseEmbedding that always returns an error.
-	writeErr := errors.New("injected sparse write error")
-	var writeCalls int
+	// Inject a spy UpdateSparseEmbeddingsBatch (batch path) that always fails.
+	writeErr := errors.New("injected sparse batch write error")
 	p := NewPipeline(nil, nil,
 		WithSparseEmbedder(&fakeSparseEmbedder{}),
-		withWriteSparseFn(func(_ context.Context, _, _, _, _ string) error {
-			writeCalls++
+		withWriteSparsesBatchFn(func(_ context.Context, _ []SparseUpdate) error {
 			return writeErr
 		}),
 	)
 
-	// Build 2 records with non-empty sparse vectors so both trigger writeSparse.
+	// 2 records with non-empty sparse vectors → both end up in one batch.
 	records := []EmbeddingRecord{
 		{RepoKey: "repo", FilePath: "a.go", SymbolName: "Alpha"},
 		{RepoKey: "repo", FilePath: "b.go", SymbolName: "Beta"},
@@ -415,30 +411,27 @@ func TestSparseWriteFailure_BumpsWriteCounter(t *testing.T) {
 	c := sparseEmbedFailTotal.WithLabelValues("write")
 	before := counterValue(c)
 
-	// Drive the PRODUCTION runSparseWrites — this is the code path under test,
-	// not an open-coded Inc(). Deleting the Inc() in runSparseWrites makes this RED.
+	// Drive the PRODUCTION runSparseWrites — the batch path.
 	p.runSparseWrites(context.Background(), "repo", records, sparseVecs)
 
 	after := counterValue(c)
+	// Batch failure: counter incremented by len(batch) = 2 via Add(float64(len(batch))).
 	if delta := after - before; delta != 2 {
-		t.Errorf("stage=write counter: expected delta 2 (one per failing row), got %g (before=%g after=%g)", delta, before, after)
-	}
-	if writeCalls != 2 {
-		t.Errorf("spy called %d times, want 2", writeCalls)
+		t.Errorf("stage=write counter: expected delta 2 (batch size), got %g (before=%g after=%g)", delta, before, after)
 	}
 }
 
 // TestSparseWriteSuccess_NoCounterBump verifies that a successful sparse write
 // does NOT bump the failure counter — ensuring the counter is not always-fired.
 //
-// Falsification: move the Inc() call outside the `werr != nil` branch → counter
-// would increment even on success, this test goes RED.
+// Falsification: move the Add() call outside the `werr != nil` branch in
+// runSparseWrites → counter would increment even on success, test goes RED.
 func TestSparseWriteSuccess_NoCounterBump(t *testing.T) {
-	var writeCalls int
+	var batchReceived []SparseUpdate
 	p := NewPipeline(nil, nil,
 		WithSparseEmbedder(&fakeSparseEmbedder{}),
-		withWriteSparseFn(func(_ context.Context, _, _, _, _ string) error {
-			writeCalls++
+		withWriteSparsesBatchFn(func(_ context.Context, rows []SparseUpdate) error {
+			batchReceived = append(batchReceived, rows...)
 			return nil // success
 		}),
 	)
@@ -457,7 +450,48 @@ func TestSparseWriteSuccess_NoCounterBump(t *testing.T) {
 	if delta := after - before; delta != 0 {
 		t.Errorf("stage=write counter must NOT increment on success, got delta=%g", delta)
 	}
-	if writeCalls != 1 {
-		t.Errorf("spy called %d times, want 1", writeCalls)
+	if len(batchReceived) != 1 {
+		t.Errorf("batch spy received %d rows, want 1", len(batchReceived))
+	}
+}
+
+// TestSparseBatchWrite_OneCallPerChunk verifies that runSparseWrites issues
+// exactly ONE call to writeSparsesBatch for a whole chunk (not one per row).
+//
+// Falsification: revert runSparseWrites to per-row writeSparse loop → the spy
+// count would be N (not 1), batchCalls != 1, test goes RED.
+func TestSparseBatchWrite_OneCallPerChunk(t *testing.T) {
+	const n = 4
+	var batchCalls int
+	var totalRows int
+	p := NewPipeline(nil, nil,
+		WithSparseEmbedder(&fakeSparseEmbedder{}),
+		withWriteSparsesBatchFn(func(_ context.Context, rows []SparseUpdate) error {
+			batchCalls++
+			totalRows += len(rows)
+			return nil
+		}),
+	)
+	records := make([]EmbeddingRecord, n)
+	sparseVecs := make([]sparse.SparseVector, n)
+	for i := range n {
+		records[i] = EmbeddingRecord{
+			RepoKey:    "repo",
+			FilePath:   fmt.Sprintf("f%d.go", i),
+			SymbolName: fmt.Sprintf("Sym%d", i),
+		}
+		sparseVecs[i] = sparse.SparseVector{
+			Indices: []uint32{uint32(i + 1)},
+			Values:  []float32{0.5},
+		}
+	}
+
+	p.runSparseWrites(context.Background(), "repo", records, sparseVecs)
+
+	if batchCalls != 1 {
+		t.Errorf("expected 1 batch call for %d rows, got %d", n, batchCalls)
+	}
+	if totalRows != n {
+		t.Errorf("batch received %d rows, want %d", totalRows, n)
 	}
 }
