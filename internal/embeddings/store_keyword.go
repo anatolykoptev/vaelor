@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/lextoken"
 )
 
 // FileLineHit is a file path + line number from keyword search.
@@ -71,26 +73,11 @@ func (s *Store) matchOneHit(ctx context.Context, repoKey string, hit FileLineHit
 	return symbolName, startLine, true, nil
 }
 
-// extractQueryKeywords splits a natural language query into meaningful search
+// ExtractQueryKeywords splits a natural language query into meaningful search
 // terms by removing stopwords and short tokens. Returns lowercase terms >= 3 chars.
+// Delegates to lextoken.KeywordTokenize — the canonical implementation.
 func ExtractQueryKeywords(query string) []string {
-	stopwords := map[string]bool{
-		"the": true, "and": true, "for": true, "that": true, "with": true,
-		"this": true, "from": true, "are": true, "not": true, "have": true,
-		"function": true, "method": true, "code": true, "file": true,
-		"which": true, "where": true, "when": true, "how": true, "what": true,
-	}
-	var keywords []string
-	seen := make(map[string]bool)
-	for _, word := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
-	}) {
-		if len(word) >= 3 && !stopwords[word] && !seen[word] {
-			seen[word] = true
-			keywords = append(keywords, word)
-		}
-	}
-	return keywords
+	return lextoken.KeywordTokenize(query)
 }
 
 // SearchBySymbolName searches the embedding index by symbol name and file path
