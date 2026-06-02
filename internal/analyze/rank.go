@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
+	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/ranking"
@@ -189,14 +190,28 @@ func buildFileDocMap(results []fileParseResult) map[string][]string {
 // buildPageRankGraph builds a file-level graph for PageRank by lifting the
 // package-level import graph. Each file inherits edges from its package:
 // if package A imports package B (local), then every file in A links to every file in B.
+// Uses importresolve.Resolver for import resolution so TS/JS relative imports
+// ("./x", "../x") resolve correctly in addition to Go-style suffix matching.
 func buildPageRankGraph(root string, results []fileParseResult) map[string][]string {
 	pkgGraph := buildImportGraph(root, results, false)
 
 	pkgFiles := make(map[string][]string)
+	pkgDirs := make(map[string]struct{})
 	for _, pr := range results {
 		pkg := goutil.PackageDir(root, pr.file.Path)
 		pkgFiles[pkg] = append(pkgFiles[pkg], pr.file.RelPath)
+		pkgDirs[pkg] = struct{}{}
 	}
+
+	// Flatten pkgFiles values into a fileSet for relative resolution. The fileSet
+	// here uses RelPath values (same as pkgFiles values), matching what Resolver expects.
+	fileSet := make(map[string]struct{})
+	for _, files := range pkgFiles {
+		for _, f := range files {
+			fileSet[f] = struct{}{}
+		}
+	}
+	r := importresolve.New(pkgDirs, fileSet)
 
 	graph := make(map[string][]string)
 	for _, pr := range results {
@@ -208,24 +223,14 @@ func buildPageRankGraph(root string, results []fileParseResult) map[string][]str
 		}
 		var targets []string
 		for dep := range deps {
-			targets = append(targets, resolveImportToFiles(dep, pkgFiles)...)
+			// importingDir for package-level callers is the package directory itself.
+			if resolved, ok := r.Resolve(dep, pkg); ok {
+				targets = append(targets, pkgFiles[resolved]...)
+			}
 		}
 		graph[pr.file.RelPath] = targets
 	}
 	return graph
-}
-
-// resolveImportToFiles resolves an import path to local files using suffix matching.
-func resolveImportToFiles(importPath string, pkgFiles map[string][]string) []string {
-	if files, ok := pkgFiles[importPath]; ok {
-		return files
-	}
-	for localPkg, files := range pkgFiles {
-		if strings.HasSuffix(importPath, "/"+localPkg) {
-			return files
-		}
-	}
-	return nil
 }
 
 // SymbolNameSearcher is the narrow interface for pg_trgm symbol name lookup.
