@@ -211,7 +211,7 @@ func buildPageRankGraph(root string, results []fileParseResult) map[string][]str
 			fileSet[f] = struct{}{}
 		}
 	}
-	r := importresolve.New(pkgDirs, fileSet)
+	r := importresolve.New(pkgDirs, fileSet, importresolve.Config{})
 
 	graph := make(map[string][]string)
 	for _, pr := range results {
