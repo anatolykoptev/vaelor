@@ -247,17 +247,36 @@ func hybridResult(
 
 // semanticOnlyResult filters by distance then applies CE rerank → annotate → format.
 // Called when keyword and sparse arms yielded no hits.
+//
+// MergeRRF (the hybrid path) deduplicates by FilePath+":"+SymbolName. This
+// path skips MergeRRF, so both the dense-cosine arm and the trigram-name arm
+// (appended by handleSemanticHits via SearchBySymbolName) can return the same
+// symbol at different distances. We dedup here using the same key form, keeping
+// the entry with the lowest Distance (best match) and preserving relative order.
 func semanticOnlyResult(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, results []embeddings.SearchResult,
 	topK int, maxDist float32, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
 	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
+	// Dedup by FilePath+":"+SymbolName, keeping the lowest Distance (best match).
+	// Key form matches MergeRRF (internal/embeddings/rrf.go:98).
+	seen := make(map[string]int, len(results)) // key → index in filtered
 	filtered := make([]embeddings.SearchResult, 0, len(results))
 	for _, r := range results {
 		if maxDist > 0 && r.Distance >= maxDist {
 			continue
 		}
+		key := r.FilePath + ":" + r.SymbolName
+		if idx, ok := seen[key]; ok {
+			// Already in filtered — keep the lower Distance (better cosine match).
+			if r.Distance < filtered[idx].Distance {
+				filtered[idx] = r
+			}
+			codegraph.RecordSemanticDupCollapsed("semantic_only")
+			continue
+		}
+		seen[key] = len(filtered)
 		filtered = append(filtered, r)
 	}
 	return finalResult(ctx, input, deps, repoKey, root, filtered, topK, t0)
