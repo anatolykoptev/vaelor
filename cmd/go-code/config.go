@@ -164,6 +164,24 @@ type Config struct {
 	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
 	RRFWeightKeyword float64
 
+	// SparseEmbedURL is the base URL for the SPLADE sparse-embedding server
+	// (e.g. http://embed-server:8082). Empty means sparse indexing is disabled
+	// (nil sparseClient in Pipeline — byte-identical dense-only cold-path).
+	// Env: SPARSE_EMBED_URL.
+	SparseEmbedURL string
+
+	// SparseEmbedModel is the SPLADE model name to request from the sparse
+	// server (e.g. splade-v3-distilbert). Empty falls back to the go-kit/sparse
+	// default ("splade-v3-distilbert"). Env: SPARSE_EMBED_MODEL.
+	SparseEmbedModel string
+
+	// SparseEmbedMaxArray is the per-request input cap for the sparse server
+	// (EMBED_MAX_INPUT_ARRAY on the embed-server side). embedSparseBatched
+	// sub-batches by this value so no single /embed_sparse request exceeds it.
+	// Default 32. Override via SPARSE_EMBED_MAX_ARRAY if the server cap changes
+	// without a go-code redeploy. Env: SPARSE_EMBED_MAX_ARRAY.
+	SparseEmbedMaxArray int
+
 	// Debug-investigate tool dependencies. Empty values disable the tool
 	// (handler returns "configuration missing" instead of running).
 	PrometheusURL string
@@ -279,6 +297,16 @@ const (
 	// via the offline harness.
 	defaultRRFWeightSemantic = 1.0
 	defaultRRFWeightKeyword  = 1.0
+
+	// Sparse embed defaults — Phase P2 (indexing).
+	// defaultSparseEmbedModel: splade-v3-distilbert matches the embed-server
+	// default and go-kit/sparse.httpSparseDefaultModel; no override needed
+	// unless a second SPLADE model is deployed.
+	defaultSparseEmbedModel    = "splade-v3-distilbert"
+	// defaultSparseEmbedMaxArray: embed-server EMBED_MAX_INPUT_ARRAY cap (32).
+	// Sub-batching by this value prevents 400 "input too large" errors.
+	// Override via SPARSE_EMBED_MAX_ARRAY if the server cap is raised.
+	defaultSparseEmbedMaxArray = 32
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -349,6 +377,9 @@ func loadConfig() (Config, error) {
 
 		RRFWeightSemantic:     env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
 		RRFWeightKeyword:      env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
+		SparseEmbedURL:        env.Str("SPARSE_EMBED_URL", ""),
+		SparseEmbedModel:      env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
+		SparseEmbedMaxArray:   env.Int("SPARSE_EMBED_MAX_ARRAY", defaultSparseEmbedMaxArray),
 		PrometheusURL:         env.Str("PROMETHEUS_URL", ""),
 		DozorURL:              env.Str("DOZOR_URL", "http://dozor:8765"),
 		DozorAPIToken:         env.Str("DOZOR_API_TOKEN", ""),
