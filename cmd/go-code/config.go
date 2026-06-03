@@ -432,7 +432,7 @@ func loadConfig() (Config, error) {
 		DesignEmbedModel:       env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
 		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
-		FlowsMax:               env.Int("FLOWS_MAX", 0),     // 0 → applyConfigDefaults uses flowsMax=50
+		FlowsMax:               env.Int("FLOWS_MAX", 0),       // 0 → applyConfigDefaults uses flowsMax=50
 		FlowsDFSDepth:          env.Int("FLOWS_DFS_DEPTH", 0), // 0 → applyConfigDefaults uses flowsDFSDepth=8
 		EmbedPipelineCache:     env.Bool("EMBED_PIPELINE_CACHE", true),
 

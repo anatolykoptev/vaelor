@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // TestToolTimeoutsUnderstand asserts that the understand tool has an explicit
@@ -25,5 +27,65 @@ func TestToolTimeoutsUnderstand(t *testing.T) {
 	const want = 30 * time.Second
 	if d != want {
 		t.Errorf("toolTimeouts[\"understand\"] = %v, want %v", d, want)
+	}
+}
+
+// TestBuildInfoMetric asserts that the gocode_build_info gauge is registered
+// in the default Prometheus registry with a non-empty git_sha label.
+//
+// Anti-tautology: without build_info_metric.go (or if resolveBuildSHA returns ""),
+// no gauge is registered → the metric family is absent → the inner loop never
+// executes → assert fires.
+func TestBuildInfoMetric(t *testing.T) {
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("DefaultGatherer.Gather: %v", err)
+	}
+	var found bool
+	var gitSHA string
+	for _, mf := range mfs {
+		if mf.GetName() != "gocode_build_info" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "git_sha" {
+					gitSHA = lp.GetValue()
+				}
+			}
+			if m.GetGauge() != nil && m.GetGauge().GetValue() == 1 {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("gocode_build_info gauge missing or not equal to 1 — deploy provenance metric not registered at startup")
+	}
+	if gitSHA == "" {
+		t.Fatal("gocode_build_info{git_sha} label is empty — SHA must be non-empty (or 'unknown' fallback)")
+	}
+}
+
+// TestToolTimeoutsSemanticSearch asserts that semantic_search has an explicit
+// timeout in the ToolTimeouts map (Bug #2 fix, 2026-06-02).
+//
+// Rationale: semantic_search was absent from ToolTimeouts, silently inheriting
+// the 90s harness default. Although IndexRepoAsync detaches from the request
+// context (using context.Background()), the embed query + store search leg of
+// the tool itself can block the connection open for the full 90s if the embed
+// server is unresponsive. 30s caps the synchronous leg while leaving the
+// background index unaffected.
+//
+// Anti-tautology: this test fails if semantic_search is removed from the map
+// or its deadline is changed, catching regressions before they reach production.
+func TestToolTimeoutsSemanticSearch(t *testing.T) {
+	d, ok := toolTimeouts["semantic_search"]
+	if !ok {
+		t.Fatal("toolTimeouts[\"semantic_search\"] is missing — semantic_search has no explicit deadline; " +
+			"see Bug #2 (2026-06-02): missing entry lets clients hold connection for 90s harness default")
+	}
+	const want = 30 * time.Second
+	if d != want {
+		t.Errorf("toolTimeouts[\"semantic_search\"] = %v, want %v", d, want)
 	}
 }
