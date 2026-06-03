@@ -387,6 +387,157 @@ func (s *Store) DeleteSymbolsForFile(ctx context.Context, repoKey, filePath stri
 	return ct.RowsAffected(), nil
 }
 
+// intraKeyOrphanChunkSize is the maximum number of parsed (file_path, symbol_name)
+// pairs sent in one NOT IN (VALUES …) anti-join chunk. Each row occupies 2 params;
+// Postgres's 65535-param ceiling allows up to 32767 rows per statement, but we cap
+// much lower to keep parse+plan work bounded and avoid statement_timeout on repos
+// with large symbol sets. The same lesson as sparseBatchSize (#201): data-size-bound,
+// not param-bound.
+const intraKeyOrphanChunkSize = 500
+
+// DeleteIntraKeyOrphans removes code_embeddings rows for repoKey whose
+// (file_path, symbol_name) is NOT present in parsedKeys.
+//
+// parsedKeys must be the COMPLETE set of "file_path:symbol_name" pairs from the
+// full repo walk — it is only safe to call this on a full-walk path where the
+// caller has parsed every file. A partial parsedKeys would delete valid rows.
+//
+// When parsedKeys is empty, no rows are deleted (safety guard: an empty set likely
+// signals a parse failure, not a genuinely empty repo). Callers should handle the
+// empty-repo case separately via DeleteRepo.
+//
+// Deletion is chunked by intraKeyOrphanChunkSize to bound per-statement size and
+// avoid statement_timeout on large repos (same constraint as sparseBatchSize, #201).
+// Each chunk issues one DELETE … WHERE NOT (file_path,symbol_name) IN (VALUES …).
+//
+// Returns the total rows deleted across all chunks.
+func (s *Store) DeleteIntraKeyOrphans(ctx context.Context, repoKey string, parsedKeys map[string]bool) (int64, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return 0, err
+	}
+	if len(parsedKeys) == 0 {
+		// Safety: empty parsedKeys = no parse happened or repo is truly empty.
+		// Deleting everything would be catastrophic on a transient parse failure.
+		// Callers that want to wipe a repo use DeleteRepo explicitly.
+		return 0, nil
+	}
+
+	// Flatten parsedKeys into parallel slices for VALUES binding.
+	// Key format: "file_path:symbol_name" (same as GetHashes).
+	files := make([]string, 0, len(parsedKeys))
+	syms := make([]string, 0, len(parsedKeys))
+	for key := range parsedKeys {
+		colon := strings.IndexByte(key, ':')
+		if colon < 0 {
+			continue // malformed key — skip
+		}
+		files = append(files, key[:colon])
+		syms = append(syms, key[colon+1:])
+	}
+
+	var totalDeleted int64
+	for start := 0; start < len(files); start += intraKeyOrphanChunkSize {
+		end := start + intraKeyOrphanChunkSize
+		if end > len(files) {
+			end = len(files)
+		}
+		n, err := s.deleteIntraKeyOrphanChunk(ctx, repoKey, files[start:end], syms[start:end])
+		if err != nil {
+			return totalDeleted, err
+		}
+		totalDeleted += n
+	}
+	return totalDeleted, nil
+}
+
+// deleteIntraKeyOrphanChunk issues one anti-join DELETE for a single chunk of
+// up to intraKeyOrphanChunkSize (file_path, symbol_name) pairs.
+//
+// The DELETE removes rows where (file_path, symbol_name) is NOT among the
+// supplied pairs — i.e. symbols that existed in the prior index but are absent
+// from the fresh parse. repoKey scopes the deletion to one repo.
+//
+// SQL shape:
+//
+//	DELETE FROM public.code_embeddings
+//	WHERE repo_key = $1
+//	  AND NOT (file_path, symbol_name) IN (VALUES ($2,$3), ($4,$5), …)
+func (s *Store) deleteIntraKeyOrphanChunk(ctx context.Context, repoKey string, files, syms []string) (int64, error) {
+	n := len(files)
+	if n == 0 {
+		return 0, nil
+	}
+	// Build: NOT (file_path, symbol_name) IN (VALUES ($2,$3), ($4,$5), …)
+	// Param $1 = repoKey; pairs start at $2.
+	var b strings.Builder
+	b.WriteString(`DELETE FROM public.code_embeddings WHERE repo_key = $1 AND NOT (file_path, symbol_name) IN (VALUES `)
+	args := make([]any, 0, 1+n*2)
+	args = append(args, repoKey)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		p1 := 2 + i*2
+		p2 := p1 + 1
+		fmt.Fprintf(&b, "($%d,$%d)", p1, p2)
+		args = append(args, files[i], syms[i])
+	}
+	b.WriteByte(')')
+	ct, err := s.pool.Exec(ctx, b.String(), args...)
+	if err != nil {
+		return 0, fmt.Errorf("deleteIntraKeyOrphanChunk: %w", err)
+	}
+	return ct.RowsAffected(), nil
+}
+
+// DeleteOrphanRepoKeys removes all code_embeddings rows whose repo_key has no
+// corresponding row in code_repo_state. These orphans accumulate when:
+//   - a worktree checkout creates a new repo_key (GraphNameFor hashes the root
+//     path) but the worktree is later removed without running DeleteRepo;
+//   - a repo was bulk-indexed and then deregistered without cleanup.
+//
+// Safety direction: delete embeddings-keys-not-in-state, NOT the reverse.
+// code_repo_state is the canonical set of "repos we actively manage"; deleting
+// embeddings for absent-state rows is safe because the next indexRepo run will
+// re-populate them if the repo is re-registered. The inverse (deleting state rows
+// whose embeddings are absent) would silently wipe valid index-freshness records.
+//
+// This function does NOT delete code_repo_state rows. The operator controls state
+// lifecycle (register/deregister via indexRepo or DeleteRepo).
+//
+// Returns the number of orphan embedding rows deleted.
+func (s *Store) DeleteOrphanRepoKeys(ctx context.Context) (int64, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return 0, err
+	}
+	ct, err := s.pool.Exec(ctx, `
+		DELETE FROM public.code_embeddings
+		WHERE repo_key NOT IN (
+			SELECT repo_key FROM public.code_repo_state
+		)`)
+	if err != nil {
+		return 0, fmt.Errorf("DeleteOrphanRepoKeys: %w", err)
+	}
+	return ct.RowsAffected(), nil
+}
+
+// CountOrphanRepoKeys returns the number of distinct repo_keys present in
+// code_embeddings but absent from code_repo_state. Used for the
+// gocode_orphan_repo_keys gauge.
+func (s *Store) CountOrphanRepoKeys(ctx context.Context) (int64, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return 0, err
+	}
+	var n int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT repo_key)
+		FROM public.code_embeddings
+		WHERE repo_key NOT IN (
+			SELECT repo_key FROM public.code_repo_state
+		)`).Scan(&n)
+	return n, err
+}
+
 // Stats returns embedding counts per repo.
 func (s *Store) Stats(ctx context.Context) (map[string]int, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
