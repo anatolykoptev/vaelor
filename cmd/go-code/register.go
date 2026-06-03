@@ -291,6 +291,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerSemanticSearch(server, cfg, semDeps)
 	registerSparseBackfill(server, cfg, semDeps)
 	registerOrphanSweep(server, semDeps)
+	registerListFlows(server, graphStore, semDeps)
 	registerCodeResearch(server, cfg, deps, &semDeps)
 	registerSiteAnalyze(server, cfg)
 	registerSiteCrawl(server, cfg)

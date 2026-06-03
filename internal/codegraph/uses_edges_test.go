@@ -22,7 +22,7 @@ func TestBuildGraphUsesEdges(t *testing.T) {
 		{relFile: "src/index.astro", resolvedTo: "src/components/Footer.astro", line: 8},
 	}
 
-	_, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: []*parser.Symbol{}, CallGraph: cg, TplRefs: tplRefs})
+	_, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: []*parser.Symbol{}, CallGraph: cg, TplRefs: tplRefs})
 
 	var usesEdges []edgeData
 	for _, e := range edges {
