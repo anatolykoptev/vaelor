@@ -172,6 +172,10 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 //	=== very-close ===
 //	...
 //
+// When res.TimedOut is true, a warning line is prepended:
+//
+//	⚠ search incomplete (some queries timed out) — results may be partial
+//
 // tierFilter, when non-empty, restricts output to groups of that tier.
 // limit caps the total number of groups rendered.
 //
@@ -179,15 +183,23 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 // a live DB or context.
 func formatTriage(res *semhealth.TriageResult, tierFilter string, limit int) string {
 	if res == nil || (len(res.Groups) == 0 && res.Candidates == 0) {
+		if res != nil && res.TimedOut {
+			return "⚠ search incomplete (some queries timed out) — results may be partial\nno semantic duplicates found in partial result set"
+		}
 		return "no semantic duplicates found (no candidates returned by pgvector)"
 	}
 
 	groups := filterAndLimitGroups(res.Groups, tierFilter, limit)
-	if len(groups) == 0 {
-		return fmt.Sprintf("no semantic duplicates found in %q tier (candidates=%d before filtering)", tierFilter, res.Candidates)
-	}
 
 	var sb strings.Builder
+	if res.TimedOut {
+		fmt.Fprint(&sb, "⚠ search incomplete (some queries timed out) — results may be partial\n")
+	}
+	if len(groups) == 0 {
+		fmt.Fprintf(&sb, "no semantic duplicates found in %q tier (candidates=%d before filtering)", tierFilter, res.Candidates)
+		return sb.String()
+	}
+
 	fmt.Fprint(&sb, formatTriageSummary(res, tierFilter))
 	fmt.Fprint(&sb, formatTriageTiers(groups))
 	return sb.String()

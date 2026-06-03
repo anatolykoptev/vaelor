@@ -13,10 +13,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type fakeDupStore struct {
-	similarPairs []embeddings.SimilarPair
-	similarErr   error
-	exactPairs   []embeddings.ExactDupPair
-	exactErr     error
+	similarPairs  []embeddings.SimilarPair
+	similarErr    error
+	nearDupResult embeddings.NearDupResult
+	nearDupErr    error
+	exactPairs    []embeddings.ExactDupPair
+	exactErr      error
 }
 
 func (f *fakeDupStore) FindSimilarPairs(_ context.Context, _ embeddings.SimilarPairOpts) ([]embeddings.SimilarPair, error) {
@@ -24,6 +26,18 @@ func (f *fakeDupStore) FindSimilarPairs(_ context.Context, _ embeddings.SimilarP
 		return nil, f.similarErr
 	}
 	return f.similarPairs, nil
+}
+
+func (f *fakeDupStore) FindNearDuplicates(_ context.Context, _ string, _ int, _ float32) (embeddings.NearDupResult, error) {
+	if f.nearDupErr != nil {
+		return embeddings.NearDupResult{}, f.nearDupErr
+	}
+	// If no explicit NearDupResult is set, derive it from similarPairs so
+	// existing tests that set similarPairs keep working without changes.
+	if len(f.nearDupResult.Pairs) == 0 && len(f.similarPairs) > 0 {
+		return embeddings.NearDupResult{Pairs: f.similarPairs}, nil
+	}
+	return f.nearDupResult, nil
 }
 
 func (f *fakeDupStore) FindExactDuplicates(_ context.Context, _ string) ([]embeddings.ExactDupPair, error) {
@@ -356,5 +370,75 @@ func TestAnalyzeTriage_IncludeSameFile(t *testing.T) {
 	// With IncludeSameFile=true the pair should survive to the graph filter.
 	if capture.receivedLen != 1 {
 		t.Errorf("graph filter received %d pairs with IncludeSameFile=true, want 1", capture.receivedLen)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5: TimedOut / SearchErrors propagation tests.
+// RED: TriageResult.TimedOut does not exist yet; these tests must fail.
+// ---------------------------------------------------------------------------
+
+// TestAnalyzeTriage_TimedOutFalse_WhenNoErrors asserts TimedOut is false when
+// FindNearDuplicates reports zero SearchErrors.
+func TestAnalyzeTriage_TimedOutFalse_WhenNoErrors(t *testing.T) {
+	store := &fakeDupStore{
+		nearDupResult: embeddings.NearDupResult{
+			Pairs: []embeddings.SimilarPair{
+				{
+					FileA: "a.go", SymbolA: "F", KindA: "function",
+					FileB: "b.go", SymbolB: "G", KindB: "function",
+					Similarity: 0.90,
+				},
+			},
+			SearchErrors: 0,
+		},
+	}
+
+	got := AnalyzeTriage(context.Background(), store, nil, "g", "repo", 100, TriageOpts{})
+	if got == nil {
+		t.Fatal("want non-nil TriageResult")
+	}
+	if got.TimedOut {
+		t.Error("TimedOut should be false when SearchErrors == 0")
+	}
+}
+
+// TestAnalyzeTriage_TimedOutTrue_WhenSearchErrors asserts TimedOut is true when
+// FindNearDuplicates reports one or more SearchErrors (partial run).
+func TestAnalyzeTriage_TimedOutTrue_WhenSearchErrors(t *testing.T) {
+	store := &fakeDupStore{
+		nearDupResult: embeddings.NearDupResult{
+			Pairs:        nil,
+			SearchErrors: 3, // 3 per-symbol searches failed
+		},
+	}
+
+	got := AnalyzeTriage(context.Background(), store, nil, "g", "repo", 100, TriageOpts{})
+	if got == nil {
+		t.Fatal("want non-nil TriageResult")
+	}
+	if !got.TimedOut {
+		t.Error("TimedOut should be true when NearDupResult.SearchErrors > 0")
+	}
+}
+
+// TestAnalyzeTriage_FindNearDupFatalError asserts that when FindNearDuplicates
+// returns a non-nil error (fatal bulk-load failure), AnalyzeTriage still returns
+// a non-nil TriageResult (same contract as the old similar-pairs error path) and
+// TimedOut is set.
+func TestAnalyzeTriage_FindNearDupFatalError(t *testing.T) {
+	store := &fakeDupStore{
+		nearDupErr: errors.New("bulk load failed"),
+	}
+
+	got := AnalyzeTriage(context.Background(), store, nil, "g", "repo", 100, TriageOpts{})
+	if got == nil {
+		t.Fatal("fatal FindNearDuplicates error must not return nil (use empty TriageResult + TimedOut)")
+	}
+	if !got.TimedOut {
+		t.Error("TimedOut should be true on fatal FindNearDuplicates error")
+	}
+	if len(got.Groups) != 0 {
+		t.Errorf("groups should be empty on fatal error, got %d", len(got.Groups))
 	}
 }

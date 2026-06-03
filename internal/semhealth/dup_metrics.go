@@ -9,16 +9,19 @@ import (
 // exposes them regardless of whether any triage has run (project metrics-first
 // rule: no silent absences on write-failure or error paths).
 //
-// gocode_semhealth_dup_candidates_total{repo}   — raw similar-pair count before filters.
-// gocode_semhealth_dup_reported_total{tier}     — groups surfaced per tier.
-// gocode_semhealth_dup_filtered_total{filter}   — pairs dropped per filter step.
-// gocode_semhealth_dup_errors_total{stage}      — query errors per triage stage.
-// gocode_semhealth_dup_duration_seconds         — AnalyzeTriage wall-clock latency.
+// gocode_semhealth_dup_candidates_total{repo}     — raw similar-pair count before filters.
+// gocode_semhealth_dup_reported_total{tier}       — groups surfaced per tier.
+// gocode_semhealth_dup_filtered_total{filter}     — pairs dropped per filter step.
+// gocode_semhealth_dup_errors_total{stage}        — query errors per triage stage.
+// gocode_semhealth_dup_duration_seconds           — AnalyzeTriage wall-clock latency.
+// gocode_semhealth_dup_timeout_total              — per-symbol HNSW search errors/timeouts
+//
+//	(Phase 5: previously-silent timeout is now observable).
 var (
 	dupCandidatesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gocode_semhealth_dup_candidates_total",
-			Help: "Raw similar-pair count returned by FindSimilarPairs before any filtering.",
+			Help: "Raw similar-pair count returned by FindNearDuplicates before any filtering.",
 		},
 		[]string{"repo"},
 	)
@@ -50,6 +53,16 @@ var (
 			Buckets: prometheus.DefBuckets,
 		},
 	)
+	// dupTimeoutTotal counts individual per-symbol HNSW search failures (including
+	// SQLSTATE 57014 statement_timeout). A non-zero value means TriageResult.TimedOut
+	// was set and the result is incomplete. This makes the previously-silent O(n²)
+	// timeout observable (Phase 5 fix: the counter replaces "silent empty result").
+	dupTimeoutTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_semhealth_dup_timeout_total",
+			Help: "Per-symbol HNSW search errors/timeouts in FindNearDuplicates. Non-zero = incomplete triage run.",
+		},
+	)
 )
 
 func init() {
@@ -78,4 +91,6 @@ func init() {
 	} {
 		dupErrorsTotal.WithLabelValues(stage).Add(0)
 	}
+	// Pre-touch timeout counter (no labels — plain Counter).
+	dupTimeoutTotal.Add(0)
 }

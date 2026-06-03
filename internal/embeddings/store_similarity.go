@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
 const (
@@ -24,7 +25,39 @@ const (
 
 	// pgErrQueryCanceled is the PostgreSQL SQLSTATE for statement_timeout / query cancel.
 	pgErrQueryCanceled = "57014"
+
+	// defaultNearDupK is the number of nearest neighbours requested per symbol
+	// in FindNearDuplicates. k+1 is passed to Store.Search because the symbol
+	// itself (distance 0) is always in the result and is dropped.
+	defaultNearDupK = 5
+
+	// DefaultNearDupK is the exported form of defaultNearDupK for callers in
+	// other packages (e.g. semhealth) that need to pass k to FindNearDuplicates.
+	DefaultNearDupK = defaultNearDupK
 )
+
+// nearDupSymbol is an internal record for a symbol loaded by FindNearDuplicates.
+// It carries the embedding so we can call Store.Search with a constant query vector.
+type nearDupSymbol struct {
+	filePath   string
+	symbolName string
+	symbolKind string
+	startLine  int
+	embedding  []float32
+}
+
+// NearDupResult is returned by FindNearDuplicates and carries both the
+// deduplicated pair slice and a count of per-symbol Search errors so the caller
+// can distinguish a complete run from a partial one.
+type NearDupResult struct {
+	// Pairs is the deduplicated set of near-duplicate candidates.
+	Pairs []SimilarPair
+	// SearchErrors is the number of per-symbol Store.Search calls that failed.
+	// Non-zero means the result is INCOMPLETE — some symbols were skipped.
+	// A SQLSTATE 57014 (statement_timeout) on an individual Search increments
+	// this counter and is reflected here.
+	SearchErrors int
+}
 
 // SimilarPair represents two semantically similar symbols within the same repo.
 type SimilarPair struct {
@@ -126,4 +159,150 @@ func (s *Store) FindSimilarPairs(ctx context.Context, opts SimilarPairOpts) ([]S
 		pairs = append(pairs, p)
 	}
 	return pairs, rows.Err()
+}
+
+// nearDupPairKey returns a canonical dedup key for a (fileA:symA, fileB:symB) pair.
+// The lesser endpoint (lexicographic on "file:symbol") is always first, so both
+// (A,B) and (B,A) produce the same key. This prevents double-counting: each
+// symbol's k-NN query sees the pair from its own side; the map deduplicates.
+func nearDupPairKey(fileA, symA, fileB, symB string) string {
+	ea := fileA + ":" + symA
+	eb := fileB + ":" + symB
+	if ea <= eb {
+		return ea + "|" + eb
+	}
+	return eb + "|" + ea
+}
+
+// nearDupCanonicalPair builds a SimilarPair with the canonical A-is-lesser ordering
+// and Similarity = 1 - distance. Kind and Line fields are passed in directly.
+func nearDupCanonicalPair(
+	fileA, symA string, lineA int, kindA string,
+	fileB, symB string, lineB int, kindB string,
+	distance float32,
+) SimilarPair {
+	ea := fileA + ":" + symA
+	eb := fileB + ":" + symB
+	sim := float32(1) - distance
+	if ea <= eb {
+		return SimilarPair{
+			FileA: fileA, SymbolA: symA, LineA: lineA, KindA: kindA,
+			FileB: fileB, SymbolB: symB, LineB: lineB, KindB: kindB,
+			Similarity: sim,
+		}
+	}
+	return SimilarPair{
+		FileA: fileB, SymbolA: symB, LineA: lineB, KindA: kindB,
+		FileB: fileA, SymbolB: symA, LineB: lineA, KindB: kindA,
+		Similarity: sim,
+	}
+}
+
+// loadSymbolsWithEmbeddings loads the file_path, symbol_name, symbol_kind,
+// start_line, and embedding for every symbol in repoKey from code_embeddings.
+// The embedding is scanned as pgvector.Vector and converted to []float32 via .Slice().
+func (s *Store) loadSymbolsWithEmbeddings(ctx context.Context, repoKey string) ([]nearDupSymbol, error) {
+	const q = `SELECT file_path, symbol_name, symbol_kind, start_line, embedding
+	            FROM public.code_embeddings
+	            WHERE repo_key = $1`
+
+	rows, err := s.pool.Query(ctx, q, repoKey)
+	if err != nil {
+		return nil, fmt.Errorf("load symbols for near-dup: %w", err)
+	}
+	defer rows.Close()
+
+	var syms []nearDupSymbol
+	for rows.Next() {
+		var sym nearDupSymbol
+		var vec pgvector.Vector
+		if err := rows.Scan(&sym.filePath, &sym.symbolName, &sym.symbolKind, &sym.startLine, &vec); err != nil {
+			return nil, fmt.Errorf("load symbols for near-dup: scan: %w", err)
+		}
+		sym.embedding = vec.Slice()
+		syms = append(syms, sym)
+	}
+	return syms, rows.Err()
+}
+
+// FindNearDuplicates finds near-duplicate symbol pairs in repoKey using
+// per-symbol HNSW k-NN queries — N × O(log N) instead of the O(N²) all-pairs
+// self-join used by FindSimilarPairs.
+//
+// For each symbol it calls Store.Search with the symbol's own embedding as the
+// constant query vector, requesting k+1 neighbours (k+1 because the symbol
+// itself is always among the results at distance 0 and is dropped). Pairs whose
+// cosine distance exceeds maxDist are discarded. The result is deduplicated
+// using nearDupPairKey so each unordered pair appears exactly once regardless
+// of which endpoint discovered it.
+//
+// Per-symbol resilience: if an individual Search fails (including SQLSTATE 57014
+// statement_timeout), the error is logged, SearchErrors is incremented, and
+// processing continues with the remaining symbols. The returned NearDupResult
+// carries SearchErrors > 0 when any query failed, signalling an incomplete run
+// to the caller. A non-nil error is reserved for a fatal failure of the bulk
+// symbol load (the entire result set would be wrong).
+//
+// Semantic note: this returns each symbol's top-k nearest neighbours, not all
+// pairs under maxDist. A symbol with more than k near-duplicates will surface
+// only its k closest. k=defaultNearDupK (5) covers the common case; the
+// operator can pass a larger k for exhaustive analysis.
+func (s *Store) FindNearDuplicates(ctx context.Context, repoKey string, k int, maxDist float32) (NearDupResult, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return NearDupResult{}, err
+	}
+
+	syms, err := s.loadSymbolsWithEmbeddings(ctx, repoKey)
+	if err != nil {
+		return NearDupResult{}, fmt.Errorf("find near duplicates: %w", err)
+	}
+
+	seen := make(map[string]struct{}, len(syms))
+	var pairs []SimilarPair
+	searchErrors := 0
+
+	for _, sym := range syms {
+		results, searchErr := s.Search(ctx, sym.embedding, SearchOpts{
+			RepoKey:     repoKey,
+			TopK:        k + 1, // +1 because self (distance 0) is always included
+			MaxDistance: maxDist,
+		})
+		if searchErr != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(searchErr, &pgErr) && pgErr.Code == pgErrQueryCanceled {
+				slog.Warn("semhealth near-dup: per-symbol search hit statement_timeout",
+					slog.String("repo", repoKey),
+					slog.String("symbol", sym.symbolName),
+					slog.String("file", sym.filePath))
+			} else {
+				slog.Warn("semhealth near-dup: per-symbol search error",
+					slog.String("repo", repoKey),
+					slog.String("symbol", sym.symbolName),
+					slog.Any("error", searchErr))
+			}
+			searchErrors++
+			continue
+		}
+
+		for _, r := range results {
+			// Drop self-match.
+			if r.FilePath == sym.filePath && r.SymbolName == sym.symbolName {
+				continue
+			}
+
+			key := nearDupPairKey(sym.filePath, sym.symbolName, r.FilePath, r.SymbolName)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			pairs = append(pairs, nearDupCanonicalPair(
+				sym.filePath, sym.symbolName, sym.startLine, sym.symbolKind,
+				r.FilePath, r.SymbolName, r.StartLine, r.SymbolKind,
+				r.Distance,
+			))
+		}
+	}
+
+	return NearDupResult{Pairs: pairs, SearchErrors: searchErrors}, nil
 }

@@ -1,13 +1,14 @@
 # find-duplicates — Design, Validation & Ship Decision
 
-**Phase 4 decision doc. Written 2026-06-02 against live DB results.**
+**Phase 5 updated 2026-06-02. Phase 4 baseline below.**
 
 ---
 
-## 1. What was built (Phases 1-3b)
+## 1. What was built (Phases 1-5)
 
 ### Engine (`internal/embeddings`)
-- `FindSimilarPairs` — pgvector O(n²) self-join with 15 s `statement_timeout` guard; returns `(symbol, file, line, kind, similarity)` pairs.
+- `FindNearDuplicates` (Phase 5) — scalable per-symbol HNSW k-NN candidate generator (N × O(log N)). For each symbol, calls `Store.Search` with the symbol's own embedding as a constant query vector (EXPLAIN-proven to use `idx_code_embeddings_hnsw`). Deduplicates via canonical pair key (lesser endpoint is A). Returns `NearDupResult{Pairs, SearchErrors}` where `SearchErrors > 0` signals an incomplete run. **Replaces `FindSimilarPairs` in `AnalyzeTriage`.**
+- `FindSimilarPairs` — pgvector O(n²) self-join (kept; `Analyze` grade-ratio path still uses it for small repos).
 - `FindExactDuplicates` — fast index-equality scan on `(repo_key, body_hash)` partial index; no vector distance needed.
 - `PairsConnectedByCalls` / `PairsSharingInterface` — batch AGE Cypher queries used by the filter chain.
 
@@ -28,6 +29,7 @@ Combines exact + similar tiers into a `TriageResult`:
 - `Candidates` — raw pair count before filters.
 - `Dropped` — per-filter drop counts.
 - `ReportedByTier` — group count per tier.
+- `TimedOut` (Phase 5) — true when `FindNearDuplicates` reported `SearchErrors > 0` or returned a fatal error. Operators must not interpret `TimedOut=true` as "no duplicates found" — the result is partial.
 
 Returns `&TriageResult{}` (not nil) when `totalFuncs > semhealthMaxFuncs=5000`.
 
@@ -146,13 +148,34 @@ go-code itself (`github.com/anatolykoptev/go-code`) is not currently indexed in 
 
 **Operator action after embed-server recovers:** run `find_duplicates repo=go-code` to complete the dogfood validation. No code changes needed.
 
-### (b) 5000-function size guard
+### (b) Scalability — RESOLVED in Phase 5
 
-`semhealthMaxFuncs=5000` means the tool cannot run on larger repos (e.g. `code_cfdb6dd0` with 4426 funcs completes just under the guard; `code_d6e5a5dd` with 5066 funcs is blocked). The four observed target repos (the 2085-func `code_f40acc09` memdb-go, 2085 funcs) **timed out the 15 s statement_timeout** even though they are under the guard — the O(n²) pgvector self-join is slow on the 4-core ARM box under load.
+**Status: RESOLVED.** Phase 5 replaced the O(n²) all-pairs self-join with per-symbol HNSW k-NN.
 
-**Root cause:** `FindSimilarPairs` uses a full cross-join `FROM code_embeddings a, code_embeddings b WHERE …` without a HNSW k-NN index anchor. The plan's Phase 5 (per-symbol LATERAL k-NN query) would eliminate this problem by doing n × k-NN lookups instead of one O(n²) join. This is the **top future-work item**.
+**Phase 5 approach:** `FindNearDuplicates` issues N individual `Store.Search` calls, each with the symbol's own embedding as a constant query vector. `EXPLAIN` on a constant-vector query with `WHERE repo_key=$1` shows `Index Scan using idx_code_embeddings_hnsw`, cost 732 (vs 1.6M for the LATERAL correlated join, which also does NOT use the index — confirmed by `EXPLAIN`). N × ~17ms = ~35s total for 2085 symbols, well within any reasonable timeout.
 
-**Current effective range:** repos with ≤ ~500 functions run reliably within 15 s on the ARM box under typical load. Repos 500–5000 functions may time out at the DB layer and return 0 candidates (silent, not an error from the tool's perspective). The validated repos (234 and 300 funcs) are well within range.
+**The LATERAL option (A) was rejected:** `EXPLAIN` of a correlated self-join with `a.embedding` as the distance argument produces `Limit → Sort(embedding <=> a.embedding) → Bitmap Heap Scan`, cost 1.6M — pgvector does not use HNSW for correlated per-row vectors. Only a constant query vector uses the HNSW index.
+
+**Live re-validation on `code_f40acc09` (memdb-go, 2085 funcs) — 2026-06-02:**
+
+| Metric | Value |
+|--------|-------|
+| Total functions indexed | 2085 |
+| Candidates (pre-filter) | 381 |
+| TimedOut | false |
+| Dropped — same_file | 146 |
+| Dropped — calls_edge | 12 |
+| Reported groups (very-close) | 36 |
+| Reported groups (related) | 69 |
+| Total groups reported | 105 |
+| Elapsed | ~37s |
+| Filter-invariant result | PASS |
+
+Previously this repo timed out at 15 s with 0 candidates (silent failure). Now it completes in ~37s with 381 candidates and 105 groups.
+
+**Remaining semantic difference vs all-pairs:** `FindNearDuplicates` returns each symbol's top-k nearest neighbours (k=5 by default). A symbol with more than 5 near-duplicates surfaces only its 5 closest. This is intentional and documented — in practice the 5-nearest is sufficient for actionable refactor targets, and k can be raised by callers for exhaustive analysis.
+
+**5000-function size guard:** `semhealthMaxFuncs=5000` is retained for result-size bounding (the exact tier is index-cheap but is kept inside the guard for consistency). The guard is no longer a scalability requirement for the similar-tier path.
 
 ### (c) `filterKind` is currently inert on real data
 
@@ -166,23 +189,23 @@ Documented in §3 above. Not a bug — the filter operates on pairs; union-find 
 
 ## 5. Ship decision
 
-**Recommendation: SHIP behind existing DB gating, with one caveat.**
+**Recommendation: SHIP (Phase 5 strengthens the case).**
 
-**Evidence supporting ship:**
-- Filter invariants hold on two live repos with AGE graphs (CALLS and interface-sibling both verified).
-- Top-10 precision sample shows ≥ 70-80% real duplicates at the `very-close` tier — the tier where the tool is most actionable.
-- The `calls_edge` filter demonstrably works: 2 pairs were removed from `code_87ce8eca` that would otherwise have been false positives.
-- Normal `go test ./internal/semhealth/...` is unaffected by the integration file (build tag isolates it).
-- Both surfaces (`code_health` and `find_duplicates` tool) are gated on DB availability — if `DATABASE_URL` is unset, both surfaces gracefully degrade.
+**Evidence supporting ship (updated for Phase 5):**
+- Filter invariants hold on three live repos: `code_bb3c1bea` (234 funcs, TS), `code_87ce8eca` (300 funcs, Go), `code_f40acc09` (2085 funcs, Go/Python).
+- Phase 5 resolves the blocking scalability limitation: `code_f40acc09` previously timed out silently with 0 candidates; now completes in ~37s with 381 candidates and 105 groups.
+- `TimedOut` field surfaces incomplete runs — operators can no longer mistake "timed out" for "no duplicates".
+- `gocode_semhealth_dup_timeout_total` counter makes the previously-silent timeout observable in Prometheus.
+- Top-10 precision on `code_f40acc09` shows high-quality real duplicates: `SearchLTMByVectorSQL` duplicated across `queries_memory_ltm.go` and `postgres_memory_ltm.go`, `Ping` duplicated across two Redis clients, `isCyrillic`/`isCJK` duplicated across tokenizer and lang packages.
+- `calls_edge` filter demonstrably works: 12 pairs dropped on `code_f40acc09`.
 
-**One caveat (operator step, not a blocking concern):**
-The go-code dogfood run is DEFERRED. Once `embed.krolik.tools` recovers and go-code is re-indexed, run `find_duplicates repo=go-code` to confirm the tool finds the known reinvented helpers (multiple retry patterns, multiple pgError extractors, etc.). If precision is unacceptable on go-code, revisit the `related` tier threshold or add a go-code-specific IMPLEMENTS edge filter.
+**Remaining caveat (operator step, not a blocking concern):**
+The go-code dogfood run is DEFERRED. Once `embed.krolik.tools` recovers and go-code is re-indexed, run `find_duplicates repo=go-code` to confirm the tool finds the known reinvented helpers (multiple retry patterns, multiple pgError extractors, etc.).
 
 **What would change the recommendation to SHELVE:**
-- If the go-code dogfood run shows > 50% false positives in the `related` tier AND the `very-close` tier also degrades — indicates the embedding model is not giving clean similarity signal for this codebase.
-- If the statement_timeout fires on every repo ≥ 500 funcs after the ARM box load normalizes — indicates Phase 5 LATERAL k-NN is a prerequisite, not nice-to-have.
+- If the go-code dogfood run shows > 50% false positives in the `related` tier AND the `very-close` tier also degrades.
 
-**Future work (top priority):**
-1. Phase 5: replace `FindSimilarPairs` cross-join with per-symbol LATERAL k-NN (removes O(n²) constraint, enables repos up to 50k+ funcs).
-2. Post-processing: after union-find, remove group members that are same-file as another member AND have no cross-file pair in the filtered set (cleans up transitive same-file artifacts).
-3. IMPLEMENTS edge indexing for TypeScript/Python — would let `interface_sibling` filter remove protocol-pattern false positives (the `close × 4` group in `code_bb3c1bea`).
+**Future work:**
+1. Post-processing: after union-find, remove group members that are same-file as another member AND have no cross-file pair in the filtered set (cleans up transitive same-file artifacts).
+2. IMPLEMENTS edge indexing for TypeScript/Python — would let `interface_sibling` filter remove protocol-pattern false positives (the `close × 4` group in `code_bb3c1bea`).
+3. AGE re-check in validation test: the name-based Cypher re-check can produce false positives on large repos (name collision where A→C→B through a third node that shares names). Replace with a per-pair direct edge query for production-grade validation.

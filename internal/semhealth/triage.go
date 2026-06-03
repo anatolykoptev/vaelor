@@ -54,7 +54,7 @@ type TriageResult struct {
 	// Within a tier, groups are ordered by AvgSimilarity descending.
 	Groups []DupGroup
 
-	// Candidates is the raw similar-pair count returned by FindSimilarPairs
+	// Candidates is the raw similar-pair count returned by FindNearDuplicates
 	// before any filtering. Useful for metrics and dashboards.
 	Candidates int
 
@@ -63,13 +63,23 @@ type TriageResult struct {
 
 	// ReportedByTier maps tier name → number of groups surfaced.
 	ReportedByTier map[string]int
+
+	// TimedOut is true when the candidate search was incomplete — one or more
+	// per-symbol HNSW queries failed (including statement_timeout SQLSTATE 57014)
+	// or the bulk symbol load returned a fatal error. When true, the reported
+	// groups are based on partial data; some duplicates may have been missed.
+	// Operators should treat a TimedOut result as "possibly incomplete" rather
+	// than "no duplicates found".
+	TimedOut bool
 }
 
 // dupStore is the storage surface that AnalyzeTriage needs.
 // It is satisfied by *embeddings.Store in production and by test doubles in
 // unit tests.
 type dupStore interface {
-	FindSimilarPairs(ctx context.Context, opts embeddings.SimilarPairOpts) ([]embeddings.SimilarPair, error)
+	// FindNearDuplicates is the scalable per-symbol HNSW k-NN generator (Phase 5).
+	// It replaces FindSimilarPairs in the AnalyzeTriage hot path.
+	FindNearDuplicates(ctx context.Context, repoKey string, k int, maxDist float32) (embeddings.NearDupResult, error)
 	FindExactDuplicates(ctx context.Context, repoKey string) ([]embeddings.ExactDupPair, error)
 }
 
@@ -78,19 +88,25 @@ var _ dupStore = (*embeddings.Store)(nil)
 
 // AnalyzeTriage runs the full tiered duplicate analysis for a repo:
 //  1. Exact tier  — body-hash equality scan (index-cheap).
-//  2. Similar tiers — pgvector self-join at the "related" threshold (0.80),
+//  2. Similar tiers — per-symbol HNSW k-NN at the "related" threshold (0.80),
 //     pruned through the Phase-2 filter chain, then bucketed by similarity.
+//
+// The candidate generator is FindNearDuplicates (Phase 5 scalable path):
+// N × O(log N) per-symbol HNSW queries instead of the O(N²) all-pairs self-join
+// used by the old FindSimilarPairs. The size guard (semhealthMaxFuncs) is
+// retained for the exact tier but the similar-tier no longer needs it for
+// scalability reasons; it is kept for result-size bounding.
 //
 // The cheap pure filters (tests, same_file, kind) always run BEFORE the AGE
 // graph filters (calls_edge, interface_sibling) so the graph receives a pruned
 // set and does less work.
 //
 // Returns nil for invalid inputs (nil store / empty repoKey / zero funcs).
-// Returns &TriageResult{} when the repo exceeds semhealthMaxFuncs (same O(n²)
-// guard as Analyze — the exact tier is index-cheap but is kept inside the guard
-// for consistency).
+// Returns &TriageResult{} when the repo exceeds semhealthMaxFuncs.
 // The exact-tier query error is swallowed (logged + metricked) — the run
 // continues with the similar tiers.
+// TriageResult.TimedOut is set when FindNearDuplicates reports SearchErrors > 0
+// or returns a fatal error — the caller should surface this to the operator.
 func AnalyzeTriage(
 	ctx context.Context,
 	store dupStore,
@@ -120,8 +136,11 @@ func AnalyzeTriage(
 	// ── Exact tier ──────────────────────────────────────────────────────────
 	exactGroups := collectExactGroups(ctx, store, repoKey)
 
-	// ── Similar tiers ────────────────────────────────────────────────────────
-	pairs, candidates := fetchSimilarPairs(ctx, store, repoKey)
+	// ── Similar tiers (scalable per-symbol HNSW k-NN, Phase 5) ──────────────
+	// relatedDistThreshold is the cosine distance equivalent of tierRelatedSimilarity.
+	// similarity 0.80 → distance 0.20.
+	const relatedDistThreshold = float32(1) - tierRelatedSimilarity
+	pairs, candidates, timedOut := fetchNearDuplicates(ctx, store, repoKey, relatedDistThreshold)
 	dupCandidatesTotal.WithLabelValues(repoKey).Add(float64(candidates))
 
 	// Filter chain: cheap filters first, then graph filters.
@@ -162,6 +181,7 @@ func AnalyzeTriage(
 		Candidates:     candidates,
 		Dropped:        dropped,
 		ReportedByTier: reportedByTier,
+		TimedOut:       timedOut,
 	}
 }
 
@@ -181,20 +201,28 @@ func collectExactGroups(ctx context.Context, store dupStore, repoKey string) []D
 	return exactPairsToGroups(pairs)
 }
 
-// fetchSimilarPairs calls FindSimilarPairs at the related threshold (widest band).
-// On error, logs Debug and bumps the error metric; returns (nil, 0).
-func fetchSimilarPairs(ctx context.Context, store dupStore, repoKey string) ([]embeddings.SimilarPair, int) {
-	pairs, err := store.FindSimilarPairs(ctx, embeddings.SimilarPairOpts{
-		RepoKey:   repoKey,
-		Threshold: tierRelatedSimilarity,
-	})
+// fetchNearDuplicates calls FindNearDuplicates at the related threshold (widest band)
+// with the default k. It returns the pairs, the pre-filter candidate count, and a
+// timedOut flag — true when SearchErrors > 0 or the call returned a fatal error.
+//
+// On fatal error (bulk load failure), the error is logged and metricked; the run
+// continues with empty pairs so the exact tier can still be reported.
+func fetchNearDuplicates(ctx context.Context, store dupStore, repoKey string, maxDist float32) ([]embeddings.SimilarPair, int, bool) {
+	res, err := store.FindNearDuplicates(ctx, repoKey, embeddings.DefaultNearDupK, maxDist)
 	if err != nil {
-		slog.Debug("semhealth triage: FindSimilarPairs failed",
+		slog.Debug("semhealth triage: FindNearDuplicates fatal error",
 			slog.String("repo", repoKey), slog.Any("error", err))
 		dupErrorsTotal.WithLabelValues(dupStageSimilarQuery).Inc()
-		return nil, 0
+		return nil, 0, true
 	}
-	return pairs, len(pairs)
+	if res.SearchErrors > 0 {
+		slog.Debug("semhealth triage: FindNearDuplicates partial (search errors)",
+			slog.String("repo", repoKey),
+			slog.Int("search_errors", res.SearchErrors))
+		dupErrorsTotal.WithLabelValues(dupStageSimilarQuery).Add(float64(res.SearchErrors))
+		dupTimeoutTotal.Add(float64(res.SearchErrors))
+	}
+	return res.Pairs, len(res.Pairs), res.SearchErrors > 0
 }
 
 // exactPairsToGroups converts ExactDupPairs to DupGroups. Each pair becomes a

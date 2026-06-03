@@ -74,6 +74,10 @@ func collectSemanticDupGroups(ctx context.Context, semDeps *SemanticDeps, root s
 		semhealth.TriageOpts{},
 	)
 	if triage != nil {
+		if triage.TimedOut {
+			slog.Warn("semhealth: semantic dup search incomplete — triage results may be partial",
+				slog.String("repo", repoKey))
+		}
 		return triage.Groups
 	}
 	return nil

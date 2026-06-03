@@ -1,6 +1,7 @@
 package embeddings
 
 import (
+	"context"
 	"testing"
 )
 
@@ -108,4 +109,108 @@ func TestFindExactDuplicatesCompiles(t *testing.T) {
 	s := &Store{} // zero Store: nil pool
 	// The two-return-value assignment verifies the signature at compile time.
 	_, _ = s.FindExactDuplicates(t.Context(), "some-repo")
+}
+
+// ---------------------------------------------------------------------------
+// Tests for FindNearDuplicates (Phase 5) — RED before implementation.
+// ---------------------------------------------------------------------------
+
+// TestCanonicalPairKey verifies canonical pair ordering: the endpoint with the
+// lexicographically smaller "file:symbol" string is always assigned to the A
+// side of a SimilarPair produced by nearDupCanonicalPair. This is the dedup
+// invariant that prevents the same pair appearing twice (once from each endpoint).
+func TestCanonicalPairKey(t *testing.T) {
+	// nearDupCanonicalPair is the pure helper; it must build a SimilarPair with
+	// A <= B ordering and Similarity = 1 - distance.
+	cases := []struct {
+		fileA, symA, fileB, symB string
+		distance                 float32
+		wantFileA, wantSymA      string // expected A endpoint (the lesser one)
+		wantFileB, wantSymB      string // expected B endpoint (the greater one)
+	}{
+		{
+			// "a.go:Foo" < "b.go:Bar" — A stays A.
+			fileA: "a.go", symA: "Foo", fileB: "b.go", symB: "Bar",
+			distance:  0.10,
+			wantFileA: "a.go", wantSymA: "Foo",
+			wantFileB: "b.go", wantSymB: "Bar",
+		},
+		{
+			// "z.go:Foo" > "a.go:Bar" — A and B must flip so the lesser is A.
+			fileA: "z.go", symA: "Foo", fileB: "a.go", symB: "Bar",
+			distance:  0.05,
+			wantFileA: "a.go", wantSymA: "Bar",
+			wantFileB: "z.go", wantSymB: "Foo",
+		},
+		{
+			// Similarity = 1 - distance must be correct.
+			fileA: "c.go", symA: "X", fileB: "d.go", symB: "Y",
+			distance:  0.15,
+			wantFileA: "c.go", wantSymA: "X",
+			wantFileB: "d.go", wantSymB: "Y",
+		},
+	}
+
+	for _, tc := range cases {
+		p := nearDupCanonicalPair(
+			tc.fileA, tc.symA, 1, "function",
+			tc.fileB, tc.symB, 2, "method",
+			tc.distance,
+		)
+		if p.FileA != tc.wantFileA || p.SymbolA != tc.wantSymA {
+			t.Errorf("A endpoint: got %s:%s, want %s:%s",
+				p.FileA, p.SymbolA, tc.wantFileA, tc.wantSymA)
+		}
+		if p.FileB != tc.wantFileB || p.SymbolB != tc.wantSymB {
+			t.Errorf("B endpoint: got %s:%s, want %s:%s",
+				p.FileB, p.SymbolB, tc.wantFileB, tc.wantSymB)
+		}
+		wantSim := float32(1) - tc.distance
+		if p.Similarity != wantSim {
+			t.Errorf("Similarity = %f, want %f (1 - distance %f)",
+				p.Similarity, wantSim, tc.distance)
+		}
+	}
+}
+
+// TestNearDupPairKeyString verifies nearDupPairKey produces the same canonical
+// "file:symbol|file:symbol" key regardless of which endpoint is passed first —
+// the deduplication map relies on this property.
+func TestNearDupPairKeyString(t *testing.T) {
+	k1 := nearDupPairKey("a.go", "Foo", "b.go", "Bar")
+	k2 := nearDupPairKey("b.go", "Bar", "a.go", "Foo")
+	if k1 != k2 {
+		t.Errorf("pair key not symmetric: %q vs %q", k1, k2)
+	}
+
+	// A self-pair must produce a recognisable (non-empty) key.
+	kSelf := nearDupPairKey("a.go", "Foo", "a.go", "Foo")
+	if kSelf == "" {
+		t.Error("self-pair key must be non-empty")
+	}
+}
+
+// TestDefaultNearDupK asserts the named constant exists and is positive.
+func TestDefaultNearDupK(t *testing.T) {
+	if defaultNearDupK <= 0 {
+		t.Errorf("defaultNearDupK = %d, want > 0", defaultNearDupK)
+	}
+}
+
+// TestFindNearDuplicatesCompiles is a compile-time + call-path assertion that
+// FindNearDuplicates exists on *Store with signature:
+//
+//	func(*Store) FindNearDuplicates(ctx, repoKey string, k int, maxDist float32) (NearDupResult, error)
+//
+// A nil-pool Store is used; the deferred recover swallows the pgxpool panic to
+// prove the method compiled and started executing (up to the DB boundary).
+func TestFindNearDuplicatesCompiles(t *testing.T) {
+	defer func() { _ = recover() }()
+
+	s := &Store{}
+	// Verifies return type and signature.
+	res, _ := s.FindNearDuplicates(context.Background(), "repo", defaultNearDupK, 0.20)
+	// res.Pairs must be accessible (not a bare []SimilarPair).
+	_ = res.Pairs
+	_ = res.SearchErrors
 }
