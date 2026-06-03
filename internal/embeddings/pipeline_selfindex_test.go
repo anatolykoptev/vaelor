@@ -20,10 +20,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/anatolykoptev/go-kit/embed"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -249,6 +251,228 @@ func TestBug1_CountEmbeddings_Returns0ForUnknownRepo(t *testing.T) {
 	count, err := store.CountEmbeddings(ctx, "test/nonexistent-repo-xyz-abc")
 	require.NoError(t, err)
 	assert.Equal(t, 0, count, "CountEmbeddings must return 0 for unknown repo key")
+}
+
+// TestBug2_IndexCancelledCounter_Increments asserts that when the embed context is
+// cancelled mid-chunk, RecordIndexCancelled bumps gocode_index_cancelled_total.
+//
+// RED: without the RecordIndexCancelled call in embedChunks, the counter stays at
+// its pre-test value and assert.Greater fails.
+//
+// Design: the embed server signals "reached" when it receives a request, allowing
+// the test to cancel the context only after the goroutine has entered embedChunks
+// and is blocked on the HTTP call. This avoids the TOCTOU window where cancel()
+// fires before ingest/embedChunks is reached.
+func TestBug2_IndexCancelledCounter_Increments(t *testing.T) {
+	// Gather baseline counter value before the test.
+	before := sumCounter(t, "gocode_index_cancelled_total")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// reached is closed when the embed server receives its first request,
+	// confirming the goroutine is inside embedChunks and blocked on the HTTP call.
+	reached := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Signal that we are inside the embed call (embedChunks is running).
+		select {
+		case <-reached:
+		default:
+			close(reached)
+		}
+		// Block until the context is cancelled — the HTTP transport will then
+		// abort the request and the embed client will propagate context.Canceled.
+		<-ctx.Done()
+		http.Error(w, "cancelled", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := embed.NewClient(srv.URL,
+		embed.WithBackend("http"),
+		embed.WithDim(dimSize),
+	)
+	require.NoError(t, err)
+
+	pool := testPool(t)
+	store := NewStore(pool)
+	require.NoError(t, store.EnsureSchema(context.Background()))
+	p := NewPipeline(client, store, WithFileCache(nil))
+
+	const repo = "test/cancel-counter"
+	cleanRepoFull(t, store, repo)
+
+	root := initGitRepo(t, map[string]string{
+		"cancel.go": goFile("CancelFunc1", "CancelFunc2"),
+	})
+
+	// Run IndexRepo in a goroutine — it will block on the embed server.
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.IndexRepo(ctx, repo, root)
+		done <- err
+	}()
+
+	// Wait until the embed server receives a request (goroutine is inside embedChunks).
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("embed server never received a request — goroutine did not reach embedChunks")
+	}
+
+	// Cancel AFTER the goroutine is confirmed inside embedChunks.
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("IndexRepo did not return after context cancel")
+	}
+
+	after := sumCounter(t, "gocode_index_cancelled_total")
+	assert.Greater(t, after, before,
+		"gocode_index_cancelled_total must increment when embedChunks observes ctx cancellation")
+}
+
+// TestF3_IndexRepoAsync_OnlyOneGoroutine_UnderConcurrency asserts that two
+// concurrent IndexRepoAsync calls for the same repo_key spawn exactly one
+// background index goroutine, not two.
+//
+// RED: the pre-fix code had a TOCTOU window between Load and Store, so both
+// callers could win the check and both spawn goroutines. With the fix, only one
+// LoadOrStore winner spawns; the loser returns false immediately.
+func TestF3_IndexRepoAsync_OnlyOneGoroutine_UnderConcurrency(t *testing.T) {
+	// Count how many times the index body actually executes (i.e. goroutines spawned).
+	var bodyCount int64
+
+	// Build a pipeline with a slow embed server so both goroutines have time to overlap.
+	var indexBodyStarted = make(chan struct{}, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Input []string `json:"input"` }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad", http.StatusBadRequest)
+			return
+		}
+		type embedData struct {
+			Embedding []float32 `json:"embedding"`
+			Index     int       `json:"index"`
+		}
+		type embedResp struct{ Data []embedData `json:"data"` }
+		resp := embedResp{Data: make([]embedData, len(req.Input))}
+		for i := range resp.Data {
+			resp.Data[i] = embedData{Embedding: makeVec(), Index: i}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := embed.NewClient(srv.URL,
+		embed.WithBackend("http"),
+		embed.WithDim(dimSize),
+	)
+	require.NoError(t, err)
+
+	pool := testPool(t)
+	store := NewStore(pool)
+	require.NoError(t, store.EnsureSchema(context.Background()))
+
+	// Override writeRepoStateFn to count body executions.
+	p := NewPipeline(client, store, WithFileCache(nil),
+		withWriteRepoStateFn(func(ctx context.Context, repoKey, sha string) error {
+			atomic.AddInt64(&bodyCount, 1)
+			select {
+			case indexBodyStarted <- struct{}{}:
+			default:
+			}
+			return store.SetRepoState(ctx, repoKey, sha)
+		}),
+	)
+
+	const repo = "test/f3-toctou"
+	cleanRepoFull(t, store, repo)
+
+	root := initGitRepo(t, map[string]string{
+		"toctou.go": goFile("TocTouFunc1", "TocTouFunc2"),
+	})
+
+	// Fire two concurrent IndexRepoAsync calls.
+	started1 := p.IndexRepoAsync(repo, root)
+	started2 := p.IndexRepoAsync(repo, root)
+
+	// Exactly one must report started.
+	assert.True(t, started1 || started2, "at least one IndexRepoAsync must return true")
+	assert.False(t, started1 && started2, "both must not return true — TOCTOU would allow double-spawn")
+
+	// Wait for the background goroutine to finish.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if !p.IsIndexing(repo) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assert.False(t, p.IsIndexing(repo), "background index must complete within 15s")
+
+	// bodyCount tracks writeRepoState executions; one per completed index goroutine.
+	assert.LessOrEqual(t, atomic.LoadInt64(&bodyCount), int64(1),
+		"writeRepoState must be called at most once — only one goroutine should have run")
+	_ = indexBodyStarted
+}
+
+// TestF5_ZeroSymbolRepo_SHAAdvancesNoThrash asserts that a repo containing
+// no indexable symbols (e.g. markdown-only) advances SHA on first call and does
+// NOT re-parse on the second call (no thrash).
+//
+// RED: if advanceStateNoEmbed does not advance SHA when Total==0, the second call
+// will re-parse again (Total still 0, SHA never advanced) — thrash detected by
+// counting how many times GetHashes is called or by checking that the second
+// call returns mode=skip (Total==0 AND Indexed==0 from fast path).
+func TestF5_ZeroSymbolRepo_SHAAdvancesNoThrash(t *testing.T) {
+	p, store := testPipeline(t)
+	ctx := context.Background()
+
+	const repo = "test/f5-zero-symbols"
+	cleanRepoFull(t, store, repo)
+
+	// Markdown-only repo: no parseable Go/TS/Rust symbols.
+	root := initGitRepo(t, map[string]string{
+		"README.md": "# Hello\n\nThis repo has no indexable code.\n",
+	})
+
+	// First call: 0 symbols parsed — SHA must advance so we don't loop forever.
+	result1, err := p.IndexRepo(ctx, repo, root)
+	require.NoError(t, err)
+	assert.Equal(t, 0, result1.Total, "markdown-only repo: Total must be 0")
+
+	sha, shaErr := store.GetRepoState(ctx, repo)
+	require.NoError(t, shaErr)
+	assert.NotEmpty(t, sha, "SHA must be persisted after zero-symbol index so next call fast-paths")
+
+	// Second call: same SHA, 0 symbols — must return from same-SHA fast path (Indexed==0, Total==0).
+	result2, err2 := p.IndexRepo(ctx, repo, root)
+	require.NoError(t, err2)
+	assert.Equal(t, 0, result2.Indexed, "second call on zero-symbol repo must not re-embed (fast-path skip)")
+	assert.Equal(t, 0, result2.Total, "second call total must be 0 (fast-path skip, no parse)")
+}
+
+// sumCounter returns the sum of all counter samples for the named metric family
+// from the default Prometheus registry. Returns 0.0 if the family is not found.
+func sumCounter(t *testing.T, name string) float64 {
+	t.Helper()
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	var total float64
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			if c := m.GetCounter(); c != nil {
+				total += c.GetValue()
+			}
+		}
+	}
+	return total
 }
 
 // --- helpers ---

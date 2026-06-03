@@ -2,6 +2,7 @@ package embeddings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -145,15 +146,22 @@ func (p *Pipeline) IndexProgress(repoKey string) (done, total int, running bool)
 // Returns true if indexing was started, false if already in progress.
 // The background goroutine uses context.Background() (not the caller's context)
 // so that client disconnects do not abort the indexing — Bug #2 fix.
+//
+// Concurrency: the check-and-claim is atomic. Two concurrent callers for the
+// same repoKey will race on p.progress.LoadOrStore; only one wins the slot.
+// The loser sees the already-stored *indexProgress and checks running via
+// CompareAndSwap — if it is already true the loser returns false immediately.
+// This collapses the previous TOCTOU window where two callers could both pass
+// the Load check and both spawn a goroutine.
 func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
-	if v, loaded := p.progress.Load(repoKey); loaded {
-		if v.(*indexProgress).running.Load() {
-			return false
-		}
-	}
 	prog := &indexProgress{}
-	prog.running.Store(true)
-	p.progress.Store(repoKey, prog)
+	prog.running.Store(true) // claim before LoadOrStore so the winner's slot is always running=true
+	if _, loaded := p.progress.LoadOrStore(repoKey, prog); loaded {
+		// Slot already taken by a concurrent or still-running goroutine.
+		// The loser discards prog — no goroutine is spawned.
+		return false
+	}
+	// We won the slot. The stored prog already has running=true.
 	go func() {
 		defer func() {
 			prog.running.Store(false)
@@ -378,11 +386,15 @@ func deleteIntraKeyOrphans(ctx context.Context, store *Store, repoKey string, pa
 func (p *Pipeline) embedChunks(ctx context.Context, repoKey string, toEmbed []symbolEntry, result *IndexResult, prog *indexProgress) error {
 	for start := 0; start < len(toEmbed); start += indexChunkSize {
 		if ctx.Err() != nil {
+			RecordIndexCancelled("unknown", "chunk_loop")
 			return ctx.Err()
 		}
 		end := min(start+indexChunkSize, len(toEmbed))
 		indexed, err := p.embedAndUpsert(ctx, repoKey, toEmbed[start:end])
 		if err != nil {
+			if isContextErr(err) {
+				RecordIndexCancelled("unknown", "chunk_loop")
+			}
 			return err
 		}
 		result.Indexed += indexed
@@ -518,4 +530,11 @@ type symbolEntry struct {
 	file      *ingest.File
 	hash      uint64
 	embedText string
+}
+
+// isContextErr reports whether err wraps context.Canceled or context.DeadlineExceeded.
+// Used by embedChunks to detect when the embed client propagated a context error
+// through multiple wrapping layers (e.g. "embed symbols: ... context canceled").
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

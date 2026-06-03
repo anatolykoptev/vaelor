@@ -547,9 +547,10 @@ func (s *Store) CountOrphanRepoKeys(ctx context.Context) (int64, error) {
 // The query uses the (repo_key) index so it is cheap (index scan + aggregate).
 // It runs only on the same-SHA branch so it never adds latency to populated repos.
 //
-// Returns 0 on any error (schema init, connection) so the gate can safely treat
-// "unknown count" as "assume populated → skip" (conservative: never force
-// unnecessary re-index on DB error).
+// On error: returns (0, err). All three callers treat a non-nil error as
+// fail-open — they fall through to re-index rather than skipping. This is the
+// correct behaviour: a transient COUNT failure should not freeze a repo forever
+// (fail-open: a frozen repo recovers even if COUNT transiently fails).
 func (s *Store) CountEmbeddings(ctx context.Context, repoKey string) (int, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return 0, err

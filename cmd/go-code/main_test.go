@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // TestToolTimeoutsUnderstand asserts that the understand tool has an explicit
@@ -25,6 +27,42 @@ func TestToolTimeoutsUnderstand(t *testing.T) {
 	const want = 30 * time.Second
 	if d != want {
 		t.Errorf("toolTimeouts[\"understand\"] = %v, want %v", d, want)
+	}
+}
+
+// TestBuildInfoMetric asserts that the gocode_build_info gauge is registered
+// in the default Prometheus registry with a non-empty git_sha label.
+//
+// Anti-tautology: without build_info_metric.go (or if resolveBuildSHA returns ""),
+// no gauge is registered → the metric family is absent → the inner loop never
+// executes → assert fires.
+func TestBuildInfoMetric(t *testing.T) {
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("DefaultGatherer.Gather: %v", err)
+	}
+	var found bool
+	var gitSHA string
+	for _, mf := range mfs {
+		if mf.GetName() != "gocode_build_info" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "git_sha" {
+					gitSHA = lp.GetValue()
+				}
+			}
+			if m.GetGauge() != nil && m.GetGauge().GetValue() == 1 {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("gocode_build_info gauge missing or not equal to 1 — deploy provenance metric not registered at startup")
+	}
+	if gitSHA == "" {
+		t.Fatal("gocode_build_info{git_sha} label is empty — SHA must be non-empty (or 'unknown' fallback)")
 	}
 }
 
