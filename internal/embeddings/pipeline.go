@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 	"github.com/anatolykoptev/go-kit/embed"
@@ -40,6 +41,12 @@ type indexProgress struct {
 	running atomic.Bool
 }
 
+// defaultIndexBudget is the fallback timeout for the background index goroutine
+// when no WithIndexBudget option is provided. 30 minutes gives ample headroom for
+// the largest repos (go-code itself is ~5k symbols × multiple chunks) while still
+// bounding a goroutine that is stuck waiting on a permanently-unreachable embed server.
+const defaultIndexBudget = 30 * time.Minute
+
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
 	client            *embed.Client
@@ -50,6 +57,7 @@ type Pipeline struct {
 	fileCache         *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
 	sparseClient      sparse.SparseEmbedder                                // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
 	sparseMaxBatch    int                                                  // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
+	indexBudget       time.Duration                                        // per-goroutine timeout for IndexRepoAsyncWithTool; 0 uses defaultIndexBudget
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
@@ -109,6 +117,19 @@ func WithSparseMaxBatch(n int) PipelineOpt {
 	}
 }
 
+// WithIndexBudget sets the per-goroutine deadline for IndexRepoAsyncWithTool.
+// When the budget expires the background goroutine's context is cancelled,
+// which propagates to embedAndUpsert and terminates the stuck goroutine.
+// d=0 uses the defaultIndexBudget (30m). Set via INDEX_BUDGET env var in the
+// cmd layer (e.g. "INDEX_BUDGET=45m"); test code passes short durations directly.
+func WithIndexBudget(d time.Duration) PipelineOpt {
+	return func(p *Pipeline) {
+		if d > 0 {
+			p.indexBudget = d
+		}
+	}
+}
+
 // withWriteRepoStateFn overrides the SetRepoState implementation used by all
 // pipeline code paths. For testing only — allows injection of a failing writer
 // without touching the real Postgres store.
@@ -147,13 +168,30 @@ func (p *Pipeline) IndexProgress(repoKey string) (done, total int, running bool)
 // The background goroutine uses context.Background() (not the caller's context)
 // so that client disconnects do not abort the indexing — Bug #2 fix.
 //
-// Concurrency: the check-and-claim is atomic. Two concurrent callers for the
-// same repoKey will race on p.progress.LoadOrStore; only one wins the slot.
-// The loser sees the already-stored *indexProgress and checks running via
-// CompareAndSwap — if it is already true the loser returns false immediately.
-// This collapses the previous TOCTOU window where two callers could both pass
-// the Load check and both spawn a goroutine.
+// This is a backward-compatible wrapper around IndexRepoAsyncWithTool that passes
+// tool="autoindex". Callers that know their triggering MCP tool should use
+// IndexRepoAsyncWithTool directly so the cancel counter is properly attributed.
 func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
+	return p.IndexRepoAsyncWithTool("autoindex", repoKey, root)
+}
+
+// IndexRepoAsyncWithTool starts background indexing if not already running, with
+// tool attribution for observability. Returns true if indexing was started, false
+// if already in progress.
+//
+// The background goroutine runs under a bounded context (p.indexBudget, default 30m)
+// derived from context.Background() — decoupled from any request context (Bug #2 fix)
+// but bounded so a goroutine waiting on a permanently-unreachable embed server does
+// not leak indefinitely.
+//
+// tool is the MCP tool name that triggered this index (e.g. "semantic_search",
+// "code_research"). It labels the gocode_index_cancelled_total counter so
+// cancellations are attributable. Callers that do not know the tool should pass
+// "autoindex".
+//
+// Concurrency: the check-and-claim is atomic (LoadOrStore); only one goroutine per
+// repoKey runs at a time.
+func (p *Pipeline) IndexRepoAsyncWithTool(tool, repoKey, root string) bool {
 	prog := &indexProgress{}
 	prog.running.Store(true) // claim before LoadOrStore so the winner's slot is always running=true
 	if _, loaded := p.progress.LoadOrStore(repoKey, prog); loaded {
@@ -161,20 +199,29 @@ func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
 		// The loser discards prog — no goroutine is spawned.
 		return false
 	}
+	budget := p.indexBudget
+	if budget <= 0 {
+		budget = defaultIndexBudget
+	}
 	// We won the slot. The stored prog already has running=true.
 	go func() {
 		defer func() {
 			prog.running.Store(false)
 			p.progress.Delete(repoKey)
 		}()
-		ctx := context.Background()
-		result, err := p.indexRepo(ctx, repoKey, root, prog)
+		ctx, cancel := context.WithTimeout(context.Background(), budget)
+		defer cancel()
+		result, err := p.indexRepoWithTool(ctx, tool, repoKey, root, prog)
 		if err != nil {
-			slog.Error("background index failed", slog.String("repo", repoKey), slog.Any("error", err))
+			slog.Error("background index failed",
+				slog.String("repo", repoKey),
+				slog.String("tool", tool),
+				slog.Any("error", err))
 			return
 		}
 		slog.Info("background index complete",
 			slog.String("repo", repoKey),
+			slog.String("tool", tool),
 			slog.Int("indexed", result.Indexed),
 			slog.Int("skipped", result.Skipped),
 			slog.Int("total", result.Total))
@@ -191,7 +238,7 @@ type IndexResult struct {
 
 // IndexRepo indexes all functions and methods in a repository for semantic search.
 func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexResult, error) {
-	return p.indexRepo(ctx, repoKey, root, nil)
+	return p.indexRepoWithTool(ctx, "unknown", repoKey, root, nil)
 }
 
 // shortSHA returns the first shortSHALen chars of a SHA for log messages.
@@ -266,9 +313,10 @@ func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, currentSHA 
 	return result, nil
 }
 
-// indexRepo is the internal implementation that optionally reports progress.
-func (p *Pipeline) indexRepo(
-	ctx context.Context, repoKey, root string, prog *indexProgress,
+// indexRepoWithTool is the internal implementation that optionally reports progress.
+// tool is passed down to embedChunks for cancel-counter attribution.
+func (p *Pipeline) indexRepoWithTool(
+	ctx context.Context, tool, repoKey, root string, prog *indexProgress,
 ) (*IndexResult, error) {
 	// Fast path: skip the entire parse + embed cycle when the repo's main
 	// branch has not moved since the last successful index. Cuts boot-time
@@ -319,7 +367,7 @@ func (p *Pipeline) indexRepo(
 		return p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
 	}
 
-	if err := p.embedChunks(ctx, repoKey, toEmbed, result, prog); err != nil {
+	if err := p.embedChunks(ctx, repoKey, tool, toEmbed, result, prog); err != nil {
 		return nil, err
 	}
 
@@ -383,21 +431,45 @@ func deleteIntraKeyOrphans(ctx context.Context, store *Store, repoKey string, pa
 // embedChunks processes toEmbed in indexChunkSize batches, writing dense (and
 // sparse when configured) vectors to the store. Updates result.Indexed and prog
 // as each chunk completes. Returns the first error encountered.
-func (p *Pipeline) embedChunks(ctx context.Context, repoKey string, toEmbed []symbolEntry, result *IndexResult, prog *indexProgress) error {
+//
+// Observability: each successfully committed chunk logs at Info so mid-run stalls
+// are visible in the log stream ("chunk 1 committed, chunk 2 never logged"). On any
+// error, if ≥1 chunk was already committed (rowsWritten > 0), RecordIndexPartialAbort
+// is bumped — this is the "0→100→0→100" churn signature: rows survive but SHA is
+// frozen because indexRepo only advances SHA on full success.
+//
+// tool is threaded through for attributable cancel accounting; pass "unknown" when
+// the triggering tool is not available (legacy callers and non-async paths).
+func (p *Pipeline) embedChunks(ctx context.Context, repoKey, tool string, toEmbed []symbolEntry, result *IndexResult, prog *indexProgress) error {
+	chunkIdx := 0
 	for start := 0; start < len(toEmbed); start += indexChunkSize {
 		if ctx.Err() != nil {
-			RecordIndexCancelled("unknown", "chunk_loop")
+			RecordIndexCancelled(tool, "chunk_loop")
+			if result.Indexed > 0 {
+				RecordIndexPartialAbort(repoKey)
+			}
 			return ctx.Err()
 		}
 		end := min(start+indexChunkSize, len(toEmbed))
+		chunkStart := time.Now()
 		indexed, err := p.embedAndUpsert(ctx, repoKey, toEmbed[start:end])
 		if err != nil {
 			if isContextErr(err) {
-				RecordIndexCancelled("unknown", "chunk_loop")
+				RecordIndexCancelled(tool, "chunk_loop")
+			}
+			if result.Indexed > 0 {
+				RecordIndexPartialAbort(repoKey)
 			}
 			return err
 		}
 		result.Indexed += indexed
+		slog.Info("index chunk committed",
+			slog.String("repo", repoKey),
+			slog.Int("chunk_idx", chunkIdx),
+			slog.Int("rows", indexed),
+			slog.Duration("elapsed", time.Since(chunkStart)),
+		)
+		chunkIdx++
 		if prog != nil {
 			atomic.StoreInt64(&prog.done, int64(end))
 		}
