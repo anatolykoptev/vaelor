@@ -32,10 +32,35 @@ var autoindexDurationSeconds = promauto.NewHistogramVec(
 	[]string{"repo", "outcome"},
 )
 
+// gocode_autoindex_in_flight is a gauge of autoindex goroutines currently
+// holding a semaphore slot (i.e. actively indexing). With concurrency=1
+// this is 0 or 1; raising it to 2 makes overload visible immediately.
+var autoindexInFlight = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "gocode_autoindex_in_flight",
+	Help: "Number of autoindex goroutines currently holding a concurrency slot.",
+})
+
+// gocode_autoindex_deferred_total counts repos that had to BLOCK waiting for a
+// semaphore slot (true queue pressure). Repos that acquire a slot immediately
+// via TryAcquire are NOT counted. High values with concurrency=1 confirm the
+// embed backend is the bottleneck; raise concurrency only when the embed
+// backend is confirmed multi-worker.
+var autoindexDeferredTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_autoindex_deferred_total",
+		Help: "Autoindex repos that had to wait for a concurrency slot (true queue pressure), by repo.",
+	},
+	[]string{"repo"},
+)
+
 func recordAutoIndexRetry(repo, reason string) {
 	autoindexRetryTotal.WithLabelValues(repo, reason).Inc()
 }
 
 func recordAutoIndexDuration(repo, outcome string, d time.Duration) {
 	autoindexDurationSeconds.WithLabelValues(repo, outcome).Observe(d.Seconds())
+}
+
+func recordAutoIndexDeferred(repo string) {
+	autoindexDeferredTotal.WithLabelValues(repo).Inc()
 }
