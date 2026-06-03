@@ -139,6 +139,12 @@ type Config struct {
 	// at index time (CODEGRAPH_SURPRISE_INDEX=1). Default off.
 	CodegraphSurpriseIndex bool
 
+	// FlowsMax caps the number of flows extracted per repo (FLOWS_MAX, default 50).
+	FlowsMax int
+
+	// FlowsDFSDepth bounds the DFS traversal depth per flow (FLOWS_DFS_DEPTH, default 8).
+	FlowsDFSDepth int
+
 	// EmbedPipelineCache toggles the per-file symbol-entry cache wrapped around
 	// the embed pipeline (Stream 4). Default true. Set EMBED_PIPELINE_CACHE=false
 	// to fall back to the byte-identical v0.32.0 indexer behavior.
@@ -426,6 +432,8 @@ func loadConfig() (Config, error) {
 		DesignEmbedModel:       env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
 		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
+		FlowsMax:               env.Int("FLOWS_MAX", 0),     // 0 → applyConfigDefaults uses flowsMax=50
+		FlowsDFSDepth:          env.Int("FLOWS_DFS_DEPTH", 0), // 0 → applyConfigDefaults uses flowsDFSDepth=8
 		EmbedPipelineCache:     env.Bool("EMBED_PIPELINE_CACHE", true),
 
 		AnalyzeRankFusionMode:     mode,

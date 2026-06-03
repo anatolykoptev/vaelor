@@ -31,7 +31,7 @@ func TestBuildGraphCreatesImportsEdges(t *testing.T) {
 		"internal/util.go": {"fmt", "strings"},
 	}
 
-	_, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
+	_, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
 
 	// Count IMPORTS edges.
 	importsEdgeCount := 0
@@ -83,7 +83,7 @@ func TestBuildGraphCreatesExternalPackageVertices(t *testing.T) {
 		"main.go": {"fmt", "github.com/pkg/errors"},
 	}
 
-	vertices, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
+	vertices, _, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
 
 	// Collect external Package vertices.
 	externalPkgs := make(map[string]string) // path -> repo
@@ -129,7 +129,7 @@ func TestBuildGraphLocalImportNoExternalVertex(t *testing.T) {
 		"main.go": {"internal"},
 	}
 
-	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
+	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
 
 	// Count Package vertices with path="internal".
 	internalPkgCount := 0
@@ -175,7 +175,7 @@ func TestBuildGraphDeduplicatesExternalPackages(t *testing.T) {
 		"b.go": {"fmt"},
 	}
 
-	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
+	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: fileImports})
 
 	// Count external Package vertices for "fmt".
 	fmtPkgCount := 0
@@ -229,7 +229,7 @@ func TestBuildGraphFullImportPathMapsToLocalContainer(t *testing.T) {
 		"internal/fleet/docker/driver.go": {"github.com/docker/docker/client"},
 	}
 
-	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
 
 	// The local IMPORTS edge must target the container dir, not the full path.
 	var localEdgeToKey string
@@ -286,7 +286,7 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 	cg := &callgraph.CallGraph{}
 
 	// Test with nil map.
-	_, edges := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg})
+	_, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg})
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" {
 			t.Error("unexpected IMPORTS edge with nil fileImports")
@@ -294,7 +294,7 @@ func TestBuildGraphEmptyImports(t *testing.T) {
 	}
 
 	// Test with empty map.
-	_, edges = buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: map[string][]string{}})
+	_, edges, _ = buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, FileImports: map[string][]string{}})
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" {
 			t.Error("unexpected IMPORTS edge with empty fileImports")
@@ -328,7 +328,7 @@ func TestBuildGraphRelativeTSImportResolvesToContainer(t *testing.T) {
 		},
 	}
 
-	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
 
 	wantEdge := map[string]string{
 		"./chat":         "web/src/lib",
@@ -403,7 +403,7 @@ func TestBuildGraphSvelteKitLibAliasResolvesToContainer(t *testing.T) {
 		"web/src/routes/+page.svelte": {"$lib/i18n", "svelte"},
 	}
 
-	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
 
 	// The IMPORTS edge for "$lib/i18n" must target "web/src/lib", not "$lib/i18n".
 	var libEdgeToKey string
@@ -460,7 +460,7 @@ func TestBuildGraphWorkspaceAliasResolvesToContainer(t *testing.T) {
 		"web/src/lib/app.ts": {"@acme/mesh-core", "react"},
 	}
 
-	vertices, edges := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
+	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
 
 	// The IMPORTS edge for "@acme/mesh-core" must target "packages/mesh-core".
 	var meshEdgeToKey string
