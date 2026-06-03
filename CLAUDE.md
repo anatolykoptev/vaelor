@@ -82,6 +82,7 @@
 | `GITHUB_SEARCH_REPOS` | optional | Default repos for quick-mode code search |
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp clone location |
 | `MAX_FILE_KB` | `512` | |
+| `INDEX_SKIP_DIRS` | `` | Comma-separated dir names appended to the built-in skip set (`vendor`, `node_modules`, `target`, etc.). E.g. `INDEX_SKIP_DIRS=mygenerated,legacy`. Empty = default list only. |
 | `MAX_REPO_MB` | `200` | |
 | `REDIS_URL` | optional | L2 cache, DB 6 |
 | `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
