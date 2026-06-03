@@ -16,9 +16,19 @@ const ageExpandSetup = `SET search_path TO ag_catalog, "$user", public`
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
 const graphRowCols = 3
 
+// cypherExecFn is the test seam over the AGE Cypher executor. Production leaves it
+// nil and execCypherN runs the pool-backed path (execCypherNPool); unit tests inject
+// a deterministic fake so the exact-vs-heuristic dispatcher, the IMPLEMENTS
+// presence-probe, and the 2-hop result parsing can be exercised without a live AGE DB.
+type cypherExecFn func(ctx context.Context, graphName, cypher, colDefs string) [][]string
+
 // Expander enriches semantic search results with 1-hop CALLS neighbors from Apache AGE.
 type Expander struct {
 	pool *pgxpool.Pool
+	// execCypherFn, when non-nil, replaces the pool-backed Cypher executor. It is
+	// the injection point for unit tests; production wiring (NewExpander) leaves it
+	// nil so execCypherN uses the real pool path.
+	execCypherFn cypherExecFn
 }
 
 // NewExpander creates an Expander backed by the given connection pool.
@@ -105,7 +115,19 @@ func (e *Expander) execCypher(ctx context.Context, graphName string, cypher stri
 // AGE requires the AS-clause arity to match the RETURN arity exactly; a mismatch
 // raises "return row and column definition list do not match" → conn.Query errors
 // → nil is returned. Returns nil on any error.
+//
+// When execCypherFn is set (unit tests), it replaces the pool-backed path; otherwise
+// execCypherNPool runs against the live AGE pool.
 func (e *Expander) execCypherN(ctx context.Context, graphName, cypher, colDefs string) [][]string {
+	if e.execCypherFn != nil {
+		return e.execCypherFn(ctx, graphName, cypher, colDefs)
+	}
+	return e.execCypherNPool(ctx, graphName, cypher, colDefs)
+}
+
+// execCypherNPool is the pool-backed AGE executor. See execCypherN for the column
+// contract. Returns nil on any error (graph missing, AGE unavailable, etc.).
+func (e *Expander) execCypherNPool(ctx context.Context, graphName, cypher, colDefs string) [][]string {
 	conn, err := e.pool.Acquire(ctx)
 	if err != nil {
 		slog.Debug("graph expand: acquire connection failed", slog.Any("error", err))
