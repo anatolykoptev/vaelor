@@ -113,17 +113,33 @@ func (e *Expander) PairsConnectedByCalls(ctx context.Context, graphName string, 
 	return connected, nil
 }
 
-// PairsSharingInterface returns the subset of pairs where both endpoints implement
-// the same interface node in the AGE graph via IMPLEMENTS edges.
+// PairsSharingInterface returns the subset of pairs that are interface-impl
+// siblings rather than refactor-worthy duplicates.
 //
-// Interface-sibling pairs are the largest false-positive class: multiple structs
-// implementing the same interface (e.g. four Search methods) look semantically
-// identical but are distinct correct implementations, not duplicates.
+// Interface-sibling pairs are the largest false-positive class: multiple concrete
+// types implementing the same interface (e.g. *GitHubForge.FetchREADME vs
+// *GitLabForge.FetchREADME, or four Search methods) look semantically identical
+// but are distinct correct implementations, not duplicates.
 //
-// The Cypher matches (a)-[:IMPLEMENTS]->(i)<-[:IMPLEMENTS]-(b). AGE returns both
-// (a,b) and (b,a) orderings plus a==b self-matches; canonical PairKey (A<=B)
-// deduplicates them and skips A==B automatically (same endpoint → same key → not
-// in input set unless explicitly added).
+// Why not IMPLEMENTS edges: Go interface satisfaction is structural/type-level —
+// there is no `implements` keyword for tree-sitter to capture, so the codegraph
+// indexer emits ZERO IMPLEMENTS edges for Go (verified on the go-code self-index:
+// IMPLEMENTS=0 while CALLS=11934). The original (a)-[:IMPLEMENTS]->(i)<-[:IMPLEMENTS]-(b)
+// Cypher was therefore identically empty — a dead filter. The real IMPLEMENTS-edge
+// population via go/types is tracked as a follow-up (see docs); until then this
+// method uses a signature-receiver discriminator on the Symbol vertices.
+//
+// Discriminator: a pair is an interface sibling when both endpoints are methods,
+// share the same method name + identical receiver-stripped signature, and sit on
+// DISTINCT receiver types. Free functions (no receiver) never match, so genuine
+// cross-package reinvention of same-named free functions (countSourceFiles,
+// commonPrefixLen) is preserved.
+//
+// The Cypher matches same-name Symbol-vertex pairs (no edge traversal) and returns
+// each endpoint's file/kind/signature; the discriminator runs in Go. AGE returns
+// both (a,b) and (b,a) orderings plus a==b self-matches; canonical PairKey (A<=B)
+// deduplicates them and the discriminator's distinct-receiver requirement skips
+// self-matches.
 //
 // Same graceful-degradation contract as PairsConnectedByCalls.
 func (e *Expander) PairsSharingInterface(ctx context.Context, graphName string, pairs []PairKey) (map[PairKey]bool, error) {
@@ -143,24 +159,32 @@ func (e *Expander) PairsSharingInterface(ctx context.Context, graphName string, 
 
 	nameFilterA := buildNameFilter("a", names)
 	nameFilterB := buildNameFilter("b", names)
-	cypher := "MATCH (a)-[:IMPLEMENTS]->(i)<-[:IMPLEMENTS]-(b) WHERE (" + nameFilterA + ") AND (" + nameFilterB + ") RETURN a.name, a.file, b.name, b.file"
+	cypher := "MATCH (a:Symbol), (b:Symbol) WHERE (" + nameFilterA + ") AND (" + nameFilterB + ")" +
+		" AND a.kind = 'method' AND b.kind = 'method'" +
+		" RETURN a.name, a.file, a.kind, a.signature, b.name, b.file, b.kind, b.signature"
 
-	rows := e.execCypherN(ctx, graphName, cypher, "aname agtype, afile agtype, bname agtype, bfile agtype")
+	rows := e.execCypherN(ctx, graphName, cypher,
+		"aname agtype, afile agtype, akind agtype, asig agtype, bname agtype, bfile agtype, bkind agtype, bsig agtype")
 
 	siblings := make(map[PairKey]bool)
 	for _, row := range rows {
-		if len(row) < pairEdgeCols {
+		if len(row) < ifacePairCols {
 			continue
 		}
 		aName := stripAgtypeQuotes(row[0])
 		aFile := stripAgtypeQuotes(row[1])
-		bName := stripAgtypeQuotes(row[2])
-		bFile := stripAgtypeQuotes(row[3])
+		aSig := stripAgtypeQuotes(row[3])
+		bName := stripAgtypeQuotes(row[4])
+		bFile := stripAgtypeQuotes(row[5])
+		bSig := stripAgtypeQuotes(row[7])
 		if aName == "" || aFile == "" || bName == "" || bFile == "" {
 			continue
 		}
 		// Skip self-matches (a and b resolved to the same endpoint).
 		if aFile == bFile && aName == bName {
+			continue
+		}
+		if !isInterfaceSiblingPair(aName, parseSignature(aSig), bName, parseSignature(bSig)) {
 			continue
 		}
 		pk := NewPairKey(aFile, aName, bFile, bName)

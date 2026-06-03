@@ -147,7 +147,7 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 		repoKey, // graphName == repoKey for AGE
 		repoKey,
 		totalSymbols,
-		semhealth.TriageOpts{IncludeSameFile: in.IncludeSameFile},
+		semhealth.TriageOpts{IncludeSameFile: in.IncludeSameFile, Root: root},
 	)
 
 	if res == nil {
