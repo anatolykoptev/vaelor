@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // repoMainBranchSHA returns the sha of the repo's main branch (main → master →
@@ -51,6 +52,27 @@ func (s *Store) GetRepoState(ctx context.Context, repoKey string) (string, error
 		return "", err
 	}
 	return sha, nil
+}
+
+// GetIndexedAt returns the indexed_at timestamp for a repo, or zero time when no
+// row exists (repo never indexed). Used by stale-demote to determine the
+// current index generation: any embedding row with updated_at < indexed_at
+// was not re-touched this generation and is a candidate orphan.
+//
+// Returns zero time on any error (schema init failure, no rows) so callers can
+// treat zero as "generation unknown → skip demote" safely.
+func (s *Store) GetIndexedAt(ctx context.Context, repoKey string) time.Time {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return time.Time{}
+	}
+	var ts time.Time
+	err := s.pool.QueryRow(ctx,
+		`SELECT indexed_at FROM public.code_repo_state WHERE repo_key = $1`, repoKey).
+		Scan(&ts)
+	if err != nil {
+		return time.Time{}
+	}
+	return ts
 }
 
 // SetRepoState records the sha that was successfully indexed.

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -105,9 +106,10 @@ type SearchResult struct {
 	SymbolKind string
 	Language   string
 	StartLine  int
-	Distance   float32 // cosine distance (lower = more similar)
-	Source     string  // "semantic", "keyword", "hybrid", "graph" — set by caller
-	PageRank   float32 // structural importance from graph analysis (0 if not available)
+	Distance   float32   // cosine distance (lower = more similar)
+	Source     string    // "semantic", "keyword", "hybrid", "graph" — set by caller
+	PageRank   float32   // structural importance from graph analysis (0 if not available)
+	UpdatedAt  time.Time // last upsert time — used by stale-demote safety-net
 }
 
 // Store manages vector embeddings in PostgreSQL with pgvector.
@@ -280,7 +282,7 @@ func (s *Store) Search(ctx context.Context, query []float32, opts SearchOpts) ([
 		args = append(args, opts.MaxDistance)
 	}
 	q := `SELECT repo_key,file_path,symbol_name,symbol_kind,language,start_line,
-		embedding <=> $1 AS distance FROM public.code_embeddings`
+		embedding <=> $1 AS distance,updated_at FROM public.code_embeddings`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -294,7 +296,7 @@ func (s *Store) Search(ctx context.Context, query []float32, opts SearchOpts) ([
 	for rows.Next() {
 		var r SearchResult
 		if err := rows.Scan(&r.RepoKey, &r.FilePath, &r.SymbolName,
-			&r.SymbolKind, &r.Language, &r.StartLine, &r.Distance); err != nil {
+			&r.SymbolKind, &r.Language, &r.StartLine, &r.Distance, &r.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
 		}
 		results = append(results, r)
