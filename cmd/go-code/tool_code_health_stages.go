@@ -71,7 +71,7 @@ func collectSemanticDupGroups(ctx context.Context, semDeps *SemanticDeps, root s
 		repoKey, // graphName == repoKey for AGE
 		repoKey,
 		funcCount,
-		semhealth.TriageOpts{},
+		semhealth.TriageOpts{Root: root},
 	)
 	if triage != nil {
 		if triage.TimedOut {

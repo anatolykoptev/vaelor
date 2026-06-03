@@ -79,6 +79,7 @@ func init() {
 		dupFilterTests,
 		dupFilterSameFile,
 		dupFilterKind,
+		dupFilterBuildTag,
 		dupFilterCallsEdge,
 		dupFilterInterfaceSibling,
 	} {
