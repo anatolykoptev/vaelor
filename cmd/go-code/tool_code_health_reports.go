@@ -96,6 +96,7 @@ type xmlSemanticReport struct {
 
 type xmlDupGroup struct {
 	Similarity string         `xml:"similarity,attr"`
+	Tier       string         `xml:"tier,attr,omitempty"`
 	Symbols    []xmlDupSymbol `xml:"function"`
 }
 
@@ -103,6 +104,7 @@ type xmlDupSymbol struct {
 	Name string `xml:"name,attr"`
 	File string `xml:"file,attr"`
 	Line int    `xml:"line,attr"`
+	Kind string `xml:"kind,attr,omitempty"`
 }
 
 func buildMagicNumbersXML(name, language string, entries []compare.MagicNumberEntry) xmlMagicNumbersResponse {
@@ -123,10 +125,11 @@ func buildSemanticDupXML(name, language string, groups []semhealth.DupGroup) xml
 	for i, g := range groups {
 		syms := make([]xmlDupSymbol, len(g.Symbols))
 		for j, s := range g.Symbols {
-			syms[j] = xmlDupSymbol{Name: s.Name, File: s.File, Line: s.Line}
+			syms[j] = xmlDupSymbol{Name: s.Name, File: s.File, Line: s.Line, Kind: s.Kind}
 		}
 		xmlGroups[i] = xmlDupGroup{
 			Similarity: fmt.Sprintf("%.2f", g.AvgSimilarity),
+			Tier:       g.Tier,
 			Symbols:    syms,
 		}
 	}

@@ -72,6 +72,8 @@ ALTER TABLE public.code_embeddings
     ADD COLUMN IF NOT EXISTS sparse_embedding sparsevec(30522);
 CREATE INDEX IF NOT EXISTS code_embeddings_sparse_hnsw ON public.code_embeddings
     USING hnsw (sparse_embedding sparsevec_ip_ops);
+CREATE INDEX IF NOT EXISTS idx_code_embeddings_body_hash ON public.code_embeddings
+    (repo_key, body_hash) WHERE body_hash <> 0;
 CREATE TABLE IF NOT EXISTS public.code_repo_state (
     repo_key TEXT PRIMARY KEY,
     head_sha TEXT NOT NULL,
