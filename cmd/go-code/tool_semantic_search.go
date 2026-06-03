@@ -282,13 +282,21 @@ func semanticOnlyResult(
 	return finalResult(ctx, input, deps, repoKey, root, filtered, topK, t0)
 }
 
-// finalResult runs CE reranking → PageRank annotation → freshness wrap → format.
+// finalResult runs stale-demote → CE reranking → PageRank annotation → freshness wrap → format.
 // Shared terminal step for both the hybrid and semantic-only paths.
 func finalResult(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, candidates []embeddings.SearchResult,
 	topK int, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
+	// Stale-demote safety-net (defense-in-depth on top of Bug B orphan hard-delete):
+	// partition fresh-then-stale so missed orphan rows surface at the bottom, not
+	// at rank 1-5. Binary signal: updated_at vs indexed_at generation. Non-op when
+	// generation is zero (store unavailable) or STALE_DEMOTE=off.
+	if deps.Store != nil {
+		generation := deps.Store.GetIndexedAt(ctx, repoKey)
+		candidates = embeddings.ApplyStaleDemote(candidates, generation, embeddings.StaleDemoteEnabled())
+	}
 	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, candidates, topK)
 	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
 	hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
