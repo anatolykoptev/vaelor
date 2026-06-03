@@ -290,6 +290,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerWPPluginSearch(server, cfg, deps)
 	registerSemanticSearch(server, cfg, semDeps)
 	registerSparseBackfill(server, cfg, semDeps)
+	registerOrphanSweep(server, semDeps)
 	registerCodeResearch(server, cfg, deps, &semDeps)
 	registerSiteAnalyze(server, cfg)
 	registerSiteCrawl(server, cfg)
