@@ -115,6 +115,15 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Int("files", len(allFiles)),
 		slog.Duration("elapsed", time.Since(t1)))
 
+	// Go-only IMPLEMENTS enrichment: tree-sitter cannot see structural interface
+	// satisfaction (no `implements` keyword), so allRels from ingestAndParse carries
+	// only embedding (INHERITS) edges for Go. Compute (type→interface) satisfaction
+	// via go/types and append it as RelImplements relationships, which flow through
+	// the same buildRelationshipEdges path as the tree-sitter rels. Non-fatal and
+	// bounded: on go.mod-absent / load-failure / timeout this returns nil and the
+	// find_duplicates filter degrades to its signature heuristic.
+	allRels = append(allRels, extractGoImplements(ctx, root)...)
+
 	t2 := time.Now()
 	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
 	hookRoutes := extractHookRoutes(root, allFiles)
