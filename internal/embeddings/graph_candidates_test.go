@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -352,36 +353,9 @@ func TestGraphSubArmPageRank_ReturnsRelevantSymbolsByPageRank(t *testing.T) {
 	})
 }
 
-// containsLower is a local helper for TestGraphSubArmPageRank_ReturnsRelevantSymbolsByPageRank
-// that replicates the old code's strings.Contains(toLower(name), toLower(term)) check.
+// containsLower reports whether s contains substr, case-insensitively.
 func containsLower(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		func() bool {
-			for i := range s {
-				if i+len(substr) > len(s) {
-					break
-				}
-				match := true
-				for j := range substr {
-					cs := s[i+j]
-					if cs >= 'A' && cs <= 'Z' {
-						cs += 'a' - 'A'
-					}
-					ct := substr[j]
-					if ct >= 'A' && ct <= 'Z' {
-						ct += 'a' - 'A'
-					}
-					if cs != ct {
-						match = false
-						break
-					}
-				}
-				if match {
-					return true
-				}
-			}
-			return false
-		}()
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // TestGraphSubArmPageRank_FileMatchWorks verifies that a keyword present in the
@@ -469,8 +443,17 @@ func TestGraphSubArmPageRank_EmptyQueryTerms(t *testing.T) {
 	}
 }
 
-// TestGraphSubArmPageRank_InjectionSafe verifies that a keyword with a single quote
-// does not break the Cypher query (escapeCypherName handles it).
+// TestGraphSubArmPageRank_InjectionSafe verifies that malicious keywords do not
+// break the Cypher query or mutate the graph. There are two layers of protection:
+//
+//  1. lextoken.KeywordTokenize (upstream) reduces query terms to [a-z0-9]+ —
+//     the primary production guard (any quote/backslash/semicolon is stripped
+//     before terms reach graphSubArmPageRank).
+//  2. escapeCypherName (defense-in-depth) correctly escapes backslash then
+//     single-quote in the literal-quote/backslash class.
+//
+// This test pins BOTH layers so that a future refactor that feeds un-tokenized
+// terms to graphSubArmPageRank must fail a test.
 func TestGraphSubArmPageRank_InjectionSafe(t *testing.T) {
 	pool := testPoolPR(t)
 	graphName, cleanup := seedPageRankGraph(t, pool)
@@ -478,17 +461,61 @@ func TestGraphSubArmPageRank_InjectionSafe(t *testing.T) {
 
 	exp := NewExpander(pool)
 
-	// A keyword with a single quote would break unescaped Cypher.
-	// The function must return 0 hits (no symbol matches) without panicking or erroring.
-	malicious := []string{"O'Brien", "'; DROP GRAPH test--"}
-	hits := exp.graphSubArmPageRank(context.Background(), graphName, malicious, make(map[string]bool), 10)
-	// No match expected; the important thing is no panic and no graph drop.
-	_ = hits // result may be nil or empty — both are correct
+	t.Run("quote_payloads", func(t *testing.T) {
+		// Single-quote and classic SQL-injection payloads.
+		malicious := []string{"O'Brien", "'; DROP GRAPH test--"}
+		hits := exp.graphSubArmPageRank(context.Background(), graphName, malicious, make(map[string]bool), 10)
+		_ = hits // 0 or nil — either correct; important: no panic, no graph drop
 
-	// Confirm the graph still exists by running a basic query.
-	probe := exp.execCypherN(context.Background(), graphName,
-		`MATCH (s:Symbol) RETURN s.name, s.file LIMIT 1`, "name agtype, file agtype")
-	if len(probe) == 0 {
-		t.Error("graph appears destroyed after injection attempt — escapeCypherName failed")
+		probe := exp.execCypherN(context.Background(), graphName,
+			`MATCH (s:Symbol) RETURN s.name, s.file LIMIT 1`, "name agtype, file agtype")
+		if len(probe) == 0 {
+			t.Error("graph destroyed after quote injection — escapeCypherName failed")
+		}
+	})
+
+	t.Run("backslash_payloads", func(t *testing.T) {
+		// A trailing backslash breaks unescaped Cypher: CONTAINS 'foo\' is
+		// an unterminated string. escapeCypherName must escape \ → \\ first.
+		backslashPayloads := []string{`foo\`, `\`, `a\'b`}
+		hits := exp.graphSubArmPageRank(context.Background(), graphName, backslashPayloads, make(map[string]bool), 10)
+		_ = hits // 0 or nil — either correct
+
+		probe := exp.execCypherN(context.Background(), graphName,
+			`MATCH (s:Symbol) RETURN s.name, s.file LIMIT 1`, "name agtype, file agtype")
+		if len(probe) == 0 {
+			t.Error("graph destroyed after backslash injection — escapeCypherName backslash-escape failed")
+		}
+	})
+}
+
+// TestKeywordTokenize_StripsMaliciousChars is the regression lock for the
+// PRIMARY production injection guard. lextoken.KeywordTokenize must reduce any
+// input — including quotes, backslashes, semicolons, spaces, and unicode — to
+// pure [a-z0-9]+ tokens. If this test goes RED, a future change to the tokenizer
+// has opened a path for un-sanitized terms to reach Cypher.
+func TestKeywordTokenize_StripsMaliciousChars(t *testing.T) {
+	cases := []struct {
+		input string
+		desc  string
+	}{
+		{`O'Brien`, "single quote"},
+		{`'; DROP GRAPH x--`, "injection with semicolon"},
+		{`foo\`, "trailing backslash"},
+		{`a\'b`, "backslash-quote combo"},
+		{"héllo wörld", "unicode non-ASCII"},
+		{"foo bar; baz", "semicolon in phrase"},
+	}
+
+	for _, tc := range cases {
+		tokens := ExtractQueryKeywords(tc.input)
+		for _, tok := range tokens {
+			for _, ch := range tok {
+				if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') {
+					t.Errorf("case %q (%s): token %q contains non-[a-z0-9] char %q — tokenizer injection guard broken",
+						tc.input, tc.desc, tok, ch)
+				}
+			}
+		}
 	}
 }

@@ -161,9 +161,11 @@ func buildSeedSet(seeds []SearchResult) map[string]bool {
 // keyword) and rank them by pagerank. This surfaces the most-important symbols
 // among those actually related to the query domain.
 //
-// Keywords are injected as safe OR-joined toLower() CONTAINS predicates; each
-// keyword is sanitized via escapeCypherName to prevent Cypher injection
-// (same escaping used by graphSubArmCalls and graphSubArmCommunity).
+// Keywords are injected as safe OR-joined toLower() CONTAINS predicates. The
+// primary injection guard is lextoken.KeywordTokenize, which upstream reduces
+// query terms to [a-z0-9]+ before they reach here. escapeCypherName provides
+// defense-in-depth for the literal-quote/backslash class, matching the escaping
+// used by graphSubArmCalls and graphSubArmCommunity.
 func (e *Expander) graphSubArmPageRank(
 	ctx context.Context,
 	graphName string,
@@ -175,11 +177,12 @@ func (e *Expander) graphSubArmPageRank(
 		return nil
 	}
 
-	// Build keyword OR-filter: toLower(s.name) CONTAINS kw OR toLower(s.file) CONTAINS kw
-	// Each keyword is escaped to prevent Cypher injection (single-quote escape).
+	// Build keyword OR-filter: toLower(s.name) CONTAINS kw OR toLower(s.file) CONTAINS kw.
+	// Terms arrive pre-filtered by lextoken.KeywordTokenize ([a-z0-9]+ only);
+	// escapeCypherName is defense-in-depth for the backslash/quote class.
 	filterParts := make([]string, 0, len(queryTerms))
 	for _, term := range queryTerms {
-		kw := strings.ToLower(escapeCypherName(term))
+		kw := escapeCypherName(strings.ToLower(term))
 		filterParts = append(filterParts,
 			fmt.Sprintf("toLower(s.name) CONTAINS '%s' OR toLower(s.file) CONTAINS '%s'", kw, kw))
 	}
@@ -371,8 +374,16 @@ func mergeGraphHits(pr, calls, comm []GraphHit, limit int) []GraphHit {
 	return out
 }
 
-// escapeCypherName escapes a symbol name for safe inline use in Cypher.
-// Mirrors the escaping logic in expand.go buildNameFilter.
+// escapeCypherName escapes a string for safe inline use as a Cypher string
+// literal (single-quoted context). This is defense-in-depth: the primary guard
+// is that callers feed keywords through lextoken.KeywordTokenize, which reduces
+// input to [a-z0-9]+ before they reach here. escapeCypherName therefore only
+// covers the literal-quote/backslash class for direct symbol-name insertions.
+//
+// Escape order matters: backslash must be escaped first so the quote's added
+// backslash is not itself re-escaped. "foo\" → "foo\\" → 'foo\\' (safe);
+// "O'Brien" → "O\'Brien" → 'O\'Brien' (safe).
 func escapeCypherName(name string) string {
+	name = strings.ReplaceAll(name, `\`, `\\`)
 	return strings.ReplaceAll(name, "'", "\\'")
 }
