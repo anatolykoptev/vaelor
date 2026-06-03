@@ -11,6 +11,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	dto "github.com/prometheus/client_model/go"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // fakeIndexer is a deterministic *Pipeline replacement used to assert
@@ -318,8 +322,11 @@ func TestNormalizeOpts(t *testing.T) {
 
 func TestDefaultAutoIndexOpts(t *testing.T) {
 	d := DefaultAutoIndexOpts()
-	if d.Concurrency != 2 {
-		t.Errorf("default Concurrency=2 (plan recommendation), got %d", d.Concurrency)
+	// Concurrency=1 serializes embed calls onto the single-worker embed backend
+	// so queue depth stays bounded. Reverted from 2 after fleet overload caused
+	// unbounded queuing and context deadline exceeded on every second-repo batch.
+	if d.Concurrency != 1 {
+		t.Errorf("default Concurrency=1 (single-worker embed backend guard), got %d", d.Concurrency)
 	}
 	if d.RetryMax != 3 {
 		t.Errorf("default RetryMax=3, got %d", d.RetryMax)
@@ -327,4 +334,83 @@ func TestDefaultAutoIndexOpts(t *testing.T) {
 	if d.RetryBase != 5*time.Second {
 		t.Errorf("default RetryBase=5s, got %v", d.RetryBase)
 	}
+}
+
+// TestAutoIndex_InFlightGaugeZeroAfterCompletion verifies the in-flight gauge
+// returns to 0 after all repos finish. This test would fail if the Inc/Dec
+// calls in autoIndex were removed or mis-paired (e.g. only Inc, no defer Dec).
+// Falsification: deleting the "defer autoindexInFlight.Dec()" line in autoindex.go
+// would leave the gauge at N>0 after this test, causing it to fail.
+func TestAutoIndex_InFlightGaugeZeroAfterCompletion(t *testing.T) {
+	root := makeFakeRepoTree(t, "g1", "g2", "g3")
+	f := newFakeIndexer()
+	f.delay = 5 * time.Millisecond
+
+	autoIndex(context.Background(), f, []string{root}, keyByName, AutoIndexOpts{
+		Concurrency: 1,
+		RetryMax:    0,
+		RetryBase:   1 * time.Millisecond,
+	})
+
+	// After autoIndex returns all goroutines have exited; gauge must be 0.
+	got := gaugeValue(t, autoindexInFlight)
+	if got != 0 {
+		t.Errorf("in-flight gauge: expected 0 after completion, got %g", got)
+	}
+}
+
+// TestAutoIndex_DeferredCounterIncremented verifies that every repo goroutine
+// bumps gocode_autoindex_deferred_total before acquiring the semaphore.
+// Falsification: removing "recordAutoIndexDeferred(r.key)" from autoIndex would
+// leave the counter unchanged and this test would fail (counter stays at 0 for
+// these repos, so we'd get 0 != n).
+func TestAutoIndex_DeferredCounterIncremented(t *testing.T) {
+	repos := []string{"d1", "d2", "d3"}
+	root := makeFakeRepoTree(t, repos...)
+	f := newFakeIndexer()
+
+	// Snapshot counter before the run.
+	before := counterVecSum(t, autoindexDeferredTotal)
+
+	autoIndex(context.Background(), f, []string{root}, keyByName, AutoIndexOpts{
+		Concurrency: 1,
+		RetryMax:    0,
+		RetryBase:   1 * time.Millisecond,
+	})
+
+	after := counterVecSum(t, autoindexDeferredTotal)
+	added := after - before
+	if int(added) != len(repos) {
+		t.Errorf("deferred counter: expected +%d (one per repo), got +%g", len(repos), added)
+	}
+}
+
+// gaugeValue reads the current float value of a prometheus.Gauge.
+func gaugeValue(t *testing.T, g prometheus.Gauge) float64 {
+	t.Helper()
+	var m dto.Metric
+	if err := g.Write(&m); err != nil {
+		t.Fatalf("gauge.Write: %v", err)
+	}
+	if m.Gauge == nil {
+		return 0
+	}
+	return m.Gauge.GetValue()
+}
+
+// counterVecSum returns the sum of all label-value pairs in a CounterVec by
+// collecting via the prometheus.Collector interface.
+func counterVecSum(t *testing.T, cv prometheus.Collector) float64 {
+	t.Helper()
+	ch := make(chan prometheus.Metric, 128)
+	cv.Collect(ch)
+	close(ch)
+	var sum float64
+	for m := range ch {
+		var dm dto.Metric
+		if err := m.Write(&dm); err == nil && dm.Counter != nil {
+			sum += dm.Counter.GetValue()
+		}
+	}
+	return sum
 }
