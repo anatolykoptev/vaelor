@@ -5,8 +5,11 @@ package embeddings
 //
 // GraphCandidates proposes candidates from three sub-generators:
 //
-//	(a) High-PageRank symbols whose name contains a query keyword — zero new AGE
-//	    round-trips; reuses the prSignals batch already fetched by annotateWithPageRank.
+//	(a) Domain-relevant symbols ranked by PageRank — one AGE round-trip; queries
+//	    symbols whose name OR file contains a query keyword, ordered by pagerank DESC.
+//	    This is the corrected design: start from query-relevant symbols and rank by
+//	    PageRank, rather than starting from the global top-PageRank batch (which is
+//	    generic infrastructure: Write, Error, Close, etc.) and filtering by name.
 //	(b) 2-hop CALLS neighbors of the strongest dense seeds — bounded by maxHops and
 //	    fanOutCap to prevent combinatorial blow-up on dense call-hubs.
 //	(c) Same-community members of the top dense seed — community is a vertex property
@@ -31,6 +34,10 @@ const graphRowColsExt = 4
 // graphRowColsBase is the number of columns returned by basic graph arm
 // queries that return (name, file, kind).
 const graphRowColsBase = 3
+
+// graphRowColsPR is the number of columns returned by the pagerank sub-arm query
+// (name, file) — kind is not stored alongside pagerank in the Symbol vertex.
+const graphRowColsPR = 2
 
 // defaultGraphMaxHops is the hop depth for CALLS traversal (sub-arm b).
 // Kept at 2 per the risk mitigation in the plan — increase only after measuring
@@ -96,12 +103,16 @@ func (o *GraphCandidatesOpts) topK() int {
 // graphName is the AGE graph name (codegraph.GraphNameFor(repoKey)).
 // queryTerms is the list of keywords extracted from the user query.
 // seeds is the ordered dense search results (top-N used for sub-arms b+c).
-// prSignals is the already-fetched TopPageRank batch (sub-arm a is free).
+// prSignals is used only by the caller (annotateWithPageRank) and is no longer
+// consumed by sub-arm (a) — pass nil or the fetched batch; both are safe.
 // opts controls hop depth, fan-out, seed count, and topK.
 //
 // Returns nil on any AGE error — the caller falls back to 3-arm behavior.
-// Performance contract: only 2 Cypher round-trips maximum (sub-arms b and c);
-// sub-arm (a) is pure in-memory filtering over prSignals.
+// Performance contract: 3 Cypher round-trips maximum (sub-arms a, b, and c).
+// Sub-arm (a) issues one AGE query: symbols whose name/file matches query keywords,
+// ordered by pagerank DESC — a single round-trip that replaces the broken
+// in-memory filter over the global top-200 batch (which yielded 0 hits because
+// the global top-200 are generic infrastructure symbols: Write, Error, Close, etc.).
 func (e *Expander) GraphCandidates(
 	ctx context.Context,
 	graphName string,
@@ -119,7 +130,7 @@ func (e *Expander) GraphCandidates(
 		hitsComm []GraphHit
 	)
 
-	hitsPR = e.graphSubArmPageRank(queryTerms, prSignals, seen, opts.topK())
+	hitsPR = e.graphSubArmPageRank(ctx, graphName, queryTerms, seen, opts.topK())
 	hitsHop = e.graphSubArmCalls(ctx, graphName, seeds, seen, opts)
 	hitsComm = e.graphSubArmCommunity(ctx, graphName, seeds, seen, opts.topK())
 
@@ -138,42 +149,71 @@ func buildSeedSet(seeds []SearchResult) map[string]bool {
 	return seen
 }
 
-// graphSubArmPageRank filters prSignals to symbols whose name contains at least
-// one query keyword. Zero AGE round-trips — pure in-memory filter.
+// graphSubArmPageRank queries AGE for symbols relevant to the query keywords,
+// ranked by pagerank descending. One AGE round-trip.
+//
+// Design rationale: the previous implementation filtered the global top-200 PageRank
+// batch by name-substring match. The top-200 are generic infrastructure symbols
+// (Write, Error, Close, String, …) whose names never overlap with domain-specific
+// query keywords (embed, gate, fusion, rrf, …) — yielding 0 hits on every query.
+//
+// Corrected design: start from query-relevant symbols (name OR file contains a
+// keyword) and rank them by pagerank. This surfaces the most-important symbols
+// among those actually related to the query domain.
+//
+// Keywords are injected as safe OR-joined toLower() CONTAINS predicates; each
+// keyword is sanitized via escapeCypherName to prevent Cypher injection
+// (same escaping used by graphSubArmCalls and graphSubArmCommunity).
 func (e *Expander) graphSubArmPageRank(
+	ctx context.Context,
+	graphName string,
 	queryTerms []string,
-	prSignals []graphx.Signal,
 	seen map[string]bool,
 	limit int,
 ) []GraphHit {
-	if len(prSignals) == 0 || len(queryTerms) == 0 {
+	if len(queryTerms) == 0 {
 		return nil
 	}
 
+	// Build keyword OR-filter: toLower(s.name) CONTAINS kw OR toLower(s.file) CONTAINS kw
+	// Each keyword is escaped to prevent Cypher injection (single-quote escape).
+	filterParts := make([]string, 0, len(queryTerms))
+	for _, term := range queryTerms {
+		kw := strings.ToLower(escapeCypherName(term))
+		filterParts = append(filterParts,
+			fmt.Sprintf("toLower(s.name) CONTAINS '%s' OR toLower(s.file) CONTAINS '%s'", kw, kw))
+	}
+	keywordFilter := strings.Join(filterParts, " OR ")
+
+	cypher := fmt.Sprintf(
+		`MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL AND (%s) `+
+			`RETURN s.name, s.file ORDER BY s.pagerank DESC LIMIT %d`,
+		keywordFilter, limit,
+	)
+
+	rows := e.execCypherN(ctx, graphName, cypher, "name agtype, file agtype")
+
 	var hits []GraphHit
-	for _, sig := range prSignals {
+	for _, row := range rows {
 		if len(hits) >= limit {
 			break
 		}
-		name := strings.ToLower(sig.Symbol.Name)
-		matched := false
-		for _, term := range queryTerms {
-			if strings.Contains(name, strings.ToLower(term)) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if len(row) < graphRowColsPR {
 			continue
 		}
-		key := sig.Symbol.File + ":" + sig.Symbol.Name
+		name := stripAgtypeQuotes(row[0])
+		file := stripAgtypeQuotes(row[1])
+		if name == "" || file == "" {
+			continue
+		}
+		key := file + ":" + name
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		hits = append(hits, GraphHit{
-			FilePath:   sig.Symbol.File,
-			SymbolName: sig.Symbol.Name,
+			FilePath:   file,
+			SymbolName: name,
 		})
 	}
 	return hits
