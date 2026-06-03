@@ -61,6 +61,7 @@ type Metadata struct {
 
 // Report is the full harness output. Delta is omitted when --baseline is unset.
 // Gate is populated when --baseline and --splade-weight are both provided.
+// GraphGate is populated when --baseline and --graph-weight are both provided.
 type Report struct {
 	Metadata   Metadata           `json:"metadata"`
 	PerQuery   []QueryResult      `json:"per_query"`
@@ -68,6 +69,7 @@ type Report struct {
 	Aggregates Aggregates         `json:"aggregates"`
 	Delta      *DeltaBlock        `json:"delta,omitempty"`
 	Gate       *GateResult        `json:"splade_gate,omitempty"`
+	GraphGate  *GateResult        `json:"graph_gate,omitempty"`
 }
 
 // computeAggregates returns mean metrics across all non-error queries.
