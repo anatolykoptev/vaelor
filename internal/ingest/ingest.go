@@ -90,6 +90,10 @@ const maxWalkFiles = 10_000
 // It does NOT read file contents — content loading happens at the parse stage.
 func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 	root := filepath.Clean(opts.Root)
+	slog.Info("ingest: starting repo walk",
+		slog.String("root", root),
+		slog.String("skip_dirs", strings.Join(IgnoredDirNames(), ",")),
+	)
 	gitignorePatterns := parseGitignore(root)
 
 	result := &IngestResult{Root: root, SkippedReasons: make(map[string]int)}
