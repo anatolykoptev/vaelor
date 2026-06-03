@@ -40,14 +40,15 @@ var autoindexInFlight = promauto.NewGauge(prometheus.GaugeOpts{
 	Help: "Number of autoindex goroutines currently holding a concurrency slot.",
 })
 
-// gocode_autoindex_deferred_total counts goroutines that entered the semaphore
-// wait queue before starting embed work. High values with concurrency=1 confirm
-// the embed backend is the bottleneck; raise concurrency only when the embed
+// gocode_autoindex_deferred_total counts repos that had to BLOCK waiting for a
+// semaphore slot (true queue pressure). Repos that acquire a slot immediately
+// via TryAcquire are NOT counted. High values with concurrency=1 confirm the
+// embed backend is the bottleneck; raise concurrency only when the embed
 // backend is confirmed multi-worker.
 var autoindexDeferredTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_autoindex_deferred_total",
-		Help: "Autoindex goroutines that entered the semaphore wait queue, by repo.",
+		Help: "Autoindex repos that had to wait for a concurrency slot (true queue pressure), by repo.",
 	},
 	[]string{"repo"},
 )

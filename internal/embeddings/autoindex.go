@@ -109,12 +109,16 @@ func autoIndex(
 		wg.Add(1)
 		go func(r repo) {
 			defer wg.Done()
-			// Count repos waiting for a semaphore slot. When concurrency=1 and
-			// the backend is single-worker this is the observable queue depth.
-			recordAutoIndexDeferred(r.key)
-			if err := sem.Acquire(ctx, 1); err != nil {
-				// ctx cancelled before slot available — give up silently.
-				return
+			// Count repos that had to WAIT for a semaphore slot (true queue
+			// pressure). TryAcquire succeeds immediately when a slot is free;
+			// only the blocking path (slot already held) increments the counter,
+			// so the metric reflects actual contention, not mere entry.
+			if !sem.TryAcquire(1) {
+				recordAutoIndexDeferred(r.key)
+				if err := sem.Acquire(ctx, 1); err != nil {
+					// ctx cancelled before slot available — give up silently.
+					return
+				}
 			}
 			defer sem.Release(1)
 			// Track in-flight autoindex jobs for operational visibility.
