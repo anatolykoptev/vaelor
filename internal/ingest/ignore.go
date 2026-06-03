@@ -7,9 +7,24 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+// ingestSkippedDirsTotal counts directory subtrees skipped during the walk.
+// Label "dir" is the directory base name (e.g. "vendor", "node_modules").
+// Cardinality: bounded by the skip-dir set (≤50 series in practice).
+var ingestSkippedDirsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_ingest_skipped_dirs_total",
+		Help: "Directory subtrees skipped during repo walk, by directory name.",
+	},
+	[]string{"dir"},
 )
 
 // defaultIgnoreDirs lists directories that should never be descended into.
+// Populated at package init; may be extended via INDEX_SKIP_DIRS env.
 var defaultIgnoreDirs = map[string]bool{
 	".git":          true,
 	".claude":       true,
@@ -40,6 +55,29 @@ var defaultIgnoreDirs = map[string]bool{
 	"zig-cache":     true,
 	"zig-out":       true,
 	"testdata":      true,
+}
+
+// init merges INDEX_SKIP_DIRS (comma-separated) into defaultIgnoreDirs.
+// INDEX_SKIP_DIRS="" is a no-op; set it to "vendor,node_modules" to limit the
+// skip set, or append extra dirs to the default list.
+//
+//	INDEX_SKIP_DIRS=mygenerated         # append one extra dir
+//	INDEX_SKIP_DIRS=.git,vendor         # override: only these two (rarely needed)
+//
+// Note: INDEX_SKIP_DIRS ADDS to the default set; to remove an entry from the
+// default list, pass INDEX_SKIP_DIRS_REPLACE=true (not implemented — operator
+// use case is add-only; removal would need a full replacement flag).
+func init() {
+	val := strings.TrimSpace(os.Getenv("INDEX_SKIP_DIRS"))
+	if val == "" {
+		return
+	}
+	for _, entry := range strings.Split(val, ",") {
+		name := strings.TrimSpace(entry)
+		if name != "" {
+			defaultIgnoreDirs[name] = true
+		}
+	}
 }
 
 // binaryExtensions lists file extensions that are always skipped.
@@ -157,7 +195,11 @@ func IgnoredDirNames() []string {
 }
 
 func shouldIgnoreDir(name string) bool {
-	return defaultIgnoreDirs[name] || generatedDirs[name]
+	if defaultIgnoreDirs[name] || generatedDirs[name] {
+		ingestSkippedDirsTotal.WithLabelValues(name).Inc()
+		return true
+	}
+	return false
 }
 
 // shouldIgnoreFile returns true when the file should be skipped based on its
