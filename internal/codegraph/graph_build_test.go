@@ -95,6 +95,50 @@ func TestBuildGraphInheritsEdges(t *testing.T) {
 	}
 }
 
+// TestBuildGraphImplementsEdges verifies that a RelImplements relationship (the
+// kind produced by the go/types satisfaction pass) whose interface target resolves
+// to a known Symbol yields an IMPLEMENTS Symbol→Symbol edge. This is the Go path
+// tree-sitter cannot see: two concrete types satisfying one interface.
+func TestBuildGraphImplementsEdges(t *testing.T) {
+	t.Parallel()
+
+	root := "/repo"
+	files := []*ingest.File{
+		{Path: "/repo/forge.go", RelPath: "forge.go", Language: "go", Size: 100},
+	}
+	symbols := []*parser.Symbol{
+		{Name: "Forge", Kind: parser.KindInterface, File: "/repo/forge.go", StartLine: 1, EndLine: 5},
+		{Name: "GitHubForge", Kind: parser.KindStruct, File: "/repo/forge.go", StartLine: 7, EndLine: 15},
+		{Name: "GitLabForge", Kind: parser.KindStruct, File: "/repo/forge.go", StartLine: 17, EndLine: 25},
+	}
+	rels := []parser.TypeRelationship{
+		{Subject: "GitHubForge", Target: "Forge", Kind: parser.RelImplements, File: "/repo/forge.go"},
+		{Subject: "GitLabForge", Target: "Forge", Kind: parser.RelImplements, File: "/repo/forge.go"},
+	}
+	cg := &callgraph.CallGraph{}
+	_, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, Symbols: symbols, CallGraph: cg, Rels: rels})
+
+	wantTo := "Forge" + compositeKeyDelim + "forge.go"
+	var gotGitHub, gotGitLab bool
+	for _, e := range edges {
+		if e.EdgeLabel != "IMPLEMENTS" || e.ToKey != wantTo {
+			continue
+		}
+		switch e.FromKey {
+		case "GitHubForge" + compositeKeyDelim + "forge.go":
+			gotGitHub = true
+		case "GitLabForge" + compositeKeyDelim + "forge.go":
+			gotGitLab = true
+		}
+	}
+	if !gotGitHub {
+		t.Error("missing IMPLEMENTS edge: GitHubForge -> Forge")
+	}
+	if !gotGitLab {
+		t.Error("missing IMPLEMENTS edge: GitLabForge -> Forge")
+	}
+}
+
 // TestBuildGraphPageRankProps verifies that buildGraph attaches PageRank scores
 // to Symbol vertices when there are CALLS edges in the call graph.
 func TestBuildGraphPageRankProps(t *testing.T) {
