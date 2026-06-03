@@ -88,8 +88,21 @@ type Config struct {
 	// EmbedModel is the embedding model name (e.g. multilingual-e5-large).
 	EmbedModel string
 
+	// EmbedHTTPTimeout is the per-request HTTP timeout for the code embed client.
+	// The default (30s) is too short when the shared embed-server is under boot-time
+	// load (48 repos × N symbols saturate jina-code-v2). Set via EMBED_HTTP_TIMEOUT
+	// (e.g. "120s"). 0 leaves the go-kit default unchanged (30s). Values are parsed
+	// by env.Duration, which accepts Go duration syntax (e.g. "2m", "90s").
+	EmbedHTTPTimeout time.Duration
+
 	// AutoIndexDirs are directories to scan for repos at startup (comma-separated).
 	AutoIndexDirs []string
+
+	// IndexBudget is the per-goroutine deadline for IndexRepoAsyncWithTool.
+	// A background index goroutine waiting on a permanently-unreachable embed server
+	// will run until this budget expires. Default 30m (generous for the largest repos).
+	// Set via INDEX_BUDGET env (Go duration syntax, e.g. "45m", "1h").
+	IndexBudget time.Duration
 
 	// AutoIndexConcurrency caps the worker pool used by AutoIndex. Default 2;
 	// =1 reverts to byte-identical legacy serial behavior.
@@ -314,6 +327,19 @@ const (
 	defaultToolCacheTTL  = 60 // minutes
 	defaultLLMCacheTTL   = 60 // minutes
 
+	// defaultEmbedHTTPTimeout: generous default for the shared external embed host
+	// (jina-code-v2 on embed.krolik.tools). Boot-time load (48 repos indexing in
+	// parallel) causes p99 > 30s on a 32-text sub-batch. 120s gives ≈4× headroom
+	// over the observed 30s timeout tail while still bounding a stuck goroutine.
+	// Override via EMBED_HTTP_TIMEOUT env (Go duration syntax, e.g. "90s", "2m").
+	defaultEmbedHTTPTimeout = 120 * time.Second
+
+	// defaultIndexBudget: 30m per background goroutine. Generous enough for the
+	// largest repos (go-code ~5k symbols at 120s/batch = ~90s total). Matches
+	// the embeddings package internal constant; duplicated here so cmd env wiring
+	// has a named default without importing the internal package constant directly.
+	defaultIndexBudget = 30 * time.Minute
+
 	// AutoIndex defaults — keep in sync with embeddings.DefaultAutoIndexOpts.
 	// Concurrency=2 starts conservative (today's serial baseline = 1) and
 	// will ramp to 4 once the embed-server fan-out is load-tested.
@@ -418,6 +444,8 @@ func loadConfig() (Config, error) {
 		GraphBatchSize:         env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
 		EmbedURL:               env.Str("EMBED_URL", ""),
 		EmbedModel:             env.Str("EMBED_MODEL", defaultEmbedModel),
+		EmbedHTTPTimeout:       env.Duration("EMBED_HTTP_TIMEOUT", defaultEmbedHTTPTimeout),
+		IndexBudget:            env.Duration("INDEX_BUDGET", defaultIndexBudget),
 		AutoIndexDirs:          env.List("AUTO_INDEX_DIRS", ""),
 		AutoIndexConcurrency:   env.Int("AUTOINDEX_CONCURRENCY", defaultAutoIndexConcurrency),
 		AutoIndexRetryMax:      env.Int("AUTOINDEX_RETRY_MAX", defaultAutoIndexRetryMax),

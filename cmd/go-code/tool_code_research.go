@@ -82,7 +82,7 @@ func handleCodeResearch(
 		resDeps.SymbolSearcher = semDeps.Store
 		// Trigger background re-index for freshness.
 		if semDeps.Pipeline != nil {
-			semDeps.Pipeline.IndexRepoAsync(resDeps.RepoKey, root)
+			semDeps.Pipeline.IndexRepoAsyncWithTool("code_research", resDeps.RepoKey, root)
 		}
 	}
 	if analyzeDeps.Graph != nil {
