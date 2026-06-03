@@ -540,6 +540,30 @@ func (s *Store) CountOrphanRepoKeys(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// CountEmbeddings returns the number of code_embeddings rows for a given
+// repoKey. Used by the same-SHA index gate to detect the frozen-empty state:
+// when indexed_sha == HEAD but COUNT == 0 the repo needs recovery re-indexing.
+//
+// The query uses the (repo_key) index so it is cheap (index scan + aggregate).
+// It runs only on the same-SHA branch so it never adds latency to populated repos.
+//
+// Returns 0 on any error (schema init, connection) so the gate can safely treat
+// "unknown count" as "assume populated → skip" (conservative: never force
+// unnecessary re-index on DB error).
+func (s *Store) CountEmbeddings(ctx context.Context, repoKey string) (int, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return 0, err
+	}
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM public.code_embeddings WHERE repo_key = $1`, repoKey).
+		Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count embeddings: %w", err)
+	}
+	return n, nil
+}
+
 // Stats returns embedding counts per repo.
 func (s *Store) Stats(ctx context.Context) (map[string]int, error) {
 	if err := s.EnsureSchema(ctx); err != nil {

@@ -30,10 +30,13 @@ const (
 )
 
 // indexProgress tracks the progress of a background indexing run.
+// All fields are accessed from concurrent goroutines (the spawned indexer
+// goroutine writes; callers of IsIndexing/IndexProgress read), so they use
+// atomic operations: running via atomic.Bool, done/total via atomic int64.
 type indexProgress struct {
 	total   int64
 	done    int64
-	running bool
+	running atomic.Bool
 }
 
 // Pipeline orchestrates embedding indexing for repository symbols.
@@ -125,7 +128,7 @@ func (p *Pipeline) IsIndexing(repoKey string) bool {
 	if !ok {
 		return false
 	}
-	return v.(*indexProgress).running
+	return v.(*indexProgress).running.Load()
 }
 
 // IndexProgress returns (done, total, running) for the given repo.
@@ -135,22 +138,25 @@ func (p *Pipeline) IndexProgress(repoKey string) (done, total int, running bool)
 		return 0, 0, false
 	}
 	prog := v.(*indexProgress)
-	return int(atomic.LoadInt64(&prog.done)), int(atomic.LoadInt64(&prog.total)), prog.running
+	return int(atomic.LoadInt64(&prog.done)), int(atomic.LoadInt64(&prog.total)), prog.running.Load()
 }
 
 // IndexRepoAsync starts background indexing if not already running.
 // Returns true if indexing was started, false if already in progress.
+// The background goroutine uses context.Background() (not the caller's context)
+// so that client disconnects do not abort the indexing — Bug #2 fix.
 func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
 	if v, loaded := p.progress.Load(repoKey); loaded {
-		if v.(*indexProgress).running {
+		if v.(*indexProgress).running.Load() {
 			return false
 		}
 	}
-	prog := &indexProgress{running: true}
+	prog := &indexProgress{}
+	prog.running.Store(true)
 	p.progress.Store(repoKey, prog)
 	go func() {
 		defer func() {
-			prog.running = false
+			prog.running.Store(false)
 			p.progress.Delete(repoKey)
 		}()
 		ctx := context.Background()
@@ -180,6 +186,78 @@ func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexR
 	return p.indexRepo(ctx, repoKey, root, nil)
 }
 
+// shortSHA returns the first shortSHALen chars of a SHA for log messages.
+const shortSHALen = 8
+
+func shortSHA(sha string) string { return sha[:min(shortSHALen, len(sha))] }
+
+// checkSameSHAFastPath returns (result, true) when it is safe to skip indexing
+// because the repo's main branch is unchanged AND the store has ≥1 embedding.
+// Returns (nil, false) when the caller must proceed to full re-index (empty store
+// or DB error — the Bug #1 frozen-empty recovery path).
+//
+// Side-effects on skip: bumps indexed_at via writeRepoState (liveness), sets
+// gocode_repo_embeddings_present gauge.
+// Side-effects on desync (0 rows): bumps gocode_repo_state_advanced_with_zero_embeddings_total.
+func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, currentSHA string) (*IndexResult, bool) {
+	prevSHA, err := p.store.GetRepoState(ctx, repoKey)
+	if err != nil || prevSHA != currentSHA {
+		return nil, false // not same-SHA — fall through
+	}
+	embCount, countErr := p.store.CountEmbeddings(ctx, repoKey)
+	switch {
+	case countErr != nil:
+		slog.Warn("indexRepo: CountEmbeddings failed; falling through to re-index",
+			slog.String("repo", repoKey), slog.Any("error", countErr))
+		return nil, false
+	case embCount > 0:
+		slog.Debug("indexRepo: skip — main branch unchanged",
+			slog.String("repo", repoKey), slog.String("sha", shortSHA(currentSHA)))
+		if setErr := p.writeRepoState(ctx, repoKey, currentSHA); setErr != nil {
+			recordRepoStateWriteFailure(repoKey, "indexRepo:same-sha", setErr)
+		}
+		SetEmbeddingsPresentGauge(repoKey, embCount)
+		return &IndexResult{}, true
+	default:
+		// 0 rows despite same SHA — frozen-empty desync (Bug #1).
+		repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		slog.Warn("indexRepo: same SHA but 0 embeddings — recovery re-index",
+			slog.String("repo", repoKey), slog.String("sha", shortSHA(currentSHA)))
+		return nil, false
+	}
+}
+
+// advanceStateNoEmbed handles the len(toEmbed)==0 path: all parsed symbols
+// matched existing hashes so nothing new needs embedding. It advances the
+// repo fingerprint (SHA + indexed_at) and sets the embeddings-present gauge.
+//
+// Defense-in-depth: if CountEmbeddings returns 0 despite parsed symbols > 0
+// (data inconsistency), the SHA is NOT advanced — the caller will retry next
+// boot. This guards against advancing the SHA when the store is unexpectedly
+// empty (would freeze the repo forever — same root cause as Bug #1).
+func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, currentSHA string, result *IndexResult) (*IndexResult, error) {
+	existingCount, countErr := p.store.CountEmbeddings(ctx, repoKey)
+	if countErr != nil {
+		slog.Warn("indexRepo: CountEmbeddings failed on no-embed path",
+			slog.String("repo", repoKey), slog.Any("error", countErr))
+	}
+	if countErr == nil && existingCount == 0 && result.Total > 0 {
+		// Parsed symbols exist but store is empty — data inconsistency.
+		// Do not advance SHA; next boot will retry.
+		repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		slog.Warn("indexRepo: no-embed path with 0 store rows despite parsed symbols; skipping SHA advance",
+			slog.String("repo", repoKey), slog.Int("parsed", result.Total))
+		return result, nil
+	}
+	if currentSHA != "" {
+		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			recordRepoStateWriteFailure(repoKey, "indexRepo:no-embed", err)
+		}
+	}
+	SetEmbeddingsPresentGauge(repoKey, existingCount)
+	return result, nil
+}
+
 // indexRepo is the internal implementation that optionally reports progress.
 func (p *Pipeline) indexRepo(
 	ctx context.Context, repoKey, root string, prog *indexProgress,
@@ -191,18 +269,8 @@ func (p *Pipeline) indexRepo(
 	// sha="" and falls through to the full path.
 	currentSHA, _ := repoMainBranchSHA(root)
 	if currentSHA != "" {
-		prevSHA, err := p.store.GetRepoState(ctx, repoKey)
-		if err == nil && prevSHA == currentSHA {
-			slog.Debug("indexRepo: skip — main branch unchanged",
-				slog.String("repo", repoKey),
-				slog.String("sha", currentSHA[:min(8, len(currentSHA))]))
-			// Bump indexed_at so callers observe liveness even when no symbols
-			// changed. Mirrors the IncrementalSync same-SHA path behaviour.
-			// Best-effort: log and continue on failure.
-			if setErr := p.writeRepoState(ctx, repoKey, currentSHA); setErr != nil {
-				recordRepoStateWriteFailure(repoKey, "indexRepo:same-sha", setErr)
-			}
-			return &IndexResult{Total: 0, Indexed: 0, Skipped: 0}, nil
+		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, currentSHA); skip {
+			return result, nil
 		}
 	}
 
@@ -218,22 +286,7 @@ func (p *Pipeline) indexRepo(
 		return nil, fmt.Errorf("get existing hashes: %w", err)
 	}
 
-	var toEmbed []symbolEntry
-	seen := make(map[string]bool) // dedup within batch; also serves as the complete parsed-key set
-	for i, sym := range symbols {
-		key := files[i].RelPath + ":" + sym.Name
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		embedText := buildEmbedText(sym, files[i].RelPath)
-		h := textHash(embedText)
-		if prev, ok := existing[key]; ok && prev == h {
-			result.Skipped++
-			continue
-		}
-		toEmbed = append(toEmbed, symbolEntry{sym: sym, file: files[i], hash: h, embedText: embedText})
-	}
+	toEmbed, seen := filterSymbols(symbols, files, existing, result)
 
 	// Intra-key orphan reconciliation: delete rows in code_embeddings for this
 	// repo_key that are NOT in the freshly-parsed symbol set.
@@ -248,56 +301,18 @@ func (p *Pipeline) indexRepo(
 	//
 	// Batched anti-join, intraKeyOrphanChunkSize rows per DELETE, to avoid
 	// statement_timeout on large repos (#201 lesson: data-size-bound, not param-bound).
-	orphansDeleted, orphanErr := p.store.DeleteIntraKeyOrphans(ctx, repoKey, seen)
-	if orphanErr != nil {
-		// Non-fatal: log and continue. The next full-walk will retry.
-		slog.Warn("indexRepo: intra-key orphan delete failed",
-			slog.String("repo", repoKey),
-			slog.Any("error", orphanErr))
-	} else if orphansDeleted > 0 {
-		indexOrphansDeletedTotal.Add(float64(orphansDeleted))
-		slog.Info("indexRepo: intra-key orphans deleted",
-			slog.String("repo", repoKey),
-			slog.Int64("deleted", orphansDeleted))
-	}
+	deleteIntraKeyOrphans(ctx, p.store, repoKey, seen)
 
 	if prog != nil {
 		atomic.StoreInt64(&prog.total, int64(len(toEmbed)))
 	}
 
 	if len(toEmbed) == 0 {
-		// Even the no-embed path advances the repo fingerprint so the next
-		// boot can short-circuit. Without this we'd fall back to the parse
-		// path forever on stable repos.
-		if currentSHA != "" {
-			if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
-				recordRepoStateWriteFailure(repoKey, "indexRepo:no-embed", err)
-			}
-		}
-		return result, nil
+		return p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
 	}
 
-	// Process in chunks to avoid OOM and show progress.
-	for start := 0; start < len(toEmbed); start += indexChunkSize {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		end := start + indexChunkSize
-		if end > len(toEmbed) {
-			end = len(toEmbed)
-		}
-		chunk := toEmbed[start:end]
-
-		indexed, err := p.embedAndUpsert(ctx, repoKey, chunk)
-		if err != nil {
-			return nil, err
-		}
-		result.Indexed += indexed
-
-		if prog != nil {
-			atomic.StoreInt64(&prog.done, int64(end))
-		}
+	if err := p.embedChunks(ctx, repoKey, toEmbed, result, prog); err != nil {
+		return nil, err
 	}
 
 	if currentSHA != "" {
@@ -305,8 +320,77 @@ func (p *Pipeline) indexRepo(
 			recordRepoStateWriteFailure(repoKey, "indexRepo:post-embed", err)
 		}
 	}
+	SetEmbeddingsPresentGauge(repoKey, result.Indexed)
 
 	return result, nil
+}
+
+// filterSymbols deduplicates symbols by (file:name) key and returns the subset
+// that differ from the existing hash map (toEmbed) along with the complete
+// parsed key set (seen). Matching symbols increment result.Skipped.
+//
+// seen must be the COMPLETE (file_path:symbol_name) set; callers use it for
+// orphan detection (DeleteIntraKeyOrphans). Do not call on a partial parse.
+func filterSymbols(
+	symbols []*parser.Symbol, files []*ingest.File,
+	existing map[string]uint64, result *IndexResult,
+) (toEmbed []symbolEntry, seen map[string]bool) {
+	seen = make(map[string]bool, len(symbols))
+	for i, sym := range symbols {
+		key := files[i].RelPath + ":" + sym.Name
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		embedText := buildEmbedText(sym, files[i].RelPath)
+		h := textHash(embedText)
+		if prev, ok := existing[key]; ok && prev == h {
+			result.Skipped++
+			continue
+		}
+		toEmbed = append(toEmbed, symbolEntry{sym: sym, file: files[i], hash: h, embedText: embedText})
+	}
+	return toEmbed, seen
+}
+
+// deleteIntraKeyOrphans removes code_embeddings rows for repoKey not in parsedKeys.
+// Non-fatal: logs a WARN on failure, increments the orphan-deleted counter on success.
+// Separated from indexRepo to reduce cognitive complexity.
+func deleteIntraKeyOrphans(ctx context.Context, store *Store, repoKey string, parsedKeys map[string]bool) {
+	orphansDeleted, orphanErr := store.DeleteIntraKeyOrphans(ctx, repoKey, parsedKeys)
+	if orphanErr != nil {
+		slog.Warn("indexRepo: intra-key orphan delete failed",
+			slog.String("repo", repoKey),
+			slog.Any("error", orphanErr))
+		return
+	}
+	if orphansDeleted > 0 {
+		indexOrphansDeletedTotal.Add(float64(orphansDeleted))
+		slog.Info("indexRepo: intra-key orphans deleted",
+			slog.String("repo", repoKey),
+			slog.Int64("deleted", orphansDeleted))
+	}
+}
+
+// embedChunks processes toEmbed in indexChunkSize batches, writing dense (and
+// sparse when configured) vectors to the store. Updates result.Indexed and prog
+// as each chunk completes. Returns the first error encountered.
+func (p *Pipeline) embedChunks(ctx context.Context, repoKey string, toEmbed []symbolEntry, result *IndexResult, prog *indexProgress) error {
+	for start := 0; start < len(toEmbed); start += indexChunkSize {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		end := min(start+indexChunkSize, len(toEmbed))
+		indexed, err := p.embedAndUpsert(ctx, repoKey, toEmbed[start:end])
+		if err != nil {
+			return err
+		}
+		result.Indexed += indexed
+		if prog != nil {
+			atomic.StoreInt64(&prog.done, int64(end))
+		}
+	}
+	return nil
 }
 
 // embedAndUpsert embeds a chunk of symbols and upserts them into the store.

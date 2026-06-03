@@ -92,19 +92,42 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		return res, fullErr
 	}
 
-	// Step 3: same-SHA fast path — bump timestamp only.
+	// Step 3: same-SHA fast path — bump timestamp only, but only when the store
+	// has ≥1 embedding row. A same-SHA with 0 rows is the Bug #1 frozen-empty
+	// desync state: fall through to full re-index instead of skipping.
 	if prevSHA == currentSHA {
-		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
-			recordRepoStateWriteFailure(repoKey, "incrementalSync:same-sha", err)
+		embCount, countErr := p.store.CountEmbeddings(ctx, repoKey)
+		if countErr != nil {
+			slog.Warn("incrementalSync: CountEmbeddings failed; falling through to full re-index",
+				slog.String("repo", repoKey), slog.Any("error", countErr))
+			// Fall through to full re-index (safe).
+		} else if embCount > 0 {
+			// Healthy: SHA unchanged AND rows present → safe to skip.
+			if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+				recordRepoStateWriteFailure(repoKey, "incrementalSync:same-sha", err)
+			}
+			SetEmbeddingsPresentGauge(repoKey, embCount)
+			res := &IncrementalSyncResult{
+				Mode:       IncrementalSyncSkipSHAMatch,
+				PrevSHA:    prevSHA,
+				CurrentSHA: currentSHA,
+			}
+			recordIncrementalSync(res, nil)
+			recordCommitsBehind(ctx, repoKey, root, p.store, currentSHA)
+			return res, nil
 		}
-		res := &IncrementalSyncResult{
-			Mode:       IncrementalSyncSkipSHAMatch,
-			PrevSHA:    prevSHA,
-			CurrentSHA: currentSHA,
-		}
-		recordIncrementalSync(res, nil)
+		// 0 embeddings despite same SHA — frozen-empty (Bug #1 recovery).
+		// The incremental diff path (git diff prevSHA..currentSHA) would return
+		// no changed files (same SHA → empty diff) and advance the SHA again with
+		// 0 rows. Route to fallbackToFull so IndexRepo detects the desync and
+		// re-embeds all symbols.
+		repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		slog.Warn("incrementalSync: same SHA but 0 embeddings — routing to full re-index for recovery",
+			slog.String("repo", repoKey), slog.String("sha", shortSHA(currentSHA)))
+		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackBootstrap)
+		recordIncrementalSync(res, fullErr)
 		recordCommitsBehind(ctx, repoKey, root, p.store, currentSHA)
-		return res, nil
+		return res, fullErr
 	}
 
 	// Step 4: compute diff.
@@ -193,7 +216,7 @@ func gitDiffNames(ctx context.Context, root, prevSHA, currentSHA string) ([]stri
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s..%s: %w (stderr: %s)",
-			prevSHA[:min(8, len(prevSHA))], currentSHA[:min(8, len(currentSHA))],
+			shortSHA(prevSHA), shortSHA(currentSHA),
 			err, strings.TrimSpace(stderr.String()))
 	}
 
