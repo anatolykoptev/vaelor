@@ -172,6 +172,14 @@ type Config struct {
 	// Tune via RRF_WEIGHT_SPARSE env. Must be ≥ 0.
 	RRFWeightSparse float64
 
+	// RRFWeightGraph is the per-list weight applied to the graph-candidate arm
+	// inside MergeRRF (Phase 1 graph-first retrieval plan, 2026-06-02).
+	// Default 0.0 — DARK-LAUNCHED: the arm is plumbed but contributes nothing to
+	// ranking (and adds ZERO hot-path latency — the GraphCandidates call is skipped)
+	// until A/B gate clears. Post-A/B recommended band: 0.2–0.4 (below dense per
+	// graph-first plan ADR). Tune via RRF_WEIGHT_GRAPH env. Must be ≥ 0.
+	RRFWeightGraph float64
+
 	// KeywordArm selects the lexical retriever that feeds the Keyword slot of
 	// MergeRRF. Allowed values: "grep" (default, byte-identical to today) |
 	// "bm25f" (BM25F over trigram-prefiltered candidates, BM25F P4).
@@ -326,6 +334,14 @@ const (
 	// post-A/B per SPLADE landscape research (2026-06-01).
 	defaultRRFWeightSparse = 0.0
 
+	// defaultRRFWeightGraph: 0.0 = DARK-LAUNCHED. The graph-candidate arm (Phase 1
+	// graph-first retrieval plan, 2026-06-02) is plumbed but contributes nothing to
+	// ranking until A/B gate clears (target p<0.05 nDCG@10 improvement).
+	// When weight == 0 the GraphCandidates call is skipped entirely — zero added
+	// hot-path latency. Post-A/B recommended band: 0.2–0.4 (below dense per plan ADR).
+	// Flip via RRF_WEIGHT_GRAPH env (≥ 0, negative rejected at startup).
+	defaultRRFWeightGraph = 0.0
+
 	// defaultKeywordArm: "grep" = byte-identical to pre-BM25F behavior.
 	// Dark-launched: no prod change until operator sets KEYWORD_ARM=bm25f after
 	// Phase 5 A/B gate (non-inferiority on nDCG@10). Valid values: grep | bm25f.
@@ -420,6 +436,7 @@ func loadConfig() (Config, error) {
 		RRFWeightSemantic:      env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
 		RRFWeightKeyword:       env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
 		RRFWeightSparse:        env.Float("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse),
+		RRFWeightGraph:         env.Float("RRF_WEIGHT_GRAPH", defaultRRFWeightGraph),
 		KeywordArm:             parseKeywordArm(env.Str("KEYWORD_ARM", defaultKeywordArm)),
 		SparseEmbedURL:         env.Str("SPARSE_EMBED_URL", ""),
 		SparseEmbedModel:       env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
@@ -481,6 +498,7 @@ func (c Config) RRFWeights() embeddings.RRFWeights {
 		Semantic: c.RRFWeightSemantic,
 		Keyword:  c.RRFWeightKeyword,
 		Sparse:   c.RRFWeightSparse,
+		Graph:    c.RRFWeightGraph,
 	}
 }
 

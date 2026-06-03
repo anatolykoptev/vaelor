@@ -26,6 +26,24 @@
 //	# The report's "splade_gate" field contains the PASS/FAIL verdict.
 //	jq .splade_gate /tmp/eval-cand.json
 //
+// Graph-arm A/B gate mode (Phase 1 graph-first retrieval):
+//
+// Same pattern as SPLADE but use --graph-weight and the report's "graph_gate":
+//
+//	# Step 1: baseline run (RRF_WEIGHT_GRAPH=0 on the server)
+//	go-code-eval --golden-dir eval/golden \
+//	             --target-url http://127.0.0.1:8897 \
+//	             --output /tmp/eval-baseline.json
+//
+//	# Step 2: candidate run (RRF_WEIGHT_GRAPH=0.2 on the server)
+//	go-code-eval --golden-dir eval/golden \
+//	             --target-url http://127.0.0.1:8897 \
+//	             --output /tmp/eval-graph-cand.json \
+//	             --baseline /tmp/eval-baseline.json \
+//	             --graph-weight 0.2
+//
+//	jq .graph_gate /tmp/eval-graph-cand.json
+//
 // Gate: PASS iff nDCG@10 improves at p<0.05 AND Recall@20 is non-inferior
 // (delta >= -2% OR p >= 0.05). See abgate.go for the full rule.
 //
@@ -67,6 +85,9 @@ var version = "dev"
 // noSPLADEWeight is the sentinel that signals "splade-weight not provided".
 const noSPLADEWeight = -1.0
 
+// noGraphWeight is the sentinel that signals "graph-weight not provided".
+const noGraphWeight = -1.0
+
 func main() {
 	fs := flag.NewFlagSet("eval", flag.ExitOnError)
 	goldenDir := fs.String("golden-dir", "eval/golden", "directory of <repo>.jsonl golden files")
@@ -75,6 +96,8 @@ func main() {
 	baseline := fs.String("baseline", "", "optional baseline report path for A/B comparison")
 	splaDeWeight := fs.Float64("splade-weight", noSPLADEWeight,
 		"RRF_WEIGHT_SPARSE used in the candidate run; enables SPLADE go/no-go gate in output (requires --baseline)")
+	graphWeight := fs.Float64("graph-weight", noGraphWeight,
+		"RRF_WEIGHT_GRAPH used in the candidate run; enables graph-arm go/no-go gate in output (requires --baseline)")
 	workers := fs.Int("workers", defaultWorkers, "concurrent HTTP workers")
 	topK := fs.Int("top-k", minTopK, "top_k passed to semantic_search (≥10 for Recall@10/@20)")
 	timeout := fs.Duration("timeout", defaultTimeout, "overall harness timeout")
@@ -87,17 +110,21 @@ func main() {
 		return
 	}
 
-	w := *splaDeWeight
-	if w == noSPLADEWeight {
-		w = math.NaN()
+	sw := *splaDeWeight
+	if sw == noSPLADEWeight {
+		sw = math.NaN()
 	}
-	if err := run(*goldenDir, *targetURL, *output, *baseline, w, *workers, *topK, *timeout); err != nil {
+	gw := *graphWeight
+	if gw == noGraphWeight {
+		gw = math.NaN()
+	}
+	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *workers, *topK, *timeout); err != nil {
 		slog.Error("eval failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(goldenDir, targetURL, output, baseline string, splaDeWeight float64, workers, topK int, timeout time.Duration) error {
+func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, workers, topK int, timeout time.Duration) error {
 	if topK < minTopK {
 		// Recall@20 requires the candidate pool to have at least 20 items.
 		topK = minTopK
@@ -154,6 +181,21 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight float64, wo
 			gate := EvaluateGate(base.PerQuery, results, splaDeWeight)
 			report.Gate = &gate
 			slog.Info("SPLADE gate",
+				slog.String("verdict", string(gate.Verdict)),
+				slog.Float64("ndcg10_delta", gate.NDCG10Delta),
+				slog.Float64("ndcg10_p", gate.NDCG10P),
+				slog.Float64("recall20_delta", gate.Recall20Delta),
+				slog.Float64("recall20_p", gate.Recall20P),
+				slog.Int("paired_queries", gate.PairedQueries),
+			)
+		}
+
+		// Emit the graph-arm go/no-go gate when --graph-weight is provided.
+		// Same gate logic as SPLADE; GateResult.TestedWeight records the graph weight.
+		if !math.IsNaN(graphWeight) {
+			gate := EvaluateGate(base.PerQuery, results, graphWeight)
+			report.GraphGate = &gate
+			slog.Info("graph arm gate",
 				slog.String("verdict", string(gate.Verdict)),
 				slog.Float64("ndcg10_delta", gate.NDCG10Delta),
 				slog.Float64("ndcg10_p", gate.NDCG10P),

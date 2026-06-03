@@ -36,7 +36,7 @@ type SemanticDeps struct {
 	Expander    *embeddings.Expander
 	OxCodes     *oxcodes.Client
 	// RRFWeights are the per-retriever weights threaded into MergeRRF.
-	// Defaults to (1.0, 1.0, 0.0) — Sparse is dark-launched at 0.0 (P4).
+	// Defaults to (1.0, 1.0, 0.0, 0.0) — Sparse and Graph are dark-launched at 0.0.
 	RRFWeights embeddings.RRFWeights
 	// SparseClient is the SPLADE sparse embedder used for query-time retrieval
 	// (P4 dark-launch). Nil when SPARSE_EMBED_URL is unset — arm is bypassed
@@ -54,7 +54,22 @@ type SemanticDeps struct {
 	// bm25searcher is the BM25Search test seam. Production leaves this nil and
 	// runKeywordArm falls back to Store. Tests wire a spy to avoid a live pool.
 	bm25searcher bm25Searcher
+	// graphCandidatesFunc is the graph-arm test seam. Production leaves this nil and
+	// handleSemanticHits calls Expander.GraphCandidates directly. Tests wire a spy
+	// to avoid a live AGE connection.
+	graphCandidatesFunc graphCandidatesFn
 }
+
+// graphCandidatesFn is the function type for graph candidate generation,
+// extracted for test-seam injection without a live AGE pool.
+type graphCandidatesFn func(
+	ctx context.Context,
+	graphName string,
+	queryTerms []string,
+	seeds []embeddings.SearchResult,
+	prSignals []graphx.Signal,
+	opts *embeddings.GraphCandidatesOpts,
+) []embeddings.GraphHit
 
 const (
 	defaultSemanticTopK = 10
@@ -212,6 +227,16 @@ func handleSemanticHits(
 		})
 	}
 
+	// Graph-candidate arm (Phase 1 dark-launch): only called when RRF_WEIGHT_GRAPH > 0.
+	// At weight 0 (default) this block is skipped → ZERO added hot-path latency.
+	// GraphCandidates reuses prSignals already fetched via annotateWithPageRank.
+	// Empty graph arm + weight 0.0 → byte-identical output (WeightedRRF math, verified
+	// by TestMergeRRF_EmptyGraphArmIdentical). Graceful nil on any AGE error.
+	var graphHits []embeddings.GraphHit
+	if deps.RRFWeights.Graph > 0 {
+		graphHits = runGraphArm(ctx, deps, repoKey, input.Query, results, rerankCap)
+	}
+
 	// grep path: FileLineHit → KeywordHit via MatchKeywordHits (DB symbol resolve).
 	// bm25f path: already KeywordHit, keyHits is nil.
 	if len(keyHits) > 0 && deps.Store != nil {
@@ -220,22 +245,58 @@ func handleSemanticHits(
 		}
 	}
 
-	if len(matched) > 0 || len(sparseHits) > 0 {
-		return hybridResult(ctx, input, deps, repoKey, root, results, matched, sparseHits, rerankCap, topK, t0)
+	if len(matched) > 0 || len(sparseHits) > 0 || len(graphHits) > 0 {
+		return hybridResult(ctx, input, deps, repoKey, root, results, matched, sparseHits, graphHits, rerankCap, topK, t0)
 	}
 	return semanticOnlyResult(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
 }
 
+// runGraphArm fetches graph candidates for the graph-arm of MergeRRF.
+// Only called when deps.RRFWeights.Graph > 0 (dark-launch gate).
+// Reuses the TopPageRank batch from the annotateWithPageRank call below (via
+// deps.AnalyzeDeps.Graph) to make sub-arm (a) free. Non-fatal: any error returns nil.
+func runGraphArm(
+	ctx context.Context,
+	deps SemanticDeps,
+	repoKey, query string,
+	seeds []embeddings.SearchResult,
+	topK int,
+) []embeddings.GraphHit {
+	if deps.Expander == nil {
+		return nil
+	}
+
+	// Fetch TopPageRank batch for sub-arm (a) — same call annotateWithPageRank
+	// issues below; on a warm graph this is O(1) in the AGE index.
+	var prSignals []graphx.Signal
+	if deps.AnalyzeDeps.Graph != nil {
+		const prBatch = 200
+		sigs, err := deps.AnalyzeDeps.Graph.TopPageRank(ctx, repoKey, prBatch)
+		if err == nil {
+			prSignals = sigs
+		}
+	}
+
+	kws := embeddings.ExtractQueryKeywords(query)
+
+	fn := deps.graphCandidatesFunc
+	if fn == nil {
+		fn = deps.Expander.GraphCandidates
+	}
+
+	return fn(ctx, repoKey, kws, seeds, prSignals, &embeddings.GraphCandidatesOpts{TopK: topK})
+}
+
 // hybridResult runs the hybrid RRF merge → CE rerank → annotate → format pipeline.
-// Called when at least one non-semantic arm (keyword or sparse) produced hits.
+// Called when at least one non-semantic arm (keyword, sparse, or graph) produced hits.
 func hybridResult(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, semantic []embeddings.SearchResult,
-	matched []embeddings.KeywordHit, sparse []embeddings.SparseHit,
+	matched []embeddings.KeywordHit, sparse []embeddings.SparseHit, graph []embeddings.GraphHit,
 	rerankCap, topK int, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
 	// Merge with an enlarged pool so CE reranker can pick the best topK.
-	hybrid := embeddings.MergeRRF(semantic, matched, sparse, rerankCap, deps.RRFWeights)
+	hybrid := embeddings.MergeRRF(semantic, matched, sparse, graph, rerankCap, deps.RRFWeights)
 	// Flatten HybridResult → SearchResult for CE reranker.
 	flat := make([]embeddings.SearchResult, len(hybrid))
 	for i, h := range hybrid {
