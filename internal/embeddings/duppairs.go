@@ -121,13 +121,37 @@ func (e *Expander) PairsConnectedByCalls(ctx context.Context, graphName string, 
 // *GitLabForge.FetchREADME, or four Search methods) look semantically identical
 // but are distinct correct implementations, not duplicates.
 //
-// Why not IMPLEMENTS edges: Go interface satisfaction is structural/type-level —
-// there is no `implements` keyword for tree-sitter to capture, so the codegraph
-// indexer emits ZERO IMPLEMENTS edges for Go (verified on the go-code self-index:
-// IMPLEMENTS=0 while CALLS=11934). The original (a)-[:IMPLEMENTS]->(i)<-[:IMPLEMENTS]-(b)
-// Cypher was therefore identically empty — a dead filter. The real IMPLEMENTS-edge
-// population via go/types is tracked as a follow-up (see docs); until then this
-// method uses a signature-receiver discriminator on the Symbol vertices.
+// Two discriminator paths, selected per call:
+//
+//   - EXACT (preferred): when the graph has real (type)-[:IMPLEMENTS]->(interface)
+//     edges (a Go repo reindexed with the go/types satisfaction pass), a pair is a
+//     sibling iff both methods' receiver types implement a COMMON interface. This is
+//     the durable 2-hop fix and closes the residual false-negative the heuristic
+//     could not: two exported same-name methods on DISTINCT receivers that share NO
+//     interface are now correctly REPORTED, not suppressed.
+//
+//   - HEURISTIC (fallback): when the graph has ZERO IMPLEMENTS edges (non-Go repos,
+//     or a Go repo not yet reindexed after the indexer change), it falls back to the
+//     #218 signature-receiver discriminator. Degradation is graceful — never worse
+//     than #218.
+//
+// Same graceful-degradation contract as PairsConnectedByCalls: any graph error
+// yields an empty map and nil error (a hiccup must not hide real duplicates).
+func (e *Expander) PairsSharingInterface(ctx context.Context, graphName string, pairs []PairKey) (map[PairKey]bool, error) {
+	if len(pairs) == 0 {
+		return map[PairKey]bool{}, nil
+	}
+
+	if e.graphHasImplementsEdges(ctx, graphName) {
+		interfaceSiblingPathTotal.WithLabelValues(ifacePathExact).Inc()
+		return e.pairsSharingInterfaceExact(ctx, graphName, pairs)
+	}
+	interfaceSiblingPathTotal.WithLabelValues(ifacePathHeuristic).Inc()
+	return e.pairsSharingInterfaceHeuristic(ctx, graphName, pairs)
+}
+
+// pairsSharingInterfaceHeuristic is the #218 signature-receiver discriminator,
+// retained as the fallback when no IMPLEMENTS edges exist for the graph.
 //
 // Discriminator: a pair is an interface sibling when both endpoints are methods,
 // share the same method name + identical receiver-stripped signature, and sit on
@@ -143,13 +167,7 @@ func (e *Expander) PairsConnectedByCalls(ctx context.Context, graphName string, 
 // both (a,b) and (b,a) orderings plus a==b self-matches; canonical PairKey (A<=B)
 // deduplicates them and the discriminator's distinct-receiver requirement skips
 // self-matches.
-//
-// Same graceful-degradation contract as PairsConnectedByCalls.
-func (e *Expander) PairsSharingInterface(ctx context.Context, graphName string, pairs []PairKey) (map[PairKey]bool, error) {
-	if len(pairs) == 0 {
-		return map[PairKey]bool{}, nil
-	}
-
+func (e *Expander) pairsSharingInterfaceHeuristic(ctx context.Context, graphName string, pairs []PairKey) (map[PairKey]bool, error) {
 	names := symbolNamesFromPairs(pairs)
 	if len(names) == 0 {
 		return map[PairKey]bool{}, nil
