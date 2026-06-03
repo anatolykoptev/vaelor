@@ -45,12 +45,40 @@ func buildHealthSnapshot(ctx context.Context, root, language, focus string) (*he
 	}, nil
 }
 
-// collectSemanticDupGroups retrieves semantic duplication groups for the focused report.
+// collectSemanticDupGroups retrieves semantic duplication groups for the focused
+// report (focus=semantic_duplicates path only). It runs the Phase-2 filter chain
+// and assigns exact/very-close/related tiers via AnalyzeTriage.
+//
+// The grade-ratio path (gatherHealthSemanticDup) continues to use Analyze; this
+// function is NOT called on that path — see the focus guard in the caller.
 func collectSemanticDupGroups(ctx context.Context, semDeps *SemanticDeps, root string, snap *compare.RepoSnapshot) []semhealth.DupGroup {
 	repoKey := codegraph.GraphNameFor(root)
 	funcCount := countFuncs(snap.Symbols)
-	if sem := semhealth.Analyze(ctx, semDeps.Store, repoKey, funcCount); sem != nil {
-		return sem.DupGroups
+
+	// Pass the Expander only when non-nil: a nil *Expander assigned to the
+	// graphPairFilter interface creates a non-nil interface wrapping a nil pointer,
+	// which would panic inside graph filters. Explicit nil preserves the
+	// graceful-degradation path (filters are no-ops on nil gf).
+	var gf semhealth.GraphPairFilter
+	if semDeps.Expander != nil {
+		gf = semDeps.Expander
+	}
+
+	triage := semhealth.AnalyzeTriage(
+		ctx,
+		semDeps.Store,
+		gf,
+		repoKey, // graphName == repoKey for AGE
+		repoKey,
+		funcCount,
+		semhealth.TriageOpts{},
+	)
+	if triage != nil {
+		if triage.TimedOut {
+			slog.Warn("semhealth: semantic dup search incomplete — triage results may be partial",
+				slog.String("repo", repoKey))
+		}
+		return triage.Groups
 	}
 	return nil
 }
