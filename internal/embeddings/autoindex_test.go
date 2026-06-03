@@ -11,6 +11,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	dto "github.com/prometheus/client_model/go"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // fakeIndexer is a deterministic *Pipeline replacement used to assert
@@ -22,6 +26,9 @@ type fakeIndexer struct {
 	delay     time.Duration      // optional per-call work simulation
 	active    int32              // current in-flight calls
 	maxActive int32              // peak observed concurrency
+	// blockUntil, when non-nil, causes IncrementalSync to block until the
+	// channel is closed. Tests use this to hold a slot and force contention.
+	blockUntil chan struct{}
 }
 
 func newFakeIndexer() *fakeIndexer {
@@ -66,7 +73,17 @@ func (f *fakeIndexer) IndexRepo(ctx context.Context, repoKey, _ string) (*IndexR
 // IncrementalSync satisfies the repoIndexer interface. It delegates to IndexRepo
 // so that all existing retry / concurrency tests continue to exercise their code
 // paths (fail plans, delay, active-count tracking) without modification.
+// When blockUntil is non-nil, IncrementalSync blocks until the channel is closed
+// (or ctx is cancelled) BEFORE delegating, so tests can hold a semaphore slot
+// and force contention on the acquire path.
 func (f *fakeIndexer) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
+	if f.blockUntil != nil {
+		select {
+		case <-f.blockUntil:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	result, err := f.IndexRepo(ctx, repoKey, root)
 	if err != nil {
 		return nil, err
@@ -318,8 +335,11 @@ func TestNormalizeOpts(t *testing.T) {
 
 func TestDefaultAutoIndexOpts(t *testing.T) {
 	d := DefaultAutoIndexOpts()
-	if d.Concurrency != 2 {
-		t.Errorf("default Concurrency=2 (plan recommendation), got %d", d.Concurrency)
+	// Concurrency=1 serializes embed calls onto the single-worker embed backend
+	// so queue depth stays bounded. Reverted from 2 after fleet overload caused
+	// unbounded queuing and context deadline exceeded on every second-repo batch.
+	if d.Concurrency != 1 {
+		t.Errorf("default Concurrency=1 (single-worker embed backend guard), got %d", d.Concurrency)
 	}
 	if d.RetryMax != 3 {
 		t.Errorf("default RetryMax=3, got %d", d.RetryMax)
@@ -327,4 +347,143 @@ func TestDefaultAutoIndexOpts(t *testing.T) {
 	if d.RetryBase != 5*time.Second {
 		t.Errorf("default RetryBase=5s, got %v", d.RetryBase)
 	}
+}
+
+// TestAutoIndex_InFlightGaugeZeroAfterCompletion verifies the in-flight gauge
+// returns to 0 after all repos finish. This test would fail if the Inc/Dec
+// calls in autoIndex were removed or mis-paired (e.g. only Inc, no defer Dec).
+// Falsification: deleting the "defer autoindexInFlight.Dec()" line in autoindex.go
+// would leave the gauge at N>0 after this test, causing it to fail.
+func TestAutoIndex_InFlightGaugeZeroAfterCompletion(t *testing.T) {
+	root := makeFakeRepoTree(t, "g1", "g2", "g3")
+	f := newFakeIndexer()
+	f.delay = 5 * time.Millisecond
+
+	autoIndex(context.Background(), f, []string{root}, keyByName, AutoIndexOpts{
+		Concurrency: 1,
+		RetryMax:    0,
+		RetryBase:   1 * time.Millisecond,
+	})
+
+	// After autoIndex returns all goroutines have exited; gauge must be 0.
+	got := gaugeValue(t, autoindexInFlight)
+	if got != 0 {
+		t.Errorf("in-flight gauge: expected 0 after completion, got %g", got)
+	}
+}
+
+// TestAutoIndex_DeferredCounterWaitersOnly verifies that
+// gocode_autoindex_deferred_total counts only repos that had to BLOCK on the
+// semaphore (true queue pressure), not every entrant.
+//
+// With concurrency=1 and N repos, exactly N-1 repos must wait: the first
+// acquires the slot immediately via TryAcquire and is NOT counted; all
+// subsequent goroutines find the slot held and ARE counted.
+//
+// Determinism: blockUntil holds the first job inside IncrementalSync while
+// autoIndex runs in a goroutine. We poll f.active until the first job is
+// holding the slot, then wait for the remaining N-1 goroutines to reach
+// sem.Acquire (they call TryAcquire, fail, and block). Once all N-1 are
+// observed via autoindexDeferredTotal reaching (before + N-1), we release
+// the hold, let autoIndex drain, and assert the exact count.
+//
+// Falsification: reverting the TryAcquire guard (calling recordAutoIndexDeferred
+// unconditionally) raises the counter to N (not N-1), causing this test to fail.
+func TestAutoIndex_DeferredCounterWaitersOnly(t *testing.T) {
+	const nRepos = 3
+	repos := make([]string, nRepos)
+	for i := range repos {
+		repos[i] = fmt.Sprintf("w%d", i+1)
+	}
+	root := makeFakeRepoTree(t, repos...)
+
+	block := make(chan struct{})
+	f := newFakeIndexer()
+	f.blockUntil = block // holds every IncrementalSync until we close it
+
+	before := counterVecSum(t, autoindexDeferredTotal)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		autoIndex(ctx, f, []string{root}, keyByName, AutoIndexOpts{
+			Concurrency: 1,
+			RetryMax:    0,
+			RetryBase:   1 * time.Millisecond,
+		})
+	}()
+
+	// Wait until the first goroutine has acquired the slot and incremented the
+	// in-flight gauge. autoindexInFlight reaches 1 immediately after TryAcquire
+	// succeeds, before IncrementalSync is called — so the slot is definitively
+	// held by the time we observe gauge==1.
+	for gaugeValue(t, autoindexInFlight) < 1 {
+		select {
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for first job to acquire slot")
+		default:
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+
+	// Wait until N-1 waiters have been counted: they each called TryAcquire,
+	// failed, and incremented the counter. This is a definitive signal that
+	// all N-1 remaining goroutines have reached the blocking acquire path.
+	want := before + float64(nRepos-1)
+	for counterVecSum(t, autoindexDeferredTotal) < want {
+		select {
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for N-1 deferred goroutines to register")
+		default:
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+
+	// Release all blocked jobs and wait for autoIndex to finish.
+	close(block)
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for autoIndex to complete")
+	}
+
+	after := counterVecSum(t, autoindexDeferredTotal)
+	added := after - before
+	// Exactly N-1 repos should be deferred (first acquires free slot, rest wait).
+	if int(added) != nRepos-1 {
+		t.Errorf("deferred counter: expected +%d (N-1 waiters), got +%g", nRepos-1, added)
+	}
+}
+
+// gaugeValue reads the current float value of a prometheus.Gauge.
+func gaugeValue(t *testing.T, g prometheus.Gauge) float64 {
+	t.Helper()
+	var m dto.Metric
+	if err := g.Write(&m); err != nil {
+		t.Fatalf("gauge.Write: %v", err)
+	}
+	if m.Gauge == nil {
+		return 0
+	}
+	return m.Gauge.GetValue()
+}
+
+// counterVecSum returns the sum of all label-value pairs in a CounterVec by
+// collecting via the prometheus.Collector interface.
+func counterVecSum(t *testing.T, cv prometheus.Collector) float64 {
+	t.Helper()
+	ch := make(chan prometheus.Metric, 128)
+	cv.Collect(ch)
+	close(ch)
+	var sum float64
+	for m := range ch {
+		var dm dto.Metric
+		if err := m.Write(&dm); err == nil && dm.Counter != nil {
+			sum += dm.Counter.GetValue()
+		}
+	}
+	return sum
 }
