@@ -219,7 +219,7 @@ func (p *Pipeline) indexRepo(
 	}
 
 	var toEmbed []symbolEntry
-	seen := make(map[string]bool) // dedup within batch
+	seen := make(map[string]bool) // dedup within batch; also serves as the complete parsed-key set
 	for i, sym := range symbols {
 		key := files[i].RelPath + ":" + sym.Name
 		if seen[key] {
@@ -233,6 +233,32 @@ func (p *Pipeline) indexRepo(
 			continue
 		}
 		toEmbed = append(toEmbed, symbolEntry{sym: sym, file: files[i], hash: h, embedText: embedText})
+	}
+
+	// Intra-key orphan reconciliation: delete rows in code_embeddings for this
+	// repo_key that are NOT in the freshly-parsed symbol set.
+	//
+	// This is ONLY safe here — on the full-walk path — where `seen` contains the
+	// COMPLETE (file_path, symbol_name) set for the repo. The same-SHA fast-path
+	// above returns before reaching this point, and the no-embed short-circuit
+	// below has a complete `seen` (it just has nothing new to embed).
+	//
+	// A partial parse (collectSymbolsCached error) returns early before this
+	// point, so `seen` is always the full set when we reach this line.
+	//
+	// Batched anti-join, intraKeyOrphanChunkSize rows per DELETE, to avoid
+	// statement_timeout on large repos (#201 lesson: data-size-bound, not param-bound).
+	orphansDeleted, orphanErr := p.store.DeleteIntraKeyOrphans(ctx, repoKey, seen)
+	if orphanErr != nil {
+		// Non-fatal: log and continue. The next full-walk will retry.
+		slog.Warn("indexRepo: intra-key orphan delete failed",
+			slog.String("repo", repoKey),
+			slog.Any("error", orphanErr))
+	} else if orphansDeleted > 0 {
+		indexOrphansDeletedTotal.Add(float64(orphansDeleted))
+		slog.Info("indexRepo: intra-key orphans deleted",
+			slog.String("repo", repoKey),
+			slog.Int64("deleted", orphansDeleted))
 	}
 
 	if prog != nil {
