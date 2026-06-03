@@ -122,6 +122,32 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Int("vertices", len(vertices)), slog.Int("edges", len(edges)),
 		slog.Duration("elapsed", time.Since(t2)))
 
+	// Phase 2: extract named execution flows (index-time precompute).
+	// Runs after injectCommunities and computeSymbolPageRank (called inside buildGraph).
+	// No AGE I/O — pure in-memory DFS over cg. Non-fatal: logs error and bumps counter.
+	prScores := computeSymbolPageRank(root, allSymbols, cg)
+	communityMap := buildCommunityMap(vertices)
+	crossVerticesEarly, crossEdgesEarly := buildCrossLanguageData(root, allFiles, allSymbols)
+	handlesTargets := extractHandlesTargets(root, crossEdgesEarly)
+	{
+		t_flows := time.Now()
+		flows := ExtractFlows(root, cg, communityMap, prScores, handlesTargets)
+		flowsExtractedTotal.WithLabelValues(repoKey).Add(float64(len(flows)))
+		slog.Info("codegraph: flow extraction done",
+			slog.String("repo", root), slog.Int("flows", len(flows)),
+			slog.Duration("elapsed", time.Since(t_flows)))
+		if len(flows) > 0 {
+			if uErr := store.UpsertFlows(ctx, repoKey, flows); uErr != nil {
+				slog.Warn("codegraph: flow upsert failed (non-fatal)",
+					slog.String("repo", root), slog.Any("error", uErr))
+				flowsDBErrorTotal.WithLabelValues(repoKey).Inc()
+			}
+		}
+		flowsExtractDuration.WithLabelValues(repoKey).Observe(time.Since(t_flows).Seconds())
+	}
+	// Use the early cross-language data for the main insert pass.
+	crossVertices, crossEdges := crossVerticesEarly, crossEdgesEarly
+
 	// Open a bulk write session (synchronous_commit=off, single connection).
 	// 5x faster than per-call pool acquire. Falls back to Store on error.
 	var writer CypherWriter = store
@@ -151,8 +177,8 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.Int("vertices", len(vertices)), slog.Int("edges", len(edges)),
 		slog.Duration("elapsed", time.Since(t3)))
 
-	// Cross-language analysis (non-fatal).
-	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles, allSymbols)
+	// Cross-language analysis (non-fatal). Data already computed above for flow
+	// extraction; reuse the hoisted crossVertices/crossEdges variables.
 	if len(crossVertices) > 0 {
 		if err := insertBatches(ctx, writer, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
 			slog.Warn("codegraph: cross-language vertices", slog.Any("error", err))

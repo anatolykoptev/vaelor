@@ -21,6 +21,7 @@ const (
 const (
 	edgeLabelInherits   = "INHERITS"
 	edgeLabelImplements = "IMPLEMENTS"
+	edgeLabelHandles    = "HANDLES"
 )
 
 // buildGraphInput holds all inputs to buildGraph.
