@@ -36,7 +36,7 @@ type SemanticDeps struct {
 	Expander    *embeddings.Expander
 	OxCodes     *oxcodes.Client
 	// RRFWeights are the per-retriever weights threaded into MergeRRF.
-	// Defaults to (1.0, 1.0, 0.0) — Sparse is dark-launched at 0.0 (P4).
+	// Defaults to (1.0, 1.0, 0.0, 0.0) — Sparse and Graph are dark-launched at 0.0.
 	RRFWeights embeddings.RRFWeights
 	// SparseClient is the SPLADE sparse embedder used for query-time retrieval
 	// (P4 dark-launch). Nil when SPARSE_EMBED_URL is unset — arm is bypassed
@@ -54,7 +54,22 @@ type SemanticDeps struct {
 	// bm25searcher is the BM25Search test seam. Production leaves this nil and
 	// runKeywordArm falls back to Store. Tests wire a spy to avoid a live pool.
 	bm25searcher bm25Searcher
+	// graphCandidatesFunc is the graph-arm test seam. Production leaves this nil and
+	// handleSemanticHits calls Expander.GraphCandidates directly. Tests wire a spy
+	// to avoid a live AGE connection.
+	graphCandidatesFunc graphCandidatesFn
 }
+
+// graphCandidatesFn is the function type for graph candidate generation,
+// extracted for test-seam injection without a live AGE pool.
+type graphCandidatesFn func(
+	ctx context.Context,
+	graphName string,
+	queryTerms []string,
+	seeds []embeddings.SearchResult,
+	prSignals []graphx.Signal,
+	opts *embeddings.GraphCandidatesOpts,
+) []embeddings.GraphHit
 
 const (
 	defaultSemanticTopK = 10
@@ -212,6 +227,27 @@ func handleSemanticHits(
 		})
 	}
 
+	// Fetch TopPageRank batch once — reused by both the graph-candidate arm (sub-arm a)
+	// and annotateWithPageRank. A single batch query per request regardless of arm weight;
+	// annotateWithPageRank is always called, so this fetch is never wasted.
+	var prSignals []graphx.Signal
+	if deps.AnalyzeDeps.Graph != nil {
+		const prBatch = 200
+		if sigs, err := deps.AnalyzeDeps.Graph.TopPageRank(ctx, repoKey, prBatch); err == nil {
+			prSignals = sigs
+		}
+	}
+
+	// Graph-candidate arm (Phase 1 dark-launch): only called when RRF_WEIGHT_GRAPH > 0.
+	// At weight 0 (default) this block is skipped → ZERO added hot-path latency.
+	// prSignals already fetched above — sub-arm (a) is free (no extra AGE round-trip).
+	// Empty graph arm + weight 0.0 → byte-identical output (WeightedRRF math, verified
+	// by TestMergeRRF_EmptyGraphArmIdentical). Graceful nil on any AGE error.
+	var graphHits []embeddings.GraphHit
+	if deps.RRFWeights.Graph > 0 {
+		graphHits = runGraphArm(ctx, deps, repoKey, input.Query, results, prSignals, rerankCap)
+	}
+
 	// grep path: FileLineHit → KeywordHit via MatchKeywordHits (DB symbol resolve).
 	// bm25f path: already KeywordHit, keyHits is nil.
 	if len(keyHits) > 0 && deps.Store != nil {
@@ -220,33 +256,63 @@ func handleSemanticHits(
 		}
 	}
 
-	if len(matched) > 0 || len(sparseHits) > 0 {
-		return hybridResult(ctx, input, deps, repoKey, root, results, matched, sparseHits, rerankCap, topK, t0)
+	if len(matched) > 0 || len(sparseHits) > 0 || len(graphHits) > 0 {
+		return hybridResult(ctx, input, deps, repoKey, root, results, matched, sparseHits, graphHits, prSignals, rerankCap, topK, t0)
 	}
-	return semanticOnlyResult(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
+	return semanticOnlyResult(ctx, input, deps, repoKey, root, results, prSignals, topK, maxDist, t0)
+}
+
+// runGraphArm generates graph-arm candidates for MergeRRF.
+// Only called when deps.RRFWeights.Graph > 0 (dark-launch gate).
+// prSignals is the already-fetched TopPageRank batch from handleSemanticHits —
+// sub-arm (a) reuses it for free (zero additional AGE round-trips).
+// Non-fatal: any AGE error inside GraphCandidates returns nil.
+func runGraphArm(
+	ctx context.Context,
+	deps SemanticDeps,
+	repoKey, query string,
+	seeds []embeddings.SearchResult,
+	prSignals []graphx.Signal,
+	topK int,
+) []embeddings.GraphHit {
+	if deps.Expander == nil {
+		return nil
+	}
+
+	kws := embeddings.ExtractQueryKeywords(query)
+
+	fn := deps.graphCandidatesFunc
+	if fn == nil {
+		fn = deps.Expander.GraphCandidates
+	}
+
+	return fn(ctx, repoKey, kws, seeds, prSignals, &embeddings.GraphCandidatesOpts{TopK: topK})
 }
 
 // hybridResult runs the hybrid RRF merge → CE rerank → annotate → format pipeline.
-// Called when at least one non-semantic arm (keyword or sparse) produced hits.
+// Called when at least one non-semantic arm (keyword, sparse, or graph) produced hits.
+// prSignals is the already-fetched TopPageRank batch (may be nil when graph is cold).
 func hybridResult(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, semantic []embeddings.SearchResult,
-	matched []embeddings.KeywordHit, sparse []embeddings.SparseHit,
+	matched []embeddings.KeywordHit, sparse []embeddings.SparseHit, graph []embeddings.GraphHit,
+	prSignals []graphx.Signal,
 	rerankCap, topK int, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
 	// Merge with an enlarged pool so CE reranker can pick the best topK.
-	hybrid := embeddings.MergeRRF(semantic, matched, sparse, rerankCap, deps.RRFWeights)
+	hybrid := embeddings.MergeRRF(semantic, matched, sparse, graph, rerankCap, deps.RRFWeights)
 	// Flatten HybridResult → SearchResult for CE reranker.
 	flat := make([]embeddings.SearchResult, len(hybrid))
 	for i, h := range hybrid {
 		flat[i] = h.SearchResult
 		flat[i].Source = h.Source
 	}
-	return finalResult(ctx, input, deps, repoKey, root, flat, topK, t0)
+	return finalResult(ctx, input, deps, repoKey, root, flat, prSignals, topK, t0)
 }
 
 // semanticOnlyResult filters by distance then applies CE rerank → annotate → format.
 // Called when keyword and sparse arms yielded no hits.
+// prSignals is the already-fetched TopPageRank batch (may be nil when graph is cold).
 //
 // MergeRRF (the hybrid path) deduplicates by FilePath+":"+SymbolName. This
 // path skips MergeRRF, so both the dense-cosine arm and the trigram-name arm
@@ -256,6 +322,7 @@ func hybridResult(
 func semanticOnlyResult(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, results []embeddings.SearchResult,
+	prSignals []graphx.Signal,
 	topK int, maxDist float32, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
 	// Fallback to pure semantic — filter by distance (graph results have Distance=1.0).
@@ -279,14 +346,17 @@ func semanticOnlyResult(
 		seen[key] = len(filtered)
 		filtered = append(filtered, r)
 	}
-	return finalResult(ctx, input, deps, repoKey, root, filtered, topK, t0)
+	return finalResult(ctx, input, deps, repoKey, root, filtered, prSignals, topK, t0)
 }
 
 // finalResult runs stale-demote → CE reranking → PageRank annotation → freshness wrap → format.
 // Shared terminal step for both the hybrid and semantic-only paths.
+// prSignals is the already-fetched TopPageRank batch from handleSemanticHits.
+// Passing it in avoids a second TopPageRank round-trip inside annotateWithPageRank.
 func finalResult(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 	repoKey, root string, candidates []embeddings.SearchResult,
+	prSignals []graphx.Signal,
 	topK int, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
 	// Stale-demote safety-net (defense-in-depth on top of Bug B orphan hard-delete):
@@ -298,7 +368,7 @@ func finalResult(
 		candidates = embeddings.ApplyStaleDemote(candidates, generation, embeddings.StaleDemoteEnabled())
 	}
 	reranked := codegraph.RerankSemanticResults(ctx, root, input.Query, candidates, topK)
-	reranked = annotateWithPageRank(ctx, reranked, deps.AnalyzeDeps.Graph, root)
+	reranked = annotateWithPageRank(reranked, prSignals)
 	hint := mcpmeta.HintAfterCodeSearch(input.Query, len(reranked), symbolNameFromResults(reranked))
 	env := mcpmeta.Wrap(time.Since(t0), hint)
 	if sha := deps.AnalyzeDeps.IndexedSHA(ctx, repoKey); sha != "" {
@@ -317,16 +387,11 @@ func symbolNameFromResults(results []embeddings.SearchResult) string {
 }
 
 // annotateWithPageRank adds PageRank signals to results for architectural awareness.
+// signals is the pre-fetched TopPageRank batch from handleSemanticHits; passing it
+// in avoids a redundant AGE round-trip (the batch was already fetched for runGraphArm).
 // Non-fatal: results without PageRank data keep zero value and are not shown in output.
-func annotateWithPageRank(ctx context.Context, results []embeddings.SearchResult, graph graphx.Analytics, repoKey string) []embeddings.SearchResult {
-	if graph == nil || len(results) == 0 {
-		return results
-	}
-
-	// Single batch query for top-200 PageRank symbols (same pattern as sortCallersByPageRank).
-	const batchSize = 200
-	signals, err := graph.TopPageRank(ctx, repoKey, batchSize)
-	if err != nil || len(signals) == 0 {
+func annotateWithPageRank(results []embeddings.SearchResult, signals []graphx.Signal) []embeddings.SearchResult {
+	if len(signals) == 0 || len(results) == 0 {
 		return results
 	}
 
