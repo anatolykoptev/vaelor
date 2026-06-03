@@ -29,16 +29,25 @@ type AutoIndexOpts struct {
 	RetryBase time.Duration
 }
 
-// Default tuning for AutoIndex. Concurrency=2 is a conservative starting
-// point: today's serial baseline is 1, and the embed-server has not yet
-// been load-tested at higher fan-out. Ramp to 4 next sprint.
+// Default tuning for AutoIndex.
+//
+// Concurrency=1 serializes autoindex embed calls onto the single-worker
+// embed backend (jina-code-v2 on embed.krolik.tools, pool_size=1). With
+// concurrency=2 and the fleet (~48 repos), the backend queue depth was
+// unbounded: second-repo batches queued behind first-repo's ~13s inference,
+// causing context deadline exceeded on the 120s client timeout and triggering
+// the full 3-retry stack (total wall time ≈ 360s per batch). Concurrency=1
+// limits go-code's pressure to one in-flight embed batch at a time so queue
+// depth stays 0 and individual requests complete within the raised timeout.
+// Override via AUTOINDEX_CONCURRENCY env; raise only after embed backend
+// is confirmed pool_size>1.
 const (
-	defaultAutoIndexConcurrency = 2
+	defaultAutoIndexConcurrency = 1
 	defaultAutoIndexRetryMax    = 3
 	defaultAutoIndexRetryBase   = 5 * time.Second
 )
 
-// DefaultAutoIndexOpts returns sane defaults: concurrency=2, retry_max=3,
+// DefaultAutoIndexOpts returns sane defaults: concurrency=1, retry_max=3,
 // retry_base=5s (exponential backoff: 5s, 10s, 20s).
 func DefaultAutoIndexOpts() AutoIndexOpts {
 	return AutoIndexOpts{
@@ -100,11 +109,21 @@ func autoIndex(
 		wg.Add(1)
 		go func(r repo) {
 			defer wg.Done()
-			if err := sem.Acquire(ctx, 1); err != nil {
-				// ctx cancelled before slot available — give up silently.
-				return
+			// Count repos that had to WAIT for a semaphore slot (true queue
+			// pressure). TryAcquire succeeds immediately when a slot is free;
+			// only the blocking path (slot already held) increments the counter,
+			// so the metric reflects actual contention, not mere entry.
+			if !sem.TryAcquire(1) {
+				recordAutoIndexDeferred(r.key)
+				if err := sem.Acquire(ctx, 1); err != nil {
+					// ctx cancelled before slot available — give up silently.
+					return
+				}
 			}
 			defer sem.Release(1)
+			// Track in-flight autoindex jobs for operational visibility.
+			autoindexInFlight.Inc()
+			defer autoindexInFlight.Dec()
 			indexWithRetry(ctx, pipeline, r, opts)
 		}(r)
 	}

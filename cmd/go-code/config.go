@@ -341,9 +341,12 @@ const (
 	defaultIndexBudget = 30 * time.Minute
 
 	// AutoIndex defaults — keep in sync with embeddings.DefaultAutoIndexOpts.
-	// Concurrency=2 starts conservative (today's serial baseline = 1) and
-	// will ramp to 4 once the embed-server fan-out is load-tested.
-	defaultAutoIndexConcurrency = 2
+	// Concurrency=1 serializes autoindex embed calls onto the single-worker
+	// embed backend so its queue depth stays bounded and individual requests
+	// complete within defaultEmbedHTTPTimeout. Raise to 2+ only after the
+	// embed backend is confirmed pool_size>1 under fleet load.
+	// Override via AUTOINDEX_CONCURRENCY env.
+	defaultAutoIndexConcurrency = 1
 	defaultAutoIndexRetryMax    = 3
 	defaultAutoIndexRetryBase   = 5 * time.Second
 
