@@ -52,6 +52,25 @@ var indexCancelledTotal = promauto.NewCounterVec(
 	[]string{"tool", "phase"},
 )
 
+// gocode_index_partial_abort_total counts background index runs that committed ≥1
+// chunk then aborted before writing all chunks AND without advancing repo_state SHA.
+// This is the exact "0→100→0→100" churn signature: rows are in the DB but SHA is
+// frozen, so every re-trigger re-deletes and re-writes chunk 1.
+//
+// A non-zero rate means embed-server latency is still exceeding EmbedHTTPTimeout
+// on some batches. After Fix 1 (EMBED_HTTP_TIMEOUT=120s), this should drop to 0.
+// Persistent non-zero values indicate the timeout needs to be raised further.
+//
+// Cardinality: 1 label (repo) — bounded by indexed repo count (~100).
+var indexPartialAbortTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_index_partial_abort_total",
+		Help: "Background index runs that committed ≥1 chunk then aborted before SHA advance. " +
+			"Post-fix must approach 0; persistent non-zero means EmbedHTTPTimeout is still too short.",
+	},
+	[]string{"repo"},
+)
+
 // SetEmbeddingsPresentGauge sets gocode_repo_embeddings_present{repo} to 1 when
 // count > 0, and to 0 otherwise. Called after each successful IndexRepo or
 // IncrementalSync pass to keep the gauge current.
@@ -70,6 +89,14 @@ func RecordIndexCancelled(tool, phase string) {
 	indexCancelledTotal.WithLabelValues(tool, phase).Inc()
 }
 
+// RecordIndexPartialAbort increments gocode_index_partial_abort_total{repo}
+// when a background index run has committed ≥1 chunk (rowsWritten > 0) but is
+// aborting before writing all chunks and before advancing the repo_state SHA.
+// This is the "0→100→0→100" churn signature: partial rows survive but SHA stays frozen.
+func RecordIndexPartialAbort(repo string) {
+	indexPartialAbortTotal.WithLabelValues(repo).Inc()
+}
+
 func init() {
 	// Pre-touch all counter/gauge label combinations so Prometheus exposes the
 	// series on startup (no "no data" on fresh-deploy dashboards).
@@ -79,8 +106,10 @@ func init() {
 	//
 	// repoEmbeddingsPresent: same rationale — repo labels are runtime-dynamic.
 	//
+	// indexPartialAbortTotal: same rationale — repo labels are runtime-dynamic.
+	//
 	// indexCancelledTotal: pre-touch known tool/phase combinations.
-	for _, tool := range []string{"semantic_search", "code_graph", "understand", "repo_analyze"} {
+	for _, tool := range []string{"semantic_search", "code_graph", "understand", "repo_analyze", "autoindex", "code_research"} {
 		for _, phase := range []string{"embed", "db_write", "chunk_loop"} {
 			indexCancelledTotal.WithLabelValues(tool, phase)
 		}
