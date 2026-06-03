@@ -90,9 +90,22 @@ func (e *Expander) Expand(ctx context.Context, graphName string, results []Searc
 	return extra
 }
 
-// execCypher runs a read-only Cypher query against the named AGE graph.
+// execCypher runs a read-only 3-column Cypher query against the named AGE graph.
+// The AS clause is fixed to (name agtype, file agtype, kind agtype).
 // Returns nil on any error (graph missing, AGE unavailable, etc.).
+// For queries with a different column count, use execCypherN.
 func (e *Expander) execCypher(ctx context.Context, graphName string, cypher string) [][]string {
+	return e.execCypherN(ctx, graphName, cypher, "name agtype, file agtype, kind agtype")
+}
+
+// execCypherN runs a read-only Cypher query against the named AGE graph with a
+// caller-supplied AS-clause column definition. The colDefs string must list all
+// columns returned by the Cypher RETURN clause, e.g.
+// "name agtype, file agtype, kind agtype, community agtype".
+// AGE requires the AS-clause arity to match the RETURN arity exactly; a mismatch
+// raises "return row and column definition list do not match" → conn.Query errors
+// → nil is returned. Returns nil on any error.
+func (e *Expander) execCypherN(ctx context.Context, graphName, cypher, colDefs string) [][]string {
 	conn, err := e.pool.Acquire(ctx)
 	if err != nil {
 		slog.Debug("graph expand: acquire connection failed", slog.Any("error", err))
@@ -117,8 +130,8 @@ func (e *Expander) execCypher(ctx context.Context, graphName string, cypher stri
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT * FROM ag_catalog.cypher('%s', $$ %s $$) AS (name agtype, file agtype, kind agtype)`,
-		graphName, cypher,
+		`SELECT * FROM ag_catalog.cypher('%s', $$ %s $$) AS (%s)`,
+		graphName, cypher, colDefs,
 	)
 	rows, err := conn.Query(ctx, sql)
 	if err != nil {

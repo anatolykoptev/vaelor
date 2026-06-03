@@ -1,6 +1,6 @@
 package embeddings
 
-// graph_arm.go — Graph-candidate arm for semantic_search (Phase 1 of the
+// graph_candidates.go — Graph-candidate arm for semantic_search (Phase 1 of the
 // graph-first retrieval plan, 2026-06-02).
 //
 // GraphCandidates proposes candidates from three sub-generators:
@@ -144,7 +144,7 @@ func (e *Expander) graphSubArmPageRank(
 	queryTerms []string,
 	prSignals []graphx.Signal,
 	seen map[string]bool,
-	cap int,
+	limit int,
 ) []GraphHit {
 	if len(prSignals) == 0 || len(queryTerms) == 0 {
 		return nil
@@ -152,7 +152,7 @@ func (e *Expander) graphSubArmPageRank(
 
 	var hits []GraphHit
 	for _, sig := range prSignals {
-		if len(hits) >= cap {
+		if len(hits) >= limit {
 			break
 		}
 		name := strings.ToLower(sig.Symbol.Name)
@@ -198,10 +198,10 @@ func (e *Expander) graphSubArmCalls(
 
 	hops := opts.hops()
 	fanOut := opts.fanOut()
-	cap := opts.topK()
+	maxN := opts.topK()
 
 	var hits []GraphHit
-	for i := 0; i < topN && len(hits) < cap; i++ {
+	for i := 0; i < topN && len(hits) < maxN; i++ {
 		seed := seeds[i]
 		seedName := escapeCypherName(seed.SymbolName)
 		cypher := fmt.Sprintf(
@@ -210,7 +210,7 @@ func (e *Expander) graphSubArmCalls(
 		)
 		rows := e.execCypher(ctx, graphName, cypher)
 		for _, row := range rows {
-			if len(hits) >= cap {
+			if len(hits) >= maxN {
 				break
 			}
 			if len(row) < graphRowColsBase {
@@ -240,24 +240,32 @@ func (e *Expander) graphSubArmCalls(
 // graphSubArmCommunity fetches same-community members for the top seed's community.
 // The community is embedded as `s.community` vertex property by injectCommunities
 // (codegraph/community.go) at index time.
+//
+// Two AGE round-trips:
+//  1. A 4-column lookup (name, file, kind, community) to resolve the top seed's
+//     community ID. Uses execCypherN with a matching 4-column AS-clause — AGE
+//     requires RETURN arity == AS-clause arity exactly.
+//  2. A 3-column member fetch (name, file, kind) for all symbols in that community.
 func (e *Expander) graphSubArmCommunity(
 	ctx context.Context,
 	graphName string,
 	seeds []SearchResult,
 	seen map[string]bool,
-	cap int,
+	limit int,
 ) []GraphHit {
 	if len(seeds) == 0 {
 		return nil
 	}
 
 	// Fetch the community of the top seed from the graph.
+	// RETURN has 4 columns → AS-clause must also declare 4 columns.
 	topSeedName := escapeCypherName(seeds[0].SymbolName)
 	commQuery := fmt.Sprintf(
 		`MATCH (s:Symbol) WHERE s.name = '%s' RETURN s.name, s.file, s.kind, s.community LIMIT 1`,
 		topSeedName,
 	)
-	rows := e.execCypher(ctx, graphName, commQuery)
+	rows := e.execCypherN(ctx, graphName, commQuery,
+		"name agtype, file agtype, kind agtype, community agtype")
 	if len(rows) == 0 || len(rows[0]) < graphRowColsExt {
 		return nil
 	}
@@ -266,16 +274,16 @@ func (e *Expander) graphSubArmCommunity(
 		return nil
 	}
 
-	// Fetch up to cap symbols in the same community.
+	// Fetch up to limit symbols in the same community (3-column query).
 	memberQuery := fmt.Sprintf(
 		`MATCH (s:Symbol) WHERE s.community = '%s' RETURN s.name, s.file, s.kind LIMIT %d`,
-		escapeCypherName(community), cap,
+		escapeCypherName(community), limit,
 	)
 	memberRows := e.execCypher(ctx, graphName, memberQuery)
 
 	var hits []GraphHit
 	for _, row := range memberRows {
-		if len(hits) >= cap {
+		if len(hits) >= limit {
 			break
 		}
 		if len(row) < graphRowColsBase {
@@ -303,13 +311,13 @@ func (e *Expander) graphSubArmCommunity(
 
 // mergeGraphHits concatenates the three sub-arm slices, deduplicating by
 // "file:name" key. The order is: pagerank hits first (highest signal fidelity),
-// then calls2hop, then community. Bounded by cap.
-func mergeGraphHits(pr, calls, comm []GraphHit, cap int) []GraphHit {
+// then calls2hop, then community. Bounded by limit.
+func mergeGraphHits(pr, calls, comm []GraphHit, limit int) []GraphHit {
 	seen := make(map[string]bool, len(pr)+len(calls)+len(comm))
-	out := make([]GraphHit, 0, cap)
+	out := make([]GraphHit, 0, limit)
 	for _, group := range [][]GraphHit{pr, calls, comm} {
 		for _, h := range group {
-			if len(out) >= cap {
+			if len(out) >= limit {
 				return out
 			}
 			key := h.FilePath + ":" + h.SymbolName

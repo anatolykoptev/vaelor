@@ -68,7 +68,7 @@ func PublishRRFWeights(w RRFWeights) {
 }
 
 // RecordGraphCandidates increments the per-stage counters and the latency
-// histogram for one GraphCandidates call. Called by graph_arm.go.
+// histogram for one GraphCandidates call. Called by graph_candidates.go.
 func RecordGraphCandidates(nPageRank, nCalls2Hop, nCommunity, nTotal int, durationSec float64) {
 	graphCandidatesTotal.WithLabelValues("pagerank").Add(float64(nPageRank))
 	graphCandidatesTotal.WithLabelValues("calls2hop").Add(float64(nCalls2Hop))
