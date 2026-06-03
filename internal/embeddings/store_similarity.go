@@ -31,9 +31,11 @@ type SimilarPair struct {
 	SymbolA    string
 	FileA      string
 	LineA      int
+	KindA      string // symbol_kind of A (e.g. "function", "method", "class")
 	SymbolB    string
 	FileB      string
 	LineB      int
+	KindB      string // symbol_kind of B
 	Similarity float32
 }
 
@@ -78,8 +80,8 @@ func (s *Store) FindSimilarPairs(ctx context.Context, opts SimilarPairOpts) ([]S
 	// Similarity = 1 - distance. Threshold 0.92 → max distance 0.08.
 	maxDist := 1.0 - float64(threshold)
 
-	q := `SELECT a.symbol_name, a.file_path, a.start_line,
-	             b.symbol_name, b.file_path, b.start_line,
+	q := `SELECT a.symbol_name, a.file_path, a.start_line, a.symbol_kind,
+	             b.symbol_name, b.file_path, b.start_line, b.symbol_kind,
 	             1 - (a.embedding <=> b.embedding) AS similarity
 	      FROM public.code_embeddings a, public.code_embeddings b
 	      WHERE a.repo_key = $1 AND b.repo_key = $1
@@ -117,8 +119,8 @@ func (s *Store) FindSimilarPairs(ctx context.Context, opts SimilarPairOpts) ([]S
 	var pairs []SimilarPair
 	for rows.Next() {
 		var p SimilarPair
-		if err := rows.Scan(&p.SymbolA, &p.FileA, &p.LineA,
-			&p.SymbolB, &p.FileB, &p.LineB, &p.Similarity); err != nil {
+		if err := rows.Scan(&p.SymbolA, &p.FileA, &p.LineA, &p.KindA,
+			&p.SymbolB, &p.FileB, &p.LineB, &p.KindB, &p.Similarity); err != nil {
 			return nil, fmt.Errorf("scan pair: %w", err)
 		}
 		pairs = append(pairs, p)
