@@ -36,6 +36,9 @@ type SemanticResult struct {
 type DupGroup struct {
 	Symbols       []DupSymbol
 	AvgSimilarity float32
+	// Tier classifies the group: "exact", "very-close", or "related".
+	// Empty string for groups produced by Analyze (pre-triage path).
+	Tier string
 }
 
 // DupSymbol identifies a function in a duplicate group.
@@ -43,6 +46,9 @@ type DupSymbol struct {
 	Name string
 	File string
 	Line int
+	// Kind is the symbol kind (e.g. "function", "method").
+	// Empty string for symbols produced by Analyze (pre-triage path).
+	Kind string
 }
 
 // ComputeSemanticDupRatio computes the fraction of functions involved in

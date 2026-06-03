@@ -28,20 +28,24 @@ var lowSignalKinds = map[string]bool{
 // this sentinel lets tests distinguish "error path" from "empty-result path".
 var errGraphUnavailable = errors.New("graph unavailable")
 
-// graphPairFilter is the injection seam for AGE graph queries. It is satisfied
-// by *embeddings.Expander in production and by test doubles in unit tests.
-// Compile-time check is below.
-type graphPairFilter interface {
+// GraphPairFilter is the exported injection seam for AGE graph queries. It is
+// satisfied by *embeddings.Expander in production and by test doubles in unit
+// tests. cmd/go-code references this type to wire the concrete Expander.
+type GraphPairFilter interface {
 	PairsConnectedByCalls(ctx context.Context, graphName string, pairs []embeddings.PairKey) (map[embeddings.PairKey]bool, error)
 	PairsSharingInterface(ctx context.Context, graphName string, pairs []embeddings.PairKey) (map[embeddings.PairKey]bool, error)
 }
 
-// Compile-time assertion: *embeddings.Expander must satisfy graphPairFilter.
+// graphPairFilter is a package-internal alias kept for the unexported uses in
+// filter functions and tests — avoids scattering the exported name internally.
+type graphPairFilter = GraphPairFilter
+
+// Compile-time assertion: *embeddings.Expander must satisfy GraphPairFilter.
 // If either method signature drifts in Expander, this line breaks the build here,
 // alerting the author before the mismatch reaches production.
 // Mirrors the _ symbolNameSearcher = (*embeddings.Store)(nil) pattern in
 // cmd/go-code/semantic_fallback.go.
-var _ graphPairFilter = (*embeddings.Expander)(nil)
+var _ GraphPairFilter = (*embeddings.Expander)(nil)
 
 // pairKeyOf builds the canonical embeddings.PairKey for a SimilarPair.
 func pairKeyOf(p embeddings.SimilarPair) embeddings.PairKey {
