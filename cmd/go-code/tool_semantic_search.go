@@ -162,7 +162,7 @@ func handleSemanticSearch(
 			}
 			return textResult(buildStatusResponse(input, "indexing", msg)), nil
 		}
-		deps.Pipeline.IndexRepoAsync(repoKey, root)
+		deps.Pipeline.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
 		return textResult(buildStatusResponse(input, "indexing",
 			"Repository indexing started in the background. "+
 				"Please retry in 30-60 seconds.")), nil
@@ -182,7 +182,7 @@ func handleSemanticHits(
 ) (*mcp.CallToolResult, error) {
 	// Trigger background re-index for freshness.
 	if deps.Pipeline != nil {
-		deps.Pipeline.IndexRepoAsync(repoKey, root)
+		deps.Pipeline.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
 	}
 
 	// Graph expansion: add 1-hop CALLS neighbors before hybrid merge

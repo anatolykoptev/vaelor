@@ -226,6 +226,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			if cfg.EmbedPipelineCache {
 				pipelineOpts = append(pipelineOpts, embeddings.WithFileCache(embeddings.NewPipelineCache()))
 			}
+			// INDEX_BUDGET bounds the background index goroutine so a hung embed
+			// server cannot keep a goroutine alive indefinitely (Fix 3).
+			pipelineOpts = append(pipelineOpts, embeddings.WithIndexBudget(cfg.IndexBudget))
 			// Sparse embed (P2+P4): optional SPLADE gate. When SPARSE_EMBED_URL is
 			// empty the sparseClient is nil — Pipeline stays dense-only AND the P4
 			// sparse retrieval arm in handleSemanticHits is skipped entirely
@@ -399,12 +402,21 @@ const (
 // newCodeEmbedder constructs the code-search embedder (jina-code-v2, 768d).
 // Powers semantic_search, code_health, and codegraph indexing. Writes into the
 // pgvector(768) code_embeddings table — must NOT be swapped for a 1024d model.
+//
+// WithTimeout overrides the go-kit default (30s) when cfg.EmbedHTTPTimeout > 0.
+// The default 30s causes background index aborts under boot-time load on the shared
+// external embed host (jina-code-v2 on embed.krolik.tools), where 32-text sub-batches
+// exceed 30s p14 — triggering 3× retry (~90s total) then goroutine exit before SHA advance.
 func newCodeEmbedder(cfg Config) (*embed.Client, error) {
-	return embed.NewClient(cfg.EmbedURL,
+	opts := []embed.Opt{
 		embed.WithBackend("http"),
 		embed.WithModel(cfg.EmbedModel),
 		embed.WithDim(codeEmbedDim),
-	)
+	}
+	if cfg.EmbedHTTPTimeout > 0 {
+		opts = append(opts, embed.WithTimeout(cfg.EmbedHTTPTimeout))
+	}
+	return embed.NewClient(cfg.EmbedURL, opts...)
 }
 
 // newDesignEmbedder constructs the design-search embedder (multilingual-e5-large, 1024d).

@@ -347,7 +347,9 @@ func TestF3_IndexRepoAsync_OnlyOneGoroutine_UnderConcurrency(t *testing.T) {
 	// Build a pipeline with a slow embed server so both goroutines have time to overlap.
 	var indexBodyStarted = make(chan struct{}, 2)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Input []string `json:"input"` }
+		var req struct {
+			Input []string `json:"input"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad", http.StatusBadRequest)
 			return
@@ -356,7 +358,9 @@ func TestF3_IndexRepoAsync_OnlyOneGoroutine_UnderConcurrency(t *testing.T) {
 			Embedding []float32 `json:"embedding"`
 			Index     int       `json:"index"`
 		}
-		type embedResp struct{ Data []embedData `json:"data"` }
+		type embedResp struct {
+			Data []embedData `json:"data"`
+		}
 		resp := embedResp{Data: make([]embedData, len(req.Input))}
 		for i := range resp.Data {
 			resp.Data[i] = embedData{Embedding: makeVec(), Index: i}
