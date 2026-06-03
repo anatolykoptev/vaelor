@@ -10,11 +10,19 @@ import (
 )
 
 // implementsLoadTimeout bounds the synchronous go/packages load used to compute
-// interface satisfaction at index time. Cold go/packages loads (NeedDeps) can run
-// minutes; the indexer must not block on that. On timeout we emit ZERO IMPLEMENTS
-// edges and the dependent find_duplicates filter degrades to its signature
-// heuristic — never worse than before this pass existed. The callgraph package
-// uses an identical 10s warm-path bound (callgraph/repo.go).
+// interface satisfaction at index time.
+//
+// This is a DEDICATED typed load, not a free or incremental reuse of existing
+// analysis: the IndexRepo path builds its call graph from the tree-sitter symbol
+// table (callgraph.BuildCallGraph in index.go), NOT a go/packages typed load, so
+// no warmed go/types state exists to piggyback on here. extractGoImplements runs a
+// fresh full NeedDeps load via goanalysis.LoadPackages — cold (NeedDeps) loads can
+// run minutes, so the indexer must not block on it. On timeout we emit ZERO
+// IMPLEMENTS edges and the dependent find_duplicates filter degrades to its
+// signature heuristic — never worse than before this pass existed.
+//
+// (The callgraph package's separate type-aware call resolution uses a 10s warm-path
+// bound in callgraph/repo.go; that is a different code path with its own load.)
 const implementsLoadTimeout = 30 * time.Second
 
 // extractGoImplements computes structural interface-satisfaction relationships

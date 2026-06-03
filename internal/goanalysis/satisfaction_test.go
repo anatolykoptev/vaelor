@@ -146,9 +146,6 @@ func main() {}
 			if s.TypeFile == "" {
 				t.Error("expected non-empty TypeFile for A")
 			}
-			if s.InterfaceFile == "" {
-				t.Error("expected non-empty InterfaceFile for I")
-			}
 		}
 	}
 	if !found {

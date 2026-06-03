@@ -8,18 +8,20 @@ import (
 )
 
 // Satisfaction is one structural interface-satisfaction fact: the named concrete
-// type Type (declared in TypeFile) satisfies the named interface Interface
-// (declared in InterfaceFile). Computed via go/types, which Go's structural
-// typing makes invisible to tree-sitter (no `implements` keyword).
+// type Type (declared in TypeFile) satisfies the named interface Interface.
+// Computed via go/types, which Go's structural typing makes invisible to
+// tree-sitter (no `implements` keyword).
 //
 // Names are bare (package qualifier stripped), matching how the codegraph Symbol
-// vertices are keyed (name + file). Files are absolute paths from the FileSet;
-// the caller maps them to repo-relative form for the graph key.
+// vertices are keyed (name + file). TypeFile is an absolute path from the FileSet;
+// the caller maps it to repo-relative form for the graph key. The interface
+// endpoint is resolved by the codegraph caller via the symbol table (name lookup
+// in buildRelationshipEdges), so the interface's declaration file is not carried
+// here.
 type Satisfaction struct {
-	Type          string // concrete (non-interface) named type, e.g. "GitHubForge"
-	TypeFile      string // absolute path of the concrete type's declaration
-	Interface     string // interface named type, e.g. "Forge"
-	InterfaceFile string // absolute path of the interface's declaration
+	Type      string // concrete (non-interface) named type, e.g. "GitHubForge"
+	TypeFile  string // absolute path of the concrete type's declaration
+	Interface string // interface named type, e.g. "Forge"
 }
 
 // ComputeSatisfactions returns every (concrete type, interface) pair across the
@@ -64,16 +66,14 @@ func ComputeSatisfactions(pkgs []*packages.Package) []Satisfaction {
 				continue
 			}
 			ifaceName := ifaceNamed.Obj().Name()
-			ifaceFile := objFile(ifaceNamed, fsetOf)
 			for _, cn := range named {
 				if !implementsByValueOrPointer(cn, iface) {
 					continue
 				}
 				out = append(out, Satisfaction{
-					Type:          cn.Obj().Name(),
-					TypeFile:      objFile(cn, fsetOf),
-					Interface:     ifaceName,
-					InterfaceFile: ifaceFile,
+					Type:      cn.Obj().Name(),
+					TypeFile:  objFile(cn, fsetOf),
+					Interface: ifaceName,
 				})
 			}
 		}

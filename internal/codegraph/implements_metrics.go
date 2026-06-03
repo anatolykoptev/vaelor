@@ -25,11 +25,17 @@ var implementsLoadTotal = promauto.NewCounterVec(
 // per repo. Zero on a Go repo with a successful load means the module genuinely has
 // no satisfied interfaces; zero with an "error" load means the pass did not run.
 //
-//	gocode_implements_edges_total{repo="go-code"} 84
+// The "repo" label is NOT a human slug — the call site passes graphName(root), the
+// FNV-32a repo key rendered as code_<8hex> (see store_helpers.go), so a repo at root
+// "/host/src/go-code" surfaces as e.g. code_a1b2c3d4. Map a hex key back to a path
+// with codegraph.GraphNameFor(path), or grep the load log line which carries the raw
+// root. Querying repo="go-code" matches nothing.
+//
+//	gocode_implements_edges_total{repo="code_a1b2c3d4"} 84
 var implementsEdgesTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_implements_edges_total",
-		Help: "Number of IMPLEMENTS (type→interface) edges built via go/types at index time, labelled by repo key.",
+		Help: "Number of IMPLEMENTS (type→interface) edges built via go/types at index time, labelled by the FNV-32a repo key (code_<8hex>, == graphName/GraphNameFor), NOT a human repo slug.",
 	},
 	[]string{"repo"},
 )
