@@ -27,3 +27,27 @@ func TestToolTimeoutsUnderstand(t *testing.T) {
 		t.Errorf("toolTimeouts[\"understand\"] = %v, want %v", d, want)
 	}
 }
+
+// TestToolTimeoutsSemanticSearch asserts that semantic_search has an explicit
+// timeout in the ToolTimeouts map (Bug #2 fix, 2026-06-02).
+//
+// Rationale: semantic_search was absent from ToolTimeouts, silently inheriting
+// the 90s harness default. Although IndexRepoAsync detaches from the request
+// context (using context.Background()), the embed query + store search leg of
+// the tool itself can block the connection open for the full 90s if the embed
+// server is unresponsive. 30s caps the synchronous leg while leaving the
+// background index unaffected.
+//
+// Anti-tautology: this test fails if semantic_search is removed from the map
+// or its deadline is changed, catching regressions before they reach production.
+func TestToolTimeoutsSemanticSearch(t *testing.T) {
+	d, ok := toolTimeouts["semantic_search"]
+	if !ok {
+		t.Fatal("toolTimeouts[\"semantic_search\"] is missing — semantic_search has no explicit deadline; " +
+			"see Bug #2 (2026-06-02): missing entry lets clients hold connection for 90s harness default")
+	}
+	const want = 30 * time.Second
+	if d != want {
+		t.Errorf("toolTimeouts[\"semantic_search\"] = %v, want %v", d, want)
+	}
+}

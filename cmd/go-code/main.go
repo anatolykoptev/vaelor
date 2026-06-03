@@ -55,6 +55,11 @@ var toolTimeouts = map[string]time.Duration{
 	"code_health":       60 * time.Second,
 	"understand":        30 * time.Second, // Fix #3: dead embed server + AGE lookups complete well within 30s (Fix #2 caps embed at 5s)
 	"debug_investigate": 5 * time.Minute,
+	// semantic_search: 30s cap (belt-and-suspenders; the index trigger detaches
+	// to context.Background() via IndexRepoAsync so client disconnect does NOT
+	// abort indexing — but the tool response itself must return within 30s so
+	// the embed query + store search leg don't hold the connection open forever).
+	"semantic_search": 30 * time.Second,
 }
 
 const (
