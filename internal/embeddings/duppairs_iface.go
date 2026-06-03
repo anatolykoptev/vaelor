@@ -1,7 +1,9 @@
 package embeddings
 
 import (
+	"path"
 	"strings"
+	"unicode"
 )
 
 // ifacePairCols is the number of columns returned by the interface-sibling
@@ -94,7 +96,23 @@ func receiverTypeName(clause string) string {
 // reinvention like two free countSourceFiles functions is preserved. Two
 // methods on the SAME receiver type (overloaded-looking) also never match
 // because the receiver types are not distinct.
-func isInterfaceSiblingPair(aName string, aSig sigInfo, bName string, bSig sigInfo) bool {
+//
+// Cross-package-unexported carve-out: an UNEXPORTED method (first rune
+// lowercase) on receivers in DIFFERENT packages can NEVER be an interface
+// sibling. Go interface method sets name unexported methods with their
+// declaring package's path, so a single interface cannot be satisfied by
+// unexported methods declared in two different packages — there is no interface
+// either type could share. Such a pair is therefore provably real cross-package
+// copy-paste (e.g. removeFromOrder duplicated across internal/callgraph,
+// internal/compare, internal/federate cache types) and MUST be reported, not
+// suppressed. aFile and bFile are the symbols' file paths; their directories
+// determine the package (Go enforces one package per directory).
+//
+// Same-package unexported methods on distinct types are still suppressed: they
+// CAN share an unexported package-scoped interface, so the conservative keep-as-
+// sibling default holds. Exported methods are suppressed regardless of package
+// (a cross-package exported interface can name them).
+func isInterfaceSiblingPair(aName, aFile string, aSig sigInfo, bName, bFile string, bSig sigInfo) bool {
 	if !aSig.isMethod || !bSig.isMethod {
 		return false
 	}
@@ -104,5 +122,32 @@ func isInterfaceSiblingPair(aName string, aSig sigInfo, bName string, bSig sigIn
 	if aSig.receiver == "" || bSig.receiver == "" || aSig.receiver == bSig.receiver {
 		return false
 	}
-	return aSig.norm == bSig.norm
+	if aSig.norm != bSig.norm {
+		return false
+	}
+	// Cross-package-unexported pairs cannot share any interface → real
+	// reinvention, do not suppress.
+	if !isExportedName(aName) && differentPackage(aFile, bFile) {
+		return false
+	}
+	return true
+}
+
+// isExportedName reports whether a Go identifier is exported (first rune upper
+// case). An empty name is treated as unexported.
+func isExportedName(name string) bool {
+	for _, r := range name {
+		return unicode.IsUpper(r)
+	}
+	return false
+}
+
+// differentPackage reports whether two Go source files live in different
+// packages. In Go every directory is exactly one package (the rare _test
+// external package aside, and test files are filtered out upstream), so the
+// directory of the file path is a sound package discriminator. Paths use forward
+// slashes (graph-stored, repo-relative), so path.Dir — not filepath.Dir — is the
+// correct separator-agnostic choice.
+func differentPackage(aFile, bFile string) bool {
+	return path.Dir(aFile) != path.Dir(bFile)
 }

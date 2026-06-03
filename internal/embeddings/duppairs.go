@@ -133,7 +133,10 @@ func (e *Expander) PairsConnectedByCalls(ctx context.Context, graphName string, 
 // share the same method name + identical receiver-stripped signature, and sit on
 // DISTINCT receiver types. Free functions (no receiver) never match, so genuine
 // cross-package reinvention of same-named free functions (countSourceFiles,
-// commonPrefixLen) is preserved.
+// commonPrefixLen) is preserved. An UNEXPORTED method on receivers in DIFFERENT
+// packages is also kept (reported): no interface can name unexported methods
+// from two packages, so such a pair is provably real copy-paste, not a sibling
+// (see isInterfaceSiblingPair).
 //
 // The Cypher matches same-name Symbol-vertex pairs (no edge traversal) and returns
 // each endpoint's file/kind/signature; the discriminator runs in Go. AGE returns
@@ -184,7 +187,7 @@ func (e *Expander) PairsSharingInterface(ctx context.Context, graphName string, 
 		if aFile == bFile && aName == bName {
 			continue
 		}
-		if !isInterfaceSiblingPair(aName, parseSignature(aSig), bName, parseSignature(bSig)) {
+		if !isInterfaceSiblingPair(aName, aFile, parseSignature(aSig), bName, bFile, parseSignature(bSig)) {
 			continue
 		}
 		pk := NewPairKey(aFile, aName, bFile, bName)

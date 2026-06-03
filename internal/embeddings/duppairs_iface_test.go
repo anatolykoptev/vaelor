@@ -80,30 +80,53 @@ func TestParseSignature(t *testing.T) {
 
 func TestIsInterfaceSiblingPair(t *testing.T) {
 	// The FetchREADME false-positive: two methods, same name, identical
-	// receiver-stripped signature, DISTINCT receiver types → interface siblings.
+	// receiver-stripped signature, DISTINCT receiver types, EXPORTED → interface
+	// siblings (a cross-package exported interface can name FetchREADME).
 	gitHub := parseSignature("func (g *GitHubForge) FetchREADME(ctx context.Context, slug string) (_ string, err error)")
 	gitLab := parseSignature("func (g *GitLabForge) FetchREADME(ctx context.Context, slug string) (_ string, err error)")
-	if !isInterfaceSiblingPair("FetchREADME", gitHub, "FetchREADME", gitLab) {
-		t.Error("FetchREADME pair (distinct receivers, same sig) should be an interface sibling")
+	const ghFile, glFile = "internal/forge/github.go", "internal/forge/gitlab.go"
+	if !isInterfaceSiblingPair("FetchREADME", ghFile, gitHub, "FetchREADME", glFile, gitLab) {
+		t.Error("FetchREADME pair (distinct receivers, same sig, exported) should be an interface sibling")
 	}
 
 	// The countSourceFiles true-positive: two free functions, same name, no
 	// receiver → NOT interface siblings (must be kept as a genuine duplicate).
 	cf1 := parseSignature("func countSourceFiles(files []*ingest.File) int")
 	cf2 := parseSignature("func countSourceFiles(files []*ingest.File) int")
-	if isInterfaceSiblingPair("countSourceFiles", cf1, "countSourceFiles", cf2) {
+	if isInterfaceSiblingPair("countSourceFiles", "internal/a/a.go", cf1, "countSourceFiles", "internal/b/b.go", cf2) {
 		t.Error("countSourceFiles pair (free functions) must NOT be flagged as interface siblings — over-suppression")
+	}
+
+	// The removeFromOrder false-NEGATIVE this PR closes: an UNEXPORTED method,
+	// same name + identical receiver-stripped signature, DISTINCT receiver types
+	// in DIFFERENT packages. No interface can name an unexported method from two
+	// packages, so this is provably real cross-package copy-paste → must be
+	// REPORTED (not flagged as a sibling).
+	rmA := parseSignature("func (c *callGraphCache) removeFromOrder(key string)")
+	rmB := parseSignature("func (c *couplingCache) removeFromOrder(key string)")
+	if isInterfaceSiblingPair("removeFromOrder", "internal/callgraph/repo_cache.go", rmA,
+		"removeFromOrder", "internal/compare/coupling_cache.go", rmB) {
+		t.Error("removeFromOrder (unexported, distinct receivers, DIFFERENT packages) must NOT be flagged as siblings — it is real copy-paste")
+	}
+
+	// Same-package unexported methods on distinct types CAN share an unexported
+	// package-scoped interface → still suppressed (the conservative keep-as-
+	// sibling default holds when the package is the same).
+	spA := parseSignature("func (c *cacheA) evict(key string)")
+	spB := parseSignature("func (c *cacheB) evict(key string)")
+	if !isInterfaceSiblingPair("evict", "internal/cache/a.go", spA, "evict", "internal/cache/b.go", spB) {
+		t.Error("same-package unexported distinct-receiver pair should still be suppressed (can share an unexported interface)")
 	}
 
 	// Same receiver type, same name → not distinct receivers → not siblings.
 	sameRecvA := parseSignature("func (g *GitHubForge) FetchREADME(ctx context.Context, slug string) (_ string, err error)")
 	sameRecvB := parseSignature("func (g *GitHubForge) FetchREADME(ctx context.Context, slug string) (_ string, err error)")
-	if isInterfaceSiblingPair("FetchREADME", sameRecvA, "FetchREADME", sameRecvB) {
+	if isInterfaceSiblingPair("FetchREADME", ghFile, sameRecvA, "FetchREADME", ghFile, sameRecvB) {
 		t.Error("same receiver type must not be flagged as siblings (would need distinct types)")
 	}
 
 	// Different method names → not siblings even if both methods on distinct types.
-	if isInterfaceSiblingPair("FetchREADME", gitHub, "FetchTags", gitLab) {
+	if isInterfaceSiblingPair("FetchREADME", ghFile, gitHub, "FetchTags", glFile, gitLab) {
 		t.Error("different method names must not be flagged as siblings")
 	}
 
@@ -111,12 +134,12 @@ func TestIsInterfaceSiblingPair(t *testing.T) {
 	// not the same interface method → keep. This is a genuine could-be-dup that
 	// the conservative discriminator must not suppress.
 	wideParams := parseSignature("func (g *GitLabForge) FetchREADME(ctx context.Context, slug string, ref string) (_ string, err error)")
-	if isInterfaceSiblingPair("FetchREADME", gitHub, "FetchREADME", wideParams) {
+	if isInterfaceSiblingPair("FetchREADME", ghFile, gitHub, "FetchREADME", glFile, wideParams) {
 		t.Error("distinct receivers with different signatures must NOT be flagged as siblings")
 	}
 
 	// Method ↔ free function → not siblings (one side has no receiver).
-	if isInterfaceSiblingPair("FetchREADME", gitHub, "FetchREADME", cf1) {
+	if isInterfaceSiblingPair("FetchREADME", ghFile, gitHub, "FetchREADME", "internal/x/x.go", cf1) {
 		t.Error("method paired with free function must not be flagged as siblings")
 	}
 }

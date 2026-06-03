@@ -110,6 +110,19 @@ func TestDupFPClasses(t *testing.T) {
 		}
 	}
 
+	// ── False-NEGATIVE class: cross-package unexported copy-paste must be REPORTED ─
+	// removeFromOrder is a byte-identical method duplicated across distinct cache
+	// types in DIFFERENT packages (internal/callgraph, internal/compare,
+	// internal/federate). It is UNEXPORTED, so no interface can name it across
+	// packages → it can never be an interface sibling. Before the carve-out the
+	// signature-receiver discriminator wrongly suppressed it; it must now be
+	// reported as a genuine duplicate.
+	if !reported["removeFromOrder"] {
+		t.Errorf("FALSE-NEGATIVE not closed: removeFromOrder (unexported cross-package copy-paste) " +
+			"is suppressed — the interface-sibling discriminator must NOT suppress unexported " +
+			"methods on receivers in different packages")
+	}
+
 	// Precision sample for human eyeball.
 	const sampleN = 12
 	for i, g := range res.Groups {

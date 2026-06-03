@@ -3,6 +3,7 @@ package semhealth
 import (
 	"bufio"
 	"go/build/constraint"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,9 +73,17 @@ func isGoFile(path string) bool {
 // file, or nil when the file has no constraint or cannot be read. Read errors
 // return nil (treated as "unconstrained") so an unreadable file never causes a
 // pair to be dropped.
+//
+// A failed open is logged at Debug (not silent): when the on-disk root is wrong
+// for a remote/cloned repo every open fails, the filter degrades to zero drops,
+// and the only signal that this happened is the absence of platform-split
+// suppression. The keep-on-error semantics are unchanged — keep is the safe
+// direction — but the Debug line makes the misconfiguration observable.
 func readBuildConstraint(absPath string) constraint.Expr {
 	f, err := os.Open(absPath) //nolint:gosec // path is repo-root-joined, operator-supplied repo
 	if err != nil {
+		slog.Debug("dupfilter buildtag: open failed, treating file as unconstrained",
+			slog.String("path", absPath), slog.Any("error", err))
 		return nil
 	}
 	defer f.Close()
@@ -120,7 +129,14 @@ const maxConstraintTags = 12
 // duplicate. The tag union for real platform splits is tiny (≤3); the
 // maxConstraintTags guard bounds the worst case to a "keep the pair" fallback.
 func constraintsDisjoint(a, b constraint.Expr) bool {
-	tags := unionTags(a, b)
+	tags, unknown := unionTags(a, b)
+	// An unrecognized constraint.Expr variant means unionTags could not collect
+	// every tag, so the truth-assignment enumeration below would be unsound and
+	// might wrongly declare the pair disjoint (over-suppression). Bail to "not
+	// disjoint" — the safe direction is always to keep the pair.
+	if unknown {
+		return false
+	}
 	if len(tags) == 0 || len(tags) > maxConstraintTags {
 		return false
 	}
@@ -142,8 +158,13 @@ func constraintsDisjoint(a, b constraint.Expr) bool {
 	return true
 }
 
-// unionTags returns the distinct build tags referenced by either expression.
-func unionTags(a, b constraint.Expr) []string {
+// unionTags returns the distinct build tags referenced by either expression and
+// whether an unrecognized constraint.Expr variant was encountered. The four
+// concrete variants (TagExpr/NotExpr/AndExpr/OrExpr) are the complete set in
+// go/build/constraint as of Go 1.x; the default arm future-proofs against a new
+// variant by signalling unknown=true so the caller keeps the pair rather than
+// reasoning over an incomplete tag set (over-suppression).
+func unionTags(a, b constraint.Expr) (tags []string, unknown bool) {
 	seen := make(map[string]bool)
 	var out []string
 	var walk func(constraint.Expr)
@@ -162,9 +183,11 @@ func unionTags(a, b constraint.Expr) []string {
 		case *constraint.OrExpr:
 			walk(v.X)
 			walk(v.Y)
+		default:
+			unknown = true
 		}
 	}
 	walk(a)
 	walk(b)
-	return out
+	return out, unknown
 }
