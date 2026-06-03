@@ -26,6 +26,14 @@ type IndexConfig struct {
 	// (IndexSurpriseEdges + IndexSurpriseNodes) after the pagerank/community
 	// pass.  Gated behind CODEGRAPH_SURPRISE_INDEX=1 (default off).
 	EnableSurpriseIndex bool
+
+	// FlowsMax caps the total number of flows extracted per repo.
+	// Env: FLOWS_MAX (default 50). Zero means use default.
+	FlowsMax int
+
+	// FlowsDFSDepth bounds the DFS traversal depth per flow.
+	// Env: FLOWS_DFS_DEPTH (default 8). Zero means use default.
+	FlowsDFSDepth int
 }
 
 // GraphMeta describes a built code graph stored in code_graph_meta.
@@ -113,7 +121,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	if len(hookRoutes) > 0 {
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
-	vertices, edges := buildGraph(buildGraphInput{
+	vertices, edges, prScores := buildGraph(buildGraphInput{
 		Root: root, Files: allFiles, Symbols: allSymbols,
 		CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,
 	})
@@ -121,6 +129,31 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	slog.Info("codegraph: buildGraph done",
 		slog.String("repo", root), slog.Int("vertices", len(vertices)), slog.Int("edges", len(edges)),
 		slog.Duration("elapsed", time.Since(t2)))
+
+	// Phase 2: extract named execution flows (index-time precompute).
+	// Runs after injectCommunities. prScores reused from buildGraph — no second PageRank pass.
+	// No AGE I/O — pure in-memory DFS over cg. Non-fatal: logs error and bumps counter.
+	communityMap := buildCommunityMap(vertices)
+	crossVerticesEarly, crossEdgesEarly := buildCrossLanguageData(root, allFiles, allSymbols)
+	handlesTargets := extractHandlesTargets(root, crossEdgesEarly)
+	{
+		t_flows := time.Now()
+		flows := ExtractFlows(root, cg, communityMap, prScores, handlesTargets, cfg.FlowsMax, cfg.FlowsDFSDepth)
+		flowsExtractedTotal.WithLabelValues(repoKey).Add(float64(len(flows)))
+		slog.Info("codegraph: flow extraction done",
+			slog.String("repo", root), slog.Int("flows", len(flows)),
+			slog.Duration("elapsed", time.Since(t_flows)))
+		if len(flows) > 0 {
+			if uErr := store.UpsertFlows(ctx, repoKey, flows); uErr != nil {
+				slog.Warn("codegraph: flow upsert failed (non-fatal)",
+					slog.String("repo", root), slog.Any("error", uErr))
+				flowsDBErrorTotal.WithLabelValues(repoKey).Inc()
+			}
+		}
+		flowsExtractDuration.WithLabelValues(repoKey).Observe(time.Since(t_flows).Seconds())
+	}
+	// Use the early cross-language data for the main insert pass.
+	crossVertices, crossEdges := crossVerticesEarly, crossEdgesEarly
 
 	// Open a bulk write session (synchronous_commit=off, single connection).
 	// 5x faster than per-call pool acquire. Falls back to Store on error.
@@ -151,8 +184,8 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.Int("vertices", len(vertices)), slog.Int("edges", len(edges)),
 		slog.Duration("elapsed", time.Since(t3)))
 
-	// Cross-language analysis (non-fatal).
-	crossVertices, crossEdges := buildCrossLanguageData(root, allFiles, allSymbols)
+	// Cross-language analysis (non-fatal). Data already computed above for flow
+	// extraction; reuse the hoisted crossVertices/crossEdges variables.
 	if len(crossVertices) > 0 {
 		if err := insertBatches(ctx, writer, gname, cfg.BatchSize, crossVertices, buildVertexBatch); err != nil {
 			slog.Warn("codegraph: cross-language vertices", slog.Any("error", err))
@@ -227,6 +260,12 @@ func applyConfigDefaults(cfg IndexConfig) IndexConfig {
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = defaultBatchSize
+	}
+	if cfg.FlowsMax <= 0 {
+		cfg.FlowsMax = flowsMax
+	}
+	if cfg.FlowsDFSDepth <= 0 {
+		cfg.FlowsDFSDepth = flowsDFSDepth
 	}
 	return cfg
 }

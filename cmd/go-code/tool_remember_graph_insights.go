@@ -95,6 +95,8 @@ func handleRememberGraphInsights(
 		TTLRemote:           cfg.GraphTTLRemote,
 		BatchSize:           cfg.GraphBatchSize,
 		EnableSurpriseIndex: cfg.CodegraphSurpriseIndex,
+		FlowsMax:            cfg.FlowsMax,
+		FlowsDFSDepth:       cfg.FlowsDFSDepth,
 	})
 	if err != nil {
 		return errResult(fmt.Errorf("index repo: %w", err).Error()), nil
