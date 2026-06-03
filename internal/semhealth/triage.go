@@ -30,6 +30,7 @@ const (
 	dupFilterTests            = "tests"
 	dupFilterSameFile         = "same_file"
 	dupFilterKind             = "kind"
+	dupFilterBuildTag         = "build_tag"
 	dupFilterCallsEdge        = "calls_edge"
 	dupFilterInterfaceSibling = "interface_sibling"
 )
@@ -45,6 +46,11 @@ type TriageOpts struct {
 	// IncludeSameFile, when true, skips the same-file filter so pairs where
 	// both endpoints live in the same file are also reported.
 	IncludeSameFile bool
+
+	// Root is the on-disk repo root used by the build-tag filter to read each
+	// Go file's leading build constraint. When empty, the build-tag filter is a
+	// no-op (graceful degradation: a missing checkout must not hide duplicates).
+	Root string
 }
 
 // TriageResult is returned by AnalyzeTriage.
@@ -143,10 +149,13 @@ func AnalyzeTriage(
 	pairs, candidates, timedOut := fetchNearDuplicates(ctx, store, repoKey, relatedDistThreshold)
 	dupCandidatesTotal.WithLabelValues(repoKey).Add(float64(candidates))
 
-	// Filter chain: cheap filters first, then graph filters.
+	// Filter chain: cheap pure filters first, then graph filters. The build-tag
+	// filter is pure-ish (reads a few KiB of file header) so it runs with the
+	// cheap filters, before the AGE graph round-trips.
 	pairs, dropped[dupFilterTests] = filterTests(pairs)
 	pairs, dropped[dupFilterSameFile] = filterSameFile(pairs, opts.IncludeSameFile)
 	pairs, dropped[dupFilterKind] = filterKind(pairs)
+	pairs, dropped[dupFilterBuildTag] = filterBuildTagVariants(opts.Root, pairs)
 	pairs, dropped[dupFilterCallsEdge] = filterCallsEdges(ctx, gf, graphName, pairs)
 	pairs, dropped[dupFilterInterfaceSibling] = filterInterfaceSiblings(ctx, gf, graphName, pairs)
 
