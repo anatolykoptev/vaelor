@@ -32,23 +32,10 @@ func buildTestCG(syms []*parser.Symbol, edges []callgraph.CallEdge) *callgraph.C
 }
 
 // communityMap turns the vertex list into the same map ExtractFlows expects.
+// Uses the same multi-digit parsing as the production buildCommunityMap so that
+// community IDs ≥ 10 are correctly decoded in tests.
 func communityMap(vertices []vertexData) map[string]int {
-	m := make(map[string]int)
-	for _, v := range vertices {
-		if v.Label != "Symbol" {
-			continue
-		}
-		key := v.Props["name"] + compositeKeyDelim + v.Props["file"] //nolint:gocritic
-		cid := 0
-		if v.Props["community"] != "" {
-			for _, c := range v.Props["community"] {
-				cid = int(c - '0')
-				break
-			}
-		}
-		m[key] = cid
-	}
-	return m
+	return buildCommunityMap(vertices)
 }
 
 // makeVertices builds a minimal vertexData slice from a symbol list, all in community 0.
@@ -68,6 +55,8 @@ func makeVertices(syms []*parser.Symbol, root string) []vertexData {
 }
 
 // makeVerticesMultiCommunity assigns community by index into communities slice.
+// Uses intToString for the community field so IDs ≥ 10 roundtrip correctly
+// through buildCommunityMap (same encoding as production injectCommunities).
 func makeVerticesMultiCommunity(syms []*parser.Symbol, root string, communities []int) []vertexData {
 	verts := make([]vertexData, len(syms))
 	for i, s := range syms {
@@ -75,13 +64,12 @@ func makeVerticesMultiCommunity(syms []*parser.Symbol, root string, communities 
 		if i < len(communities) {
 			c = communities[i]
 		}
-		cid := string(rune('0' + c))
 		verts[i] = vertexData{
 			Label: "Symbol",
 			Props: map[string]string{
 				"name":      s.Name,
 				"file":      relPath(s.File, root),
-				"community": cid,
+				"community": intToString(c),
 			},
 		}
 	}
@@ -108,7 +96,7 @@ func TestExtractFlows_EntryPointFromZeroCaller(t *testing.T) {
 	}
 
 	// No HANDLES edges — only zero-caller exported symbol path.
-	flows := ExtractFlows(root, cg, communities, pr, nil)
+	flows := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 
 	if len(flows) == 0 {
 		t.Fatal("expected at least one flow from zero-caller exported entry-point, got none")
@@ -147,7 +135,7 @@ func TestExtractFlows_EntryPointFromHANDLES(t *testing.T) {
 		handler.Name + compositeKeyDelim + relPath(handler.File, root): true,
 	}
 
-	flows := ExtractFlows(root, cg, communities, pr, handlesTargets)
+	flows := ExtractFlows(root, cg, communities, pr, handlesTargets, 0, 0)
 
 	// handler must be an entry-point from HANDLES even though it has callers.
 	found := false
@@ -185,7 +173,7 @@ func TestExtractFlows_FlowNameUsesPageRank(t *testing.T) {
 		lowPR.Name + compositeKeyDelim + relPath(lowPR.File, root):   0.05,
 	}
 
-	flows := ExtractFlows(root, cg, communities, pr, nil)
+	flows := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 	if len(flows) == 0 {
 		t.Fatal("no flows produced")
 	}
@@ -221,7 +209,7 @@ func TestExtractFlows_FlowsMaxCap(t *testing.T) {
 		pr[s.Name+compositeKeyDelim+relPath(s.File, root)] = float64(len(syms)-i) * 0.01
 	}
 
-	flows := ExtractFlows(root, cg, communities, pr, nil)
+	flows := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 	if len(flows) > flowsMax {
 		t.Errorf("flows count %d exceeds flowsMax %d", len(flows), flowsMax)
 	}
@@ -257,7 +245,7 @@ func TestExtractFlows_StaysInCommunity(t *testing.T) {
 		leaf1.Name + compositeKeyDelim + relPath(leaf1.File, root): 0.8, // higher PR but diff community
 	}
 
-	flows := ExtractFlows(root, cg, communities, pr, nil)
+	flows := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 	for _, f := range flows {
 		if f.EntrySym != entry.Name {
 			continue
@@ -291,7 +279,7 @@ func TestExtractFlows_DepthBound(t *testing.T) {
 		pr[s.Name+compositeKeyDelim+relPath(s.File, root)] = float64(len(syms)-i) * 0.1
 	}
 
-	flows := ExtractFlows(root, cg, communities, pr, nil)
+	flows := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 	for _, f := range flows {
 		if len(f.MemberSyms) > flowsDFSDepth+2 {
 			t.Errorf("member_syms length %d exceeds depth bound %d+2", len(f.MemberSyms), flowsDFSDepth)
@@ -323,8 +311,8 @@ func TestExtractFlows_DeterministicOrdering(t *testing.T) {
 		syms[3].Name + compositeKeyDelim + relPath(syms[3].File, root): 0.2,
 	}
 
-	flows1 := ExtractFlows(root, cg, communities, pr, nil)
-	flows2 := ExtractFlows(root, cg, communities, pr, nil)
+	flows1 := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
+	flows2 := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 
 	if len(flows1) != len(flows2) {
 		t.Fatalf("non-deterministic: len %d vs %d", len(flows1), len(flows2))
@@ -361,7 +349,7 @@ func TestExtractFlows_PrioritySorting(t *testing.T) {
 		leafH.Name + compositeKeyDelim + relPath(leafH.File, root):         0.05,
 	}
 
-	flows := ExtractFlows(root, cg, communities, pr, nil)
+	flows := ExtractFlows(root, cg, communities, pr, nil, 0, 0)
 	if len(flows) < 2 {
 		t.Fatalf("need at least 2 flows, got %d", len(flows))
 	}
@@ -376,7 +364,7 @@ func TestExtractFlows_PrioritySorting(t *testing.T) {
 func TestExtractFlows_EmptyGraph(t *testing.T) {
 	root := "/repo"
 	cg := buildTestCG(nil, nil)
-	flows := ExtractFlows(root, cg, nil, nil, nil)
+	flows := ExtractFlows(root, cg, nil, nil, nil, 0, 0)
 	if flows == nil {
 		t.Error("expected non-nil empty slice, got nil")
 	}

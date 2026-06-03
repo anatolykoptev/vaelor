@@ -130,6 +130,8 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 		TTLRemote:           cfg.GraphTTLRemote,
 		BatchSize:           cfg.GraphBatchSize,
 		EnableSurpriseIndex: cfg.CodegraphSurpriseIndex,
+		FlowsMax:            cfg.FlowsMax,
+		FlowsDFSDepth:       cfg.FlowsDFSDepth,
 	}
 
 	if !fresh {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,8 +12,13 @@ import (
 //
 // code_flows is a plain relational table, NOT an AGE vertex. It is a
 // read-mostly derived projection keyed by repo_key, rebuilt on every
-// re-index (delete-then-insert). The name_embedding column is nullable;
-// populated later when EMBED_URL is set (FLOWS_IN_SEARCH extension point).
+// re-index (delete-then-insert).
+//
+// NOTE: name_embedding (vector(768)) is intentionally omitted here — it
+// requires the pgvector extension which codegraph does not create.
+// It will be added in the future FLOWS_IN_SEARCH PR together with
+// "CREATE EXTENSION IF NOT EXISTS vector;" when the column is actually
+// populated.
 const flowsTableSQL = `
 CREATE TABLE IF NOT EXISTS public.code_flows (
     repo_key       TEXT NOT NULL,
@@ -26,7 +30,6 @@ CREATE TABLE IF NOT EXISTS public.code_flows (
     member_syms    TEXT[] NOT NULL DEFAULT '{}',
     priority       DOUBLE PRECISION NOT NULL DEFAULT 0,
     community      TEXT NOT NULL DEFAULT '0',
-    name_embedding vector(768),
     PRIMARY KEY (repo_key, flow_id)
 );
 CREATE INDEX IF NOT EXISTS idx_code_flows_repo ON public.code_flows (repo_key);
@@ -152,9 +155,10 @@ func (s *Store) ListFlows(ctx context.Context, repoKey string) ([]Flow, error) {
 }
 
 // insertFlowsBatch inserts flows using pgx CopyFromRows for efficiency.
-// Falls back to individual INSERT statements if CopyFrom is unavailable.
+// A genuine CopyFrom failure is returned to the caller (UpsertFlows), which
+// logs and bumps flowsDBErrorTotal — no same-tx fallback is attempted because
+// pgx aborts the transaction on any statement error (25P02).
 func insertFlowsBatch(ctx context.Context, tx pgx.Tx, repoKey string, flows []Flow) error {
-	// Build rows for CopyFrom.
 	rows := make([][]any, len(flows))
 	for i, f := range flows {
 		rows[i] = []any{
@@ -181,38 +185,5 @@ func insertFlowsBatch(ctx context.Context, tx pgx.Tx, repoKey string, flows []Fl
 		cols,
 		pgx.CopyFromRows(rows),
 	)
-	if err != nil {
-		// CopyFrom failed — fall back to multi-row VALUES insert.
-		return insertFlowsFallback(ctx, tx, repoKey, flows)
-	}
-	return nil
-}
-
-// insertFlowsFallback inserts flows using a multi-row VALUES clause.
-// Used when CopyFrom is unavailable (e.g. pgBouncer in transaction mode).
-func insertFlowsFallback(ctx context.Context, tx pgx.Tx, repoKey string, flows []Flow) error {
-	const colCount = 9
-	args := make([]any, 0, len(flows)*colCount)
-	var sb strings.Builder
-	sb.WriteString(`INSERT INTO public.code_flows
-		(repo_key, flow_id, name, entry_sym, entry_file, leaf_sym, member_syms, priority, community)
-		VALUES `)
-
-	for i, f := range flows {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		base := i*colCount + 1
-		fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-			base, base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8)
-		args = append(args,
-			repoKey, f.FlowID, f.Name, f.EntrySym, f.EntryFile,
-			f.LeafSym, f.MemberSyms, f.Priority, f.Community,
-		)
-	}
-
-	if _, err := tx.Exec(ctx, sb.String(), args...); err != nil {
-		return fmt.Errorf("flows fallback insert: %w", err)
-	}
-	return nil
+	return err
 }

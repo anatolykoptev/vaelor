@@ -85,13 +85,14 @@ func formatFlows(flows []codegraph.Flow, root, repoKey string) string {
 		fmt.Fprintf(&sb, "   entry: %s  (%s)\n", f.EntrySym, f.EntryFile)
 		fmt.Fprintf(&sb, "   leaf:  %s\n", f.LeafSym)
 		if len(f.MemberSyms) > 2 {
-			// Show intermediate members (skip entry and leaf already shown above).
+			// Show intermediate reachable members (the full set is a community-bounded
+			// reachable subtree, not a single linear call path — see ADR-001 §DFS semantics).
 			intermediate := f.MemberSyms[1 : len(f.MemberSyms)-1]
 			if len(intermediate) > 0 && len(intermediate) <= flowChainMaxDisplay {
-				fmt.Fprintf(&sb, "   chain: %s\n", strings.Join(intermediate, " → "))
+				fmt.Fprintf(&sb, "   reaches: %s\n", strings.Join(intermediate, ", "))
 			} else if len(intermediate) > flowChainMaxDisplay {
-				fmt.Fprintf(&sb, "   chain: %s … (%d more)\n",
-					strings.Join(intermediate[:flowChainMaxDisplay], " → "), len(intermediate)-flowChainMaxDisplay)
+				fmt.Fprintf(&sb, "   reaches: %s … (%d more)\n",
+					strings.Join(intermediate[:flowChainMaxDisplay], ", "), len(intermediate)-flowChainMaxDisplay)
 			}
 		}
 		sb.WriteByte('\n')

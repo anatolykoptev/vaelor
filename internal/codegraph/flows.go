@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	// flowsMax caps the total number of flows returned across all communities.
-	// Can be raised by operators via FLOWS_MAX env var (see IndexConfig).
+	// flowsMax is the default cap on the total number of flows per repo.
+	// Operators override via FLOWS_MAX in IndexConfig (env: FLOWS_MAX).
 	flowsMax = 50
 
-	// flowsDFSDepth bounds the DFS traversal depth per flow chain.
+	// flowsDFSDepth is the default DFS traversal depth bound per flow.
+	// Operators override via FLOWS_DFS_DEPTH in IndexConfig (env: FLOWS_DFS_DEPTH).
 	flowsDFSDepth = 8
 
 	// flowArrow is the separator used in the human-readable flow name.
@@ -47,13 +48,24 @@ type Flow struct {
 //   - pagerank       — map[symKey]score
 //   - handlesTargets — set of symKeys that are HANDLES targets;
 //     always treated as entry-points regardless of in-degree
+//   - maxFlows       — cap on the total number of flows (≤0 uses default flowsMax)
+//   - dfsDepth       — DFS traversal depth bound (≤0 uses default flowsDFSDepth)
 func ExtractFlows(
 	root string,
 	cg *callgraph.CallGraph,
 	communities map[string]int,
 	pagerank map[string]float64,
 	handlesTargets map[string]bool,
+	maxFlows int,
+	dfsDepth int,
 ) []Flow {
+	if maxFlows <= 0 {
+		maxFlows = flowsMax
+	}
+	if dfsDepth <= 0 {
+		dfsDepth = flowsDFSDepth
+	}
+
 	if cg == nil || len(cg.Symbols) == 0 {
 		return []Flow{}
 	}
@@ -70,13 +82,13 @@ func ExtractFlows(
 		return []Flow{}
 	}
 
-	// DFS from each entry-point to collect chains.
+	// DFS from each entry-point to collect community-bounded reachable sets.
 	flows := make([]Flow, 0, len(entries))
 	for _, e := range entries {
 		visited := make(map[*parser.Symbol]bool)
-		chain := make([]*parser.Symbol, 0, flowsDFSDepth+1)
+		chain := make([]*parser.Symbol, 0, dfsDepth+1)
 		entryCommunity := flowSymCommunity(root, e, communities)
-		dfsCollectChain(e, calleeAdj, visited, &chain, entryCommunity, communities, root, 0)
+		dfsCollectChain(e, calleeAdj, visited, &chain, entryCommunity, communities, root, 0, dfsDepth)
 		if len(chain) == 0 {
 			continue
 		}
@@ -87,7 +99,7 @@ func ExtractFlows(
 		flows = append(flows, *f)
 	}
 
-	flows = capFlows(flows, flowsMax)
+	flows = capFlows(flows, maxFlows)
 	sortFlows(flows)
 	return flows
 }
@@ -177,6 +189,10 @@ func isExported(s *parser.Symbol) bool {
 // dfsCollectChain performs bounded depth-first traversal from src, appending
 // visited symbols to chain. Traversal stays within the same Louvain community
 // as entryCommunity to keep flows cohesive.
+//
+// The resulting chain is a community-bounded reachable set (subtree flatten),
+// NOT a single linear call path. MemberSyms reflects all symbols reachable from
+// the entry within the community up to maxDepth hops.
 func dfsCollectChain(
 	src *parser.Symbol,
 	adj map[*parser.Symbol][]*parser.Symbol,
@@ -186,8 +202,9 @@ func dfsCollectChain(
 	communities map[string]int,
 	root string,
 	depth int,
+	maxDepth int,
 ) {
-	if depth > flowsDFSDepth || visited[src] {
+	if depth > maxDepth || visited[src] {
 		return
 	}
 	visited[src] = true
@@ -201,7 +218,7 @@ func dfsCollectChain(
 		if c, ok := communities[flowSymKey(root, callee)]; ok && c != entryCommunity {
 			continue
 		}
-		dfsCollectChain(callee, adj, visited, chain, entryCommunity, communities, root, depth+1)
+		dfsCollectChain(callee, adj, visited, chain, entryCommunity, communities, root, depth+1, maxDepth)
 	}
 }
 

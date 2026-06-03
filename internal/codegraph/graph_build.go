@@ -39,7 +39,9 @@ type buildGraphInput struct {
 }
 
 // buildGraph constructs vertices and edges from ingested files and parsed symbols.
-func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
+// It returns the computed PageRank scores so callers can reuse them without a
+// second computeSymbolPageRank call.
+func buildGraph(in buildGraphInput) ([]vertexData, []edgeData, map[string]float64) {
 	// Collect unique packages (directories) and the set of all indexed file paths
 	// (fileSet is used to resolve relative TS/JS imports to their target file's dir).
 	pkgDirs := make(map[string]struct{})
@@ -148,7 +150,7 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData) {
 		})
 	}
 
-	return vertices, edges
+	return vertices, edges, prScores
 }
 
 // buildSymbolGraph creates Symbol vertices and CONTAINS edges from file to symbol.

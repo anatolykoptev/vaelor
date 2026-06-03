@@ -26,6 +26,14 @@ type IndexConfig struct {
 	// (IndexSurpriseEdges + IndexSurpriseNodes) after the pagerank/community
 	// pass.  Gated behind CODEGRAPH_SURPRISE_INDEX=1 (default off).
 	EnableSurpriseIndex bool
+
+	// FlowsMax caps the total number of flows extracted per repo.
+	// Env: FLOWS_MAX (default 50). Zero means use default.
+	FlowsMax int
+
+	// FlowsDFSDepth bounds the DFS traversal depth per flow.
+	// Env: FLOWS_DFS_DEPTH (default 8). Zero means use default.
+	FlowsDFSDepth int
 }
 
 // GraphMeta describes a built code graph stored in code_graph_meta.
@@ -113,7 +121,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	if len(hookRoutes) > 0 {
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
-	vertices, edges := buildGraph(buildGraphInput{
+	vertices, edges, prScores := buildGraph(buildGraphInput{
 		Root: root, Files: allFiles, Symbols: allSymbols,
 		CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,
 	})
@@ -123,15 +131,14 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.Duration("elapsed", time.Since(t2)))
 
 	// Phase 2: extract named execution flows (index-time precompute).
-	// Runs after injectCommunities and computeSymbolPageRank (called inside buildGraph).
+	// Runs after injectCommunities. prScores reused from buildGraph — no second PageRank pass.
 	// No AGE I/O — pure in-memory DFS over cg. Non-fatal: logs error and bumps counter.
-	prScores := computeSymbolPageRank(root, allSymbols, cg)
 	communityMap := buildCommunityMap(vertices)
 	crossVerticesEarly, crossEdgesEarly := buildCrossLanguageData(root, allFiles, allSymbols)
 	handlesTargets := extractHandlesTargets(root, crossEdgesEarly)
 	{
 		t_flows := time.Now()
-		flows := ExtractFlows(root, cg, communityMap, prScores, handlesTargets)
+		flows := ExtractFlows(root, cg, communityMap, prScores, handlesTargets, cfg.FlowsMax, cfg.FlowsDFSDepth)
 		flowsExtractedTotal.WithLabelValues(repoKey).Add(float64(len(flows)))
 		slog.Info("codegraph: flow extraction done",
 			slog.String("repo", root), slog.Int("flows", len(flows)),
@@ -253,6 +260,12 @@ func applyConfigDefaults(cfg IndexConfig) IndexConfig {
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = defaultBatchSize
+	}
+	if cfg.FlowsMax <= 0 {
+		cfg.FlowsMax = flowsMax
+	}
+	if cfg.FlowsDFSDepth <= 0 {
+		cfg.FlowsDFSDepth = flowsDFSDepth
 	}
 	return cfg
 }

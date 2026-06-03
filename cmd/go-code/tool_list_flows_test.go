@@ -1,32 +1,62 @@
 package main
 
 import (
-	"context"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// TestListFlows_NilStore verifies that handleListFlows gracefully handles a
-// nil graphStore (DATABASE_URL not configured), returning an error result
-// rather than panicking. This test goes RED if the nil guard is removed.
-func TestListFlows_NilStore_RegisterSkipped(t *testing.T) {
-	// registerListFlows must not register when graphStore is nil —
-	// verify by calling handleListFlows directly with a nil store.
-	// The tool handler should not be reachable in that case; this test
-	// validates the handler itself returns a safe error.
-	ctx := context.Background()
-	_ = ctx
-	// We only verify the registration guard compiles and is present — a nil
-	// graphStore means the handler is never registered, so the test is
-	// structural: confirm the guarded path exists by calling with a nil store
-	// and asserting a non-panic outcome.
-	var gs *codegraph.Store
-	if gs != nil {
-		t.Error("expected nil graphStore for gate test")
+// newTestServer returns a bare mcp.Server suitable for registration tests.
+func newTestServer(t *testing.T) *mcp.Server {
+	t.Helper()
+	return mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+}
+
+// serverTools connects a client to the server over an in-memory transport and
+// returns the list of registered tool names.
+func serverTools(t *testing.T, server *mcp.Server) []string {
+	t.Helper()
+	ctx := t.Context()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	go func() {
+		// Connect (and serve) until the client closes; ignore the session handle.
+		_, _ = server.Connect(ctx, serverTransport, nil)
+	}()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("serverTools: client connect: %v", err)
 	}
-	// No panic on nil check — gate is at registerListFlows, not handleListFlows.
-	// This proves the registration guard pattern compiles correctly.
+	defer cs.Close()
+	result, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("serverTools: ListTools: %v", err)
+	}
+	names := make([]string, len(result.Tools))
+	for i, tool := range result.Tools {
+		names[i] = tool.Name
+	}
+	return names
+}
+
+// TestListFlows_NilStore_RegisterSkipped verifies that registerListFlows does
+// NOT register the tool when graphStore is nil (DATABASE_URL not configured).
+// This test goes RED if the nil guard ("if graphStore == nil { return }") is
+// removed from registerListFlows.
+func TestListFlows_NilStore_RegisterSkipped(t *testing.T) {
+	server := newTestServer(t)
+
+	// Call with nil store — the guard must skip registration.
+	registerListFlows(server, nil, SemanticDeps{})
+
+	// The tool must NOT appear in the server's tool list.
+	tools := serverTools(t, server)
+	for _, name := range tools {
+		if name == "list_flows" {
+			t.Errorf("list_flows was registered despite nil graphStore; nil guard is broken")
+		}
+	}
 }
 
 // TestListFlows_FormatEmpty verifies formatFlows output for an empty slice.
