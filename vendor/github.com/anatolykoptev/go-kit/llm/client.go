@@ -238,9 +238,20 @@ func (c *Client) Complete(ctx context.Context, system, user string, opts ...Chat
 func (c *Client) CompleteMultimodal(ctx context.Context, prompt string, images []ImagePart, opts ...ChatOption) (string, error) {
 	parts := []ContentPart{{Type: "text", Text: prompt}}
 	for _, img := range images {
+		if img.URL == "" && img.Base64 == "" {
+			continue
+		}
+		url := img.URL
+		if img.Base64 != "" {
+			mt := img.MIMEType
+			if mt == "" {
+				mt = "image/png"
+			}
+			url = "data:" + mt + ";base64," + img.Base64
+		}
 		parts = append(parts, ContentPart{
 			Type:     "image_url",
-			ImageURL: &ImageURL{URL: img.URL},
+			ImageURL: &ImageURL{URL: url, Detail: img.Detail},
 		})
 	}
 	msgs := []Message{{Role: "user", Content: parts}}
