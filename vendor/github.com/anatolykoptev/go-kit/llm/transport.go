@@ -8,15 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
 type chatResponse struct {
 	Choices []struct {
 		Message struct {
-			Content   string     `json:"content"`
-			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			Content          string     `json:"content"`
+			ReasoningContent string     `json:"reasoning_content,omitempty"`
+			ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -87,9 +87,12 @@ func (c *Client) doRequest(ctx context.Context, baseURL, apiKey string, req *Cha
 		return nil, errors.New("llm: empty choices in response")
 	}
 
+	msg := chatResp.Choices[0].Message
+	clean, reasoning := splitReasoning(msg.Content, msg.ReasoningContent)
 	return &ChatResponse{
-		Content:      strings.TrimSpace(chatResp.Choices[0].Message.Content),
-		ToolCalls:    chatResp.Choices[0].Message.ToolCalls,
+		Content:      clean,
+		Reasoning:    reasoning,
+		ToolCalls:    msg.ToolCalls,
 		FinishReason: chatResp.Choices[0].FinishReason,
 		Usage:        chatResp.Usage,
 	}, nil
