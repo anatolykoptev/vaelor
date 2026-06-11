@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.3
 
 require (
-	github.com/anatolykoptev/go-kit v0.81.1
+	github.com/anatolykoptev/go-kit v0.82.0
 	github.com/anatolykoptev/go-mcpserver v0.13.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible
