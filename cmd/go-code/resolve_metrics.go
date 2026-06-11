@@ -31,3 +31,18 @@ var repoResolveTotal = promauto.NewCounterVec(
 	},
 	[]string{"outcome"},
 )
+
+// Pre-touch every outcome series at zero so /metrics exposes all five from a
+// cold start — otherwise a `{outcome="miss"}` alert has no baseline until the
+// first miss occurs. Matches the repo convention (tool_semantic_search_hybrid.go).
+func init() {
+	for _, outcome := range []string{
+		resolveOutcomeAbsolute,
+		resolveOutcomeBareRoot,
+		resolveOutcomeRemote,
+		resolveOutcomeWP,
+		resolveOutcomeMiss,
+	} {
+		repoResolveTotal.WithLabelValues(outcome).Add(0)
+	}
+}
