@@ -66,6 +66,11 @@ type IncrementalSyncResult struct {
 // catastrophic failures (DB connection lost). Per-file errors are collected
 // in Result.Errors, not returned — caller decides retry policy.
 func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
+	// Register the (repo key → path) mapping for metric resolution.
+	// Called here so the info gauge is populated before any other gocode_*
+	// metric for this repo is emitted. Idempotent on repeated calls.
+	SetRepoInfoGauge(repoKey, root)
+
 	// Step 1: resolve current main-branch SHA.
 	// Treat both a real error (e.g. git repo with no main/master/HEAD ref) and an
 	// empty return (non-git path) identically: we have no usable fingerprint, so
