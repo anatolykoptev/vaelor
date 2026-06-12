@@ -238,6 +238,9 @@ type IndexResult struct {
 
 // IndexRepo indexes all functions and methods in a repository for semantic search.
 func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexResult, error) {
+	// Register the (repo key → path) mapping so dashboards can resolve the
+	// opaque hash. IncrementalSync also calls this; the double-set is harmless.
+	SetRepoInfoGauge(repoKey, root)
 	return p.indexRepoWithTool(ctx, "unknown", repoKey, root, nil)
 }
 
