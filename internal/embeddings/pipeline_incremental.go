@@ -126,7 +126,13 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		// no changed files (same SHA → empty diff) and advance the SHA again with
 		// 0 rows. Route to fallbackToFull so IndexRepo detects the desync and
 		// re-embeds all symbols.
-		repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		//
+		// Gate the "operator-investigation-required" counter on the repo actually having
+		// embeddable source files: a docs-only repo (e.g. /host/src/wiki) legitimately
+		// has 0 embeddings and must not trip this alarm on every boot.
+		if rootHasEmbeddableFiles(root) {
+			repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		}
 		slog.Warn("incrementalSync: same SHA but 0 embeddings — routing to full re-index for recovery",
 			slog.String("repo", repoKey), slog.String("sha", shortSHA(currentSHA)))
 		res, fullErr := p.fallbackToFull(ctx, repoKey, root, IncrementalSyncFullFallbackBootstrap)

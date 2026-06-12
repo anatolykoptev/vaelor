@@ -4,14 +4,42 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
+
+// rootHasEmbeddableFiles returns true when root contains at least one file with a
+// parser-supported extension (i.e. the repo is a code repo, not docs-only).
+//
+// This is an early-exit walk — it stops at the first matching file. It is used to
+// distinguish real desync (code repo with 0 stored rows) from a docs-only repo
+// (e.g. /host/src/wiki which has .md files only) that legitimately produces 0
+// embeddings. Docs-only repos must not trip the gocode_repo_state_advanced_with_zero_embeddings_total
+// counter on every boot.
+//
+// Walk errors (permission denied, broken symlinks) are silently skipped so this
+// function is always safe to call and never blocks the recovery path.
+func rootHasEmbeddableFiles(root string) bool {
+	found := false
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if parser.HandlerForExt(filepath.Ext(path)) != nil {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
+}
 
 // collectSymbols ingests a repo and parses all files, returning only functions and methods.
 func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*ingest.File, error) {
