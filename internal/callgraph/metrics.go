@@ -1,8 +1,12 @@
 package callgraph
 
 import (
+	"context"
+	"errors"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -29,6 +33,78 @@ var calleesEmittedTotal = promauto.NewCounterVec(
 	},
 	[]string{"language", "kind"},
 )
+
+// gocode_callgraph_gotypes_fallback_total counts each time go/types typed resolution
+// fails and the call graph degrades to tree-sitter-only edges.
+//
+// Labels:
+//   - reason: "deadline" — packages.Load context deadline exceeded;
+//     "load_error" — any other packages.Load failure.
+//
+// A non-zero rate means typed Go call edges are being dropped silently. Operators
+// can alert on this to detect repeated cold-GOCACHE deadline misses or environment
+// issues with packages.Load. Before this counter, the only signal was a WARN log.
+var callgraphGotypesFallbackTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_callgraph_gotypes_fallback_total",
+		Help: "Times go/types typed resolution failed and the call graph fell back to tree-sitter-only edges, by reason (deadline, load_error).",
+	},
+	[]string{"reason"},
+)
+
+// recordGotypesFallback bumps the go/types fallback counter with the appropriate reason.
+func recordGotypesFallback(err error) {
+	reason := "load_error"
+	if isDeadlineErr(err) {
+		reason = "deadline"
+	}
+	callgraphGotypesFallbackTotal.WithLabelValues(reason).Inc()
+}
+
+// gocode_scip_fallback_total counts each time a SCIP indexer fails and the call
+// graph stays at tree-sitter-only tier.
+//
+// Labels:
+//   - indexer: the SCIP indexer binary name (e.g. "rust-analyzer", "scip-python").
+//   - reason:  "killed" — indexer subprocess received SIGKILL (OOM or ctx deadline);
+//     "indexer_error" — indexer exited with a non-zero status;
+//     "read_error" — index file could not be parsed after indexer succeeded;
+//     "no_edges" — index was read but contained 0 typed edges.
+//
+// A non-zero rate makes SCIP degradation visible, enabling operators to correlate
+// kills with memory pressure or deadline budgets.
+var scipFallbackTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_scip_fallback_total",
+		Help: "Times a SCIP indexer failed and the call graph stayed at tree-sitter tier, by indexer and reason (killed, indexer_error, read_error, no_edges).",
+	},
+	[]string{"indexer", "reason"},
+)
+
+// recordSCIPFallback bumps the SCIP fallback counter for a given indexer and reason.
+func recordSCIPFallback(indexer, reason string) {
+	scipFallbackTotal.WithLabelValues(indexer, reason).Inc()
+}
+
+// isDeadlineErr reports whether err wraps context.DeadlineExceeded.
+// context.Canceled is NOT a deadline — it is a deliberate cancellation
+// (e.g. caller disconnect) and should not be reported as a deadline miss.
+func isDeadlineErr(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// isKilledErr reports whether err indicates a subprocess received SIGKILL.
+// This covers both cgroup OOM kills of child processes and exec.CommandContext
+// kills on ctx-deadline expiry — both arrive as "signal: killed".
+func isKilledErr(err error) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			return status.Signaled() && status.Signal() == syscall.SIGKILL
+		}
+	}
+	return false
+}
 
 // gocode_callgraph_eager_warm_total counts startup GOCACHE pre-warm outcomes.
 // Eager warming is performed once per Go repo discovered under AUTO_INDEX_DIRS
