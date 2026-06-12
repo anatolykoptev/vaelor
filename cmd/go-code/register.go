@@ -112,7 +112,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		// Each model in the chain is already a retry layer; cap per-endpoint retries
 		// to 1 to avoid O(chain_len × retries) wall time on full outage.
 		llmOpts = append(llmOpts,
-			llm.WithEndpoints(llm.BuildModelChainEndpoints(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, modelChain)),
+			llm.WithEndpoints(llm.BuildModelChainEndpointsFiltered(context.Background(), llm.NewModelRegistry(), cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, modelChain, nil)),
 			llm.WithMaxRetries(1),
 		)
 		slog.Info("llm: model chain enabled",
