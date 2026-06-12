@@ -479,4 +479,90 @@ func sumCounter(t *testing.T, name string) float64 {
 	return total
 }
 
+// TestDocsOnlyRepo_ZeroEmbeddingsCounter_NoFalsePositive asserts that a docs-only
+// repo (no code files, only Markdown) does NOT increment the
+// gocode_repo_state_advanced_with_zero_embeddings_total counter.
+//
+// This is the false-positive regression guard for investigation 2026-06-12 (ITEM 1):
+// repos like /host/src/wiki and /host/src/acme-notes are 100% .md files and
+// legitimately produce 0 embeddings. The counter must NOT fire for them.
+//
+// RED guarantee: revert either the rootHasEmbeddableFiles gate in checkSameSHAFastPath
+// OR the gate in IncrementalSync same-SHA branch, and this test detects a non-zero counter.
+func TestDocsOnlyRepo_ZeroEmbeddingsCounter_NoFalsePositive(t *testing.T) {
+	p, store := testPipeline(t)
+	ctx := context.Background()
+
+	const repo = "test/docs-only-zero-emb-counter"
+	cleanRepoFull(t, store, repo)
+
+	// Docs-only repo: only Markdown files, no embeddable source code.
+	root := initGitRepo(t, map[string]string{
+		"README.md": "# Wiki\n\nThis repo has no indexable code.\n",
+		"guide.md":  "# Guide\n\nSome guide text.\n",
+	})
+
+	before := sumCounter(t, "gocode_repo_state_advanced_with_zero_embeddings_total")
+
+	// First call: 0 symbols, SHA advances (intended behaviour for docs-only repos).
+	_, err := p.IndexRepo(ctx, repo, root)
+	require.NoError(t, err)
+
+	// Second call: same SHA + 0 embeddings — triggers the recovery path, but must
+	// NOT increment the desync counter because there are no embeddable source files.
+	_, err = p.IndexRepo(ctx, repo, root)
+	require.NoError(t, err)
+
+	// Third call via IncrementalSync to cover the pipeline_incremental.go gate.
+	_, err = p.IncrementalSync(ctx, repo, root)
+	require.NoError(t, err)
+
+	after := sumCounter(t, "gocode_repo_state_advanced_with_zero_embeddings_total")
+	assert.Equal(t, before, after,
+		"docs-only repo must not increment zero-embeddings counter (false positive on every boot)")
+}
+
+// TestCodeRepo_ZeroEmbeddingsCounter_Fires asserts that a code repo with 0 stored
+// embeddings (real desync: the store was emptied after the SHA was advanced) DOES
+// increment the gocode_repo_state_advanced_with_zero_embeddings_total counter.
+//
+// This preserves the real desync detection — the gate must only suppress docs-only repos.
+//
+// RED guarantee: add rootHasEmbeddableFiles() returning always-false, and this test
+// fails because the counter stays at its pre-test value.
+func TestCodeRepo_ZeroEmbeddingsCounter_Fires(t *testing.T) {
+	p, store := testPipeline(t)
+	ctx := context.Background()
+
+	const repo = "test/code-repo-zero-emb-counter"
+	cleanRepoFull(t, store, repo)
+
+	// Code repo with real Go source files — embeddable symbols.
+	root := initGitRepo(t, map[string]string{
+		"main.go": goFile("FuncDesync1", "FuncDesync2"),
+	})
+
+	// First call: indexes normally, stores embeddings and advances SHA.
+	_, err := p.IndexRepo(ctx, repo, root)
+	require.NoError(t, err)
+	count, cErr := store.CountEmbeddings(ctx, repo)
+	require.NoError(t, cErr)
+	require.Greater(t, count, 0, "setup: first index must write rows")
+
+	// Simulate desync: delete all embeddings but leave code_repo_state intact.
+	_, _ = store.pool.Exec(ctx, `DELETE FROM code_embeddings WHERE repo_key = $1`, repo)
+	count2, _ := store.CountEmbeddings(ctx, repo)
+	require.Equal(t, 0, count2, "setup: must have 0 embeddings after delete")
+
+	before := sumCounter(t, "gocode_repo_state_advanced_with_zero_embeddings_total")
+
+	// Second call: same SHA + 0 embeddings + code files present → counter MUST fire.
+	_, err = p.IndexRepo(ctx, repo, root)
+	require.NoError(t, err)
+
+	after := sumCounter(t, "gocode_repo_state_advanced_with_zero_embeddings_total")
+	assert.Greater(t, after, before,
+		"code repo with 0 embeddings (real desync) must increment the desync counter")
+}
+
 // --- helpers ---

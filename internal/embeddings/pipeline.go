@@ -254,10 +254,15 @@ func shortSHA(sha string) string { return sha[:min(shortSHALen, len(sha))] }
 // Returns (nil, false) when the caller must proceed to full re-index (empty store
 // or DB error — the Bug #1 frozen-empty recovery path).
 //
+// root is the absolute filesystem path to the repo; it is used to distinguish a
+// real desync (code repo with 0 stored rows) from a docs-only repo that
+// legitimately has 0 embeddable symbols — the counter must only fire for the
+// former.
+//
 // Side-effects on skip: bumps indexed_at via writeRepoState (liveness), sets
 // gocode_repo_embeddings_present gauge.
-// Side-effects on desync (0 rows): bumps gocode_repo_state_advanced_with_zero_embeddings_total.
-func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, currentSHA string) (*IndexResult, bool) {
+// Side-effects on desync (0 rows, code repo): bumps gocode_repo_state_advanced_with_zero_embeddings_total.
+func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, root, currentSHA string) (*IndexResult, bool) {
 	prevSHA, err := p.store.GetRepoState(ctx, repoKey)
 	if err != nil || prevSHA != currentSHA {
 		return nil, false // not same-SHA — fall through
@@ -278,7 +283,16 @@ func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, currentSHA
 		return &IndexResult{}, true
 	default:
 		// 0 rows despite same SHA — frozen-empty desync (Bug #1).
-		repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		// Only bump the "operator-investigation-required" counter when the repo root
+		// has embeddable source files. Docs-only repos (e.g. /host/src/wiki with .md only)
+		// legitimately produce 0 embeddings — bumping the counter for them is a false
+		// positive that fires on every boot and can cause spurious alerts.
+		// The real desync class (code repo with source files but 0 stored rows) is still
+		// caught — rootHasEmbeddableFiles walks the directory cheaply (early-exit on first
+		// match). See also advanceStateNoEmbed which gates the counter on result.Total > 0.
+		if rootHasEmbeddableFiles(root) {
+			repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repoKey).Inc()
+		}
 		slog.Warn("indexRepo: same SHA but 0 embeddings — recovery re-index",
 			slog.String("repo", repoKey), slog.String("sha", shortSHA(currentSHA)))
 		return nil, false
@@ -328,7 +342,7 @@ func (p *Pipeline) indexRepoWithTool(
 	// sha="" and falls through to the full path.
 	currentSHA, _ := repoMainBranchSHA(root)
 	if currentSHA != "" {
-		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, currentSHA); skip {
+		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, root, currentSHA); skip {
 			return result, nil
 		}
 	}

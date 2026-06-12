@@ -144,9 +144,12 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 
 // tryGoTypesResolution attempts to load Go packages and resolve typed call edges.
 // Returns nil on any failure — callers fall back to tree-sitter-only graph.
+// On failure, bumps gocode_callgraph_gotypes_fallback_total{reason} so the
+// degradation rate is visible without requiring operators to grep logs.
 func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {
 	lr, err := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{})
 	if err != nil {
+		recordGotypesFallback(err)
 		slog.Warn("go/packages load failed; falling back to tree-sitter", "err", err)
 		return nil
 	}
