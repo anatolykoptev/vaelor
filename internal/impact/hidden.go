@@ -26,17 +26,25 @@ func FindHiddenCallers(ctx context.Context, client *oxcodes.Client, root, symbol
 	}
 
 	// Search 1: symbol name in function bodies (catches callback registration).
-	scopedResult, err := client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
-		Root:          root,
-		Pattern:       symbolName,
-		Scope:         "function_bodies",
-		Language:      language,
-		MaxResults:    maxHiddenCallerSearch,
-		CaseSensitive: true,
-	})
-	if err != nil {
-		slog.Warn("impact: ox-codes scoped search failed", "symbol", symbolName, "err", err)
-		return nil
+	// Skip when language is empty: ox-codes /search/scoped requires a non-empty language
+	// and returns 400 otherwise. The omitempty JSON tag on ScopedSearchInput.Language
+	// prevents sending "language":"" over the wire, but we also guard here to avoid
+	// a wasted round-trip and the resulting "scoped search failed" log noise.
+	var scopedResult *oxcodes.SearchResponse
+	if language != "" {
+		var err error
+		scopedResult, err = client.SearchScoped(ctx, oxcodes.ScopedSearchInput{
+			Root:          root,
+			Pattern:       symbolName,
+			Scope:         "function_bodies",
+			Language:      language,
+			MaxResults:    maxHiddenCallerSearch,
+			CaseSensitive: true,
+		})
+		if err != nil {
+			slog.Warn("impact: ox-codes scoped search failed", "symbol", symbolName, "err", err)
+			// Continue with string literal search below.
+		}
 	}
 
 	// Search 2: symbol as string literal (catches reflection, config).
