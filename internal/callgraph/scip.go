@@ -40,6 +40,14 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 
 	result, err := gocodescip.RunIndexerSafe(ctx, cfg, root)
 	if err != nil {
+		// Classify: SIGKILL (cgroup OOM or ctx deadline) vs other indexer errors.
+		// Both degrade to tree-sitter; the label lets operators correlate "killed"
+		// spikes with memory pressure without grepping logs.
+		reason := "indexer_error"
+		if isKilledErr(err) {
+			reason = "killed"
+		}
+		recordSCIPFallback(cfg.Name, reason)
 		slog.Warn("scip: indexer failed", "indexer", cfg.Name, "err", err)
 		return nil
 	}
@@ -49,12 +57,14 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 
 	idx, err := gocodescip.ReadIndex(result.IndexPath)
 	if err != nil {
+		recordSCIPFallback(cfg.Name, "read_error")
 		slog.Warn("scip: read index failed", "err", err)
 		return nil
 	}
 
 	typedEdges := gocodescip.ConvertToEdges(idx)
 	if len(typedEdges) == 0 {
+		recordSCIPFallback(cfg.Name, "no_edges")
 		slog.Debug("scip: no typed edges extracted", "documents", idx.DocumentCount())
 		return nil
 	}

@@ -53,7 +53,7 @@ type ScopedSearchInput struct {
 	Root          string `json:"root"`
 	Pattern       string `json:"pattern"`
 	Scope         string `json:"scope"`
-	Language      string `json:"language"`
+	Language      string `json:"language,omitempty"` // omitempty: empty language omitted; ox-codes /search/scoped rejects ""
 	IsRegex       bool   `json:"is_regex"`
 	MaxResults    int    `json:"max_results"`
 	CaseSensitive bool   `json:"case_sensitive"`
