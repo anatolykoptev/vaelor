@@ -208,7 +208,7 @@ func TestFix3_IndexRepoAsyncWithTool_ToolLabelOnCancel(t *testing.T) {
 
 	// Use a very short budget so IndexRepoAsyncWithTool's bounded context fires quickly.
 	const shortBudget = 300 * time.Millisecond
-	p := NewPipeline(client, store,
+	p := NewPipeline(client, store, "",
 		WithFileCache(nil),
 		WithIndexBudget(shortBudget), // Fix 3: budget option
 	)
@@ -277,7 +277,7 @@ func TestFix3_IndexBudget_TerminatesHungGoroutine(t *testing.T) {
 	require.NoError(t, store.EnsureSchema(context.Background()))
 
 	const shortBudget = 300 * time.Millisecond
-	p := NewPipeline(client, store,
+	p := NewPipeline(client, store, "",
 		WithFileCache(nil),
 		WithIndexBudget(shortBudget), // Fix 3
 	)

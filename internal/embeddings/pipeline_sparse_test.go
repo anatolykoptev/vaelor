@@ -354,7 +354,7 @@ func (w *wrongVocabEmbedder) VocabSize() int { return 65536 } // != 30522
 func TestWithSparseEmbedder_VocabMismatchDisablesSparse(t *testing.T) {
 	// Falsification: remove the VocabSize check from newSparseEmbedder and
 	// this test goes red (p.sparseClient would be non-nil).
-	p := NewPipeline(nil, nil, WithSparseEmbedder(&wrongVocabEmbedder{}))
+	p := NewPipeline(nil, nil, "", WithSparseEmbedder(&wrongVocabEmbedder{}))
 	if p.sparseClient != nil {
 		t.Error("sparse client must be nil when VocabSize != sparseDim (30522)")
 	}
@@ -362,7 +362,7 @@ func TestWithSparseEmbedder_VocabMismatchDisablesSparse(t *testing.T) {
 
 func TestWithSparseEmbedder_CorrectVocabEnablesSparse(t *testing.T) {
 	// A matching vocab size must wire the client.
-	p := NewPipeline(nil, nil, WithSparseEmbedder(&fakeSparseEmbedder{})) // VocabSize()=30522
+	p := NewPipeline(nil, nil, "", WithSparseEmbedder(&fakeSparseEmbedder{})) // VocabSize()=30522
 	if p.sparseClient == nil {
 		t.Error("sparse client must be non-nil when VocabSize == sparseDim (30522)")
 	}
@@ -391,7 +391,7 @@ func counterValue(c prometheus.Counter) float64 {
 func TestSparseWriteFailure_BumpsWriteCounter(t *testing.T) {
 	// Inject a spy UpdateSparseEmbeddingsBatch (batch path) that always fails.
 	writeErr := errors.New("injected sparse batch write error")
-	p := NewPipeline(nil, nil,
+	p := NewPipeline(nil, nil, "",
 		WithSparseEmbedder(&fakeSparseEmbedder{}),
 		withWriteSparsesBatchFn(func(_ context.Context, _ []SparseUpdate) error {
 			return writeErr
@@ -428,7 +428,7 @@ func TestSparseWriteFailure_BumpsWriteCounter(t *testing.T) {
 // runSparseWrites → counter would increment even on success, test goes RED.
 func TestSparseWriteSuccess_NoCounterBump(t *testing.T) {
 	var batchReceived []SparseUpdate
-	p := NewPipeline(nil, nil,
+	p := NewPipeline(nil, nil, "",
 		WithSparseEmbedder(&fakeSparseEmbedder{}),
 		withWriteSparsesBatchFn(func(_ context.Context, rows []SparseUpdate) error {
 			batchReceived = append(batchReceived, rows...)
@@ -464,7 +464,7 @@ func TestSparseBatchWrite_OneCallPerChunk(t *testing.T) {
 	const n = 4
 	var batchCalls int
 	var totalRows int
-	p := NewPipeline(nil, nil,
+	p := NewPipeline(nil, nil, "",
 		WithSparseEmbedder(&fakeSparseEmbedder{}),
 		withWriteSparsesBatchFn(func(_ context.Context, rows []SparseUpdate) error {
 			batchCalls++

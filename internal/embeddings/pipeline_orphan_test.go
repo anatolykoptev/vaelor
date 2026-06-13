@@ -136,7 +136,7 @@ func TestDeleteOrphanRepoKeys_DeletesOrphanKey(t *testing.T) {
 
 	// Insert embeddings AND a state row for the live repo.
 	insertSymbols(t, s, liveRepo, "file.go", []string{"LiveSym"})
-	require.NoError(t, s.SetRepoState(ctx, liveRepo, "abc123"))
+	require.NoError(t, s.SetRepoState(ctx, liveRepo, "abc123", ""))
 
 	deleted, err := s.DeleteOrphanRepoKeys(ctx)
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestDeleteOrphanRepoKeys_IdempotentOnClean(t *testing.T) {
 	ctx := context.Background()
 
 	insertSymbols(t, s, repo, "file.go", []string{"Sym"})
-	require.NoError(t, s.SetRepoState(ctx, repo, "sha1"))
+	require.NoError(t, s.SetRepoState(ctx, repo, "sha1", ""))
 
 	deleted, err := s.DeleteOrphanRepoKeys(ctx)
 	require.NoError(t, err)

@@ -208,7 +208,7 @@ func testPipeline(t *testing.T) (*Pipeline, *Store) {
 	store := NewStore(pool)
 	ctx := context.Background()
 	require.NoError(t, store.EnsureSchema(ctx))
-	p := NewPipeline(client, store, WithFileCache(nil))
+	p := NewPipeline(client, store, "", WithFileCache(nil))
 	return p, store
 }
 
