@@ -73,6 +73,16 @@ func newGocodePool(ctx context.Context, dsn string, maxConns int32, resetOnRelea
 	return pgxpool.NewWithConfig(ctx, poolCfg)
 }
 
+// llmCooldownDuration resolves the per-model cooldown TTL from the environment.
+// LLM_COOLDOWN_SECONDS is read as an integer number of seconds; if unset or ≤0
+// the fleet default of 15 minutes is used.
+func llmCooldownDuration() time.Duration {
+	if s := env.Int("LLM_COOLDOWN_SECONDS", 0); s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 15 * time.Minute
+}
+
 // registerTools registers all MCP tool handlers on the server.
 // Each tool has its own file: tool_<name>.go
 // Returns the analyze.Deps for use by other components (e.g., webhook handler).
@@ -114,7 +124,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		llmOpts = append(llmOpts,
 			llm.WithEndpoints(llm.BuildModelChainEndpointsFiltered(context.Background(), llm.NewModelRegistry(), cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, modelChain, newModelFilterObserver(reg))),
 			llm.WithMaxRetries(1),
-			llm.WithModelCooldown(llm.CooldownConfig{}),
+			llm.WithModelCooldown(llm.CooldownConfig{Default: llmCooldownDuration()}),
 		)
 		slog.Info("llm: model chain enabled",
 			slog.String("primary", cfg.LLMModel),
