@@ -183,6 +183,12 @@ func (p *Pipeline) InvalidateIfModelChanged(ctx context.Context, repoKey string)
 	return purged
 }
 
+// EmbedModel returns the active embedding model name configured for this pipeline.
+// Returns "" for legacy pipelines created without model tracking.
+// Used by semantic_search to detect stale-space hits: a stored model that does
+// not match EmbedModel() means the indexed vectors are in the wrong space.
+func (p *Pipeline) EmbedModel() string { return p.embedModel }
+
 // IsIndexing returns true if background indexing is running for the given repo.
 func (p *Pipeline) IsIndexing(repoKey string) bool {
 	v, ok := p.progress.Load(repoKey)

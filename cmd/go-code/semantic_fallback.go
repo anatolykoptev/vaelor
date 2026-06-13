@@ -41,6 +41,30 @@ type bm25Searcher interface {
 // Compile-time assertion: *embeddings.Store satisfies bm25Searcher.
 var _ bm25Searcher = (*embeddings.Store)(nil)
 
+// modelChecker is the minimal interface that the stale-hit guard in
+// handleSemanticSearch needs. Production wires (*embeddings.Store).GetStoredModel
+// for the store side and (*embeddings.Pipeline).EmbedModel + InvalidateIfModelChanged
+// for the pipeline side. Extracted as a seam so tests inject fakes without live Postgres.
+type modelChecker interface {
+	// GetStoredModel returns the embed_model stored in code_repo_state for the
+	// given repo_key, or "" on miss/error.
+	GetStoredModel(ctx context.Context, repoKey string) string
+}
+
+// pipelineInvalidator is the subset of *embeddings.Pipeline needed by the
+// stale-hit guard: reading the active model name and triggering a purge+reindex.
+type pipelineInvalidator interface {
+	EmbedModel() string
+	InvalidateIfModelChanged(ctx context.Context, repoKey string) bool
+	IsIndexing(repoKey string) bool
+	IndexRepoAsyncWithTool(tool, repoKey, root string) bool
+	IndexProgress(repoKey string) (done, total int, running bool)
+}
+
+// Compile-time assertions: concrete types satisfy the seam interfaces.
+var _ modelChecker = (*embeddings.Store)(nil)
+var _ pipelineInvalidator = (*embeddings.Pipeline)(nil)
+
 // semanticSuggest runs a trigram fuzzy name match as fallback when the primary
 // tool found no symbol. Uses pg_trgm on code_embeddings.symbol_name (GIN
 // trigram index) — independent of the embed-server / jina worker availability.

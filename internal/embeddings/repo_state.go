@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // repoMainBranchSHA returns the sha of the repo's main branch (main → master →
@@ -46,7 +48,7 @@ func (s *Store) GetRepoState(ctx context.Context, repoKey string) (string, error
 		Scan(&sha)
 	if err != nil {
 		// pgx returns ErrNoRows on empty — caller treats as "first index".
-		if strings.Contains(err.Error(), "no rows") {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
 		}
 		return "", err
@@ -93,6 +95,28 @@ func (s *Store) SetRepoState(ctx context.Context, repoKey, sha, model string) er
 	return err
 }
 
+// GetStoredModel returns the embed_model stored in code_repo_state for repoKey,
+// or "" when no row exists or on any error. Used by semantic_search to detect
+// stale-space hits at query time: results returned from a repo whose stored
+// model differs from the active model are in the wrong embedding space and must
+// be discarded, triggering a full reindex.
+//
+// This is a cheap single-row SELECT; the common case (model matches) adds one
+// round-trip to the search path, which is negligible next to the vector scan.
+func (s *Store) GetStoredModel(ctx context.Context, repoKey string) string {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return ""
+	}
+	var model string
+	err := s.pool.QueryRow(ctx,
+		`SELECT embed_model FROM public.code_repo_state WHERE repo_key = $1`, repoKey).
+		Scan(&model)
+	if err != nil {
+		return ""
+	}
+	return model
+}
+
 // InvalidateRepoIfModelChanged purges code_embeddings for repoKey and resets
 // its head_sha to "" when the stored embed_model differs from activeModel.
 // This forces a full reindex on next query, producing vectors in the new
@@ -119,7 +143,7 @@ func (s *Store) InvalidateRepoIfModelChanged(ctx context.Context, repoKey, activ
 		repoKey).Scan(&storedModel)
 	if err != nil {
 		// No row → no embeddings to purge; first index will write the correct model.
-		if strings.Contains(err.Error(), "no rows") {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
