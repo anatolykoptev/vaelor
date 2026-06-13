@@ -51,6 +51,17 @@ type modelChecker interface {
 	GetStoredModel(ctx context.Context, repoKey string) string
 }
 
+// perRowModelChecker is an optional extension of modelChecker that reads the
+// embed_model directly from code_embeddings rows rather than from code_repo_state.
+// It fires when GetStoredModel returns "" (no state row — e.g. orphan vectors from
+// a removed checkout that were never purged). *embeddings.Store satisfies both
+// interfaces; test fakes that only set up modelChecker are unchanged.
+type perRowModelChecker interface {
+	// GetEmbedModelForRepo returns the embed_model of any stored embedding row for
+	// the given repo_key, or "" when no rows exist or on error.
+	GetEmbedModelForRepo(ctx context.Context, repoKey string) string
+}
+
 // pipelineInvalidator is the subset of *embeddings.Pipeline needed by the
 // stale-hit guard: reading the active model name and triggering a purge+reindex.
 type pipelineInvalidator interface {
@@ -63,6 +74,7 @@ type pipelineInvalidator interface {
 
 // Compile-time assertions: concrete types satisfy the seam interfaces.
 var _ modelChecker = (*embeddings.Store)(nil)
+var _ perRowModelChecker = (*embeddings.Store)(nil)
 var _ pipelineInvalidator = (*embeddings.Pipeline)(nil)
 
 // semanticSuggest runs a trigram fuzzy name match as fallback when the primary

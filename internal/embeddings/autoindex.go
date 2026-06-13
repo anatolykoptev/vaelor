@@ -246,7 +246,15 @@ func classifyAutoIndexError(err error) string {
 	if strings.Contains(msg, "connection refused") {
 		return retryReasonConnRefused
 	}
-	if strings.Contains(msg, "503") || strings.Contains(msg, "504") || strings.Contains(msg, "502") {
+	// All 5xx responses from the embed server are transient (cold-load thrash,
+	// model-swap inference failures, temporary overload). Bare 500 "inference
+	// failed" historically classified as non_retryable and caused mass repo
+	// abandonment during the jina→code-rank-embed cutover (2026-06-13 incident).
+	// 4xx remain non-retryable — a malformed request will not self-heal on retry.
+	if strings.Contains(msg, "500") || strings.Contains(msg, "501") ||
+		strings.Contains(msg, "502") || strings.Contains(msg, "503") ||
+		strings.Contains(msg, "504") || strings.Contains(msg, "505") ||
+		strings.Contains(msg, "server_error") {
 		return retryReason5xx
 	}
 	return retryReasonNonRetryable

@@ -342,7 +342,36 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		go embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
 	}
 
+	// Orphan gauge — boot + periodic ticker so gocode_orphan_repo_keys reflects
+	// reality continuously rather than only after an operator-run orphan_sweep.
+	// The gauge previously read 0 while Postgres had 17 orphan repo_keys; the fix
+	// exposes the true count within 5 min of boot (2026-06-13 observability gap).
+	if semDeps.Store != nil {
+		go func() {
+			publishOrphanGauge(semDeps.Store)
+			t := time.NewTicker(5 * time.Minute)
+			defer t.Stop()
+			for range t.C {
+				publishOrphanGauge(semDeps.Store)
+			}
+		}()
+	}
+
 	return deps
+}
+
+// publishOrphanGauge queries PG for orphan repo_keys and updates the gauge.
+// Called at boot and on a ticker so gocode_orphan_repo_keys is continuously
+// truthful rather than only updated by operator-initiated orphan_sweep calls.
+func publishOrphanGauge(store *embeddings.Store) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	n, err := store.CountOrphanRepoKeys(ctx)
+	if err != nil {
+		slog.Warn("orphan gauge: count failed", slog.Any("error", err))
+		return
+	}
+	embeddings.SetOrphanRepoKeysGauge(float64(n))
 }
 
 // buildWebSearchClient creates a go-search client if configured.
