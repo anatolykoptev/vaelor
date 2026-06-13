@@ -26,6 +26,81 @@ func okResponseBody(content string) []byte {
 	return b
 }
 
+// TestLLMCooldownDuration_EnvOverride verifies LLM_COOLDOWN_SECONDS reaches kit.
+//
+// Falsifiability: revert to CooldownConfig{} (Default=0 → kit uses 60s fallback).
+// At the 2.1s probe point the primary is still cooled (60s > 2.1s) →
+// primaryHits2 == 0 → FAIL.
+func TestLLMCooldownDuration_EnvOverride(t *testing.T) {
+	t.Setenv("LLM_COOLDOWN_SECONDS", "2")
+
+	const primaryModel = "env-primary"
+	const fallbackModel = "env-fallback"
+
+	var primaryHits atomic.Int64
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if req.Model == primaryModel {
+			primaryHits.Add(1)
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(okResponseBody("ok"))
+	}))
+	defer srv.Close()
+
+	chain := []kitllm.Endpoint{
+		{URL: srv.URL, Key: "k", Model: primaryModel},
+		{URL: srv.URL, Key: "k", Model: fallbackModel},
+	}
+
+	client := kitllm.NewClient(srv.URL, "k", primaryModel,
+		kitllm.WithEndpoints(chain),
+		kitllm.WithMaxRetries(1),
+		kitllm.WithModelCooldown(kitllm.CooldownConfig{Default: llmCooldownDuration()}),
+	)
+
+	ctx := context.Background()
+
+	// Trip cooldown: FailThreshold=2 (kit default) calls where primary → 429.
+	for range 2 {
+		_, _ = client.Complete(ctx, "", "p")
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// During cooldown: primary must be skipped.
+	primaryHits.Store(0)
+	_, _ = client.Complete(ctx, "", "during")
+	if primaryHits.Load() != 0 {
+		t.Fatal("primary was hit during cooldown — cooldown not active")
+	}
+
+	// Wait for 2s TTL to expire, then primary must be retried.
+	time.Sleep(2100 * time.Millisecond)
+	primaryHits.Store(0)
+	_, _ = client.Complete(ctx, "", "after")
+	if primaryHits.Load() == 0 {
+		t.Error("primary not retried after 2.1s — LLM_COOLDOWN_SECONDS env value did not reach kit (still cooled at 2.1s means Default > 2s)")
+	}
+}
+
+// TestLLMCooldownDuration_Default verifies the helper returns 15m when env is unset.
+func TestLLMCooldownDuration_Default(t *testing.T) {
+	t.Setenv("LLM_COOLDOWN_SECONDS", "")
+	got := llmCooldownDuration()
+	if got != 15*time.Minute {
+		t.Errorf("llmCooldownDuration() default = %v, want 15m", got)
+	}
+}
+
 // TestChainCooldown_PrimarySkippedAfterQuotaFailures verifies per-model
 // quota-aware cooldown: once the primary model accumulates FailThreshold
 // consecutive 429s it is cooled and subsequent chain calls skip it — going
