@@ -114,6 +114,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		llmOpts = append(llmOpts,
 			llm.WithEndpoints(llm.BuildModelChainEndpointsFiltered(context.Background(), llm.NewModelRegistry(), cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, modelChain, newModelFilterObserver(reg))),
 			llm.WithMaxRetries(1),
+			llm.WithModelCooldown(llm.CooldownConfig{}),
 		)
 		slog.Info("llm: model chain enabled",
 			slog.String("primary", cfg.LLMModel),
