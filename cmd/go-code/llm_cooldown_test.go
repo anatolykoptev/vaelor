@@ -92,12 +92,12 @@ func TestLLMCooldownDuration_EnvOverride(t *testing.T) {
 	}
 }
 
-// TestLLMCooldownDuration_Default verifies the helper returns 15m when env is unset.
+// TestLLMCooldownDuration_Default verifies the helper returns 5m when env is unset.
 func TestLLMCooldownDuration_Default(t *testing.T) {
 	t.Setenv("LLM_COOLDOWN_SECONDS", "")
 	got := llmCooldownDuration()
-	if got != 15*time.Minute {
-		t.Errorf("llmCooldownDuration() default = %v, want 15m", got)
+	if got != 5*time.Minute {
+		t.Errorf("llmCooldownDuration() default = %v, want 5m", got)
 	}
 }
 
