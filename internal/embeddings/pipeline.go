@@ -18,12 +18,11 @@ import (
 )
 
 const (
-	// maxEmbedText: 2000 chars exceeds jina-code-v2's 512-token cap.
-	// embed-server silently truncates (AUTO_TRUNCATE=true), losing the tail
-	// of long function bodies from the embedding signal. Cap at 1500 chars
-	// (~450 tokens) so the full pre-truncation text reaches the model and
-	// the line-boundary cut in buildEmbedText is the truncation policy
-	// instead of a hidden token-cap chop. Verified 2026-04-29:
+	// maxEmbedText: cap at 1500 chars (~450 tokens) so the full pre-truncation
+	// text reaches the model and the line-boundary cut in buildEmbedText is
+	// the truncation policy instead of a hidden token-cap chop.
+	// CodeRankEmbed (code-rank-embed) supports up to 8192 tokens so 450 tokens
+	// is well within the model's context window. Verified 2026-04-29:
 	// embed_batch_tokens p99 stuck at 256 (= cap) under prior 256 setting,
 	// indicating saturation; 1500 chars maps to ~450 tokens for typical code.
 	maxEmbedText      = 1500
@@ -51,7 +50,8 @@ const defaultIndexBudget = 30 * time.Minute
 type Pipeline struct {
 	client            *embed.Client
 	store             *Store
-	writeRepoState    func(ctx context.Context, repoKey, sha string) error // defaults to store.SetRepoState; injectable for testing
+	embedModel        string                                               // active embedding model name; stored alongside head_sha for cross-model reindex detection
+	writeRepoState    func(ctx context.Context, repoKey, sha string) error // defaults to a closure over store.SetRepoState + embedModel; injectable for testing
 	writeSparsesBatch func(ctx context.Context, rows []SparseUpdate) error // defaults to store.UpdateSparseEmbeddingsBatch; injectable for testing
 	progress          sync.Map                                             // repoKey -> *indexProgress
 	fileCache         *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
@@ -65,12 +65,22 @@ type Pipeline struct {
 // Pass a non-nil fileCache via WithFileCache to enable per-file symbol-entry
 // caching keyed on (repoKey, file.RelPath) and validated by file modTime+size.
 // When fileCache is nil, behavior is byte-identical to the v0.32.0 baseline.
-func NewPipeline(client *embed.Client, store *Store, opts ...PipelineOpt) *Pipeline {
+//
+// model is the active embedding model name (e.g. "code-rank-embed"). It is
+// stored alongside head_sha so that a model switch on next startup triggers a
+// full reindex. Pass "" to retain legacy behaviour (no model tracking).
+func NewPipeline(client *embed.Client, store *Store, model string, opts ...PipelineOpt) *Pipeline {
 	p := &Pipeline{
 		client:            client,
 		store:             store,
-		writeRepoState:    store.SetRepoState,
+		embedModel:        model,
 		writeSparsesBatch: store.UpdateSparseEmbeddingsBatch,
+	}
+	// writeRepoState closes over model so the injectable fn keeps a (ctx, repoKey, sha)
+	// signature (no model param) — avoids a breaking change in test injectors.
+	m := model
+	p.writeRepoState = func(ctx context.Context, repoKey, sha string) error {
+		return store.SetRepoState(ctx, repoKey, sha, m)
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -144,6 +154,35 @@ func withWriteSparsesBatchFn(fn func(ctx context.Context, rows []SparseUpdate) e
 	return func(p *Pipeline) { p.writeSparsesBatch = fn }
 }
 
+// InvalidateIfModelChanged purges code_embeddings for repoKey when the stored
+// embed_model differs from the active model (p.embedModel). This ensures stale
+// vectors from a previous model are not mixed with new query vectors after a
+// model upgrade (they live in different embedding spaces even when dimension
+// is equal). When a purge occurs, the next IncrementalSync call treats the
+// repo as unindexed and runs a full re-embed.
+//
+// Called by autoindex.go per-repo before triggering IncrementalSync. No-op
+// when embedModel is "" (legacy / test pipelines without model tracking).
+func (p *Pipeline) InvalidateIfModelChanged(ctx context.Context, repoKey string) bool {
+	if p.embedModel == "" {
+		return false
+	}
+	purged, err := p.store.InvalidateRepoIfModelChanged(ctx, repoKey, p.embedModel)
+	if err != nil {
+		slog.Warn("embeddings: model-mismatch invalidate failed",
+			slog.String("repo_key", repoKey),
+			slog.String("active_model", p.embedModel),
+			slog.Any("error", err))
+		return false
+	}
+	if purged {
+		slog.Info("embeddings: model changed — purged stale vectors, full reindex queued",
+			slog.String("repo_key", repoKey),
+			slog.String("active_model", p.embedModel))
+	}
+	return purged
+}
+
 // IsIndexing returns true if background indexing is running for the given repo.
 func (p *Pipeline) IsIndexing(repoKey string) bool {
 	v, ok := p.progress.Load(repoKey)
@@ -192,6 +231,12 @@ func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
 // Concurrency: the check-and-claim is atomic (LoadOrStore); only one goroutine per
 // repoKey runs at a time.
 func (p *Pipeline) IndexRepoAsyncWithTool(tool, repoKey, root string) bool {
+	// Model-fingerprint guard: purge stale vectors before indexing if the active
+	// model changed since the last index. This covers the lazy per-query path
+	// (semantic_search triggers indexing on first query). The AutoIndex path has
+	// its own pre-loop invalidation in autoindex.go.
+	p.InvalidateIfModelChanged(context.Background(), repoKey)
+
 	prog := &indexProgress{}
 	prog.running.Store(true) // claim before LoadOrStore so the winner's slot is always running=true
 	if _, loaded := p.progress.LoadOrStore(repoKey, prog); loaded {

@@ -544,7 +544,7 @@ func TestMetrics_RepoStateWriteFailures_CounterIncrements(t *testing.T) {
 		writeFails++
 		return errors.New("injected write failure")
 	}
-	pFail := NewPipeline(pOK.client, store, WithFileCache(nil), withWriteRepoStateFn(failWriteFn))
+	pFail := NewPipeline(pOK.client, store, "", WithFileCache(nil), withWriteRepoStateFn(failWriteFn))
 
 	before := readCounter(t, "embed_repo_state_write_failures_total")
 

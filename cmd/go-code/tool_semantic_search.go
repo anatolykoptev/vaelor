@@ -29,7 +29,12 @@ type SemanticSearchInput struct {
 
 // SemanticDeps holds dependencies for semantic search.
 type SemanticDeps struct {
-	Client      *embed.Client
+	Client *embed.Client
+	// QueryClient is the model-aware query embedder. For code-rank-embed it
+	// wraps Client with the required retrieval prefix; for other models it is
+	// identical to Client. Always use QueryClient (not Client) for user-query
+	// embedding so the prefix asymmetry is applied correctly.
+	QueryClient embeddings.QueryEmbedder
 	Store       *embeddings.Store
 	Pipeline    *embeddings.Pipeline
 	AnalyzeDeps analyze.Deps
@@ -101,7 +106,7 @@ func handleSemanticSearch(
 	if input.Query == "" {
 		return errResult("query is required"), nil
 	}
-	if deps.Client == nil || deps.Store == nil {
+	if deps.Client == nil || deps.QueryClient == nil || deps.Store == nil {
 		return textResult(buildStatusResponse(input, "disabled",
 			"Semantic search is not available: embedding service not configured. "+
 				"Set EMBED_URL and EMBED_MODEL environment variables to enable.")), nil
@@ -132,7 +137,10 @@ func handleSemanticSearch(
 	repoKey := codegraph.GraphNameFor(root)
 
 	// Embed query first (fast, ~1s).
-	vector, err := deps.Client.EmbedQuery(ctx, input.Query)
+	// Use QueryClient (not Client) so model-specific prefixes (e.g. code-rank-embed
+	// retrieval prefix) are applied on the query path only. Document embedding in
+	// the Pipeline always uses Client.Embed without any prefix.
+	vector, err := deps.QueryClient.EmbedQuery(ctx, input.Query)
 	if err != nil {
 		return errResult(fmt.Sprintf("embed query: %s", err)), nil
 	}
