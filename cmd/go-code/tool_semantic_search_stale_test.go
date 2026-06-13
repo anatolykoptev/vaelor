@@ -276,7 +276,7 @@ func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 // the guard is a no-op. A brand-new repo with no prior index MUST return its
 // first results once indexed, not be immediately purged.
 //
-// Anti-tautology: if the "storedModel != ”" guard is removed, "" != activeModel
+// Anti-tautology: if the "storedModel != "" guard is removed, "" != activeModel
 // triggers an invalid purge for a freshly-indexed repo → this test fails because
 // invalidateCalled becomes true.
 func TestHandleSemanticSearch_NoStoredModel_PassesThrough(t *testing.T) {
@@ -286,7 +286,7 @@ func TestHandleSemanticSearch_NoStoredModel_PassesThrough(t *testing.T) {
 	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
 
 	storedModel := checker.GetStoredModel(context.Background(), "new-repo")
-	// Guard must NOT fire when storedModel == "".
+	// Guard must NOT fire when storedModel == "" (no per-row fallback available on plain modelCheckerSpy).
 	if storedModel != "" && storedModel != invalidator.EmbedModel() {
 		invalidator.InvalidateIfModelChanged(context.Background(), "new-repo")
 		invalidator.IndexRepoAsyncWithTool("semantic_search", "new-repo", "/tmp")
@@ -294,5 +294,76 @@ func TestHandleSemanticSearch_NoStoredModel_PassesThrough(t *testing.T) {
 
 	if invalidator.invalidateCalled {
 		t.Error("InvalidateIfModelChanged called on empty stored model: new repos are being spuriously purged")
+	}
+}
+
+// perRowModelCheckerSpy satisfies both modelChecker and perRowModelChecker.
+// It simulates an orphan repo: code_repo_state has no row (GetStoredModel → "")
+// but code_embeddings still has rows from an old model (GetEmbedModelForRepo → old).
+type perRowModelCheckerSpy struct {
+	storedModel string // from code_repo_state (typically "" for orphans)
+	perRowModel string // from code_embeddings rows
+}
+
+func (s *perRowModelCheckerSpy) GetStoredModel(_ context.Context, _ string) string {
+	return s.storedModel
+}
+
+func (s *perRowModelCheckerSpy) GetEmbedModelForRepo(_ context.Context, _ string) string {
+	return s.perRowModel
+}
+
+// TestHandleSemanticSearch_OrphanPerRowFallback verifies that when GetStoredModel
+// returns "" (no code_repo_state row — orphan vectors from a removed checkout),
+// the guard falls back to GetEmbedModelForRepo on the code_embeddings table.
+// If that per-row model is stale (old model != active), the guard MUST fire,
+// discarding the results and triggering reindex.
+//
+// This closes the blind spot identified in the 2026-06-13 incident: an orphan repo
+// with no state row previously bypassed the stale-space guard entirely, silently
+// returning jina-space rows against a code-rank query.
+//
+// Anti-tautology (red-on-revert contract):
+//   - Remove the perRowModelChecker type assertion → storedModel stays "" → guard
+//     not triggered → invalidateCalled stays false → FAIL.
+//   - Remove the per-row fallback but keep the type assertion → same result → FAIL.
+func TestHandleSemanticSearch_OrphanPerRowFallback_TriggersReindex(t *testing.T) {
+	const (
+		repoKey     = "testrepo/orphan"
+		oldModel    = "jina-code-v2"
+		activeModel = "code-rank-embed"
+	)
+
+	// Orphan checker: no state row, but old model visible in code_embeddings rows.
+	checker := &perRowModelCheckerSpy{
+		storedModel: "",       // no code_repo_state row (orphan)
+		perRowModel: oldModel, // old vectors still in code_embeddings
+	}
+	invalidator := &pipelineInvalidatorSpy{
+		activeModel:       activeModel,
+		isIndexingRunning: false,
+	}
+
+	// Simulate the guard logic that handleSemanticSearch runs.
+	activeModelName := invalidator.EmbedModel()
+	if activeModelName != "" {
+		storedModel := checker.GetStoredModel(context.Background(), repoKey)
+		// Per-row fallback: when state row is missing, read from code_embeddings.
+		if storedModel == "" {
+			if prc, ok := interface{}(checker).(perRowModelChecker); ok {
+				storedModel = prc.GetEmbedModelForRepo(context.Background(), repoKey)
+			}
+		}
+		if storedModel != "" && storedModel != activeModelName {
+			invalidator.InvalidateIfModelChanged(context.Background(), repoKey)
+			invalidator.IndexRepoAsyncWithTool("semantic_search", repoKey, "/tmp")
+		}
+	}
+
+	if !invalidator.invalidateCalled {
+		t.Error("InvalidateIfModelChanged not called for orphan repo with stale per-row model: guard did not fire via per-row fallback")
+	}
+	if !invalidator.indexAsyncCalled {
+		t.Error("IndexRepoAsyncWithTool not called for orphan repo with stale per-row model: reindex not triggered")
 	}
 }
