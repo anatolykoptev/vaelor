@@ -18,7 +18,7 @@ import (
 const (
 	defaultTopK    = 20
 	maxTopK        = 100
-	dimSize        = 768   // jina-code-v2 dense embedding dimension
+	dimSize        = 768   // code-rank-embed dense embedding dimension (same as jina-code-v2; no schema change)
 	sparseDim      = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size
 	batchSize      = 50
 	fieldsPerDense = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
@@ -77,7 +77,9 @@ CREATE INDEX IF NOT EXISTS idx_code_embeddings_body_hash ON public.code_embeddin
 CREATE TABLE IF NOT EXISTS public.code_repo_state (
     repo_key TEXT PRIMARY KEY,
     head_sha TEXT NOT NULL,
-    indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+    indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+ALTER TABLE public.code_repo_state
+    ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT ''`
 
 // EmbeddingRecord holds a single symbol embedding for storage.
 type EmbeddingRecord struct {
@@ -88,7 +90,7 @@ type EmbeddingRecord struct {
 	Language        string
 	StartLine       int
 	BodyHash        uint64              // for change detection
-	Embedding       []float32           // dense jina-code-v2 vector (768-dim)
+	Embedding       []float32           // dense code-rank-embed vector (768-dim)
 	SparseEmbedding sparse.SparseVector // SPLADE sparse vector (30522-dim); zero value → NULL in DB
 }
 

@@ -38,7 +38,7 @@ func newCachedPipeline(_ *testing.T) (*Pipeline, *kitcache.Cache) {
 		L1MaxItems: 64,
 		L1TTL:      15 * time.Minute,
 	})
-	return NewPipeline(nil, nil, WithFileCache(c)), c
+	return NewPipeline(nil, nil, "", WithFileCache(c)), c
 }
 
 func TestCollectSymbolsCached_FirstCallMissThenHit(t *testing.T) {
@@ -114,7 +114,7 @@ func TestCollectSymbolsCached_TruncateInvalidates(t *testing.T) {
 func TestCollectSymbolsCached_NilCacheFallsBackToBaseline(t *testing.T) {
 	dir := fixtureRepo(t)
 	// Pipeline without WithFileCache → fileCache=nil → baseline path.
-	p := NewPipeline(nil, nil)
+	p := NewPipeline(nil, nil, "")
 
 	got, files, err := p.collectSymbolsCached(context.Background(), "repoA", dir)
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestPipelineCache_MetricsRegistered(t *testing.T) {
 	})
 	defer c.Close()
 
-	p := NewPipeline(nil, nil, WithFileCache(c))
+	p := NewPipeline(nil, nil, "", WithFileCache(c))
 
 	// First call: cache cold → misses recorded.
 	_, _, err := p.collectSymbolsCached(context.Background(), "repoMetrics", dir)

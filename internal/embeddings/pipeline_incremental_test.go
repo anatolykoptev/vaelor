@@ -107,7 +107,7 @@ func cleanRepoFull(t *testing.T, store *Store, repoKey string) {
 func rawSetRepoState(t *testing.T, store *Store, repoKey, sha string) {
 	t.Helper()
 	ctx := context.Background()
-	require.NoError(t, store.SetRepoState(ctx, repoKey, sha))
+	require.NoError(t, store.SetRepoState(ctx, repoKey, sha, ""))
 }
 
 // rawGetIndexedAt reads indexed_at for a repo via raw SQL.
@@ -173,7 +173,7 @@ func testPipelineWithEmbedHook(t *testing.T, hook func(inputCount int) error) (*
 	store := NewStore(pool)
 	ctx := context.Background()
 	require.NoError(t, store.EnsureSchema(ctx))
-	p := NewPipeline(client, store, WithFileCache(nil))
+	p := NewPipeline(client, store, "", WithFileCache(nil))
 	return p, store
 }
 

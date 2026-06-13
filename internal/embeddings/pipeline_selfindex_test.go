@@ -196,7 +196,7 @@ func TestBug2_IndexRepoAsync_DetachedFromRequestCtx(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, store.EnsureSchema(ctx))
 
-	p := NewPipeline(client, store, WithFileCache(nil))
+	p := NewPipeline(client, store, "", WithFileCache(nil))
 
 	const repo = "test/bug2-detached-ctx"
 	cleanRepoFull(t, store, repo)
@@ -296,7 +296,7 @@ func TestBug2_IndexCancelledCounter_Increments(t *testing.T) {
 	pool := testPool(t)
 	store := NewStore(pool)
 	require.NoError(t, store.EnsureSchema(context.Background()))
-	p := NewPipeline(client, store, WithFileCache(nil))
+	p := NewPipeline(client, store, "", WithFileCache(nil))
 
 	const repo = "test/cancel-counter"
 	cleanRepoFull(t, store, repo)
@@ -381,14 +381,14 @@ func TestF3_IndexRepoAsync_OnlyOneGoroutine_UnderConcurrency(t *testing.T) {
 	require.NoError(t, store.EnsureSchema(context.Background()))
 
 	// Override writeRepoStateFn to count body executions.
-	p := NewPipeline(client, store, WithFileCache(nil),
+	p := NewPipeline(client, store, "", WithFileCache(nil),
 		withWriteRepoStateFn(func(ctx context.Context, repoKey, sha string) error {
 			atomic.AddInt64(&bodyCount, 1)
 			select {
 			case indexBodyStarted <- struct{}{}:
 			default:
 			}
-			return store.SetRepoState(ctx, repoKey, sha)
+			return store.SetRepoState(ctx, repoKey, sha, "")
 		}),
 	)
 

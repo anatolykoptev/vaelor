@@ -32,7 +32,7 @@ type AutoIndexOpts struct {
 // Default tuning for AutoIndex.
 //
 // Concurrency=1 serializes autoindex embed calls onto the single-worker
-// embed backend (jina-code-v2 on embed.krolik.tools, pool_size=1). With
+// embed backend (code-rank-embed on embed.krolik.tools, pool_size=1). With
 // concurrency=2 and the fleet (~48 repos), the backend queue depth was
 // unbounded: second-repo batches queued behind first-repo's ~13s inference,
 // causing context deadline exceeded on the 120s client timeout and triggering
@@ -72,11 +72,30 @@ type repoIndexer interface {
 // import cycle).
 //
 // Rollback to byte-identical legacy behavior: opts.Concurrency=1, RetryMax=0.
+//
+// Model-fingerprint guard: before indexing each repo, AutoIndex calls
+// pipeline.InvalidateIfModelChanged. When the stored embed_model differs from
+// the active model (e.g. jina-code-v2 → code-rank-embed), all stale vectors
+// for that repo are purged atomically so IncrementalSync sees no prior SHA and
+// runs a full re-embed with the new model. This prevents mixed-space garbage
+// from old + new vectors being returned by semantic_search.
 func AutoIndex(pipeline *Pipeline, dirs []string, keyFn RepoKeyFunc, opts AutoIndexOpts) {
 	if pipeline == nil {
 		return
 	}
-	autoIndex(context.Background(), pipeline, dirs, keyFn, opts)
+	ctx := context.Background()
+	// Invalidate per-repo before handing off to the worker pool, so that the
+	// first IncrementalSync call already sees a clean state. Invalidation is
+	// cheap (single SELECT per repo, one transaction on mismatch) and must run
+	// before the semaphore loop to avoid a race between invalidation and the
+	// first in-flight indexRepo call.
+	if pipeline.embedModel != "" {
+		repos := discoverRepos(dirs, keyFn)
+		for _, r := range repos {
+			pipeline.InvalidateIfModelChanged(ctx, r.key)
+		}
+	}
+	autoIndex(ctx, pipeline, dirs, keyFn, opts)
 }
 
 // autoIndex is the testable core: takes an indexer interface and a context.

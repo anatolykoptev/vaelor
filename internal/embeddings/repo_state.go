@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // repoMainBranchSHA returns the sha of the repo's main branch (main → master →
@@ -46,7 +48,7 @@ func (s *Store) GetRepoState(ctx context.Context, repoKey string) (string, error
 		Scan(&sha)
 	if err != nil {
 		// pgx returns ErrNoRows on empty — caller treats as "first index".
-		if strings.Contains(err.Error(), "no rows") {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
 		}
 		return "", err
@@ -75,15 +77,92 @@ func (s *Store) GetIndexedAt(ctx context.Context, repoKey string) time.Time {
 	return ts
 }
 
-// SetRepoState records the sha that was successfully indexed.
-func (s *Store) SetRepoState(ctx context.Context, repoKey, sha string) error {
+// SetRepoState records the sha and the active embedding model that was successfully indexed.
+// model is stored alongside head_sha so that a model switch triggers a full reindex
+// on next startup even when the repo's git SHA has not changed.
+func (s *Store) SetRepoState(ctx context.Context, repoKey, sha, model string) error {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return err
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at)
-		 VALUES ($1, $2, NOW())
-		 ON CONFLICT (repo_key) DO UPDATE SET head_sha = EXCLUDED.head_sha, indexed_at = NOW()`,
-		repoKey, sha)
+		`INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at, embed_model)
+		 VALUES ($1, $2, NOW(), $3)
+		 ON CONFLICT (repo_key) DO UPDATE
+		     SET head_sha = EXCLUDED.head_sha,
+		         indexed_at = NOW(),
+		         embed_model = EXCLUDED.embed_model`,
+		repoKey, sha, model)
 	return err
+}
+
+// GetStoredModel returns the embed_model stored in code_repo_state for repoKey,
+// or "" when no row exists or on any error. Used by semantic_search to detect
+// stale-space hits at query time: results returned from a repo whose stored
+// model differs from the active model are in the wrong embedding space and must
+// be discarded, triggering a full reindex.
+//
+// This is a cheap single-row SELECT; the common case (model matches) adds one
+// round-trip to the search path, which is negligible next to the vector scan.
+func (s *Store) GetStoredModel(ctx context.Context, repoKey string) string {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return ""
+	}
+	var model string
+	err := s.pool.QueryRow(ctx,
+		`SELECT embed_model FROM public.code_repo_state WHERE repo_key = $1`, repoKey).
+		Scan(&model)
+	if err != nil {
+		return ""
+	}
+	return model
+}
+
+// InvalidateRepoIfModelChanged purges code_embeddings for repoKey and resets
+// its head_sha to "" when the stored embed_model differs from activeModel.
+// This forces a full reindex on next query, producing vectors in the new
+// embedding space. No-ops when the stored model matches.
+//
+// The purge is atomic per repo: DELETE code_embeddings + DELETE code_repo_state
+// row both run inside a single transaction so semantic_search never sees a
+// half-purged state (either all old vectors remain or none do).
+//
+// Returns (true, nil) when a purge was performed, (false, nil) when not needed.
+func (s *Store) InvalidateRepoIfModelChanged(ctx context.Context, repoKey, activeModel string) (bool, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return false, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var storedModel string
+	err = tx.QueryRow(ctx,
+		`SELECT embed_model FROM public.code_repo_state WHERE repo_key = $1`,
+		repoKey).Scan(&storedModel)
+	if err != nil {
+		// No row → no embeddings to purge; first index will write the correct model.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if storedModel == activeModel {
+		_ = tx.Rollback(ctx)
+		return false, nil
+	}
+	// Model mismatch → purge all embeddings for this repo and reset state.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM public.code_embeddings WHERE repo_key = $1`, repoKey); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM public.code_repo_state WHERE repo_key = $1`, repoKey); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
