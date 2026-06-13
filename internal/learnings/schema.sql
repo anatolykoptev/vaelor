@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS review_learnings (
     flag        TEXT    NOT NULL,                  -- e.g. "policy:forbidden_import"
     note        TEXT    NOT NULL DEFAULT '',
     pr_url      TEXT    NOT NULL DEFAULT '',
-    embedding   vector(768),                       -- jina-code-v2 dim (matches existing stack)
+    embedding   vector(768),                       -- 768-dim (code-rank-embed / jina-code-v2 compatible; no schema change on model swap)
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

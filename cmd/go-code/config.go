@@ -90,7 +90,7 @@ type Config struct {
 
 	// EmbedHTTPTimeout is the per-request HTTP timeout for the code embed client.
 	// The default (30s) is too short when the shared embed-server is under boot-time
-	// load (48 repos × N symbols saturate jina-code-v2). Set via EMBED_HTTP_TIMEOUT
+	// load (48 repos × N symbols). Set via EMBED_HTTP_TIMEOUT
 	// (e.g. "120s"). 0 leaves the go-kit default unchanged (30s). Values are parsed
 	// by env.Duration, which accepts Go duration syntax (e.g. "2m", "90s").
 	EmbedHTTPTimeout time.Duration
@@ -307,7 +307,7 @@ const (
 	defaultLLMModel     = "gemini-3.1-flash-lite-preview"
 	defaultLLMMaxTokens = 16384
 	defaultWorkspaceDir = "/tmp/go-code-workspace"
-	defaultEmbedModel   = "jina-code-v2"
+	defaultEmbedModel   = "code-rank-embed"
 
 	// 512 KB per file.
 	defaultMaxFileBytesKB = 512
@@ -328,7 +328,7 @@ const (
 	defaultLLMCacheTTL   = 60 // minutes
 
 	// defaultEmbedHTTPTimeout: generous default for the shared external embed host
-	// (jina-code-v2 on embed.krolik.tools). Boot-time load (48 repos indexing in
+	// (code-rank-embed on embed.krolik.tools). Boot-time load (48 repos indexing in
 	// parallel) causes p99 > 30s on a 32-text sub-batch. 120s gives ≈4× headroom
 	// over the observed 30s timeout tail while still bounding a stuck goroutine.
 	// Override via EMBED_HTTP_TIMEOUT env (Go duration syntax, e.g. "90s", "2m").

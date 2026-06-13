@@ -74,8 +74,11 @@ func handleCodeResearch(
 			return callgraph.BuildFromRepo(cgCtx, callgraph.TraceRepoInput{Root: root})
 		},
 	}
-	if semDeps != nil && semDeps.Client != nil && semDeps.Store != nil {
-		resDeps.EmbedClient = semDeps.Client
+	if semDeps != nil && semDeps.Client != nil && semDeps.QueryClient != nil && semDeps.Store != nil {
+		// Use QueryClient (not Client) so model-specific prefixes are applied
+		// on the query path. The research package's EmbedClient interface only
+		// calls EmbedQuery, never Embed, so QueryEmbedder satisfies it.
+		resDeps.EmbedClient = semDeps.QueryClient
 		resDeps.EmbedStore = semDeps.Store
 		resDeps.RepoKey = codegraph.GraphNameFor(root)
 		// Wire pg_trgm symbol search for Step 3.5 augmentation.

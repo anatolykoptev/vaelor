@@ -245,10 +245,16 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 					slog.Int("max_array", cfg.SparseEmbedMaxArray),
 					slog.Float64("rrf_weight_sparse", rrfWeights.Sparse))
 			}
+			// QueryClient wraps ec with the model-correct retrieval prefix.
+			// For code-rank-embed: prepends the required query prefix on EmbedQuery.
+			// For all other models: returns ec unwrapped (zero overhead, no allocation).
+			// Document embedding (Pipeline.Embed) always uses ec directly — never QueryClient.
+			qc := embeddings.NewQueryClient(ec, cfg.EmbedModel)
 			semDeps = SemanticDeps{
 				Client:       ec,
+				QueryClient:  qc,
 				Store:        es,
-				Pipeline:     embeddings.NewPipeline(ec, es, pipelineOpts...),
+				Pipeline:     embeddings.NewPipeline(ec, es, cfg.EmbedModel, pipelineOpts...),
 				AnalyzeDeps:  deps,
 				Expander:     embeddings.NewExpander(agePool),
 				OxCodes:      buildOxCodesClient(cfg),
@@ -400,14 +406,14 @@ const (
 	designEmbedDim = 1024
 )
 
-// newCodeEmbedder constructs the code-search embedder (jina-code-v2, 768d).
+// newCodeEmbedder constructs the code-search embedder (768d; active model set via EMBED_MODEL).
 // Powers semantic_search, code_health, and codegraph indexing. Writes into the
 // pgvector(768) code_embeddings table — must NOT be swapped for a 1024d model.
 //
 // WithTimeout overrides the go-kit default (30s) when cfg.EmbedHTTPTimeout > 0.
 // The default 30s causes background index aborts under boot-time load on the shared
-// external embed host (jina-code-v2 on embed.krolik.tools), where 32-text sub-batches
-// exceed 30s p14 — triggering 3× retry (~90s total) then goroutine exit before SHA advance.
+// external embed host (embed.krolik.tools), where 32-text sub-batches exceed 30s
+// p14 — triggering 3× retry (~90s total) then goroutine exit before SHA advance.
 func newCodeEmbedder(cfg Config) (*embed.Client, error) {
 	opts := []embed.Opt{
 		embed.WithBackend("http"),

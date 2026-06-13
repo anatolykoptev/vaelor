@@ -29,7 +29,12 @@ type SemanticSearchInput struct {
 
 // SemanticDeps holds dependencies for semantic search.
 type SemanticDeps struct {
-	Client      *embed.Client
+	Client *embed.Client
+	// QueryClient is the model-aware query embedder. For code-rank-embed it
+	// wraps Client with the required retrieval prefix; for other models it is
+	// identical to Client. Always use QueryClient (not Client) for user-query
+	// embedding so the prefix asymmetry is applied correctly.
+	QueryClient embeddings.QueryEmbedder
 	Store       *embeddings.Store
 	Pipeline    *embeddings.Pipeline
 	AnalyzeDeps analyze.Deps
@@ -58,6 +63,14 @@ type SemanticDeps struct {
 	// handleSemanticHits calls Expander.GraphCandidates directly. Tests wire a spy
 	// to avoid a live AGE connection.
 	graphCandidatesFunc graphCandidatesFn
+	// staleModelChecker is the stale-hit guard test seam for store.GetStoredModel.
+	// Production leaves this nil and the guard falls back to deps.Store directly.
+	staleModelChecker modelChecker
+	// pipelineInvalidatorFunc is the stale-hit guard test seam for the pipeline
+	// operations (EmbedModel, InvalidateIfModelChanged, IsIndexing,
+	// IndexRepoAsyncWithTool). Production leaves this nil and the guard uses
+	// deps.Pipeline directly.
+	pipelineInvalidatorSeam pipelineInvalidator
 }
 
 // graphCandidatesFn is the function type for graph candidate generation,
@@ -101,7 +114,7 @@ func handleSemanticSearch(
 	if input.Query == "" {
 		return errResult("query is required"), nil
 	}
-	if deps.Client == nil || deps.Store == nil {
+	if deps.Client == nil || deps.QueryClient == nil || deps.Store == nil {
 		return textResult(buildStatusResponse(input, "disabled",
 			"Semantic search is not available: embedding service not configured. "+
 				"Set EMBED_URL and EMBED_MODEL environment variables to enable.")), nil
@@ -132,7 +145,10 @@ func handleSemanticSearch(
 	repoKey := codegraph.GraphNameFor(root)
 
 	// Embed query first (fast, ~1s).
-	vector, err := deps.Client.EmbedQuery(ctx, input.Query)
+	// Use QueryClient (not Client) so model-specific prefixes (e.g. code-rank-embed
+	// retrieval prefix) are applied on the query path only. Document embedding in
+	// the Pipeline always uses Client.Embed without any prefix.
+	vector, err := deps.QueryClient.EmbedQuery(ctx, input.Query)
 	if err != nil {
 		return errResult(fmt.Sprintf("embed query: %s", err)), nil
 	}
@@ -149,6 +165,44 @@ func handleSemanticSearch(
 	}
 
 	if len(results) > 0 {
+		// Stale-space guard: results returned from a repo whose stored embed_model
+		// differs from the active model are in the wrong embedding space (boot-window
+		// mixed-space hit OR lazy-only-forever stale index). Discard them, purge the
+		// stale vectors, and trigger a full reindex — treating the stale hit as a MISS.
+		//
+		// Common-case cost: one cheap SELECT on code_repo_state (negligible next to
+		// the vector scan). The guard is skipped when Pipeline is nil or EmbedModel
+		// is "" (legacy pipelines with no model tracking).
+		//
+		// Seams: staleModelChecker and pipelineInvalidatorSeam are nil in production
+		// and resolve to deps.Store / deps.Pipeline respectively. Tests wire fakes to
+		// avoid live Postgres / Pipeline.
+		checker := deps.staleModelChecker
+		if checker == nil && deps.Store != nil {
+			checker = deps.Store
+		}
+		invalidator := deps.pipelineInvalidatorSeam
+		if invalidator == nil && deps.Pipeline != nil {
+			invalidator = deps.Pipeline
+		}
+		if checker != nil && invalidator != nil && invalidator.EmbedModel() != "" {
+			storedModel := checker.GetStoredModel(ctx, repoKey)
+			if storedModel != "" && storedModel != invalidator.EmbedModel() {
+				// Stale-space hit: invalidate (purge old vectors) and reindex.
+				invalidator.InvalidateIfModelChanged(ctx, repoKey) // purges atomically
+				if invalidator.IsIndexing(repoKey) {
+					done, total, _ := invalidator.IndexProgress(repoKey)
+					msg := "Repository is being re-indexed (embedding model changed). Please retry in 30-60 seconds."
+					if total > 0 {
+						msg = fmt.Sprintf("Re-indexing in progress (model changed): %d/%d symbols. Please retry in 30-60 seconds.", done, total)
+					}
+					return textResult(buildStatusResponse(input, "indexing", msg)), nil
+				}
+				invalidator.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
+				return textResult(buildStatusResponse(input, "indexing",
+					"Embedding model changed — re-indexing started. Please retry in 30-60 seconds.")), nil
+			}
+		}
 		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
 	}
 
