@@ -187,6 +187,15 @@ func handleSemanticSearch(
 		}
 		if checker != nil && invalidator != nil && invalidator.EmbedModel() != "" {
 			storedModel := checker.GetStoredModel(ctx, repoKey)
+			// Defense-in-depth: when code_repo_state has no row for this repo_key
+			// (e.g. orphan vectors from a removed checkout), GetStoredModel returns "".
+			// Fall back to reading embed_model from code_embeddings rows directly so
+			// the guard fires even for repos with no state row.
+			if storedModel == "" {
+				if prc, ok := checker.(perRowModelChecker); ok {
+					storedModel = prc.GetEmbedModelForRepo(ctx, repoKey)
+				}
+			}
 			if storedModel != "" && storedModel != invalidator.EmbedModel() {
 				// Stale-space hit: invalidate (purge old vectors) and reindex.
 				invalidator.InvalidateIfModelChanged(ctx, repoKey) // purges atomically

@@ -302,9 +302,19 @@ func TestClassifyAutoIndexError(t *testing.T) {
 		{"deadline", context.DeadlineExceeded, retryReasonDeadline},
 		{"deadline_wrapped", fmt.Errorf("wrap: %w", context.DeadlineExceeded), retryReasonDeadline},
 		{"conn_refused", errors.New("dial tcp: connection refused"), retryReasonConnRefused},
+		// All 5xx are retryable — transient cold-load/model-swap inference failures
+		// must back off and retry, not permanently abandon the repo.
+		// Bare 500 was the root cause of the 2026-06-13 mass-abandon incident.
+		{"500", errors.New("embed-server returned status 500"), retryReason5xx},
+		{"500_inference_failed", errors.New(`status 500: {"error":{"message":"inference failed","type":"server_error"}}`), retryReason5xx},
+		{"500_server_error_keyword", errors.New("embed: server_error from backend"), retryReason5xx},
+		{"502", errors.New("502 bad gateway"), retryReason5xx},
 		{"503", errors.New("embed-server returned 503"), retryReason5xx},
 		{"504", errors.New("upstream 504 gateway timeout"), retryReason5xx},
-		{"502", errors.New("502 bad gateway"), retryReason5xx},
+		// 4xx are non-retryable — a malformed request will not self-heal on retry.
+		{"400", errors.New("embed-server returned 400 bad request"), retryReasonNonRetryable},
+		{"404", errors.New("embed-server returned 404 not found"), retryReasonNonRetryable},
+		{"422", errors.New("embed-server returned 422 unprocessable entity"), retryReasonNonRetryable},
 		{"parse_error", errors.New("parse: unexpected EOF"), retryReasonNonRetryable},
 		{"schema_error", errors.New("invalid embedding dimension"), retryReasonNonRetryable},
 	}
