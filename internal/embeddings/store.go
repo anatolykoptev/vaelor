@@ -21,7 +21,7 @@ const (
 	dimSize        = 768   // code-rank-embed dense embedding dimension (same as jina-code-v2; no schema change)
 	sparseDim      = 30522 // splade-v3-distilbert BERT-base WordPiece vocab size
 	batchSize      = 50
-	fieldsPerDense = 8 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embedding
+	fieldsPerDense = 9 // repo_key, file_path, symbol_name, symbol_kind, language, start_line, body_hash, embed_model, embedding
 
 	// sparseBatchSize is the maximum rows per single multi-row sparse UPDATE.
 	//
@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS public.code_repo_state (
     head_sha TEXT NOT NULL,
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 ALTER TABLE public.code_repo_state
+    ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.code_embeddings
     ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT ''`
 
 // EmbeddingRecord holds a single symbol embedding for storage.
@@ -90,6 +92,7 @@ type EmbeddingRecord struct {
 	Language        string
 	StartLine       int
 	BodyHash        uint64              // for change detection
+	EmbedModel      string              // embedding model name (e.g. "code-rank-embed"); written to code_embeddings.embed_model
 	Embedding       []float32           // dense code-rank-embed vector (768-dim)
 	SparseEmbedding sparse.SparseVector // SPLADE sparse vector (30522-dim); zero value → NULL in DB
 }
@@ -166,8 +169,10 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 	// Dense-only INSERT: no sparse_embedding column here. Sparse is written via a
 	// separate best-effort batch UPDATE (UpdateSparseEmbeddingsBatch) so a malformed
 	// sparsevec literal cannot roll back the dense rows for the whole batch.
+	// embed_model is written per-row so the stale-space guard in semantic_search can
+	// detect mixed-space rows even when code_repo_state has no entry for that repo_key.
 	b.WriteString(`INSERT INTO public.code_embeddings
-		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embedding,updated_at) VALUES `)
+		(repo_key,file_path,symbol_name,symbol_kind,language,start_line,body_hash,embed_model,embedding,updated_at) VALUES `)
 	args := make([]any, 0, len(records)*fieldsPerDense)
 	for i, r := range records {
 		if i > 0 {
@@ -183,11 +188,12 @@ func (s *Store) upsertBatch(ctx context.Context, records []EmbeddingRecord) erro
 		}
 		b.WriteString(",NOW())")
 		args = append(args, r.RepoKey, r.FilePath, r.SymbolName, r.SymbolKind,
-			r.Language, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding))
+			r.Language, r.StartLine, int64(r.BodyHash), r.EmbedModel, pgvector.NewVector(r.Embedding))
 	}
 	b.WriteString(` ON CONFLICT (repo_key, file_path, symbol_name) DO UPDATE SET -- identity key [2/3]
 		symbol_kind=EXCLUDED.symbol_kind, language=EXCLUDED.language,
 		start_line=EXCLUDED.start_line, body_hash=EXCLUDED.body_hash,
+		embed_model=EXCLUDED.embed_model,
 		embedding=EXCLUDED.embedding,
 		updated_at=NOW()`) // sparse_embedding intentionally excluded: written by UpdateSparseEmbeddingsBatch
 	_, err := s.pool.Exec(ctx, b.String(), args...)
@@ -542,6 +548,27 @@ func (s *Store) CountOrphanRepoKeys(ctx context.Context) (int64, error) {
 			SELECT repo_key FROM public.code_repo_state
 		)`).Scan(&n)
 	return n, err
+}
+
+// GetEmbedModelForRepo returns the embed_model stored in code_embeddings for
+// repoKey (reading from any row for that repo_key), or "" when no rows exist
+// or on error. Used as a fallback by the semantic_search stale-space guard
+// when code_repo_state has no entry for the repo (e.g. orphan vectors left
+// behind by a removed checkout). The per-row embed_model added in 2026-06-13
+// closes the blind spot: even without a state row the guard can detect that
+// the stored vectors are in the wrong embedding space.
+func (s *Store) GetEmbedModelForRepo(ctx context.Context, repoKey string) string {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return ""
+	}
+	var model string
+	err := s.pool.QueryRow(ctx,
+		`SELECT embed_model FROM public.code_embeddings WHERE repo_key = $1 LIMIT 1`, repoKey).
+		Scan(&model)
+	if err != nil {
+		return ""
+	}
+	return model
 }
 
 // CountEmbeddings returns the number of code_embeddings rows for a given

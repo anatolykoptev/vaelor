@@ -176,7 +176,7 @@ func (p *Pipeline) InvalidateIfModelChanged(ctx context.Context, repoKey string)
 		return false
 	}
 	if purged {
-		slog.Info("embeddings: model changed — purged stale vectors, full reindex queued",
+		slog.Info("embeddings: model changed — purged stale vectors; repo will re-embed on next IncrementalSync",
 			slog.String("repo_key", repoKey),
 			slog.String("active_model", p.embedModel))
 	}
@@ -601,6 +601,7 @@ func (p *Pipeline) embedAndUpsert(
 			Language:        e.sym.Language,
 			StartLine:       int(e.sym.StartLine),
 			BodyHash:        e.hash,
+			EmbedModel:      p.embedModel,
 			Embedding:       vectors[i],
 			SparseEmbedding: sparseVecs[i],
 		}
