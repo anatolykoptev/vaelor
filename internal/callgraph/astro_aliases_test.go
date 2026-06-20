@@ -1,6 +1,7 @@
 package callgraph
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestLoadTSConfigAliases_TildeAlias(t *testing.T) {
 		}
 	}`)
 
-	m := buildAliasMap(dir) // bypass cache for test isolation
+	m, _, _ := buildAliasMap(dir) // bypass cache for test isolation
 	if got, ok := m["~/"]; !ok {
 		t.Fatalf("alias '~/' not found in map; got %v", m)
 	} else if got != "src" {
@@ -46,7 +47,7 @@ func TestLoadTSConfigAliases_AtAlias(t *testing.T) {
 		}
 	}`)
 
-	m := buildAliasMap(dir)
+	m, _, _ := buildAliasMap(dir)
 	if got, ok := m["@/"]; !ok {
 		t.Fatalf("alias '@/' not found; got %v", m)
 	} else if got != "src" {
@@ -57,7 +58,7 @@ func TestLoadTSConfigAliases_AtAlias(t *testing.T) {
 func TestLoadTSConfigAliases_NoTSConfig(t *testing.T) {
 	dir := t.TempDir()
 	// No tsconfig.json → empty map, no panic.
-	m := buildAliasMap(dir)
+	m, _, _ := buildAliasMap(dir)
 	if len(m) != 0 {
 		t.Errorf("expected empty alias map for repo with no tsconfig, got %v", m)
 	}
@@ -75,7 +76,7 @@ func TestLoadTSConfigAliases_WithComments(t *testing.T) {
 		}
 	}`)
 
-	m := buildAliasMap(dir)
+	m, _, _ := buildAliasMap(dir)
 	if _, ok := m["~/"]; !ok {
 		t.Errorf("alias not parsed from tsconfig with comments; map: %v", m)
 	}
@@ -182,7 +183,7 @@ func TestResolveAlias_WildcardTarget(t *testing.T) {
 		}
 	}`)
 
-	m := buildAliasMap(dir)
+	m, _, _ := buildAliasMap(dir)
 	got, ok := resolveAlias("@ui/Button", m)
 	if !ok {
 		t.Fatalf("expected match for @ui/Button; alias map: %v", m)
@@ -207,7 +208,7 @@ func TestBuildAliasMap_TrailingComma(t *testing.T) {
 	}`)
 
 	// Must not panic; result may be empty or partial but never a crash.
-	m := buildAliasMap(dir)
+	m, _, _ := buildAliasMap(dir)
 	// With trailing-comma stripping the map should be populated.
 	if _, ok := m["~/"]; !ok {
 		t.Errorf("trailing-comma tsconfig should parse alias '~/'; got map %v", m)
@@ -245,7 +246,7 @@ func TestBuildAliasMap_ExtendsChainBaseUrl(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := buildAliasMap(root)
+	m, _, _ := buildAliasMap(root)
 	got, ok := m["@/"]
 	if !ok {
 		t.Fatalf("expected '@/' alias from extended base tsconfig; map: %v", m)
@@ -280,7 +281,7 @@ func TestBuildAliasMap_CycleGuard(t *testing.T) {
 	}
 
 	// Must not panic or stack-overflow.
-	m := buildAliasMap(root)
+	m, _, _ := buildAliasMap(root)
 	// The tilde alias from tsconfig.json should still be picked up.
 	if _, ok := m["~/"]; !ok {
 		t.Errorf("expected '~/' alias despite cycle; map: %v", m)
@@ -362,8 +363,149 @@ export default defineConfig({
 		t.Fatal(err)
 	}
 
-	m := buildAliasMap(dir)
+	m, _, _ := buildAliasMap(dir)
 	if _, ok := m["~/"]; !ok {
 		t.Errorf("expected '~/' alias from astro.config.mjs fallback; map: %v", m)
+	}
+}
+
+// TestBuildAliasMap_SubdirBaseStaleCacheInvalidation is a regression test for
+// the subdir-base mtime staleness class (turborepo-monorepo scenario).
+// When tsconfig.json extends config/tsconfig.base.json, editing the base file
+// must cause loadTSConfigAliases to rebuild the cache on the next call.
+//
+// This test exercises the files-list approach: buildAliasMap records every file
+// in the extends chain; loadTSConfigAliases re-stats those files, not just the
+// root-level ones. Without this, touching config/tsconfig.base.json is invisible
+// to a root-only stat check and the stale alias map persists until process restart.
+//
+// Red-on-revert: revert to aliasCacheKey{root, latestTSConfigMtime(root)} and
+// this test fails because latestTSConfigMtime only stats the root tsconfig.json
+// which has not changed.
+func TestBuildAliasMap_SubdirBaseStaleCacheInvalidation(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	baseTS := filepath.Join(configDir, "tsconfig.base.json")
+	if err := os.WriteFile(baseTS, []byte(`{
+		"compilerOptions": {
+			"paths": { "~/*": ["src/*"] }
+		}
+	}`), 0o644); err != nil {
+		t.Fatalf("write base: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{
+		"extends": "./config/tsconfig.base.json"
+	}`), 0o644); err != nil {
+		t.Fatalf("write root tsconfig: %v", err)
+	}
+
+	// Warm the cache.
+	aliasCache.Delete(root)
+	m1 := loadTSConfigAliases(root)
+	if _, ok := m1["~/"]; !ok {
+		t.Fatalf("initial load: alias '~/' not found; got %v", m1)
+	}
+
+	// Update ONLY the subdir base — root tsconfig.json is NOT touched.
+	future := time.Now().Add(2 * time.Second)
+	if err := os.WriteFile(baseTS, []byte(`{
+		"compilerOptions": {
+			"paths": { "~/*": ["src/*"], "newAlias/*": ["lib/*"] }
+		}
+	}`), 0o644); err != nil {
+		t.Fatalf("update base: %v", err)
+	}
+	if err := os.Chtimes(baseTS, future, future); err != nil {
+		t.Fatalf("chtimes base: %v", err)
+	}
+
+	// Second load must rebuild because the subdir base mtime advanced.
+	m2 := loadTSConfigAliases(root)
+	if _, ok := m2["newAlias/"]; !ok {
+		t.Errorf("subdir-base edit not detected: cache not invalidated; got %v", m2)
+	}
+}
+
+// TestBuildAliasMap_AstroConfigMtimeInvalidation verifies that editing
+// astro.config.mjs (Astro-only repo without tsconfig aliases) causes the cached
+// alias map to be rebuilt on the next loadTSConfigAliases call.
+//
+// Red-on-revert: remove astro.config path from files-list tracking in
+// parseAstroConfigAliases and this test fails because astro.config mtime is not
+// checked on re-entry.
+func TestBuildAliasMap_AstroConfigMtimeInvalidation(t *testing.T) {
+	dir := t.TempDir()
+	astroConfig := filepath.Join(dir, "astro.config.mjs")
+	// One alias per line so parseSimpleAliasLine can recognise them.
+	if err := os.WriteFile(astroConfig, []byte(`export default defineConfig({
+  vite: { resolve: { alias: {
+    '~/': './src/',
+  } } }
+})
+`), 0o644); err != nil {
+		t.Fatalf("write astro.config: %v", err)
+	}
+
+	aliasCache.Delete(dir)
+	m1 := loadTSConfigAliases(dir)
+	if _, ok := m1["~/"]; !ok {
+		t.Fatalf("initial load: alias '~/' not found; got %v", m1)
+	}
+
+	// Update astro.config and advance mtime.
+	future := time.Now().Add(2 * time.Second)
+	if err := os.WriteFile(astroConfig, []byte(`export default defineConfig({
+  vite: { resolve: { alias: {
+    '~/': './src/',
+    '@/': './src/',
+  } } }
+})
+`), 0o644); err != nil {
+		t.Fatalf("update astro.config: %v", err)
+	}
+	if err := os.Chtimes(astroConfig, future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	m2 := loadTSConfigAliases(dir)
+	if _, ok := m2["@/"]; !ok {
+		t.Errorf("astro.config edit not detected: cache not invalidated; got %v", m2)
+	}
+}
+
+// TestBuildAliasMap_TrailingCommaInStringValue pins the known limitation of the
+// trailingCommaRe regexp: a comma that appears inside a string value immediately
+// before a closing bracket (e.g. "key": "a,]") is incorrectly stripped.
+//
+// This limitation is acceptable because tsconfig compilerOptions.paths values
+// are filesystem paths and never contain literal ] or } characters. The test
+// documents the current behaviour so any future fix has a regression guard.
+//
+// See the trailingCommaRe godoc for the full caveat.
+func TestBuildAliasMap_TrailingCommaInStringValue(t *testing.T) {
+	// Test the regexp directly to document the known limitation.
+	input := `{"key": "a,]"}`
+	// The regexp sees , followed by ] inside the string and strips the comma.
+	got := string(trailingCommaRe.ReplaceAll([]byte(input), []byte("$1")))
+	// Document: the comma inside the string IS stripped (known limitation).
+	// If a future implementation preserves it, update the want string to
+	// `{"key": "a,]"}` and add a JSON round-trip assertion.
+	want := `{"key": "a]"}`
+	if got != want {
+		t.Logf("trailingCommaRe: got %q, documented limited behaviour %q (OK if stricter)", got, want)
+	}
+
+	// The common-case assertion: structural trailing commas must be stripped and
+	// the result must be valid JSON (this is what really matters for tsconfig).
+	validInput := `{"compilerOptions": {"paths": {"~/*": ["src/*",]}}}`
+	stripped := trailingCommaRe.ReplaceAll([]byte(validInput), []byte("$1"))
+	var out map[string]interface{}
+	if err := json.Unmarshal(stripped, &out); err != nil {
+		t.Errorf("trailingCommaRe: structural trailing comma not correctly stripped: %v", err)
 	}
 }

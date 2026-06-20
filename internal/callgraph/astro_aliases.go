@@ -2,7 +2,7 @@ package callgraph
 
 import (
 	"encoding/json"
-	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,72 +31,79 @@ var tsconfigParseErrorsTotal = promauto.NewCounter(
 	},
 )
 
-// aliasCacheKey combines the repo root and the maximum mtime across all
-// tsconfig files touched during alias resolution. Including mtime in the key
-// invalidates the cached entry whenever tsconfig.json is modified — critical
-// because go-code is a long-lived Docker process.
-type aliasCacheKey struct {
-	root    string
-	maxMtime int64 // UnixNano of the most-recently-modified tsconfig file
+// aliasCacheEntry stores the computed alias map together with the list of all
+// config files that were read to build it (tsconfig chain + astro.config).
+// On the next loadTSConfigAliases call we re-stat those exact files; if any
+// mtime has advanced we rebuild. This correctly handles subdir base files
+// (e.g. config/tsconfig.base.json) that are invisible to a root-only stat
+// check — the MAJOR-3 / turborepo-monorepo staleness class.
+type aliasCacheEntry struct {
+	m     aliasMap
+	files []string // absolute paths of every config file read during build
+	mtime int64    // max UnixNano across files at build time
 }
 
 // aliasCache caches the per-repo alias map.
-// Key: aliasCacheKey; value: aliasMap.
+// Key: repoRoot string; value: aliasCacheEntry.
 var aliasCache sync.Map
 
-// loadTSConfigAliases returns the alias map for a repository root.
-// It reads tsconfig.json (and tsconfig.base.json when referenced via "extends"),
-// then parses compilerOptions.paths and baseUrl. Results are cached keyed by
-// the maximum tsconfig mtime so edits invalidate the entry without a restart.
-//
-// tsconfig paths take priority over astro.config vite.resolve.alias.
-// When no alias config is found, an empty (non-nil) map is returned so the
-// cache still records "no aliases" and avoids repeated file-stat on cold repos.
-func loadTSConfigAliases(repoRoot string) aliasMap {
-	maxMtime := latestTSConfigMtime(repoRoot)
-	key := aliasCacheKey{root: repoRoot, maxMtime: maxMtime}
-
-	if v, ok := aliasCache.Load(key); ok {
-		return v.(aliasMap)
-	}
-	m := buildAliasMap(repoRoot)
-	aliasCache.Store(key, m)
-	return m
-}
-
-// latestTSConfigMtime returns the maximum UnixNano mtime across the top-level
-// tsconfig files we parse. 0 means no tsconfig was found.
-func latestTSConfigMtime(repoRoot string) int64 {
+// maxMtimeOf returns the maximum UnixNano mtime across the given absolute
+// paths. Files that no longer exist are counted as mtime 0.
+func maxMtimeOf(files []string) int64 {
 	var max int64
-	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
-		info, err := os.Stat(filepath.Join(repoRoot, name))
-		if err != nil {
-			continue
-		}
-		if ns := info.ModTime().UnixNano(); ns > max {
-			max = ns
+	for _, f := range files {
+		if fi, err := os.Stat(f); err == nil {
+			if ns := fi.ModTime().UnixNano(); ns > max {
+				max = ns
+			}
 		}
 	}
 	return max
 }
 
+// loadTSConfigAliases returns the alias map for a repository root.
+// It reads tsconfig.json (and any chain of "extends" files including subdir
+// bases), then parses compilerOptions.paths and baseUrl. Falls back to
+// astro.config.mjs / astro.config.ts for Astro-only repos.
+//
+// Results are process-cached. On each call we re-stat the exact set of files
+// that were read during the last build; if any mtime has advanced the entry is
+// rebuilt. This ensures that editing a subdir base tsconfig (e.g.
+// config/tsconfig.base.json) or astro.config.mjs invalidates the cache without
+// a process restart, which is critical for go-code's long-lived Docker process.
+func loadTSConfigAliases(repoRoot string) aliasMap {
+	if v, ok := aliasCache.Load(repoRoot); ok {
+		entry := v.(aliasCacheEntry)
+		if maxMtimeOf(entry.files) == entry.mtime {
+			return entry.m
+		}
+		// One or more config files changed — fall through to rebuild.
+	}
+	m, files, mtime := buildAliasMap(repoRoot)
+	aliasCache.Store(repoRoot, aliasCacheEntry{m: m, files: files, mtime: mtime})
+	return m
+}
+
 // buildAliasMap does the actual filesystem reads and JSON parsing.
-func buildAliasMap(repoRoot string) aliasMap {
+// Returns the alias map, the list of all config files read (for mtime
+// tracking), and the max mtime across those files.
+func buildAliasMap(repoRoot string) (aliasMap, []string, int64) {
 	m := make(aliasMap)
+	var files []string
 
 	// Try tsconfig.json then tsconfig.base.json (many monorepos split config).
 	visited := make(map[string]bool)
 	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
-		parseTSConfigFile(filepath.Join(repoRoot, name), repoRoot, m, visited)
+		parseTSConfigFile(filepath.Join(repoRoot, name), repoRoot, m, visited, &files)
 	}
 
 	// Try astro.config.mjs / astro.config.ts as a supplemental source (lower
 	// priority than tsconfig — only fills gaps).
 	if len(m) == 0 {
-		parseAstroConfigAliases(repoRoot, m)
+		parseAstroConfigAliases(repoRoot, m, &files)
 	}
 
-	return m
+	return m, files, maxMtimeOf(files)
 }
 
 // tsconfigShape is a minimal subset of tsconfig.json for alias extraction.
@@ -119,7 +126,8 @@ var trailingCommaRe = regexp.MustCompile(`,(\s*[}\]])`)
 //
 // visited tracks absolute paths already parsed in the current chain to prevent
 // infinite recursion when tsconfig files mutually extend each other.
-func parseTSConfigFile(path, repoRoot string, m aliasMap, visited map[string]bool) {
+// files accumulates the absolute paths of every file read (for cache-invalidation).
+func parseTSConfigFile(path, repoRoot string, m aliasMap, visited map[string]bool, files *[]string) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return
@@ -133,9 +141,11 @@ func parseTSConfigFile(path, repoRoot string, m aliasMap, visited map[string]boo
 	if !ok {
 		return
 	}
+	// Record this file for cache-invalidation tracking (even if it had no paths).
+	*files = append(*files, absPath)
 
 	// Follow "extends" recursively with cycle guard.
-	followTSConfigExtends(ts.Extends, absPath, repoRoot, m, visited)
+	followTSConfigExtends(ts.Extends, absPath, repoRoot, m, visited, files)
 
 	// baseUrl is resolved relative to THIS file's directory, not repoRoot.
 	// A base tsconfig with baseUrl:"." means the directory of the base file.
@@ -161,7 +171,7 @@ func readTSConfigShape(absPath string) (tsconfigShape, bool) {
 	var ts tsconfigShape
 	if err := json.Unmarshal(data, &ts); err != nil {
 		tsconfigParseErrorsTotal.Inc()
-		fmt.Printf("go-code: tsconfig parse error at %s: %v\n", absPath, err)
+		slog.Warn("tsconfig parse error", "path", absPath, "err", err)
 		return tsconfigShape{}, false
 	}
 	return ts, true
@@ -169,7 +179,7 @@ func readTSConfigShape(absPath string) (tsconfigShape, bool) {
 
 // followTSConfigExtends resolves and recursively processes a tsconfig "extends"
 // field, using the visited set to prevent cycles.
-func followTSConfigExtends(extends, absPath, repoRoot string, m aliasMap, visited map[string]bool) {
+func followTSConfigExtends(extends, absPath, repoRoot string, m aliasMap, visited map[string]bool, files *[]string) {
 	if extends == "" {
 		return
 	}
@@ -180,7 +190,7 @@ func followTSConfigExtends(extends, absPath, repoRoot string, m aliasMap, visite
 	if filepath.Ext(ext) == "" {
 		ext += ".json" // tsc allows omitting the .json suffix
 	}
-	parseTSConfigFile(ext, repoRoot, m, visited)
+	parseTSConfigFile(ext, repoRoot, m, visited, files)
 }
 
 // resolveTSBaseURL converts a raw tsconfig baseUrl string to a repo-root-relative
@@ -230,9 +240,7 @@ func normaliseTSAliasKey(alias string) string {
 // against the tsconfig's baseUrl, so "src/*" with baseUrl "config/" yields
 // "config/src" relative to the repo root.
 func normaliseTSTarget(target, baseURL string) string {
-	if strings.HasSuffix(target, "/*") {
-		target = target[:len(target)-2]
-	}
+	target = strings.TrimSuffix(target, "/*")
 	if baseURL != "" && !filepath.IsAbs(target) {
 		return filepath.Join(baseURL, strings.TrimPrefix(target, "./"))
 	}
@@ -248,12 +256,17 @@ func normaliseTSTarget(target, baseURL string) string {
 // It only handles the simple string-to-string form; URL-constructor forms are
 // skipped. This is intentionally shallow — tsconfig.paths covers 99% of real
 // repos; this is a fallback for repos that configure aliases only in Astro.
-func parseAstroConfigAliases(repoRoot string, m aliasMap) {
+// files accumulates the absolute path of the astro.config file found (for
+// cache-invalidation): editing the astro.config invalidates the cached aliases.
+func parseAstroConfigAliases(repoRoot string, m aliasMap, files *[]string) {
 	for _, name := range []string{"astro.config.mjs", "astro.config.ts", "astro.config.js"} {
-		data, err := os.ReadFile(filepath.Join(repoRoot, name))
+		p := filepath.Join(repoRoot, name)
+		data, err := os.ReadFile(p)
 		if err != nil {
 			continue
 		}
+		absP, _ := filepath.Abs(p)
+		*files = append(*files, absP)
 		src := string(data)
 		lines := strings.Split(src, "\n")
 		for _, line := range lines {
