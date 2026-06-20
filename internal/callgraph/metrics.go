@@ -133,6 +133,21 @@ func recordEagerWarm(outcome string) {
 	eagerWarmTotal.WithLabelValues(outcome).Inc()
 }
 
+// gocode_parser_unresolved_alias_total counts import paths in Astro frontmatter
+// that contain a path alias (~/…, @/…, or any non-relative prefix) and could
+// not be resolved to a repo-relative file path after all resolution attempts.
+//
+// A non-zero rate signals that a tsconfig/astro.config alias map was present
+// but the alias could not be matched — either the alias prefix is not in the
+// map, or the target path does not exist. Operators can use this to discover
+// which repos have alias-heavy imports that need tsconfig entries.
+var parserUnresolvedAliasTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_parser_unresolved_alias_total",
+		Help: "Alias import paths (~/…, @/…, non-relative) in Astro frontmatter that could not be resolved to a repo-relative file, after consulting tsconfig paths and astro.config aliases.",
+	},
+)
+
 // recordCallee bumps the counter for one parser.CallSite outcome.
 func recordCallee(file, kind string) {
 	calleesEmittedTotal.WithLabelValues(languageFromExt(file), kind).Inc()
