@@ -1,9 +1,12 @@
 package callgraph
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // root used across all tests.
@@ -120,5 +123,89 @@ func TestResolveTemplateRefs_BareSpecifier(t *testing.T) {
 	usages := ResolveTemplateRefs(src, refs, "src/Home.astro", testRoot)
 	if len(usages) != 0 {
 		t.Errorf("expected 0 usages for bare specifier, got %d", len(usages))
+	}
+}
+
+// TestResolveTemplateRefs_ScopedWorkspacePkg_NoCounter verifies that a scoped
+// npm/turborepo workspace package (e.g. @guide/core) that is NOT declared in
+// tsconfig paths does not increment the unresolved-alias counter.
+// Regression: old gate used strings.Contains(importPath, "/") which fired on
+// any scoped package, making the counter useless on monorepos with @scope/* deps.
+func TestResolveTemplateRefs_ScopedWorkspacePkg_NoCounter(t *testing.T) {
+	before := testutil.ToFloat64(parserUnresolvedAliasTotal)
+
+	src := []byte("---\nimport Core from '@guide/core'\n---\n<Core />")
+	refs := []preproc.TemplateRef{ref("Core", 4)}
+	// Use a real temp root with no tsconfig → alias map is empty.
+	root := t.TempDir()
+	aliasCache.Delete(root) // ensure fresh load
+	usages := ResolveTemplateRefs(src, refs, "src/Home.astro", root)
+
+	after := testutil.ToFloat64(parserUnresolvedAliasTotal)
+	if len(usages) != 0 {
+		t.Errorf("expected 0 usages for scoped npm package, got %d", len(usages))
+	}
+	if after != before {
+		t.Errorf("counter must NOT increment for scoped npm package (@guide/core not in paths), delta=%.0f", after-before)
+	}
+}
+
+// TestResolveTemplateRefs_BrokenAlias_CounterIncrements verifies that when a
+// tsconfig paths alias is declared (e.g. "@/*" → "src/*") but the resolved file
+// does not exist on disk, the unresolved-alias counter increments by 1.
+func TestResolveTemplateRefs_BrokenAlias_CounterIncrements(t *testing.T) {
+	root := t.TempDir()
+	tsconfigJSON := `{"compilerOptions":{"paths":{"@/*":["src/*"]}}}`
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfigJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aliasCache.Delete(root) // force re-read of new tsconfig
+
+	before := testutil.ToFloat64(parserUnresolvedAliasTotal)
+	src := []byte("---\nimport M from '@/components/Missing.astro'\n---\n<M />")
+	refs := []preproc.TemplateRef{ref("M", 4)}
+	usages := ResolveTemplateRefs(src, refs, "src/Home.astro", root)
+	after := testutil.ToFloat64(parserUnresolvedAliasTotal)
+
+	if len(usages) != 0 {
+		t.Errorf("expected 0 usages for broken alias (file absent), got %d", len(usages))
+	}
+	if after-before != 1 {
+		t.Errorf("counter must increment by 1 for broken declared alias, delta=%.0f", after-before)
+	}
+}
+
+// TestResolveTemplateRefs_ValidAlias_NoCounter verifies that when a tsconfig
+// paths alias resolves to a file that EXISTS on disk, no counter is incremented
+// and the usage edge is produced. This is the regression/happy-path guard.
+func TestResolveTemplateRefs_ValidAlias_NoCounter(t *testing.T) {
+	root := t.TempDir()
+	tsconfigJSON := `{"compilerOptions":{"paths":{"@/*":["src/*"]}}}`
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfigJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Create the actual component file so disk-existence check passes.
+	if err := os.MkdirAll(filepath.Join(root, "src/components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src/components/Foo.astro"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aliasCache.Delete(root) // force re-read of new tsconfig
+
+	before := testutil.ToFloat64(parserUnresolvedAliasTotal)
+	src := []byte("---\nimport Foo from '@/components/Foo.astro'\n---\n<Foo />")
+	refs := []preproc.TemplateRef{ref("Foo", 4)}
+	usages := ResolveTemplateRefs(src, refs, "src/Home.astro", root)
+	after := testutil.ToFloat64(parserUnresolvedAliasTotal)
+
+	if len(usages) != 1 {
+		t.Fatalf("expected 1 usage for valid alias, got %d", len(usages))
+	}
+	if usages[0].To != "src/components/Foo.astro" {
+		t.Errorf("expected To=src/components/Foo.astro, got %q", usages[0].To)
+	}
+	if after != before {
+		t.Errorf("counter must NOT increment for valid alias, delta=%.0f", after-before)
 	}
 }
