@@ -83,7 +83,8 @@ func TestLoadTSConfigAliases_WithComments(t *testing.T) {
 }
 
 // TestResolveTemplateRefs_AliasImport verifies that an alias import (~/) resolves
-// to a USES edge when tsconfig.json declares the alias mapping.
+// to a USES edge when tsconfig.json declares the alias mapping and the target file
+// exists on disk.
 func TestResolveTemplateRefs_AliasImport(t *testing.T) {
 	// Write a tsconfig.json into a fresh temp dir so there is no cache pollution.
 	dir := t.TempDir()
@@ -94,6 +95,14 @@ func TestResolveTemplateRefs_AliasImport(t *testing.T) {
 			}
 		}
 	}`)
+	// Create the target file — alias resolution now checks disk existence.
+	if err := os.MkdirAll(filepath.Join(dir, "src", "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "components", "Foo.astro"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aliasCache.Delete(dir)
 
 	src := []byte("---\nimport Foo from '~/components/Foo.astro'\n---\n<Foo />")
 	refs := []preproc.TemplateRef{ref("Foo", 4)}
