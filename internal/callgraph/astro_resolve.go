@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -31,9 +32,11 @@ type AstroUsage struct {
 //  2. Alias imports (~/…, @/…, any non-relative path) — looked up in the repo's
 //     tsconfig.json compilerOptions.paths (and astro.config vite.resolve.alias as
 //     fallback). The alias map is loaded once per root and cached process-wide.
-//  3. Unresolved — alias was found in bindings but matched no alias prefix after
-//     all attempts. The gocode_parser_unresolved_alias_total counter is incremented
-//     and the ref is silently dropped (bare specifiers like 'svelte' fall here).
+//  3. Unresolved — either (a) no alias key matched (bare/scoped npm package such
+//     as 'svelte', '@guide/core', 'astro:transitions') — silently dropped without
+//     incrementing the counter; or (b) an alias prefix matched but the resolved
+//     path does not exist on disk — the gocode_parser_unresolved_alias_total
+//     counter is incremented and the ref is dropped (broken declared alias).
 func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root string) []AstroUsage {
 	if len(refs) == 0 {
 		return nil
@@ -70,12 +73,17 @@ func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root s
 			// Non-relative: attempt alias resolution.
 			resolved, matched := resolveAlias(importPath, aliases)
 			if !matched {
-				// Bare specifier (e.g. 'svelte', 'astro:transitions') or unknown alias.
-				// Bare specifiers are expected to be unresolvable and are not counted.
-				// True aliases (contain "/") that didn't match any map entry are counted.
-				if strings.Contains(importPath, "/") {
-					parserUnresolvedAliasTotal.Inc()
-				}
+				// No alias prefix matched — this is a bare or scoped npm/workspace
+				// package (e.g. 'svelte', '@guide/core', 'astro:transitions').
+				// These are unresolvable by design; do NOT increment the counter.
+				// The counter is for declared aliases that fail, not for npm packages.
+				continue
+			}
+			// Alias prefix matched — but does the resolved file actually exist?
+			// A missing file means a declared tsconfig paths entry is broken; count it
+			// so operators can discover misconfigured aliases in indexed repos.
+			if _, err := os.Stat(filepath.Join(root, resolved)); err != nil {
+				parserUnresolvedAliasTotal.Inc()
 				continue
 			}
 			relTarget = resolved
