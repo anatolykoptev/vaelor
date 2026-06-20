@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-16
 **Author**: post-v1.17.0 follow-up, Task 13
-**Status**: Design only. Implementation deferred.
+**Status**: Implemented — Option A + USES edge + §4.7 in-memory UsesIndex wiring (commits 2a15fda, b5bbd48, 2026-04-17).
 
 ## 1. Problem
 
@@ -195,26 +195,29 @@ comment/script stripping cleanly. Prefer the state machine.
 ### 4.6 Integration with existing systems
 
 - `dep_graph` / `code_graph`: AGE upserts a new `USES` relationship type. Cypher templates stay; new ones can `MATCH ()-[:USES]->()` if desired.
-- `impact_analysis`: **does NOT automatically see USES edges today.** `internal/impact/traverse.go` walks the in-memory `callgraph.CallGraph` (CallEdges only); it does not query AGE or snapshot edges. USES edges land in AGE and snapshots, but `impact_analysis` and `understand --reverse` are blind to them until v2 work wires USES into the in-memory CallGraph OR adds an AGE-based caller lookup that includes USES. See §4.7.
-- `understand`: `callers` aggregator needs to include USES edges (1 line in the aggregator) — or report them under a separate "used-by" bucket, which is arguably more accurate. Same blocker as `impact_analysis` applies.
+- `impact_analysis`: **USES edges are wired** via `internal/impact/uses.go:appendUsesCallers`, called from `impact.go:81` as a file-level fall-through when a symbol lookup finds no in-memory CALLS callers. The `callgraph.CallGraph.UsesIndex` (map from target-file → []using-file) is populated by `buildUsesIndex` at `callgraph/repo.go:123`. This is the "v2 option 1 in-memory wiring" described in §4.7 — it shipped in the same commit batch (2026-04-17).
+- `understand`: USES-based callers are surfaced through the same `UsesIndex` path; Astro component callers appear in `impact_analysis` and `understand` results as file-level USES callers.
 - `dead_code`: now correctly excludes Astro components that are referenced from templates.
 - Snapshots / diff: `USES` added/removed appears in `review_delta` output naturally once added to `semanticEdgeLabels`.
 
-### 4.7 Known Limitation: impact_analysis and understand integration (v2)
+### 4.7 impact_analysis and understand integration — SHIPPED (2026-04-17)
 
-`impact_analysis` and `understand --reverse` (callers) both traverse `callgraph.CallGraph` in memory (`internal/impact/traverse.go:39–75`). This graph is built from parsed CALLS/IMPORTS edges only — it does not read AGE or snapshot USES edges at query time.
+**Implemented as v2 option 1 (in-memory wiring).** `callgraph.CallGraph` now carries a
+`UsesIndex map[string][]string` (target-file → []using-file), populated by
+`buildUsesIndex` at `callgraph/repo.go:123` which calls `ResolveTemplateRefs`
+(`internal/callgraph/astro_resolve.go:31`) against every `.astro` parse result.
 
-Consequence: after v1 lands, `impact_analysis(Breadcrumbs.astro)` will still return zero callers even though AGE contains correct USES edges. The feature is visible in `code_graph` Cypher queries and `dep_graph`, but invisible to the blast-radius tools.
+`internal/impact/uses.go:appendUsesCallers` (called from `impact.go:81`) performs
+the file-level fall-through lookup: when `findTarget` returns nil for an Astro
+component path, `appendUsesCallers` queries `cg.UsesIndex` and appends callers to
+the result. This means `impact_analysis(Breadcrumbs.astro)` correctly returns the
+files that render the component.
 
-v2 options (pick one):
-1. **In-memory wiring**: populate `callgraph.CallGraph` with USES edges during graph construction so that `traverse.go` sees them without any API change.
-2. **AGE-based caller lookup**: add an AGE query path in `understand`/`impact` that falls back to `MATCH ()-[:USES]->(file)` when in-memory callers are empty or incomplete.
-
-Neither is required for v1 correctness; document here to prevent false expectations.
+The "v2 option 2" (AGE-based caller lookup) was not needed and was not implemented.
 
 ## 5. Open questions
 
-1. **USES vs CALLS edge label** — should `understand` merge USES into `callers` count by default (simpler UX) or expose a separate "used-by" bucket (more accurate)? Recommend separate bucket; merge in summary text only.
+1. **USES vs CALLS edge label** — RESOLVED (2026-04-17): shipped as a separate file-level `appendUsesCallers` path in `impact_analysis`, not merged into the CALLS callers count. Callers from template refs surface as a distinct entry via the UsesIndex fall-through (§4.7).
 2. **Edge weight** — `"USES": 1` proposed (lower than `CALLS: 3`). Reasonable for community detection? Empirical tuning needed once we re-cluster a real Astro repo.
 3. **Resolution for re-exports** — `import Breadcrumbs from '../ui'` where `ui/index.ts` re-exports `Breadcrumbs.astro`. Out of scope for v1; mark unresolved, log metric.
 4. **Svelte parity** — same scanner works for `<MyComponent />` in Svelte template body. Land as v2 in same PR or split? Recommend split — Svelte preproc has `<script module>` quirks worth their own pass.
@@ -224,6 +227,6 @@ Neither is required for v1 correctness; document here to prevent false expectati
 
 ## 6. Decision
 
-Adopt **Option A** with new edge label **`USES`**. Implementation deferred
-pending: (a) confirmation on §5.1 (callers bucket), (b) decision on §5.4
-(Svelte split). All other open questions are non-blocking for v1.
+Adopted **Option A** with new edge label **`USES`**. Shipped 2026-04-17 (commits 2a15fda, b5bbd48):
+- (a) §5.1 callers bucket: resolved as separate file-level path in `impact_analysis` (§4.7).
+- (b) §5.4 Svelte split: deferred — Svelte parity not yet implemented (`handler_svelte.go` not wired).
