@@ -1,0 +1,60 @@
+name: release-please
+
+# Auto-release: conventional-commit-driven versioning (industry-standard
+# release-please + GoReleaser combo). release-please maintains a
+# "chore(main): release X.Y.Z" PR; merging it tags the commit + creates the
+# GitHub release (changelog). GoReleaser runs as a second job INSIDE this
+# workflow, gated on releases_created, so the tag pushed by GITHUB_TOKEN
+# triggers no separate workflow (GitHub Actions loop-prevention). Do NOT
+# `git tag` manually — see CLAUDE.md.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release-please.outputs.releases_created }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release-please
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target-branch: main
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  goreleaser:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install C toolchain (tree-sitter grammars, native + cross)
+        run: sudo apt-get update && sudo apt-get install -y gcc gcc-aarch64-linux-gnu
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
