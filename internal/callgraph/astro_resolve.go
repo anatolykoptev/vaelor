@@ -26,8 +26,14 @@ type AstroUsage struct {
 // block, builds a binding→path map, then resolves each TemplateRef by name.
 // The resolved path is made relative to root.
 //
-// Unresolved refs (tag name not in imports, or path alias like ~/...) are
-// silently dropped — they are a known limitation (see docs/memos/2026-04-16).
+// Resolution order:
+//  1. Relative imports (./…, ../…) — resolved directly against the file's directory.
+//  2. Alias imports (~/…, @/…, any non-relative path) — looked up in the repo's
+//     tsconfig.json compilerOptions.paths (and astro.config vite.resolve.alias as
+//     fallback). The alias map is loaded once per root and cached process-wide.
+//  3. Unresolved — alias was found in bindings but matched no alias prefix after
+//     all attempts. The gocode_parser_unresolved_alias_total counter is incremented
+//     and the ref is silently dropped (bare specifiers like 'svelte' fall here).
 func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root string) []AstroUsage {
 	if len(refs) == 0 {
 		return nil
@@ -40,6 +46,9 @@ func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root s
 	// Absolute directory of the file, needed for relative-path resolution.
 	fileDir := filepath.Dir(filepath.Join(root, fileRel))
 
+	// Load alias map once per root (cached).
+	aliases := loadTSConfigAliases(root)
+
 	var out []AstroUsage
 	seen := make(map[string]bool) // deduplicate (from, to) pairs per file
 	for _, ref := range refs {
@@ -47,16 +56,31 @@ func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root s
 		if !ok {
 			continue
 		}
-		// Skip path aliases (~/..., @/..., non-relative paths without extension).
-		if !strings.HasPrefix(importPath, ".") {
-			continue
+
+		var relTarget string
+		if strings.HasPrefix(importPath, ".") {
+			// Relative import: resolve against the file's directory.
+			absTarget := filepath.Clean(filepath.Join(fileDir, importPath))
+			rel, err := filepath.Rel(root, absTarget)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				continue
+			}
+			relTarget = rel
+		} else {
+			// Non-relative: attempt alias resolution.
+			resolved, matched := resolveAlias(importPath, aliases)
+			if !matched {
+				// Bare specifier (e.g. 'svelte', 'astro:transitions') or unknown alias.
+				// Bare specifiers are expected to be unresolvable and are not counted.
+				// True aliases (contain "/") that didn't match any map entry are counted.
+				if strings.Contains(importPath, "/") {
+					parserUnresolvedAliasTotal.Inc()
+				}
+				continue
+			}
+			relTarget = resolved
 		}
-		// Resolve relative to the file's directory.
-		absTarget := filepath.Clean(filepath.Join(fileDir, importPath))
-		relTarget, err := filepath.Rel(root, absTarget)
-		if err != nil || strings.HasPrefix(relTarget, "..") {
-			continue
-		}
+
 		key := fileRel + "|" + relTarget
 		if seen[key] {
 			continue
