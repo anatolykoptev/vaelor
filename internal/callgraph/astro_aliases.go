@@ -2,10 +2,16 @@ package callgraph
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // aliasMap is a simple alias-prefix → directory mapping derived from tsconfig
@@ -14,24 +20,64 @@ import (
 // Values are repo-root-relative directories without a trailing "/" (e.g. "src").
 type aliasMap map[string]string
 
-// aliasCache caches the per-repo alias map so tsconfig is parsed at most once
-// per repo root per process lifetime.
-var aliasCache sync.Map // key: repoRoot string, value: aliasMap
+// tsconfigParseErrorsTotal counts tsconfig.json files that fail JSON
+// unmarshalling after comment-stripping. A non-zero rate means aliases were
+// silently dropped for those repos — operators can use this to discover
+// malformed tsconfig files.
+var tsconfigParseErrorsTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_tsconfig_parse_errors_total",
+		Help: "tsconfig.json files that failed JSON unmarshalling after comment-stripping (aliases silently dropped).",
+	},
+)
+
+// aliasCacheKey combines the repo root and the maximum mtime across all
+// tsconfig files touched during alias resolution. Including mtime in the key
+// invalidates the cached entry whenever tsconfig.json is modified — critical
+// because go-code is a long-lived Docker process.
+type aliasCacheKey struct {
+	root    string
+	maxMtime int64 // UnixNano of the most-recently-modified tsconfig file
+}
+
+// aliasCache caches the per-repo alias map.
+// Key: aliasCacheKey; value: aliasMap.
+var aliasCache sync.Map
 
 // loadTSConfigAliases returns the alias map for a repository root.
 // It reads tsconfig.json (and tsconfig.base.json when referenced via "extends"),
-// then parses compilerOptions.paths and baseUrl. Results are cached.
+// then parses compilerOptions.paths and baseUrl. Results are cached keyed by
+// the maximum tsconfig mtime so edits invalidate the entry without a restart.
 //
 // tsconfig paths take priority over astro.config vite.resolve.alias.
 // When no alias config is found, an empty (non-nil) map is returned so the
 // cache still records "no aliases" and avoids repeated file-stat on cold repos.
 func loadTSConfigAliases(repoRoot string) aliasMap {
-	if v, ok := aliasCache.Load(repoRoot); ok {
+	maxMtime := latestTSConfigMtime(repoRoot)
+	key := aliasCacheKey{root: repoRoot, maxMtime: maxMtime}
+
+	if v, ok := aliasCache.Load(key); ok {
 		return v.(aliasMap)
 	}
 	m := buildAliasMap(repoRoot)
-	aliasCache.Store(repoRoot, m)
+	aliasCache.Store(key, m)
 	return m
+}
+
+// latestTSConfigMtime returns the maximum UnixNano mtime across the top-level
+// tsconfig files we parse. 0 means no tsconfig was found.
+func latestTSConfigMtime(repoRoot string) int64 {
+	var max int64
+	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
+		info, err := os.Stat(filepath.Join(repoRoot, name))
+		if err != nil {
+			continue
+		}
+		if ns := info.ModTime().UnixNano(); ns > max {
+			max = ns
+		}
+	}
+	return max
 }
 
 // buildAliasMap does the actual filesystem reads and JSON parsing.
@@ -39,8 +85,9 @@ func buildAliasMap(repoRoot string) aliasMap {
 	m := make(aliasMap)
 
 	// Try tsconfig.json then tsconfig.base.json (many monorepos split config).
+	visited := make(map[string]bool)
 	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
-		parseTSConfigFile(filepath.Join(repoRoot, name), repoRoot, m)
+		parseTSConfigFile(filepath.Join(repoRoot, name), repoRoot, m, visited)
 	}
 
 	// Try astro.config.mjs / astro.config.ts as a supplemental source (lower
@@ -61,67 +108,135 @@ type tsconfigShape struct {
 	} `json:"compilerOptions"`
 }
 
+// trailingCommaRe matches a trailing comma immediately before a closing
+// bracket or brace (possibly with intervening whitespace).
+// Example: {"a": 1,} or ["x",] → removes the comma.
+var trailingCommaRe = regexp.MustCompile(`,(\s*[}\]])`)
+
 // parseTSConfigFile reads a single tsconfig file and merges alias entries into m.
-// It follows one level of "extends" (base tsconfigs rarely chain further).
-func parseTSConfigFile(path, repoRoot string, m aliasMap) {
-	data, err := os.ReadFile(path)
+// It follows "extends" recursively (with a visited-set to prevent cycles).
+// baseUrl in an extended config is resolved relative to THAT file's directory.
+//
+// visited tracks absolute paths already parsed in the current chain to prevent
+// infinite recursion when tsconfig files mutually extend each other.
+func parseTSConfigFile(path, repoRoot string, m aliasMap, visited map[string]bool) {
+	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return // file absent — not an error
+		return
+	}
+	if visited[absPath] {
+		return // cycle detected — stop recursing
+	}
+	visited[absPath] = true
+
+	ts, ok := readTSConfigShape(absPath)
+	if !ok {
+		return
 	}
 
-	// tsconfig files often contain // comments and trailing commas. Use a
-	// lenient JSON decoder by stripping single-line comments first.
+	// Follow "extends" recursively with cycle guard.
+	followTSConfigExtends(ts.Extends, absPath, repoRoot, m, visited)
+
+	// baseUrl is resolved relative to THIS file's directory, not repoRoot.
+	// A base tsconfig with baseUrl:"." means the directory of the base file.
+	baseURL := resolveTSBaseURL(ts.CompilerOptions.BaseURL, absPath, repoRoot)
+
+	mergeTSPaths(ts.CompilerOptions.Paths, baseURL, m)
+}
+
+// readTSConfigShape reads and parses a tsconfig file, returning the shape and
+// whether parsing succeeded. It strips // comments and trailing commas before
+// unmarshalling.
+//
+// Note: block comments /* */ are not handled — tsconfig files rarely use them,
+// but if needed add block-comment stripping before the json.Unmarshal call.
+func readTSConfigShape(absPath string) (tsconfigShape, bool) {
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return tsconfigShape{}, false // file absent — not an error
+	}
 	data = stripJSONComments(data)
+	data = trailingCommaRe.ReplaceAll(data, []byte("$1"))
 
 	var ts tsconfigShape
 	if err := json.Unmarshal(data, &ts); err != nil {
-		return // malformed — skip
+		tsconfigParseErrorsTotal.Inc()
+		fmt.Printf("go-code: tsconfig parse error at %s: %v\n", absPath, err)
+		return tsconfigShape{}, false
 	}
+	return ts, true
+}
 
-	// Follow "extends" one level deep (e.g. "tsconfig.base.json" or relative path).
-	if ts.Extends != "" {
-		ext := ts.Extends
-		if !strings.HasPrefix(ext, "/") {
-			ext = filepath.Join(filepath.Dir(path), ext)
-		}
-		// Add .json suffix if missing (tsc allows omitting it).
-		if filepath.Ext(ext) == "" {
-			ext += ".json"
-		}
-		parseTSConfigFile(ext, repoRoot, m)
+// followTSConfigExtends resolves and recursively processes a tsconfig "extends"
+// field, using the visited set to prevent cycles.
+func followTSConfigExtends(extends, absPath, repoRoot string, m aliasMap, visited map[string]bool) {
+	if extends == "" {
+		return
 	}
+	ext := extends
+	if !strings.HasPrefix(ext, "/") {
+		ext = filepath.Join(filepath.Dir(absPath), ext)
+	}
+	if filepath.Ext(ext) == "" {
+		ext += ".json" // tsc allows omitting the .json suffix
+	}
+	parseTSConfigFile(ext, repoRoot, m, visited)
+}
 
-	baseURL := strings.TrimRight(ts.CompilerOptions.BaseURL, "/")
+// resolveTSBaseURL converts a raw tsconfig baseUrl string to a repo-root-relative
+// directory. The baseUrl is resolved relative to the directory of the tsconfig
+// file that declared it (absPath), so "." in a base file means that file's dir.
+func resolveTSBaseURL(rawBaseURL, absPath, repoRoot string) string {
+	base := strings.TrimRight(rawBaseURL, "/")
+	if base == "" || filepath.IsAbs(base) {
+		return base
+	}
+	abs := filepath.Join(filepath.Dir(absPath), base)
+	if rel, err := filepath.Rel(repoRoot, abs); err == nil {
+		return rel
+	}
+	return base
+}
 
-	for alias, targets := range ts.CompilerOptions.Paths {
+// mergeTSPaths merges compilerOptions.paths entries from a tsconfig into m.
+// Existing keys in m are not overwritten (first-wins / tsconfig-wins policy).
+func mergeTSPaths(paths map[string][]string, baseURL string, m aliasMap) {
+	for alias, targets := range paths {
 		if len(targets) == 0 {
 			continue
 		}
-		// Normalise alias key: strip trailing /* (e.g. "~/*" → "~/").
-		key := alias
-		if strings.HasSuffix(key, "/*") {
-			key = key[:len(key)-1] // keep trailing "/"
-		} else if !strings.HasSuffix(key, "/") {
-			key += "/"
+		key := normaliseTSAliasKey(alias)
+		if _, exists := m[key]; exists {
+			continue // first-wins; don't overwrite
 		}
-
-		// Resolve target: strip leading baseUrl if present, strip trailing /*.
-		target := targets[0]
-		if strings.HasSuffix(target, "/*") {
-			target = target[:len(target)-2]
-		}
-		// If target is relative (./src) and baseUrl is set, join them.
-		if baseURL != "" && strings.HasPrefix(target, "./") {
-			target = filepath.Join(baseURL, target[2:])
-		}
-		// Make target relative to repoRoot.
-		target = strings.TrimPrefix(target, "./")
-		target = strings.TrimRight(target, "/")
-
-		if _, exists := m[key]; !exists { // tsconfig wins; don't overwrite
-			m[key] = target
-		}
+		m[key] = normaliseTSTarget(targets[0], baseURL)
 	}
+}
+
+// normaliseTSAliasKey converts a tsconfig paths key to the canonical alias
+// prefix used in aliasMap (trailing "/" instead of trailing "/*").
+func normaliseTSAliasKey(alias string) string {
+	if strings.HasSuffix(alias, "/*") {
+		return alias[:len(alias)-1] // "~/*" → "~/"
+	}
+	if !strings.HasSuffix(alias, "/") {
+		return alias + "/"
+	}
+	return alias
+}
+
+// normaliseTSTarget strips the wildcard suffix from a tsconfig paths target and
+// resolves it relative to baseURL when set. TypeScript resolves relative targets
+// against the tsconfig's baseUrl, so "src/*" with baseUrl "config/" yields
+// "config/src" relative to the repo root.
+func normaliseTSTarget(target, baseURL string) string {
+	if strings.HasSuffix(target, "/*") {
+		target = target[:len(target)-2]
+	}
+	if baseURL != "" && !filepath.IsAbs(target) {
+		return filepath.Join(baseURL, strings.TrimPrefix(target, "./"))
+	}
+	return strings.TrimRight(strings.TrimPrefix(target, "./"), "/")
 }
 
 // parseAstroConfigAliases is a best-effort heuristic that scans astro.config.mjs
@@ -232,18 +347,42 @@ func stripJSONComments(data []byte) []byte {
 	return []byte(strings.Join(out, "\n"))
 }
 
-// resolveAlias attempts to resolve importPath using the provided alias map.
+// resolveAlias attempts to resolve importPath using the provided alias map
+// using longest-prefix-wins semantics. When multiple prefixes match (e.g.
+// "@/" and "@ui/" both match "@ui/Button"), the longest prefix wins, making
+// resolution deterministic regardless of Go's map-iteration order.
+//
 // importPath must be a non-relative path (i.e. not starting with ".").
 // Returns the repo-root-relative resolved path and true on success, or
 // ("", false) when no alias prefix matches.
+//
+// OWASP path-traversal guard: if the resolved path escapes the repo root
+// (starts with ".."), the resolution is rejected.
 func resolveAlias(importPath string, aliases aliasMap) (string, bool) {
+	// Collect all matching prefixes sorted by descending length so the longest wins.
+	type candidate struct {
+		prefix string
+		dir    string
+	}
+	var matches []candidate
 	for prefix, dir := range aliases {
 		if strings.HasPrefix(importPath, prefix) {
-			rest := importPath[len(prefix):]
-			// dir is already repo-root-relative (e.g. "src").
-			resolved := filepath.Join(dir, rest)
-			return filepath.Clean(resolved), true
+			matches = append(matches, candidate{prefix: prefix, dir: dir})
 		}
 	}
-	return "", false
+	if len(matches) == 0 {
+		return "", false
+	}
+	// Longest prefix wins — deterministic even with overlapping prefixes.
+	sort.Slice(matches, func(i, j int) bool {
+		return len(matches[i].prefix) > len(matches[j].prefix)
+	})
+	best := matches[0]
+	rest := importPath[len(best.prefix):]
+	resolved := filepath.Clean(filepath.Join(best.dir, rest))
+	// OWASP path-traversal guard — mirrors the relative-import guard above.
+	if strings.HasPrefix(resolved, "..") {
+		return "", false
+	}
+	return resolved, true
 }

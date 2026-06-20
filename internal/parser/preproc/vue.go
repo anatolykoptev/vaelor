@@ -18,12 +18,14 @@ package preproc
 //   - Script content inside HTML comments
 //   - Escaped &lt;script&gt; inside string literals
 //
-// The <script setup> block (if present) is appended first, followed by the
-// plain <script> block. This mirrors Vue's compilation order and ensures
-// setup-block symbols take precedence in the virtual buffer.
+// Both blocks are appended in document (source) order: <script setup> first
+// because appendScriptBlocks starts scanning from offset 0, so the earlier
+// block in the file appears first in the virtual buffer. In practice Vue SFCs
+// place <script setup> before <script>, which matches this behaviour.
 func ExtractVue(src []byte) *VirtualSource {
 	b := NewBuilder("vue")
-	// Append <script setup> first (composition API entry point).
+	// Noted: <script setup> macros defineProps/defineEmits/withDefaults produce
+	// spurious callee symbols via TS grammar call-expr; defer to G3 cleanup.
 	appendScriptBlocks(b, src, 0, true)
 	return b.Build()
 }

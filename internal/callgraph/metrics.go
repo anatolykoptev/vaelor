@@ -156,7 +156,7 @@ func recordCallee(file, kind string) {
 // languageFromExt maps a file path to a coarse language label for metrics.
 // Unknown extensions report "other" — callers should not introduce a new
 // label without bounding cardinality.
-func languageFromExt(file string) string {
+func languageFromExt(file string) string { //nolint:cyclop // dispatch switch — complexity is inherent
 	ext := strings.ToLower(filepath.Ext(file))
 	switch ext {
 	case ".go":
@@ -185,6 +185,8 @@ func languageFromExt(file string) string {
 		return "svelte"
 	case ".astro":
 		return "astro"
+	case ".vue":
+		return "vue"
 	default:
 		return "other"
 	}
