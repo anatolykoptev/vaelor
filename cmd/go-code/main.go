@@ -244,6 +244,15 @@ func main() {
 		Routes:                 combinedRoutes,
 		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
 		ToolTimeouts:           runtimeTimeouts,
+		// Return tool results as a single application/json body instead of the go-sdk
+		// default text/event-stream framing. The SSE path puts the entire JSON result
+		// on ONE `data:` line; large results exceed the SSE single-line buffer on the
+		// WAN MCP client and the connection is severed after the 54-byte event prefix
+		// (POST /mcp status=200 bytes=54 in the access log) -> "transport dropped;
+		// response lost". go-code tools are unary request/response (no mid-call progress
+		// notifications), so SSE buys nothing. Clients send Accept: application/json,
+		// text/event-stream, so the json response type is negotiated.
+		JSONResponse: true,
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
