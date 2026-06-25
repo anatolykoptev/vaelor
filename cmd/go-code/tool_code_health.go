@@ -23,6 +23,44 @@ import (
 // buildingHealth prevents concurrent code_health builds for the same repo.
 var buildingHealth sync.Map
 
+// healthBuildTimeout bounds a single background code_health computation. Large
+// repos take 1-2 minutes; 5 minutes leaves headroom without leaking goroutines.
+const healthBuildTimeout = 5 * time.Minute
+
+// spawnHealthBuild runs compute on a background goroutine that is the SOLE owner
+// of the resolved clone for the lifetime of the build. cleanup (which deletes a
+// temporary clone) runs via defer INSIDE the goroutine, so it fires on every
+// exit path — success, compute error, or ctx-cancel — but only AFTER compute
+// has finished reading the tree. This is the invariant that fixes the
+// use-after-delete race: the handler must transfer clone ownership here instead
+// of deleting the clone when it returns its synchronous "computing" response.
+//
+// repoKey is cleared from buildingHealth on exit so a later retry can rebuild.
+// Callers must NOT also run cleanup for this code path.
+func spawnHealthBuild(repoKey string, cleanup func(), compute func(ctx context.Context) error) {
+	go func() {
+		// Deferred LIFO: healthBuildDone fires LAST (after cleanup), so a test
+		// observing it is guaranteed the clone cleanup has already run.
+		defer healthBuildDone(repoKey) // test hook; no-op in production.
+		defer cleanup()                // delete the clone only after compute is done reading it.
+		defer buildingHealth.Delete(repoKey)
+		ctx, cancel := context.WithTimeout(context.Background(), healthBuildTimeout)
+		defer cancel()
+		if err := compute(ctx); err != nil {
+			slog.Warn("code_health: background computation failed",
+				slog.String("repo", repoKey), slog.Any("error", err))
+		} else {
+			slog.Info("code_health: background computation complete", slog.String("repo", repoKey))
+		}
+	}()
+}
+
+// healthBuildDone is a test seam fired at the very end of a background build,
+// after the deferred cleanup has already run (LIFO ordering above). It defaults
+// to a no-op in production; tests swap it to observe completion deterministically
+// without sleeping.
+var healthBuildDone = func(string) {}
+
 // CodeHealthInput is the input schema for the code_health tool.
 type CodeHealthInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /home/user/src/project)"`
@@ -53,7 +91,18 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 		if err != nil {
 			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 		}
-		defer cleanup()
+		// cleanupTransferred guards against the use-after-delete race: when the
+		// background path takes ownership of the clone, the goroutine runs
+		// cleanup AFTER it finishes reading. Every other path (cache-hit,
+		// inline, error) runs cleanup synchronously here. The deferred call is a
+		// no-op once ownership has transferred — the flag is read on the
+		// handler goroutine after the spawn, so no atomic is needed.
+		cleanupTransferred := false
+		defer func() {
+			if !cleanupTransferred {
+				cleanup()
+			}
+		}()
 
 		// Cache-first: large repos take 30-90s and exceed the 60s MCP timeout.
 		// Skip cache for sarif format (different output structure) and special focus modes.
@@ -63,22 +112,19 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 			if cached := graphStore.LoadHealthCache(ctx, repoKey); cached != nil {
 				return largeTextResult(cached.ResultXML, "code_health", outputDir), nil
 			}
-			// Not cached: start background computation.
+			// Not cached: start background computation. The goroutine becomes the
+			// SOLE owner of the clone for the lifetime of the build — it runs
+			// cleanup on every exit (success, error, or ctx-cancel) only after
+			// computeCodeHealth has finished reading the tree. The handler must
+			// NOT delete the clone here: returning the synchronous "computing"
+			// response would otherwise fire the deferred cleanup while the
+			// goroutine is still walking the files (the original race).
 			if _, alreadyBuilding := buildingHealth.LoadOrStore(repoKey, true); !alreadyBuilding {
-				bgInput := input
-				bgRoot := root
-				bgKey := repoKey
-				go func() {
-					defer buildingHealth.Delete(bgKey)
-					bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-					defer bgCancel()
-					if _, err := computeCodeHealth(bgCtx, bgInput, bgRoot, deps, semDeps, graphStore, outputDir); err != nil {
-						slog.Warn("code_health: background computation failed",
-							slog.String("repo", bgRoot), slog.Any("error", err))
-					} else {
-						slog.Info("code_health: background computation complete", slog.String("repo", bgRoot))
-					}
-				}()
+				spawnHealthBuild(repoKey, cleanup, func(bgCtx context.Context) error {
+					_, computeErr := computeCodeHealth(bgCtx, input, root, deps, semDeps, graphStore, outputDir)
+					return computeErr
+				})
+				cleanupTransferred = true // ownership moved to the spawned goroutine.
 			}
 			return textResult(fmt.Sprintf(
 				`<response tool="code_health"><status>computing</status>`+
@@ -86,7 +132,8 @@ func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDe
 					`<repo>%s</repo></response>`, input.Repo)), nil
 		}
 
-		// No graphStore, sarif format, or focus mode: run inline.
+		// No graphStore, sarif format, or focus mode: run inline. cleanup fires
+		// via the deferred guard above after the synchronous read completes.
 		return computeCodeHealth(ctx, input, root, deps, semDeps, graphStore, outputDir)
 	})
 }
@@ -108,6 +155,10 @@ func computeCodeHealth(
 	if err != nil {
 		return errResult(fmt.Sprintf("snapshot: %s", err)), nil
 	}
+
+	// Surface any silent truncation (drop counters + warning) before deriving
+	// metrics. The Partial flag rides through to the XML below.
+	reportSnapshotPartial(root, sr.snap)
 
 	if sr.isMagicMode {
 		entries := compare.CollectMagicNumbers(sr.snap)
@@ -197,7 +248,7 @@ func computeCodeHealth(
 	recs := compare.ComputeRecommendations(metrics, outliers, 5)
 	oxChecks := explore.RunOxCodesHealthChecks(ctx, deps.OxCodes, root, input.Language)
 
-	resp := buildHealthXML(sr.snap.Name, sr.snap.Language, metrics, metrics.Score, hotspots, relStats, recs, fr.fr, fr.vr, oxChecks, archMetrics)
+	resp := buildHealthXML(sr.snap.Name, sr.snap.Language, metrics, metrics.Score, hotspots, relStats, recs, fr.fr, fr.vr, oxChecks, archMetrics, sr.snap.Partial)
 
 	// Marshal to raw XML string for caching (before largeTextResult file fallback).
 	data, marshalErr := xml.MarshalIndent(resp, "", "  ")
@@ -216,6 +267,26 @@ func computeCodeHealth(
 	}
 
 	return largeTextResult(rawXML, "code_health", outputDir), nil
+}
+
+// reportSnapshotPartial emits the drop counters for snap and logs a warning when
+// the snapshot is partial (some enumerated files were not folded in). Splitting
+// this out of computeCodeHealth keeps that function within the statement budget
+// and isolates the observability concern.
+func reportSnapshotPartial(root string, snap *compare.RepoSnapshot) {
+	if snap == nil {
+		return
+	}
+	recordSnapshotDrops(snap.DroppedReadError, snap.DroppedCtxCancel, snap.FileCount, len(snap.Files))
+	if !snap.Partial {
+		return
+	}
+	slog.Warn("code_health: snapshot is partial — metrics under-count the repo",
+		slog.String("repo", root),
+		slog.Int("enumerated", snap.FileCount),
+		slog.Int("kept", len(snap.Files)),
+		slog.Int("dropped_read_error", snap.DroppedReadError),
+		slog.Int("dropped_ctx_cancel", snap.DroppedCtxCancel))
 }
 
 // extractScoreGrade parses score and grade from a code_health XML response string.
@@ -244,10 +315,12 @@ func buildHealthXML(
 	vr *freshness.VulnResult,
 	oxChecks *explore.OxCodesHealthChecks,
 	archMetrics *compare.ArchMetrics,
+	partial bool,
 ) xmlHealthResponse {
 	resp := xmlHealthResponse{
 		Health: xmlHealth{
 			Repo:     name,
+			Partial:  partial,
 			Language: language,
 			Metrics:  convertMetrics(metrics),
 			Score:    score,
