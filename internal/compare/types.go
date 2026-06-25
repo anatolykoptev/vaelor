@@ -110,6 +110,24 @@ type RepoSnapshot struct {
 
 	// Rels holds type relationships extracted from the repository.
 	Rels []parser.TypeRelationship `json:"rels,omitempty"`
+
+	// Partial is true when one or more ingested files could not be read during
+	// snapshotting (e.g. the source tree was deleted out from under the walk, or
+	// a per-file context cancellation cut the parse short). When set, the derived
+	// metrics (Files, TotalLines, TestRatio, Symbols) under-count the real repo
+	// and MUST NOT be presented as a complete result. See DroppedReadError /
+	// DroppedCtxCancel for the per-reason breakdown.
+	Partial bool `json:"partial,omitempty"`
+
+	// DroppedReadError counts files that were enumerated by ingest but failed
+	// os.ReadFile at parse time (vanished file / permission flip / truncated
+	// tree). This is the dominant signal of a use-after-delete race on a shared
+	// clone dir.
+	DroppedReadError int `json:"droppedReadError,omitempty"`
+
+	// DroppedCtxCancel counts files skipped because the snapshot context was
+	// cancelled before the parse worker reached them (timeout / caller abort).
+	DroppedCtxCancel int `json:"droppedCtxCancel,omitempty"`
 }
 
 // RepoMetrics holds aggregate quality and complexity metrics for a repo.

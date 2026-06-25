@@ -19,7 +19,13 @@ type xmlHealthResponse struct {
 }
 
 type xmlHealth struct {
-	Repo            string              `xml:"repo,attr"`
+	Repo string `xml:"repo,attr"`
+	// Partial is set true when the snapshot underlying this report dropped one
+	// or more files (clone vanished mid-walk, or a per-file ctx-cancel). When
+	// true the metrics under-count the repo and MUST NOT be read as complete —
+	// in particular a low TestRatio may be an artifact of the drop, not a real
+	// gap. Omitted (absent) for complete reports.
+	Partial         bool                `xml:"partial,attr,omitempty"`
 	Language        string              `xml:"language,attr,omitempty"`
 	Metrics         xmlCompMetrics      `xml:"metrics"`
 	Score           float64             `xml:"score,attr"`
