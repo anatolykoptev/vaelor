@@ -160,10 +160,11 @@ func gatherHealthHotspots(ctx context.Context, root, repoName string, snap *comp
 }
 
 // gatherHealthArchMetrics queries the architecture graph store.
-// Returns nil when graphStore is nil.
+// When graphStore is nil or the repo is not indexed, falls back to
+// compare.FallbackArchMetrics (in-memory call graph, 10s timeout).
 func gatherHealthArchMetrics(ctx context.Context, graphStore *codegraph.Store, root string) *compare.ArchMetrics {
 	if graphStore == nil {
-		return nil
+		return compare.FallbackArchMetrics(ctx, root)
 	}
 	gctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

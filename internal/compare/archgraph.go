@@ -40,6 +40,8 @@ const godPackageThreshold = 5 // packages with 5+ importers are considered "god 
 
 // CollectArchMetrics queries the Apache AGE code graph for architectural metrics.
 // Each sub-query is non-fatal: failures are logged and skipped.
+// When the graph is absent (NotIndexed), it falls back to FallbackArchMetrics
+// to derive PackageCount and CrossPkgCallRatio from an in-memory call graph.
 func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string) *ArchMetrics {
 	if store == nil {
 		return nil
@@ -54,7 +56,14 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 	// race fallbacks (graph dropped between preflight and query).
 	if err := store.EnsureGraphExistsForRead(ctx, graph); err != nil {
 		if errors.Is(err, codegraph.ErrGraphNotIndexed) {
-			slog.Debug("archgraph: graph absent (preflight)", "graph", graph)
+			slog.Debug("archgraph: graph absent (preflight) — using in-memory fallback", "graph", graph)
+			if fb := FallbackArchMetrics(ctx, root); fb != nil {
+				fb.NotIndexed = true
+				fb.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
+					"Call the `code_graph` tool with the same repo path first to populate the graph, " +
+					"then re-run code_compare."
+				return fb
+			}
 			m.NotIndexed = true
 			m.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
 				"Call the `code_graph` tool with the same repo path first to populate the graph, " +
@@ -68,7 +77,15 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 	// Package count doubles as an indexed-graph probe (fastest query).
 	m.PackageCount = queryPackageCount(ctx, store, graph)
 	if m.PackageCount == 0 {
-		// Graph is empty — set the hint and skip expensive queries.
+		// Graph is empty — fall back to in-memory call graph for basic metrics.
+		slog.Debug("archgraph: graph empty — using in-memory fallback", "graph", graph)
+		if fb := FallbackArchMetrics(ctx, root); fb != nil {
+			fb.NotIndexed = true
+			fb.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
+				"Call the `code_graph` tool with the same repo path first to populate the graph, " +
+				"then re-run code_compare."
+			return fb
+		}
 		m.NotIndexed = true
 		m.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
 			"Call the `code_graph` tool with the same repo path first to populate the graph, " +
