@@ -34,6 +34,12 @@ type snapshotParseResult struct {
 	file   *ingest.File
 	result *parser.ParseResult
 	lines  int
+	// readErr is true when the file was enumerated by ingest but os.ReadFile
+	// failed at parse time (vanished file / truncated tree / permission flip).
+	// Distinguishes a real read failure from a parse failure (parse failures
+	// still yield a valid file entry with a line count) and from a ctx-cancel
+	// skip (which leaves the zero-value result with a nil file).
+	readErr bool
 }
 
 // BuildSnapshot ingests and parses a repository, returning a RepoSnapshot
@@ -116,7 +122,7 @@ func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotPar
 func parseSnapshotFile(file *ingest.File) snapshotParseResult {
 	source, err := os.ReadFile(file.Path)
 	if err != nil {
-		return snapshotParseResult{file: file}
+		return snapshotParseResult{file: file, readErr: true}
 	}
 
 	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
@@ -134,14 +140,27 @@ func parseSnapshotFile(file *ingest.File) snapshotParseResult {
 // buildSnapshotResult assembles a RepoSnapshot from parse results.
 func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshotParseResult) *RepoSnapshot {
 	var (
-		allSymbols  []*parser.Symbol
-		importsSeen = make(map[string]struct{})
-		files       = make([]SnapshotFile, 0, len(parsed))
-		totalLines  int
+		allSymbols       []*parser.Symbol
+		importsSeen      = make(map[string]struct{})
+		files            = make([]SnapshotFile, 0, len(parsed))
+		totalLines       int
+		droppedReadError int
+		droppedCtxCancel int
 	)
 
 	for _, pr := range parsed {
+		// A nil file is a parse worker that returned early on ctx.Err() before
+		// reaching this slot — the file was enumerated but never parsed.
 		if pr.file == nil {
+			droppedCtxCancel++
+			continue
+		}
+		// A read error means the file vanished or became unreadable between
+		// ingest enumeration and the parse read (the use-after-delete signal).
+		// Drop it rather than emit a hollow 0-line entry that silently zeroes
+		// test-file detection and undercounts lines.
+		if pr.readErr {
+			droppedReadError++
 			continue
 		}
 
@@ -188,15 +207,18 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 	}
 
 	return &RepoSnapshot{
-		Name:       filepath.Base(root),
-		Root:       root,
-		Language:   snapshotDominantLanguage(ir.Files),
-		Symbols:    allSymbols,
-		Imports:    uniqueImports,
-		Files:      files,
-		FileCount:  len(ir.Files),
-		TotalLines: totalLines,
-		Rels:       allRels,
+		Name:             filepath.Base(root),
+		Root:             root,
+		Language:         snapshotDominantLanguage(ir.Files),
+		Symbols:          allSymbols,
+		Imports:          uniqueImports,
+		Files:            files,
+		FileCount:        len(ir.Files),
+		TotalLines:       totalLines,
+		Rels:             allRels,
+		Partial:          droppedReadError+droppedCtxCancel > 0,
+		DroppedReadError: droppedReadError,
+		DroppedCtxCancel: droppedCtxCancel,
 	}
 }
 
