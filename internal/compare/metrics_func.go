@@ -78,12 +78,30 @@ func funcLines(sym *parser.Symbol) int {
 	return 1
 }
 
+// isExportedForDoc reports whether a symbol is considered exported for doc-coverage
+// purposes, using language-appropriate rules. For JS/TS, any non-underscore name
+// is exported (no uppercase convention). For Go and similar, uppercase first rune.
+func isExportedForDoc(sym *parser.Symbol) bool {
+	if sym.IsPublic {
+		return true
+	}
+	switch sym.Language {
+	case "javascript", "typescript":
+		if sym.Name == "" {
+			return false
+		}
+		return sym.Name[0] != '_'
+	default:
+		return isExported(sym.Name)
+	}
+}
+
 // computeDocRatio returns the fraction of exported symbols that have a doc comment.
 func computeDocRatio(symbols []*parser.Symbol) float64 {
 	exportedTotal := 0
 	exportedWithDoc := 0
 	for _, sym := range symbols {
-		if !isExported(sym.Name) {
+		if !isExportedForDoc(sym) {
 			continue
 		}
 		exportedTotal++
