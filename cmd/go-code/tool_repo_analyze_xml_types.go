@@ -67,13 +67,14 @@ type xmlFile struct {
 }
 
 type xmlFileSym struct {
-	Kind       string    `xml:"kind,attr"`
-	Name       string    `xml:"name,attr"`
-	Line       uint32    `xml:"line,attr"`
-	End        uint32    `xml:"end,attr,omitempty"`
-	Complexity int       `xml:"complexity,attr,omitempty"`
-	Doc        string    `xml:"doc,attr,omitempty"`
-	Signature  *xmlCDATA `xml:"signature,omitempty"`
+	Kind                string    `xml:"kind,attr"`
+	Name                string    `xml:"name,attr"`
+	Line                uint32    `xml:"line,attr"`
+	End                 uint32    `xml:"end,attr,omitempty"`
+	Complexity          int       `xml:"complexity,attr,omitempty"`
+	CognitiveComplexity int       `xml:"cognitive,attr,omitempty"`
+	Doc                 string    `xml:"doc,attr,omitempty"`
+	Signature           *xmlCDATA `xml:"signature,omitempty"`
 }
 
 type xmlSymbol struct {
