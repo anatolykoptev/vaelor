@@ -1,7 +1,6 @@
 package ingest
 
 import (
-	"os"
 	"sync"
 )
 
@@ -42,20 +41,26 @@ func AcquireCloneRef(dir string) {
 }
 
 // ReleaseCloneRef drops one reader reference for dir and removes the directory
-// from disk only when the reference count reaches zero — i.e. no other reader
-// is still using it. It returns the result of the os.RemoveAll when it actually
-// removes the dir, or nil when other holders remain (or dir is empty / never
-// acquired). This is the refcounted replacement for a bare CleanupCloneDir on
-// shared workspace clones.
+// from disk (via CleanupCloneDir) only when the reference count reaches zero —
+// i.e. no other reader is still using it. It returns the CleanupCloneDir error
+// when it actually removes the dir, and nil otherwise: when other holders remain,
+// when dir is empty, or when dir was never acquired / already released (an
+// unbalanced release is a safe no-op, never a delete of an unheld dir). This is
+// the refcounted replacement for a bare CleanupCloneDir on shared workspace
+// clones.
 func ReleaseCloneRef(dir string) error {
 	if dir == "" {
 		return nil
 	}
 	cloneRefs.mu.Lock()
-	n := cloneRefs.counts[dir]
-	switch {
-	case n <= 1:
-		// Last (or only) holder — remove the bookkeeping entry and delete.
+	switch n := cloneRefs.counts[dir]; n {
+	case 0:
+		// Release without a matching Acquire (or a double release). Do NOT
+		// delete a dir nobody holds — that would be an unbalanced-call footgun.
+		cloneRefs.mu.Unlock()
+		return nil
+	case 1:
+		// Last holder — remove the bookkeeping entry and delete below.
 		delete(cloneRefs.counts, dir)
 	default:
 		cloneRefs.counts[dir] = n - 1
@@ -63,7 +68,9 @@ func ReleaseCloneRef(dir string) error {
 		return nil
 	}
 	cloneRefs.mu.Unlock()
-	return os.RemoveAll(dir)
+	// Single delete implementation: route through CleanupCloneDir so there is
+	// exactly one place that removes a clone dir from disk.
+	return CleanupCloneDir(dir)
 }
 
 // cloneRefCount returns the current reader count for dir. Test-only helper.

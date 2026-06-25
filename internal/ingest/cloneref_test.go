@@ -78,6 +78,34 @@ func TestCloneRef_SingleHolderDeletes(t *testing.T) {
 	}
 }
 
+// TestCloneRef_UnbalancedReleaseIsNoop proves a release without a matching
+// acquire (or a double release) does NOT delete the directory — an unbalanced
+// call must be a safe no-op, never a delete of a dir nobody holds.
+func TestCloneRef_UnbalancedReleaseIsNoop(t *testing.T) {
+	dir := makeCloneDir(t)
+
+	// Never acquired: release must leave the dir intact.
+	if err := ReleaseCloneRef(dir); err != nil {
+		t.Fatalf("unbalanced release returned error: %v", err)
+	}
+	if !exists(dir) {
+		t.Fatal("unbalanced release deleted a dir nobody holds")
+	}
+
+	// Balanced acquire+release deletes; a SECOND (now-unbalanced) release must
+	// not error and must not try to delete again.
+	AcquireCloneRef(dir)
+	if err := ReleaseCloneRef(dir); err != nil {
+		t.Fatalf("balanced release: %v", err)
+	}
+	if exists(dir) {
+		t.Fatal("balanced release did not delete")
+	}
+	if err := ReleaseCloneRef(dir); err != nil {
+		t.Fatalf("double release returned error: %v", err)
+	}
+}
+
 // TestCloneRef_ConcurrentAcquireRelease stresses the refcount under parallel
 // acquire/release pairs against one shared dir; the dir must survive while any
 // holder is live and be gone once all release. Run with -race.
