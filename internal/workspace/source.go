@@ -95,8 +95,13 @@ func (s RemoteSource) Root(ctx context.Context) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("clone: %w", err)
 	}
 	dir := result.LocalPath
+	// Register this reader against the shared, slug-deterministic clone dir so
+	// the dir is removed only when the LAST holder releases it — a concurrent
+	// background reader (code_health) and a synchronous sibling tool can share
+	// the same dir without one deleting it mid-walk.
+	ingest.AcquireCloneRef(dir)
 	cleanup := func() {
-		if cerr := ingest.CleanupCloneDir(dir); cerr != nil {
+		if cerr := ingest.ReleaseCloneRef(dir); cerr != nil {
 			slog.Warn("failed to cleanup clone dir", slog.String("dir", dir), slog.Any("error", cerr))
 		}
 	}
@@ -126,8 +131,9 @@ func (s WPSource) Root(ctx context.Context) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("fetch wp plugin: %w", err)
 	}
 	dir := result.LocalPath
+	ingest.AcquireCloneRef(dir)
 	cleanup := func() {
-		if cerr := ingest.CleanupCloneDir(dir); cerr != nil {
+		if cerr := ingest.ReleaseCloneRef(dir); cerr != nil {
 			slog.Warn("failed to cleanup wp plugin dir", slog.String("dir", dir), slog.Any("error", cerr))
 		}
 	}
