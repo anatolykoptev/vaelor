@@ -418,7 +418,7 @@ func (p *Pipeline) indexRepoWithTool(
 	// We pass an explicit slice so DeleteExplicitOrphans uses a positive IN-list
 	// (not a per-chunk NOT-IN anti-join) -- fixing the >500-key data-loss bug
 	// introduced in PR #209 (caa34d5, 2026-06-02).
-	orphanKeys := make([]string, 0)
+	var orphanKeys []string
 	for key := range existing {
 		if !seen[key] {
 			orphanKeys = append(orphanKeys, key)
@@ -434,7 +434,14 @@ func (p *Pipeline) indexRepoWithTool(
 		// matched existing rows (nothing new to embed), but symbols deleted from
 		// source since the last index are still in the DB and must be cleaned up.
 		deleteIntraKeyOrphans(ctx, p.store, repoKey, seen, existing, orphanKeys)
-		return p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
+		noEmbedResult, noEmbedErr := p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
+		if noEmbedErr == nil {
+			// Refresh the coverage gauge after reconciliation settles.
+			if coverageCount, countErr := p.store.CountEmbeddings(ctx, repoKey); countErr == nil {
+				SetEmbeddingsCoverageRows(repoKey, coverageCount)
+			}
+		}
+		return noEmbedResult, noEmbedErr
 	}
 
 	if err := p.embedChunks(ctx, repoKey, tool, toEmbed, result, prog); err != nil {
@@ -446,6 +453,11 @@ func (p *Pipeline) indexRepoWithTool(
 	// matched-existing) are never deleted before their re-insert path completes.
 	// On embedChunks failure we skip deletion to avoid corrupting a partial index.
 	deleteIntraKeyOrphans(ctx, p.store, repoKey, seen, existing, orphanKeys)
+
+	// Set the coverage gauge to the post-reconciliation row count.
+	// result.Indexed (newly embedded) + result.Skipped (hash-matched existing) =
+	// all symbols now present in the DB for this repo after orphan deletion.
+	SetEmbeddingsCoverageRows(repoKey, result.Indexed+result.Skipped)
 
 	if currentSHA != "" {
 		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
@@ -527,6 +539,7 @@ func deleteIntraKeyOrphans(
 		slog.Warn("indexRepo: intra-key orphan delete failed",
 			slog.String("repo", repoKey),
 			slog.Any("error", orphanErr))
+		orphanDeleteSkippedTotal.WithLabelValues("error").Inc()
 		return
 	}
 	if orphansDeleted > 0 {

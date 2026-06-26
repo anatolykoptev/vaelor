@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -337,7 +338,7 @@ func TestDeleteExplicitOrphans_TrueOrphansAcross500Boundary(t *testing.T) {
 		"590 rows must survive; fewer means non-orphan rows were wrongly deleted")
 }
 
-// TestDeleteIntraKeyOrphans_ShrinkGuard verifies that when seen < 70% of existing,
+// TestDeleteExplicitOrphans_ShrinkGuardViaPipeline verifies that when seen < 70% of existing,
 // deleteIntraKeyOrphans is skipped and the shrink-guard counter increments.
 // This is a direct-store-level test of the guard in DeleteExplicitOrphans caller
 // (pipeline.go deleteIntraKeyOrphans helper) via a full IndexRepo run.
@@ -348,7 +349,7 @@ func TestDeleteExplicitOrphans_TrueOrphansAcross500Boundary(t *testing.T) {
 // RED on origin/main: no shrink-guard; the NOT-IN anti-join would delete ~500 rows
 // -> rows count < 600 -> assert.Len fails.
 // GREEN after fix: guard fires, 0 rows deleted, all 600 survive.
-func TestDeleteIntraKeyOrphans_ShrinkGuardViaPipeline(t *testing.T) {
+func TestDeleteExplicitOrphans_ShrinkGuardViaPipeline(t *testing.T) {
 	p, store := testPipeline(t)
 	ctx := context.Background()
 	const repo = "test/shrink-guard-pipeline"
@@ -392,4 +393,36 @@ func TestDeleteIntraKeyOrphans_ShrinkGuardViaPipeline(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, legacyRows, total,
 		"all 600 legacy rows must survive when shrink-guard fires (partial-parse protection)")
+}
+
+// -- Coverage gauge wiring tests --
+
+// TestIndexRepo_CoverageGaugeSetAfterFullIndex is the falsifiable guard for the
+// gocode_index_embeddings_coverage_rows gauge wiring: run IndexRepo on a
+// source with 2 known symbols and assert the gauge is set to that count.
+//
+// Falsifiable: removing the SetEmbeddingsCoverageRows call from indexRepoWithTool
+// leaves the gauge at 0 -> assert.InDelta fails.
+func TestIndexRepo_CoverageGaugeSetAfterFullIndex(t *testing.T) {
+	p, _ := testPipeline(t)
+	ctx := context.Background()
+	const repo = "test/coverage-gauge-embed-path"
+
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "main.go", []string{"FuncAlpha", "FuncBeta"})
+
+	_, err := p.IndexRepo(ctx, repo, dir)
+	require.NoError(t, err)
+
+	// Read the gauge for this repo via the GaugeVec.
+	g := embeddingsCoverageRows.WithLabelValues(repo)
+	var m dto.Metric
+	require.NoError(t, g.Write(&m))
+	require.NotNil(t, m.Gauge, "gauge must have been written")
+	got := m.Gauge.GetValue()
+
+	// Expect exactly 2 rows (FuncAlpha + FuncBeta).
+	assert.InDelta(t, 2.0, got, 0.0,
+		"gocode_index_embeddings_coverage_rows must equal 2 after indexing 2 symbols; "+
+			"removing SetEmbeddingsCoverageRows call makes this fail")
 }
