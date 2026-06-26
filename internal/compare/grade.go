@@ -87,8 +87,17 @@ func GradeScore(m RepoMetrics) float64 {
 	duplicationScore := clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier)
 	magicScore := clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier)
 	semanticDupScore := clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier)
-	freshnessScore := clamp01(m.DepFreshnessRatio / targetDepFreshness)
-	vulnScore := clamp01(m.VulnSecurityRatio / targetVulnSecurity)
+	// When a freshness scan ran (DepsScanned==true) and found zero deps (TotalDeps==0),
+	// the freshness and vulnerability dimensions are N/A — treat them as neutral (1.0)
+	// so zero-dependency repos are not penalised. When DepsScanned==false (e.g. the
+	// lightweight explore path), fall back to the legacy penalty so explore scores
+	// are unchanged.
+	freshnessScore := 1.0
+	vulnScore := 1.0
+	if !m.DepsScanned || m.TotalDeps > 0 {
+		freshnessScore = clamp01(m.DepFreshnessRatio / targetDepFreshness)
+		vulnScore = clamp01(m.VulnSecurityRatio / targetVulnSecurity)
+	}
 
 	total := cognitiveScore*weightCognitiveComplexity +
 		cyclomaticAvgScore*weightCyclomaticAvg +

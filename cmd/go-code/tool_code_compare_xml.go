@@ -83,6 +83,9 @@ type xmlCompMetrics struct {
 	Score                  float64 `xml:"score,attr"`
 	SemanticDupRatio       float64 `xml:"semanticDupRatio,attr,omitempty"`
 	DeadCodeCandidates     int     `xml:"deadCodeCandidates,attr,omitempty"`
+	// TotalDeps is the number of external dependencies scanned for freshness/vuln.
+	// When 0, no dependency manifests were found and freshness/vuln scores are N/A.
+	TotalDeps              int     `xml:"totalDeps,attr,omitempty"`
 }
 
 type xmlMatchBreak struct {
