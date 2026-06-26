@@ -3,18 +3,17 @@ package explore
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 // TestCollectSymbolMetrics_JSDocPath verifies that a JS-language symbol with a
-// non-underscore name and a DocComment is counted as documented (docRatio > 0).
-// This pins the JS path of langutil.IsExportedForDoc routed through
-// collectSymbolMetrics — the explore-package consumer of the extracted helper.
+// non-underscore camelCase name and a DocComment is counted as exported and
+// documented by collectSymbolMetrics.  This pins the JS path of
+// langutil.IsExportedForDoc routed through collectSymbolMetrics.
 //
-// Red-on-revert: removing the JS case from IsExportedForDoc (or reverting to
-// an uppercase-first check) makes isPublic=false + lowercase JS name invisible
-// to the exporter → exportedCount stays 0 → docRatio stays 0, failing the assertion.
+// Red-on-revert: reverting the "javascript"/"typescript" case in IsExportedForDoc
+// to an uppercase-first check makes isPublic=false + lowercase JS name invisible
+// → exportedCount stays 0, documentedCount stays 0, failing both assertions.
 func TestCollectSymbolMetrics_JSDocPath(t *testing.T) {
 	// camelCase JS function: not public by IsPublic flag, not uppercase-first,
 	// but should count as exported under JS rules.
@@ -29,50 +28,49 @@ func TestCollectSymbolMetrics_JSDocPath(t *testing.T) {
 		Complexity: 1,
 		File:       "/repo/widget.js",
 	}
-	files := []*ingest.File{
-		{Path: "/repo/widget.js", RelPath: "widget.js"},
-	}
 
-	h := computeHealth([]*parser.Symbol{sym}, files)
-	if h == nil {
-		t.Fatal("computeHealth() = nil, want non-nil")
+	sm := collectSymbolMetrics([]*parser.Symbol{sym})
+	if sm.exportedCount != 1 {
+		t.Errorf("exportedCount = %d, want 1: JS camelCase symbol must be counted as exported", sm.exportedCount)
 	}
-	// docRatio = 1/1 = 1.0 → docScore = clamp(1.0/0.6) = 1.0 → score > 0
-	if h.Score == 0 {
-		t.Errorf("Score = 0, want > 0: JS exported symbol with DocComment must be counted")
+	if sm.documentedCount != 1 {
+		t.Errorf("documentedCount = %d, want 1: documented JS symbol must be counted", sm.documentedCount)
 	}
 }
 
 // TestCollectSymbolMetrics_RustIsPublic verifies that a Rust symbol with
-// IsPublic=true and a lowercase name (e.g. "build_graph") is counted as
-// documented when it has a DocComment.  This pins the multi-language IsPublic
-// path introduced when the helper was generalised beyond Go.
+// IsPublic=true and a snake_case name (e.g. "build_graph") is counted as
+// exported and documented when it has a DocComment.  This pins the IsPublic
+// early-return path in langutil.IsExportedForDoc.
 //
-// Red-on-revert: reverting the IsPublic early-return in IsExportedForDoc causes
-// "build_graph" (lowercase, Rust language) to fall through to the uppercase-first
-// check, returning false → exportedCount=0 → docRatio=0, failing the assertion.
-func TestCollectSymbolMetrics_RustIsPublic(t *testing.T) {
+// Red-on-revert: removing the IsPublic early-return in IsExportedForDoc causes
+// "build_graph" (lowercase, Rust) to fall through to the non-underscore check
+// and still pass (build_graph does not start with '_') — so a plain IsPublic
+// revert is NOT the critical path to test here.  Instead this test pins that
+// a Rust pub fn with a DocComment increments both counters regardless of the
+// name-case, which holds iff IsPublic is honoured before any name check.
+// Use a deliberately underscore-prefixed name to make the IsPublic gate
+// the only path that classifies it as exported.
+func TestCollectSymbolMetrics_RustIsPublicUnderscore(t *testing.T) {
+	// "_internal_helper" starts with '_', so name-based checks would return
+	// not-exported.  Only the IsPublic=true early-return makes it exported.
 	sym := &parser.Symbol{
-		Name:       "build_graph",
+		Name:       "_internal_helper",
 		Kind:       parser.KindFunction,
 		Language:   "rust",
-		IsPublic:   true, // pub fn — authoritative export signal
-		DocComment: "build_graph constructs the dependency graph.",
+		IsPublic:   true, // pub fn — explicit visibility overrides name heuristic
+		DocComment: "// _internal_helper does X.",
 		StartLine:  1,
 		EndLine:    20,
 		Complexity: 2,
-		File:       "/repo/src/graph.rs",
-	}
-	files := []*ingest.File{
-		{Path: "/repo/src/graph.rs", RelPath: "src/graph.rs"},
+		File:       "/repo/src/lib.rs",
 	}
 
-	h := computeHealth([]*parser.Symbol{sym}, files)
-	if h == nil {
-		t.Fatal("computeHealth() = nil, want non-nil")
+	sm := collectSymbolMetrics([]*parser.Symbol{sym})
+	if sm.exportedCount != 1 {
+		t.Errorf("exportedCount = %d, want 1: Rust pub fn must be exported even with underscore name", sm.exportedCount)
 	}
-	// docRatio = 1/1 = 1.0 → docScore clamped to 1.0 → contributes to score
-	if h.Score == 0 {
-		t.Errorf("Score = 0, want > 0: Rust pub fn with DocComment must be counted as documented")
+	if sm.documentedCount != 1 {
+		t.Errorf("documentedCount = %d, want 1: documented Rust pub fn must be counted", sm.documentedCount)
 	}
 }
