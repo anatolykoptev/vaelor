@@ -47,8 +47,22 @@ func computeSubScores(m RepoMetrics) []subScore {
 		{"duplication", clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier), weightDuplication, 0},
 		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier), weightMagicNumbers, 0},
 		{"semantic_duplication", clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier), weightSemanticDup, 0},
-		{"dep_freshness", clamp01(m.DepFreshnessRatio / targetDepFreshness), weightDepFreshness, 0},
-		{"vuln_security", clamp01(m.VulnSecurityRatio / targetVulnSecurity), weightVulnSecurity, 0},
+		// When a freshness scan ran (DepsScanned==true) and found zero deps (TotalDeps==0),
+		// score 1.0 (neutral/best) so no dep/vuln recommendation is emitted.
+		// When DepsScanned==false (explore path), apply the legacy penalty so explore
+		// behaviour is unchanged. Mirrors the guard in GradeScore.
+		{"dep_freshness", func() float64 {
+			if m.DepsScanned && m.TotalDeps == 0 {
+				return 1.0
+			}
+			return clamp01(m.DepFreshnessRatio / targetDepFreshness)
+		}(), weightDepFreshness, 0},
+		{"vuln_security", func() float64 {
+			if m.DepsScanned && m.TotalDeps == 0 {
+				return 1.0
+			}
+			return clamp01(m.VulnSecurityRatio / targetVulnSecurity)
+		}(), weightVulnSecurity, 0},
 	}
 }
 
@@ -165,11 +179,11 @@ func buildMessage(s subScore, m RepoMetrics, out Outliers) string {
 	case "semantic_duplication":
 		return fmt.Sprintf("Reduce semantic duplication — %.0f%% of functions are semantically similar to others. Extract shared logic into reusable helpers", m.SemanticDupRatio*percentScale)
 	case "dep_freshness":
-		return fmt.Sprintf("Update outdated dependencies (%.0f%% current, target: %.0f%%)",
-			m.DepFreshnessRatio*percentScale, targetDepFreshness*percentScale)
+		return fmt.Sprintf("Update outdated dependencies (%.0f%% current, target: %.0f%%, %d deps)",
+			m.DepFreshnessRatio*percentScale, targetDepFreshness*percentScale, m.TotalDeps)
 	case "vuln_security":
-		return fmt.Sprintf("Fix vulnerable dependencies (%d%% safe, target: 100%%)",
-			int(m.VulnSecurityRatio*percentScale))
+		return fmt.Sprintf("Fix vulnerable dependencies (%d%% safe, target: 100%%, %d deps)",
+			int(m.VulnSecurityRatio*percentScale), m.TotalDeps)
 	default:
 		return fmt.Sprintf("Improve %s (score: %.0f%%)", s.Name, s.Score*percentScale)
 	}
