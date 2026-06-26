@@ -128,6 +128,7 @@ func gatherHealthFreshness(ctx context.Context, root string, metrics *compare.Re
 
 	fr := freshness.CheckFreshness(ctx, allDeps, reg)
 	metrics.DepFreshnessRatio = fr.Ratio
+	metrics.TotalDeps = fr.Total // 0 means no manifests found (N/A for scoring)
 
 	vr := freshness.CheckVulnerabilities(ctx, allDeps, client, freshness.DefaultOSVURL)
 	metrics.VulnSecurityRatio = vr.Ratio

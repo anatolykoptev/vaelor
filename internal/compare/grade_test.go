@@ -52,6 +52,7 @@ func TestGradeScore_PerfectMetrics(t *testing.T) {
 		SemanticDupRatio:       0,
 		DepFreshnessRatio:      targetDepFreshness,
 		VulnSecurityRatio:      targetVulnSecurity,
+		TotalDeps:              10, // must be >0 so freshness/vuln ratios are applied
 	}
 	score := GradeScore(m)
 	if score != 100 {
@@ -60,6 +61,7 @@ func TestGradeScore_PerfectMetrics(t *testing.T) {
 }
 
 func TestGradeScore_DepFreshnessImpact(t *testing.T) {
+	// base has TotalDeps>0 so the freshness dimension is active (not N/A).
 	base := RepoMetrics{
 		Files:                  10,
 		AvgCognitiveComplexity: targetCognitiveComplexity,
@@ -70,19 +72,46 @@ func TestGradeScore_DepFreshnessImpact(t *testing.T) {
 		AvgFuncLines:           targetFuncSize,
 		ErrorHandlingRatio:     targetErrorHandlingRatio,
 		MaxNestingDepth:        int(targetNestingDepth),
+		TotalDeps:              5,                  // >0 activates freshness/vuln scoring
+		VulnSecurityRatio:      targetVulnSecurity, // vuln perfect so only freshness varies
 	}
 
-	// With no dep freshness data (0.0), score should be lower.
-	scoreNoDeps := GradeScore(base)
+	// With zero DepFreshnessRatio (all deps outdated), score should be penalised.
+	base.DepFreshnessRatio = 0.0
+	scoreAllOutdated := GradeScore(base)
 
-	// With perfect freshness.
-	withDeps := base
-	withDeps.DepFreshnessRatio = 1.0
-	scoreWithDeps := GradeScore(withDeps)
+	// With perfect freshness (all deps current).
+	withGoodDeps := base
+	withGoodDeps.DepFreshnessRatio = 1.0
+	scoreGoodDeps := GradeScore(withGoodDeps)
 
-	diff := scoreWithDeps - scoreNoDeps
-	// Expected impact: 0.06 * 100 = 6 points (clamped at target 0.8, so 1.0/0.8 -> 1.0).
+	diff := scoreGoodDeps - scoreAllOutdated
+	// Expected impact: weightDepFreshness * 100 = 0.06 * 100 = 6 points.
 	if diff < 5 || diff > 7 {
-		t.Fatalf("dep freshness impact = %.1f, want ~6", diff)
+		t.Fatalf("dep freshness impact = %.1f, want ~6 (TotalDeps>0 path)", diff)
+	}
+}
+
+// TestGradeScore_ZeroDepsNeutral verifies that a repo with no dependency manifests
+// (TotalDeps==0) does not lose any points for freshness or vulnerability scoring.
+// A stdlib-only repo should reach 100 on all other perfect dims.
+func TestGradeScore_ZeroDepsNeutral(t *testing.T) {
+	// All quality dims at target, TotalDeps==0 (no manifests found).
+	zeroDepPerfect := RepoMetrics{
+		Files:                  10,
+		AvgCognitiveComplexity: targetCognitiveComplexity,
+		AvgComplexity:          targetCyclomaticAvg,
+		MaxComplexity:          int(targetCyclomaticMax),
+		TestRatio:              targetTestRatio,
+		DocRatio:               targetDocRatio,
+		AvgFuncLines:           targetFuncSize,
+		ErrorHandlingRatio:     targetErrorHandlingRatio,
+		MaxNestingDepth:        int(targetNestingDepth),
+		// TotalDeps intentionally 0 (zero value) — simulates no go.mod/package.json found.
+		// DepFreshnessRatio and VulnSecurityRatio are also 0 (zero value).
+	}
+	got := GradeScore(zeroDepPerfect)
+	if got != 100 {
+		t.Fatalf("GradeScore(zero-dep perfect) = %.0f, want 100 — zero-dep repos must not lose points for N/A dimensions", got)
 	}
 }

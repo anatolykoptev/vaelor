@@ -128,3 +128,60 @@ func searchString(s, sub string) bool {
 	}
 	return false
 }
+
+// TestComputeRecommendations_ZeroDepsNoDepRecs verifies that when TotalDeps==0
+// (no dependency manifests found), dep_freshness and vuln_security recommendations
+// are absent even when DepFreshnessRatio and VulnSecurityRatio are zero.
+func TestComputeRecommendations_ZeroDepsNoDepRecs(t *testing.T) {
+	m := RepoMetrics{
+		Files:                  10,
+		AvgCognitiveComplexity: targetCognitiveComplexity,
+		AvgComplexity:          targetCyclomaticAvg,
+		MaxComplexity:          int(targetCyclomaticMax),
+		TestRatio:              targetTestRatio,
+		DocRatio:               targetDocRatio,
+		AvgFuncLines:           targetFuncSize,
+		ErrorHandlingRatio:     targetErrorHandlingRatio,
+		MaxNestingDepth:        int(targetNestingDepth),
+		// TotalDeps == 0: no manifests — freshness/vuln are N/A, must not emit recs.
+		DepFreshnessRatio: 0,
+		VulnSecurityRatio: 0,
+	}
+	recs := ComputeRecommendations(m, Outliers{}, 0)
+	for _, r := range recs {
+		if r.Area == "dep_freshness" || r.Area == "vuln_security" {
+			t.Errorf("unexpected %s recommendation for zero-dep repo: %q", r.Area, r.Message)
+		}
+	}
+}
+
+// TestComputeRecommendations_WithDepsStalePresentRec verifies that when TotalDeps>0
+// and DepFreshnessRatio is low, a dep_freshness recommendation IS emitted.
+// This is the regression guard ensuring the fix does not suppress real stale-dep warnings.
+func TestComputeRecommendations_WithDepsStalePresentRec(t *testing.T) {
+	m := RepoMetrics{
+		Files:                  10,
+		AvgCognitiveComplexity: targetCognitiveComplexity,
+		AvgComplexity:          targetCyclomaticAvg,
+		MaxComplexity:          int(targetCyclomaticMax),
+		TestRatio:              targetTestRatio,
+		DocRatio:               targetDocRatio,
+		AvgFuncLines:           targetFuncSize,
+		ErrorHandlingRatio:     targetErrorHandlingRatio,
+		MaxNestingDepth:        int(targetNestingDepth),
+		TotalDeps:              20,  // >0: real deps scanned
+		DepFreshnessRatio:      0.1, // 10% current — very stale
+		VulnSecurityRatio:      targetVulnSecurity,
+	}
+	recs := ComputeRecommendations(m, Outliers{}, 0)
+	found := false
+	for _, r := range recs {
+		if r.Area == "dep_freshness" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected dep_freshness recommendation for repo with TotalDeps>0 and low DepFreshnessRatio")
+	}
+}
