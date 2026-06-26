@@ -10,10 +10,19 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
+// HintApproxExploreHealth is the caveat attached to HealthSummary values produced
+// by the explore tool. The overview score omits dependency-freshness and
+// vulnerability penalties (those require the freshness scanner, which explore does
+// not run). The score may therefore be higher than the full code_health score.
+const HintApproxExploreHealth = "Overview score — excludes dependency-freshness and vulnerability penalties; " +
+	"run code_health for the full vuln/freshness-adjusted score."
+
 // HealthSummary is a lightweight code quality score for explore results.
 type HealthSummary struct {
-	Score int    `json:"score"`
-	Grade string `json:"grade"`
+	Score       int    `json:"score"`
+	Grade       string `json:"grade"`
+	Approximate bool   `json:"approximate,omitempty"`
+	Hint        string `json:"hint,omitempty"`
 }
 
 // symbolMetrics holds per-symbol counters accumulated by collectSymbolMetrics.
@@ -47,7 +56,12 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 	score := int(compare.GradeScore(rm))
 	grade := compare.ComputeGrade(rm)
 
-	return &HealthSummary{Score: score, Grade: grade}
+	return &HealthSummary{
+		Score:       score,
+		Grade:       grade,
+		Approximate: true,
+		Hint:        HintApproxExploreHealth,
+	}
 }
 
 // buildExploreRepoMetrics maps the explore-local symbolMetrics into a
