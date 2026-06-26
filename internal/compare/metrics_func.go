@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -83,7 +84,7 @@ func computeDocRatio(symbols []*parser.Symbol) float64 {
 	exportedTotal := 0
 	exportedWithDoc := 0
 	for _, sym := range symbols {
-		if !isExported(sym.Name) {
+		if !langutil.IsExportedForDoc(sym.Name, sym.Language, sym.IsPublic) {
 			continue
 		}
 		exportedTotal++

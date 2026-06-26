@@ -3,17 +3,7 @@ package compare
 import (
 	"strings"
 	"unicode"
-	"unicode/utf8"
 )
-
-// isExported reports whether a symbol name is exported (starts with an uppercase letter).
-func isExported(name string) bool {
-	if name == "" {
-		return false
-	}
-	r, _ := utf8.DecodeRuneInString(name)
-	return unicode.IsUpper(r)
-}
 
 // levenshtein computes the edit distance between strings a and b.
 func levenshtein(a, b string) int {

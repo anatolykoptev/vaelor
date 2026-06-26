@@ -3,7 +3,6 @@ package explore
 import (
 	"math"
 	"strings"
-	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -105,7 +104,7 @@ func collectSymbolMetrics(symbols []*parser.Symbol) symbolMetrics {
 				sm.totalFuncLines += int(sym.EndLine - sym.StartLine)
 			}
 		}
-		if isExportedName(sym.Name) {
+		if langutil.IsExportedForDoc(sym.Name, sym.Language, sym.IsPublic) {
 			sm.exportedCount++
 			if sym.DocComment != "" {
 				sm.documentedCount++
@@ -194,13 +193,6 @@ func scoreToGrade(score int) string {
 	default:
 		return "F"
 	}
-}
-
-func isExportedName(name string) bool {
-	for _, r := range name {
-		return unicode.IsUpper(r)
-	}
-	return false
 }
 
 func healthClamp01(v float64) float64 {
