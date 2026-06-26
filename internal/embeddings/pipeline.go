@@ -412,32 +412,52 @@ func (p *Pipeline) indexRepoWithTool(
 
 	toEmbed, seen := filterSymbols(symbols, files, existing, result)
 
-	// Intra-key orphan reconciliation: delete rows in code_embeddings for this
-	// repo_key that are NOT in the freshly-parsed symbol set.
-	//
-	// This is ONLY safe here — on the full-walk path — where `seen` contains the
-	// COMPLETE (file_path, symbol_name) set for the repo. The same-SHA fast-path
-	// above returns before reaching this point, and the no-embed short-circuit
-	// below has a complete `seen` (it just has nothing new to embed).
-	//
-	// A partial parse (collectSymbolsCached error) returns early before this
-	// point, so `seen` is always the full set when we reach this line.
-	//
-	// Batched anti-join, intraKeyOrphanChunkSize rows per DELETE, to avoid
-	// statement_timeout on large repos (#201 lesson: data-size-bound, not param-bound).
-	deleteIntraKeyOrphans(ctx, p.store, repoKey, seen)
+	// Compute the explicit orphan set: DB keys present for this repo_key that
+	// are NOT in the freshly-parsed symbol set. `existing` is the full DB-hash
+	// map read above; `seen` is the complete parsed key set from filterSymbols.
+	// We pass an explicit slice so DeleteExplicitOrphans uses a positive IN-list
+	// (not a per-chunk NOT-IN anti-join) -- fixing the >500-key data-loss bug
+	// introduced in PR #209 (caa34d5, 2026-06-02).
+	var orphanKeys []string
+	for key := range existing {
+		if !seen[key] {
+			orphanKeys = append(orphanKeys, key)
+		}
+	}
 
 	if prog != nil {
 		atomic.StoreInt64(&prog.total, int64(len(toEmbed)))
 	}
 
 	if len(toEmbed) == 0 {
-		return p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
+		// Still reconcile orphans on the no-embed path: all parsed symbols hash-
+		// matched existing rows (nothing new to embed), but symbols deleted from
+		// source since the last index are still in the DB and must be cleaned up.
+		deleteIntraKeyOrphans(ctx, p.store, repoKey, seen, existing, orphanKeys)
+		noEmbedResult, noEmbedErr := p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
+		if noEmbedErr == nil {
+			// Refresh the coverage gauge after reconciliation settles.
+			if coverageCount, countErr := p.store.CountEmbeddings(ctx, repoKey); countErr == nil {
+				SetEmbeddingsCoverageRows(repoKey, coverageCount)
+			}
+		}
+		return noEmbedResult, noEmbedErr
 	}
 
 	if err := p.embedChunks(ctx, repoKey, tool, toEmbed, result, prog); err != nil {
 		return nil, err
 	}
+
+	// Intra-key orphan reconciliation: delete rows no longer in the parsed set.
+	// Runs AFTER embedChunks succeeds so that symbols counted as Skipped (hash-
+	// matched-existing) are never deleted before their re-insert path completes.
+	// On embedChunks failure we skip deletion to avoid corrupting a partial index.
+	deleteIntraKeyOrphans(ctx, p.store, repoKey, seen, existing, orphanKeys)
+
+	// Set the coverage gauge to the post-reconciliation row count.
+	// result.Indexed (newly embedded) + result.Skipped (hash-matched existing) =
+	// all symbols now present in the DB for this repo after orphan deletion.
+	SetEmbeddingsCoverageRows(repoKey, result.Indexed+result.Skipped)
 
 	if currentSHA != "" {
 		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
@@ -454,7 +474,13 @@ func (p *Pipeline) indexRepoWithTool(
 // parsed key set (seen). Matching symbols increment result.Skipped.
 //
 // seen must be the COMPLETE (file_path:symbol_name) set; callers use it for
-// orphan detection (DeleteIntraKeyOrphans). Do not call on a partial parse.
+// orphan detection (deleteIntraKeyOrphans). Do not call on a partial parse.
+//
+// Note on dedup: filterSymbols collapses by file:name ignoring kind/signature,
+// so same-name funcs under different build-tags count as one seen key (e.g.
+// 854 raw symbols -> 794 unique). This is NOT data-loss: all build-tag variants
+// remain in DB until orphan-delete runs; the dedup only affects toEmbed sizing
+// and result.Skipped counts.
 func filterSymbols(
 	symbols []*parser.Symbol, files []*ingest.File,
 	existing map[string]uint64, result *IndexResult,
@@ -477,15 +503,43 @@ func filterSymbols(
 	return toEmbed, seen
 }
 
-// deleteIntraKeyOrphans removes code_embeddings rows for repoKey not in parsedKeys.
-// Non-fatal: logs a WARN on failure, increments the orphan-deleted counter on success.
-// Separated from indexRepo to reduce cognitive complexity.
-func deleteIntraKeyOrphans(ctx context.Context, store *Store, repoKey string, parsedKeys map[string]bool) {
-	orphansDeleted, orphanErr := store.DeleteIntraKeyOrphans(ctx, repoKey, parsedKeys)
+// deleteIntraKeyOrphans reconciles the DB for repoKey against the freshly-parsed
+// symbol set. Non-fatal: logs a WARN on failure; increments counters on success.
+// Separated from indexRepoWithTool to reduce cognitive complexity.
+//
+// Parameters:
+//   - seen: complete (file_path:symbol_name) set from the current parse.
+//   - existing: the DB-hash map read before filterSymbols (keyed file_path:symbol_name).
+//   - orphanKeys: pre-computed explicit orphan slice = keys in existing NOT in seen.
+//     Passed in so the caller owns the computation and the store method is pure.
+//
+// Shrink-guard: if len(seen) < 70% of len(existing) AND existing is non-empty,
+// the delete is SKIPPED and a WARN is logged. This prevents a partial parse
+// (e.g. parser error on half the files) from mass-deleting valid rows.
+// filterSymbols doc-comment: 'Do not call on a partial parse.'
+func deleteIntraKeyOrphans(
+	ctx context.Context, store *Store, repoKey string,
+	seen map[string]bool, existing map[string]uint64, orphanKeys []string,
+) {
+	// Shrink-guard: skip if the parsed set is too small relative to the DB set.
+	// Threshold 0.7 catches accidental partial-parse mass-delete without blocking
+	// legitimate large deletions (e.g. removing 30%+ of a repo's symbols at once
+	// would require separate confirmation via a deliberate full re-parse pass).
+	if len(existing) > 0 && float64(len(seen)) < 0.7*float64(len(existing)) {
+		slog.Warn("indexRepo: orphan-delete skipped (shrink guard)",
+			slog.String("repo", repoKey),
+			slog.Int("seen", len(seen)),
+			slog.Int("existing", len(existing)))
+		orphanDeleteSkippedTotal.WithLabelValues("shrink_guard").Inc()
+		return
+	}
+
+	orphansDeleted, orphanErr := store.DeleteExplicitOrphans(ctx, repoKey, orphanKeys)
 	if orphanErr != nil {
 		slog.Warn("indexRepo: intra-key orphan delete failed",
 			slog.String("repo", repoKey),
 			slog.Any("error", orphanErr))
+		orphanDeleteSkippedTotal.WithLabelValues("error").Inc()
 		return
 	}
 	if orphansDeleted > 0 {
