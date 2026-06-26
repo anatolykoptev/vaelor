@@ -34,7 +34,7 @@ import (
 //   - testScore=0, docScore=0, funcSizeScore=0, errorScore=0
 //   - nestingScore=1.0, fileSizeScore=1.0, dupScore=1.0, magicScore=1.0, semDupScore=1.0
 //   - total ≈ 0.12+0+0.0147+0+0+0+0+0.07+0.07+0.05+0.06+0.02 = 0.4047
-//   - score = round(40.47) = 40, grade = D
+//   - score = round(40.47) = 40, grade = F
 //
 // Score derivation (no_func_edge):
 //   - Files=1, all func metrics=0, TestRatio=0, DocRatio=1.0

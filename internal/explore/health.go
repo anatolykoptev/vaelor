@@ -74,12 +74,15 @@ func buildExploreRepoMetrics(sm symbolMetrics, testFiles, fileCount int) compare
 		AvgFuncLines:  avgFuncLines,
 		TestRatio:     testRatio,
 		DocRatio:      docRatio,
-		// Untracked fields (AvgCognitiveComplexity, MaxNestingDepth,
-		// ErrorHandlingRatio, LargeFileRatio, DuplicationRatio,
-		// MagicNumberRatio, SemanticDupRatio, DepFreshnessRatio,
-		// VulnSecurityRatio) default to 0, which GradeScore treats as
-		// best-case / unknown for lower-is-better metrics and unknown for
-		// ratio metrics.
+		// Fields not tracked by explore's lightweight pass are left at 0.
+		// Impact on GradeScore:
+		//   - ErrorHandlingRatio=0: worst-case (0/target=0), subtracts 0.08 of total weight.
+		//   - DepFreshnessRatio=0:  worst-case (0/target=0), subtracts 0.06 of total weight.
+		//   - VulnSecurityRatio=0:  worst-case (0/target=0), subtracts 0.06 of total weight.
+		//   - LargeFileRatio=0, DuplicationRatio=0, MagicNumberRatio=0, SemanticDupRatio=0:
+		//     best-case (1-ratio*mult=1), which is correct since explore does not detect these.
+		// Net effect: explore scores are capped at approximately 80 (A), never A+.
+		// This is an accepted tradeoff for explore's lightweight context.
 	}
 }
 

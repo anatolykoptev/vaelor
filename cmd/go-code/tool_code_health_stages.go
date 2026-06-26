@@ -164,7 +164,12 @@ func gatherHealthHotspots(ctx context.Context, root, repoName string, snap *comp
 // compare.FallbackArchMetrics (in-memory call graph, 10s timeout).
 func gatherHealthArchMetrics(ctx context.Context, graphStore *codegraph.Store, root string) *compare.ArchMetrics {
 	if graphStore == nil {
-		return compare.FallbackArchMetrics(ctx, root)
+		fb := compare.FallbackArchMetrics(ctx, root)
+		if fb != nil {
+			fb.Hint = "Architecture metrics are approximate (derived from in-memory call graph). " +
+				"Run the `code_graph` tool with the same repo path for full analysis including call depth."
+		}
+		return fb
 	}
 	gctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

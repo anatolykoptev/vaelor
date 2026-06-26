@@ -58,10 +58,8 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 		if errors.Is(err, codegraph.ErrGraphNotIndexed) {
 			slog.Debug("archgraph: graph absent (preflight) — using in-memory fallback", "graph", graph)
 			if fb := FallbackArchMetrics(ctx, root); fb != nil {
-				fb.NotIndexed = true
-				fb.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
-					"Call the `code_graph` tool with the same repo path first to populate the graph, " +
-					"then re-run code_compare."
+				fb.Hint = "Architecture metrics are approximate (derived from in-memory call graph). " +
+					"Run the `code_graph` tool with the same repo path for full analysis including call depth."
 				return fb
 			}
 			m.NotIndexed = true
@@ -80,10 +78,8 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 		// Graph is empty — fall back to in-memory call graph for basic metrics.
 		slog.Debug("archgraph: graph empty — using in-memory fallback", "graph", graph)
 		if fb := FallbackArchMetrics(ctx, root); fb != nil {
-			fb.NotIndexed = true
-			fb.Hint = "Architecture metrics unavailable: code graph not indexed for this repo. " +
-				"Call the `code_graph` tool with the same repo path first to populate the graph, " +
-				"then re-run code_compare."
+			fb.Hint = "Architecture metrics are approximate (derived from in-memory call graph). " +
+				"Run the `code_graph` tool with the same repo path for full analysis including call depth."
 			return fb
 		}
 		m.NotIndexed = true
