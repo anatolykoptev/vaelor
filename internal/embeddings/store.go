@@ -399,49 +399,46 @@ func (s *Store) DeleteSymbolsForFile(ctx context.Context, repoKey, filePath stri
 	return ct.RowsAffected(), nil
 }
 
-// intraKeyOrphanChunkSize is the maximum number of parsed (file_path, symbol_name)
-// pairs sent in one NOT IN (VALUES …) anti-join chunk. Each row occupies 2 params;
-// Postgres's 65535-param ceiling allows up to 32767 rows per statement, but we cap
-// much lower to keep parse+plan work bounded and avoid statement_timeout on repos
-// with large symbol sets. The same lesson as sparseBatchSize (#201): data-size-bound,
-// not param-bound.
+// intraKeyOrphanChunkSize is the maximum number of explicit orphan (file_path,
+// symbol_name) pairs sent in one positive IN (VALUES ...) DELETE chunk. Each row
+// occupies 2 params; Postgres's 65535-param ceiling allows up to 32767 rows per
+// statement, but we cap much lower to keep parse+plan work bounded and avoid
+// statement_timeout on large repos. The same lesson as sparseBatchSize (#201):
+// data-size-bound, not param-bound.
 const intraKeyOrphanChunkSize = 500
 
-// DeleteIntraKeyOrphans removes code_embeddings rows for repoKey whose
-// (file_path, symbol_name) is NOT present in parsedKeys.
+// DeleteExplicitOrphans removes code_embeddings rows for repoKey whose
+// (file_path, symbol_name) appears in the supplied orphanKeys slice.
 //
-// parsedKeys must be the COMPLETE set of "file_path:symbol_name" pairs from the
-// full repo walk — it is only safe to call this on a full-walk path where the
-// caller has parsed every file. A partial parsedKeys would delete valid rows.
+// orphanKeys is the EXPLICIT set of keys to delete -- i.e. (DB keys) minus
+// (freshly-parsed keys). The caller is responsible for computing this set.
+// Deletion targets only the rows in orphanKeys; no other rows are touched.
 //
-// When parsedKeys is empty, no rows are deleted (safety guard: an empty set likely
-// signals a parse failure, not a genuinely empty repo). Callers should handle the
-// empty-repo case separately via DeleteRepo.
+// When orphanKeys is empty, no rows are deleted (no-op).
 //
-// Deletion is chunked by intraKeyOrphanChunkSize to bound per-statement size and
-// avoid statement_timeout on large repos (same constraint as sparseBatchSize, #201).
-// Each chunk issues one DELETE … WHERE NOT (file_path,symbol_name) IN (VALUES …).
+// Deletion is chunked by intraKeyOrphanChunkSize to bound per-statement size
+// and avoid statement_timeout on large repos. Each chunk issues one
+// DELETE WHERE (file_path,symbol_name) IN (VALUES ...) -- a positive IN-list.
+// Chunking a positive IN is correct: each chunk only targets its own slice of
+// orphans, so no valid row is ever collateral.
 //
 // Returns the total rows deleted across all chunks.
-func (s *Store) DeleteIntraKeyOrphans(ctx context.Context, repoKey string, parsedKeys map[string]bool) (int64, error) {
+func (s *Store) DeleteExplicitOrphans(ctx context.Context, repoKey string, orphanKeys []string) (int64, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return 0, err
 	}
-	if len(parsedKeys) == 0 {
-		// Safety: empty parsedKeys = no parse happened or repo is truly empty.
-		// Deleting everything would be catastrophic on a transient parse failure.
-		// Callers that want to wipe a repo use DeleteRepo explicitly.
+	if len(orphanKeys) == 0 {
 		return 0, nil
 	}
 
-	// Flatten parsedKeys into parallel slices for VALUES binding.
-	// Key format: "file_path:symbol_name" (same as GetHashes).
-	files := make([]string, 0, len(parsedKeys))
-	syms := make([]string, 0, len(parsedKeys))
-	for key := range parsedKeys {
+	// Flatten orphanKeys into parallel file/sym slices for VALUES binding.
+	// Key format: "file_path:symbol_name" (same as GetHashes / filterSymbols).
+	files := make([]string, 0, len(orphanKeys))
+	syms := make([]string, 0, len(orphanKeys))
+	for _, key := range orphanKeys {
 		colon := strings.IndexByte(key, ':')
 		if colon < 0 {
-			continue // malformed key — skip
+			continue // malformed key -- skip
 		}
 		files = append(files, key[:colon])
 		syms = append(syms, key[colon+1:])
@@ -449,11 +446,8 @@ func (s *Store) DeleteIntraKeyOrphans(ctx context.Context, repoKey string, parse
 
 	var totalDeleted int64
 	for start := 0; start < len(files); start += intraKeyOrphanChunkSize {
-		end := start + intraKeyOrphanChunkSize
-		if end > len(files) {
-			end = len(files)
-		}
-		n, err := s.deleteIntraKeyOrphanChunk(ctx, repoKey, files[start:end], syms[start:end])
+		end := min(start+intraKeyOrphanChunkSize, len(files))
+		n, err := s.deleteExplicitOrphanChunk(ctx, repoKey, files[start:end], syms[start:end])
 		if err != nil {
 			return totalDeleted, err
 		}
@@ -462,27 +456,29 @@ func (s *Store) DeleteIntraKeyOrphans(ctx context.Context, repoKey string, parse
 	return totalDeleted, nil
 }
 
-// deleteIntraKeyOrphanChunk issues one anti-join DELETE for a single chunk of
-// up to intraKeyOrphanChunkSize (file_path, symbol_name) pairs.
+// deleteExplicitOrphanChunk issues one positive-IN DELETE for a single chunk of
+// up to intraKeyOrphanChunkSize explicit orphan (file_path, symbol_name) pairs.
 //
-// The DELETE removes rows where (file_path, symbol_name) is NOT among the
-// supplied pairs — i.e. symbols that existed in the prior index but are absent
-// from the fresh parse. repoKey scopes the deletion to one repo.
+// Unlike the old NOT-IN anti-join (which deleted everything NOT in the chunk,
+// causing cross-chunk data loss when total rows > intraKeyOrphanChunkSize),
+// this DELETE targets ONLY the rows whose keys appear in the supplied slice.
+// Chunking is safe: each chunk deletes a disjoint subset of the full orphan set;
+// no valid row is ever collateral.
 //
 // SQL shape:
 //
 //	DELETE FROM public.code_embeddings
 //	WHERE repo_key = $1
-//	  AND NOT (file_path, symbol_name) IN (VALUES ($2,$3), ($4,$5), …)
-func (s *Store) deleteIntraKeyOrphanChunk(ctx context.Context, repoKey string, files, syms []string) (int64, error) {
+//	  AND (file_path, symbol_name) IN (VALUES ($2,$3), ($4,$5), ...)
+func (s *Store) deleteExplicitOrphanChunk(ctx context.Context, repoKey string, files, syms []string) (int64, error) {
 	n := len(files)
 	if n == 0 {
 		return 0, nil
 	}
-	// Build: NOT (file_path, symbol_name) IN (VALUES ($2,$3), ($4,$5), …)
+	// Build: (file_path, symbol_name) IN (VALUES ($2,$3), ($4,$5), ...)
 	// Param $1 = repoKey; pairs start at $2.
 	var b strings.Builder
-	b.WriteString(`DELETE FROM public.code_embeddings WHERE repo_key = $1 AND NOT (file_path, symbol_name) IN (VALUES `)
+	b.WriteString("DELETE FROM public.code_embeddings WHERE repo_key = $1 AND (file_path, symbol_name) IN (VALUES ")
 	args := make([]any, 0, 1+n*2)
 	args = append(args, repoKey)
 	for i := 0; i < n; i++ {
@@ -497,7 +493,7 @@ func (s *Store) deleteIntraKeyOrphanChunk(ctx context.Context, repoKey string, f
 	b.WriteByte(')')
 	ct, err := s.pool.Exec(ctx, b.String(), args...)
 	if err != nil {
-		return 0, fmt.Errorf("deleteIntraKeyOrphanChunk: %w", err)
+		return 0, fmt.Errorf("deleteExplicitOrphanChunk: %w", err)
 	}
 	return ct.RowsAffected(), nil
 }
