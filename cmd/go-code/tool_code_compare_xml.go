@@ -226,15 +226,21 @@ type xmlRelStats struct {
 }
 
 type xmlArchMetrics struct {
-	PackageCount      int          `xml:"packages,attr"`
-	CommunityCount    int          `xml:"communityCount,attr,omitempty"`
-	CrossPkgCallRatio float64      `xml:"crossPkgCalls,attr"`
-	MaxCallDepth      int          `xml:"maxCallDepth,attr"`
-	InterfaceRatio    float64      `xml:"interfaceRatio,attr"`
-	NotIndexed        bool         `xml:"notIndexed,attr,omitempty"`
-	Hint              string       `xml:"hint,attr,omitempty"`
-	GodPackages       []xmlGodPkg  `xml:"godPkg,omitempty"`
-	CircularDeps      []xmlCircDep `xml:"circularDep,omitempty"`
+	PackageCount      int     `xml:"packages,attr"`
+	CommunityCount    int     `xml:"communityCount,attr,omitempty"`
+	CrossPkgCallRatio float64 `xml:"crossPkgCalls,attr"`
+	// MaxCallDepth and InterfaceRatio are omitted when Approximate=true (not computed
+	// by the in-memory fallback path). The zero value is ambiguous without this flag.
+	MaxCallDepth   int     `xml:"maxCallDepth,attr,omitempty"`
+	InterfaceRatio float64 `xml:"interfaceRatio,attr,omitempty"`
+	NotIndexed     bool    `xml:"notIndexed,attr,omitempty"`
+	// Approximate signals that metrics came from the in-memory call graph, not the
+	// full Apache AGE graph. MaxCallDepth, InterfaceRatio, and CommunityCount are
+	// absent in this case; machine consumers must not treat their zero values as real.
+	Approximate  bool         `xml:"approximate,attr,omitempty"`
+	Hint         string       `xml:"hint,attr,omitempty"`
+	GodPackages  []xmlGodPkg  `xml:"godPkg,omitempty"`
+	CircularDeps []xmlCircDep `xml:"circularDep,omitempty"`
 }
 
 type xmlGodPkg struct {

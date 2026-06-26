@@ -1,44 +1,13 @@
 package explore
 
 import (
-	"math"
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/compare"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
-)
-
-// Grade thresholds — must match compare/grade.go.
-const (
-	gradeAThreshold = 80
-	gradeBThreshold = 70
-	gradeCThreshold = 60
-	gradeDThreshold = 50
-)
-
-// Weights redistributed from compare/grade.go (error handling 15% spread across 5 factors).
-const (
-	healthWeightComplexity    = 0.28
-	healthWeightMaxComplexity = 0.12
-	healthWeightTestCoverage  = 0.23
-	healthWeightDocCoverage   = 0.18
-	healthWeightFuncSize      = 0.19
-)
-
-const healthPercentScale = 100 // multiplier to convert [0,1] scores to percentage points
-
-// Normalization targets and ranges — subset of compare/grade.go constants.
-const (
-	healthTargetCyclomaticAvg = 3.0
-	healthRangeCyclomaticAvg  = 12.0
-	healthTargetCyclomaticMax = 8.0
-	healthRangeCyclomaticMax  = 17.0
-	healthTargetTestRatio     = 0.3
-	healthTargetDocRatio      = 0.6
-	healthTargetFuncSize      = 15.0
-	healthRangeFuncSize       = 45.0
 )
 
 // HealthSummary is a lightweight code quality score for explore results.
@@ -57,16 +26,8 @@ type symbolMetrics struct {
 	documentedCount int
 }
 
-// healthSubScores holds the five normalized sub-scores in [0, 1].
-type healthSubScores struct {
-	complexity    float64
-	maxComplexity float64
-	test          float64
-	doc           float64
-	funcSize      float64
-}
-
 // computeHealth produces a health score from already-parsed symbols and files.
+// It delegates to compare.GradeScore (14-factor formula) via buildExploreRepoMetrics.
 func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummary {
 	if len(files) == 0 {
 		return nil
@@ -82,11 +43,50 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 	goutil.Assertf(sm.documentedCount >= 0 && sm.documentedCount <= sm.exportedCount,
 		"documentedCount %d > exportedCount %d", sm.documentedCount, sm.exportedCount)
 
-	ss := computeSubScores(sm, testFiles, len(files))
-	score := weighAndRound(ss)
-	grade := scoreToGrade(score)
+	rm := buildExploreRepoMetrics(sm, testFiles, len(files))
+	score := int(compare.GradeScore(rm))
+	grade := compare.ComputeGrade(rm)
 
 	return &HealthSummary{Score: score, Grade: grade}
+}
+
+// buildExploreRepoMetrics maps the explore-local symbolMetrics into a
+// compare.RepoMetrics value.  Fields that explore does not track are left at
+// zero. The impact on GradeScore varies by field: zero is best-case for
+// lower-is-better ratios (LargeFileRatio, DuplicationRatio, MagicNumberRatio,
+// SemanticDupRatio → scored as 1.0), but worst-case for coverage ratios
+// (ErrorHandlingRatio, DepFreshnessRatio, VulnSecurityRatio → scored as 0).
+// See the inline breakdown in buildExploreRepoMetrics for the per-field impact.
+func buildExploreRepoMetrics(sm symbolMetrics, testFiles, fileCount int) compare.RepoMetrics {
+	var avgComplexity, avgFuncLines, testRatio, docRatio float64
+	if sm.funcCount > 0 {
+		avgComplexity = float64(sm.totalComplexity) / float64(sm.funcCount)
+		avgFuncLines = float64(sm.totalFuncLines) / float64(sm.funcCount)
+	}
+	if fileCount > 0 {
+		testRatio = float64(testFiles) / float64(fileCount)
+	}
+	if sm.exportedCount > 0 {
+		docRatio = float64(sm.documentedCount) / float64(sm.exportedCount)
+	}
+
+	return compare.RepoMetrics{
+		Files:         fileCount,
+		AvgComplexity: avgComplexity,
+		MaxComplexity: sm.maxComplexity,
+		AvgFuncLines:  avgFuncLines,
+		TestRatio:     testRatio,
+		DocRatio:      docRatio,
+		// Fields not tracked by explore's lightweight pass are left at 0.
+		// Impact on GradeScore:
+		//   - ErrorHandlingRatio=0: worst-case (0/target=0), subtracts 0.08 of total weight.
+		//   - DepFreshnessRatio=0:  worst-case (0/target=0), subtracts 0.06 of total weight.
+		//   - VulnSecurityRatio=0:  worst-case (0/target=0), subtracts 0.06 of total weight.
+		//   - LargeFileRatio=0, DuplicationRatio=0, MagicNumberRatio=0, SemanticDupRatio=0:
+		//     best-case (1-ratio*mult=1), which is correct since explore does not detect these.
+		// Net effect: explore scores are capped at approximately 80 (A), never A+.
+		// This is an accepted tradeoff for explore's lightweight context.
+	}
 }
 
 // collectSymbolMetrics accumulates function-level and export/doc counters from
@@ -141,66 +141,4 @@ func collectTestFileCount(symbols []*parser.Symbol, files []*ingest.File) int {
 		}
 	}
 	return testFiles
-}
-
-// computeSubScores derives the five normalized [0, 1] sub-scores from the
-// accumulated metrics.  Same formulas as compare/grade.go.
-func computeSubScores(sm symbolMetrics, testFiles, fileCount int) healthSubScores {
-	var avgComplexity, avgFuncLines, testRatio, docRatio float64
-	if sm.funcCount > 0 {
-		avgComplexity = float64(sm.totalComplexity) / float64(sm.funcCount)
-		avgFuncLines = float64(sm.totalFuncLines) / float64(sm.funcCount)
-	}
-	if fileCount > 0 {
-		testRatio = float64(testFiles) / float64(fileCount)
-	}
-	if sm.exportedCount > 0 {
-		docRatio = float64(sm.documentedCount) / float64(sm.exportedCount)
-	}
-
-	return healthSubScores{
-		complexity:    healthClamp01(1.0 - (avgComplexity-healthTargetCyclomaticAvg)/healthRangeCyclomaticAvg),
-		maxComplexity: healthClamp01(1.0 - (float64(sm.maxComplexity)-healthTargetCyclomaticMax)/healthRangeCyclomaticMax),
-		test:          healthClamp01(testRatio / healthTargetTestRatio),
-		doc:           healthClamp01(docRatio / healthTargetDocRatio),
-		funcSize:      healthClamp01(1.0 - (avgFuncLines-healthTargetFuncSize)/healthRangeFuncSize),
-	}
-}
-
-// weighAndRound applies the five weights to the sub-scores and returns the
-// rounded integer score in [0, 100].
-func weighAndRound(ss healthSubScores) int {
-	total := ss.complexity*healthWeightComplexity +
-		ss.maxComplexity*healthWeightMaxComplexity +
-		ss.test*healthWeightTestCoverage +
-		ss.doc*healthWeightDocCoverage +
-		ss.funcSize*healthWeightFuncSize
-
-	return int(math.Round(total * healthPercentScale))
-}
-
-// scoreToGrade converts a numeric score to an A-F letter grade.
-func scoreToGrade(score int) string {
-	switch {
-	case score >= gradeAThreshold:
-		return "A"
-	case score >= gradeBThreshold:
-		return "B"
-	case score >= gradeCThreshold:
-		return "C"
-	case score >= gradeDThreshold:
-		return "D"
-	default:
-		return "F"
-	}
-}
-
-func healthClamp01(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
 }
