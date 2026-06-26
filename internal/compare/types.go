@@ -160,6 +160,11 @@ type RepoMetrics struct {
 	DepFreshnessRatio      float64 `json:"depFreshnessRatio,omitempty"` // fraction of deps that are up-to-date
 	VulnSecurityRatio      float64 `json:"vulnSecurityRatio,omitempty"` // fraction of deps with no known vulns
 	TotalDeps              int     `json:"totalDeps,omitempty"`         // number of external dependencies scanned; 0 means no manifests found (N/A)
+	// DepsScanned is true when a dependency freshness scan was attempted (regardless of
+	// whether it found any deps). When false, the dep-freshness and vulnerability
+	// sub-scores fall back to the legacy penalty path (same behaviour as before PR #250),
+	// so lightweight paths like explore that skip the freshness scan are not affected.
+	DepsScanned bool `json:"depsScanned,omitempty"`
 	// DeadCodeCandidates is the count of functions with CE dead-code probability >= 0.25.
 	// Populated from code_dead_code_scores when code_graph snapshot is available.
 	DeadCodeCandidates int      `json:"deadCodeCandidates,omitempty"`

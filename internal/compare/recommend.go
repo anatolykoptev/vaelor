@@ -47,17 +47,18 @@ func computeSubScores(m RepoMetrics) []subScore {
 		{"duplication", clamp01(1.0 - m.DuplicationRatio*duplicationMultiplier), weightDuplication, 0},
 		{"magic_numbers", clamp01(1.0 - m.MagicNumberRatio*magicNumberMultiplier), weightMagicNumbers, 0},
 		{"semantic_duplication", clamp01(1.0 - m.SemanticDupRatio*semanticDupMultiplier), weightSemanticDup, 0},
-		// When TotalDeps == 0, no dependency manifests were found.
-		// Use score 1.0 (neutral/best) so the gap is zero and no dep/vuln
-		// recommendation is emitted. Mirrors the guard in GradeScore.
+		// When a freshness scan ran (DepsScanned==true) and found zero deps (TotalDeps==0),
+		// score 1.0 (neutral/best) so no dep/vuln recommendation is emitted.
+		// When DepsScanned==false (explore path), apply the legacy penalty so explore
+		// behaviour is unchanged. Mirrors the guard in GradeScore.
 		{"dep_freshness", func() float64 {
-			if m.TotalDeps == 0 {
+			if m.DepsScanned && m.TotalDeps == 0 {
 				return 1.0
 			}
 			return clamp01(m.DepFreshnessRatio / targetDepFreshness)
 		}(), weightDepFreshness, 0},
 		{"vuln_security", func() float64 {
-			if m.TotalDeps == 0 {
+			if m.DepsScanned && m.TotalDeps == 0 {
 				return 1.0
 			}
 			return clamp01(m.VulnSecurityRatio / targetVulnSecurity)

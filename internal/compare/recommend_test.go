@@ -17,6 +17,10 @@ func TestSubScoreSumMatchesGradeScore(t *testing.T) {
 		{Files: 100, TotalLines: 10000, AvgFuncLines: 10, AvgComplexity: 2, MaxComplexity: 5,
 			TestRatio: 0.35, DocRatio: 0.8, ErrorHandlingRatio: 0.7,
 			AvgCognitiveComplexity: 2, MaxNestingDepth: 2},
+		// TotalDeps>0 + DepsScanned=true: exercises the real dep-penalty branch.
+		{Files: 50, TotalLines: 5000, AvgFuncLines: 15, AvgComplexity: 4, MaxComplexity: 10,
+			TestRatio: 0.3, DocRatio: 0.6, ErrorHandlingRatio: 0.6,
+			TotalDeps: 20, DepsScanned: true, DepFreshnessRatio: 0.7, VulnSecurityRatio: 0.9},
 	}
 
 	for i, m := range cases {
@@ -143,7 +147,9 @@ func TestComputeRecommendations_ZeroDepsNoDepRecs(t *testing.T) {
 		AvgFuncLines:           targetFuncSize,
 		ErrorHandlingRatio:     targetErrorHandlingRatio,
 		MaxNestingDepth:        int(targetNestingDepth),
-		// TotalDeps == 0: no manifests — freshness/vuln are N/A, must not emit recs.
+		// TotalDeps == 0: scanned but no manifests found — freshness/vuln are N/A.
+		// DepsScanned=true is required: without it the guard doesn't fire and recs WOULD be emitted.
+		DepsScanned:       true,
 		DepFreshnessRatio: 0,
 		VulnSecurityRatio: 0,
 	}
@@ -169,7 +175,8 @@ func TestComputeRecommendations_WithDepsStalePresentRec(t *testing.T) {
 		AvgFuncLines:           targetFuncSize,
 		ErrorHandlingRatio:     targetErrorHandlingRatio,
 		MaxNestingDepth:        int(targetNestingDepth),
-		TotalDeps:              20,  // >0: real deps scanned
+		TotalDeps:              20, // >0: real deps scanned
+		DepsScanned:            true,
 		DepFreshnessRatio:      0.1, // 10% current — very stale
 		VulnSecurityRatio:      targetVulnSecurity,
 	}

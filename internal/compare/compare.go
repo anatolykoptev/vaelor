@@ -143,11 +143,13 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 		metricsA.DepFreshnessRatio = enr.freshnessA.DepFreshnessRatio
 		metricsA.VulnSecurityRatio = enr.freshnessA.VulnSecurityRatio
 		metricsA.TotalDeps = enr.freshnessA.TotalDeps
+		metricsA.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
 	}
 	if enr.freshnessB != nil {
 		metricsB.DepFreshnessRatio = enr.freshnessB.DepFreshnessRatio
 		metricsB.VulnSecurityRatio = enr.freshnessB.VulnSecurityRatio
 		metricsB.TotalDeps = enr.freshnessB.TotalDeps
+		metricsB.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
 	}
 
 	var analysis LLMAnalysis
