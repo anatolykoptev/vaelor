@@ -20,8 +20,13 @@ type ArchMetrics struct {
 	// NotIndexed is set when the code graph has no packages for this repo,
 	// meaning code_graph tool was never called with this repo path. Call
 	// code_graph with the same repo first to populate the graph.
-	NotIndexed bool   `json:"notIndexed,omitempty"`
-	Hint       string `json:"hint,omitempty"`
+	NotIndexed bool `json:"notIndexed,omitempty"`
+	// Approximate is set when metrics were derived from an in-memory call graph
+	// rather than the full Apache AGE graph. MaxCallDepth, InterfaceRatio, and
+	// CommunityCount are not computed in the approximate path and must not be
+	// presented as real measurements.
+	Approximate bool   `json:"approximate,omitempty"`
+	Hint        string `json:"hint,omitempty"`
 }
 
 // GodPackage represents a package with many importers (high coupling).
@@ -69,6 +74,7 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 		if errors.Is(err, codegraph.ErrGraphNotIndexed) {
 			slog.Debug("archgraph: graph absent (preflight) — using in-memory fallback", "graph", graph)
 			if fb := FallbackArchMetrics(ctx, root); fb != nil {
+				fb.Approximate = true
 				fb.Hint = HintApproxArchMetrics
 				return fb
 			}

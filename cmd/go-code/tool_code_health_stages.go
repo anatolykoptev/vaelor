@@ -166,11 +166,13 @@ func gatherHealthArchMetrics(ctx context.Context, graphStore *codegraph.Store, r
 	if graphStore == nil {
 		fb := compare.FallbackArchMetrics(ctx, root)
 		if fb != nil {
+			fb.Approximate = true
 			fb.Hint = compare.HintApproxArchMetrics
 			return fb
 		}
-		// FallbackArchMetrics returns nil only when root is empty; return nil
-		// so the caller can treat this as no arch metrics available.
+		// FallbackArchMetrics returns nil when root is empty or when BuildFromRepo
+		// fails (context timeout, parse error). Return nil so the caller omits
+		// arch metrics entirely rather than showing misleading zeros.
 		return nil
 	}
 	gctx, cancel := context.WithTimeout(ctx, 30*time.Second)

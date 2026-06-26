@@ -235,12 +235,18 @@ func convertHotspots(hh []compare.HotspotFile) *xmlHotspots {
 func convertArchMetrics(m *compare.ArchMetrics) *xmlArchMetrics {
 	x := &xmlArchMetrics{
 		PackageCount:      m.PackageCount,
-		CommunityCount:    m.CommunityCount,
 		CrossPkgCallRatio: m.CrossPkgCallRatio,
-		MaxCallDepth:      m.MaxCallDepth,
-		InterfaceRatio:    m.InterfaceRatio,
 		NotIndexed:        m.NotIndexed,
+		Approximate:       m.Approximate,
 		Hint:              m.Hint,
+	}
+	if !m.Approximate {
+		// MaxCallDepth, InterfaceRatio, and CommunityCount are not computed by
+		// the in-memory fallback. Omit them when Approximate=true so consumers
+		// cannot mistake their zero values for real measurements.
+		x.MaxCallDepth = m.MaxCallDepth
+		x.InterfaceRatio = m.InterfaceRatio
+		x.CommunityCount = m.CommunityCount
 	}
 	for _, gp := range m.GodPackages {
 		x.GodPackages = append(x.GodPackages, xmlGodPkg{Name: gp.Name, Importers: gp.Importers})
