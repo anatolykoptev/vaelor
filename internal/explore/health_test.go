@@ -1,6 +1,7 @@
 package explore
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/compare"
@@ -68,6 +69,50 @@ func TestComputeHealth_UsesCompareGradeScore(t *testing.T) {
 	}
 	if got.Grade != wantGrade {
 		t.Errorf("Grade = %q, want %q (compare.ComputeGrade)", got.Grade, wantGrade)
+	}
+}
+
+// TestComputeHealth_ApproximateFlag verifies that every non-nil HealthSummary
+// returned by computeHealth carries Approximate=true and a non-empty Hint that
+// references both "dependency-freshness" and "vulnerability".
+//
+// This test guards the self-documenting label introduced to explain why the
+// explore score can differ from code_health (explore omits dep-freshness +
+// vuln scanning). Removing Approximate=true or clearing the Hint from
+// computeHealth will make this test fail (red-on-revert guarantee).
+func TestComputeHealth_ApproximateFlag(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{
+			Name: "Foo", Kind: parser.KindFunction,
+			StartLine: 1, EndLine: 5, Complexity: 2,
+			DocComment: "Foo does foo.",
+			File:       "/repo/foo.go",
+		},
+	}
+	files := []*ingest.File{
+		{Path: "/repo/foo.go", RelPath: "foo.go"},
+	}
+
+	got := computeHealth(symbols, files)
+	if got == nil {
+		t.Fatal("computeHealth() = nil, want non-nil")
+	}
+
+	if !got.Approximate {
+		t.Error("Approximate = false, want true — explore omits dep-freshness + vuln penalties")
+	}
+	if got.Hint == "" {
+		t.Error("Hint = \"\", want non-empty explanation of the score gap")
+	}
+	if !strings.Contains(got.Hint, "dependency-freshness") {
+		t.Errorf("Hint %q does not mention dependency-freshness", got.Hint)
+	}
+	if !strings.Contains(got.Hint, "vulnerability") {
+		t.Errorf("Hint %q does not mention vulnerability", got.Hint)
+	}
+	// The hint must point users to the right tool.
+	if !strings.Contains(got.Hint, "code_health") {
+		t.Errorf("Hint %q does not reference code_health tool", got.Hint)
 	}
 }
 
