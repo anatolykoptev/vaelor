@@ -92,6 +92,7 @@ func CollectArchMetrics(ctx context.Context, store *codegraph.Store, root string
 		// Graph is empty — fall back to in-memory call graph for basic metrics.
 		slog.Debug("archgraph: graph empty — using in-memory fallback", "graph", graph)
 		if fb := FallbackArchMetrics(ctx, root); fb != nil {
+			fb.Approximate = true
 			fb.Hint = HintApproxArchMetrics
 			return fb
 		}

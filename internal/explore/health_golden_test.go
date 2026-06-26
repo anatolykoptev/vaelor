@@ -12,9 +12,9 @@ import (
 // threshold constant, or accumulation order is caught immediately.
 //
 // Scores are computed via compare.GradeScore (14-factor formula). Fields that
-// explore does not track (cognitive complexity, nesting, error handling,
-// duplication, etc.) default to 0, which GradeScore treats as best-case /
-// unknown for lower-is-better metrics and unknown for ratio metrics.
+// explore does not track default to 0. Zero is best-case for lower-is-better
+// ratios (LargeFile, Dup, Magic, SemDup → score 1.0) and worst-case for
+// coverage ratios (Error, DepFreshness, Vuln → score 0), capping explore at 80.
 //
 // Fixtures:
 //   - healthyRepo:  low complexity, high test ratio, high doc coverage → score 80, grade A
@@ -23,7 +23,7 @@ import (
 //
 // Score derivation (healthy_repo):
 //   - Files=3, AvgComplexity=2.5, MaxComplexity=3, AvgFuncLines=5
-//   - TestRatio=1/3≈0.333, DocRatio=1.0, all other fields=0 (best-case/unknown)
+//   - TestRatio=1/3≈0.333, DocRatio=1.0; error/freshness/vuln=0 (worst-case)
 //   - All 12 non-zero-default sub-scores clamp to 1.0 except error(0) and freshness(0) and vuln(0)
 //   - total = 0.12+0.07+0.05+0.12+0.09+0.08+0+0.07+0.07+0.05+0.06+0.02+0+0 = 0.80
 //   - score = round(0.80*100) = 80, grade = A

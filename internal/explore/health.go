@@ -51,9 +51,12 @@ func computeHealth(symbols []*parser.Symbol, files []*ingest.File) *HealthSummar
 }
 
 // buildExploreRepoMetrics maps the explore-local symbolMetrics into a
-// compare.RepoMetrics value.  Fields that explore does not track (cognitive
-// complexity, nesting, error handling, duplication, etc.) are left at their
-// zero values, which represent "best-case / unknown" in GradeScore's formulas.
+// compare.RepoMetrics value.  Fields that explore does not track are left at
+// zero. The impact on GradeScore varies by field: zero is best-case for
+// lower-is-better ratios (LargeFileRatio, DuplicationRatio, MagicNumberRatio,
+// SemanticDupRatio → scored as 1.0), but worst-case for coverage ratios
+// (ErrorHandlingRatio, DepFreshnessRatio, VulnSecurityRatio → scored as 0).
+// See the inline breakdown in buildExploreRepoMetrics for the per-field impact.
 func buildExploreRepoMetrics(sm symbolMetrics, testFiles, fileCount int) compare.RepoMetrics {
 	var avgComplexity, avgFuncLines, testRatio, docRatio float64
 	if sm.funcCount > 0 {

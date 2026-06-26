@@ -95,12 +95,15 @@ func writeOneArchMetrics(sb *strings.Builder, label string, m *ArchMetrics) {
 		fmt.Fprintf(sb, "**%s**: architecture metrics unavailable (code graph not indexed)\n", label)
 		return
 	}
-	if m.Hint != "" {
+	if m.Approximate {
 		// Approximate fallback: PackageCount and CrossPkgCallRatio are real;
-		// MaxCallDepth and InterfaceRatio are not computed by the in-memory path.
+		// MaxCallDepth, InterfaceRatio, and CommunityCount are not computed by
+		// the in-memory path. Both sinks (markdown + XML) gate on Approximate.
 		fmt.Fprintf(sb, "**%s** (approximate): %d packages, %.0f%% cross-package calls, call depth n/a, interface ratio n/a\n",
 			label, m.PackageCount, m.CrossPkgCallRatio*100)
-		fmt.Fprintf(sb, "  Note: %s\n", m.Hint)
+		if m.Hint != "" {
+			fmt.Fprintf(sb, "  Note: %s\n", m.Hint)
+		}
 	} else {
 		fmt.Fprintf(sb, "**%s**: %d packages, %.0f%% cross-package calls, max call depth %d, %.0f%% types behind interfaces\n",
 			label, m.PackageCount, m.CrossPkgCallRatio*100, m.MaxCallDepth, m.InterfaceRatio*100)
