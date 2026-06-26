@@ -93,8 +93,8 @@ func gatherHealthSemanticDup(ctx context.Context, semDeps *SemanticDeps, root st
 	funcCount := countFuncs(snap.Symbols)
 	if sem := semhealth.Analyze(ctx, semDeps.Store, repoKey, funcCount); sem != nil && sem.SemanticDupRatio > 0 {
 		metrics.SemanticDupRatio = sem.SemanticDupRatio
-		metrics.Score = compare.GradeScore(*metrics)
-		metrics.Grade = compare.ComputeGrade(*metrics)
+		// Score/Grade are recomputed once after all stages complete (in computeCodeHealth
+		// after wg.Wait()). Stages must not self-assign Score/Grade to avoid a race.
 	}
 }
 
@@ -115,11 +115,15 @@ func gatherHealthFreshness(ctx context.Context, root string, metrics *compare.Re
 	ctx = fCtx
 	manifests := freshness.DiscoverManifests(root)
 	if len(manifests) == 0 {
+		// Scan ran but found no manifests — mark DepsScanned so the N/A guard fires.
+		metrics.DepsScanned = true
 		return healthFreshnessResult{}
 	}
 
 	allDeps := freshness.CollectDeps(manifests)
 	if len(allDeps) == 0 {
+		// Manifests found but no deps in them — still a completed scan.
+		metrics.DepsScanned = true
 		return healthFreshnessResult{}
 	}
 
@@ -128,6 +132,11 @@ func gatherHealthFreshness(ctx context.Context, root string, metrics *compare.Re
 
 	fr := freshness.CheckFreshness(ctx, allDeps, reg)
 	metrics.DepFreshnessRatio = fr.Ratio
+	metrics.TotalDeps = fr.Total // 0 means no manifests found (N/A for scoring)
+	// Mark that a dep-freshness scan was attempted. This distinguishes a genuinely
+	// zero-dependency repo (TotalDeps==0 after scan) from an unscanned path like
+	// explore, which also leaves TotalDeps==0 but must NOT get the N/A neutral score.
+	metrics.DepsScanned = true
 
 	vr := freshness.CheckVulnerabilities(ctx, allDeps, client, freshness.DefaultOSVURL)
 	metrics.VulnSecurityRatio = vr.Ratio
@@ -142,8 +151,8 @@ func gatherHealthFreshness(ctx context.Context, root string, metrics *compare.Re
 		}
 	}
 
-	metrics.Score = compare.GradeScore(*metrics)
-	metrics.Grade = compare.ComputeGrade(*metrics)
+	// Score/Grade are recomputed once after all stages complete (in computeCodeHealth
+	// after wg.Wait()). Stages must not self-assign Score/Grade to avoid a race.
 
 	return healthFreshnessResult{fr: fr, vr: vr}
 }

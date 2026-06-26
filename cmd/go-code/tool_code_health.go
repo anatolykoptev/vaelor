@@ -228,10 +228,17 @@ func computeCodeHealth(
 	// Wait for all parallel stages.
 	wg.Wait()
 
+	// Compute the final score/grade once, after all stages have written their
+	// ratio fields. Stages must NOT self-assign Score/Grade to avoid a data race
+	// (two goroutines writing to the same metrics field simultaneously). This is
+	// the single authoritative scoring call.
+	metrics.Score = compare.GradeScore(metrics)
+	metrics.Grade = compare.ComputeGrade(metrics)
+
 	if deadCodeCandidates > 0 {
 		metrics.DeadCodeCandidates = deadCodeCandidates
 		metrics.DeadCodeTopNames = deadCodeTopNames
-		// Recompute score/grade with dead code penalty.
+		// Recompute score/grade with dead code penalty applied on top.
 		metrics.Score = compare.GradeScore(metrics)
 		metrics.Grade = compare.ComputeGrade(metrics)
 	}

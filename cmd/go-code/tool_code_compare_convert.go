@@ -188,6 +188,7 @@ func convertMetrics(m compare.RepoMetrics) xmlCompMetrics {
 		Score:                  m.Score,
 		SemanticDupRatio:       m.SemanticDupRatio,
 		DeadCodeCandidates:     m.DeadCodeCandidates,
+		TotalDeps:              m.TotalDeps,
 	}
 }
 
