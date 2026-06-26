@@ -142,4 +142,3 @@ func collectTestFileCount(symbols []*parser.Symbol, files []*ingest.File) int {
 	}
 	return testFiles
 }
-
