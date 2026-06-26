@@ -15,6 +15,7 @@ func TestComputeMetrics(t *testing.T) {
 			{
 				Name:      "Handler",
 				Kind:      parser.KindInterface,
+				Language:  "go",
 				File:      "/repo/handler.go",
 				StartLine: 1,
 				EndLine:   5,
@@ -22,6 +23,7 @@ func TestComputeMetrics(t *testing.T) {
 			{
 				Name:       "NewServer",
 				Kind:       parser.KindFunction,
+				Language:   "go",
 				File:       "/repo/server.go",
 				StartLine:  10,
 				EndLine:    29, // 20 lines
@@ -31,6 +33,7 @@ func TestComputeMetrics(t *testing.T) {
 			{
 				Name:      "internalHelper",
 				Kind:      parser.KindFunction,
+				Language:  "go",
 				File:      "/repo/server_test.go",
 				StartLine: 1,
 				EndLine:   10, // 10 lines
@@ -39,6 +42,7 @@ func TestComputeMetrics(t *testing.T) {
 			{
 				Name:      "ServeHTTP",
 				Kind:      parser.KindMethod,
+				Language:  "go",
 				File:      "/repo/handler.go",
 				StartLine: 7,
 				EndLine:   16, // 10 lines

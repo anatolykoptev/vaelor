@@ -69,6 +69,10 @@ type Symbol struct {
 	// Only populated for functions and methods (0 for other symbol kinds).
 	Complexity int
 
+	// CognitiveComplexity is the cognitive complexity of the function body (nesting-aware).
+	// Only populated for functions and methods (0 for other kinds).
+	CognitiveComplexity int
+
 	// BodyHash is a content hash of the normalized symbol body.
 	// Used for fast equality checks in code comparison (0 means not computed).
 	BodyHash uint64
