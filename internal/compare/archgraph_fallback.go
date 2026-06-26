@@ -16,10 +16,12 @@ const fallbackArchTimeout = 10 * time.Second
 // and derives PackageCount and CrossPkgCallRatio from it.  It is called when
 // CollectArchMetrics returns NotIndexed (AGE graph absent or repo not yet indexed).
 //
-// MaxCallDepth and CommunityCount are not computed here — they are too
-// expensive without the persistent graph store.
+// MaxCallDepth, InterfaceRatio, and CommunityCount are not computed here — they
+// are too expensive without the persistent graph store. Callers must set
+// HintApproxArchMetrics on the returned struct to indicate the metrics are approximate.
 //
-// Returns nil only if the root is empty.
+// Returns nil when root is empty or when BuildFromRepo fails (caller should
+// fall back to NotIndexed=true in that case).
 func FallbackArchMetrics(ctx context.Context, root string) *ArchMetrics {
 	if root == "" {
 		return nil
@@ -30,7 +32,10 @@ func FallbackArchMetrics(ctx context.Context, root string) *ArchMetrics {
 
 	cg, err := callgraph.BuildFromRepo(tCtx, callgraph.TraceRepoInput{Root: root})
 	if err != nil || cg == nil {
-		return &ArchMetrics{}
+		// BuildFromRepo failed (timeout, parse error, empty repo) — no data at all.
+		// Return nil so callers can set NotIndexed=true instead of returning
+		// an all-zero struct that looks like real metrics.
+		return nil
 	}
 
 	// Collect unique packages from caller symbols.

@@ -166,10 +166,12 @@ func gatherHealthArchMetrics(ctx context.Context, graphStore *codegraph.Store, r
 	if graphStore == nil {
 		fb := compare.FallbackArchMetrics(ctx, root)
 		if fb != nil {
-			fb.Hint = "Architecture metrics are approximate (derived from in-memory call graph). " +
-				"Run the `code_graph` tool with the same repo path for full analysis including call depth."
+			fb.Hint = compare.HintApproxArchMetrics
+			return fb
 		}
-		return fb
+		// FallbackArchMetrics returns nil only when root is empty; return nil
+		// so the caller can treat this as no arch metrics available.
+		return nil
 	}
 	gctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

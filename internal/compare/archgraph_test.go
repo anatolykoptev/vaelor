@@ -52,16 +52,21 @@ func TestFallbackArchMetrics(t *testing.T) {
 }
 
 // TestFallbackArchMetrics_InvalidRoot verifies that FallbackArchMetrics does
-// not panic on an invalid root path.  It must return a non-nil value.
+// not panic on a root path that does not exist. The ingest walk returns no
+// error for a nonexistent path (it simply finds no files), so the function
+// returns a non-nil zero-valued struct rather than nil.
+//
+// FallbackArchMetrics returns nil only when root == "" or when BuildFromRepo
+// itself returns an error (e.g. context cancelled before ingest, parse panic).
 func TestFallbackArchMetrics_InvalidRoot(t *testing.T) {
 	ctx := context.Background()
 	got := FallbackArchMetrics(ctx, "/nonexistent/path/that/cannot/exist")
 	if got == nil {
-		t.Fatal("FallbackArchMetrics returned nil for invalid root, want non-nil empty struct")
+		t.Fatal("FallbackArchMetrics returned nil for nonexistent root, want non-nil empty struct (ingest does not error on missing path)")
 	}
 	// Expect zero metrics — no packages found in a nonexistent path.
 	if got.PackageCount != 0 {
-		t.Errorf("PackageCount = %d, want 0 for invalid root", got.PackageCount)
+		t.Errorf("PackageCount = %d, want 0 for nonexistent root", got.PackageCount)
 	}
 }
 
