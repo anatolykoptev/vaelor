@@ -42,3 +42,34 @@ var orphanRepoKeysGauge = promauto.NewGauge(
 // SetOrphanRepoKeysGauge sets the gocode_orphan_repo_keys gauge. Called by the
 // orphan_sweep MCP tool after a sweep to report the post-sweep count.
 func SetOrphanRepoKeysGauge(n float64) { orphanRepoKeysGauge.Set(n) }
+
+// gocode_index_orphan_delete_skipped_total counts times the intra-key orphan
+// delete was skipped by the shrink-guard (seen < 70% of existing rows). A non-zero
+// rate indicates a partial parse was detected and mass-deletion was avoided.
+// reason="shrink_guard" is the only label value today.
+var orphanDeleteSkippedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_index_orphan_delete_skipped_total",
+		Help: "Times the intra-key orphan delete was skipped (e.g. shrink_guard: seen < 70%% of existing).",
+	},
+	[]string{"reason"},
+)
+
+// gocode_index_embeddings_coverage_rows is a gauge set after each full indexRepo
+// walk to the current embedding row count for that repo_key. A sudden drop signals
+// a half-empty index (e.g. from a previous bug or unexpected delete).
+//
+// Cardinality: 1 label (repo) — bounded by indexed repo count (~100).
+var embeddingsCoverageRows = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "gocode_index_embeddings_coverage_rows",
+		Help: "Current embedding row count for a repo_key after a full indexRepo walk.",
+	},
+	[]string{"repo"},
+)
+
+// SetEmbeddingsCoverageRows sets the gocode_index_embeddings_coverage_rows gauge.
+// Called after a successful full-walk orphan reconciliation.
+func SetEmbeddingsCoverageRows(repoKey string, n int) {
+	embeddingsCoverageRows.WithLabelValues(repoKey).Set(float64(n))
+}

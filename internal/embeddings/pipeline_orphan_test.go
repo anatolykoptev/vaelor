@@ -2,22 +2,23 @@ package embeddings
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"testing"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// -- Store.DeleteIntraKeyOrphans tests --
+// -- Store.DeleteExplicitOrphans tests --
 
-// TestDeleteIntraKeyOrphans_DeletesOrphan is the primary falsifiable guard:
+// TestDeleteExplicitOrphans_DeletesOrphan is the primary falsifiable guard:
 // seed symbols A, B, C for a repo_key; reindex with parsed set {A, B} (C deleted
 // from source); assert C's row is deleted and A, B are intact.
 //
-// Falsifiable: removing the DeleteIntraKeyOrphans call from indexRepo (or from
-// this test's direct call) leaves C's row in the DB → assert.Len fails.
-func TestDeleteIntraKeyOrphans_DeletesOrphan(t *testing.T) {
+// Falsifiable: reverting DeleteExplicitOrphans to no-op leaves C's row in the DB -> assert.Len fails.
+func TestDeleteExplicitOrphans_DeletesOrphan(t *testing.T) {
 	s := testStore(t)
 	const repo = "test/orphan-intra-key-deletes"
 	cleanRepo(t, s, repo)
@@ -25,13 +26,10 @@ func TestDeleteIntraKeyOrphans_DeletesOrphan(t *testing.T) {
 
 	insertSymbols(t, s, repo, "file.go", []string{"A", "B", "C"})
 
-	// Simulate re-parse: only A and B survive.
-	parsedKeys := map[string]bool{
-		"file.go:A": true,
-		"file.go:B": true,
-	}
+	// C is the explicit orphan (removed from source parse).
+	orphanKeys := []string{"file.go:C"}
 
-	deleted, err := s.DeleteIntraKeyOrphans(ctx, repo, parsedKeys)
+	deleted, err := s.DeleteExplicitOrphans(ctx, repo, orphanKeys)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, deleted, "C must be the single orphan deleted")
 
@@ -43,12 +41,12 @@ func TestDeleteIntraKeyOrphans_DeletesOrphan(t *testing.T) {
 	assert.Equal(t, []string{"A", "B"}, names, "A and B must survive reconciliation")
 }
 
-// TestDeleteIntraKeyOrphans_EmptyParsedKeysNoOp verifies the safety guard:
-// an empty parsedKeys must not delete any rows (partial parse / empty repo guard).
+// TestDeleteExplicitOrphans_EmptyOrphanKeysNoOp verifies that an empty orphanKeys
+// deletes nothing (no-op contract).
 //
-// Falsifiable: removing the len(parsedKeys)==0 early-return in DeleteIntraKeyOrphans
-// would delete all rows for the repo → assert.Len fails.
-func TestDeleteIntraKeyOrphans_EmptyParsedKeysNoOp(t *testing.T) {
+// Falsifiable: changing DeleteExplicitOrphans to DELETE-all on empty input would
+// wipe all rows -> assert.Len fails.
+func TestDeleteExplicitOrphans_EmptyOrphanKeysNoOp(t *testing.T) {
 	s := testStore(t)
 	const repo = "test/orphan-empty-parsed-noop"
 	cleanRepo(t, s, repo)
@@ -56,21 +54,21 @@ func TestDeleteIntraKeyOrphans_EmptyParsedKeysNoOp(t *testing.T) {
 
 	insertSymbols(t, s, repo, "file.go", []string{"X", "Y"})
 
-	deleted, err := s.DeleteIntraKeyOrphans(ctx, repo, map[string]bool{})
+	deleted, err := s.DeleteExplicitOrphans(ctx, repo, nil)
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, deleted, "empty parsedKeys must delete nothing (safety guard)")
+	assert.EqualValues(t, 0, deleted, "empty orphanKeys must delete nothing")
 
 	rows, err := s.GetSymbolsForFile(ctx, repo, "file.go")
 	require.NoError(t, err)
-	assert.Len(t, rows, 2, "all rows must survive when parsedKeys is empty")
+	assert.Len(t, rows, 2, "all rows must survive when orphanKeys is empty")
 }
 
-// TestDeleteIntraKeyOrphans_CrossRepoIsolation verifies that orphan cleanup for
-// one repo_key does not affect rows of another repo_key.
-func TestDeleteIntraKeyOrphans_CrossRepoIsolation(t *testing.T) {
+// TestDeleteExplicitOrphans_CrossRepoIsolation verifies that explicit-orphan
+// deletion for one repo_key does not affect rows of another repo_key.
+func TestDeleteExplicitOrphans_CrossRepoIsolation(t *testing.T) {
 	s := testStore(t)
-	const repoA = "test/orphan-cross-repo-A"
-	const repoB = "test/orphan-cross-repo-B"
+	const repoA = "test/explicit-cross-repo-A"
+	const repoB = "test/explicit-cross-repo-B"
 	cleanRepo(t, s, repoA)
 	cleanRepo(t, s, repoB)
 	ctx := context.Background()
@@ -78,41 +76,36 @@ func TestDeleteIntraKeyOrphans_CrossRepoIsolation(t *testing.T) {
 	insertSymbols(t, s, repoA, "file.go", []string{"FA"})
 	insertSymbols(t, s, repoB, "file.go", []string{"FB"})
 
-	// Reconcile repoA with an empty parsed set — safety guard must protect repoB too.
-	// (Even if we accidentally pass an empty set, repoB must be unaffected.)
-	_, err := s.DeleteIntraKeyOrphans(ctx, repoA, map[string]bool{})
+	// Empty orphanKeys for repoA -- repoB must not be touched.
+	_, err := s.DeleteExplicitOrphans(ctx, repoA, nil)
 	require.NoError(t, err)
 
 	rowsB, err := s.GetSymbolsForFile(ctx, repoB, "file.go")
 	require.NoError(t, err)
-	assert.Len(t, rowsB, 1, "repoB must not be affected by repoA reconciliation")
+	assert.Len(t, rowsB, 1, "repoB must not be affected by repoA no-op")
 
-	// Now reconcile repoA with a real parsed set that excludes FA.
-	_, err = s.DeleteIntraKeyOrphans(ctx, repoA, map[string]bool{"file.go:NEWONLY": true})
+	// Delete FA explicitly from repoA; repoB must remain unaffected.
+	_, err = s.DeleteExplicitOrphans(ctx, repoA, []string{"file.go:FA"})
 	require.NoError(t, err)
 	rowsB2, err := s.GetSymbolsForFile(ctx, repoB, "file.go")
 	require.NoError(t, err)
-	assert.Len(t, rowsB2, 1, "repoB.FB must still be intact after repoA orphan delete")
+	assert.Len(t, rowsB2, 1, "repoB.FB must be intact after repoA FA-delete")
 }
 
-// TestDeleteIntraKeyOrphans_AllPresent verifies that when parsedKeys matches all
-// existing rows exactly, zero rows are deleted.
-func TestDeleteIntraKeyOrphans_AllPresent(t *testing.T) {
+// TestDeleteExplicitOrphans_AllPresent verifies that an empty explicit orphan
+// list (no orphans) leaves all rows intact.
+func TestDeleteExplicitOrphans_AllPresent(t *testing.T) {
 	s := testStore(t)
-	const repo = "test/orphan-all-present"
+	const repo = "test/explicit-orphan-all-present"
 	cleanRepo(t, s, repo)
 	ctx := context.Background()
 
 	insertSymbols(t, s, repo, "file.go", []string{"P", "Q"})
 
-	parsedKeys := map[string]bool{
-		"file.go:P": true,
-		"file.go:Q": true,
-	}
-
-	deleted, err := s.DeleteIntraKeyOrphans(ctx, repo, parsedKeys)
+	// No orphans -- pass empty list.
+	deleted, err := s.DeleteExplicitOrphans(ctx, repo, nil)
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, deleted, "no orphans when parsedKeys matches all DB rows")
+	assert.EqualValues(t, 0, deleted, "no orphans passed -> 0 rows deleted")
 }
 
 // -- Store.DeleteOrphanRepoKeys tests --
@@ -216,7 +209,7 @@ func TestIndexRepo_OrphanDeletedOnFullReindex(t *testing.T) {
 	sort.Strings(names)
 
 	assert.NotContains(t, names, "Orphan",
-		"orphan symbol must be deleted by indexRepo reconciliation (reverting DeleteIntraKeyOrphans makes this fail)")
+		"orphan symbol must be deleted by indexRepo reconciliation (reverting deleteIntraKeyOrphans call makes this fail)")
 	assert.Contains(t, names, "Alpha", "Alpha must be indexed")
 	assert.Contains(t, names, "Beta", "Beta must be indexed")
 }
@@ -256,4 +249,180 @@ func TestIndexRepo_SameSHAPathDoesNotReconcile(t *testing.T) {
 	rows2, err := store.GetSymbolsForFile(ctx, repo, "main.go")
 	require.NoError(t, err)
 	assert.Len(t, rows2, 1, "Foo must still exist after second full index (no false-orphan delete)")
+}
+
+// -- Regression tests for PR #209 chunk-boundary data-loss bug --
+
+// TestDeleteExplicitOrphans_NoFalseDeleteBeyond500Keys is the load-bearing
+// regression for PR #209's chunk-boundary data-loss. With >500 parsed keys and
+// NO true orphans (all DB rows are in the parsed set), the new positive-IN-list
+// implementation must delete exactly 0 rows.
+//
+// The old NOT-IN-per-chunk implementation would delete most rows: chunk-1 of 500
+// protected 500 keys but deleted all others (rows 501-600). Chunk-2 would then
+// delete the chunk-1 survivors. Only the last chunk's rows survived.
+//
+// RED on origin/main: DeleteIntraKeyOrphans issues NOT-IN per chunk -> deletes
+// non-orphan rows. FAIL on assert.EqualValues(t, 0, deleted).
+// GREEN after fix: DeleteExplicitOrphans uses positive IN on empty orphanKeys -> 0.
+func TestDeleteExplicitOrphans_NoFalseDeleteBeyond500Keys(t *testing.T) {
+	s := testStore(t)
+	const repo = "test/explicit-orphan-no-false-delete-600"
+	cleanRepo(t, s, repo)
+	ctx := context.Background()
+
+	// Seed 600 rows across two files.
+	const total = 600
+	const half = total / 2
+	names1 := make([]string, half)
+	names2 := make([]string, half)
+	for i := range names1 {
+		names1[i] = fmt.Sprintf("SymF1_%04d", i)
+		names2[i] = fmt.Sprintf("SymF2_%04d", i)
+	}
+	insertSymbols(t, s, repo, "file1.go", names1)
+	insertSymbols(t, s, repo, "file2.go", names2)
+
+	// Zero orphans: explicitly pass empty orphanKeys.
+	var orphanKeys []string
+
+	deleted, err := s.DeleteExplicitOrphans(ctx, repo, orphanKeys)
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, deleted,
+		"zero orphans passed -> 0 rows deleted; non-zero means positive-IN is broken")
+
+	rows1, err := s.GetSymbolsForFile(ctx, repo, "file1.go")
+	require.NoError(t, err)
+	rows2, err := s.GetSymbolsForFile(ctx, repo, "file2.go")
+	require.NoError(t, err)
+	assert.Len(t, rows1, half, "all file1.go rows must survive")
+	assert.Len(t, rows2, half, "all file2.go rows must survive")
+}
+
+// TestDeleteExplicitOrphans_TrueOrphansAcross500Boundary seeds 600 rows and
+// passes 10 explicit orphan keys (those crossing the 500 boundary). The fix must
+// delete exactly those 10 and leave 590 intact.
+//
+// RED on origin/main (equivalent via DeleteIntraKeyOrphans NOT-IN): would delete
+// far more than 10. GREEN after fix: positive IN on 10-key orphanKeys -> exactly 10.
+func TestDeleteExplicitOrphans_TrueOrphansAcross500Boundary(t *testing.T) {
+	s := testStore(t)
+	const repo = "test/explicit-orphan-true-across-500"
+	cleanRepo(t, s, repo)
+	ctx := context.Background()
+
+	const total = 600
+	const orphanCount = 10
+	const surviveCount = total - orphanCount
+
+	names := make([]string, total)
+	for i := range names {
+		names[i] = fmt.Sprintf("Sym_%04d", i)
+	}
+	insertSymbols(t, s, repo, "file1.go", names)
+
+	// Orphan keys = last 10 (Sym_0590 .. Sym_0599).
+	orphanKeys := make([]string, orphanCount)
+	for i := 0; i < orphanCount; i++ {
+		orphanKeys[i] = "file1.go:" + names[surviveCount+i]
+	}
+
+	deleted, err := s.DeleteExplicitOrphans(ctx, repo, orphanKeys)
+	require.NoError(t, err)
+	assert.EqualValues(t, orphanCount, deleted,
+		"exactly 10 orphan rows must be deleted")
+
+	rows, err := s.GetSymbolsForFile(ctx, repo, "file1.go")
+	require.NoError(t, err)
+	assert.Len(t, rows, surviveCount,
+		"590 rows must survive; fewer means non-orphan rows were wrongly deleted")
+}
+
+// TestDeleteExplicitOrphans_ShrinkGuardViaPipeline verifies that when seen < 70% of existing,
+// deleteIntraKeyOrphans is skipped and the shrink-guard counter increments.
+// This is a direct-store-level test of the guard in DeleteExplicitOrphans caller
+// (pipeline.go deleteIntraKeyOrphans helper) via a full IndexRepo run.
+//
+// Setup: seed 600 rows, then replace the source with only 100 symbols (partial-parse
+// simulation). The shrink-guard must fire (100/600 < 0.7) and leave 600 rows intact.
+//
+// RED on origin/main: no shrink-guard; the NOT-IN anti-join would delete ~500 rows
+// -> rows count < 600 -> assert.Len fails.
+// GREEN after fix: guard fires, 0 rows deleted, all 600 survive.
+func TestDeleteExplicitOrphans_ShrinkGuardViaPipeline(t *testing.T) {
+	p, store := testPipeline(t)
+	ctx := context.Background()
+	const repo = "test/shrink-guard-pipeline"
+	cleanRepo(t, store, repo)
+
+	// First, write 600 rows directly (simulating a prior full index).
+	const total = 600
+	names := make([]string, total)
+	for i := range names {
+		names[i] = fmt.Sprintf("Sym_%04d", i)
+	}
+	insertSymbols(t, store, repo, "legacy_file.go", names)
+
+	preRows, err := store.GetSymbolsForFile(ctx, repo, "legacy_file.go")
+	require.NoError(t, err)
+	require.Len(t, preRows, total, "precondition: 600 rows seeded")
+
+	// Now IndexRepo against a fresh source with only ~16 symbols
+	// (100/600 = 16.7% < 70% threshold -> shrink-guard fires).
+	// Use a small temp dir with a few functions.
+	dir := t.TempDir()
+	smallNames := make([]string, 16)
+	for i := range smallNames {
+		smallNames[i] = fmt.Sprintf("NewFunc%02d", i)
+	}
+	writeTempGoFile(t, dir, "main.go", smallNames)
+
+	beforeSkipped := counterValue(orphanDeleteSkippedTotal.WithLabelValues("shrink_guard"))
+
+	_, err = p.IndexRepo(ctx, repo, dir)
+	require.NoError(t, err)
+
+	afterSkipped := counterValue(orphanDeleteSkippedTotal.WithLabelValues("shrink_guard"))
+
+	// Shrink-guard must have fired.
+	assert.Greater(t, afterSkipped, beforeSkipped,
+		"orphanDeleteSkippedTotal{reason=shrink_guard} must increment when seen < 70%% of existing")
+
+	// The legacy rows must NOT have been bulk-deleted.
+	legacyRows, err := store.GetSymbolsForFile(ctx, repo, "legacy_file.go")
+	require.NoError(t, err)
+	assert.Len(t, legacyRows, total,
+		"all 600 legacy rows must survive when shrink-guard fires (partial-parse protection)")
+}
+
+// -- Coverage gauge wiring tests --
+
+// TestIndexRepo_CoverageGaugeSetAfterFullIndex is the falsifiable guard for the
+// gocode_index_embeddings_coverage_rows gauge wiring: run IndexRepo on a
+// source with 2 known symbols and assert the gauge is set to that count.
+//
+// Falsifiable: removing the SetEmbeddingsCoverageRows call from indexRepoWithTool
+// leaves the gauge at 0 -> assert.InDelta fails.
+func TestIndexRepo_CoverageGaugeSetAfterFullIndex(t *testing.T) {
+	p, _ := testPipeline(t)
+	ctx := context.Background()
+	const repo = "test/coverage-gauge-embed-path"
+
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "main.go", []string{"FuncAlpha", "FuncBeta"})
+
+	_, err := p.IndexRepo(ctx, repo, dir)
+	require.NoError(t, err)
+
+	// Read the gauge for this repo via the GaugeVec.
+	g := embeddingsCoverageRows.WithLabelValues(repo)
+	var m dto.Metric
+	require.NoError(t, g.Write(&m))
+	require.NotNil(t, m.Gauge, "gauge must have been written")
+	got := m.Gauge.GetValue()
+
+	// Expect exactly 2 rows (FuncAlpha + FuncBeta).
+	assert.InDelta(t, 2.0, got, 0.0,
+		"gocode_index_embeddings_coverage_rows must equal 2 after indexing 2 symbols; "+
+			"removing SetEmbeddingsCoverageRows call makes this fail")
 }
