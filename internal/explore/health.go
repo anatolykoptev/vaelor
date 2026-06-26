@@ -3,7 +3,6 @@ package explore
 import (
 	"math"
 	"strings"
-	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -105,7 +104,7 @@ func collectSymbolMetrics(symbols []*parser.Symbol) symbolMetrics {
 				sm.totalFuncLines += int(sym.EndLine - sym.StartLine)
 			}
 		}
-		if isExportedForDoc(sym) {
+		if langutil.IsExportedForDoc(sym.Name, sym.Language, sym.IsPublic) {
 			sm.exportedCount++
 			if sym.DocComment != "" {
 				sm.documentedCount++
@@ -193,31 +192,6 @@ func scoreToGrade(score int) string {
 		return "D"
 	default:
 		return "F"
-	}
-}
-
-func isExportedName(name string) bool {
-	for _, r := range name {
-		return unicode.IsUpper(r)
-	}
-	return false
-}
-
-// isExportedForDoc reports whether a symbol is considered exported for doc-coverage
-// purposes, using language-appropriate rules. For JS/TS, any non-underscore name
-// is exported (no uppercase convention). For Go and similar, uppercase first rune.
-func isExportedForDoc(sym *parser.Symbol) bool {
-	if sym.IsPublic {
-		return true
-	}
-	switch sym.Language {
-	case "javascript", "typescript":
-		if sym.Name == "" {
-			return false
-		}
-		return sym.Name[0] != '_'
-	default:
-		return isExportedName(sym.Name)
 	}
 }
 
