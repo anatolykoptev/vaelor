@@ -175,6 +175,9 @@ func buildFileSymbols(af analyze.AnalyzedFile, limits depthLimits) []xmlFileSym 
 		if sym.Complexity > 0 {
 			xs.Complexity = sym.Complexity
 		}
+		if sym.CognitiveComplexity > 0 {
+			xs.CognitiveComplexity = sym.CognitiveComplexity
+		}
 		if limits.includeDoc && sym.DocComment != "" {
 			xs.Doc = truncateDoc(sym.DocComment)
 		}
