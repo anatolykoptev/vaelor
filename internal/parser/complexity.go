@@ -47,10 +47,12 @@ func stripStringLiterals(s string) string {
 
 // Complexity estimates cyclomatic complexity from a function body.
 // Heuristic keyword counting (not full AST), fast and language-agnostic.
-// Returns 0 for empty body, 1+ for non-empty (1 = linear, no branches).
-func Complexity(body string) int {
-	if body == "" {
-		return 0
+// Comments are stripped before counting. Returns 1 for empty or comment-only
+// bodies (base complexity of any function is 1).
+func Complexity(body, language string) int {
+	body = clean.StripComments(body, language)
+	if strings.TrimSpace(body) == "" {
+		return 1
 	}
 	cc := 1
 	type kw struct {
