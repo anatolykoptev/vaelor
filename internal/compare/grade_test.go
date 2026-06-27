@@ -271,3 +271,50 @@ func TestCompareRepos_GradeReflectsFreshness(t *testing.T) {
 		t.Fatalf("freshness+vuln score delta = %.1f, want ~12 (0.06+0.06 weights * 100)", delta)
 	}
 }
+
+// TestCompareRepos_ZeroDepNeutral guards that applyEnrichmentAndRescore treats
+// nil freshnessStats (zero-dep repos — no manifests found) identically to how
+// code_health/#250 treats them: DepsScanned=true + TotalDeps=0, so the N/A guard
+// in GradeScore fires and the repo is not penalised on dep/vuln dimensions.
+//
+// RED-without-fix proof: before the fix, freshnessStats==nil leaves DepsScanned=false,
+// which makes the !DepsScanned branch in GradeScore apply legacy zero-ratio penalties
+// (−12 pts dep+vuln), dropping a perfect-metric repo from ~C to F.
+func TestCompareRepos_ZeroDepNeutral(t *testing.T) {
+	t.Parallel()
+
+	// Fixture: realistic httprouter-style repo — all quality dims near target,
+	// but NOT tuned to perfection so the score is not trivially 100.
+	m := RepoMetrics{
+		Files:                  20,
+		AvgCognitiveComplexity: targetCognitiveComplexity,
+		AvgComplexity:          targetCyclomaticAvg,
+		MaxComplexity:          int(targetCyclomaticMax),
+		TestRatio:              targetTestRatio,
+		DocRatio:               targetDocRatio,
+		AvgFuncLines:           targetFuncSize,
+		ErrorHandlingRatio:     targetErrorHandlingRatio,
+		MaxNestingDepth:        int(targetNestingDepth),
+		// DepsScanned=false, TotalDeps=0 — state before applyEnrichmentAndRescore
+	}
+
+	// Drive the REAL production helper with nil freshnessStats (zero-dep case).
+	applyEnrichmentAndRescore(&m, nil)
+
+	// DepsScanned must be true after the call so future GradeScore calls stay neutral.
+	if !m.DepsScanned {
+		t.Fatalf("DepsScanned = false after applyEnrichmentAndRescore(nil); want true (N/A guard must fire)")
+	}
+
+	// Score must be in the C-range (≥55), not penalised down to F.
+	// Without the fix DepsScanned stays false → GradeScore applies dep+vuln penalties
+	// → score drops ~12 pts, landing in F territory for an otherwise-decent repo.
+	if m.Score < 55 {
+		t.Fatalf("Score = %.1f after zero-dep enrichment, want ≥55 (phantom dep penalty must not apply)", m.Score)
+	}
+
+	// Grade must not be F — a zero-dep repo with good code quality should be C or better.
+	if m.Grade == "F" || m.Grade == "" {
+		t.Fatalf("Grade = %q after zero-dep enrichment, want C or better (DepsScanned N/A guard must fire)", m.Grade)
+	}
+}

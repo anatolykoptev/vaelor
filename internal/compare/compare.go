@@ -256,15 +256,23 @@ func collectHotspots(ctx context.Context, root string, snap *RepoSnapshot) []Hot
 
 // applyEnrichmentAndRescore propagates freshness/vuln fields from a freshness scan
 // result into m, then recomputes Score and Grade so they reflect the enriched data.
-// When freshnessStats is nil (no manifests found), the metrics are unchanged and
-// Score/Grade are still recomputed from their current field values.
+// When freshnessStats is nil (no manifests found — zero-dep repo), we still mark
+// DepsScanned=true so the N/A guard in GradeScore fires and no phantom penalty is
+// applied. This matches gatherHealthFreshness in code_health (#250).
 func applyEnrichmentAndRescore(m *RepoMetrics, freshnessStats *FreshnessStats) {
 	if freshnessStats != nil {
 		m.DepFreshnessRatio = freshnessStats.DepFreshnessRatio
 		m.VulnSecurityRatio = freshnessStats.VulnSecurityRatio
 		m.TotalDeps = freshnessStats.TotalDeps
-		m.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
+	} else {
+		// nil means CollectFreshness ran but found no manifests (zero deps).
+		// TotalDeps stays 0; set DepsScanned so the N/A guard in GradeScore treats
+		// dep/vuln dimensions as neutral instead of applying legacy zero-ratio penalties.
+		m.TotalDeps = 0
 	}
+	// Always mark DepsScanned=true: the scan ran (compare always calls CollectFreshness).
+	// This distinguishes zero-dep repos from the unscanned explore path.
+	m.DepsScanned = true
 	m.Score = GradeScore(*m)
 	m.Grade = ComputeGrade(*m)
 }
