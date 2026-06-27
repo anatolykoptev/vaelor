@@ -4,7 +4,6 @@
 package cache
 
 import (
-	"container/list"
 	"context"
 	"hash/fnv"
 	"strconv"
@@ -32,21 +31,18 @@ type Stats struct {
 
 // ──────────────────────────────────────────────────────────────────
 // ParseCache — caches *parser.ParseResult per file path.
-// Invalidation: modTime or size changed. Eviction: LRU.
+// Invalidation: modTime or size changed. Eviction: LRU (access-order).
 // ──────────────────────────────────────────────────────────────────
 
 // ParseCache caches tree-sitter parse results keyed by absolute file path.
 type ParseCache struct {
-	mu      sync.Mutex
-	entries map[string]*list.Element // key → LRU element
-	order   *list.List               // front = most recent
-	maxSize int
-	hits    int64
-	misses  int64
+	mu     sync.Mutex
+	lru    *LRU[string, parseCacheEntry]
+	hits   int64
+	misses int64
 }
 
 type parseCacheEntry struct {
-	key     string
 	result  *parser.ParseResult
 	modTime int64 // unix nano
 	size    int64
@@ -58,9 +54,7 @@ func NewParseCache(maxSize int) *ParseCache {
 		maxSize = DefaultParseCacheSize
 	}
 	return &ParseCache{
-		entries: make(map[string]*list.Element, maxSize),
-		order:   list.New(),
-		maxSize: maxSize,
+		lru: NewLRU[string, parseCacheEntry](maxSize),
 	}
 }
 
@@ -70,65 +64,35 @@ func (c *ParseCache) Get(path string, modTime int64, size int64) *parser.ParseRe
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	el, ok := c.entries[path]
+	e, ok := c.lru.Get(path)
 	if !ok {
 		c.misses++
 		return nil
 	}
 
-	entry := el.Value.(*parseCacheEntry)
-	if entry.modTime != modTime || entry.size != size {
+	if e.modTime != modTime || e.size != size {
 		// Stale — remove and treat as miss.
-		c.order.Remove(el)
-		delete(c.entries, path)
+		c.lru.Delete(path)
 		c.misses++
 		return nil
 	}
 
-	c.order.MoveToFront(el)
 	c.hits++
-	return entry.result
+	return e.result
 }
 
 // Put stores a parse result. Evicts the least-recently-used entry if at capacity.
 func (c *ParseCache) Put(path string, modTime int64, size int64, result *parser.ParseResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	// Update existing entry.
-	if el, ok := c.entries[path]; ok {
-		c.order.MoveToFront(el)
-		e := el.Value.(*parseCacheEntry)
-		e.result = result
-		e.modTime = modTime
-		e.size = size
-		return
-	}
-
-	// Evict LRU if at capacity.
-	if c.order.Len() >= c.maxSize {
-		tail := c.order.Back()
-		if tail != nil {
-			evicted := c.order.Remove(tail).(*parseCacheEntry)
-			delete(c.entries, evicted.key)
-		}
-	}
-
-	entry := &parseCacheEntry{
-		key:     path,
-		result:  result,
-		modTime: modTime,
-		size:    size,
-	}
-	el := c.order.PushFront(entry)
-	c.entries[path] = el
+	c.lru.Set(path, parseCacheEntry{result: result, modTime: modTime, size: size})
 }
 
 // Stats returns current cache statistics.
 func (c *ParseCache) Stats() Stats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return Stats{Hits: c.hits, Misses: c.misses, Entries: c.order.Len()}
+	return Stats{Hits: c.hits, Misses: c.misses, Entries: c.lru.Len()}
 }
 
 // ──────────────────────────────────────────────────────────────────
