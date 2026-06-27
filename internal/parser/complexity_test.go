@@ -5,25 +5,28 @@ import "testing"
 func TestComplexity(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		body string
-		want int
+		name     string
+		body     string
+		language string
+		want     int
 	}{
-		{"empty", "", 0},
-		{"simple", "func foo() { return 42 }", 1},
-		{"one_if", "if x > 0 { return x }", 2},
-		{"if_else_if", "if a { } else if b { }", 3},
-		{"for_with_conditions", "for i := 0; i < n; i++ { if x && y { } }", 4},
-		{"switch_cases", "switch x { case 1: case 2: case 3: }", 4},
-		{"logical_or", "if a || b || c { }", 4},
-		{"while_loop", "while running { if err { break } }", 3},
-		{"try_catch", "try { run() } catch(err) { log(err) }", 2},
-		{"python_except", "try: run() except ValueError: pass", 2},
+		// empty body -> 1 (base complexity of any function is 1)
+		{"empty", "", "go", 1},
+		{"simple", "func foo() { return 42 }", "go", 1},
+		{"one_if", "if x > 0 { return x }", "go", 2},
+		{"if_else_if", "if a { } else if b { }", "go", 3},
+		{"for_with_conditions", "for i := 0; i < n; i++ { if x && y { } }", "go", 4},
+		{"switch_cases", "switch x { case 1: case 2: case 3: }", "go", 4},
+		{"logical_or", "if a || b || c { }", "go", 4},
+		{"while_loop", "while running { if err { break } }", "go", 3},
+		{"try_catch", "try { run() } catch(err) { log(err) }", "go", 2},
+		{"python_except", "try: run() except ValueError: pass", "python", 2},
 	}
 	for _, tc := range tests {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Complexity(tc.body)
+			got := Complexity(tc.body, tc.language)
 			if got != tc.want {
 				t.Errorf("Complexity(%q) = %d, want %d", tc.name, got, tc.want)
 			}
@@ -45,7 +48,7 @@ func TestComplexity_MultiLine(t *testing.T) {
 	}
 	return 0
 }`
-	got := Complexity(body)
+	got := Complexity(body, "go")
 	if got < 4 {
 		t.Errorf("multi-line branchy function: expected complexity >= 4, got %d", got)
 	}
@@ -199,4 +202,81 @@ func containsCheck(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// TestCyclomaticComplexityParity is a fitness test that ensures parser.Complexity
+// strips comments before counting — preventing code_compare and code_graph from
+// producing different complexity numbers for the same function.
+//
+// This test is RED on origin/main (parser.Complexity does not strip comments)
+// and GREEN after the fix (Complexity(body, language) strips comments first).
+func TestCyclomaticComplexityParity(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		body     string
+		language string
+		want     int
+	}{
+		{
+			// Comment containing a keyword must NOT inflate the count.
+			// After stripping "// if x > 0 {" the remaining body has no branches -> want 1.
+			name:     "comment_keyword_not_counted",
+			body:     "// if x > 0 {\nreturn 1\n",
+			language: "go",
+			want:     1,
+		},
+		{
+			// Empty body -> convention is 1 (matches compare.cyclomaticComplexity).
+			name:     "empty_body_returns_1",
+			body:     "",
+			language: "go",
+			want:     1,
+		},
+		{
+			// Real if -> 2.
+			name:     "real_if_counts",
+			body:     "if x > 0 {\nreturn 1\n}\n",
+			language: "go",
+			want:     2,
+		},
+		{
+			// Nested for+if -> 3 (1 base + for + if).
+			name:     "nested_for_if",
+			body:     "for i := 0; i < n; i++ {\nif i > 0 {\nbreak\n}\n}\n",
+			language: "go",
+			want:     3,
+		},
+		{
+			// Python comment with if must not be counted.
+			name:     "python_comment_keyword",
+			body:     "# if x > 0:\nreturn 1\n",
+			language: "python",
+			want:     1,
+		},
+		{
+			// JS line comment with if must not be counted.
+			name:     "js_comment_keyword",
+			body:     "// if (x > 0) {\nreturn 1;\n",
+			language: "javascript",
+			want:     1,
+		},
+		{
+			// Comment containing if AND a real if: only the real one counts.
+			name:     "comment_plus_real_if",
+			body:     "// if this were a comment\nif x > 0 {\nreturn 1\n}\n",
+			language: "go",
+			want:     2,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := Complexity(tc.body, tc.language)
+			if got != tc.want {
+				t.Errorf("Complexity(%q, %q) = %d, want %d", tc.name, tc.language, got, tc.want)
+			}
+		})
+	}
 }
