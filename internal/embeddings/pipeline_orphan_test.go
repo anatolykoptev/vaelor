@@ -27,7 +27,7 @@ func TestDeleteExplicitOrphans_DeletesOrphan(t *testing.T) {
 	insertSymbols(t, s, repo, "file.go", []string{"A", "B", "C"})
 
 	// C is the explicit orphan (removed from source parse).
-	orphanKeys := []string{"file.go:C"}
+	orphanKeys := []string{"file.go" + symKeySep + "C"}
 
 	deleted, err := s.DeleteExplicitOrphans(ctx, repo, orphanKeys)
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestDeleteExplicitOrphans_CrossRepoIsolation(t *testing.T) {
 	assert.Len(t, rowsB, 1, "repoB must not be affected by repoA no-op")
 
 	// Delete FA explicitly from repoA; repoB must remain unaffected.
-	_, err = s.DeleteExplicitOrphans(ctx, repoA, []string{"file.go:FA"})
+	_, err = s.DeleteExplicitOrphans(ctx, repoA, []string{"file.go" + symKeySep + "FA"})
 	require.NoError(t, err)
 	rowsB2, err := s.GetSymbolsForFile(ctx, repoB, "file.go")
 	require.NoError(t, err)
@@ -324,7 +324,7 @@ func TestDeleteExplicitOrphans_TrueOrphansAcross500Boundary(t *testing.T) {
 	// Orphan keys = last 10 (Sym_0590 .. Sym_0599).
 	orphanKeys := make([]string, orphanCount)
 	for i := 0; i < orphanCount; i++ {
-		orphanKeys[i] = "file1.go:" + names[surviveCount+i]
+		orphanKeys[i] = "file1.go" + symKeySep + names[surviveCount+i]
 	}
 
 	deleted, err := s.DeleteExplicitOrphans(ctx, repo, orphanKeys)
@@ -425,4 +425,54 @@ func TestIndexRepo_CoverageGaugeSetAfterFullIndex(t *testing.T) {
 	assert.InDelta(t, 2.0, got, 0.0,
 		"gocode_index_embeddings_coverage_rows must equal 2 after indexing 2 symbols; "+
 			"removing SetEmbeddingsCoverageRows call makes this fail")
+}
+
+// -- Bug #5 regression: NUL separator for colon-in-path safety --
+
+// TestDeleteExplicitOrphans_ColonInFilePath is the RED-without-fix guard for
+// Bug #5 (NUL-separator). It verifies that a symbol whose file_path contains a
+// colon (legal on Unix; also occurs with C++ "::" in names) is correctly
+// reconstructed by DeleteExplicitOrphans.
+//
+// Failure mode with old ":" separator + strings.IndexByte(key, ':'):
+//
+//	key = "weird:dir/foo.go:MyFunc"
+//	first-colon split → file="weird", sym="dir/foo.go:MyFunc"
+//	DELETE WHERE file_path='weird' AND symbol_name='dir/foo.go:MyFunc'
+//	→ no matching DB row → deleted==0 → assert fails.
+//
+// With symKeySep ("\x00") the key is "weird:dir/foo.go\x00MyFunc":
+//
+//	strings.Cut(key, "\x00") → file="weird:dir/foo.go", sym="MyFunc"
+//	DELETE WHERE file_path='weird:dir/foo.go' AND symbol_name='MyFunc'
+//	→ 1 matching row → deleted==1 → assert passes.
+//
+// To confirm RED-without-fix: revert symKeySep to ":" in symkey.go and the
+// deleted count becomes 0 (wrong split, no DB row matched).
+func TestDeleteExplicitOrphans_ColonInFilePath(t *testing.T) {
+	s := testStore(t)
+	const repo = "test/colon-in-filepath-bug5"
+	cleanRepo(t, s, repo)
+	ctx := context.Background()
+
+	// Insert a symbol where file_path itself contains a colon.
+	const colonPath = "weird:dir/foo.go"
+	const symName = "MyFunc"
+	insertSymbols(t, s, repo, colonPath, []string{symName})
+
+	// Build the orphan key using the shared separator (as filterSymbols and
+	// GetHashes do). This is the key that deleteIntraKeyOrphans passes to
+	// DeleteExplicitOrphans.
+	orphanKey := colonPath + symKeySep + symName
+
+	deleted, err := s.DeleteExplicitOrphans(ctx, repo, []string{orphanKey})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, deleted,
+		"DeleteExplicitOrphans must delete exactly the symbol at weird:dir/foo.go; "+
+			"deleted==0 means the colon-in-path split is wrong (old ':' separator bug)")
+
+	rows, err := s.GetSymbolsForFile(ctx, repo, colonPath)
+	require.NoError(t, err)
+	assert.Empty(t, rows,
+		"no rows must remain for weird:dir/foo.go after its only symbol was orphaned")
 }
