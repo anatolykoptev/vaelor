@@ -103,6 +103,11 @@ func TestDupFPClasses(t *testing.T) {
 	}
 
 	// ── True positives must be RETAINED (no over-suppression) ─────────────────
+	// These are synthetic parser-fixture strings used as representative inputs for
+	// the signature-parsing and over-suppression logic below. The actual
+	// cross-package duplicates (e.g. countSourceFiles, commonPrefixLen) were
+	// consolidated in PR #258 — these names are kept only to exercise the
+	// over-suppression guard against new regressions.
 	truePositives := []string{"countSourceFiles", "commonPrefixLen", "hasTestAttribute", "upsertBatch"}
 	for _, tp := range truePositives {
 		if !reported[tp] {
