@@ -13,11 +13,22 @@ import (
 // testPoolPR creates a pgxpool connection for the isolated pagerank test database.
 // Reads PR_TEST_DATABASE_URL; skips if unset.
 // The test database must exist and have AGE installed (see setup in PR description).
+//
+// Hard guard: rejects the prod "gocode" DB name to prevent accidental
+// writes against production (consistent with testPool / testPoolAGE guards).
 func testPoolPR(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("PR_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("PR_TEST_DATABASE_URL not set — skipping pagerank AGE integration test")
+	}
+	cfg, parseErr := pgxpool.ParseConfig(dsn)
+	if parseErr != nil {
+		t.Fatalf("parse PR_TEST_DATABASE_URL: %v", parseErr)
+	}
+	if strings.EqualFold(cfg.ConnConfig.Database, "gocode") {
+		t.Fatalf("refusing to run pagerank tests against the prod gocode DB; " +
+			"set PR_TEST_DATABASE_URL to an isolated DB (e.g. gocode_testiso)")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
@@ -28,12 +39,26 @@ func testPoolPR(t *testing.T) *pgxpool.Pool {
 }
 
 // testPoolAGE creates a pgxpool connection for AGE integration tests.
-// Skips when DATABASE_URL is not set.
+//
+// Reads PR_TEST_DATABASE_URL (NOT DATABASE_URL) so that a plain
+// `go test ./internal/embeddings/...` with only the prod DATABASE_URL set
+// skips these tests and does not touch the live DB.
+//
+// Hard guard: rejects the prod "gocode" DB name to prevent accidental
+// reads / writes against production (same rule as testPool in store_test.go).
 func testPoolAGE(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := os.Getenv("PR_TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL not set — skipping AGE integration test")
+		t.Skip("set PR_TEST_DATABASE_URL to an isolated DB to run AGE integration tests")
+	}
+	cfg, parseErr := pgxpool.ParseConfig(dsn)
+	if parseErr != nil {
+		t.Fatalf("parse PR_TEST_DATABASE_URL: %v", parseErr)
+	}
+	if strings.EqualFold(cfg.ConnConfig.Database, "gocode") {
+		t.Fatalf("refusing to run AGE integration tests against the prod gocode DB; " +
+			"set PR_TEST_DATABASE_URL to an isolated DB (e.g. gocode_testiso)")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
