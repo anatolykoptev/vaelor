@@ -142,7 +142,7 @@ func (s *Store) GetHashes(ctx context.Context, repoKey string) (map[string]uint6
 		if err := rows.Scan(&file, &name, &hash); err != nil {
 			return nil, fmt.Errorf("scan hash: %w", err)
 		}
-		result[file+":"+name] = uint64(hash)
+		result[file+symKeySep+name] = uint64(hash)
 	}
 	return result, rows.Err()
 }

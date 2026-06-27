@@ -469,25 +469,30 @@ func (p *Pipeline) indexRepoWithTool(
 	return result, nil
 }
 
-// filterSymbols deduplicates symbols by (file:name) key and returns the subset
-// that differ from the existing hash map (toEmbed) along with the complete
-// parsed key set (seen). Matching symbols increment result.Skipped.
+// filterSymbols deduplicates symbols by (file_path+symKeySep+symbol_name) key
+// and returns the subset that differ from the existing hash map (toEmbed) along
+// with the complete parsed key set (seen). Matching symbols increment result.Skipped.
 //
-// seen must be the COMPLETE (file_path:symbol_name) set; callers use it for
-// orphan detection (deleteIntraKeyOrphans). Do not call on a partial parse.
+// seen must be the COMPLETE (file_path+symKeySep+symbol_name) set; callers use it
+// for orphan detection (deleteIntraKeyOrphans). Do not call on a partial parse.
 //
-// Note on dedup: filterSymbols collapses by file:name ignoring kind/signature,
-// so same-name funcs under different build-tags count as one seen key (e.g.
-// 854 raw symbols -> 794 unique). This is NOT data-loss: all build-tag variants
-// remain in DB until orphan-delete runs; the dedup only affects toEmbed sizing
-// and result.Skipped counts.
+// Note on dedup lossiness: filterSymbols collapses by (file_path, symbol_name)
+// ignoring kind/signature. Two symbols with the same file+name but different
+// build-tags or C++ overloads collapse to one entry; only the first is embedded,
+// making overloads and build-tag variants independently un-searchable.
+// Root cause: the storage PK is (repo_key, file_path, symbol_name); a future
+// PK migration adding kind/signature would be required to fix this.
+// In practice, same-name funcs under different build-tags count as one seen key
+// (e.g. 854 raw symbols -> 794 unique). This is NOT data-loss for general search:
+// all build-tag variants remain in DB until orphan-delete runs; the dedup only
+// affects toEmbed sizing and result.Skipped counts.
 func filterSymbols(
 	symbols []*parser.Symbol, files []*ingest.File,
 	existing map[string]uint64, result *IndexResult,
 ) (toEmbed []symbolEntry, seen map[string]bool) {
 	seen = make(map[string]bool, len(symbols))
 	for i, sym := range symbols {
-		key := files[i].RelPath + ":" + sym.Name
+		key := files[i].RelPath + symKeySep + sym.Name
 		if seen[key] {
 			continue
 		}
