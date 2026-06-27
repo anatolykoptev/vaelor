@@ -432,16 +432,18 @@ func (s *Store) DeleteExplicitOrphans(ctx context.Context, repoKey string, orpha
 	}
 
 	// Flatten orphanKeys into parallel file/sym slices for VALUES binding.
-	// Key format: "file_path:symbol_name" (same as GetHashes / filterSymbols).
+	// Key format: file_path + symKeySep + symbol_name (same as GetHashes / filterSymbols).
+	// NUL (\x00) is used as separator so file paths containing colons (legal on Unix)
+	// or symbol names containing "::" (C++) are split correctly.
 	files := make([]string, 0, len(orphanKeys))
 	syms := make([]string, 0, len(orphanKeys))
 	for _, key := range orphanKeys {
-		colon := strings.IndexByte(key, ':')
-		if colon < 0 {
+		file, sym, ok := strings.Cut(key, symKeySep)
+		if !ok {
 			continue // malformed key -- skip
 		}
-		files = append(files, key[:colon])
-		syms = append(syms, key[colon+1:])
+		files = append(files, file)
+		syms = append(syms, sym)
 	}
 
 	var totalDeleted int64
