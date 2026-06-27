@@ -3,17 +3,38 @@ package embeddings
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
+// testPool creates a pgxpool for DB integration tests.
+//
+// Reads PR_TEST_DATABASE_URL (NOT DATABASE_URL). Skips when unset so that a
+// plain `go test ./internal/embeddings/...` with only the prod DATABASE_URL in
+// the environment produces SKIP lines for DB tests and never touches the prod DB.
+//
+// Hard guard: if the DSN database name is "gocode" (the prod DB name on krolik),
+// the test fails immediately — the EnsureSchema / DeleteRepo / Upsert calls in
+// these tests run DDL that previously caused ownership of public.code_embeddings
+// and public.code_repo_state to flip from gocode_app → memos (PR #251 incident),
+// breaking all embeddings indexing fleet-wide.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := os.Getenv("PR_TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
+		t.Skip("set PR_TEST_DATABASE_URL to an isolated DB to run DB integration tests")
+	}
+	// Parse the DSN to extract the database name for the prod guard.
+	cfg, parseErr := pgxpool.ParseConfig(dsn)
+	if parseErr != nil {
+		t.Fatalf("parse PR_TEST_DATABASE_URL: %v", parseErr)
+	}
+	if strings.EqualFold(cfg.ConnConfig.Database, "gocode") {
+		t.Fatalf("refusing to run destructive tests against the prod gocode DB; " +
+			"set PR_TEST_DATABASE_URL to an isolated DB (e.g. gocode_testiso)")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
