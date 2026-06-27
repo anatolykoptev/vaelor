@@ -204,3 +204,70 @@ func TestGradeScore_DepsScannedGuard_ExploreVsCodeHealth(t *testing.T) {
 			"— DepsScanned guard must add exactly depFreshness+vuln weight recovery", diff)
 	}
 }
+
+// TestCompareRepos_GradeReflectsFreshness guards that applyEnrichmentAndRescore
+// (called by CompareRepos after dep-freshness enrichment) recomputes Score/Grade
+// on the real production RepoMetrics, not a hand-rolled reimplementation.
+//
+// RED-without-fix proof: delete or zero the Score/Grade recompute lines inside
+// applyEnrichmentAndRescore — the Score assertion fails because m.Score stays at
+// its pre-call value (0) instead of reflecting the injected freshness ratios.
+func TestCompareRepos_GradeReflectsFreshness(t *testing.T) {
+	t.Parallel()
+
+	// Fixture: all quality dims at target, Score left at zero to simulate the
+	// state just after ComputeMetrics (before enrichment+rescore in CompareRepos).
+	m := RepoMetrics{
+		Files:                  10,
+		AvgCognitiveComplexity: targetCognitiveComplexity,
+		AvgComplexity:          targetCyclomaticAvg,
+		MaxComplexity:          int(targetCyclomaticMax),
+		TestRatio:              targetTestRatio,
+		DocRatio:               targetDocRatio,
+		AvgFuncLines:           targetFuncSize,
+		ErrorHandlingRatio:     targetErrorHandlingRatio,
+		MaxNestingDepth:        int(targetNestingDepth),
+		// Score=0, Grade="" — as returned by ComputeMetrics before enrichment.
+		Score: 0,
+		Grade: "",
+	}
+
+	// Freshness stats representing a healthy dependency state (good ratios).
+	freshness := &FreshnessStats{
+		DepFreshnessRatio: targetDepFreshness,
+		VulnSecurityRatio: targetVulnSecurity,
+		TotalDeps:         5,
+	}
+
+	// Drive the REAL production helper — the same code path CompareRepos invokes.
+	applyEnrichmentAndRescore(&m, freshness)
+
+	// Score must be non-zero after applyEnrichmentAndRescore calls GradeScore.
+	// Neutering the recompute block keeps Score=0 → this assertion goes RED.
+	if m.Score <= 0 {
+		t.Fatalf("Score after applyEnrichmentAndRescore = %g, want >0 (recompute not called?)", m.Score)
+	}
+
+	// Grade must be non-empty and not "F": all other dims are perfect, deps are now
+	// fresh. Stays "" or "F" if ComputeGrade is not called inside the helper.
+	if m.Grade == "" {
+		t.Fatalf("Grade after applyEnrichmentAndRescore is empty (ComputeGrade not called?)")
+	}
+	if m.Grade == "F" {
+		t.Fatalf("Grade = F after fresh-dep enrichment; want at least D (all other dims are perfect)")
+	}
+
+	// Freshness + vuln together contribute ~12 pts (weightDepFreshness+weightVulnSecurity)*100.
+	// Derive stale baseline to measure the delta.
+	stale := m
+	stale.DepFreshnessRatio = 0
+	stale.VulnSecurityRatio = 0
+	stale.TotalDeps = 5
+	stale.DepsScanned = true
+	staleScore := GradeScore(stale)
+
+	delta := m.Score - staleScore
+	if delta < 10 || delta > 14 {
+		t.Fatalf("freshness+vuln score delta = %.1f, want ~12 (0.06+0.06 weights * 100)", delta)
+	}
+}

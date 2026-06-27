@@ -138,19 +138,9 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 		graphStore: input.GraphStore,
 	})
 
-	// Propagate freshness ratios and dep count into metrics (they affect scoring).
-	if enr.freshnessA != nil {
-		metricsA.DepFreshnessRatio = enr.freshnessA.DepFreshnessRatio
-		metricsA.VulnSecurityRatio = enr.freshnessA.VulnSecurityRatio
-		metricsA.TotalDeps = enr.freshnessA.TotalDeps
-		metricsA.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
-	}
-	if enr.freshnessB != nil {
-		metricsB.DepFreshnessRatio = enr.freshnessB.DepFreshnessRatio
-		metricsB.VulnSecurityRatio = enr.freshnessB.VulnSecurityRatio
-		metricsB.TotalDeps = enr.freshnessB.TotalDeps
-		metricsB.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
-	}
+	// Propagate freshness enrichment and recompute score/grade for each repo.
+	applyEnrichmentAndRescore(&metricsA, enr.freshnessA)
+	applyEnrichmentAndRescore(&metricsB, enr.freshnessB)
 
 	var analysis LLMAnalysis
 
@@ -262,4 +252,19 @@ func collectHotspots(ctx context.Context, root string, snap *RepoSnapshot) []Hot
 		return nil
 	}
 	return ComputeHotspots(churn, FileComplexityFromSnapshot(snap))
+}
+
+// applyEnrichmentAndRescore propagates freshness/vuln fields from a freshness scan
+// result into m, then recomputes Score and Grade so they reflect the enriched data.
+// When freshnessStats is nil (no manifests found), the metrics are unchanged and
+// Score/Grade are still recomputed from their current field values.
+func applyEnrichmentAndRescore(m *RepoMetrics, freshnessStats *FreshnessStats) {
+	if freshnessStats != nil {
+		m.DepFreshnessRatio = freshnessStats.DepFreshnessRatio
+		m.VulnSecurityRatio = freshnessStats.VulnSecurityRatio
+		m.TotalDeps = freshnessStats.TotalDeps
+		m.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
+	}
+	m.Score = GradeScore(*m)
+	m.Grade = ComputeGrade(*m)
 }
