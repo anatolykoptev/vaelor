@@ -152,6 +152,12 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 		metricsB.DepsScanned = true // freshness scan was run; guard in GradeScore/computeSubScores requires this
 	}
 
+	// Recompute score and grade now that freshness/vuln ratios are populated.
+	metricsA.Score = GradeScore(metricsA)
+	metricsA.Grade = ComputeGrade(metricsA)
+	metricsB.Score = GradeScore(metricsB)
+	metricsB.Grade = ComputeGrade(metricsB)
+
 	var analysis LLMAnalysis
 
 	// API surface diff (fast, no I/O).

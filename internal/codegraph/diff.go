@@ -102,7 +102,8 @@ func DiffGraphs(old, new_ Snapshot) GraphDiff {
 				NewCommunity: newSym.Community,
 			})
 		}
-		if oldSym.Complexity != newSym.Complexity && !(oldSym.Complexity == 0 && newSym.Complexity == 0) {
+		// Report complexity changes only when the values actually differ.
+		if oldSym.Complexity != newSym.Complexity {
 			d.ComplexityChanges = append(d.ComplexityChanges, ComplexityChange{
 				Name:          oldSym.Name,
 				File:          oldSym.File,
