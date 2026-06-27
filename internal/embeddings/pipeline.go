@@ -15,6 +15,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 const (
@@ -498,7 +499,7 @@ func filterSymbols(
 		}
 		seen[key] = true
 		embedText := buildEmbedText(sym, files[i].RelPath)
-		h := textHash(embedText)
+		h := strutil.TextHash(embedText)
 		if prev, ok := existing[key]; ok && prev == h {
 			result.Skipped++
 			continue

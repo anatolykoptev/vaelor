@@ -3,6 +3,8 @@ package compare
 import (
 	"sync"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/cache"
 )
 
 const (
@@ -19,25 +21,23 @@ type churnCacheEntry struct {
 // git log --numstat takes ~5s on large repos; caching avoids re-running it
 // when multiple tools analyze the same repo in quick succession.
 type churnCache struct {
-	mu      sync.Mutex
-	entries map[string]*churnCacheEntry
-	order   []string // insertion order for LRU eviction
+	mu  sync.Mutex
+	lru *cache.LRU[string, churnCacheEntry]
 }
 
 var globalChurnCache = &churnCache{
-	entries: make(map[string]*churnCacheEntry),
+	lru: cache.NewLRU[string, churnCacheEntry](churnCacheMaxSize),
 }
 
 func (c *churnCache) get(key string) (map[string]ChurnStats, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.entries[key]
+	e, ok := c.lru.Get(key)
 	if !ok {
 		return nil, false
 	}
 	if time.Since(e.at) > churnCacheTTL {
-		delete(c.entries, key)
-		c.removeFromOrder(key)
+		c.lru.Delete(key)
 		return nil, false
 	}
 	return e.data, true
@@ -46,31 +46,7 @@ func (c *churnCache) get(key string) (map[string]ChurnStats, bool) {
 func (c *churnCache) set(key string, data map[string]ChurnStats) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	// Evict oldest entry if at capacity.
-	if len(c.entries) >= churnCacheMaxSize {
-		if len(c.order) > 0 {
-			oldest := c.order[0]
-			c.order = c.order[1:]
-			delete(c.entries, oldest)
-		}
-	}
-
-	// Remove existing entry from order if it exists (re-insertion updates order).
-	c.removeFromOrder(key)
-
-	c.entries[key] = &churnCacheEntry{data: data, at: time.Now()}
-	c.order = append(c.order, key)
-}
-
-// removeFromOrder removes key from the insertion-order slice (called under lock).
-func (c *churnCache) removeFromOrder(key string) {
-	for i, k := range c.order {
-		if k == key {
-			c.order = append(c.order[:i], c.order[i+1:]...)
-			return
-		}
-	}
+	c.lru.Set(key, churnCacheEntry{data: data, at: time.Now()})
 }
 
 // churnCacheKey derives a cache key from repo root + history window.

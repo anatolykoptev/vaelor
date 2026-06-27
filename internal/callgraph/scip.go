@@ -30,7 +30,7 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 		return nil
 	}
 
-	srcFiles := countSourceFiles(files)
+	srcFiles := ingest.CountSourceFiles(files)
 	if srcFiles > maxSCIPSourceFiles {
 		slog.Debug("scip: repo too large, skipping", "files", srcFiles, "max", maxSCIPSourceFiles)
 		return nil
@@ -90,15 +90,4 @@ func dominantLang(files []*ingest.File) string {
 		}
 	}
 	return best
-}
-
-// countSourceFiles returns the number of files with a detected language.
-func countSourceFiles(files []*ingest.File) int {
-	n := 0
-	for _, f := range files {
-		if f.Language != "" {
-			n++
-		}
-	}
-	return n
 }
