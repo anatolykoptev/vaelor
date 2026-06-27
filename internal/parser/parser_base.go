@@ -143,7 +143,7 @@ func processCaptureWithCaps(
 	sym.File = path
 	sym.DocComment = extractDocComment(node, source)
 	if sym.Kind == KindFunction || sym.Kind == KindMethod {
-		sym.Complexity = Complexity(node.Content(source))
+		sym.Complexity = Complexity(node.Content(source), sym.Language)
 		sym.CognitiveComplexity = CognitiveComplexity(node.Content(source), sym.Language)
 	}
 	if opts.IncludeBody {
