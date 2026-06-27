@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
+
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 // CallEdge is a resolved (or unresolved) call from one function to another.
@@ -146,26 +148,13 @@ func closestSymbol(symbols []*parser.Symbol, dir string) *parser.Symbol {
 		return nil
 	}
 	best := symbols[0]
-	bestLen := commonPrefixLen(filepath.Dir(best.File), dir)
+	bestLen := strutil.CommonPrefixLen(filepath.Dir(best.File), dir)
 	for _, sym := range symbols[1:] {
-		cl := commonPrefixLen(filepath.Dir(sym.File), dir)
+		cl := strutil.CommonPrefixLen(filepath.Dir(sym.File), dir)
 		if cl > bestLen {
 			bestLen = cl
 			best = sym
 		}
 	}
 	return best
-}
-
-func commonPrefixLen(a, b string) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	return n
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/cache"
 )
 
 const (
@@ -20,25 +22,23 @@ type couplingCacheEntry struct {
 // git log --name-only takes ~5s on large repos; caching avoids re-running it
 // when multiple tools analyze the same repo in quick succession.
 type couplingCache struct {
-	mu      sync.Mutex
-	entries map[string]*couplingCacheEntry
-	order   []string // insertion order for LRU eviction
+	mu  sync.Mutex
+	lru *cache.LRU[string, couplingCacheEntry]
 }
 
 var globalCouplingCache = &couplingCache{
-	entries: make(map[string]*couplingCacheEntry),
+	lru: cache.NewLRU[string, couplingCacheEntry](couplingCacheMaxSize),
 }
 
 func (c *couplingCache) get(key string) ([]CoupledPair, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.entries[key]
+	e, ok := c.lru.Get(key)
 	if !ok {
 		return nil, false
 	}
 	if time.Since(e.at) > couplingCacheTTL {
-		delete(c.entries, key)
-		c.removeFromOrder(key)
+		c.lru.Delete(key)
 		return nil, false
 	}
 	return e.data, true
@@ -47,31 +47,7 @@ func (c *couplingCache) get(key string) ([]CoupledPair, bool) {
 func (c *couplingCache) set(key string, data []CoupledPair) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	// Evict oldest entry if at capacity.
-	if len(c.entries) >= couplingCacheMaxSize {
-		if len(c.order) > 0 {
-			oldest := c.order[0]
-			c.order = c.order[1:]
-			delete(c.entries, oldest)
-		}
-	}
-
-	// Remove existing entry from order if it exists (re-insertion updates order).
-	c.removeFromOrder(key)
-
-	c.entries[key] = &couplingCacheEntry{data: data, at: time.Now()}
-	c.order = append(c.order, key)
-}
-
-// removeFromOrder removes key from the insertion-order slice (called under lock).
-func (c *couplingCache) removeFromOrder(key string) {
-	for i, k := range c.order {
-		if k == key {
-			c.order = append(c.order[:i], c.order[i+1:]...)
-			return
-		}
-	}
+	c.lru.Set(key, couplingCacheEntry{data: data, at: time.Now()})
 }
 
 // couplingCacheKey produces a stable cache key from the repo root path and minCoChanges.

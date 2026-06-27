@@ -261,3 +261,14 @@ func containsString(slice []string, s string) bool {
 func DetectLanguage(filename string) string {
 	return parser.DetectLanguageFromPath(filename)
 }
+
+// CountSourceFiles returns the number of files with a detected language.
+func CountSourceFiles(files []*File) int {
+	n := 0
+	for _, f := range files {
+		if f.Language != "" {
+			n++
+		}
+	}
+	return n
+}

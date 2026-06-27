@@ -62,7 +62,7 @@ func DetectStructure(files []*ingest.File) *RepoStructure {
 				Role:     "",
 				RootDir:  ".",
 				Language: lang,
-				Files:    countSourceFiles(files),
+				Files:    ingest.CountSourceFiles(files),
 			},
 		}
 	}
@@ -98,15 +98,4 @@ func dominantLanguage(langs map[string]int) string {
 	}
 
 	return best
-}
-
-// countSourceFiles returns the number of files that have a detected language.
-func countSourceFiles(files []*ingest.File) int {
-	count := 0
-	for _, f := range files {
-		if f.Language != "" {
-			count++
-		}
-	}
-	return count
 }
