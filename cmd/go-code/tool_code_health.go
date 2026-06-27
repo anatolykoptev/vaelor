@@ -47,6 +47,7 @@ func spawnHealthBuild(repoKey string, cleanup func(), compute func(ctx context.C
 		ctx, cancel := context.WithTimeout(context.Background(), healthBuildTimeout)
 		defer cancel()
 		if err := compute(ctx); err != nil {
+			recordHealthBuildFailure(err)
 			slog.Warn("code_health: background computation failed",
 				slog.String("repo", repoKey), slog.Any("error", err))
 		} else {
