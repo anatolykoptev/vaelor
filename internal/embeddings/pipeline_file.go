@@ -10,6 +10,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 // FileIndexResult summarizes the outcome of a single-file incremental index.
@@ -181,7 +182,7 @@ func (p *Pipeline) parseAndDiff(
 			continue
 		}
 		et := buildEmbedText(sym, relPath)
-		current[sym.Name] = currentEntry{sym: sym, hash: textHash(et), embedText: et}
+		current[sym.Name] = currentEntry{sym: sym, hash: strutil.TextHash(et), embedText: et}
 	}
 
 	// Fetch current DB state and build name→hash lookup.

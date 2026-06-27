@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/anatolykoptev/go-kit/embed"
+
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 const maxEmbedText = 2000
@@ -61,7 +62,7 @@ func Index(ctx context.Context, dir string, client *embed.Client, store *Store) 
 				embedText = embedText[:maxEmbedText]
 			}
 
-			h := textHash(embedText)
+			h := strutil.TextHash(embedText)
 			key := brand + ":" + sec.Title
 			if prev, ok := existing[key]; ok && prev == h {
 				result.Skipped++
@@ -109,10 +110,4 @@ func Index(ctx context.Context, dir string, client *embed.Client, store *Store) 
 	slog.Info("designmd: index.json written", slog.String("path", metaPath))
 
 	return &result, nil
-}
-
-func textHash(text string) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(text))
-	return h.Sum64()
 }
