@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sort"
-	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -174,16 +174,13 @@ func isZeroCallerExported(s *parser.Symbol, inEdges int) bool {
 	return inEdges == 0 && isExported(s)
 }
 
-// isExported returns true if the symbol name starts with an uppercase letter.
-// Go uses this convention; for other languages IsPublic is the canonical field.
+// isExported reports whether the symbol is considered exported for
+// flow entry-point purposes. Delegates to the language-aware langutil rule:
+//   - IsPublic=true always wins
+//   - Go/Java/C#: uppercase-first convention
+//   - JS/TS/Rust/Python and others: any non-underscore first rune
 func isExported(s *parser.Symbol) bool {
-	if s.IsPublic {
-		return true
-	}
-	for _, r := range s.Name {
-		return unicode.IsUpper(r)
-	}
-	return false
+	return langutil.IsExportedForDoc(s.Name, s.Language, s.IsPublic)
 }
 
 // dfsCollectChain performs bounded depth-first traversal from src, appending
