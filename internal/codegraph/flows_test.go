@@ -412,3 +412,38 @@ func intToAlpha(n int) string {
 	}
 	return string(out)
 }
+
+// TestIsExported_NonGoLanguages verifies that the flow entry-point detector
+// uses language-aware export rules, not the Go-only uppercase convention.
+// RED before fix: isExported uses unicode.IsUpper -- JS "handler" -> false.
+// GREEN after fix: isExported delegates to langutil.IsExportedForDoc -- JS "handler" -> true.
+func TestIsExported_NonGoLanguages(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		sym     parser.Symbol
+		wantExp bool
+	}{
+		// JS/TS: lowercase non-underscore -> exported
+		{"js lowercase handler", parser.Symbol{Name: "handler", Language: "javascript", IsPublic: false}, true},
+		{"ts lowercase process", parser.Symbol{Name: "process", Language: "typescript", IsPublic: false}, true},
+		// Underscore-prefixed -> private in all languages
+		{"js underscore private", parser.Symbol{Name: "_internal", Language: "javascript", IsPublic: false}, false},
+		// Go: uppercase -> exported
+		{"go uppercase", parser.Symbol{Name: "Handler", Language: "go", IsPublic: false}, true},
+		// Go: lowercase -> NOT exported
+		{"go lowercase", parser.Symbol{Name: "handler", Language: "go", IsPublic: false}, false},
+		// IsPublic=true always wins
+		{"python explicit public", parser.Symbol{Name: "_thing", Language: "python", IsPublic: true}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isExported(&tc.sym)
+			if got != tc.wantExp {
+				t.Errorf("isExported(%q, lang=%q, isPublic=%v) = %v, want %v",
+					tc.sym.Name, tc.sym.Language, tc.sym.IsPublic, got, tc.wantExp)
+			}
+		})
+	}
+}

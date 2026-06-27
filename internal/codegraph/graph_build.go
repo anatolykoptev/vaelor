@@ -175,11 +175,7 @@ func buildSymbolGraph(root string, symbols []*parser.Symbol, prScores map[string
 				lines = int(sym.EndLine-sym.StartLine) + 1
 			}
 			props["lines"] = strconv.Itoa(lines)
-			cc := sym.Complexity
-			if cc == 0 && sym.Body != "" {
-				cc = parser.Complexity(sym.Body, sym.Language)
-			}
-			props["complexity"] = strconv.Itoa(cc)
+			props["complexity"] = strconv.Itoa(sym.Complexity)
 		}
 		if score, ok := prScores[symKey]; ok {
 			props["pagerank"] = fmt.Sprintf("%.6f", score)
