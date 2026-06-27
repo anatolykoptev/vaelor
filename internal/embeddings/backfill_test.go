@@ -13,6 +13,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 // backfillCounterValue reads the current value of sparseBackfillTotal for outcome.
@@ -565,7 +566,7 @@ func computeRealHash(t *testing.T, dir, fileName, symbolName, language string) u
 	}
 	for _, sym := range pr.Symbols {
 		if sym.Name == symbolName {
-			return textHash(buildEmbedText(sym, fileName))
+			return strutil.TextHash(buildEmbedText(sym, fileName))
 		}
 	}
 	t.Fatalf("computeRealHash: symbol %s not found in %s", symbolName, fileName)

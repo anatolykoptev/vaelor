@@ -14,6 +14,7 @@ import (
 	"github.com/anatolykoptev/go-kit/sparse"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 // Backfill metrics — pre-touched at 0 so /metrics always exposes them regardless
@@ -335,7 +336,7 @@ func backfillFileGroup(
 
 		// Re-derive embed text exactly as the original indexer did.
 		embedText := buildEmbedText(sym, row.FilePath)
-		freshHash := textHash(embedText)
+		freshHash := strutil.TextHash(embedText)
 
 		if freshHash != row.BodyHash {
 			// Disk drifted from indexed content. Embedding stale text would

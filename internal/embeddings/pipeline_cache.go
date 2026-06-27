@@ -13,6 +13,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 // Per-file cache scope: when fileCache is nil the pipeline falls back to the
@@ -120,7 +121,7 @@ func (p *Pipeline) buildSymbolEntriesForFile(f *ingest.File) ([]symbolEntry, err
 		out = append(out, symbolEntry{
 			sym:       sym,
 			file:      f,
-			hash:      textHash(text),
+			hash:      strutil.TextHash(text),
 			embedText: text,
 		})
 	}

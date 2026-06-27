@@ -3,7 +3,6 @@ package embeddings
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -114,13 +113,6 @@ func buildEmbedText(sym *parser.Symbol, filePath string) string {
 		}
 	}
 	return header + body
-}
-
-// textHash computes an FNV-64a hash of the embed text for change detection.
-func textHash(text string) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(text))
-	return h.Sum64()
 }
 
 // GetHashes returns a map of symbol_name -> body_hash for all embeddings in a repo.

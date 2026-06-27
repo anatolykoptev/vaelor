@@ -5,6 +5,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/importresolve"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/strutil"
 )
 
 // buildImportsGraph creates IMPORTS edges and external Package vertices from
@@ -118,24 +119,11 @@ func closestByDir(candidates []*parser.Symbol, refFile string) *parser.Symbol {
 	best := candidates[0]
 	bestScore := 0
 	for _, s := range candidates {
-		score := commonPrefixLen(filepath.Dir(s.File), refDir)
+		score := strutil.CommonPrefixLen(filepath.Dir(s.File), refDir)
 		if score > bestScore {
 			bestScore = score
 			best = s
 		}
 	}
 	return best
-}
-
-func commonPrefixLen(a, b string) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	return n
 }
