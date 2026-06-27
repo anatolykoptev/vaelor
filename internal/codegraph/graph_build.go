@@ -177,7 +177,7 @@ func buildSymbolGraph(root string, symbols []*parser.Symbol, prScores map[string
 			props["lines"] = strconv.Itoa(lines)
 			cc := sym.Complexity
 			if cc == 0 && sym.Body != "" {
-				cc = parser.Complexity(sym.Body)
+				cc = parser.Complexity(sym.Body, sym.Language)
 			}
 			props["complexity"] = strconv.Itoa(cc)
 		}
