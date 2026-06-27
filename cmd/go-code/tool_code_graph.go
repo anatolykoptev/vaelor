@@ -147,10 +147,12 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 			defer buildingRepos.Delete(repoKey)
 			bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer bgCancel()
-			if _, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
+			if bgMeta, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
+				recordCodeGraphBuildFailure(err)
 				slog.Warn("code_graph: background index failed",
 					slog.String("repo", bgRoot), slog.Any("error", err))
 			} else {
+				recordCodeGraphAge(repoKey, bgMeta.BuiltAt)
 				slog.Info("code_graph: background index complete", slog.String("repo", bgRoot))
 			}
 		}()
@@ -161,6 +163,7 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	if err != nil {
 		return errResult(fmt.Sprintf("index repo: %s", err)), nil
 	}
+	recordCodeGraphAge(codegraph.GraphNameFor(root), meta.BuiltAt)
 
 	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta)
 	if err != nil {
