@@ -146,7 +146,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 		RelatedFiles:        relatedFiles,
 		CallSiteCount:       callSiteCount,
 	}
-	data, err := json.MarshalIndent(response, "", "  ")
+	data, err := json.Marshal(response)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}

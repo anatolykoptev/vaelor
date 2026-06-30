@@ -209,7 +209,7 @@ func fleetVersionsHandler(ctx context.Context, cfg Config, deps analyze.Deps, in
 		Warnings:      warnings,
 	}
 
-	data, marshalErr := json.MarshalIndent(out, "", "  ")
+	data, marshalErr := json.Marshal(out)
 	if marshalErr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", marshalErr)), nil
 	}

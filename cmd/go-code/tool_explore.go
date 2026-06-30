@@ -74,7 +74,7 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 			}
 		}
 
-		data, err := json.MarshalIndent(output, "", "  ")
+		data, err := json.Marshal(output)
 		if err != nil {
 			return errResult(fmt.Sprintf("marshal: %s", err)), nil
 		}

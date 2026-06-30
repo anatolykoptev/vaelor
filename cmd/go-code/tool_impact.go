@@ -171,7 +171,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		output.Narrative = generateNarrative(ctx, deps.LLM, prompts.SystemPromptImpact, result, prefix)
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	data, err := json.Marshal(output)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}

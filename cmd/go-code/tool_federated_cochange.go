@@ -337,7 +337,7 @@ func marshalFedResult(out *FederatedCoChangeResult, t0 time.Time) (*mcp.CallTool
 	if out.Meta.DurationMS == 0 {
 		out.Meta = mcpmeta.Wrap(time.Since(t0), out.Meta.Hint)
 	}
-	body, merr := json.MarshalIndent(out, "", "  ")
+	body, merr := json.Marshal(out)
 	if merr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
 	}

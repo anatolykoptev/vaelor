@@ -48,7 +48,7 @@ func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string, extras *repo
 
 	applyExtras(&resp, extras)
 
-	b, err := xml.MarshalIndent(resp, "", "  ")
+	b, err := xml.Marshal(resp)
 	if err != nil {
 		return fmt.Sprintf("<error>%s</error>", err.Error())
 	}

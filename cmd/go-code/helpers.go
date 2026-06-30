@@ -50,14 +50,15 @@ func textResult(text string) *mcp.CallToolResult {
 }
 
 // appendMetaFooter returns `body` with an `<!-- meta: <json> -->` footer
-// when `env` carries any signal (non-zero duration, non-empty hint, or
-// staleness warning). Returns body unchanged otherwise.
+// only when `env` carries a hint or a staleness warning — a bare duration_ms
+// is pure telemetry with zero analytic value to the consumer, so it is
+// suppressed to cut response token footprint. Returns body unchanged otherwise.
 //
 // Centralises the empty-envelope check + marshal-error fallback that
 // metaResult / metaXMLMarshalResult / metaLargeTextResult previously
 // duplicated.
 func appendMetaFooter(body string, env mcpmeta.Envelope) string {
-	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
+	if env.Hint == "" && env.StaleWarning == "" {
 		return body
 	}
 	js, err := json.Marshal(env)
@@ -67,22 +68,22 @@ func appendMetaFooter(body string, env mcpmeta.Envelope) string {
 	return body + "\n\n<!-- meta: " + string(js) + " -->"
 }
 
-// metaResult returns a text CallToolResult and, when env is non-zero,
-// appends a JSON-encoded "_meta" footer separated by a sentinel marker
-// (HTML comment) so existing human readers and string-matching tests
-// continue to work unchanged.
+// metaResult returns a text CallToolResult and, when env carries a hint or
+// staleness warning, appends a JSON-encoded "_meta" footer separated by a
+// sentinel marker (HTML comment) so existing human readers and
+// string-matching tests continue to work unchanged.
 //
-// Empty envelope (zero timing AND no hint AND no staleness) falls back
-// to plain textResult.
+// An envelope with no hint and no staleness warning falls back to plain
+// textResult — a bare duration_ms alone never triggers the footer.
 func metaResult(text string, env mcpmeta.Envelope) *mcp.CallToolResult {
 	return textResult(appendMetaFooter(text, env))
 }
 
 // metaXMLMarshalResult is the envelope-aware variant of xmlMarshalResult.
-// It marshals v as indented XML and appends the meta envelope footer before
+// It marshals v as compact XML and appends the meta envelope footer before
 // passing to largeTextResult. Falls back to xmlMarshalResult on marshal error.
 func metaXMLMarshalResult(v any, toolName, outputDir string, env mcpmeta.Envelope) *mcp.CallToolResult {
-	data, err := xml.MarshalIndent(v, "", "  ")
+	data, err := xml.Marshal(v)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err))
 	}
@@ -95,8 +96,9 @@ func metaXMLMarshalResult(v any, toolName, outputDir string, env mcpmeta.Envelop
 // agent always sees the hint and timing regardless of whether the body is
 // inline or file-backed.
 func metaLargeTextResult(text, toolName, outputDir string, env mcpmeta.Envelope) *mcp.CallToolResult {
-	// Short-circuit: avoid the Content[0] cast dance for the common empty-envelope path.
-	if env.DurationMS == 0 && env.Hint == "" && env.StaleWarning == "" {
+	// Short-circuit: avoid the Content[0] cast dance for the common no-signal path
+	// (no hint, no staleness warning — a bare duration_ms never gets a footer).
+	if env.Hint == "" && env.StaleWarning == "" {
 		return largeTextResult(text, toolName, outputDir)
 	}
 	res := largeTextResult(text, toolName, outputDir)
@@ -149,10 +151,10 @@ func saveToFile(content, toolName, outputDir string) (string, bool) {
 	return path, true
 }
 
-// xmlMarshalFileResult marshals v as indented XML and always saves to file.
+// xmlMarshalFileResult marshals v as compact XML and always saves to file.
 // Falls back to inline when outputDir is empty.
 func xmlMarshalFileResult(v any, toolName, outputDir string) *mcp.CallToolResult {
-	data, err := xml.MarshalIndent(v, "", "  ")
+	data, err := xml.Marshal(v)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err))
 	}
@@ -169,9 +171,9 @@ func xmlMarshalFileResult(v any, toolName, outputDir string) *mcp.CallToolResult
 	return textResult(summary)
 }
 
-// xmlMarshalResult marshals v as indented XML and returns it via largeTextResult.
+// xmlMarshalResult marshals v as compact XML and returns it via largeTextResult.
 func xmlMarshalResult(v any, toolName, outputDir string) *mcp.CallToolResult {
-	data, err := xml.MarshalIndent(v, "", "  ")
+	data, err := xml.Marshal(v)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err))
 	}

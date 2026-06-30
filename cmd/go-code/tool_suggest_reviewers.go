@@ -224,7 +224,7 @@ func handleSuggestReviewersCore(ctx context.Context, args SuggestReviewersArgs, 
 
 	out.Meta = mcpmeta.Wrap(time.Since(t0), "")
 
-	body, merr := json.MarshalIndent(out, "", "  ")
+	body, merr := json.Marshal(out)
 	if merr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
 	}

@@ -325,7 +325,7 @@ func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomark
 
 	out.Meta = mcpmeta.Wrap(time.Since(t0), hint)
 
-	body, merr := json.MarshalIndent(out, "", "  ")
+	body, merr := json.Marshal(out)
 	if merr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
 	}
