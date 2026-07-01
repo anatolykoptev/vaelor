@@ -7,8 +7,11 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/anatolykoptev/go-code/internal/pgutil"
 )
 
 //go:embed schema.sql
@@ -47,7 +50,20 @@ type Store struct {
 	emb  Embedder
 }
 
+// ownershipOnce gates the ownership-transfer ALTER to at most once per DSN
+// per process. Unlike embeddings/designmd (long-lived Store singletons with
+// a per-instance sync.Once), New() is also called per-request from
+// reviewPRDryRun with a fresh pool each time — ALTER TABLE ... OWNER TO
+// takes an ACCESS EXCLUSIVE lock even as a no-op, so without this gate every
+// dry-run review would re-acquire that lock on the hot path.
+var ownershipOnce sync.Map // dsn string -> *sync.Once
+
 // New opens a pool. Caller must call Close.
+//
+// After migrating the schema it attempts (at most once per DSN per process)
+// to transfer table ownership to CURRENT_USER (best-effort: warns instead of
+// failing if the connected role is not the current table owner — e.g. after
+// a superuser pg_restore left review_learnings owned by the restoring role).
 func New(ctx context.Context, dsn string, emb Embedder) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -57,6 +73,13 @@ func New(ctx context.Context, dsn string, emb Embedder) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("migrate review_learnings schema: %w", err)
 	}
+	// Best-effort ownership transfer so the connected role can INSERT/TRUNCATE
+	// review_learnings without needing explicit grants from an admin. Gated
+	// to once per DSN per process — see ownershipOnce doc.
+	onceForDSN, _ := ownershipOnce.LoadOrStore(dsn, &sync.Once{})
+	onceForDSN.(*sync.Once).Do(func() {
+		pgutil.TransferOwnership(ctx, pool, "learnings", "public.review_learnings")
+	})
 	return &Store{pool: pool, emb: emb}, nil
 }
 
