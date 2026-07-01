@@ -1,0 +1,11 @@
+---
+import Card from '../components/Card.astro';
+const items = [1, 2, 3];
+const count = 3;
+function format(x) { return String(x); }
+---
+<div class="list">
+  <p>{format(count)}</p>
+  <ul>{items.map((i) => <Card id={i} />)}</ul>
+  <span>{count}</span>
+</div>
