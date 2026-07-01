@@ -17,6 +17,11 @@ builds:
         env:
           - CGO_ENABLED=1
           - CC=aarch64-linux-gnu-gcc
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=x86_64-linux-gnu-gcc
     ldflags:
       - -s -w
     goos:
