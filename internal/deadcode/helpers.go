@@ -3,7 +3,6 @@ package deadcode
 import (
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -91,15 +90,6 @@ func isTestFunc(name string) bool {
 // isTestFile returns true if the file path ends with _test.go or similar test patterns.
 func isTestFile(file string) bool {
 	return langutil.IsTestFile(file)
-}
-
-// isExported returns true if the name starts with an uppercase letter (Go convention).
-func isExported(name string) bool {
-	if name == "" {
-		return false
-	}
-	r, _ := utf8.DecodeRuneInString(name)
-	return unicode.IsUpper(r)
 }
 
 // classifyConfidence assigns a confidence level based on symbol properties.
