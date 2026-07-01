@@ -9,6 +9,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/anatolykoptev/go-code/internal/pgutil"
 )
 
 //go:embed schema.sql
@@ -48,6 +50,11 @@ type Store struct {
 }
 
 // New opens a pool. Caller must call Close.
+//
+// After migrating the schema it attempts to transfer table ownership to
+// CURRENT_USER (best-effort: warns instead of failing if the connected role
+// is not the current table owner — e.g. after a superuser pg_restore left
+// review_learnings owned by the restoring role).
 func New(ctx context.Context, dsn string, emb Embedder) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -57,6 +64,9 @@ func New(ctx context.Context, dsn string, emb Embedder) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("migrate review_learnings schema: %w", err)
 	}
+	// Best-effort ownership transfer so the connected role can INSERT/TRUNCATE
+	// review_learnings without needing explicit grants from an admin.
+	pgutil.TransferOwnership(ctx, pool, "learnings", "public.review_learnings")
 	return &Store{pool: pool, emb: emb}, nil
 }
 
