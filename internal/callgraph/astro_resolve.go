@@ -9,23 +9,27 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
-// AstroUsage represents a resolved USES relationship from an Astro file to the
-// file it renders as a component.
-type AstroUsage struct {
-	// From is the relative path of the Astro file that contains the template ref.
+// TemplateUsage represents a resolved USES relationship from a component file
+// (Astro or Svelte) to the file it renders as a child component.
+type TemplateUsage struct {
+	// From is the relative path of the file that contains the template ref.
 	From string
 	// To is the relative path of the imported component file.
 	To string
-	// Line is the 1-based line number of the tag usage in the Astro file.
+	// Line is the 1-based line number of the tag usage in the source file.
 	Line uint32
 }
 
-// ResolveTemplateRefs joins TemplateRefs against frontmatter import bindings to
+// ResolveTemplateRefs joins TemplateRefs against a file's import bindings to
 // produce file-level USES relationships.
 //
-// It re-scans src for "import X from 'path'" statements in the frontmatter
-// block, builds a binding→path map, then resolves each TemplateRef by name.
-// The resolved path is made relative to root.
+// The import-binding source depends on the file kind:
+//   - Astro (.astro and any non-.svelte): imports declared in the leading ---
+//     frontmatter block (scanFrontmatterBindings).
+//   - Svelte (.svelte): imports declared in the component's <script> blocks
+//     (scanSvelteScriptBindings).
+//
+// The binding→ref join and path resolution below are generic over both kinds.
 //
 // Resolution order:
 //  1. Relative imports (./…, ../…) — resolved directly against the file's directory.
@@ -37,11 +41,19 @@ type AstroUsage struct {
 //     incrementing the counter; or (b) an alias prefix matched but the resolved
 //     path does not exist on disk — the gocode_parser_unresolved_alias_total
 //     counter is incremented and the ref is dropped (broken declared alias).
-func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root string) []AstroUsage {
+func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root string) []TemplateUsage {
 	if len(refs) == 0 {
 		return nil
 	}
-	bindings := scanFrontmatterBindings(src)
+
+	// Import bindings live in different regions per file kind: Svelte declares them
+	// in <script> blocks, Astro (and everything else) in the --- frontmatter.
+	var bindings map[string]string
+	if strings.HasSuffix(fileRel, ".svelte") {
+		bindings = scanSvelteScriptBindings(src)
+	} else {
+		bindings = scanFrontmatterBindings(src)
+	}
 	if len(bindings) == 0 {
 		return nil
 	}
@@ -52,7 +64,7 @@ func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root s
 	// Load alias map once per root (cached).
 	aliases := loadTSConfigAliases(root)
 
-	var out []AstroUsage
+	var out []TemplateUsage
 	seen := make(map[string]bool) // deduplicate (from, to) pairs per file
 	for _, ref := range refs {
 		importPath, ok := bindings[ref.Name]
@@ -94,20 +106,13 @@ func ResolveTemplateRefs(src []byte, refs []preproc.TemplateRef, fileRel, root s
 			continue
 		}
 		seen[key] = true
-		out = append(out, AstroUsage{From: fileRel, To: relTarget, Line: ref.Line})
+		out = append(out, TemplateUsage{From: fileRel, To: relTarget, Line: ref.Line})
 	}
 	return out
 }
 
 // scanFrontmatterBindings parses the Astro frontmatter block (between leading
 // --- fences) and returns a map of binding name → import specifier.
-//
-// Handles only the common ES module import forms:
-//   - import Foo from './Foo.astro'       → {"Foo": "./Foo.astro"}
-//   - import { A, B } from './lib'        → named exports; each gets its own entry
-//   - import * as Ns from './ns'          → {"Ns": "./ns"}
-//
-// Lines that don't match these patterns are silently skipped.
 func scanFrontmatterBindings(src []byte) map[string]string {
 	// Find frontmatter region.
 	trimmed := bytes.TrimLeft(src, " \t\r\n")
@@ -127,9 +132,37 @@ func scanFrontmatterBindings(src []byte) map[string]string {
 	if fmEnd <= fmStart {
 		return nil
 	}
+	return scanImportBindings(src[fmStart:fmEnd])
+}
 
+// scanSvelteScriptBindings extracts ESM import bindings from a Svelte component's
+// <script> blocks — the Svelte analogue of scanFrontmatterBindings.
+//
+// It reuses preproc.ExtractSvelte to obtain the concatenated <script> source (the
+// same extraction the parser uses to build symbols), then parses import statements
+// from it. Returns nil when the component has no <script> content.
+func scanSvelteScriptBindings(src []byte) map[string]string {
+	vs := preproc.ExtractSvelte(src)
+	if vs == nil || len(vs.Code) == 0 {
+		return nil
+	}
+	return scanImportBindings(vs.Code)
+}
+
+// scanImportBindings parses ES module import statements from a region of code —
+// an Astro frontmatter block or a Svelte <script> block — and returns a map of
+// binding name → import specifier.
+//
+// Handles only the common ES module import forms:
+//   - import Foo from './Foo.astro'       → {"Foo": "./Foo.astro"}
+//   - import { A, B } from './lib'        → named exports; each gets its own entry
+//   - import * as Ns from './ns'          → {"Ns": "./ns"}
+//
+// Multi-line import statements are accumulated until the " from " clause appears.
+// Lines that don't match these patterns are silently skipped.
+func scanImportBindings(region []byte) map[string]string {
 	bindings := make(map[string]string)
-	fm := src[fmStart:fmEnd]
+	fm := region
 
 	var stmtBuf strings.Builder
 	inStmt := false
@@ -175,7 +208,7 @@ func scanFrontmatterBindings(src []byte) map[string]string {
 			inStmt = true
 		}
 	}
-	// Flush any incomplete statement (shouldn't happen in valid Astro, but be safe).
+	// Flush any incomplete statement (shouldn't happen in valid source, but be safe).
 	if inStmt && stmtBuf.Len() > 0 {
 		parseImportLine(stmtBuf.String(), bindings)
 	}

@@ -22,14 +22,20 @@ import (
 //     bindable: $bindable
 //     inspect:  $inspect, $inspect.trace
 //     host:     $host
+//   - Destructured $props() bindings (let { name, count } = $props()) — each bound
+//     name is emitted as a KindRune/props symbol, in addition to the $props token
+//     symbol, so individual props are discoverable by their own identifier.
+//   - Component-composition refs: capitalised JSX-style tags in the markup
+//     (<Card/>) are captured as TemplateRefs (preproc.scanTemplateRefs via
+//     ExtractSvelteWithRefs), mirroring Astro. callgraph.ResolveTemplateRefs joins
+//     them against the component's <script> imports to emit file-level USES edges.
 //   - NOT classified as runes: $$slots/$$props/$$restProps (Svelte 4 legacy),
 //     $.proxy/$.computed/etc. (Svelte 5 internals), $inspect.with (chained method).
 //
 // Not supported (silently ignored, matches plan scope):
-//   - Template markup ({#if}, {#each}, <slot>, component invocations)
-//   - <style> blocks
-//   - Destructured $props() bindings (e.g. let { name } = $props() — skipped,
-//     known limitation; the standalone $props() call is still emitted)
+//   - Control-flow / render markup ({#if}, {#each}, {@render}, <slot>) — only
+//     capitalised component tags contribute TemplateRefs.
+//   - <style> blocks.
 type svelteHandler struct {
 	parserBase
 }
@@ -56,14 +62,18 @@ func (h *svelteHandler) MapCapture(captureName string, node *sitter.Node, source
 }
 
 // Parse extracts <script> blocks, delegates to the TypeScript parser, remaps
-// symbol line numbers back to the original .svelte file coordinates, then
-// appends Svelte 5 rune symbols detected by the post-parse rune classifier.
+// symbol line numbers back to the original .svelte file coordinates, appends
+// Svelte 5 rune symbols detected by the post-parse rune classifier, and populates
+// TemplateRefs from capitalised component tags in the markup.
 func (h *svelteHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
-	vs := preproc.ExtractSvelte(src)
+	vs, refs := preproc.ExtractSvelteWithRefs(src)
 	result, err := parseWithTSAndRemap(path, vs, "svelte", opts)
 	if err != nil {
 		return nil, err
 	}
 	appendRuneSymbols(result, vs, path)
+	if len(refs) > 0 {
+		result.TemplateRefs = refs
+	}
 	return result, nil
 }
