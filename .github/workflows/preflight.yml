@@ -1,0 +1,114 @@
+name: preflight
+
+# Pre-merge build/test gate. Runs on the self-hosted runner on krolik — NOT a
+# paid GitHub-hosted runner (operator rule: only self-hosted; free minutes).
+#
+# go-code persists three independent pgvector stores (internal/embeddings,
+# internal/designmd, internal/learnings) plus an Apache AGE property graph
+# (internal/codegraph) behind DATABASE_URL (embeddings tests also read the
+# separately-named PR_TEST_DATABASE_URL, a deliberate guard added after PR
+# #251 flipped table ownership on the prod DB — see internal/embeddings/
+# store_test.go). Every DB-gated test t.Skip's cleanly when its var is unset.
+#
+# This job starts an ephemeral instance of the SAME custom image prod runs —
+# krolik-postgres-age:17 (PostgreSQL 17 + pgvector 0.8.1 + Apache AGE 1.7.0,
+# built from ~/deploy/krolik-server/postgres-age/Dockerfile on this host) —
+# already cached locally on the runner box, so no registry pull happens. It
+# is started with the same `-c shared_preload_libraries=age,pg_stat_statements`
+# flag prod uses (compose/data.yml) — AGE requires server-side preload for its
+# operators/types, verified by codegraph.CheckAGEPreloaded at prod startup.
+#
+# Each store bootstraps its OWN tables on first use (EnsureSchema / EnsureGraph),
+# but deliberately does NOT create the `vector` / `age` / `pg_trgm` extensions
+# themselves — prod's database has carried those since it was first
+# provisioned, so the app code has never needed to. A brand-new ephemeral DB
+# has none of that history, so this job creates all three once, up front
+# (mirrors go-job's preflight.yml "Run migrations" step for the same reason).
+#
+# Shared self-hosted box: krolik's prod postgres already holds host
+# 127.0.0.1:5432, so the ephemeral container must NOT publish on a fixed host
+# port (it would either fail to bind or, worse, silently point tests at the
+# wrong DB). We bind the container's 5432 to a RANDOM free host port on the
+# loopback interface only (`-p 127.0.0.1::5432`) and read it back via
+# `docker inspect`. Collision-proof against the prod DB and any other
+# concurrent runner job; never reachable off-box.
+
+on:
+  pull_request:
+
+# One run per ref; cancel in-flight if a new push arrives. Keeps the 4-core
+# prod box free between runs.
+concurrency:
+  group: preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, krolik]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start ephemeral postgres+age
+        id: pg
+        run: |
+          set -euo pipefail
+          name="gocode-ci-pg-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "container=$name" >> "$GITHUB_OUTPUT"
+          docker run -d --rm --name "$name" \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=gocode_test \
+            --shm-size=512mb \
+            -p 127.0.0.1::5432 \
+            krolik-postgres-age:17 \
+            postgres -c shared_preload_libraries=age,pg_stat_statements
+
+          port=$(docker inspect -f '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "$name")
+          echo "port=$port" >> "$GITHUB_OUTPUT"
+
+          # The postgres entrypoint does an ephemeral FIRST startup (initdb +
+          # docker-entrypoint-initdb.d/*.sql, unix-socket only) then restarts
+          # for the real listener on TCP :5432 — `docker exec ... pg_isready`
+          # false-positives during that transient first startup (verified
+          # empirically: it returns ready, then the ephemeral instance shuts
+          # down for the restart). Poll over the MAPPED HOST PORT instead —
+          # the same path `make preflight` below actually connects through —
+          # so we only proceed once the stable, TCP-reachable instance is up.
+          ready=0
+          for i in $(seq 1 60); do
+            if pg_isready -h 127.0.0.1 -p "$port" -U postgres >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::postgres did not become ready in time"
+            docker logs "$name" || true
+            exit 1
+          fi
+
+      - name: Bootstrap extensions
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p "${{ steps.pg.outputs.port }}" -U postgres -d gocode_test \
+            -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS age;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+
+      - name: make preflight
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ steps.pg.outputs.port }}/gocode_test?sslmode=disable
+          PR_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ steps.pg.outputs.port }}/gocode_test?sslmode=disable
+        run: make preflight
+
+      - name: Stop ephemeral postgres+age
+        if: always()
+        run: docker rm -f "${{ steps.pg.outputs.container }}" >/dev/null 2>&1 || true
