@@ -1,10 +1,6 @@
 package parser
 
 import (
-	"context"
-
-	sitter "github.com/smacker/go-tree-sitter"
-
 	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
@@ -20,18 +16,14 @@ func collectRuneSymbols(src []byte, path string) []*Symbol {
 	if caps.SitterLanguage == nil {
 		return nil
 	}
-	ps := sitter.NewParser()
-	defer ps.Close()
-	ps.SetLanguage(caps.SitterLanguage)
-
-	tree, err := ps.ParseCtx(context.Background(), nil, src)
+	root, closeTree, err := parseTree(caps.SitterLanguage, src)
 	if err != nil {
 		return nil
 	}
-	defer tree.Close()
+	defer closeTree()
 
 	var syms []*Symbol
-	walkRuneNodes(tree.RootNode(), src, &syms, path)
+	walkRuneNodes(root, src, &syms, path)
 	return syms
 }
 
