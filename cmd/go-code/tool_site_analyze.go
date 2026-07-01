@@ -156,7 +156,7 @@ func formatFullResponse(
 func marshalSiteAnalyze(site siteXML) string {
 	b, err := xml.Marshal(siteAnalyzeRespXML{Tool: "site_analyze", Site: site})
 	if err != nil {
-		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+		return xmlMarshalErrorFragment(err)
 	}
 	return string(b)
 }

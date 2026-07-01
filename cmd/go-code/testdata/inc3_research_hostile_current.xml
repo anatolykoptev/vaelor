@@ -1,0 +1,1 @@
+<response tool="code_research"><query>dag executor</query><repo>owner/repo</repo><mode>hybrid</mode><stats seeds="1" graph_files="0" pruned="0" estimated_tokens="10"/><seeds><file path="internal/a&b.go" score="0.5000"><symbol kind="func&lt;&gt;" line="1" source="sem&amp;kw">Send&lt;T&gt;</symbol></file></seeds><map>func Send() <-chan T { return ch & mask }</map></response>

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -478,40 +478,49 @@ func annotateWithPageRank(results []embeddings.SearchResult, signals []graphx.Si
 }
 
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult, mappings []analyze.PathMapping) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"semantic_search\">")
-	fmt.Fprintf(&sb, "<query>%s</query>", escapeXML(input.Query))
-	fmt.Fprintf(&sb, "<repo>%s</repo>", escapeXML(input.Repo))
-	fmt.Fprintf(&sb, "<results count=\"%d\">", len(results))
+	resp := semanticRespXML{
+		Tool:    "semantic_search",
+		Query:   input.Query,
+		Repo:    input.Repo,
+		Results: semanticResultsXML{Count: len(results)},
+	}
 	for i, r := range results {
 		source := r.Source
 		if source == "" {
 			source = "semantic"
 		}
-		if r.PageRank > 0 {
-			fmt.Fprintf(&sb, "<result rank=\"%d\" distance=\"%.4f\" source=\"%s\" pagerank=\"%.6f\">",
-				i+1, r.Distance, escapeXML(source), r.PageRank)
-		} else {
-			fmt.Fprintf(&sb, "<result rank=\"%d\" distance=\"%.4f\" source=\"%s\">", i+1, r.Distance, escapeXML(source))
+		res := semanticResultXML{
+			Rank:     i + 1,
+			Distance: fmt.Sprintf("%.4f", r.Distance),
+			Source:   source,
+			File:     reverseToHost(r.FilePath, mappings),
+			Symbol:   semanticSymbolXML{Kind: r.SymbolKind, Value: r.SymbolName},
+			Line:     r.StartLine,
+			Language: r.Language,
 		}
-		fmt.Fprintf(&sb, "<file>%s</file>", escapeXML(reverseToHost(r.FilePath, mappings)))
-		fmt.Fprintf(&sb, "<symbol kind=\"%s\">%s</symbol>",
-			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))
-		fmt.Fprintf(&sb, "<line>%d</line>", r.StartLine)
-		fmt.Fprintf(&sb, "<language>%s</language>", escapeXML(r.Language))
-		fmt.Fprintf(&sb, "</result>")
+		if r.PageRank > 0 {
+			pr := fmt.Sprintf("%.6f", r.PageRank)
+			res.PageRank = &pr
+		}
+		resp.Results.Results = append(resp.Results.Results, res)
 	}
-	sb.WriteString("</results></response>")
-	return sb.String()
+	b, err := xml.Marshal(resp)
+	if err != nil {
+		return xmlMarshalErrorFragment(err)
+	}
+	return string(b)
 }
 
 func buildStatusResponse(input SemanticSearchInput, status, message string) string {
-	return fmt.Sprintf(
-		"<response tool=\"semantic_search\">"+
-			"<query>%s</query>"+
-			"<repo>%s</repo>"+
-			"<status>%s</status>"+
-			"<message>%s</message>"+
-			"</response>",
-		escapeXML(input.Query), escapeXML(input.Repo), status, message)
+	b, err := xml.Marshal(semanticStatusXML{
+		Tool:    "semantic_search",
+		Query:   input.Query,
+		Repo:    input.Repo,
+		Status:  status,
+		Message: message,
+	})
+	if err != nil {
+		return xmlMarshalErrorFragment(err)
+	}
+	return string(b)
 }

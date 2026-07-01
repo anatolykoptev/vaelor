@@ -79,7 +79,7 @@ func handleSiteCrawl(
 func formatCrawlResponse(resp *webanalyze.CrawlResponse) string {
 	b, err := xml.Marshal(buildCrawlResponseXML(resp))
 	if err != nil {
-		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+		return xmlMarshalErrorFragment(err)
 	}
 	return string(b)
 }

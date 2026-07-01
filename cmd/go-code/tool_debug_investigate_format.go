@@ -178,7 +178,7 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	}
 	b, err := xml.Marshal(resp)
 	if err != nil {
-		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+		return xmlMarshalErrorFragment(err)
 	}
 	return string(b)
 }
