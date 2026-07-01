@@ -246,7 +246,7 @@ func computeCodeHealth(
 
 	if input.Format == "sarif" {
 		sarifReport := compare.BuildSARIF(sr.snap.Name, metrics, nil, nil, hotspots, outliers)
-		data, err := json.MarshalIndent(sarifReport, "", "  ")
+		data, err := json.Marshal(sarifReport)
 		if err != nil {
 			return errResult(fmt.Sprintf("sarif marshal: %s", err)), nil
 		}
@@ -259,7 +259,7 @@ func computeCodeHealth(
 	resp := buildHealthXML(sr.snap.Name, sr.snap.Language, metrics, metrics.Score, hotspots, relStats, recs, fr.fr, fr.vr, oxChecks, archMetrics, sr.snap.Partial)
 
 	// Marshal to raw XML string for caching (before largeTextResult file fallback).
-	data, marshalErr := xml.MarshalIndent(resp, "", "  ")
+	data, marshalErr := xml.Marshal(resp)
 	if marshalErr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", marshalErr)), nil
 	}
