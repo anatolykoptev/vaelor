@@ -76,24 +76,24 @@ func handleSiteCrawl(
 
 func formatCrawlResponse(resp *webanalyze.CrawlResponse) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"site_crawl\">\n")
-	fmt.Fprintf(&sb, "  <summary pages=\"%d\" errors=\"%d\" elapsed_ms=\"%d\"/>\n",
+	fmt.Fprintf(&sb, "<response tool=\"site_crawl\">")
+	fmt.Fprintf(&sb, "<summary pages=\"%d\" errors=\"%d\" elapsed_ms=\"%d\"/>",
 		resp.Summary.PagesCrawled, resp.Summary.Errors, resp.Summary.ElapsedMs)
 
 	for _, p := range resp.Pages {
 		if p.Error != nil {
-			fmt.Fprintf(&sb, "  <page url=%q depth=\"%d\" error=%q/>\n",
+			fmt.Fprintf(&sb, "<page url=%q depth=\"%d\" error=%q/>",
 				p.URL, p.Depth, *p.Error)
 			continue
 		}
-		fmt.Fprintf(&sb, "  <page url=%q status=\"%d\" depth=\"%d\" title=%q links=\"%d\" bytes=\"%d\">\n",
+		fmt.Fprintf(&sb, "<page url=%q status=\"%d\" depth=\"%d\" title=%q links=\"%d\" bytes=\"%d\">",
 			p.URL, p.Status, p.Depth, escapeXML(p.Title), p.LinksFound, p.ContentLength)
 		if p.Markdown != "" {
-			sb.WriteString("    <content>")
+			sb.WriteString("<content>")
 			sb.WriteString(wrapCDATA(p.Markdown))
-			sb.WriteString("</content>\n")
+			sb.WriteString("</content>")
 		}
-		sb.WriteString("  </page>\n")
+		sb.WriteString("</page>")
 	}
 
 	sb.WriteString("</response>")
