@@ -90,7 +90,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	if !result.Found {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
 		if suggestions := semanticSuggest(ctx, sem, root, input.Symbol, input.Language); suggestions != "" {
-			return textResult(fmt.Sprintf("<response tool=\"impact_analysis\"><error>%s</error>%s</response>", escapeXML(msg), suggestions)), nil
+			return textResult(formatToolErrorWithSuggestions("impact_analysis", msg, suggestions)), nil
 		}
 		return errResult(msg), nil
 	}

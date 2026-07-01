@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
@@ -118,18 +118,58 @@ func semanticSuggest(ctx context.Context, sem *SemanticDeps, root, query, langua
 	return formatSemanticSuggestions(results)
 }
 
-// formatSemanticSuggestions formats semantic search results as XML suggestions block.
+// ---- semantic_suggestions XML types ----
+//
+// Migrated from a hand-rolled strings.Builder formatter onto encoding/xml.Marshal
+// so well-formedness is correct by construction. The distance attribute is
+// pre-formatted to a string (%.4f) because raw xml.Marshal of a float32 renders
+// via strconv and drops trailing zeros (0.2500 -> "0.25"), breaking attribute
+// equivalence.
+
+const semanticSuggestHint = "No exact matches found. These symbols are semantically similar to your query:"
+
+type semanticSuggestionsXML struct {
+	XMLName xml.Name           `xml:"semantic_suggestions"`
+	Hint    string             `xml:"hint"`
+	Items   []semSuggestionXML `xml:"suggestion"`
+}
+
+type semSuggestionXML struct {
+	Rank     int           `xml:"rank,attr"`
+	Distance string        `xml:"distance,attr"`
+	Symbol   semSymbolXML  `xml:"symbol"`
+	File     semSymFileXML `xml:"file"`
+}
+
+type semSymbolXML struct {
+	Kind string `xml:"kind,attr"`
+	Name string `xml:",chardata"`
+}
+
+type semSymFileXML struct {
+	Line int    `xml:"line,attr"`
+	Path string `xml:",chardata"`
+}
+
+// formatSemanticSuggestions formats semantic search results as an XML
+// suggestions block (a fragment embedded verbatim into the tool error/no-match
+// responses via ,innerxml).
 func formatSemanticSuggestions(results []embeddings.SearchResult) string {
-	var sb strings.Builder
-	sb.WriteString("<semantic_suggestions>")
-	sb.WriteString("<hint>No exact matches found. These symbols are semantically similar to your query:</hint>")
-	for i, r := range results {
-		fmt.Fprintf(&sb, "<suggestion rank=\"%d\" distance=\"%.4f\">", i+1, r.Distance)
-		fmt.Fprintf(&sb, "<symbol kind=\"%s\">%s</symbol>",
-			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))
-		fmt.Fprintf(&sb, "<file line=\"%d\">%s</file>", r.StartLine, escapeXML(r.FilePath))
-		sb.WriteString("</suggestion>")
+	resp := semanticSuggestionsXML{
+		Hint:  semanticSuggestHint,
+		Items: make([]semSuggestionXML, 0, len(results)),
 	}
-	sb.WriteString("</semantic_suggestions>")
-	return sb.String()
+	for i, r := range results {
+		resp.Items = append(resp.Items, semSuggestionXML{
+			Rank:     i + 1,
+			Distance: fmt.Sprintf("%.4f", r.Distance),
+			Symbol:   semSymbolXML{Kind: r.SymbolKind, Name: r.SymbolName},
+			File:     semSymFileXML{Line: r.StartLine, Path: r.FilePath},
+		})
+	}
+	b, err := xml.Marshal(resp)
+	if err != nil {
+		return xmlMarshalErrorFragment(err)
+	}
+	return string(b)
 }
