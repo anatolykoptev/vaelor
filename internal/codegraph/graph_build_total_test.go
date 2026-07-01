@@ -74,6 +74,13 @@ func TestGraphBuildTotal_SkipPath(t *testing.T) {
 	root := "/test/skip/path"
 	repo := graphName(root)
 
+	// Step 1 (doc comment above): EnsureGraph populates code_graph_meta —
+	// required on a fresh DB (e.g. CI's ephemeral instance); prod DBs have it
+	// from an earlier real index run, which is why this was previously missed.
+	if err := store.EnsureGraph(ctx, repo); err != nil {
+		t.Fatalf("EnsureGraph: %v", err)
+	}
+
 	// Seed a fresh meta row so checkCache returns it (TTL=3600 → fresh for 1h).
 	meta := &GraphMeta{
 		RepoKey:    repo,
