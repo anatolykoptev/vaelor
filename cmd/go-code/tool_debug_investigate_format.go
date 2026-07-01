@@ -150,6 +150,7 @@ func writeHypothesisRecentChange(b *strings.Builder, rc *investigate.RecentChang
 		return
 	}
 	fmt.Fprintf(b, "<recent_change file=%q since=%q>", rc.File, rc.Since)
+	// CDATA carries the raw diff payload; no formatter whitespace inside the markers.
 	b.WriteString("<![CDATA[")
 	b.WriteString(escapeCDATA(rc.Diff))
 	b.WriteString("]]>")
@@ -170,6 +171,7 @@ func writeHypothesisBodyExcerpt(b *strings.Builder, bodySource, file string, lin
 		lines = strconv.Itoa(line) + "-" + strconv.Itoa(endLine)
 	}
 	fmt.Fprintf(b, "<body_excerpt file=%q lines=%q>", file, lines)
+	// CDATA carries the raw body payload; no formatter whitespace inside the markers.
 	b.WriteString("<![CDATA[")
 	b.WriteString(escapeCDATA(bodySource))
 	b.WriteString("]]>")
