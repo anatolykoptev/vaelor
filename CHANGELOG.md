@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.22.0](https://github.com/anatolykoptev/go-code/compare/v1.21.0...v1.22.0) (2026-07-01)
+
+
+### Features
+
+* **metrics:** code_health/code_graph build-failure counters + AGE staleness gauge ([f115569](https://github.com/anatolykoptev/go-code/commit/f115569195dbd0525178bb7f996ecc6ce8905d7b))
+* **parser:** astro alias resolution + vue SFC handler ([#241](https://github.com/anatolykoptev/go-code/issues/241)) ([d7724cf](https://github.com/anatolykoptev/go-code/commit/d7724cfe6b640edcbbe289d1f246dd863cad5a2b))
+* **parser:** Astro markup {expr} calls + refs via shared tsxLang reparse ([#269](https://github.com/anatolykoptev/go-code/issues/269)) ([b5777c5](https://github.com/anatolykoptev/go-code/commit/b5777c5eb8bb9d86d78ecd30683f0ec69b188449))
+* **parser:** Svelte component composition — TemplateRefs, USES edges, destructured $props() ([#270](https://github.com/anatolykoptev/go-code/issues/270)) ([fcba841](https://github.com/anatolykoptev/go-code/commit/fcba841e073d76d1380ecfc7a51c378840e40f04))
+* **parser:** Svelte template-expressions + control-flow-effective calls/refs ([#271](https://github.com/anatolykoptev/go-code/issues/271)) ([c4302db](https://github.com/anatolykoptev/go-code/commit/c4302db1f7bb01b24b515fa5d9210638d691542e))
+
+
+### Bug Fixes
+
+* **astro:** narrow alias-counter emit-gate to broken declared aliases ([#243](https://github.com/anatolykoptev/go-code/issues/243)) ([c42afd4](https://github.com/anatolykoptev/go-code/commit/c42afd48669b11ae11d08425e3a4cdbf537dedfe))
+* **code_health:** stop deleting a remote clone while the background snapshot is still reading it ([#246](https://github.com/anatolykoptev/go-code/issues/246)) ([02e0357](https://github.com/anatolykoptev/go-code/commit/02e035787d632d9c94d57a477404c77f8d539913))
+* **compare,codegraph:** code_compare grade reflects freshness + language-aware isExported; [#253](https://github.com/anatolykoptev/go-code/issues/253) cleanup ([9e2c05f](https://github.com/anatolykoptev/go-code/commit/9e2c05f247f5433fcc6b48c0af82ae48b9fbc98d))
+* **compare:** deterministic cycle-pair order in find2Cycles (flaky test) ([#272](https://github.com/anatolykoptev/go-code/issues/272)) ([dafcecf](https://github.com/anatolykoptev/go-code/commit/dafcecf1609ce270a9e3c88286ca77dc54e2c88c))
+* **compare:** treat zero-dependency repos as N/A for freshness+vuln scoring ([2763dcd](https://github.com/anatolykoptev/go-code/commit/2763dcd3912b8c5badc5a665b22de351698cbb8b))
+* **compare:** treat zero-dependency repos as N/A in code_compare grade (match code_health/[#250](https://github.com/anatolykoptev/go-code/issues/250)) ([aa6c42c](https://github.com/anatolykoptev/go-code/commit/aa6c42c8c4173f69db168ca183b8efb2c5895e13))
+* **complexity:** unify cyclomatic complexity on parser as single owner ([39e89bb](https://github.com/anatolykoptev/go-code/commit/39e89bb6ccb0ae2869846760b7f70f6ec20b6879))
+* **embeddings:** delete only true orphans (positive IN-list), not per-chunk anti-join ([728fe3c](https://github.com/anatolykoptev/go-code/commit/728fe3c062cccebef79b89c18bf46ea3b65950e4))
+* **embeddings:** NUL-separate in-memory symbol keys (colon-in-path safe) + document dedup lossiness ([f20afcc](https://github.com/anatolykoptev/go-code/commit/f20afcc5330a8dbc38997db8e919f754fbe65753))
+* **explore:** label health score as approximate with hint ([#249](https://github.com/anatolykoptev/go-code/issues/249)) ([7d6137a](https://github.com/anatolykoptev/go-code/commit/7d6137a3e5380ad97bc36d53b8a53e492aadf449))
+* **mcp:** return tool results as application/json, not single-line SSE ([#245](https://github.com/anatolykoptev/go-code/issues/245)) ([7c9da8b](https://github.com/anatolykoptev/go-code/commit/7c9da8b0e0ef167c9ebb8f925e18a3e8255dd489))
+* **metrics:** add per-symbol cognitive complexity and fix JS docRatio ([#247](https://github.com/anatolykoptev/go-code/issues/247)) ([4099691](https://github.com/anatolykoptev/go-code/commit/40996914774b232cf3cbd773376d4a316a1aad2a))
+* **metrics:** unify health score and add arch fallback for unindexed repos ([#248](https://github.com/anatolykoptev/go-code/issues/248)) ([6db6ef2](https://github.com/anatolykoptev/go-code/commit/6db6ef2fdf413651996c386235ca93729a1a6070))
+* **parser:** JS/TS-family Symbol.Language parity — .jsx/.js/.mjs/.cjs emit javascript ([#268](https://github.com/anatolykoptev/go-code/issues/268)) ([b758db4](https://github.com/anatolykoptev/go-code/commit/b758db41af3ae39c415e39823b7514fd0fe5c7c5))
+* transfer table ownership on learnings + designmd store init ([#265](https://github.com/anatolykoptev/go-code/issues/265)) ([7768df5](https://github.com/anatolykoptev/go-code/commit/7768df5726d625db7e0f7350ee5eb240d10448da))
+
+
+### Performance Improvements
+
+* compact hand-built XML formatters + code_compare metrics json ([#261](https://github.com/anatolykoptev/go-code/issues/261)) ([4c8d2a2](https://github.com/anatolykoptev/go-code/commit/4c8d2a27abec9596a88bbaeccd069ee7c22a5e53))
+* drop MCP response indentation + duration-only meta footer ([#260](https://github.com/anatolykoptev/go-code/issues/260)) ([e76ae8b](https://github.com/anatolykoptev/go-code/commit/e76ae8b0f286b65b4191aeb8d053dcc198c5aed4))
+
 ## [1.21.0](https://github.com/anatolykoptev/go-code/compare/v1.20.0...v1.21.0) (2026-06-20)
 
 
