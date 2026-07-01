@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 
@@ -46,18 +45,14 @@ func ExtractRelationships(path string, source []byte, opts ParseOpts) ([]TypeRel
 		return nil, nil
 	}
 
-	p := sitter.NewParser()
-	defer p.Close()
-	p.SetLanguage(caps.SitterLanguage)
-
-	tree, err := p.ParseCtx(context.Background(), nil, source)
+	root, closeTree, err := parseTree(caps.SitterLanguage, source)
 	if err != nil {
 		return nil, err
 	}
-	defer tree.Close()
+	defer closeTree()
 
 	lang := handler.Language()
-	return runRelQuery(caps.RelationshipsQuery, tree.RootNode(), source, path, lang), nil
+	return runRelQuery(caps.RelationshipsQuery, root, source, path, lang), nil
 }
 
 // relMatchResult holds the extracted capture fields from a single query match.

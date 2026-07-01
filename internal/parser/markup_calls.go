@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"context"
 	_ "embed"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -62,17 +61,13 @@ func scriptRegionCalls(path string, vs *preproc.VirtualSource) []CallSite {
 		return nil
 	}
 
-	ps := sitter.NewParser()
-	defer ps.Close()
-	ps.SetLanguage(caps.SitterLanguage)
-
-	tree, err := ps.ParseCtx(context.Background(), nil, vs.Code)
+	root, closeTree, err := parseTree(caps.SitterLanguage, vs.Code)
 	if err != nil {
 		return nil
 	}
-	defer tree.Close()
+	defer closeTree()
 
-	calls := runCallQuery(caps.CallsQuery, tree.RootNode(), vs.Code, path)
+	calls := runCallQuery(caps.CallsQuery, root, vs.Code, path)
 	return remapCallLines(calls, vs.LineMap)
 }
 
@@ -103,16 +98,11 @@ func markupExprReparse(path string, vs *preproc.VirtualSource) []CallSite {
 		return nil
 	}
 
-	ps := sitter.NewParser()
-	defer ps.Close()
-	ps.SetLanguage(lang)
-
-	tree, err := ps.ParseCtx(context.Background(), nil, vs.Code)
+	root, closeTree, err := parseTree(lang, vs.Code)
 	if err != nil {
 		return nil
 	}
-	defer tree.Close()
-	root := tree.RootNode()
+	defer closeTree()
 
 	// tsx_calls.scm: calls, member-calls, argrefs (incl. JSX-expression argrefs).
 	// markup_refs.scm: bare top-level identifiers ({count}) for React parity.

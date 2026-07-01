@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"context"
 	"slices"
 	"testing"
 
@@ -17,14 +16,11 @@ func firstDestructurePattern(t *testing.T, code string) (*sitter.Node, []byte) {
 	if caps.SitterLanguage == nil {
 		t.Fatal("tsLang has no sitter language")
 	}
-	ps := sitter.NewParser()
-	t.Cleanup(ps.Close)
-	ps.SetLanguage(caps.SitterLanguage)
-	tree, err := ps.ParseCtx(context.Background(), nil, src)
+	root, closeFn, err := parseTree(caps.SitterLanguage, src)
 	if err != nil {
 		t.Fatalf("parse %q: %v", code, err)
 	}
-	t.Cleanup(tree.Close)
+	t.Cleanup(closeFn)
 
 	var pat *sitter.Node
 	var find func(n *sitter.Node)
@@ -40,7 +36,7 @@ func firstDestructurePattern(t *testing.T, code string) (*sitter.Node, []byte) {
 			find(n.Child(i))
 		}
 	}
-	find(tree.RootNode())
+	find(root)
 	return pat, src
 }
 

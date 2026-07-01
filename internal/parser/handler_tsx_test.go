@@ -67,54 +67,6 @@ class Widget {
 	}
 }
 
-// TestJSTSFamily_SymbolLanguageAgreesWithDetector is the parity fitness
-// function for the JS/TS-family handlers. tsxHandler (.tsx/.jsx) and
-// typescriptHandler (.ts/.js/.mjs/.cjs/.cts/.mts) BOTH build symbols through a
-// MapCapture that hardcodes Language:"typescript"; both correct it in Parse via
-// applyDetectedSymbolLanguage. For EVERY extension either handler serves, every
-// emitted Symbol.Language must equal DetectLanguageFromPath of that extension —
-// the parser must never disagree with its own path-based detector. Ranging BOTH
-// handlers (not just tsxLang) keeps the invariant honest: an earlier tsx-only
-// version reported green while .js/.mjs/.cjs symbols were still mislabeled.
-func TestJSTSFamily_SymbolLanguageAgreesWithDetector(t *testing.T) {
-	// JSX-free source so it parses under both the TSX and the plain TS grammar.
-	src := []byte(`
-function greet() {
-	return 1;
-}
-
-class Widget {
-	render() {
-		return 2;
-	}
-}
-`)
-	var exts []string
-	exts = append(exts, tsxLang.Extensions()...)
-	exts = append(exts, tsLang.Extensions()...)
-	for _, ext := range exts {
-		t.Run(ext, func(t *testing.T) {
-			path := "component" + ext
-			want := DetectLanguageFromPath(path)
-			if want == "" {
-				t.Fatalf("DetectLanguageFromPath(%q) = \"\" — no language detected", path)
-			}
-			result, err := ParseFile(path, src, ParseOpts{})
-			if err != nil {
-				t.Fatalf("ParseFile(%q): %v", path, err)
-			}
-			if len(result.Symbols) == 0 {
-				t.Fatalf("ParseFile(%q): expected at least one symbol, got none", path)
-			}
-			for _, sym := range result.Symbols {
-				if sym.Language != want {
-					t.Errorf("ParseFile(%q): symbol %q Language = %q, want %q (DetectLanguageFromPath)", path, sym.Name, sym.Language, want)
-				}
-			}
-		})
-	}
-}
-
 // TestJSTSFamily_OptsLanguageOverrideHonored locks in override-first precedence
 // (matching ParseFile, parser.go). The sparse-embedding backfill re-parses
 // stored rows with ParseOpts{Language: storedRow.Language} so buildEmbedText

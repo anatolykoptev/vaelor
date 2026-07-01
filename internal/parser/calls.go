@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 
@@ -78,17 +77,13 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 		// template calls that duplicate MarkupCalls below.
 		calls = append(calls, sc.ScriptCalls(path, source, opts)...)
 	} else if caps := handler.Capabilities(); caps.CallsQuery != nil {
-		p := sitter.NewParser()
-		defer p.Close()
-		p.SetLanguage(caps.SitterLanguage)
-
-		tree, err := p.ParseCtx(context.Background(), nil, source)
+		root, closeTree, err := parseTree(caps.SitterLanguage, source)
 		if err != nil {
 			return nil, err
 		}
-		defer tree.Close()
+		defer closeTree()
 
-		calls = runCallQuery(caps.CallsQuery, tree.RootNode(), source, path)
+		calls = runCallQuery(caps.CallsQuery, root, source, path)
 	}
 
 	// Template-body calls (Astro, Svelte). For scriptCallSource handlers this is
