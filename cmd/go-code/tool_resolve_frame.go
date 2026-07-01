@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -67,9 +66,9 @@ func handleResolveFrame(ctx context.Context, input ResolveFrameInput, allowedHos
 		return errResult("resolve_frame: " + err.Error()), nil
 	}
 
-	data, err := json.Marshal(frame)
-	if err != nil {
-		return errResult("resolve_frame: marshal: " + err.Error()), nil
-	}
-	return textResult(string(data)), nil
+	// Route through the shared jsonMarshalResult helper (helpers.go) rather than
+	// re-implementing json.Marshal -> textResult; the success path is
+	// byte-identical (compact JSON), the marshal-error branch is unreachable for
+	// a well-formed Frame.
+	return jsonMarshalResult(frame), nil
 }

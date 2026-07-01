@@ -1,0 +1,4 @@
+<response tool="code_research"><query>dag executor</query><repo>owner/repo</repo><mode>hybrid</mode><stats seeds="3" graph_files="2" pruned="3" estimated_tokens="1200"/><seeds><file path="internal/dag/exec.go" score="0.9876"><symbol kind="function" line="20" source="hybrid">Run</symbol><symbol kind="struct" line="10" source="semantic">Executor</symbol></file><file path="internal/dag/node.go" score="0.7000"><symbol kind="struct" line="5" source="keyword">Node</symbol></file></seeds><graph><file path="internal/dag/plan.go" distance="1" why="imports seed internal/dag" score="0.5000"><symbol kind="function" line="15">Build</symbol></file></graph><map>internal/dag/exec.go  [seed]
+    Executor
+    Run(ctx Context) error
+</map></response>

@@ -197,6 +197,27 @@ func assertAttrRoundTrips(t *testing.T, migrated, path, attr, wantValue string) 
 	}
 }
 
+// assertTextRoundTrips proves the escaping FIX for a text (chardata) node: the
+// migrated output is well-formed and the concatenated direct text at the given
+// element path recovers wantValue verbatim (a value carrying XML-hostile
+// characters like <, & that the prior formatter emitted raw). path is a
+// slash-separated chain of element local-names from the root, e.g.
+// "response/map".
+func assertTextRoundTrips(t *testing.T, migrated, path, wantValue string) {
+	t.Helper()
+	root, err := decodeXMLTree(migrated)
+	if err != nil {
+		t.Fatalf("migrated output is not well-formed XML: %v\ninput: %s", err, migrated)
+	}
+	node := findByPath(root, strings.Split(path, "/"))
+	if node == nil {
+		t.Fatalf("path %q not found in migrated output: %s", path, migrated)
+	}
+	if node.text != wantValue {
+		t.Errorf("text at %q round-tripped to %q, want %q", path, node.text, wantValue)
+	}
+}
+
 // assertNotWellFormed proves the BUG: the hand-rolled output does not decode
 // (a hostile attribute value produced malformed XML). Recorded alongside the
 // escaping-fix assertion so the regression guard documents both sides.

@@ -66,8 +66,8 @@ func handleDesignSearch(
 	}
 
 	if len(results) == 0 {
-		return textResult("<response tool=\"design_search\"><status>not_indexed</status>" +
-			"<message>No design embeddings. Run: go-code index-designs /path/to/dir/</message></response>"), nil
+		return textResult(formatDesignStatus("not_indexed",
+			"No design embeddings. Run: go-code index-designs /path/to/dir/")), nil
 	}
 
 	hits := groupByBrand(results, dirs, topK)

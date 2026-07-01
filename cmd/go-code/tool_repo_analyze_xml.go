@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/xml"
-	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -50,7 +49,10 @@ func formatAnalysisXML(r *analyze.RepoAnalysisResult, depth string, extras *repo
 
 	b, err := xml.Marshal(resp)
 	if err != nil {
-		return fmt.Sprintf("<error>%s</error>", err.Error())
+		// Route through the shared helper so the error text is XML-escaped
+		// (the prior raw %s here was the one unescaped <error> fallback left
+		// after #263) and the manual-XML-string class is fully eliminated.
+		return xmlMarshalErrorFragment(err)
 	}
 	return xml.Header + string(b)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,16 +85,42 @@ func handleLocalQuickMode(ctx context.Context, input RepoAnalyzeInput, deps anal
 	tree := ingest.RenderTree(ir.Files)
 	readme := readREADME(root)
 
-	repoName := filepath.Base(root)
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response><quick repo=%q type=\"local\">", repoName)
-	fmt.Fprintf(&sb, "<tree><![CDATA[%s]]></tree>", strings.ReplaceAll(tree, "]]>", "]]]]><![CDATA[>"))
-	if readme != "" {
-		fmt.Fprintf(&sb, "<readme><![CDATA[%s]]></readme>", strings.ReplaceAll(readme, "]]>", "]]]]><![CDATA[>"))
-	}
-	sb.WriteString("</quick></response>")
+	return textResult(formatQuickLocal(filepath.Base(root), tree, readme)), nil
+}
 
-	return textResult(sb.String()), nil
+// quickLocalRespXML is the local-quick-mode response, migrated from hand-rolled
+// fmt.Fprintf onto encoding/xml.Marshal (failure class: manual XML
+// string-concatenation). The prior formatter emitted `repo=%q` (Go quoting, not
+// XML escaping) on the attribute -- now an xml.Marshal attr, escaped by
+// construction. The tree/readme bodies keep their CDATA form via the shared
+// wrapCDATA helper (byte-identical to the prior inline "]]>" split), reused
+// through xmlCDATA's ,innerxml carrier. No xml.Header prolog (fragment consumed
+// by the MCP caller).
+type quickLocalRespXML struct {
+	XMLName xml.Name      `xml:"response"`
+	Quick   quickLocalXML `xml:"quick"`
+}
+
+type quickLocalXML struct {
+	Repo   string    `xml:"repo,attr"`
+	Type   string    `xml:"type,attr"`
+	Tree   xmlCDATA  `xml:"tree"`
+	Readme *xmlCDATA `xml:"readme,omitempty"`
+}
+
+// formatQuickLocal renders the local-quick-mode <response><quick> document.
+func formatQuickLocal(repoName, tree, readme string) string {
+	resp := quickLocalRespXML{
+		Quick: quickLocalXML{
+			Repo: repoName,
+			Type: "local",
+			Tree: xmlCDATA{Inner: wrapCDATA(tree)},
+		},
+	}
+	if readme != "" {
+		resp.Quick.Readme = &xmlCDATA{Inner: wrapCDATA(readme)}
+	}
+	return xmlMarshalFragment(resp)
 }
 
 // readREADME tries to read README.md from root, returning empty string on failure.
