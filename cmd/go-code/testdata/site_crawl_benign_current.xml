@@ -1,0 +1,3 @@
+<response tool="site_crawl"><summary pages="2" errors="1" elapsed_ms="1234"/><page url="https://example.com/" status="200" depth="0" title="Home" links="5" bytes="42"><content><![CDATA[# Home
+
+Welcome]]></content></page><page url="https://example.com/broken" depth="1" error="timeout"/></response>

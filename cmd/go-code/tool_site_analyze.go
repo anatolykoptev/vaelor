@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -109,55 +110,55 @@ func extractSources(
 	return totalStats, nil
 }
 
+// formatDetectResponse renders the tech-stack-only response as XML via
+// typed structs + encoding/xml.Marshal (escaping correct by construction).
 func formatDetectResponse(resp *webanalyze.AnalyzeResponse) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">")
-	fmt.Fprintf(&sb, "<site url=%q status=\"%d\">", resp.URL, resp.Status)
-	formatTechnologies(&sb, resp.Technologies)
-	formatSEO(&sb, resp.SEO)
-	formatPerformance(&sb, resp.Performance)
-	formatAccessibility(&sb, resp.Accessibility)
-	formatContent(&sb, resp.Content)
-	formatMedia(&sb, resp.Media)
-	formatExtras(&sb, resp.Fonts, resp.PWA, resp.API)
-	fmt.Fprintf(&sb, "<meta generator=%q server=%q title=%q/>",
-		resp.Meta.Generator, resp.Meta.Server, resp.Meta.Title)
-	fmt.Fprintf(&sb, "<assets scripts=\"%d\" stylesheets=\"%d\"/>",
-		len(resp.Assets.Scripts), len(resp.Assets.Stylesheets))
-	sb.WriteString("</site></response>")
-	return sb.String()
+	site := buildSiteHead(resp)
+	site.Meta = &metaXML{
+		Generator: resp.Meta.Generator,
+		Server:    resp.Meta.Server,
+		Title:     resp.Meta.Title,
+	}
+	site.Assets = &assetsXML{
+		Scripts:     len(resp.Assets.Scripts),
+		Stylesheets: len(resp.Assets.Stylesheets),
+	}
+	return marshalSiteAnalyze(site)
 }
 
+// formatFullResponse renders the full-mode response (detect + extracted source
+// map stats) as XML via typed structs + encoding/xml.Marshal.
 func formatFullResponse(
 	resp *webanalyze.AnalyzeResponse, outDir string,
 	stats *webanalyze.SourceStats, extractErr error,
 ) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">")
-	fmt.Fprintf(&sb, "<site url=%q status=\"%d\">", resp.URL, resp.Status)
-	formatTechnologies(&sb, resp.Technologies)
-	formatSEO(&sb, resp.SEO)
-	formatPerformance(&sb, resp.Performance)
-	formatAccessibility(&sb, resp.Accessibility)
-	formatContent(&sb, resp.Content)
-	formatMedia(&sb, resp.Media)
-	formatExtras(&sb, resp.Fonts, resp.PWA, resp.API)
+	site := buildSiteHead(resp)
 	if stats != nil && stats.Files > 0 {
-		fmt.Fprintf(&sb, "<sources path=%q files=\"%d\">", outDir, stats.Files)
+		src := &sourcesXML{Path: outDir, Files: stats.Files}
 		for ext, count := range stats.Languages {
-			fmt.Fprintf(&sb, "<language name=%q files=\"%d\"/>", ext, count)
+			src.Languages = append(src.Languages, languageXML{Name: ext, Files: count})
 		}
-		sb.WriteString("</sources>")
-		fmt.Fprintf(&sb, "<hint>Use explore, symbol_search, or dep_graph with repo=%q</hint>", outDir)
+		site.Sources = src
+		site.Hint = fmt.Sprintf("Use explore, symbol_search, or dep_graph with repo=%q", outDir)
 	} else {
 		msg := "No source maps found"
 		if extractErr != nil {
 			msg = extractErr.Error()
 		}
-		fmt.Fprintf(&sb, "<sources files=\"0\" reason=%q/>", msg)
+		site.Sources = &sourcesXML{Files: 0, Reason: msg}
 	}
-	sb.WriteString("</site></response>")
-	return sb.String()
+	return marshalSiteAnalyze(site)
+}
+
+// marshalSiteAnalyze wraps a built <site> in the <response tool="site_analyze">
+// envelope and marshals it. No xml.Header prolog is emitted (the response is an
+// XML fragment consumed by the MCP caller, matching the prior formatter).
+func marshalSiteAnalyze(site siteXML) string {
+	b, err := xml.Marshal(siteAnalyzeRespXML{Tool: "site_analyze", Site: site})
+	if err != nil {
+		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+	}
+	return string(b)
 }
 
 func extractDomain(rawURL string) string {
