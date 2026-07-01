@@ -745,3 +745,76 @@ func TestAnalyzeDeadRatio(t *testing.T) {
 		t.Errorf("expected ratio 0.5, got %f", result.DeadRatio)
 	}
 }
+
+// TestAnalyze_TSExportedCamelCaseNotHighConfidenceDead is the RED→GREEN
+// regression test for the isSymbolExported bug: internal/parser's TypeScript
+// (and JavaScript/Kotlin/Swift/PHP/C#/Ruby) handlers never populate
+// parser.Symbol.IsPublic, so isSymbolExported used to fall through to the
+// Go-only uppercase-first isExported(name) helper. A TS `export function
+// fooBar()` (camelCase, no internal callers) was misclassified
+// exported=false — high-confidence false-positive dead code — for nearly
+// every exported symbol in a TS/JS repo, not just this one name.
+//
+// FAILS before the fix (isSymbolExported delegates to langutil.IsExportedForDoc
+// for non-Rust/non-IsPublic languages): fooBar comes back exported=false,
+// confidence=high. PASSES after: exported is language-aware, so fooBar's
+// medium/no report reflects TS's "any non-underscore name is public API"
+// convention instead of Go's uppercase-first one.
+func TestAnalyze_TSExportedCamelCaseNotHighConfidenceDead(t *testing.T) {
+	tsFn := &parser.Symbol{
+		Name: "fooBar", Kind: parser.KindFunction,
+		Language: "typescript", File: "/src/index.ts", StartLine: 10, EndLine: 20,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "typescript", File: "/src/main.ts", StartLine: 1, EndLine: 5,
+	}
+	cg := &callgraph.CallGraph{Symbols: []*parser.Symbol{tsFn, mainSym}, Edges: nil}
+	result := Analyze(cg, Options{})
+	for _, d := range result.DeadSymbols {
+		if d.Name == "fooBar" && d.Confidence == ConfidenceHigh {
+			t.Errorf("fooBar (TS exported camelCase fn) flagged high-confidence dead: exported=%v confidence=%s",
+				d.Exported, d.Confidence)
+		}
+	}
+}
+
+// TestAnalyze_RustPrivateSnakeCaseNameStillDead pins the Rust-specific carve-out
+// in isSymbolExported: unlike TS/JS, internal/parser/handler_rust.go reliably
+// computes IsPublic for every symbol kind it emits (hasVisibilityModifier scans
+// for the `pub` keyword directly). So a Rust symbol with IsPublic=false is
+// genuinely private, not "unknown" — isSymbolExported must trust that and NOT
+// fall back to langutil's "any non-underscore name is exported" convention,
+// which would misclassify plain private snake_case helpers (fn helper()) as
+// exported and hide them from dead-code output. This guards against exactly
+// the regression a naive "delegate everything to langutil" fix would cause:
+// running it against this test flips the result from dead (correct) to
+// not-dead (silences a real finding).
+func TestAnalyze_RustPrivateSnakeCaseNameStillDead(t *testing.T) {
+	privateFn := &parser.Symbol{
+		Name: "compute_totals", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
+		IsPublic: false,
+	}
+	mainSym := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction,
+		Language: "rust", File: "/src/main.rs", StartLine: 1, EndLine: 5,
+	}
+	cg := &callgraph.CallGraph{Symbols: []*parser.Symbol{privateFn, mainSym}, Edges: nil}
+	result := Analyze(cg, Options{})
+	found := false
+	for _, d := range result.DeadSymbols {
+		if d.Name == "compute_totals" {
+			found = true
+			if d.Exported {
+				t.Errorf("compute_totals (private Rust fn, IsPublic=false) reported exported=true, want false")
+			}
+			if d.Confidence != ConfidenceHigh {
+				t.Errorf("compute_totals confidence = %q, want %q (unexported, non-method)", d.Confidence, ConfidenceHigh)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("compute_totals (private, unused Rust fn) not flagged dead at all")
+	}
+}
