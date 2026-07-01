@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -74,11 +73,6 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 			}
 		}
 
-		data, err := json.Marshal(output)
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal: %s", err)), nil
-		}
-
-		return textResult(string(data)), nil
+		return jsonMarshalResult(output), nil
 	})
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -171,12 +170,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		output.Narrative = generateNarrative(ctx, deps.LLM, prompts.SystemPromptImpact, result, prefix)
 	}
 
-	data, err := json.Marshal(output)
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil
-	}
-
-	return textResult(string(data)), nil
+	return jsonMarshalResult(output), nil
 }
 
 // topHotspotSet returns a set of the top-N hotspot file paths.

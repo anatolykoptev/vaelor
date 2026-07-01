@@ -147,7 +147,7 @@ func renderJSON(graph importGraph) (string, error) {
 	for pkg, deps := range graph {
 		out[pkg] = goutil.SortedSetKeys(deps)
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
+	b, err := json.Marshal(out)
 	if err != nil {
 		return "", fmt.Errorf("marshal graph: %w", err)
 	}

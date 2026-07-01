@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -325,11 +324,7 @@ func handleFileHealthCore(ctx context.Context, args FileHealthArgs, agg *biomark
 
 	out.Meta = mcpmeta.Wrap(time.Since(t0), hint)
 
-	body, merr := json.Marshal(out)
-	if merr != nil {
-		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
-	}
-	return textResult(string(body)), nil
+	return jsonMarshalResult(out), nil
 }
 
 // registerFileHealth registers the get_file_health tool on the MCP server.

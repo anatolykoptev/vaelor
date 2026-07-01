@@ -180,6 +180,18 @@ func xmlMarshalResult(v any, toolName, outputDir string) *mcp.CallToolResult {
 	return largeTextResult(xml.Header+string(data), toolName, outputDir)
 }
 
+// jsonMarshalResult marshals v as compact JSON and returns it via textResult.
+// Mirrors xmlMarshalResult's error idiom for the (much more common) plain-JSON
+// response path: small/medium tool outputs that don't need the file-overflow
+// handling largeTextResult provides.
+func jsonMarshalResult(v any) *mcp.CallToolResult {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err))
+	}
+	return textResult(string(data))
+}
+
 // generateNarrative produces an LLM narrative from structured data.
 // Returns empty string on any error (non-fatal, including ErrLLMUnavailable from NoOp).
 // client must be non-nil; pass llm.NoOp{} when LLM is not configured.

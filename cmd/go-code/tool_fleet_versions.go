@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -209,11 +208,7 @@ func fleetVersionsHandler(ctx context.Context, cfg Config, deps analyze.Deps, in
 		Warnings:      warnings,
 	}
 
-	data, marshalErr := json.Marshal(out)
-	if marshalErr != nil {
-		return errResult(fmt.Sprintf("marshal: %s", marshalErr)), nil
-	}
-	return textResult(string(data)), nil
+	return jsonMarshalResult(out), nil
 }
 
 // probeOneHost runs the probe for a single host and returns its TargetReport.
