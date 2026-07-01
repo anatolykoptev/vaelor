@@ -94,13 +94,11 @@ func TestGraphBuildTotal_SkipPath(t *testing.T) {
 		t.Fatalf("upsertMeta: %v", err)
 	}
 	t.Cleanup(func() {
-		// Best-effort cleanup: remove the seeded meta row.
-		conn, err := store.pool.Acquire(ctx)
-		if err != nil {
-			return
-		}
-		defer conn.Release()
-		_, _ = conn.Exec(ctx, `DELETE FROM code_graph_meta WHERE repo_key = $1`, repo)
+		// Best-effort cleanup: drop the AGE graph EnsureGraph created above
+		// (plus its meta/mtimes rows) — DropGraph covers both, so a
+		// persistent local-dev DB doesn't accumulate orphaned test graphs
+		// the way a manual meta-row-only delete would (pr-review-council #264).
+		_ = store.DropGraph(ctx, repo, repo)
 	})
 
 	c := graphBuildTotal.WithLabelValues(repo, "skip")
