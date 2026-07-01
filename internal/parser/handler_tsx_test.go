@@ -141,3 +141,42 @@ func TestJSTSFamily_OptsLanguageOverrideHonored(t *testing.T) {
 		})
 	}
 }
+
+// TestSvelteRuneModule_SymbolLanguageUniform guards the intra-file split caught
+// in re-review: in a .svelte.js/.svelte.ts rune module, typescriptHandler.Parse
+// appends KindRune symbols alongside the ordinary (function/class) symbols, and
+// applyDetectedSymbolLanguage must relabel BOTH so every symbol in one file shares
+// one Language == DetectLanguageFromPath(path). The regressive version corrected
+// ordinary symbols to "javascript" for .svelte.js while the appended rune symbols
+// kept the stale hardcoded "typescript" (result.Language) — an inconsistency that
+// did not exist pre-parity (both were uniformly "typescript"). The fixture mixes an
+// ordinary declaration with runes so the split is actually exercised.
+func TestSvelteRuneModule_SymbolLanguageUniform(t *testing.T) {
+	src := []byte("export function makeCounter() { return 0; }\nexport const counter = $state(0);\nexport const doubled = $derived(counter * 2);\n")
+	for _, path := range []string{"store.svelte.js", "store.svelte.ts"} {
+		t.Run(path, func(t *testing.T) {
+			want := DetectLanguageFromPath(path)
+			result, err := ParseFile(path, src, ParseOpts{})
+			if err != nil {
+				t.Fatalf("ParseFile(%q): %v", path, err)
+			}
+			var runeSeen, ordinarySeen bool
+			for _, sym := range result.Symbols {
+				if sym.Kind == KindRune {
+					runeSeen = true
+				} else {
+					ordinarySeen = true
+				}
+				if sym.Language != want {
+					t.Errorf("ParseFile(%q): symbol %q (kind=%q) Language = %q, want %q (ordinary + rune must be uniform)", path, sym.Name, sym.Kind, sym.Language, want)
+				}
+			}
+			if !runeSeen {
+				t.Fatalf("ParseFile(%q): expected at least one KindRune symbol, got none", path)
+			}
+			if !ordinarySeen {
+				t.Fatalf("ParseFile(%q): expected at least one ordinary symbol so the intra-file split is exercised, got none", path)
+			}
+		})
+	}
+}
