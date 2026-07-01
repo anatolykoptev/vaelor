@@ -28,6 +28,7 @@ svelte/runes_basic.svelte|svelte|doubled|rune|3|3
 svelte/runes_basic.svelte|svelte|eager|rune|7|7
 svelte/runes_basic.svelte|svelte|h|rune|17|17
 svelte/runes_basic.svelte|svelte|id|rune|13|13
+svelte/runes_basic.svelte|svelte|name|rune|5|5
 svelte/runes_basic.svelte|svelte|raw|rune|6|6
 svelte/runes_basic.svelte|svelte|sum|rune|8|8
 svelte/runes_basic.svelte|svelte|val|rune|14|14
