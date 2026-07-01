@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"fmt"
 	"sort"
 	"testing"
 
@@ -17,36 +18,58 @@ import (
 // surfaced edges from each framework's own syntax (Astro `.map`/`&&`, Svelte
 // `{#each}`/`{#if}`).
 //
-// Phase 5 promotes this into a blocking regression gate with minimal change: the
-// table already carries the per-row expected-capability set, so flipping it to a
-// hard gate is a matter of policy, not restructuring.
+// The harness counts multiplicity (map[string]int), not mere presence, so it can
+// catch the duplicate-edge class (a template call emitted by two producers) — see
+// TestNoDuplicateMarkupEdges. Phase 5 promotes this into a blocking regression
+// gate with minimal change: the table already carries the per-row expected set.
 
-// surfaced parses src via the language handler (extension-routed) and buckets the
-// resulting call sites into call names and argref names.
-func surfaced(t *testing.T, path, src string) (calls, refs map[string]bool) {
+// callSitesFor parses src via the language handler (extension-routed) and returns
+// the raw call sites.
+func callSitesFor(t *testing.T, path, src string) []parser.CallSite {
 	t.Helper()
 	cs, err := parser.ExtractCalls(path, []byte(src), parser.ParseOpts{})
 	if err != nil {
 		t.Fatalf("ExtractCalls(%s): %v", path, err)
 	}
-	calls, refs = map[string]bool{}, map[string]bool{}
-	for _, c := range cs {
+	return cs
+}
+
+// surfaced buckets the call sites into call-name counts and argref-name counts.
+func surfaced(t *testing.T, path, src string) (calls, refs map[string]int) {
+	t.Helper()
+	calls, refs = map[string]int{}, map[string]int{}
+	for _, c := range callSitesFor(t, path, src) {
 		if c.IsArgRef {
-			refs[c.Name] = true
+			refs[c.Name]++
 		} else {
-			calls[c.Name] = true
+			calls[c.Name]++
 		}
 	}
 	return calls, refs
 }
 
-func keysOf(m map[string]bool) []string {
+func keysOf(m map[string]int) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
 	}
 	sort.Strings(out)
 	return out
+}
+
+func dumpCS(cs []parser.CallSite) string {
+	out := "["
+	for i, c := range cs {
+		if i > 0 {
+			out += ", "
+		}
+		kind := "call"
+		if c.IsArgRef {
+			kind = "ref"
+		}
+		out += fmt.Sprintf("%s(recv=%q)@%d:%s", c.Name, c.Receiver, c.Line, kind)
+	}
+	return out + "]"
 }
 
 // capRow is a single capability proven EQUAL across Astro and Svelte. astroSrc /
@@ -102,14 +125,14 @@ var capabilityMatrix = []capRow{
 	},
 }
 
-func rowPasses(calls, refs map[string]bool, r capRow) bool {
+func rowPasses(calls, refs map[string]int, r capRow) bool {
 	for _, n := range r.wantCalls {
-		if !calls[n] {
+		if calls[n] == 0 {
 			return false
 		}
 	}
 	for _, n := range r.wantRefs {
-		if !refs[n] {
+		if refs[n] == 0 {
 			return false
 		}
 	}
@@ -125,18 +148,18 @@ func TestMarkupCapabilityMatrix(t *testing.T) {
 			sCalls, sRefs := surfaced(t, "cap.svelte", row.svelteSrc)
 
 			for _, n := range row.wantCalls {
-				if !aCalls[n] {
+				if aCalls[n] == 0 {
 					t.Errorf("astro missing call %q; calls=%v refs=%v", n, keysOf(aCalls), keysOf(aRefs))
 				}
-				if !sCalls[n] {
+				if sCalls[n] == 0 {
 					t.Errorf("svelte missing call %q; calls=%v refs=%v", n, keysOf(sCalls), keysOf(sRefs))
 				}
 			}
 			for _, n := range row.wantRefs {
-				if !aRefs[n] {
+				if aRefs[n] == 0 {
 					t.Errorf("astro missing ref %q; calls=%v refs=%v", n, keysOf(aCalls), keysOf(aRefs))
 				}
-				if !sRefs[n] {
+				if sRefs[n] == 0 {
 					t.Errorf("svelte missing ref %q; calls=%v refs=%v", n, keysOf(sCalls), keysOf(sRefs))
 				}
 			}
@@ -158,6 +181,78 @@ func TestSvelteEqualsAstroCapabilities(t *testing.T) {
 		if !astroPass {
 			t.Errorf("row %q: astro cell does not satisfy its own capability (fixture/expectation bug)", row.name)
 		}
+	}
+}
+
+// TestNoDuplicateMarkupEdges is the regression guard for the two-producer
+// duplicate-edge class (pr-review-council CRITICAL): a template-region call must
+// be emitted EXACTLY ONCE (by the clean markupExprReparse producer), never doubled
+// by a raw-file error-recovery parse — and the surviving edge must carry the CLEAN
+// receiver (`user`, not the garbled `{user`). Covers BOTH Astro and Svelte, since
+// the fix corrects the pre-existing shared-mechanism double-emit in both.
+func TestNoDuplicateMarkupEdges(t *testing.T) {
+	type ec struct {
+		path string
+		src  string
+		call string   // this call name must appear exactly once
+		recv string   // its receiver must be the clean value
+		refs []string // each argref must appear exactly once
+	}
+	cases := []ec{
+		{"m.svelte", "<p>{user.greet()}</p>\n", "greet", "user", nil},
+		{"m.astro", "---\n---\n<p>{user.greet()}</p>\n", "greet", "user", nil},
+		{"c.svelte", "<div>{#if ready}{render(node)}{/if}</div>\n", "render", "", []string{"node"}},
+		{"c.astro", "---\n---\n<div>{ready && render(node)}</div>\n", "render", "", []string{"node"}},
+	}
+	for _, c := range cases {
+		cs := callSitesFor(t, c.path, c.src)
+		n, recv := 0, ""
+		for _, s := range cs {
+			if s.Name == c.call && !s.IsArgRef {
+				n++
+				recv = s.Receiver
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: call %q count=%d, want 1 (duplicate-edge regression); all=%s", c.path, c.call, n, dumpCS(cs))
+		}
+		if recv != c.recv {
+			t.Errorf("%s: call %q receiver=%q, want %q (clean producer must survive)", c.path, c.call, recv, c.recv)
+		}
+		for _, r := range c.refs {
+			rn := 0
+			for _, s := range cs {
+				if s.Name == r && s.IsArgRef {
+					rn++
+				}
+			}
+			if rn != 1 {
+				t.Errorf("%s: argref %q count=%d, want 1 (duplicate-edge regression); all=%s", c.path, r, rn, dumpCS(cs))
+			}
+		}
+	}
+}
+
+// TestScriptRegionCallsPreserved proves the single-producer split does NOT drop
+// <script>/frontmatter calls: those still surface (from ScriptCalls), exactly
+// once, while the template call surfaces once from MarkupCalls.
+func TestScriptRegionCallsPreserved(t *testing.T) {
+	svelte := "<script>\n  import { fetchUser } from './api';\n  function load() { return fetchUser(1); }\n</script>\n<p>{user.greet()}</p>\n"
+	calls, _ := surfaced(t, "s.svelte", svelte)
+	if calls["fetchUser"] != 1 {
+		t.Errorf("svelte script call fetchUser count=%d, want 1", calls["fetchUser"])
+	}
+	if calls["greet"] != 1 {
+		t.Errorf("svelte template call greet count=%d, want 1", calls["greet"])
+	}
+
+	astro := "---\nimport { track } from './a';\nconst x = track(1);\n---\n<p>{user.greet()}</p>\n"
+	aCalls, _ := surfaced(t, "s.astro", astro)
+	if aCalls["track"] != 1 {
+		t.Errorf("astro frontmatter call track count=%d, want 1", aCalls["track"])
+	}
+	if aCalls["greet"] != 1 {
+		t.Errorf("astro template call greet count=%d, want 1", aCalls["greet"])
 	}
 }
 
@@ -184,12 +279,12 @@ func TestSvelteBlockHeaderCalls(t *testing.T) {
 	calls, refs := surfaced(t, "blocks.svelte", src)
 
 	for _, n := range []string{"canView", "fetchRows", "render", "load", "total", "sanitize", "tpl"} {
-		if !calls[n] {
+		if calls[n] == 0 {
 			t.Errorf("missing block-header call %q; calls=%v", n, keysOf(calls))
 		}
 	}
 	for _, n := range []string{"user", "row", "fallback", "id", "items", "raw", "row2"} {
-		if !refs[n] {
+		if refs[n] == 0 {
 			t.Errorf("missing block-header ref %q; refs=%v", n, keysOf(refs))
 		}
 	}

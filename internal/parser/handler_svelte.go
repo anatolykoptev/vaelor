@@ -32,10 +32,15 @@ import (
 //   - Template-expression calls/refs: plain {expr} mustaches AND the header EXPR of
 //     control-flow / special tags ({#if EXPR}, {#each EXPR as x}, {#await EXPR then v},
 //     {#key EXPR}, {:else if EXPR}, {@const NAME = EXPR}, {@html EXPR}, {@render EXPR})
-//     surface as CallSites via MarkupCalls (markup_calls.go, reached through
-//     ExtractCalls), mirroring Astro — the sigil keyword and binding clause are
-//     excluded, so only the expression's calls/refs become edges (go-code models no
-//     control-flow-structure edges: this is effective control-flow parity).
+//     surface as CallSites via MarkupCalls (markup_calls.go), the SOLE producer of
+//     the template region: ExtractCalls runs the delegated CallsQuery only over the
+//     extracted <script> region (ScriptCalls, scriptCallSource), never the whole
+//     .svelte file, so template calls are not ALSO double-emitted — garbled — by
+//     tree-sitter error-recovery over the raw markup. The sigil keyword and binding
+//     clause are excluded, so only the expression's calls/refs become edges (go-code
+//     models no control-flow-structure edges: this is effective control-flow parity).
+//     Astro shares this same two-region split; its identical pre-existing double-emit
+//     on non-JSX exprs (e.g. {user.greet()}) is closed by the same seam.
 //   - NOT classified as runes: $$slots/$$props/$$restProps (Svelte 4 legacy),
 //     $.proxy/$.computed/etc. (Svelte 5 internals), $inspect.with (chained method).
 //

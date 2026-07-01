@@ -122,7 +122,7 @@ func svelteBlockOpenExpr(src []byte, open, close int) (exprRange, bool) {
 		}
 		return trimmedRange(src, exprStart, end)
 	default:
-		return exprRange{}, false // #snippet, #debug, unknown — no reparsable EXPR
+		return exprRange{}, false // #snippet or any unrecognized #-keyword — no reparsable EXPR
 	}
 }
 
@@ -142,7 +142,10 @@ func svelteContinuationExpr(src []byte, open, close int) (exprRange, bool) {
 }
 
 // svelteSpecialExpr handles {@html EXPR} {@render EXPR} {@debug EXPR} (EXPR after
-// the keyword) and {@const NAME = EXPR} (EXPR after the assignment '=').
+// the keyword) and {@const NAME = EXPR} (EXPR after the assignment '='). @render
+// (Svelte 5 snippet invocation) and @debug reuse the same @-family keyword-EXPR
+// path as @html — an accepted superset of the core spec forms, so those two
+// expression carriers surface their calls/refs too.
 func svelteSpecialExpr(src []byte, open, close int) (exprRange, bool) {
 	kwStart := open + 2 // skip '{@'
 	kwEnd := scanIdent(src, kwStart, close)
