@@ -124,18 +124,18 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 	// Strip workspace prefix from paths for cleaner output.
 	stripRoot := root + "/"
 
-	fmt.Fprintf(&sb, "<response tool=\"code_research\">\n")
-	fmt.Fprintf(&sb, "  <query>%s</query>\n", escapeXML(input.Query))
-	fmt.Fprintf(&sb, "  <repo>%s</repo>\n", escapeXML(input.Repo))
-	fmt.Fprintf(&sb, "  <mode>%s</mode>\n", escapeXML(r.Mode))
-	fmt.Fprintf(&sb, "  <stats seeds=\"%d\" graph_files=\"%d\" pruned=\"%d\" estimated_tokens=\"%d\"/>\n",
+	fmt.Fprintf(&sb, "<response tool=\"code_research\">")
+	fmt.Fprintf(&sb, "<query>%s</query>", escapeXML(input.Query))
+	fmt.Fprintf(&sb, "<repo>%s</repo>", escapeXML(input.Repo))
+	fmt.Fprintf(&sb, "<mode>%s</mode>", escapeXML(r.Mode))
+	fmt.Fprintf(&sb, "<stats seeds=\"%d\" graph_files=\"%d\" pruned=\"%d\" estimated_tokens=\"%d\"/>",
 		len(r.Seeds), len(r.Graph), r.PrunedFiles, r.EstimatedTokens)
 
 	if !input.Compact {
 		// Seeds section — top N by score.
 		seeds := sortedSeeds(r.Seeds, maxSeedsOutput)
 		if len(seeds) > 0 {
-			fmt.Fprintf(&sb, "  <seeds>\n")
+			fmt.Fprintf(&sb, "<seeds>")
 			seen := make(map[string]bool)
 			for _, s := range seeds {
 				relFile := strings.TrimPrefix(s.File, stripRoot)
@@ -143,42 +143,42 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 					continue
 				}
 				seen[relFile] = true
-				fmt.Fprintf(&sb, "    <file path=%q score=\"%.4f\">\n", relFile, s.Score)
+				fmt.Fprintf(&sb, "<file path=%q score=\"%.4f\">", relFile, s.Score)
 				for _, s2 := range seeds {
 					if strings.TrimPrefix(s2.File, stripRoot) == relFile && s2.Name != "" {
-						fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\" source=%q>%s</symbol>\n",
+						fmt.Fprintf(&sb, "<symbol kind=%q line=\"%d\" source=%q>%s</symbol>",
 							escapeXML(s2.Kind), s2.Line, escapeXML(s2.Source), escapeXML(s2.Name))
 					}
 				}
-				fmt.Fprintf(&sb, "    </file>\n")
+				fmt.Fprintf(&sb, "</file>")
 			}
-			fmt.Fprintf(&sb, "  </seeds>\n")
+			fmt.Fprintf(&sb, "</seeds>")
 		}
 
 		// Graph section — top N by score, skip files with no symbols.
 		graph := sortedGraph(r.Graph, maxGraphOutput)
 		if len(graph) > 0 {
-			fmt.Fprintf(&sb, "  <graph>\n")
+			fmt.Fprintf(&sb, "<graph>")
 			for _, lf := range graph {
 				if len(lf.Symbols) == 0 {
 					continue
 				}
 				relPath := strings.TrimPrefix(lf.RelPath, stripRoot)
-				fmt.Fprintf(&sb, "    <file path=%q distance=\"%d\" why=%q score=\"%.4f\">\n",
+				fmt.Fprintf(&sb, "<file path=%q distance=\"%d\" why=%q score=\"%.4f\">",
 					relPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
 				for _, sym := range lf.Symbols {
-					fmt.Fprintf(&sb, "      <symbol kind=%q line=\"%d\">%s</symbol>\n",
+					fmt.Fprintf(&sb, "<symbol kind=%q line=\"%d\">%s</symbol>",
 						escapeXML(string(sym.Kind)), sym.StartLine, escapeXML(sym.Name))
 				}
-				fmt.Fprintf(&sb, "    </file>\n")
+				fmt.Fprintf(&sb, "</file>")
 			}
-			fmt.Fprintf(&sb, "  </graph>\n")
+			fmt.Fprintf(&sb, "</graph>")
 		}
 	}
 
 	// Compact map — the primary LLM-consumable output.
 	if r.Map != "" {
-		fmt.Fprintf(&sb, "  <map>\n%s\n  </map>\n", r.Map)
+		fmt.Fprintf(&sb, "<map>%s</map>", r.Map)
 	}
 
 	sb.WriteString("</response>")

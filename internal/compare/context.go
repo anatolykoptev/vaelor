@@ -143,7 +143,7 @@ func writeQuery(sb *strings.Builder, query string) {
 
 func writeMetrics(sb *strings.Builder, metricsA, metricsB RepoMetrics) {
 	payload := metricsJSON{RepoA: metricsA, RepoB: metricsB}
-	data, err := json.MarshalIndent(payload, "", "  ")
+	data, err := json.Marshal(payload)
 	if err != nil {
 		sb.WriteString("## Metrics\n(unavailable)\n\n")
 		return

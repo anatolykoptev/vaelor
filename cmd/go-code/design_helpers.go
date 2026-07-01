@@ -133,35 +133,35 @@ func readExcerpt(filePath, section string) string {
 // formatDesignResults builds the XML response.
 func formatDesignResults(query string, hits []brandHit, meta map[string]designmd.BrandMeta, mappings []analyze.PathMapping) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"design_search\">\n")
-	fmt.Fprintf(&sb, "  <query>%s</query>\n", escapeXML(query))
-	fmt.Fprintf(&sb, "  <results count=\"%d\">\n", len(hits))
+	fmt.Fprintf(&sb, "<response tool=\"design_search\">")
+	fmt.Fprintf(&sb, "<query>%s</query>", escapeXML(query))
+	fmt.Fprintf(&sb, "<results count=\"%d\">", len(hits))
 
 	for i, h := range hits {
 		score := 1.0 - float64(h.distance)
-		fmt.Fprintf(&sb, "    <result rank=\"%d\" score=\"%.2f\" brand=\"%s\">\n", i+1, score, escapeXML(h.brand))
+		fmt.Fprintf(&sb, "<result rank=\"%d\" score=\"%.2f\" brand=\"%s\">", i+1, score, escapeXML(h.brand))
 
 		if h.filePath != "" {
-			fmt.Fprintf(&sb, "      <file>%s</file>\n", escapeXML(reversePathMapping(h.filePath, mappings)))
+			fmt.Fprintf(&sb, "<file>%s</file>", escapeXML(reversePathMapping(h.filePath, mappings)))
 		}
 
 		if m, ok := meta[h.brand]; ok {
 			if m.Vibe != "" {
-				fmt.Fprintf(&sb, "      <vibe>%s</vibe>\n", escapeXML(m.Vibe))
+				fmt.Fprintf(&sb, "<vibe>%s</vibe>", escapeXML(m.Vibe))
 			}
 			if len(m.Colors) > 0 {
-				fmt.Fprintf(&sb, "      <colors>%s</colors>\n", escapeXML(strings.Join(m.Colors, ", ")))
+				fmt.Fprintf(&sb, "<colors>%s</colors>", escapeXML(strings.Join(m.Colors, ", ")))
 			}
 			if m.BestFor != "" {
-				fmt.Fprintf(&sb, "      <best_for>%s</best_for>\n", escapeXML(m.BestFor))
+				fmt.Fprintf(&sb, "<best_for>%s</best_for>", escapeXML(m.BestFor))
 			}
 		}
 
-		fmt.Fprintf(&sb, "      <matched_section>%s</matched_section>\n", escapeXML(h.section))
-		fmt.Fprintf(&sb, "      <excerpt>%s</excerpt>\n", escapeXML(h.excerpt))
-		fmt.Fprintf(&sb, "    </result>\n")
+		fmt.Fprintf(&sb, "<matched_section>%s</matched_section>", escapeXML(h.section))
+		fmt.Fprintf(&sb, "<excerpt>%s</excerpt>", escapeXML(h.excerpt))
+		fmt.Fprintf(&sb, "</result>")
 	}
 
-	sb.WriteString("  </results>\n</response>")
+	sb.WriteString("</results></response>")
 	return sb.String()
 }

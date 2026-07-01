@@ -111,8 +111,8 @@ func extractSources(
 
 func formatDetectResponse(resp *webanalyze.AnalyzeResponse) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">\n")
-	fmt.Fprintf(&sb, "  <site url=%q status=\"%d\">\n", resp.URL, resp.Status)
+	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">")
+	fmt.Fprintf(&sb, "<site url=%q status=\"%d\">", resp.URL, resp.Status)
 	formatTechnologies(&sb, resp.Technologies)
 	formatSEO(&sb, resp.SEO)
 	formatPerformance(&sb, resp.Performance)
@@ -120,11 +120,11 @@ func formatDetectResponse(resp *webanalyze.AnalyzeResponse) string {
 	formatContent(&sb, resp.Content)
 	formatMedia(&sb, resp.Media)
 	formatExtras(&sb, resp.Fonts, resp.PWA, resp.API)
-	fmt.Fprintf(&sb, "    <meta generator=%q server=%q title=%q/>\n",
+	fmt.Fprintf(&sb, "<meta generator=%q server=%q title=%q/>",
 		resp.Meta.Generator, resp.Meta.Server, resp.Meta.Title)
-	fmt.Fprintf(&sb, "    <assets scripts=\"%d\" stylesheets=\"%d\"/>\n",
+	fmt.Fprintf(&sb, "<assets scripts=\"%d\" stylesheets=\"%d\"/>",
 		len(resp.Assets.Scripts), len(resp.Assets.Stylesheets))
-	sb.WriteString("  </site>\n</response>")
+	sb.WriteString("</site></response>")
 	return sb.String()
 }
 
@@ -133,8 +133,8 @@ func formatFullResponse(
 	stats *webanalyze.SourceStats, extractErr error,
 ) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">\n")
-	fmt.Fprintf(&sb, "  <site url=%q status=\"%d\">\n", resp.URL, resp.Status)
+	fmt.Fprintf(&sb, "<response tool=\"site_analyze\">")
+	fmt.Fprintf(&sb, "<site url=%q status=\"%d\">", resp.URL, resp.Status)
 	formatTechnologies(&sb, resp.Technologies)
 	formatSEO(&sb, resp.SEO)
 	formatPerformance(&sb, resp.Performance)
@@ -143,20 +143,20 @@ func formatFullResponse(
 	formatMedia(&sb, resp.Media)
 	formatExtras(&sb, resp.Fonts, resp.PWA, resp.API)
 	if stats != nil && stats.Files > 0 {
-		fmt.Fprintf(&sb, "    <sources path=%q files=\"%d\">\n", outDir, stats.Files)
+		fmt.Fprintf(&sb, "<sources path=%q files=\"%d\">", outDir, stats.Files)
 		for ext, count := range stats.Languages {
-			fmt.Fprintf(&sb, "      <language name=%q files=\"%d\"/>\n", ext, count)
+			fmt.Fprintf(&sb, "<language name=%q files=\"%d\"/>", ext, count)
 		}
-		sb.WriteString("    </sources>\n")
-		fmt.Fprintf(&sb, "    <hint>Use explore, symbol_search, or dep_graph with repo=%q</hint>\n", outDir)
+		sb.WriteString("</sources>")
+		fmt.Fprintf(&sb, "<hint>Use explore, symbol_search, or dep_graph with repo=%q</hint>", outDir)
 	} else {
 		msg := "No source maps found"
 		if extractErr != nil {
 			msg = extractErr.Error()
 		}
-		fmt.Fprintf(&sb, "    <sources files=\"0\" reason=%q/>\n", msg)
+		fmt.Fprintf(&sb, "<sources files=\"0\" reason=%q/>", msg)
 	}
-	sb.WriteString("  </site>\n</response>")
+	sb.WriteString("</site></response>")
 	return sb.String()
 }
 
