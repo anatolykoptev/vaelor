@@ -168,33 +168,16 @@ func findActionClose(src []byte, from int) int {
 // (i.e. from is the index AFTER the opening '"'). Returns the index of the
 // first byte after the closing '"', or len(src) if unterminated.
 func skipDoubleQuoted(src []byte, from int) int {
-	i := from
-	for i < len(src) {
-		c := src[i]
-		if c == '\\' {
-			i += 2
-			continue
-		}
-		if c == '"' {
-			return i + 1
-		}
-		i++
-	}
-	return len(src)
+	return skipQuoted(src, from, '"', true)
 }
 
 // skipBacktickQuoted advances past a backtick-quoted string starting at from
 // (i.e. from is the index AFTER the opening '`'). Returns the index of the
 // first byte after the closing '`', or len(src) if unterminated.
 func skipBacktickQuoted(src []byte, from int) int {
-	i := from
-	for i < len(src) {
-		if src[i] == '`' {
-			return i + 1
-		}
-		i++
-	}
-	return len(src)
+	// Go raw strings do not process backslash escapes, so escaped=false;
+	// behaviour is identical to the previous inline scanner.
+	return skipQuoted(src, from, '`', false)
 }
 
 // actionBody returns the trimmed text between "{{" and "}}" for keyword parsing.
