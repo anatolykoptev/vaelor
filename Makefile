@@ -2,7 +2,7 @@ BINARY  = bin/go-code
 SERVICE = go-code
 COMPOSE = cd $(HOME)/deploy/example-server && docker compose
 
-.PHONY: build lint fmt-check test run deploy clean vendor
+.PHONY: build lint fmt-check test preflight run deploy clean vendor
 
 build:
 	GOWORK=off CGO_ENABLED=1 go build -o $(BINARY) ./cmd/go-code
@@ -20,6 +20,25 @@ lint: fmt-check
 
 test:
 	GOWORK=off go test ./...
+
+# preflight — the merge gate: gofmt + vet + build + test, run from
+# .github/workflows/preflight.yml on the self-hosted ci-runner runner
+# (see CLAUDE.md ## CI). go-code persists three pgvector stores
+# (internal/embeddings, internal/designmd, internal/learnings) plus an Apache
+# AGE property graph (internal/codegraph) behind DATABASE_URL /
+# PR_TEST_DATABASE_URL; every DB-gated test t.Skip's cleanly when its var is
+# unset (plain local `make preflight` with no DB configured stays green),
+# and runs live once the workflow provisions an ephemeral
+# deploy-postgres-age:17 container and exports both vars. No separate
+# migration step is needed — each store bootstraps its own schema/extension
+# on first use (EnsureSchema / EnsureGraph).
+preflight: fmt-check
+	@echo "==> go vet ./..."
+	GOWORK=off go vet ./...
+	@echo "==> go build ./..."
+	GOWORK=off CGO_ENABLED=1 go build ./...
+	@echo "==> go test ./..."
+	$(MAKE) test
 
 run: build
 	./$(BINARY)
