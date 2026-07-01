@@ -10,10 +10,16 @@ import (
 // block and any <script> tags, then delegating to the TypeScript grammar.
 // Symbol line numbers are remapped back to .astro file coordinates.
 //
+// Template body ({expr}) coverage:
+//   - Component references (capitalised JSX tags, incl. those inside {expr}) are
+//     captured as TemplateRefs (preproc.scanTemplateRefs, populated in Parse).
+//   - Calls / member-calls / bare-identifier refs inside {expr} are captured as
+//     CallSites via MarkupCalls (markup_calls.go), reached through ExtractCalls.
+//
 // Not supported (silently ignored, matches plan scope):
-//   - Template expressions in the HTML body ({foo}, {...})
-//   - <style> blocks
-//   - HTML/JSX markup between frontmatter and scripts
+//   - Symbol (function/type/const) extraction from the template body — only the
+//     frontmatter and <script> blocks contribute symbols.
+//   - <style> blocks.
 type astroHandler struct {
 	parserBase
 }

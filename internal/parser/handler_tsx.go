@@ -32,6 +32,12 @@ func init() {
 		},
 	}
 	registerHandler(tsxLang)
+
+	// Compile the markup {expr} bare-identifier query now that tsxLang's grammar
+	// is wired. Doing it here (same init, after caps are set) makes it fail fast
+	// at startup like the queries above and removes any cross-file init-order
+	// dependency (see markup_calls.go).
+	buildMarkupRefsQuery()
 }
 
 func (h *tsxHandler) Extensions() []string { return []string{".tsx", ".jsx"} }
