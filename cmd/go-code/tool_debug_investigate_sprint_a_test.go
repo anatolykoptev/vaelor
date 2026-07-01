@@ -268,10 +268,17 @@ func TestComputeFailureSpikes_Parallel_ActualConcurrency(t *testing.T) {
 		peakFlight int32
 	)
 
-	// slowRespond adds a small artificial delay to let all goroutines start
-	// before any returns. Without it, fast machines might serialize due to
-	// scheduling. 5ms is sufficient; shorter than 20ms reduces total test time.
-	const perReqDelay = 5 * time.Millisecond
+	// Barrier: each request blocks until all numCandidates requests have arrived
+	// (or a safety timeout), guaranteeing they overlap regardless of scheduler
+	// load. This replaces a fixed 5ms sleep that flaked under full-suite
+	// `go test ./...` CPU contention (this test's goroutines starved by sibling
+	// packages): a truly parallel worker pool releases the barrier instantly (all
+	// arrive), while a serial/under-concurrent impl never fills it and each
+	// request hits the timeout, leaving peak < numCandidates so the test fails.
+	var arrivedMu sync.Mutex
+	arrived := 0
+	allArrived := make(chan struct{})
+	const arriveTimeout = 5 * time.Second
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
@@ -287,7 +294,16 @@ func TestComputeFailureSpikes_Parallel_ActualConcurrency(t *testing.T) {
 				break
 			}
 		}
-		time.Sleep(perReqDelay)
+		arrivedMu.Lock()
+		arrived++
+		if arrived == numCandidates {
+			close(allArrived)
+		}
+		arrivedMu.Unlock()
+		select {
+		case <-allArrived:
+		case <-time.After(arriveTimeout):
+		}
 		fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"0.0"]]}]}}`)
 	}))
 	defer srv.Close()
@@ -299,11 +315,12 @@ func TestComputeFailureSpikes_Parallel_ActualConcurrency(t *testing.T) {
 	computeFailureSpikes(context.Background(), prom, "test-svc", names, start, end, &investigate.Diagnostics{})
 
 	peak := atomic.LoadInt32(&peakFlight)
-	// With 10 candidates (= promQueryConcurrency) all starting simultaneously,
-	// peak concurrent in-flight should be well above 1. Floor of 5 distinguishes
-	// genuine parallelism from lucky scheduling on a serial implementation.
-	if peak < 5 {
-		t.Errorf("peak concurrent in-flight requests = %d; want >= 5 (serial execution suspected)", peak)
+	// The barrier holds every request in-flight until all numCandidates arrive,
+	// so a correctly parallel worker pool (size promQueryConcurrency ==
+	// numCandidates) reaches peak == numCandidates deterministically. A serial or
+	// under-concurrent impl cannot fill the barrier and times out with a lower peak.
+	if int(peak) < numCandidates {
+		t.Errorf("peak concurrent in-flight requests = %d; want %d (serial/under-concurrent execution suspected)", peak, numCandidates)
 	}
 }
 
