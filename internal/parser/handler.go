@@ -8,6 +8,8 @@
 package parser
 
 import (
+	"fmt"
+
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
@@ -72,8 +74,19 @@ var registry = map[string]LanguageHandler{}
 
 // registerHandler registers a LanguageHandler for all its extensions.
 // Called from each handler's init() function.
+//
+// Panics if an extension is already claimed by another handler. The
+// single-owner-per-extension invariant is enforced here, in code, rather
+// than left as an implicit convention — a silent registry[ext] = h overwrite
+// would let a future grammar handler (e.g. a native tree-sitter-svelte
+// driver, see plans/go-code/2026-06-30-frontend-parse-parity-react-svelte-astro.md
+// Phase 4) quietly steal an already-registered extension like ".svelte"
+// without anyone noticing until symbols/edges silently changed producer.
 func registerHandler(h LanguageHandler) {
 	for _, ext := range h.Extensions() {
+		if existing, ok := registry[ext]; ok {
+			panic(fmt.Sprintf("parser: extension %q already registered to %T, cannot register %T", ext, existing, h))
+		}
 		registry[ext] = h
 	}
 }
