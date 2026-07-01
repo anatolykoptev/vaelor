@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.1](https://github.com/anatolykoptev/go-code/compare/v1.22.0...v1.22.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* **release:** amd64 CGO CC override + consolidate to one goreleaser config ([#277](https://github.com/anatolykoptev/go-code/issues/277)) ([b49b0b3](https://github.com/anatolykoptev/go-code/commit/b49b0b32505c202d15e82f8cabed2ae79f265240))
+
 ## [1.22.0](https://github.com/anatolykoptev/go-code/compare/v1.21.0...v1.22.0) (2026-07-01)
 
 
