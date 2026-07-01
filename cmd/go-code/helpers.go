@@ -180,6 +180,17 @@ func xmlMarshalResult(v any, toolName, outputDir string) *mcp.CallToolResult {
 	return largeTextResult(xml.Header+string(data), toolName, outputDir)
 }
 
+// xmlMarshalErrorFragment renders the fallback a string-returning XML formatter
+// emits when xml.Marshal fails on its response struct: a bare, properly-escaped
+// <error> fragment (no xml.Header prolog), matching the marshalSiteAnalyze
+// idiom. Marshal of the all-string response structs in this package effectively
+// never fails, but errcheck requires the branch, and a hand-rolled raw-%s
+// fallback here would reintroduce the exact manual-XML-string-concatenation
+// class this migration removes.
+func xmlMarshalErrorFragment(err error) string {
+	return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+}
+
 // jsonMarshalResult marshals v as compact JSON and returns it via textResult.
 // Mirrors xmlMarshalResult's error idiom for the (much more common) plain-JSON
 // response path: small/medium tool outputs that don't need the file-overflow
