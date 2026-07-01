@@ -137,10 +137,18 @@ var svelteDelimCorpus = []svelteDelimCase{
 
 // TestSvelteExprDelimitingAccuracy is a DOCUMENTED quality metric, not a grammar
 // auto-adopt gate: it measures how precisely the sigil-aware scanner delimits the
-// header EXPR on a hand-verified corpus and logs the score. Phase 5 promotes this
-// metric into a blocking regression check; today it asserts a documented floor
-// (the curated corpus is hand-verified, so any regression below 100% is a real
-// delimiting bug).
+// header EXPR on a hand-verified corpus and logs the score.
+//
+// It IS the parity-arc's expr-delimiting BLOCKING regression check named in
+// docs/adr/0001-frontend-parse-parity.md (Phase 5): the assertion below was
+// already hard (t.Errorf, not t.Logf) when this test was written in Phase 3, so
+// "promoting" it in Phase 5 required no code change — only naming it as part of
+// the parity contract and holding the line that floorPct never gets lowered to
+// paper over a real regression. Any drop below floorPct fails `go test
+// ./internal/parser/preproc/...`, which `make preflight` runs on every PR
+// (.github/workflows/preflight.yml) and `preflight` is a required merge check on
+// this public repo (CLAUDE.md ## CI). The curated corpus is hand-verified, so any
+// regression below 100% is a real delimiting bug, not corpus noise.
 func TestSvelteExprDelimitingAccuracy(t *testing.T) {
 	correct := 0
 	for _, c := range svelteDelimCorpus {
