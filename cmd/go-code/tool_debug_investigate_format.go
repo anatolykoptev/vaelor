@@ -24,11 +24,10 @@ func escapeCDATA(s string) string {
 func formatInvestigationResult(r *investigate.InvestigationResult) string {
 	var b strings.Builder
 	b.WriteString(`<response tool="debug_investigate">`)
-	b.WriteString("\n  ")
 	writeInvestigationHeader(&b, r)
 
 	if r.LLMSummary != "" {
-		b.WriteString("\n    <summary>")
+		b.WriteString("<summary>")
 		b.WriteString(escapeXML(r.LLMSummary))
 		b.WriteString("</summary>")
 	}
@@ -44,12 +43,12 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 
 	// Diagnostics is a plain struct — Marshal cannot fail in practice.
 	d, _ := json.Marshal(r.Diagnostics)
-	b.WriteString("\n    <diagnostics>")
+	b.WriteString("<diagnostics>")
 	b.WriteString(string(d))
 	b.WriteString("</diagnostics>")
 
-	b.WriteString("\n  </investigation>")
-	b.WriteString("\n</response>")
+	b.WriteString("</investigation>")
+	b.WriteString("</response>")
 	return b.String()
 }
 
@@ -69,17 +68,17 @@ func writeInvestigationHeader(b *strings.Builder, r *investigate.InvestigationRe
 // rank is the 1-based position (i+1 in the caller loop).
 func writeHypothesis(b *strings.Builder, rank int, h investigate.Hypothesis) {
 	if h.Source != "" {
-		fmt.Fprintf(b, "\n    <hypothesis rank=\"%d\" confidence=%q source=%q>", rank, h.Confidence, h.Source)
+		fmt.Fprintf(b, "<hypothesis rank=\"%d\" confidence=%q source=%q>", rank, h.Confidence, h.Source)
 	} else {
-		fmt.Fprintf(b, "\n    <hypothesis rank=\"%d\" confidence=%q>", rank, h.Confidence)
+		fmt.Fprintf(b, "<hypothesis rank=\"%d\" confidence=%q>", rank, h.Confidence)
 	}
-	b.WriteString("\n      <subject>")
+	b.WriteString("<subject>")
 	b.WriteString(escapeXML(h.Subject))
 	b.WriteString("</subject>")
 	if h.File != "" {
-		fmt.Fprintf(b, "\n      <location file=%q line=\"%d\"/>", h.File, h.Line)
+		fmt.Fprintf(b, "<location file=%q line=\"%d\"/>", h.File, h.Line)
 	}
-	fmt.Fprintf(b, "\n      <signals span_count=\"%d\" anomaly_score=\"%.3f\"/>",
+	fmt.Fprintf(b, "<signals span_count=\"%d\" anomaly_score=\"%.3f\"/>",
 		h.SpanCount, h.AnomalyScore)
 
 	writeHypothesisImpact(b, h.Impact)
@@ -89,7 +88,7 @@ func writeHypothesis(b *strings.Builder, rank int, h investigate.Hypothesis) {
 	writeHypothesisBodyExcerpt(b, h.BodySource, h.File, h.Line, h.EndLine)
 	writeHypothesisNextChecks(b, h.EvidenceLinks, h.NextChecks)
 
-	b.WriteString("\n    </hypothesis>")
+	b.WriteString("</hypothesis>")
 }
 
 // writeHypothesisImpact writes the <impact> block when imp is non-nil and meaningful.
@@ -99,7 +98,7 @@ func writeHypothesisImpact(b *strings.Builder, imp *investigate.ImpactInfo) {
 		return
 	}
 	fmt.Fprintf(b,
-		"\n      <impact direct_callers=\"%d\" total_affected=\"%d\" blast_radius=%q risk_score=\"%.2f\"/>",
+		"<impact direct_callers=\"%d\" total_affected=\"%d\" blast_radius=%q risk_score=\"%.2f\"/>",
 		imp.DirectCallers, imp.TotalAffected, imp.BlastRadius, imp.RiskScore)
 }
 
@@ -118,7 +117,7 @@ func writeHypothesisSymbolBody(b *strings.Builder, sb *investigate.SymbolBodyInf
 		hasTODOStr = "true"
 	}
 	fmt.Fprintf(b,
-		"\n      <symbol_body error_exits=\"%d\" has_defer=%q has_todo=%q/>",
+		"<symbol_body error_exits=\"%d\" has_defer=%q has_todo=%q/>",
 		sb.ErrorExits, hasDeferStr, hasTODOStr)
 }
 
@@ -129,7 +128,7 @@ func writeHypothesisFusedScore(b *strings.Builder, fusedScore float64, breakdown
 	if fusedScore <= 0 {
 		return
 	}
-	fmt.Fprintf(b, "\n      <fused_score value=\"%.3f\">", fusedScore)
+	fmt.Fprintf(b, "<fused_score value=\"%.3f\">", fusedScore)
 	for _, sig := range []string{
 		fusionSigMetricAnomaly,
 		fusionSigRecency,
@@ -138,10 +137,10 @@ func writeHypothesisFusedScore(b *strings.Builder, fusedScore float64, breakdown
 		fusionSigHistorical,
 	} {
 		if v, ok := breakdown[sig]; ok {
-			fmt.Fprintf(b, "\n        <signal name=%q score=\"%.3f\"/>", sig, v)
+			fmt.Fprintf(b, "<signal name=%q score=\"%.3f\"/>", sig, v)
 		}
 	}
-	b.WriteString("\n      </fused_score>")
+	b.WriteString("</fused_score>")
 }
 
 // writeHypothesisRecentChange writes the <recent_change> CDATA block.
@@ -150,11 +149,12 @@ func writeHypothesisRecentChange(b *strings.Builder, rc *investigate.RecentChang
 	if rc == nil || rc.Diff == "" {
 		return
 	}
-	fmt.Fprintf(b, "\n      <recent_change file=%q since=%q>", rc.File, rc.Since)
-	b.WriteString("\n        <![CDATA[\n")
+	fmt.Fprintf(b, "<recent_change file=%q since=%q>", rc.File, rc.Since)
+	// CDATA carries the raw diff payload; no formatter whitespace inside the markers.
+	b.WriteString("<![CDATA[")
 	b.WriteString(escapeCDATA(rc.Diff))
-	b.WriteString("\n        ]]>")
-	b.WriteString("\n      </recent_change>")
+	b.WriteString("]]>")
+	b.WriteString("</recent_change>")
 }
 
 // writeHypothesisBodyExcerpt writes the <body_excerpt> CDATA block.
@@ -170,37 +170,38 @@ func writeHypothesisBodyExcerpt(b *strings.Builder, bodySource, file string, lin
 	} else {
 		lines = strconv.Itoa(line) + "-" + strconv.Itoa(endLine)
 	}
-	fmt.Fprintf(b, "\n      <body_excerpt file=%q lines=%q>", file, lines)
-	b.WriteString("\n        <![CDATA[\n")
+	fmt.Fprintf(b, "<body_excerpt file=%q lines=%q>", file, lines)
+	// CDATA carries the raw body payload; no formatter whitespace inside the markers.
+	b.WriteString("<![CDATA[")
 	b.WriteString(escapeCDATA(bodySource))
-	b.WriteString("\n        ]]>")
-	b.WriteString("\n      </body_excerpt>")
+	b.WriteString("]]>")
+	b.WriteString("</body_excerpt>")
 }
 
 // writeHypothesisNextChecks writes <evidence> and <next_check> elements.
 // Args keys are sorted for stable output.
 func writeHypothesisNextChecks(b *strings.Builder, evidenceLinks []string, nextChecks []investigate.NextCheck) {
 	for _, link := range evidenceLinks {
-		b.WriteString("\n      <evidence>")
+		b.WriteString("<evidence>")
 		b.WriteString(escapeXML(link))
 		b.WriteString("</evidence>")
 	}
 	for _, nc := range nextChecks {
 		if len(nc.Args) == 0 {
-			fmt.Fprintf(b, "\n      <next_check tool=%q/>", nc.Tool)
+			fmt.Fprintf(b, "<next_check tool=%q/>", nc.Tool)
 		} else {
-			fmt.Fprintf(b, "\n      <next_check tool=%q>", nc.Tool)
+			fmt.Fprintf(b, "<next_check tool=%q>", nc.Tool)
 			keys := make([]string, 0, len(nc.Args))
 			for k := range nc.Args {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				fmt.Fprintf(b, "\n        <arg name=%q>", k)
+				fmt.Fprintf(b, "<arg name=%q>", k)
 				b.WriteString(escapeXML(nc.Args[k]))
 				b.WriteString("</arg>")
 			}
-			b.WriteString("\n      </next_check>")
+			b.WriteString("</next_check>")
 		}
 	}
 }
@@ -210,13 +211,13 @@ func writeMetricSpikes(b *strings.Builder, spikes []investigate.MetricSpike) {
 	if len(spikes) == 0 {
 		return
 	}
-	b.WriteString("\n    <metric_spikes>")
+	b.WriteString("<metric_spikes>")
 	for _, s := range spikes {
 		fmt.Fprintf(b,
-			"\n      <spike kind=%q metric=%q labels=%q ratio=\"%.2f\" score=\"%.3f\"/>",
+			"<spike kind=%q metric=%q labels=%q ratio=\"%.2f\" score=\"%.3f\"/>",
 			s.Kind, s.MetricName, s.Labels, s.Ratio, s.Score)
 	}
-	b.WriteString("\n    </metric_spikes>")
+	b.WriteString("</metric_spikes>")
 }
 
 // writeAlertViolations writes the <alert_violations> block when avs is non-empty.
@@ -224,15 +225,15 @@ func writeAlertViolations(b *strings.Builder, avs []investigate.AlertViolation) 
 	if len(avs) == 0 {
 		return
 	}
-	b.WriteString("\n    <alert_violations>")
+	b.WriteString("<alert_violations>")
 	for _, av := range avs {
 		fmt.Fprintf(b,
-			"\n      <alert_violation alertname=%q severity=%q service=%q active_at=%q>",
+			"<alert_violation alertname=%q severity=%q service=%q active_at=%q>",
 			av.AlertName, av.Severity, av.Service, av.ActiveAt)
 		b.WriteString(escapeXML(av.Summary))
 		b.WriteString("</alert_violation>")
 	}
-	b.WriteString("\n    </alert_violations>")
+	b.WriteString("</alert_violations>")
 }
 
 // writeLogExcerpts writes the <log_excerpts> block when logs is non-empty.
@@ -240,13 +241,13 @@ func writeLogExcerpts(b *strings.Builder, logs []investigate.LogExcerpt) {
 	if len(logs) == 0 {
 		return
 	}
-	b.WriteString("\n    <log_excerpts>")
+	b.WriteString("<log_excerpts>")
 	for _, l := range logs {
-		fmt.Fprintf(b, "\n      <line ts=%q level=%q>", l.Ts, escapeXML(l.Level))
+		fmt.Fprintf(b, "<line ts=%q level=%q>", l.Ts, escapeXML(l.Level))
 		b.WriteString(escapeXML(l.Msg))
 		b.WriteString("</line>")
 	}
-	b.WriteString("\n    </log_excerpts>")
+	b.WriteString("</log_excerpts>")
 }
 
 // writeHistoricalIncidents writes the <historical_incidents> block when incs is non-empty.
@@ -254,12 +255,12 @@ func writeHistoricalIncidents(b *strings.Builder, incs []investigate.HistoricalI
 	if len(incs) == 0 {
 		return
 	}
-	b.WriteString("\n    <historical_incidents>")
+	b.WriteString("<historical_incidents>")
 	for _, inc := range incs {
-		fmt.Fprintf(b, "\n      <incident repo=%q symbol=%q risk_level=%q flag=%q>",
+		fmt.Fprintf(b, "<incident repo=%q symbol=%q risk_level=%q flag=%q>",
 			inc.Repo, inc.Symbol, inc.RiskLevel, inc.Flag)
 		b.WriteString(escapeXML(inc.Note))
 		b.WriteString("</incident>")
 	}
-	b.WriteString("\n    </historical_incidents>")
+	b.WriteString("</historical_incidents>")
 }

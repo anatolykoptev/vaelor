@@ -85,8 +85,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 	if !result.Found {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
 		if suggestions := semanticSuggest(ctx, sem, root, input.Symbol, input.Language); suggestions != "" {
-			return textResult(fmt.Sprintf("<response tool=\"prepare_change\">\n"+
-				"  <error>%s</error>\n%s\n</response>", escapeXML(msg), suggestions)), nil
+			return textResult(fmt.Sprintf("<response tool=\"prepare_change\"><error>%s</error>%s</response>", escapeXML(msg), suggestions)), nil
 		}
 		return errResult(msg), nil
 	}
