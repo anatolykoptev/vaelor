@@ -53,11 +53,16 @@ func (h *typescriptHandler) Parse(path string, src []byte, opts ParseOpts) (*Par
 		return nil, err
 	}
 	if strings.HasSuffix(path, ".svelte.ts") || strings.HasSuffix(path, ".svelte.js") {
-		for _, sym := range collectRuneSymbols(src, path) {
-			sym.Language = result.Language
-			result.Symbols = append(result.Symbols, sym)
-		}
+		// Svelte 5 rune modules: append $state/$derived/etc. rune symbols. Their
+		// Language is stamped below together with the ordinary symbols, so runes and
+		// ordinary symbols in one file never diverge.
+		result.Symbols = append(result.Symbols, collectRuneSymbols(src, path)...)
 	}
+	// Correct every symbol's Language (the shared MapCapture and the rune collector
+	// both hardcode "typescript") to agree with DetectLanguageFromPath; override-
+	// first for backfill hash reproduction. Runs AFTER the rune append so ordinary +
+	// rune symbols stay uniform.
+	applyDetectedSymbolLanguage(result, path, opts)
 	return result, nil
 }
 

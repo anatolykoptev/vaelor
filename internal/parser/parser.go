@@ -133,10 +133,7 @@ type ParseOpts struct {
 // source contains the raw file bytes. path is used for language detection
 // and to populate Symbol.File fields.
 func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error) {
-	lang := opts.Language
-	if lang == "" {
-		lang = DetectLanguageFromPath(path)
-	}
+	lang := resolveLanguage(path, opts)
 	if lang == "" {
 		return nil, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 	}
@@ -156,4 +153,33 @@ func ParseFile(path string, source []byte, opts ParseOpts) (*ParseResult, error)
 	// (typescriptHandler parses .js as "javascript", not its canonical "typescript").
 	result.Language = lang
 	return result, nil
+}
+
+// resolveLanguage returns the file's override-first language: opts.Language when
+// set, else DetectLanguageFromPath(path). Single source of the precedence shared
+// by ParseFile (result-level) and applyDetectedSymbolLanguage (symbol-level).
+func resolveLanguage(path string, opts ParseOpts) string {
+	if opts.Language != "" {
+		return opts.Language
+	}
+	return DetectLanguageFromPath(path)
+}
+
+// applyDetectedSymbolLanguage overwrites each symbol's Language with the file's
+// override-first language: opts.Language when set (matching ParseFile), else
+// DetectLanguageFromPath(path). The JS/TS-family handlers (tsxHandler,
+// typescriptHandler) share a MapCapture that hardcodes "typescript" on every
+// symbol, mislabeling .jsx/.js/.mjs/.cjs — this corrects them to agree with the
+// file's own detector. Override-first is load-bearing: the sparse-embedding
+// backfill re-parses stored rows with ParseOpts{Language: storedRow.Language}
+// so buildEmbedText reproduces the stored hash; honoring opts.Language keeps
+// pre-parity rows (indexed as "typescript") reproducible instead of drifting
+// them into NULL sparse vectors. Handlers opt in from Parse; the shared
+// ParseFile seam is deliberately left untouched so svelte/astro/vue/html symbol
+// labels are unaffected.
+func applyDetectedSymbolLanguage(result *ParseResult, path string, opts ParseOpts) {
+	lang := resolveLanguage(path, opts)
+	for _, sym := range result.Symbols {
+		sym.Language = lang
+	}
 }

@@ -41,3 +41,21 @@ func (h *tsxHandler) Extensions() []string { return []string{".tsx", ".jsx"} }
 func (h *tsxHandler) MapCapture(captureName string, node *sitter.Node, source []byte) *Symbol {
 	return tsLang.MapCapture(captureName, node, source)
 }
+
+// Parse overrides parserBase.Parse to correct each emitted Symbol.Language.
+// The shared MapCapture (tsLang.MapCapture, handler_typescript.go) hardcodes
+// Language:"typescript" on every symbol — correct for .tsx, wrong for .jsx
+// (DetectLanguageFromPath maps .jsx -> "javascript", matching GitHub Linguist).
+// applyDetectedSymbolLanguage fixes it override-first WITHOUT mutating the
+// shared parserBase.lang field or tsLang.MapCapture's literals — the
+// boundaries-HIGH trap (plan ADR 5): a global flip there would mislabel every
+// .tsx and every plain .ts too. This override only touches symbols flowing
+// through THIS handler's Parse, keeping .tsx byte-identical ("typescript").
+func (h *tsxHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
+	result, err := h.parserBase.Parse(path, src, opts)
+	if err != nil {
+		return nil, err
+	}
+	applyDetectedSymbolLanguage(result, path, opts)
+	return result, nil
+}
