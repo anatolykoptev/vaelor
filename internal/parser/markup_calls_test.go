@@ -3,6 +3,7 @@ package parser_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -107,21 +108,7 @@ func formatCalls(calls []parser.CallSite) string {
 		if c.Receiver != "" {
 			out += "(recv=" + c.Receiver + ")"
 		}
-		out += "@" + itoa(c.Line) + ":" + kind
+		out += "@" + strconv.FormatUint(uint64(c.Line), 10) + ":" + kind
 	}
 	return out + "]"
-}
-
-func itoa(u uint32) string {
-	if u == 0 {
-		return "0"
-	}
-	var b [10]byte
-	i := len(b)
-	for u > 0 {
-		i--
-		b[i] = byte('0' + u%10)
-		u /= 10
-	}
-	return string(b[i:])
 }

@@ -3,7 +3,6 @@ package parser
 import (
 	"context"
 	_ "embed"
-	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
 
@@ -14,22 +13,19 @@ import (
 var markupRefsQueryBytes []byte
 
 // markupRefsQuery is the bare-top-level-identifier query used ONLY by the markup
-// {expr} reparse path. It is compiled lazily against the TSX grammar at call
-// time (not in init) to mirror the lazy-singleton discipline the astro/svelte/
-// vue handlers use: tsxLang.caps.SitterLanguage is wired in handler_tsx.go's
-// init(), which may run after this file's init() (init-order MapCapture landmine,
-// documented in the parity plan).
-var (
-	markupRefsQueryOnce sync.Once
-	markupRefsQuery     *sitter.Query
-)
+// {expr} reparse path. It is compiled once at startup by buildMarkupRefsQuery,
+// which handler_tsx.go's init() calls immediately after wiring tsxLang's
+// capabilities — so a malformed query fails fast at program start (like every
+// sibling handler's mustCompileQuery in init), not lazily on the first .astro
+// file, and the compile is guaranteed to see a non-nil TSX grammar without
+// depending on cross-file init ordering.
+var markupRefsQuery *sitter.Query
 
-func getMarkupRefsQuery() *sitter.Query {
-	markupRefsQueryOnce.Do(func() {
-		lang := tsxLang.Capabilities().SitterLanguage
-		markupRefsQuery = mustCompileQuery(markupRefsQueryBytes, lang, "markup_refs.scm")
-	})
-	return markupRefsQuery
+// buildMarkupRefsQuery compiles markupRefsQuery against the TSX grammar. Called
+// from handler_tsx.go's init() as its last statement (tsxLang.caps is set by
+// then, within the same init, so ordering is guaranteed).
+func buildMarkupRefsQuery() {
+	markupRefsQuery = mustCompileQuery(markupRefsQueryBytes, tsxLang.Capabilities().SitterLanguage, "markup_refs.scm")
 }
 
 // markupExprReparse extracts the function/method/argref call sites embedded in
@@ -46,7 +42,7 @@ func getMarkupRefsQuery() *sitter.Query {
 // via the shared virtualToOriginal helper; padding lines are dropped. This
 // mirrors the collectRuneSymbols / appendRuneSymbols post-parse-classifier
 // precedent (operate on the original src via a VirtualSource, remap afterwards).
-func markupExprReparse(path string, src []byte, opts ParseOpts) []CallSite {
+func markupExprReparse(path string, src []byte) []CallSite {
 	vs := preproc.ExtractMarkupExprs(src)
 	if vs == nil || len(vs.Code) == 0 {
 		return nil
@@ -70,7 +66,7 @@ func markupExprReparse(path string, src []byte, opts ParseOpts) []CallSite {
 	// tsx_calls.scm: calls, member-calls, argrefs (incl. JSX-expression argrefs).
 	// markup_refs.scm: bare top-level identifiers ({count}) for React parity.
 	calls := runCallQuery(tsxLang.Capabilities().CallsQuery, root, vs.Code, path)
-	calls = append(calls, runCallQuery(getMarkupRefsQuery(), root, vs.Code, path)...)
+	calls = append(calls, runCallQuery(markupRefsQuery, root, vs.Code, path)...)
 
 	// Remap virtual line numbers to original coordinates, dropping padding.
 	remapped := calls[:0]
@@ -88,7 +84,9 @@ func markupExprReparse(path string, src []byte, opts ParseOpts) []CallSite {
 // MarkupCalls satisfies markupCallSource (see calls.go): the Astro handler's
 // template body carries {expr} call sites that parsing the raw .astro file with
 // the delegated plain-TS grammar cannot reach. ExtractCalls appends these to the
-// ordinary call sites.
-func (h *astroHandler) MarkupCalls(path string, src []byte, opts ParseOpts) []CallSite {
-	return markupExprReparse(path, src, opts)
+// ordinary call sites. opts is inert for call extraction today (the markup
+// reparse is language-fixed to TSX); it is kept to satisfy the interface and
+// leave room for a future Language-conditional branch.
+func (h *astroHandler) MarkupCalls(path string, src []byte, _ ParseOpts) []CallSite {
+	return markupExprReparse(path, src)
 }

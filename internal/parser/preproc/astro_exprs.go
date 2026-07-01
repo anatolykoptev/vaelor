@@ -45,14 +45,19 @@ func scanMarkupExprRanges(src []byte) []exprRange {
 // coordinates), so a downstream reparse pays a single tree-sitter invocation per
 // file rather than one per expression.
 //
-// It assembles the VirtualSource directly rather than through Builder.AppendBlock:
-// AppendBlock assumes each block ends on a newline (as the <script>/frontmatter
-// spans it was built for do), but a bare inline {expr} has no surrounding
-// newlines. Each expression becomes its own statement terminated by a '\n' that
-// maps to NO original line (padding), so the next expression's first virtual line
-// stays aligned with its original coordinates. The LineMap contract (one entry
-// per virtual content line; unmapped/out-of-range lines are padding) matches the
-// existing preproc machinery, so virtualToOriginal remaps call sites identically.
+// It assembles the VirtualSource DIRECTLY and does NOT reuse Builder.AppendBlock
+// — deliberately, do not "refactor" it back. Builder.AppendBlock was built for
+// <script>/frontmatter spans, which carry their own trailing newline; a bare
+// inline {expr} has none. Feeding AppendBlock + AppendBlankLine the 3-expr
+// fixture yields the lineMap [8,0,9,0,10,0], and Builder.Build() then trims it
+// to countLines(code) entries — silently DROPPING the trailing entries so the
+// final block's original-line mapping is lost (a batched {expr} then remaps to
+// the wrong source line). Instead, each expression here becomes its own
+// statement terminated by a '\n' that maps to NO original line (padding), so the
+// next expression's first virtual line stays aligned with its original
+// coordinates. The LineMap contract (one entry per virtual content line;
+// unmapped/out-of-range lines are padding) matches the existing preproc
+// machinery, so virtualToOriginal remaps call sites identically.
 //
 // The returned VirtualSource carries lang="astro"; it is meant to be reparsed
 // with the TSX grammar (a superset that parses the JSX legally embedded in

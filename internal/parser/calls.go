@@ -26,7 +26,8 @@ type CallSite struct {
 // template body carries {expr} call sites that parsing the raw file with the
 // delegated grammar cannot reach (Astro today; Svelte in a later phase).
 // ExtractCalls appends these to the ordinary call sites. Optional: handlers that
-// do not implement it are unaffected.
+// do not implement it are unaffected. Invoked independently of CallsQuery, so a
+// future markup-only handler with a nil CallsQuery still contributes markup calls.
 type markupCallSource interface {
 	MarkupCalls(path string, src []byte, opts ParseOpts) []CallSite
 }
@@ -41,25 +42,26 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 	}
 
 	caps := handler.Capabilities()
-	if caps.CallsQuery == nil {
-		return nil, nil
+
+	var calls []CallSite
+	if caps.CallsQuery != nil {
+		p := sitter.NewParser()
+		defer p.Close()
+		p.SetLanguage(caps.SitterLanguage)
+
+		tree, err := p.ParseCtx(context.Background(), nil, source)
+		if err != nil {
+			return nil, err
+		}
+		defer tree.Close()
+
+		calls = runCallQuery(caps.CallsQuery, tree.RootNode(), source, path)
 	}
-
-	p := sitter.NewParser()
-	defer p.Close()
-	p.SetLanguage(caps.SitterLanguage)
-
-	tree, err := p.ParseCtx(context.Background(), nil, source)
-	if err != nil {
-		return nil, err
-	}
-	defer tree.Close()
-
-	calls := runCallQuery(caps.CallsQuery, tree.RootNode(), source, path)
 
 	// Preprocessor-language handlers (Astro) additionally surface calls embedded
 	// in template-body {expr} ranges, unreachable by parsing the raw file with
-	// the delegated grammar above.
+	// the delegated grammar above — and independent of CallsQuery (a future
+	// markup-only handler may not have one).
 	if mc, ok := handler.(markupCallSource); ok {
 		calls = append(calls, mc.MarkupCalls(path, source, opts)...)
 	}

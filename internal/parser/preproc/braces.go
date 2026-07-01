@@ -2,8 +2,8 @@ package preproc
 
 // matchBrace returns the byte index of the '}' that closes the '{' at src[open].
 // It tracks brace nesting depth and skips the contents of ', ", and ` string
-// literals so braces that appear inside strings are not counted. Returns -1 if
-// the opening brace is never balanced.
+// literals (via the shared skipQuoted) so braces that appear inside strings are
+// not counted. Returns -1 if the opening brace is never balanced.
 //
 // This is the small shared balanced-brace primitive the NEW markup {expr}
 // scanner is built on (scanMarkupExprRanges). It is deliberately NOT a full
@@ -25,7 +25,9 @@ func matchBrace(src []byte, open int) int {
 	for i < len(src) {
 		switch src[i] {
 		case '\'', '"', '`':
-			i = skipString(src, i, src[i])
+			// JS strings (all three delimiters, incl. template literals) process
+			// backslash escapes, so escaped=true.
+			i = skipQuoted(src, i+1, src[i], true)
 			continue
 		case '{':
 			depth++
@@ -38,22 +40,4 @@ func matchBrace(src []byte, open int) int {
 		i++
 	}
 	return -1
-}
-
-// skipString returns the index just past the closing quote of the string that
-// starts at src[start] with delimiter q, honouring backslash escapes. If the
-// string is unterminated it returns len(src).
-func skipString(src []byte, start int, q byte) int {
-	i := start + 1
-	for i < len(src) {
-		switch src[i] {
-		case '\\':
-			i += 2
-			continue
-		case q:
-			return i + 1
-		}
-		i++
-	}
-	return len(src)
 }
