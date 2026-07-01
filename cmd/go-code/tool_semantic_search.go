@@ -479,39 +479,39 @@ func annotateWithPageRank(results []embeddings.SearchResult, signals []graphx.Si
 
 func formatSemanticResults(input SemanticSearchInput, results []embeddings.SearchResult, mappings []analyze.PathMapping) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"semantic_search\">\n")
-	fmt.Fprintf(&sb, "  <query>%s</query>\n", escapeXML(input.Query))
-	fmt.Fprintf(&sb, "  <repo>%s</repo>\n", escapeXML(input.Repo))
-	fmt.Fprintf(&sb, "  <results count=\"%d\">\n", len(results))
+	fmt.Fprintf(&sb, "<response tool=\"semantic_search\">")
+	fmt.Fprintf(&sb, "<query>%s</query>", escapeXML(input.Query))
+	fmt.Fprintf(&sb, "<repo>%s</repo>", escapeXML(input.Repo))
+	fmt.Fprintf(&sb, "<results count=\"%d\">", len(results))
 	for i, r := range results {
 		source := r.Source
 		if source == "" {
 			source = "semantic"
 		}
 		if r.PageRank > 0 {
-			fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\" pagerank=\"%.6f\">\n",
+			fmt.Fprintf(&sb, "<result rank=\"%d\" distance=\"%.4f\" source=\"%s\" pagerank=\"%.6f\">",
 				i+1, r.Distance, escapeXML(source), r.PageRank)
 		} else {
-			fmt.Fprintf(&sb, "    <result rank=\"%d\" distance=\"%.4f\" source=\"%s\">\n", i+1, r.Distance, escapeXML(source))
+			fmt.Fprintf(&sb, "<result rank=\"%d\" distance=\"%.4f\" source=\"%s\">", i+1, r.Distance, escapeXML(source))
 		}
-		fmt.Fprintf(&sb, "      <file>%s</file>\n", escapeXML(reverseToHost(r.FilePath, mappings)))
-		fmt.Fprintf(&sb, "      <symbol kind=\"%s\">%s</symbol>\n",
+		fmt.Fprintf(&sb, "<file>%s</file>", escapeXML(reverseToHost(r.FilePath, mappings)))
+		fmt.Fprintf(&sb, "<symbol kind=\"%s\">%s</symbol>",
 			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))
-		fmt.Fprintf(&sb, "      <line>%d</line>\n", r.StartLine)
-		fmt.Fprintf(&sb, "      <language>%s</language>\n", escapeXML(r.Language))
-		fmt.Fprintf(&sb, "    </result>\n")
+		fmt.Fprintf(&sb, "<line>%d</line>", r.StartLine)
+		fmt.Fprintf(&sb, "<language>%s</language>", escapeXML(r.Language))
+		fmt.Fprintf(&sb, "</result>")
 	}
-	sb.WriteString("  </results>\n</response>")
+	sb.WriteString("</results></response>")
 	return sb.String()
 }
 
 func buildStatusResponse(input SemanticSearchInput, status, message string) string {
 	return fmt.Sprintf(
-		"<response tool=\"semantic_search\">\n"+
-			"  <query>%s</query>\n"+
-			"  <repo>%s</repo>\n"+
-			"  <status>%s</status>\n"+
-			"  <message>%s</message>\n"+
+		"<response tool=\"semantic_search\">"+
+			"<query>%s</query>"+
+			"<repo>%s</repo>"+
+			"<status>%s</status>"+
+			"<message>%s</message>"+
 			"</response>",
 		escapeXML(input.Query), escapeXML(input.Repo), status, message)
 }

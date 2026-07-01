@@ -121,14 +121,14 @@ func semanticSuggest(ctx context.Context, sem *SemanticDeps, root, query, langua
 // formatSemanticSuggestions formats semantic search results as XML suggestions block.
 func formatSemanticSuggestions(results []embeddings.SearchResult) string {
 	var sb strings.Builder
-	sb.WriteString("\n<semantic_suggestions>\n")
-	sb.WriteString("  <hint>No exact matches found. These symbols are semantically similar to your query:</hint>\n")
+	sb.WriteString("<semantic_suggestions>")
+	sb.WriteString("<hint>No exact matches found. These symbols are semantically similar to your query:</hint>")
 	for i, r := range results {
-		fmt.Fprintf(&sb, "  <suggestion rank=\"%d\" distance=\"%.4f\">\n", i+1, r.Distance)
-		fmt.Fprintf(&sb, "    <symbol kind=\"%s\">%s</symbol>\n",
+		fmt.Fprintf(&sb, "<suggestion rank=\"%d\" distance=\"%.4f\">", i+1, r.Distance)
+		fmt.Fprintf(&sb, "<symbol kind=\"%s\">%s</symbol>",
 			escapeXML(r.SymbolKind), escapeXML(r.SymbolName))
-		fmt.Fprintf(&sb, "    <file line=\"%d\">%s</file>\n", r.StartLine, escapeXML(r.FilePath))
-		sb.WriteString("  </suggestion>\n")
+		fmt.Fprintf(&sb, "<file line=\"%d\">%s</file>", r.StartLine, escapeXML(r.FilePath))
+		sb.WriteString("</suggestion>")
 	}
 	sb.WriteString("</semantic_suggestions>")
 	return sb.String()

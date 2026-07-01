@@ -160,8 +160,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	if result.Root == nil {
 		msg := fmt.Sprintf("symbol %q not found in repository", input.Symbol)
 		if suggestions := semanticSuggest(ctx, sem, root, input.Symbol, input.Language); suggestions != "" {
-			return textResult(fmt.Sprintf("<response tool=\"call_trace\">\n"+
-				"  <error>%s</error>\n%s\n</response>", escapeXML(msg), suggestions)), nil
+			return textResult(fmt.Sprintf("<response tool=\"call_trace\"><error>%s</error>%s</response>", escapeXML(msg), suggestions)), nil
 		}
 		return errResult(msg), nil
 	}
