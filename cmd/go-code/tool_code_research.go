@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
@@ -119,70 +118,41 @@ const (
 )
 
 func formatResearchResult(input CodeResearchInput, root string, r *research.Result) string {
-	var sb strings.Builder
-
 	// Strip workspace prefix from paths for cleaner output.
 	stripRoot := root + "/"
 
-	fmt.Fprintf(&sb, "<response tool=\"code_research\">")
-	fmt.Fprintf(&sb, "<query>%s</query>", escapeXML(input.Query))
-	fmt.Fprintf(&sb, "<repo>%s</repo>", escapeXML(input.Repo))
-	fmt.Fprintf(&sb, "<mode>%s</mode>", escapeXML(r.Mode))
-	fmt.Fprintf(&sb, "<stats seeds=\"%d\" graph_files=\"%d\" pruned=\"%d\" estimated_tokens=\"%d\"/>",
-		len(r.Seeds), len(r.Graph), r.PrunedFiles, r.EstimatedTokens)
+	resp := researchRespXML{
+		Tool:  "code_research",
+		Query: input.Query,
+		Repo:  input.Repo,
+		Mode:  r.Mode,
+		Stats: researchStatsXML{
+			Seeds:           len(r.Seeds),
+			GraphFiles:      len(r.Graph),
+			Pruned:          r.PrunedFiles,
+			EstimatedTokens: r.EstimatedTokens,
+		},
+	}
 
 	if !input.Compact {
 		// Seeds section — top N by score.
-		seeds := sortedSeeds(r.Seeds, maxSeedsOutput)
-		if len(seeds) > 0 {
-			fmt.Fprintf(&sb, "<seeds>")
-			seen := make(map[string]bool)
-			for _, s := range seeds {
-				relFile := strings.TrimPrefix(s.File, stripRoot)
-				if seen[relFile] {
-					continue
-				}
-				seen[relFile] = true
-				fmt.Fprintf(&sb, "<file path=%q score=\"%.4f\">", relFile, s.Score)
-				for _, s2 := range seeds {
-					if strings.TrimPrefix(s2.File, stripRoot) == relFile && s2.Name != "" {
-						fmt.Fprintf(&sb, "<symbol kind=%q line=\"%d\" source=%q>%s</symbol>",
-							escapeXML(s2.Kind), s2.Line, escapeXML(s2.Source), escapeXML(s2.Name))
-					}
-				}
-				fmt.Fprintf(&sb, "</file>")
-			}
-			fmt.Fprintf(&sb, "</seeds>")
+		if seeds := sortedSeeds(r.Seeds, maxSeedsOutput); len(seeds) > 0 {
+			resp.Seeds = buildResearchSeeds(seeds, stripRoot)
 		}
-
 		// Graph section — top N by score, skip files with no symbols.
-		graph := sortedGraph(r.Graph, maxGraphOutput)
-		if len(graph) > 0 {
-			fmt.Fprintf(&sb, "<graph>")
-			for _, lf := range graph {
-				if len(lf.Symbols) == 0 {
-					continue
-				}
-				relPath := strings.TrimPrefix(lf.RelPath, stripRoot)
-				fmt.Fprintf(&sb, "<file path=%q distance=\"%d\" why=%q score=\"%.4f\">",
-					relPath, lf.Distance, escapeXML(lf.WhyLinked), lf.Score)
-				for _, sym := range lf.Symbols {
-					fmt.Fprintf(&sb, "<symbol kind=%q line=\"%d\">%s</symbol>",
-						escapeXML(string(sym.Kind)), sym.StartLine, escapeXML(sym.Name))
-				}
-				fmt.Fprintf(&sb, "</file>")
-			}
-			fmt.Fprintf(&sb, "</graph>")
+		if graph := sortedGraph(r.Graph, maxGraphOutput); len(graph) > 0 {
+			resp.Graph = buildResearchGraph(graph, stripRoot)
 		}
 	}
 
-	// Compact map — the primary LLM-consumable output.
+	// Compact map — the primary LLM-consumable output, carried verbatim in a
+	// CDATA section (byte-neutral vs entity-escaping every <-chan / Vec<T> / &x).
+	// A nil pointer omits the element, matching the prior `if r.Map != ""` guard.
 	if r.Map != "" {
-		fmt.Fprintf(&sb, "<map>%s</map>", r.Map)
+		resp.Map = &xmlCDATA{Inner: wrapCDATA(r.Map)}
 	}
 
-	sb.WriteString("</response>")
-	return sb.String()
+	return xmlMarshalFragment(resp)
 }
 
 func sortedSeeds(seeds []research.SeedSymbol, limit int) []research.SeedSymbol {

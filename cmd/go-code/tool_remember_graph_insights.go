@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -137,10 +136,8 @@ func handleRememberGraphInsights(
 		total += n
 	}
 
-	res := rememberResult{Persisted: counts, Total: total}
-	out, marshalErr := json.Marshal(res)
-	if marshalErr != nil {
-		return errResult(fmt.Errorf("marshal result: %w", marshalErr).Error()), nil
-	}
-	return textResult(string(out)), nil
+	// Route through the shared jsonMarshalResult helper (helpers.go); the success
+	// path is byte-identical (compact JSON) and the marshal-error branch is
+	// unreachable for this all-serialisable result struct.
+	return jsonMarshalResult(rememberResult{Persisted: counts, Total: total}), nil
 }

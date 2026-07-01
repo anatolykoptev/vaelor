@@ -196,9 +196,22 @@ func formatDesignResults(query string, hits []brandHit, meta map[string]designmd
 		resp.Results.Items = append(resp.Results.Items, item)
 	}
 
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(resp)
+}
+
+// designStatusXML is the design_search status response (e.g. not_indexed),
+// migrated from an inline hand-rolled <response><status><message></response>
+// string so the last manual-XML-string-concatenation site in design_search is
+// gone. The message is a fixed constant with no XML-hostile characters, so the
+// emitted bytes are unchanged.
+type designStatusXML struct {
+	XMLName xml.Name `xml:"response"`
+	Tool    string   `xml:"tool,attr"`
+	Status  string   `xml:"status"`
+	Message string   `xml:"message"`
+}
+
+// formatDesignStatus renders a design_search <status>/<message> response.
+func formatDesignStatus(status, message string) string {
+	return xmlMarshalFragment(designStatusXML{Tool: "design_search", Status: status, Message: message})
 }

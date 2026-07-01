@@ -39,11 +39,7 @@ type toolErrorXML struct {
 // already-escaped msg would double-escape. suggestions is a pre-built XML
 // fragment written verbatim after <error>.
 func formatToolErrorWithSuggestions(tool, msg, suggestions string) string {
-	b, err := xml.Marshal(toolErrorXML{Tool: tool, Error: msg, Suggestions: suggestions})
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(toolErrorXML{Tool: tool, Error: msg, Suggestions: suggestions})
 }
 
 // ---- code_search (no grep/semantic match) ----
@@ -65,15 +61,11 @@ type codeSearchNoMatchXML struct {
 // formatCodeSearchNoMatch renders the code_search no-match fragment (pattern is
 // RAW; xml.Marshal escapes the attribute).
 func formatCodeSearchNoMatch(pattern, suggestions string) string {
-	b, err := xml.Marshal(codeSearchNoMatchXML{
+	return xmlMarshalFragment(codeSearchNoMatchXML{
 		Tool:        "code_search",
 		Search:      searchZeroXML{Pattern: pattern, Matches: 0},
 		Suggestions: suggestions,
 	})
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
 }
 
 // ---- symbol_search (no match) ----
@@ -96,13 +88,9 @@ type symbolSearchNoMatchXML struct {
 // the symbol_search no-match output. The caller appends "\n\n"+hint — a
 // plain-text trailer OUTSIDE the XML document, preserved as-is.
 func formatSymbolSearchNoMatch(query, suggestions string) string {
-	b, err := xml.Marshal(symbolSearchNoMatchXML{
+	return xmlMarshalFragment(symbolSearchNoMatchXML{
 		Tool:        "symbol_search",
 		Symbols:     symbolsZeroXML{Query: query, Count: 0},
 		Suggestions: suggestions,
 	})
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
 }

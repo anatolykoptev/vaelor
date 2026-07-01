@@ -167,9 +167,5 @@ func formatSemanticSuggestions(results []embeddings.SearchResult) string {
 			File:     semSymFileXML{Line: r.StartLine, Path: r.FilePath},
 		})
 	}
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(resp)
 }

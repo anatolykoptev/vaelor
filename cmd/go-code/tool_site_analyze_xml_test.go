@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/webanalyze"
@@ -144,4 +145,56 @@ func TestSiteCrawl_StructurallyEquivalentToBaseline(t *testing.T) {
 	current := readGolden(t, "site_crawl_benign_current.xml")
 	migrated := formatCrawlResponse(benignCrawlFixture())
 	assertXMLEquivalent(t, current, migrated)
+}
+
+// benignFullSuccessOutput / benignFullErrorOutput drive the full-mode formatter
+// (migrated in #262 but never given equivalence coverage -- the gap this
+// increment closes). Both reuse benignAnalyzeFixture so the <site> head is the
+// same buildSiteHead output the detect golden already validates; the goldens
+// (site_full_*_benign.xml) are derived from the pre-migration detect golden's
+// head plus the verified pre-migration <sources>/<hint> tail, so they carry the
+// same pre-migration authority as the detect baseline. A single-entry Languages
+// map keeps the success-branch output deterministic.
+func benignFullSuccessOutput() string {
+	return formatFullResponse(
+		benignAnalyzeFixture(),
+		"/tmp/sites/example.com",
+		&webanalyze.SourceStats{Files: 12, Languages: map[string]int{"ts": 12}},
+		nil,
+	)
+}
+
+func benignFullErrorOutput() string {
+	// stats == nil takes the else branch -> <sources files="0" reason=...>.
+	return formatFullResponse(benignAnalyzeFixture(), "/tmp/sites/example.com", nil, nil)
+}
+
+// TestSiteAnalyze_FullStructurallyEquivalentToBaseline proves the migrated
+// full-mode output is structurally identical to the recorded baseline across
+// both <sources> branches: the success branch (path + <language> + <hint>) and
+// the error branch (files="0" + reason, no <hint>).
+func TestSiteAnalyze_FullStructurallyEquivalentToBaseline(t *testing.T) {
+	t.Run("success_sources", func(t *testing.T) {
+		assertXMLEquivalent(t, readGolden(t, "site_full_success_benign.xml"), benignFullSuccessOutput())
+	})
+	t.Run("error_reason", func(t *testing.T) {
+		assertXMLEquivalent(t, readGolden(t, "site_full_error_benign.xml"), benignFullErrorOutput())
+	})
+}
+
+// TestSiteAnalyze_FullHostileEscaped proves escaping-by-construction on both
+// full-mode <sources> branches: the pre-migration formatter used %q for the
+// reason/path attributes, so a hostile extract error or source path would have
+// been malformed; the migrated attributes round-trip to their exact values.
+func TestSiteAnalyze_FullHostileEscaped(t *testing.T) {
+	errOut := formatFullResponse(benignAnalyzeFixture(), "", nil, errors.New(`extract failed: bad & <path> "x"`))
+	assertAttrRoundTrips(t, errOut, "response/site/sources", "reason", `extract failed: bad & <path> "x"`)
+
+	okOut := formatFullResponse(
+		benignAnalyzeFixture(),
+		`/tmp/a & b "x"`,
+		&webanalyze.SourceStats{Files: 3, Languages: map[string]int{"go": 3}},
+		nil,
+	)
+	assertAttrRoundTrips(t, okOut, "response/site/sources", "path", `/tmp/a & b "x"`)
 }

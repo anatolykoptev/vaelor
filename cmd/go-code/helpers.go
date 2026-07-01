@@ -191,6 +191,22 @@ func xmlMarshalErrorFragment(err error) string {
 	return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
 }
 
+// xmlMarshalFragment marshals v as a bare XML fragment (no xml.Header prolog),
+// falling back to a well-formed <error> fragment on the effectively-impossible
+// marshal error (see xmlMarshalErrorFragment). This is the single wrapper for
+// the all-string XML response formatters in this package: it collapses the
+// repeated `b, err := xml.Marshal(v); if err != nil { return
+// xmlMarshalErrorFragment(err) }; return string(b)` boilerplate into one place.
+// The header-prefixed variants stay separate (formatAnalysisXML emits
+// xml.Header; xmlMarshalResult / xmlMarshalFileResult return *CallToolResult).
+func xmlMarshalFragment(v any) string {
+	b, err := xml.Marshal(v)
+	if err != nil {
+		return xmlMarshalErrorFragment(err)
+	}
+	return string(b)
+}
+
 // jsonMarshalResult marshals v as compact JSON and returns it via textResult.
 // Mirrors xmlMarshalResult's error idiom for the (much more common) plain-JSON
 // response path: small/medium tool outputs that don't need the file-overflow

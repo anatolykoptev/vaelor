@@ -38,6 +38,17 @@ func TestDesignSearchXMLHostileAttrEscaped(t *testing.T) {
 	assertAttrRoundTrips(t, migrated, "response/results/result", "brand", brand)
 }
 
+// TestDesignStatusXMLEquivalent proves formatDesignStatus (increment 3; migrated
+// from the inline hand-rolled not-indexed <response> string in tool_design_search.go)
+// is structurally identical to that pre-migration constant, reproduced inline as
+// a self-contained baseline.
+func TestDesignStatusXMLEquivalent(t *testing.T) {
+	const preMigration = "<response tool=\"design_search\"><status>not_indexed</status>" +
+		"<message>No design embeddings. Run: go-code index-designs /path/to/dir/</message></response>"
+	migrated := formatDesignStatus("not_indexed", "No design embeddings. Run: go-code index-designs /path/to/dir/")
+	assertXMLEquivalent(t, preMigration, migrated)
+}
+
 // ---- semantic_suggestions ----
 
 func TestSemanticSuggestionsXMLEquivalent(t *testing.T) {
