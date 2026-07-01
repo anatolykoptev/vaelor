@@ -3,6 +3,7 @@ package cache
 import (
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -263,51 +264,78 @@ func TestLLMCacheConcurrent(t *testing.T) {
 }
 
 // TestLLMCacheTTLBoundary verifies freshness just before expiry and staleness just after.
+//
+// Runs inside a synctest bubble (Go 1.24+, stable in this repo's go 1.26
+// toolchain) so time.Sleep/time.Now use a virtualized, deterministic clock
+// instead of the wall clock. Previously this test slept real wall-clock
+// milliseconds with a tight ±5ms margin around a 20ms TTL — under the
+// self-hosted preflight runner's full-suite parallel load (the now-REQUIRED
+// merge gate, see plan Phase 0a) scheduler jitter could push either sleep
+// across the boundary and flip the assertion. NewLLMCache is constructed
+// INSIDE the bubble so its background cleanup goroutine (kitcache's
+// cleanupLoop) joins the bubble and is governed by the same fake clock —
+// see testing/synctest package doc, "Any goroutines started within the
+// bubble are also part of the bubble." The deferred c.c.Close() is required,
+// not optional: synctest.Test panics ("deadlock: main bubble goroutine has
+// exited but blocked goroutines remain") if cleanupLoop is still parked in
+// its select when this closure returns, since a durably-blocked goroutine is
+// not the same as an exited one. Zero production cache-logic change:
+// go-kit/cache's TTL check (time.Now().After(e.expiresAt)) is exercised
+// unmodified, just against virtual time.
 func TestLLMCacheTTLBoundary(t *testing.T) {
-	t.Parallel()
-	const ttl = 20 * time.Millisecond
-	c := NewLLMCache(10, ttl)
+	synctest.Test(t, func(t *testing.T) {
+		const ttl = 20 * time.Millisecond
+		c := NewLLMCache(10, ttl)
+		defer c.c.Close()
 
-	key := PromptHash("boundary", "test")
-	c.Put(key, "value")
+		key := PromptHash("boundary", "test")
+		c.Put(key, "value")
 
-	// 5ms before expiry — must be fresh.
-	time.Sleep(ttl - 5*time.Millisecond)
-	if _, ok := c.Get(key); !ok {
-		t.Error("expected cache hit just before TTL expiry")
-	}
+		// 5ms before expiry — must be fresh.
+		time.Sleep(ttl - 5*time.Millisecond)
+		if _, ok := c.Get(key); !ok {
+			t.Error("expected cache hit just before TTL expiry")
+		}
 
-	// Re-put to reset, then sleep past TTL.
-	c.Put(key, "value")
-	time.Sleep(ttl + 5*time.Millisecond)
-	if _, ok := c.Get(key); ok {
-		t.Error("expected cache miss just after TTL expiry")
-	}
+		// Re-put to reset, then sleep past TTL.
+		c.Put(key, "value")
+		time.Sleep(ttl + 5*time.Millisecond)
+		if _, ok := c.Get(key); ok {
+			t.Error("expected cache miss just after TTL expiry")
+		}
+	})
 }
 
 // TestLLMCacheTTLUpdateResetsExpiry verifies that re-putting a key resets its TTL.
+//
+// See TestLLMCacheTTLBoundary for why this runs inside a synctest bubble
+// (same real-clock-under-load flake, same fix, same zero-production-change
+// scope) and why the deferred c.c.Close() is required (unblocks
+// kitcache's background cleanupLoop so it exits before the bubble closes).
 func TestLLMCacheTTLUpdateResetsExpiry(t *testing.T) {
-	t.Parallel()
-	const ttl = 20 * time.Millisecond
-	c := NewLLMCache(10, ttl)
+	synctest.Test(t, func(t *testing.T) {
+		const ttl = 20 * time.Millisecond
+		c := NewLLMCache(10, ttl)
+		defer c.c.Close()
 
-	key := PromptHash("reset", "expiry")
-	c.Put(key, "v1")
+		key := PromptHash("reset", "expiry")
+		c.Put(key, "v1")
 
-	// Sleep half TTL, then re-put (resets timer).
-	time.Sleep(ttl / 2)
-	c.Put(key, "v2")
+		// Sleep half TTL, then re-put (resets timer).
+		time.Sleep(ttl / 2)
+		c.Put(key, "v2")
 
-	// Sleep another half TTL — total elapsed ~TTL, but timer was reset at half-point.
-	time.Sleep(ttl / 2)
+		// Sleep another half TTL — total elapsed ~TTL, but timer was reset at half-point.
+		time.Sleep(ttl / 2)
 
-	got, ok := c.Get(key)
-	if !ok {
-		t.Error("expected cache hit: re-put should have reset TTL")
-	}
-	if got != "v2" {
-		t.Errorf("got %q, want %q", got, "v2")
-	}
+		got, ok := c.Get(key)
+		if !ok {
+			t.Error("expected cache hit: re-put should have reset TTL")
+		}
+		if got != "v2" {
+			t.Errorf("got %q, want %q", got, "v2")
+		}
+	})
 }
 
 // TestLLMCacheExpiredEvictsEntry verifies that a TTL miss removes the entry from stats.
