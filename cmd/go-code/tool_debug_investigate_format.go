@@ -3,132 +3,271 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/investigate"
 )
 
-// escapeCDATA splits any literal "]]>" sequences so they don't terminate
-// the enclosing CDATA section. Standard XML technique: end the section,
-// emit "]" or ">" as a separate CDATA, resume.
-func escapeCDATA(s string) string {
-	return strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+// ---- XML types ----
+//
+// The investigation response is modelled as typed structs marshalled via
+// encoding/xml, so escaping and well-formedness are correct BY CONSTRUCTION.
+// This replaces the prior hand-rolled fmt.Fprintf string concatenation, whose
+// attribute sites used %q (Go quoting, NOT XML escaping) and silently produced
+// malformed XML whenever a value carried <, & or " -- e.g. the <spike labels>
+// attribute, which routinely holds Prometheus label sets like
+// {service="x"} (see pr-review-council #260/#261).
+//
+// Float attributes are pre-formatted to strings (matching the original %.2f /
+// %.3f precision) because xml.Marshal renders float64 via strconv and would
+// drop trailing zeros (0.870 -> 0.87), changing the attribute value. CDATA
+// payloads reuse the in-package wrapCDATA helper (]]> splitting) carried
+// verbatim through an ,innerxml field.
+
+type investigationRespXML struct {
+	XMLName xml.Name         `xml:"response"`
+	Tool    string           `xml:"tool,attr"`
+	Inv     investigationXML `xml:"investigation"`
 }
+
+type investigationXML struct {
+	Service             string                  `xml:"service,attr"`
+	HintKind            string                  `xml:"hint_kind,attr,omitempty"`
+	StartedAt           string                  `xml:"started_at,attr"`
+	FinishedAt          string                  `xml:"finished_at,attr"`
+	Summary             string                  `xml:"summary,omitempty"`
+	Hypotheses          []hypothesisXML         `xml:"hypothesis"`
+	MetricSpikes        *metricSpikesXML        `xml:"metric_spikes,omitempty"`
+	AlertViolations     *alertViolationsXML     `xml:"alert_violations,omitempty"`
+	LogExcerpts         *logExcerptsXML         `xml:"log_excerpts,omitempty"`
+	HistoricalIncidents *historicalIncidentsXML `xml:"historical_incidents,omitempty"`
+	Diagnostics         xmlCDATA                `xml:"diagnostics"`
+}
+
+type hypothesisXML struct {
+	Rank         int              `xml:"rank,attr"`
+	Confidence   string           `xml:"confidence,attr"`
+	Source       string           `xml:"source,attr,omitempty"`
+	Subject      string           `xml:"subject"`
+	Location     *locationXML     `xml:"location,omitempty"`
+	Signals      signalsXML       `xml:"signals"`
+	Impact       *impactXML       `xml:"impact,omitempty"`
+	SymbolBody   *symbolBodyXML   `xml:"symbol_body,omitempty"`
+	FusedScore   *fusedScoreXML   `xml:"fused_score,omitempty"`
+	RecentChange *recentChangeXML `xml:"recent_change,omitempty"`
+	BodyExcerpt  *bodyExcerptXML  `xml:"body_excerpt,omitempty"`
+	Evidence     []string         `xml:"evidence,omitempty"`
+	NextChecks   []nextCheckXML   `xml:"next_check,omitempty"`
+}
+
+type locationXML struct {
+	File string `xml:"file,attr"`
+	Line int    `xml:"line,attr"`
+}
+
+type signalsXML struct {
+	SpanCount    int    `xml:"span_count,attr"`
+	AnomalyScore string `xml:"anomaly_score,attr"`
+}
+
+type impactXML struct {
+	DirectCallers int    `xml:"direct_callers,attr"`
+	TotalAffected int    `xml:"total_affected,attr"`
+	BlastRadius   string `xml:"blast_radius,attr"`
+	RiskScore     string `xml:"risk_score,attr"`
+}
+
+type symbolBodyXML struct {
+	ErrorExits int  `xml:"error_exits,attr"`
+	HasDefer   bool `xml:"has_defer,attr"`
+	HasTODO    bool `xml:"has_todo,attr"`
+}
+
+type fusedScoreXML struct {
+	Value   string      `xml:"value,attr"`
+	Signals []signalXML `xml:"signal"`
+}
+
+type signalXML struct {
+	Name  string `xml:"name,attr"`
+	Score string `xml:"score,attr"`
+}
+
+// recentChangeXML and bodyExcerptXML carry a CDATA body (raw diff / source)
+// alongside element attributes; the body is written verbatim via ,innerxml
+// after being wrapped by the shared wrapCDATA helper.
+type recentChangeXML struct {
+	File  string `xml:"file,attr"`
+	Since string `xml:"since,attr"`
+	CDATA string `xml:",innerxml"`
+}
+
+type bodyExcerptXML struct {
+	File  string `xml:"file,attr"`
+	Lines string `xml:"lines,attr"`
+	CDATA string `xml:",innerxml"`
+}
+
+type nextCheckXML struct {
+	Tool string   `xml:"tool,attr"`
+	Args []argXML `xml:"arg,omitempty"`
+}
+
+type argXML struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:",chardata"`
+}
+
+type metricSpikesXML struct {
+	Spikes []spikeXML `xml:"spike"`
+}
+
+type spikeXML struct {
+	Kind   string `xml:"kind,attr"`
+	Metric string `xml:"metric,attr"`
+	Labels string `xml:"labels,attr"`
+	Ratio  string `xml:"ratio,attr"`
+	Score  string `xml:"score,attr"`
+}
+
+type alertViolationsXML struct {
+	Items []alertViolationXML `xml:"alert_violation"`
+}
+
+type alertViolationXML struct {
+	AlertName string `xml:"alertname,attr"`
+	Severity  string `xml:"severity,attr"`
+	Service   string `xml:"service,attr"`
+	ActiveAt  string `xml:"active_at,attr"`
+	Summary   string `xml:",chardata"`
+}
+
+type logExcerptsXML struct {
+	Lines []logLineXML `xml:"line"`
+}
+
+type logLineXML struct {
+	Ts    string `xml:"ts,attr"`
+	Level string `xml:"level,attr"`
+	Msg   string `xml:",chardata"`
+}
+
+type historicalIncidentsXML struct {
+	Items []incidentXML `xml:"incident"`
+}
+
+type incidentXML struct {
+	Repo      string `xml:"repo,attr"`
+	Symbol    string `xml:"symbol,attr"`
+	RiskLevel string `xml:"risk_level,attr"`
+	Flag      string `xml:"flag,attr"`
+	Note      string `xml:",chardata"`
+}
+
+// ---- Builders ----
 
 // formatInvestigationResult renders the result as XML for the MCP caller.
-// It is a thin sequencer: each section is delegated to a focused writer.
 func formatInvestigationResult(r *investigate.InvestigationResult) string {
-	var b strings.Builder
-	b.WriteString(`<response tool="debug_investigate">`)
-	writeInvestigationHeader(&b, r)
-
-	if r.LLMSummary != "" {
-		b.WriteString("<summary>")
-		b.WriteString(escapeXML(r.LLMSummary))
-		b.WriteString("</summary>")
+	resp := investigationRespXML{
+		Tool: "debug_investigate",
+		Inv:  buildInvestigationXML(r),
 	}
+	b, err := xml.Marshal(resp)
+	if err != nil {
+		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+	}
+	return string(b)
+}
 
+func buildInvestigationXML(r *investigate.InvestigationResult) investigationXML {
+	inv := investigationXML{
+		Service:    r.Service,
+		HintKind:   r.HintKind,
+		StartedAt:  r.StartedAt.Format(time.RFC3339),
+		FinishedAt: r.FinishedAt.Format(time.RFC3339),
+		Summary:    r.LLMSummary,
+	}
 	for i, h := range r.Hypotheses {
-		writeHypothesis(&b, i+1, h)
+		inv.Hypotheses = append(inv.Hypotheses, buildHypothesisXML(i+1, h))
 	}
+	inv.MetricSpikes = buildMetricSpikesXML(r.MetricSpikes)
+	inv.AlertViolations = buildAlertViolationsXML(r.AlertViolations)
+	inv.LogExcerpts = buildLogExcerptsXML(r.LogExcerpts)
+	inv.HistoricalIncidents = buildHistoricalIncidentsXML(r.HistoricalIncidents)
 
-	writeMetricSpikes(&b, r.MetricSpikes)
-	writeAlertViolations(&b, r.AlertViolations)
-	writeLogExcerpts(&b, r.LogExcerpts)
-	writeHistoricalIncidents(&b, r.HistoricalIncidents)
-
-	// Diagnostics is a plain struct — Marshal cannot fail in practice.
+	// Diagnostics is a plain struct -- Marshal cannot fail in practice.
+	// json.Marshal HTML-escapes <, > and &, so the payload is XML-text-safe;
+	// it is carried verbatim (no re-escaping) via the ,innerxml carrier.
 	d, _ := json.Marshal(r.Diagnostics)
-	b.WriteString("<diagnostics>")
-	b.WriteString(string(d))
-	b.WriteString("</diagnostics>")
-
-	b.WriteString("</investigation>")
-	b.WriteString("</response>")
-	return b.String()
+	inv.Diagnostics = xmlCDATA{Inner: string(d)}
+	return inv
 }
 
-// writeInvestigationHeader writes the opening <investigation …> tag.
-// Two forms: with hint_kind attribute (when r.HintKind is non-empty) and without.
-func writeInvestigationHeader(b *strings.Builder, r *investigate.InvestigationResult) {
-	if r.HintKind != "" {
-		fmt.Fprintf(b, `<investigation service=%q hint_kind=%q started_at=%q finished_at=%q>`,
-			r.Service, r.HintKind, r.StartedAt.Format(time.RFC3339), r.FinishedAt.Format(time.RFC3339))
-	} else {
-		fmt.Fprintf(b, `<investigation service=%q started_at=%q finished_at=%q>`,
-			r.Service, r.StartedAt.Format(time.RFC3339), r.FinishedAt.Format(time.RFC3339))
+func buildHypothesisXML(rank int, h investigate.Hypothesis) hypothesisXML {
+	hx := hypothesisXML{
+		Rank:       rank,
+		Confidence: string(h.Confidence),
+		Source:     h.Source,
+		Subject:    h.Subject,
+		Signals: signalsXML{
+			SpanCount:    h.SpanCount,
+			AnomalyScore: fmt.Sprintf("%.3f", h.AnomalyScore),
+		},
+		Location:     buildLocationXML(h.File, h.Line),
+		Impact:       buildImpactXML(h.Impact),
+		SymbolBody:   buildSymbolBodyXML(h.SymbolBody),
+		FusedScore:   buildFusedScoreXML(h.FusedScore, h.SignalBreakdown),
+		RecentChange: buildRecentChangeXML(h.RecentChange),
+		BodyExcerpt:  buildBodyExcerptXML(h.BodySource, h.File, h.Line, h.EndLine),
+		Evidence:     h.EvidenceLinks,
+		NextChecks:   buildNextChecksXML(h.NextChecks),
 	}
+	return hx
 }
 
-// writeHypothesis writes the complete <hypothesis> block for a single hypothesis.
-// rank is the 1-based position (i+1 in the caller loop).
-func writeHypothesis(b *strings.Builder, rank int, h investigate.Hypothesis) {
-	if h.Source != "" {
-		fmt.Fprintf(b, "<hypothesis rank=\"%d\" confidence=%q source=%q>", rank, h.Confidence, h.Source)
-	} else {
-		fmt.Fprintf(b, "<hypothesis rank=\"%d\" confidence=%q>", rank, h.Confidence)
+func buildLocationXML(file string, line int) *locationXML {
+	if file == "" {
+		return nil
 	}
-	b.WriteString("<subject>")
-	b.WriteString(escapeXML(h.Subject))
-	b.WriteString("</subject>")
-	if h.File != "" {
-		fmt.Fprintf(b, "<location file=%q line=\"%d\"/>", h.File, h.Line)
-	}
-	fmt.Fprintf(b, "<signals span_count=\"%d\" anomaly_score=\"%.3f\"/>",
-		h.SpanCount, h.AnomalyScore)
-
-	writeHypothesisImpact(b, h.Impact)
-	writeHypothesisSymbolBody(b, h.SymbolBody)
-	writeHypothesisFusedScore(b, h.FusedScore, h.SignalBreakdown)
-	writeHypothesisRecentChange(b, h.RecentChange)
-	writeHypothesisBodyExcerpt(b, h.BodySource, h.File, h.Line, h.EndLine)
-	writeHypothesisNextChecks(b, h.EvidenceLinks, h.NextChecks)
-
-	b.WriteString("</hypothesis>")
+	return &locationXML{File: file, Line: line}
 }
 
-// writeHypothesisImpact writes the <impact> block when imp is non-nil and meaningful.
-// γ.B.2: rendered for top-3 hypotheses when Impact is set.
-func writeHypothesisImpact(b *strings.Builder, imp *investigate.ImpactInfo) {
+// buildImpactXML mirrors the prior guard: rendered only when Impact is set and
+// carries a non-zero signal.
+func buildImpactXML(imp *investigate.ImpactInfo) *impactXML {
 	if imp == nil || (imp.DirectCallers == 0 && imp.TotalAffected == 0 && imp.BlastRadius == "") {
-		return
+		return nil
 	}
-	fmt.Fprintf(b,
-		"<impact direct_callers=\"%d\" total_affected=\"%d\" blast_radius=%q risk_score=\"%.2f\"/>",
-		imp.DirectCallers, imp.TotalAffected, imp.BlastRadius, imp.RiskScore)
+	return &impactXML{
+		DirectCallers: imp.DirectCallers,
+		TotalAffected: imp.TotalAffected,
+		BlastRadius:   imp.BlastRadius,
+		RiskScore:     fmt.Sprintf("%.2f", imp.RiskScore),
+	}
 }
 
-// writeHypothesisSymbolBody writes the <symbol_body> block when sb is non-nil.
-// γ.B.3: rendered for top-1 hypothesis when SymbolBody is set.
-func writeHypothesisSymbolBody(b *strings.Builder, sb *investigate.SymbolBodyInfo) {
+func buildSymbolBodyXML(sb *investigate.SymbolBodyInfo) *symbolBodyXML {
 	if sb == nil {
-		return
+		return nil
 	}
-	hasDeferStr := "false"
-	if sb.HasDeferCleanup {
-		hasDeferStr = "true"
+	return &symbolBodyXML{
+		ErrorExits: sb.ErrorExits,
+		HasDefer:   sb.HasDeferCleanup,
+		HasTODO:    sb.HasTODO,
 	}
-	hasTODOStr := "false"
-	if sb.HasTODO {
-		hasTODOStr = "true"
-	}
-	fmt.Fprintf(b,
-		"<symbol_body error_exits=\"%d\" has_defer=%q has_todo=%q/>",
-		sb.ErrorExits, hasDeferStr, hasTODOStr)
 }
 
-// writeHypothesisFusedScore writes the <fused_score> block with signal breakdown.
-// γ.D.1: rendered when fusedScore > 0. Signals are emitted in a stable order
-// using the fusionSig* consts to ensure consistent output.
-func writeHypothesisFusedScore(b *strings.Builder, fusedScore float64, breakdown map[string]float64) {
+// buildFusedScoreXML emits signals in a stable order using the fusionSig*
+// consts, matching the prior formatter.
+func buildFusedScoreXML(fusedScore float64, breakdown map[string]float64) *fusedScoreXML {
 	if fusedScore <= 0 {
-		return
+		return nil
 	}
-	fmt.Fprintf(b, "<fused_score value=\"%.3f\">", fusedScore)
+	fs := &fusedScoreXML{Value: fmt.Sprintf("%.3f", fusedScore)}
 	for _, sig := range []string{
 		fusionSigMetricAnomaly,
 		fusionSigRecency,
@@ -137,32 +276,22 @@ func writeHypothesisFusedScore(b *strings.Builder, fusedScore float64, breakdown
 		fusionSigHistorical,
 	} {
 		if v, ok := breakdown[sig]; ok {
-			fmt.Fprintf(b, "<signal name=%q score=\"%.3f\"/>", sig, v)
+			fs.Signals = append(fs.Signals, signalXML{Name: sig, Score: fmt.Sprintf("%.3f", v)})
 		}
 	}
-	b.WriteString("</fused_score>")
+	return fs
 }
 
-// writeHypothesisRecentChange writes the <recent_change> CDATA block.
-// γ.D.2: rendered when rc is non-nil and rc.Diff is non-empty.
-func writeHypothesisRecentChange(b *strings.Builder, rc *investigate.RecentChange) {
+func buildRecentChangeXML(rc *investigate.RecentChange) *recentChangeXML {
 	if rc == nil || rc.Diff == "" {
-		return
+		return nil
 	}
-	fmt.Fprintf(b, "<recent_change file=%q since=%q>", rc.File, rc.Since)
-	// CDATA carries the raw diff payload; no formatter whitespace inside the markers.
-	b.WriteString("<![CDATA[")
-	b.WriteString(escapeCDATA(rc.Diff))
-	b.WriteString("]]>")
-	b.WriteString("</recent_change>")
+	return &recentChangeXML{File: rc.File, Since: rc.Since, CDATA: wrapCDATA(rc.Diff)}
 }
 
-// writeHypothesisBodyExcerpt writes the <body_excerpt> CDATA block.
-// Sprint B1: rendered when bodySource is non-empty.
-// The lines attribute is "start-end" when endLine > line, else just "start".
-func writeHypothesisBodyExcerpt(b *strings.Builder, bodySource, file string, line, endLine int) {
+func buildBodyExcerptXML(bodySource, file string, line, endLine int) *bodyExcerptXML {
 	if bodySource == "" {
-		return
+		return nil
 	}
 	var lines string
 	if endLine == 0 || endLine == line {
@@ -170,97 +299,90 @@ func writeHypothesisBodyExcerpt(b *strings.Builder, bodySource, file string, lin
 	} else {
 		lines = strconv.Itoa(line) + "-" + strconv.Itoa(endLine)
 	}
-	fmt.Fprintf(b, "<body_excerpt file=%q lines=%q>", file, lines)
-	// CDATA carries the raw body payload; no formatter whitespace inside the markers.
-	b.WriteString("<![CDATA[")
-	b.WriteString(escapeCDATA(bodySource))
-	b.WriteString("]]>")
-	b.WriteString("</body_excerpt>")
+	return &bodyExcerptXML{File: file, Lines: lines, CDATA: wrapCDATA(bodySource)}
 }
 
-// writeHypothesisNextChecks writes <evidence> and <next_check> elements.
-// Args keys are sorted for stable output.
-func writeHypothesisNextChecks(b *strings.Builder, evidenceLinks []string, nextChecks []investigate.NextCheck) {
-	for _, link := range evidenceLinks {
-		b.WriteString("<evidence>")
-		b.WriteString(escapeXML(link))
-		b.WriteString("</evidence>")
+// buildNextChecksXML sorts each check's Args keys for stable output.
+func buildNextChecksXML(nextChecks []investigate.NextCheck) []nextCheckXML {
+	if len(nextChecks) == 0 {
+		return nil
 	}
+	out := make([]nextCheckXML, 0, len(nextChecks))
 	for _, nc := range nextChecks {
-		if len(nc.Args) == 0 {
-			fmt.Fprintf(b, "<next_check tool=%q/>", nc.Tool)
-		} else {
-			fmt.Fprintf(b, "<next_check tool=%q>", nc.Tool)
+		nx := nextCheckXML{Tool: nc.Tool}
+		if len(nc.Args) > 0 {
 			keys := make([]string, 0, len(nc.Args))
 			for k := range nc.Args {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				fmt.Fprintf(b, "<arg name=%q>", k)
-				b.WriteString(escapeXML(nc.Args[k]))
-				b.WriteString("</arg>")
+				nx.Args = append(nx.Args, argXML{Name: k, Value: nc.Args[k]})
 			}
-			b.WriteString("</next_check>")
 		}
+		out = append(out, nx)
 	}
+	return out
 }
 
-// writeMetricSpikes writes the <metric_spikes> block when spikes is non-empty.
-func writeMetricSpikes(b *strings.Builder, spikes []investigate.MetricSpike) {
+func buildMetricSpikesXML(spikes []investigate.MetricSpike) *metricSpikesXML {
 	if len(spikes) == 0 {
-		return
+		return nil
 	}
-	b.WriteString("<metric_spikes>")
+	out := &metricSpikesXML{Spikes: make([]spikeXML, 0, len(spikes))}
 	for _, s := range spikes {
-		fmt.Fprintf(b,
-			"<spike kind=%q metric=%q labels=%q ratio=\"%.2f\" score=\"%.3f\"/>",
-			s.Kind, s.MetricName, s.Labels, s.Ratio, s.Score)
+		out.Spikes = append(out.Spikes, spikeXML{
+			Kind:   s.Kind,
+			Metric: s.MetricName,
+			Labels: s.Labels,
+			Ratio:  fmt.Sprintf("%.2f", s.Ratio),
+			Score:  fmt.Sprintf("%.3f", s.Score),
+		})
 	}
-	b.WriteString("</metric_spikes>")
+	return out
 }
 
-// writeAlertViolations writes the <alert_violations> block when avs is non-empty.
-func writeAlertViolations(b *strings.Builder, avs []investigate.AlertViolation) {
+func buildAlertViolationsXML(avs []investigate.AlertViolation) *alertViolationsXML {
 	if len(avs) == 0 {
-		return
+		return nil
 	}
-	b.WriteString("<alert_violations>")
+	out := &alertViolationsXML{Items: make([]alertViolationXML, 0, len(avs))}
 	for _, av := range avs {
-		fmt.Fprintf(b,
-			"<alert_violation alertname=%q severity=%q service=%q active_at=%q>",
-			av.AlertName, av.Severity, av.Service, av.ActiveAt)
-		b.WriteString(escapeXML(av.Summary))
-		b.WriteString("</alert_violation>")
+		out.Items = append(out.Items, alertViolationXML{
+			AlertName: av.AlertName,
+			Severity:  av.Severity,
+			Service:   av.Service,
+			ActiveAt:  av.ActiveAt,
+			Summary:   av.Summary,
+		})
 	}
-	b.WriteString("</alert_violations>")
+	return out
 }
 
-// writeLogExcerpts writes the <log_excerpts> block when logs is non-empty.
-func writeLogExcerpts(b *strings.Builder, logs []investigate.LogExcerpt) {
+func buildLogExcerptsXML(logs []investigate.LogExcerpt) *logExcerptsXML {
 	if len(logs) == 0 {
-		return
+		return nil
 	}
-	b.WriteString("<log_excerpts>")
+	out := &logExcerptsXML{Lines: make([]logLineXML, 0, len(logs))}
 	for _, l := range logs {
-		fmt.Fprintf(b, "<line ts=%q level=%q>", l.Ts, escapeXML(l.Level))
-		b.WriteString(escapeXML(l.Msg))
-		b.WriteString("</line>")
+		out.Lines = append(out.Lines, logLineXML{Ts: l.Ts, Level: l.Level, Msg: l.Msg})
 	}
-	b.WriteString("</log_excerpts>")
+	return out
 }
 
-// writeHistoricalIncidents writes the <historical_incidents> block when incs is non-empty.
-func writeHistoricalIncidents(b *strings.Builder, incs []investigate.HistoricalIncident) {
+func buildHistoricalIncidentsXML(incs []investigate.HistoricalIncident) *historicalIncidentsXML {
 	if len(incs) == 0 {
-		return
+		return nil
 	}
-	b.WriteString("<historical_incidents>")
+	out := &historicalIncidentsXML{Items: make([]incidentXML, 0, len(incs))}
 	for _, inc := range incs {
-		fmt.Fprintf(b, "<incident repo=%q symbol=%q risk_level=%q flag=%q>",
-			inc.Repo, inc.Symbol, inc.RiskLevel, inc.Flag)
-		b.WriteString(escapeXML(inc.Note))
-		b.WriteString("</incident>")
+		out.Items = append(out.Items, incidentXML{
+			Repo:      inc.Repo,
+			Symbol:    inc.Symbol,
+			RiskLevel: inc.RiskLevel,
+			Flag:      inc.Flag,
+			Note:      inc.Note,
+		})
 	}
-	b.WriteString("</historical_incidents>")
+	return out
 }
