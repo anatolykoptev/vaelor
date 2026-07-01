@@ -58,15 +58,11 @@ func (p *parserBase) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 		return fallbackParse(path, src, p.lang), nil
 	}
 
-	ps := sitter.NewParser()
-	defer ps.Close()
-	ps.SetLanguage(p.caps.SitterLanguage)
-
-	tree, err := ps.ParseCtx(context.Background(), nil, src)
+	root, closeTree, err := parseTree(p.caps.SitterLanguage, src)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	defer tree.Close()
+	defer closeTree()
 
 	result := &ParseResult{
 		File:     path,
@@ -74,7 +70,7 @@ func (p *parserBase) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 		Symbols:  make([]*Symbol, 0),
 		Imports:  make([]string, 0),
 	}
-	runQueryWithCaps(result, p.caps, tree.RootNode(), src, path, opts)
+	runQueryWithCaps(result, p.caps, root, src, path, opts)
 	return result, nil
 }
 
@@ -86,6 +82,36 @@ func mustCompileQuery(src []byte, lang *sitter.Language, name string) *sitter.Qu
 		panic(name + " query compile error: " + err.Error())
 	}
 	return q
+}
+
+// parseTree parses code with the given tree-sitter grammar and returns the
+// root node plus a cleanup func that closes the tree and parser. Factored out
+// of six call sites (parserBase.Parse, ExtractCalls, scriptRegionCalls,
+// markupExprReparse, ExtractRelationships, collectRuneSymbols) that each
+// repeated the same NewParser -> SetLanguage -> ParseCtx -> defer-close
+// sequence — pure plumbing consolidation, zero behavior change.
+//
+// closeFn replicates the exact defer order every original call site used
+// (defer parser.Close() registered first, defer tree.Close() registered
+// second, so tree closes before parser under Go's LIFO defer semantics): call
+// it via defer exactly once, and only when err is nil.
+//
+// lang must be non-nil — every call site already guards SitterLanguage != nil
+// before calling parseTree; this helper does not re-check.
+func parseTree(lang *sitter.Language, code []byte) (root *sitter.Node, closeFn func(), err error) {
+	ps := sitter.NewParser()
+	ps.SetLanguage(lang)
+
+	tree, err := ps.ParseCtx(context.Background(), nil, code)
+	if err != nil {
+		ps.Close()
+		return nil, nil, err
+	}
+
+	return tree.RootNode(), func() {
+		tree.Close()
+		ps.Close()
+	}, nil
 }
 
 // runQueryWithCaps executes the TagsQuery from caps against the tree root
