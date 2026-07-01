@@ -119,7 +119,7 @@ Two graph representations cooperate through `internal/graphx/` interfaces (`Anal
 | HANDLES / FETCHES | `CrossRefs.HandlesRoute`, `CrossRefs.FetchedBy` | `call_trace` (cross-language fetch nodes at +1 depth) |
 | TESTED_BY | `CrossRefs.TestedBy` | `impact_analysis` (`tests_covering`) |
 
-**Cold-path guarantee**: every consumer skips enrichment when `Signals.Found == false` or `CrossRefs` returns empty, preserving byte-identical output when the graph has no snapshot. See `docs/plans/2026-04-18-graph-ecosystem.md` for the full architecture.
+**Cold-path guarantee**: every consumer skips enrichment when `Signals.Found == false` or `CrossRefs` returns empty, preserving byte-identical output when the graph has no snapshot.
 
 ## Webhook
 

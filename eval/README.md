@@ -166,7 +166,7 @@ TDI requires live traffic instrumentation and is out of scope for P6.
 ## Recommended sprint workflow
 
 1. **Pre-merge baseline**: snapshot the harness output against the current
-   `main`. Commit the JSON next to the plan file (`docs/superpowers/plans/...`)
+   `main`. Commit the JSON alongside your planning notes
    so reviewers can audit the baseline.
 2. **Per-stream candidate**: after each stream lands on its feature branch,
    point the harness at a build of that branch and capture
