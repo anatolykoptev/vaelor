@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
+
+	"github.com/anatolykoptev/go-code/internal/pgutil"
 )
 
 const (
@@ -55,9 +57,21 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
+// EnsureSchema creates the pgvector extension and design_embeddings table if
+// needed. After creating the table it attempts to transfer ownership to
+// CURRENT_USER (best-effort: warns instead of failing if the role is not the
+// table owner — e.g. after a superuser pg_restore left design_embeddings
+// owned by the restoring role).
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	s.once.Do(func() {
 		_, s.initErr = s.pool.Exec(ctx, schemaSQL)
+		if s.initErr != nil {
+			return
+		}
+		// Best-effort ownership transfer so the connected role can
+		// INSERT/TRUNCATE design_embeddings without needing explicit grants
+		// from an admin.
+		pgutil.TransferOwnership(ctx, s.pool, "designmd", "public.design_embeddings")
 	})
 	return s.initErr
 }
