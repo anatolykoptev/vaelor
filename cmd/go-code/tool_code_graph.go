@@ -198,7 +198,7 @@ func formatGraphXML(result *codegraph.QueryResult) (string, error) {
 	}
 	resp.Graph.Results = xmlGraphRows{Rows: rows}
 
-	data, err := xml.MarshalIndent(resp, "", "  ")
+	data, err := xml.Marshal(resp)
 	if err != nil {
 		return "", err
 	}

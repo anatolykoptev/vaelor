@@ -192,7 +192,7 @@ func TestSuggestReviewers_PerFileErrorSetsErrorField(t *testing.T) {
 		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
 	}
 	body := extractText(t, res)
-	if strings.Contains(body, `"name": "<error>"`) {
+	if strings.Contains(body, `"name":"<error>"`) {
 		t.Fatalf("must not emit <error> sentinel name, got body:\n%s", body)
 	}
 }
@@ -212,7 +212,7 @@ func TestSuggestReviewers_CoChangePartnerSignal(t *testing.T) {
 	}
 	body := extractText(t, res)
 	// Bob touched a.go in joint commits — must appear in suggestions.
-	if !strings.Contains(body, `"name": "Bob"`) {
+	if !strings.Contains(body, `"name":"Bob"`) {
 		t.Fatalf("Bob should appear via co-change signal, body:\n%s", body)
 	}
 	// The co-change signal must be present for at least one candidate.

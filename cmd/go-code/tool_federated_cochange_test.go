@@ -181,10 +181,10 @@ func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 	body := extractText(t, res)
 	// The wire contract must always be an array, never null —
 	// MCP consumers (JS/Python) do `for (const p of result.pairs)` which throws on null.
-	if strings.Contains(body, `"pairs": null`) {
+	if strings.Contains(body, `"pairs":null`) {
 		t.Fatalf("empty result must serialize pairs as [], got null; body=%s", body)
 	}
-	if !strings.Contains(body, `"pairs": []`) {
+	if !strings.Contains(body, `"pairs":[]`) {
 		t.Fatalf("empty result must serialize pairs as [], body=%s", body)
 	}
 }
@@ -255,7 +255,7 @@ func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
 		t.Fatalf("expected retry_after_seconds>0, got %d; body=%s", out.RetryAfterSeconds, body)
 	}
 	// pairs must always be an array, never null.
-	if strings.Contains(body, `"pairs": null`) {
+	if strings.Contains(body, `"pairs":null`) {
 		t.Fatalf("pairs must be [] not null on partial; body=%s", body)
 	}
 }
@@ -300,7 +300,7 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 		t.Fatalf("unexpected error on warm call: err=%v isErr=%v body=%s", err, res.IsError, extractText(t, res))
 	}
 	body := extractText(t, res)
-	if strings.Contains(body, `"pairs": null`) {
+	if strings.Contains(body, `"pairs":null`) {
 		t.Fatalf("pairs must never be null; body=%s", body)
 	}
 	var out FederatedCoChangeResult
@@ -441,7 +441,7 @@ func TestFederatedCoChange_BackCompatPairsAlwaysArray(t *testing.T) {
 				t.Fatalf("handler must not return MCP error; body=%s", extractText(t, res))
 			}
 			body := extractText(t, res)
-			if strings.Contains(body, `"pairs": null`) {
+			if strings.Contains(body, `"pairs":null`) {
 				t.Fatalf("pairs must never be null; body=%s", body)
 			}
 			var out FederatedCoChangeResult

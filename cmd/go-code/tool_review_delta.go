@@ -152,7 +152,7 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 
 	resp := buildDeltaXML(result)
 	resp.Quality = collectQualitySignals(ctx, root, input.Language, deps.OxCodes)
-	data, err := xml.MarshalIndent(resp, "", "  ")
+	data, err := xml.Marshal(resp)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
@@ -162,12 +162,12 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 	// then truncate impacted symbols to keep risk guidance visible.
 	if len(out) > maxReviewOutputChars {
 		resp.Snippets = nil
-		data, _ = xml.MarshalIndent(resp, "", "  ")
+		data, _ = xml.Marshal(resp)
 		out = string(data)
 	}
 	if len(out) > maxReviewOutputChars && len(resp.ImpactedSymbols) > maxReviewImpacted {
 		resp.ImpactedSymbols = resp.ImpactedSymbols[:maxReviewImpacted]
-		data, _ = xml.MarshalIndent(resp, "", "  ")
+		data, _ = xml.Marshal(resp)
 		out = string(data)
 	}
 

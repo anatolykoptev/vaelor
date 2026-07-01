@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -146,11 +145,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 		RelatedFiles:        relatedFiles,
 		CallSiteCount:       callSiteCount,
 	}
-	data, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil
-	}
-	return textResult(string(data)), nil
+	return jsonMarshalResult(response), nil
 }
 
 // prepareChangeResponse wraps PrepareChangeResult with additional git coupling data.

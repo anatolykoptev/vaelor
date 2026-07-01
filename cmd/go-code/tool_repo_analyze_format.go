@@ -67,7 +67,7 @@ func formatAnalysisJSON(r *analyze.RepoAnalysisResult) string {
 			FilesAnalyzed: r.FileCount,
 		},
 	}
-	b, err := json.MarshalIndent(env, "", "  ")
+	b, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Sprintf(`{"error": %q}`, err.Error())
 	}
