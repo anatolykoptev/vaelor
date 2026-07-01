@@ -204,10 +204,12 @@ func runeFromDeclaratorAll(node *sitter.Node, src []byte, path string, out *[]*S
 // pattern node (object_pattern / array_pattern). Node types are from the
 // tree-sitter TypeScript grammar:
 //
-//	{ count }            -> shorthand_property_identifier_pattern      -> ["count"]
-//	{ name = "anon" }    -> object_assignment_pattern{left: shorthand} -> ["name"]
-//	{ key: alias }       -> pair_pattern{value: identifier}            -> ["alias"]
-//	{ ...rest }          -> rest_pattern{identifier}                   -> ["rest"]
+//	{ count }            -> shorthand_property_identifier_pattern       -> ["count"]
+//	{ name = "anon" }    -> object_assignment_pattern{left: shorthand}  -> ["name"]
+//	{ key: alias }       -> pair_pattern{value: identifier}             -> ["alias"]
+//	{ key: n = 1 }       -> pair_pattern{value: assignment_pattern}     -> ["n"]
+//	{ ...rest }          -> rest_pattern{identifier}                    -> ["rest"]
+//	[ a = 1 ]            -> array_pattern{assignment_pattern{left}}      -> ["a"]
 //
 // Nested patterns (a pair_pattern whose value is itself a pattern) are traversed.
 func destructuredBindingNames(pattern *sitter.Node, src []byte) []string {
@@ -227,6 +229,16 @@ func destructuredBindingNames(pattern *sitter.Node, src []byte) []string {
 			// { name = default } — the bound name is the left side.
 			if left := n.ChildByFieldName("left"); left != nil {
 				visit(left)
+			}
+		case "assignment_pattern":
+			// { key: name = default } and [ elem = default ] both wrap the target in
+			// an assignment_pattern; the bound name is its left side. Without this
+			// case the pair_pattern / array_pattern recursion falls through and the
+			// binding is silently dropped.
+			if left := n.ChildByFieldName("left"); left != nil {
+				visit(left)
+			} else if n.NamedChildCount() > 0 {
+				visit(n.NamedChild(0))
 			}
 		case "pair_pattern":
 			// { key: value } — the bound name is the value (may be a nested pattern).

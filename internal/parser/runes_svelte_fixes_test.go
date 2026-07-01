@@ -11,33 +11,68 @@ import (
 // symbol for EACH destructured binding name (RuneKind="props"), in addition to
 // the "$props" token symbol. This is the Phase-2 destructured-$props() capability:
 // before it, only the "$props" token was emitted and the individual prop names
-// (name, count) were not discoverable.
+// were not discoverable.
+//
+// The table exercises every destructuring form the doc comment on
+// destructuredBindingNames claims to support, so the behaviour matrix is TESTED,
+// not just described. The rename+default form (pair_pattern > assignment_pattern)
+// is the review HIGH: it dropped its binding pre-fix.
 func TestRuneDestructuredProps(t *testing.T) {
-	src := []byte(`<script>
-  let { name = "anon", count } = $props();
-</script>`)
-	result, err := parser.ParseFile("destruct.svelte", src, parser.ParseOpts{})
-	if err != nil {
-		t.Fatalf("ParseFile: %v", err)
+	cases := []struct {
+		name string
+		src  string
+		want []string // props-rune symbol names that MUST be present
+	}{
+		{
+			name: "multi-name shorthand + default",
+			src:  "<script>\n  let { name = \"anon\", count } = $props();\n</script>",
+			want: []string{"$props", "name", "count"},
+		},
+		{
+			// pair_pattern{ value: assignment_pattern{ left: identifier } } — the HIGH.
+			// The local binding is the alias `n`; assert it is emitted.
+			name: "renamed binding with default",
+			src:  "<script>\n  let { name: n = \"anon\" } = $props();\n</script>",
+			want: []string{"$props", "n"},
+		},
+		{
+			// pair_pattern{ value: identifier } — already handled; locks in coverage.
+			name: "renamed binding",
+			src:  "<script>\n  let { key: alias } = $props();\n</script>",
+			want: []string{"$props", "alias"},
+		},
+		{
+			// rest_pattern{ identifier } — already handled; locks in coverage.
+			name: "rest element",
+			src:  "<script>\n  let { a, ...rest } = $props();\n</script>",
+			want: []string{"$props", "a", "rest"},
+		},
 	}
-	propSyms := runeSymbolsWithKind(result.Symbols, "props")
-	byName := make(map[string]*parser.Symbol, len(propSyms))
-	for _, s := range propSyms {
-		byName[s.Name] = s
-	}
-	// The token symbol PLUS one symbol per destructured binding name.
-	for _, want := range []string{"$props", "name", "count"} {
-		s, ok := byName[want]
-		if !ok {
-			t.Errorf("missing props rune %q; got %v", want, runeSymbolNames(result.Symbols))
-			continue
-		}
-		if s.Kind != parser.KindRune {
-			t.Errorf("%q: Kind = %q, want rune", want, s.Kind)
-		}
-		if s.RuneKind != "props" {
-			t.Errorf("%q: RuneKind = %q, want props", want, s.RuneKind)
-		}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := parser.ParseFile("destruct.svelte", []byte(c.src), parser.ParseOpts{})
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+			propSyms := runeSymbolsWithKind(result.Symbols, "props")
+			byName := make(map[string]*parser.Symbol, len(propSyms))
+			for _, s := range propSyms {
+				byName[s.Name] = s
+			}
+			for _, want := range c.want {
+				s, ok := byName[want]
+				if !ok {
+					t.Errorf("missing props rune %q; got %v", want, runeSymbolNames(result.Symbols))
+					continue
+				}
+				if s.Kind != parser.KindRune {
+					t.Errorf("%q: Kind = %q, want rune", want, s.Kind)
+				}
+				if s.RuneKind != "props" {
+					t.Errorf("%q: RuneKind = %q, want props", want, s.RuneKind)
+				}
+			}
+		})
 	}
 }
 
