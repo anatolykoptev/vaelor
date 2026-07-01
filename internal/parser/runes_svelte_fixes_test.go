@@ -7,8 +7,11 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
-// TestRuneDestructuredProps verifies that destructured $props() emits exactly one
-// KindRune symbol with RuneKind="props".
+// TestRuneDestructuredProps verifies that destructured $props() emits a KindRune
+// symbol for EACH destructured binding name (RuneKind="props"), in addition to
+// the "$props" token symbol. This is the Phase-2 destructured-$props() capability:
+// before it, only the "$props" token was emitted and the individual prop names
+// (name, count) were not discoverable.
 func TestRuneDestructuredProps(t *testing.T) {
 	src := []byte(`<script>
   let { name = "anon", count } = $props();
@@ -18,16 +21,23 @@ func TestRuneDestructuredProps(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	propSyms := runeSymbolsWithKind(result.Symbols, "props")
-	if len(propSyms) != 1 {
-		t.Fatalf("expected exactly 1 props rune for destructured $props(), got %d: %v",
-			len(propSyms), runeSymbolNames(result.Symbols))
+	byName := make(map[string]*parser.Symbol, len(propSyms))
+	for _, s := range propSyms {
+		byName[s.Name] = s
 	}
-	sym := propSyms[0]
-	if sym.Kind != parser.KindRune {
-		t.Errorf("Kind = %q, want rune", sym.Kind)
-	}
-	if sym.RuneKind != "props" {
-		t.Errorf("RuneKind = %q, want props", sym.RuneKind)
+	// The token symbol PLUS one symbol per destructured binding name.
+	for _, want := range []string{"$props", "name", "count"} {
+		s, ok := byName[want]
+		if !ok {
+			t.Errorf("missing props rune %q; got %v", want, runeSymbolNames(result.Symbols))
+			continue
+		}
+		if s.Kind != parser.KindRune {
+			t.Errorf("%q: Kind = %q, want rune", want, s.Kind)
+		}
+		if s.RuneKind != "props" {
+			t.Errorf("%q: RuneKind = %q, want props", want, s.RuneKind)
+		}
 	}
 }
 
