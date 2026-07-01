@@ -122,6 +122,10 @@ jobs:
             -c 'CREATE EXTENSION IF NOT EXISTS age;' \
             -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
 
+      # make preflight runs gofmt + vet + build + test + govulncheck (plan
+      # ADR 7 — govulncheck was the missing piece: later parity-plan phases
+      # vendor third-party tree-sitter grammars and claim they are
+      # "OSV-scanned", but nothing actually ran that scan before this).
       - name: make preflight
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ steps.pg.outputs.port }}/gocode_test?sslmode=disable
