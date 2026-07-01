@@ -8,7 +8,22 @@ import (
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
-// Capability-matrix equivalence harness (frontend-parse-parity Phase 3).
+// Capability-matrix equivalence harness (frontend-parse-parity Phase 3,
+// promoted to a named BLOCKING regression gate in Phase 5 — see
+// docs/adr/0001-frontend-parse-parity.md).
+//
+// THIS IS THE parity regression gate: every assertion in this file is a hard
+// t.Errorf/t.Fatalf, never a t.Logf — a per-row Svelte/Astro parity drop, an
+// expr-delimiting-accuracy regression (the sibling floor test,
+// internal/parser/preproc/svelte_exprs_test.go:TestSvelteExprDelimitingAccuracy),
+// or a resurfaced duplicate-edge FAILS `go test ./internal/parser/...`, which
+// `make preflight` runs on every PR (.github/workflows/preflight.yml) and
+// `preflight` is a required merge check on this public repo (CLAUDE.md ## CI).
+// There was no separate "wire it up" step to perform in Phase 5 — the harness
+// has asserted hard since Phase 3 landed (commit c4302db, PR #271); Phase 5's
+// job is to name this file as the parity contract and hold the line: a drop
+// here blocks merge, and no assertion in this file may be weakened to make a
+// future regression pass.
 //
 // A structured, reusable table of {capability-row × framework} with parallel
 // Astro/Svelte fixtures and per-cell assertions, proving Svelte's template-expr
@@ -20,8 +35,7 @@ import (
 //
 // The harness counts multiplicity (map[string]int), not mere presence, so it can
 // catch the duplicate-edge class (a template call emitted by two producers) — see
-// TestNoDuplicateMarkupEdges. Phase 5 promotes this into a blocking regression
-// gate with minimal change: the table already carries the per-row expected set.
+// TestNoDuplicateMarkupEdges.
 
 // callSitesFor parses src via the language handler (extension-routed) and returns
 // the raw call sites.
