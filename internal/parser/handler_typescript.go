@@ -52,6 +52,9 @@ func (h *typescriptHandler) Parse(path string, src []byte, opts ParseOpts) (*Par
 	if err != nil {
 		return nil, err
 	}
+	// Correct .js/.mjs/.cjs symbols (MapCapture hardcodes "typescript") to agree
+	// with DetectLanguageFromPath; override-first for backfill hash reproduction.
+	applyDetectedSymbolLanguage(result, path, opts)
 	if strings.HasSuffix(path, ".svelte.ts") || strings.HasSuffix(path, ".svelte.js") {
 		for _, sym := range collectRuneSymbols(src, path) {
 			sym.Language = result.Language

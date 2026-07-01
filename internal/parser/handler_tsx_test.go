@@ -67,18 +67,32 @@ class Widget {
 	}
 }
 
-// TestTSXHandler_SymbolLanguageAgreesWithDetectLanguageFromPath is the
-// plan's Phase 0b fitness function: for EVERY extension the tsxHandler
-// serves, every emitted Symbol.Language must equal DetectLanguageFromPath
-// of that extension — the parser must never disagree with its own
-// path-based detector.
-func TestTSXHandler_SymbolLanguageAgreesWithDetectLanguageFromPath(t *testing.T) {
+// TestJSTSFamily_SymbolLanguageAgreesWithDetector is the parity fitness
+// function for the JS/TS-family handlers. tsxHandler (.tsx/.jsx) and
+// typescriptHandler (.ts/.js/.mjs/.cjs/.cts/.mts) BOTH build symbols through a
+// MapCapture that hardcodes Language:"typescript"; both correct it in Parse via
+// applyDetectedSymbolLanguage. For EVERY extension either handler serves, every
+// emitted Symbol.Language must equal DetectLanguageFromPath of that extension —
+// the parser must never disagree with its own path-based detector. Ranging BOTH
+// handlers (not just tsxLang) keeps the invariant honest: an earlier tsx-only
+// version reported green while .js/.mjs/.cjs symbols were still mislabeled.
+func TestJSTSFamily_SymbolLanguageAgreesWithDetector(t *testing.T) {
+	// JSX-free source so it parses under both the TSX and the plain TS grammar.
 	src := []byte(`
-function Greeter() {
-	return <div>hi</div>;
+function greet() {
+	return 1;
+}
+
+class Widget {
+	render() {
+		return 2;
+	}
 }
 `)
-	for _, ext := range tsxLang.Extensions() {
+	var exts []string
+	exts = append(exts, tsxLang.Extensions()...)
+	exts = append(exts, tsLang.Extensions()...)
+	for _, ext := range exts {
 		t.Run(ext, func(t *testing.T) {
 			path := "component" + ext
 			want := DetectLanguageFromPath(path)
@@ -95,6 +109,33 @@ function Greeter() {
 			for _, sym := range result.Symbols {
 				if sym.Language != want {
 					t.Errorf("ParseFile(%q): symbol %q Language = %q, want %q (DetectLanguageFromPath)", path, sym.Name, sym.Language, want)
+				}
+			}
+		})
+	}
+}
+
+// TestJSTSFamily_OptsLanguageOverrideHonored locks in override-first precedence
+// (matching ParseFile, parser.go). The sparse-embedding backfill re-parses
+// stored rows with ParseOpts{Language: storedRow.Language} so buildEmbedText
+// reproduces the stored hash; the symbol-language correction MUST honor a
+// non-empty opts.Language. Otherwise every pre-existing .jsx/.js row (indexed as
+// "typescript" before parity) would re-parse as "javascript", its hash would
+// change, and the backfill would leave it a NULL sparse vector that never heals.
+func TestJSTSFamily_OptsLanguageOverrideHonored(t *testing.T) {
+	src := []byte("function greet() { return 1; }")
+	for _, path := range []string{"component.jsx", "mod.js", "mod.mjs", "mod.cjs"} {
+		t.Run(path, func(t *testing.T) {
+			result, err := ParseFile(path, src, ParseOpts{Language: "typescript"})
+			if err != nil {
+				t.Fatalf("ParseFile(%q): %v", path, err)
+			}
+			if len(result.Symbols) == 0 {
+				t.Fatalf("ParseFile(%q): no symbols", path)
+			}
+			for _, sym := range result.Symbols {
+				if sym.Language != "typescript" {
+					t.Errorf("ParseFile(%q, Language=typescript): symbol %q Language = %q, want %q (override-first must honor opts.Language for backfill hash reproduction)", path, sym.Name, sym.Language, "typescript")
 				}
 			}
 		})
