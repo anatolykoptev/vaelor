@@ -237,8 +237,6 @@ func destructuredBindingNames(pattern *sitter.Node, src []byte) []string {
 			// binding is silently dropped.
 			if left := n.ChildByFieldName("left"); left != nil {
 				visit(left)
-			} else if n.NamedChildCount() > 0 {
-				visit(n.NamedChild(0))
 			}
 		case "pair_pattern":
 			// { key: value } — the bound name is the value (may be a nested pattern).
