@@ -96,8 +96,14 @@ func mustCompileQuery(src []byte, lang *sitter.Language, name string) *sitter.Qu
 // second, so tree closes before parser under Go's LIFO defer semantics): call
 // it via defer exactly once, and only when err is nil.
 //
-// lang must be non-nil — every call site already guards SitterLanguage != nil
-// before calling parseTree; this helper does not re-check.
+// lang must be non-nil. Four of the six call sites (parserBase.Parse,
+// scriptRegionCalls, markupExprReparse, collectRuneSymbols) guard directly on
+// caps.SitterLanguage != nil before calling parseTree. The other two
+// (ExtractCalls, ExtractRelationships) guard transitively via
+// caps.CallsQuery/caps.RelationshipsQuery != nil — those query fields are
+// compiled from the same *sitter.Language at handler init() (mustCompileQuery),
+// so a non-nil query implies a non-nil SitterLanguage for every registered
+// handler today. This helper does not re-check lang itself.
 func parseTree(lang *sitter.Language, code []byte) (root *sitter.Node, closeFn func(), err error) {
 	ps := sitter.NewParser()
 	ps.SetLanguage(lang)

@@ -81,13 +81,16 @@ every `.tsx` too — a worse fleet-wide regression) but to derive
 `applyDetectedSymbolLanguage` (`internal/parser/parser.go`), opted into by
 `tsxHandler.Parse` and `typescriptHandler.Parse` (the JS/TS family shares the
 identical defect for `.js`/`.mjs`/`.cjs`, caught by council review on the
-same PR). `TestJSTSFamily_SymbolLanguageAgreesWithDetector`
-(`internal/parser/handler_tsx_test.go`) pins the JS/TS-family invariant;
-Phase 5's `TestRegistryWideSymbolLanguageAgreesWithDetector`
+same PR). The Phase 0b `TestJSTSFamily_SymbolLanguageAgreesWithDetector`
+originally pinned the JS/TS-family invariant; Phase 5's
+`TestRegistryWideSymbolLanguageAgreesWithDetector`
 (`internal/parser/handler_registry_fitness_test.go`) generalizes it across
 EVERY registered handler (ranging the live `registry` map, `handler.go:73`,
 never a hand-maintained list) so a future multi-language handler cannot
-reintroduce the class silently.
+reintroduce the class silently. `TestJSTSFamily_SymbolLanguageAgreesWithDetector`
+was later removed (parity follow-ups cleanup, `docs/FOLLOWUPS.md`) as fully
+subsumed by the registry-wide test — `TestRegistryWideSymbolLanguageAgreesWithDetector`
+is now the sole guard for this invariant.
 
 ### 5. Native tree-sitter-svelte grammar: DEFERRED / operator-gated
 
