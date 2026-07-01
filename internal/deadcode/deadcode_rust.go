@@ -3,6 +3,7 @@ package deadcode
 import (
 	"strings"
 
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -50,7 +51,31 @@ func isRustFrameworkHandler(sym *parser.Symbol) bool {
 }
 
 // isSymbolExported returns true if the symbol is public/exported.
-// Uses IsPublic field for languages that set it (Rust), falls back to Go uppercase convention.
+//
+// IsPublic always wins when the parser set it. Below that:
+//
+//   - Rust trusts IsPublic exclusively — never falls back to a name
+//     heuristic. internal/parser/handler_rust.go's hasVisibilityModifier
+//     reliably detects `pub` for every symbol kind it emits (function,
+//     method, type, trait, const, static — see
+//     TestRustVisibilityAndAttributes in internal/parser), so
+//     IsPublic=false for a Rust symbol means genuinely private, not
+//     "unknown." Dead-code detection needs the OPPOSITE bias from a
+//     doc-coverage heuristic (langutil.IsExportedForDoc's "any
+//     non-underscore name is exported" default): guessing "exported" here
+//     would misclassify ordinary private snake_case helpers (fn helper())
+//     as exported and SILENCE a real dead-code finding — see
+//     TestAnalyze_RustPubVisibility and
+//     TestAnalyze_RustTraitImplMethodConfidence, which pin this behavior.
+//   - Everything else (including unset/"" language, used by
+//     hand-constructed test symbols to mean Go) delegates to
+//     langutil.IsExportedForDoc. This matters most for TypeScript,
+//     JavaScript, Kotlin, Swift, PHP, C#, and Ruby: their handlers never
+//     populate IsPublic, so without this delegation nearly every exported
+//     symbol (camelCase or snake_case) fell through to the Go-only
+//     uppercase-first convention and was misclassified unexported —
+//     high-confidence false-positive dead code project-wide for those
+//     languages.
 func isSymbolExported(sym *parser.Symbol) bool {
 	if sym.IsPublic {
 		return true
@@ -58,5 +83,9 @@ func isSymbolExported(sym *parser.Symbol) bool {
 	if sym.Language == "rust" {
 		return false
 	}
-	return isExported(sym.Name)
+	language := sym.Language
+	if language == "" {
+		language = "go"
+	}
+	return langutil.IsExportedForDoc(sym.Name, language, sym.IsPublic)
 }
