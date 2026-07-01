@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 
 	"github.com/anatolykoptev/go-code/internal/webanalyze"
@@ -77,11 +76,7 @@ func handleSiteCrawl(
 // formatCrawlResponse renders the crawl result as XML via typed structs +
 // encoding/xml.Marshal (escaping correct by construction).
 func formatCrawlResponse(resp *webanalyze.CrawlResponse) string {
-	b, err := xml.Marshal(buildCrawlResponseXML(resp))
-	if err != nil {
-		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
-	}
-	return string(b)
+	return xmlMarshalFragment(buildCrawlResponseXML(resp))
 }
 
 func buildCrawlResponseXML(resp *webanalyze.CrawlResponse) siteCrawlRespXML {
