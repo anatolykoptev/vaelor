@@ -212,7 +212,15 @@ func find2Cycles(imports map[string]map[string]bool) []CircularDep {
 				continue
 			}
 			seen[key] = true
-			result = append(result, CircularDep{PackageA: a, PackageB: b})
+			// Emit the pair in canonical (lexicographically smaller first) order,
+			// matching the dedup key above. Map iteration over `imports` is
+			// non-deterministic, so without this the same cycle surfaced as {a,b}
+			// or {b,a} at random (flaked TestCyclesFromRows_RealCycleDetected ~20%).
+			pa, pb := a, b
+			if pa > pb {
+				pa, pb = pb, pa
+			}
+			result = append(result, CircularDep{PackageA: pa, PackageB: pb})
 		}
 	}
 	return result
