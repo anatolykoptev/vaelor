@@ -25,3 +25,24 @@ func ExtractSvelte(src []byte) *VirtualSource {
 	appendScriptBlocks(b, src, 0, true)
 	return b.Build()
 }
+
+// ExtractSvelteWithRefs returns both the virtual TypeScript source (from the
+// component's <script> blocks) and the capitalised JSX-style component tag
+// references found in the template markup — the Svelte analogue of
+// ExtractAstroWithRefs.
+//
+// scanTemplateRefs is template-syntax agnostic: a Svelte component has no ---
+// frontmatter, so findTemplateStart returns 0 and the whole file is walked.
+// <script>/<style> blocks and HTML comments are skipped; every opening tag whose
+// name starts with an uppercase ASCII letter is recorded. Closing tags and
+// namespace-prefixed tags (<svelte:head>, <svelte:component>, …) are skipped, so
+// Svelte's own special elements do not produce spurious refs.
+//
+// Resolution of tag names to file paths is NOT performed here — callers should
+// join TemplateRefs against the component's <script> imports for that purpose
+// (see callgraph.ResolveTemplateRefs).
+func ExtractSvelteWithRefs(src []byte) (*VirtualSource, []TemplateRef) {
+	vs := ExtractSvelte(src)
+	refs := scanTemplateRefs(src)
+	return vs, refs
+}

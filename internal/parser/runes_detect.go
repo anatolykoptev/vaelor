@@ -125,8 +125,10 @@ func innermostRuneCall(node *sitter.Node) *sitter.Node {
 // Same line range and RuneKind for both. The rune-token name is the root rune
 // (e.g. "$state" for "$state.raw", "$derived" for "$derived.by").
 //
-// For destructuring patterns (let { a } = $props()), one symbol is emitted
-// with Name = "$props" (existing behaviour unchanged).
+// For destructuring patterns (let { name, count } = $props()), the rune-token
+// symbol (Name = "$props") is emitted AND one KindRune symbol per destructured
+// binding name (Name = "name", "count") with the same RuneKind, so each prop is
+// discoverable by its own identifier.
 func runeFromDeclaratorAll(node *sitter.Node, src []byte, path string, out *[]*Symbol) {
 	nameNode := node.ChildByFieldName("name")
 	valueNode := node.ChildByFieldName("value")
@@ -170,19 +172,98 @@ func runeFromDeclaratorAll(node *sitter.Node, src []byte, path string, out *[]*S
 
 	// Destructuring pattern (object_pattern, array_pattern, etc.).
 	// e.g. let { name = "anon", count } = $props();
-	// Emit a single rune symbol with empty varName (falls back to "$props").
-	// Anchor to the declarator start line so the rune is locatable.
 	innerCall := innermostRuneCall(valueNode)
 	if innerCall == nil {
 		return
 	}
-	sym := runeFromCallExpr(innerCall, src, path, "")
-	if sym == nil {
+	// Token symbol with empty varName (falls back to "$props"), anchored to the
+	// declarator start line so the rune is locatable. Existing behaviour.
+	token := runeFromCallExpr(innerCall, src, path, "")
+	if token == nil {
 		return
 	}
-	sym.StartLine = node.StartPoint().Row + 1
-	sym.EndLine = node.EndPoint().Row + 1
-	*out = append(*out, sym)
+	token.StartLine = node.StartPoint().Row + 1
+	token.EndLine = node.EndPoint().Row + 1
+	*out = append(*out, token)
+
+	// One KindRune symbol per destructured binding name, so each prop is
+	// discoverable by its own identifier (e.g. searching for "count"). Same
+	// RuneKind / Language / line range as the token symbol above.
+	for _, bind := range destructuredBindingNames(nameNode, src) {
+		named := runeFromCallExpr(innerCall, src, path, bind)
+		if named == nil {
+			continue
+		}
+		named.StartLine = token.StartLine
+		named.EndLine = token.EndLine
+		*out = append(*out, named)
+	}
+}
+
+// destructuredBindingNames returns the bound identifier names of a destructuring
+// pattern node (object_pattern / array_pattern). Node types are from the
+// tree-sitter TypeScript grammar:
+//
+//	{ count }            -> shorthand_property_identifier_pattern       -> ["count"]
+//	{ name = "anon" }    -> object_assignment_pattern{left: shorthand}  -> ["name"]
+//	{ key: alias }       -> pair_pattern{value: identifier}             -> ["alias"]
+//	{ key: n = 1 }       -> pair_pattern{value: assignment_pattern}     -> ["n"]
+//	{ ...rest }          -> rest_pattern{identifier}                    -> ["rest"]
+//	[ a = 1 ]            -> array_pattern{assignment_pattern{left}}      -> ["a"]
+//
+// Nested patterns (a pair_pattern whose value is itself a pattern) are traversed.
+func destructuredBindingNames(pattern *sitter.Node, src []byte) []string {
+	if pattern == nil {
+		return nil
+	}
+	var names []string
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		switch n.Type() {
+		case "shorthand_property_identifier_pattern", "identifier":
+			names = append(names, n.Content(src))
+		case "object_assignment_pattern":
+			// { name = default } — the bound name is the left side.
+			if left := n.ChildByFieldName("left"); left != nil {
+				visit(left)
+			}
+		case "assignment_pattern":
+			// { key: name = default } and [ elem = default ] both wrap the target in
+			// an assignment_pattern; the bound name is its left side. Without this
+			// case the pair_pattern / array_pattern recursion falls through and the
+			// binding is silently dropped.
+			if left := n.ChildByFieldName("left"); left != nil {
+				visit(left)
+			}
+		case "pair_pattern":
+			// { key: value } — the bound name is the value (may be a nested pattern).
+			if v := n.ChildByFieldName("value"); v != nil {
+				visit(v)
+			}
+		case "rest_pattern":
+			// { ...rest } — the bound name is the identifier child.
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				if c := n.NamedChild(i); c.Type() == "identifier" {
+					names = append(names, c.Content(src))
+				}
+			}
+		case "object_pattern", "array_pattern":
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				visit(n.NamedChild(i))
+			}
+		}
+	}
+	if pattern.Type() == "object_pattern" || pattern.Type() == "array_pattern" {
+		for i := 0; i < int(pattern.NamedChildCount()); i++ {
+			visit(pattern.NamedChild(i))
+		}
+	} else {
+		visit(pattern)
+	}
+	return names
 }
 
 // runeTokenName derives the canonical rune token name (e.g. "$state") from the

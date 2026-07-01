@@ -94,6 +94,36 @@ func TestParseSvelteLangTs(t *testing.T) {
 	}
 }
 
+// TestParseSvelteTemplateRefs verifies that the Svelte handler populates
+// ParseResult.TemplateRefs with capitalised component tags from the markup,
+// mirroring the Astro handler (TestParseAstroTemplateRefs). This is the Phase-2
+// Svelte-composition wire-up: <Card/> in the markup becomes a TemplateRef;
+// lowercase HTML tags and <svelte:*> special elements do not.
+func TestParseSvelteTemplateRefs(t *testing.T) {
+	src := []byte("<script>\n  import Card from './Card.svelte';\n</script>\n" +
+		"<main>\n  <svelte:head><title>t</title></svelte:head>\n  <Card />\n</main>\n")
+	result, err := parser.ParseFile("Home.svelte", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if result.Language != "svelte" {
+		t.Errorf("Language = %q, want svelte", result.Language)
+	}
+
+	names := make([]string, len(result.TemplateRefs))
+	for i, r := range result.TemplateRefs {
+		names[i] = r.Name
+	}
+	if !svelteContainsName(names, "Card") {
+		t.Errorf("TemplateRefs missing Card; got %v", names)
+	}
+	for _, n := range names {
+		if n == "main" || n == "title" || n == "svelte:head" {
+			t.Errorf("TemplateRefs contains non-component tag %q", n)
+		}
+	}
+}
+
 func svelteSymbolNames(syms []*parser.Symbol) []string {
 	names := make([]string, 0, len(syms))
 	for _, s := range syms {
