@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
-	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/webanalyze"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -74,28 +74,49 @@ func handleSiteCrawl(
 	return largeTextResult(formatCrawlResponse(resp), "site_crawl", outputDir), nil
 }
 
+// formatCrawlResponse renders the crawl result as XML via typed structs +
+// encoding/xml.Marshal (escaping correct by construction).
 func formatCrawlResponse(resp *webanalyze.CrawlResponse) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"site_crawl\">")
-	fmt.Fprintf(&sb, "<summary pages=\"%d\" errors=\"%d\" elapsed_ms=\"%d\"/>",
-		resp.Summary.PagesCrawled, resp.Summary.Errors, resp.Summary.ElapsedMs)
+	b, err := xml.Marshal(buildCrawlResponseXML(resp))
+	if err != nil {
+		return fmt.Sprintf("<error>%s</error>", escapeXML(err.Error()))
+	}
+	return string(b)
+}
 
+func buildCrawlResponseXML(resp *webanalyze.CrawlResponse) siteCrawlRespXML {
+	out := siteCrawlRespXML{
+		Tool: "site_crawl",
+		Summary: crawlSummaryXML{
+			Pages:     resp.Summary.PagesCrawled,
+			Errors:    resp.Summary.Errors,
+			ElapsedMs: resp.Summary.ElapsedMs,
+		},
+	}
 	for _, p := range resp.Pages {
 		if p.Error != nil {
-			fmt.Fprintf(&sb, "<page url=%q depth=\"%d\" error=%q/>",
-				p.URL, p.Depth, *p.Error)
+			out.Pages = append(out.Pages, crawlPageXML{URL: p.URL, Depth: p.Depth, Error: p.Error})
 			continue
 		}
-		fmt.Fprintf(&sb, "<page url=%q status=\"%d\" depth=\"%d\" title=%q links=\"%d\" bytes=\"%d\">",
-			p.URL, p.Status, p.Depth, escapeXML(p.Title), p.LinksFound, p.ContentLength)
-		if p.Markdown != "" {
-			sb.WriteString("<content>")
-			sb.WriteString(wrapCDATA(p.Markdown))
-			sb.WriteString("</content>")
+		// Bind loop-invariant copies for the pointer attrs so a success page
+		// keeps its zero-valued title/links/bytes (non-nil pointer renders "0"),
+		// exactly as the prior formatter always emitted them.
+		status := p.Status
+		title := p.Title
+		links := p.LinksFound
+		bytes := p.ContentLength
+		page := crawlPageXML{
+			URL:    p.URL,
+			Status: &status,
+			Depth:  p.Depth,
+			Title:  &title,
+			Links:  &links,
+			Bytes:  &bytes,
 		}
-		sb.WriteString("</page>")
+		if p.Markdown != "" {
+			page.Content = &xmlCDATA{Inner: wrapCDATA(p.Markdown)}
+		}
+		out.Pages = append(out.Pages, page)
 	}
-
-	sb.WriteString("</response>")
-	return sb.String()
+	return out
 }

@@ -120,23 +120,26 @@ func buildMinimalResult() *investigate.InvestigationResult {
 	}
 }
 
-// TestEscapeCDATA_SplitsCloseSeq verifies that literal "]]>" in a diff is split
-// so it cannot terminate an enclosing CDATA section.
-func TestEscapeCDATA_SplitsCloseSeq(t *testing.T) {
+// TestWrapCDATA_SplitsCloseSeq verifies that literal "]]>" in a diff is split
+// so it cannot terminate an enclosing CDATA section. (The formatter now routes
+// CDATA payloads through the shared wrapCDATA helper; the prior escapeCDATA
+// duplicate was removed.)
+func TestWrapCDATA_SplitsCloseSeq(t *testing.T) {
 	in := "before ]]> after"
-	got := escapeCDATA(in)
-	want := "before ]]]]><![CDATA[> after"
+	got := wrapCDATA(in)
+	want := "<![CDATA[before ]]]]><![CDATA[> after]]>"
 	if got != want {
-		t.Errorf("escapeCDATA(%q) = %q, want %q", in, got, want)
+		t.Errorf("wrapCDATA(%q) = %q, want %q", in, got, want)
 	}
 }
 
-// TestEscapeCDATA_NoOp_WhenNoCloseSeq verifies strings without "]]>" pass through unchanged.
-func TestEscapeCDATA_NoOp_WhenNoCloseSeq(t *testing.T) {
+// TestWrapCDATA_NoOp_WhenNoCloseSeq verifies strings without "]]>" are wrapped unchanged.
+func TestWrapCDATA_NoOp_WhenNoCloseSeq(t *testing.T) {
 	in := "plain diff text\n+ added\n- removed"
-	got := escapeCDATA(in)
-	if got != in {
-		t.Errorf("escapeCDATA modified clean input: got %q, want %q", got, in)
+	got := wrapCDATA(in)
+	want := "<![CDATA[" + in + "]]>"
+	if got != want {
+		t.Errorf("wrapCDATA(%q) = %q, want %q", in, got, want)
 	}
 }
 
