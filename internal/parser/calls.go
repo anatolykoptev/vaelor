@@ -22,6 +22,15 @@ type CallSite struct {
 	IsArgRef bool
 }
 
+// markupCallSource is implemented by preprocessor-language handlers whose
+// template body carries {expr} call sites that parsing the raw file with the
+// delegated grammar cannot reach (Astro today; Svelte in a later phase).
+// ExtractCalls appends these to the ordinary call sites. Optional: handlers that
+// do not implement it are unaffected.
+type markupCallSource interface {
+	MarkupCalls(path string, src []byte, opts ParseOpts) []CallSite
+}
+
 // ExtractCalls parses a source file and returns all function/method call sites.
 // Returns empty slice (not error) for unsupported languages.
 func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error) {
@@ -46,7 +55,16 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 	}
 	defer tree.Close()
 
-	return runCallQuery(caps.CallsQuery, tree.RootNode(), source, path), nil
+	calls := runCallQuery(caps.CallsQuery, tree.RootNode(), source, path)
+
+	// Preprocessor-language handlers (Astro) additionally surface calls embedded
+	// in template-body {expr} ranges, unreachable by parsing the raw file with
+	// the delegated grammar above.
+	if mc, ok := handler.(markupCallSource); ok {
+		calls = append(calls, mc.MarkupCalls(path, source, opts)...)
+	}
+
+	return calls, nil
 }
 
 func runCallQuery(q *sitter.Query, root *sitter.Node, source []byte, path string) []CallSite {

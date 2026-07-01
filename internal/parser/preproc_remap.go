@@ -47,6 +47,10 @@ func RemapSymbolLines(r *ParseResult, vs *preproc.VirtualSource) {
 
 // virtualToOriginal returns the original file line number for the given 1-based
 // virtual line. Returns 0 if the line is out of range or mapped to padding.
+//
+// This is the shared remap primitive: RemapSymbolLines (symbol path),
+// appendRuneSymbols (rune classifier), and markupExprReparse (markup call sites)
+// all map virtual→original line numbers through it.
 func virtualToOriginal(lineMap []uint32, virtualLine uint32) uint32 {
 	if virtualLine == 0 || int(virtualLine) > len(lineMap) {
 		return 0
@@ -54,26 +58,45 @@ func virtualToOriginal(lineMap []uint32, virtualLine uint32) uint32 {
 	return lineMap[virtualLine-1]
 }
 
-// parseWithTSAndRemap parses vs.Code with the TypeScript grammar and remaps
-// symbol line numbers from virtual to original-file coordinates. Shared by
-// preprocessor-language handlers (Svelte, Astro).
+// parseVirtualWithRemap parses vs.Code with base's tree-sitter grammar and
+// remaps symbol line numbers from virtual to original-file coordinates. This is
+// the shared remap core extracted from parseWithTSAndRemap: the grammar/handler
+// is a parameter so the grammar is swappable at the call site (plain TypeScript
+// today; a markup-expr reparse binds the TSX grammar) without duplicating the
+// nil-guard + Parse + RemapSymbolLines sequence.
 //
-// Uses tsLang.parserBase.Parse directly (not handler.Parse) to avoid
-// re-entering the preprocessor's Parse and to side-step init-ordering
-// constraints (tsLang caps are wired when this is called at parse time,
-// even if the preprocessor handler was init'd first).
+// base.Parse is called directly (not handler.Parse) to avoid re-entering a
+// preprocessor handler's Parse and to side-step init-ordering constraints:
+// base.caps are read at call time, so they are wired even when base's handler
+// init'd after the preprocessor handler that calls this.
 //
 // path is the ORIGINAL file path — propagated into Symbol.File.
 // lang is the preprocessor-language label ("svelte", "astro") — set on the
-// result and on every retained symbol via RemapSymbolLines.
-func parseWithTSAndRemap(path string, vs *preproc.VirtualSource, lang string, opts ParseOpts) (*ParseResult, error) {
+// empty-result path and on every retained symbol via RemapSymbolLines.
+func parseVirtualWithRemap(base *parserBase, path string, vs *preproc.VirtualSource, lang string, opts ParseOpts) (*ParseResult, error) {
 	if vs == nil || len(vs.Code) == 0 {
 		return &ParseResult{File: path, Language: lang, Symbols: []*Symbol{}, Imports: []string{}}, nil
 	}
-	result, err := tsLang.parserBase.Parse(path, vs.Code, opts)
+	result, err := base.Parse(path, vs.Code, opts)
 	if err != nil {
 		return nil, err
 	}
 	RemapSymbolLines(result, vs)
 	return result, nil
+}
+
+// parseWithTSAndRemap parses vs.Code with the TypeScript grammar and remaps
+// symbol line numbers from virtual to original-file coordinates. Shared by
+// preprocessor-language handlers (Svelte, Astro, Vue).
+//
+// It is a thin, behaviour-preserving wrapper over parseVirtualWithRemap bound to
+// the plain-TypeScript grammar (tsLang): frontmatter and <script> contents are
+// plain TS/JS. The markup {expr} reparse path binds the TSX grammar instead
+// (see markupExprReparse) so JSX embedded in template expressions parses.
+//
+// path is the ORIGINAL file path — propagated into Symbol.File.
+// lang is the preprocessor-language label ("svelte", "astro") — set on the
+// result and on every retained symbol via RemapSymbolLines.
+func parseWithTSAndRemap(path string, vs *preproc.VirtualSource, lang string, opts ParseOpts) (*ParseResult, error) {
+	return parseVirtualWithRemap(&tsLang.parserBase, path, vs, lang, opts)
 }
