@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 	"sort"
 	"time"
@@ -133,9 +132,6 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 			Pruned:          r.PrunedFiles,
 			EstimatedTokens: r.EstimatedTokens,
 		},
-		// Compact map — the primary LLM-consumable output. omitempty omits it
-		// when empty, matching the prior `if r.Map != ""` guard.
-		Map: r.Map,
 	}
 
 	if !input.Compact {
@@ -149,11 +145,14 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 		}
 	}
 
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
+	// Compact map — the primary LLM-consumable output, carried verbatim in a
+	// CDATA section (byte-neutral vs entity-escaping every <-chan / Vec<T> / &x).
+	// A nil pointer omits the element, matching the prior `if r.Map != ""` guard.
+	if r.Map != "" {
+		resp.Map = &xmlCDATA{Inner: wrapCDATA(r.Map)}
 	}
-	return string(b)
+
+	return xmlMarshalFragment(resp)
 }
 
 func sortedSeeds(seeds []research.SeedSymbol, limit int) []research.SeedSymbol {

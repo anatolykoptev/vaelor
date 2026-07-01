@@ -176,11 +176,7 @@ func formatInvestigationResult(r *investigate.InvestigationResult) string {
 		Tool: "debug_investigate",
 		Inv:  buildInvestigationXML(r),
 	}
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(resp)
 }
 
 func buildInvestigationXML(r *investigate.InvestigationResult) investigationXML {

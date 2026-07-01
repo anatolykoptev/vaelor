@@ -120,11 +120,7 @@ func formatQuickLocal(repoName, tree, readme string) string {
 	if readme != "" {
 		resp.Quick.Readme = &xmlCDATA{Inner: wrapCDATA(readme)}
 	}
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(resp)
 }
 
 // readREADME tries to read README.md from root, returning empty string on failure.

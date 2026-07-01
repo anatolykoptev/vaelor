@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -154,11 +153,7 @@ func formatFullResponse(
 // envelope and marshals it. No xml.Header prolog is emitted (the response is an
 // XML fragment consumed by the MCP caller, matching the prior formatter).
 func marshalSiteAnalyze(site siteXML) string {
-	b, err := xml.Marshal(siteAnalyzeRespXML{Tool: "site_analyze", Site: site})
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(siteAnalyzeRespXML{Tool: "site_analyze", Site: site})
 }
 
 func extractDomain(rawURL string) string {

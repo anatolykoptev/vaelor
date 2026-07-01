@@ -196,11 +196,7 @@ func formatDesignResults(query string, hits []brandHit, meta map[string]designmd
 		resp.Results.Items = append(resp.Results.Items, item)
 	}
 
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(resp)
 }
 
 // designStatusXML is the design_search status response (e.g. not_indexed),
@@ -217,9 +213,5 @@ type designStatusXML struct {
 
 // formatDesignStatus renders a design_search <status>/<message> response.
 func formatDesignStatus(status, message string) string {
-	b, err := xml.Marshal(designStatusXML{Tool: "design_search", Status: status, Message: message})
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(designStatusXML{Tool: "design_search", Status: status, Message: message})
 }

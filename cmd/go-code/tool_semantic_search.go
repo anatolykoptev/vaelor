@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 	"time"
 
@@ -504,23 +503,15 @@ func formatSemanticResults(input SemanticSearchInput, results []embeddings.Searc
 		}
 		resp.Results.Results = append(resp.Results.Results, res)
 	}
-	b, err := xml.Marshal(resp)
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
+	return xmlMarshalFragment(resp)
 }
 
 func buildStatusResponse(input SemanticSearchInput, status, message string) string {
-	b, err := xml.Marshal(semanticStatusXML{
+	return xmlMarshalFragment(semanticStatusXML{
 		Tool:    "semantic_search",
 		Query:   input.Query,
 		Repo:    input.Repo,
 		Status:  status,
 		Message: message,
 	})
-	if err != nil {
-		return xmlMarshalErrorFragment(err)
-	}
-	return string(b)
 }

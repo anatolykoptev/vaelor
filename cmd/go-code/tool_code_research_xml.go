@@ -38,10 +38,12 @@ type researchRespXML struct {
 	// prior guard `!input.Compact && len(...) > 0`.
 	Seeds *researchSeedsXML `xml:"seeds,omitempty"`
 	Graph *researchGraphXML `xml:"graph,omitempty"`
-	// Map is the Aider-style code map. omitempty omits the element when r.Map is
-	// "", matching the prior `if r.Map != ""` guard; when present, ,chardata
-	// escaping makes the previously-raw payload well-formed.
-	Map string `xml:"map,omitempty"`
+	// Map is the Aider-style code map, carried verbatim in a CDATA section via
+	// the shared xmlCDATA carrier. CDATA is byte-neutral, where ,chardata would
+	// escape every <-chan / Vec<T> / &x to a 4-5 byte entity and inflate the
+	// response tokens on this heavy tool. A nil pointer omits the element,
+	// matching the prior `if r.Map != ""` guard.
+	Map *xmlCDATA `xml:"map,omitempty"`
 }
 
 type researchStatsXML struct {
