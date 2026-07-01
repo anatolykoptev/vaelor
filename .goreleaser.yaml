@@ -17,6 +17,15 @@ builds:
         env:
           - CGO_ENABLED=1
           - CC=aarch64-linux-gnu-gcc
+      # The local release box is arm64 (goreleaser-release-local.timer on
+      # krolik): the amd64 target needs the x86_64 cross toolchain, else the
+      # native aarch64 gcc receives -m64 and fails ("unrecognized command-line
+      # option '-m64'", v1.22.0 2026-07-01).
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=x86_64-linux-gnu-gcc
     ldflags:
       - -s -w
     goos:
