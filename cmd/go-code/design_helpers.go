@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -130,38 +131,74 @@ func readExcerpt(filePath, section string) string {
 	return section
 }
 
-// formatDesignResults builds the XML response.
+// ---- design_search XML types ----
+//
+// Migrated from a hand-rolled fmt.Fprintf formatter onto encoding/xml.Marshal so
+// well-formedness is correct by construction. Field order fixes element order;
+// omitempty on the optional children reproduces the prior conditional emission.
+// The score attribute is pre-formatted to a string (%.2f) because raw
+// xml.Marshal of a float renders via strconv and drops trailing zeros
+// (0.90 -> "0.9"), breaking attribute equivalence.
+
+type designSearchRespXML struct {
+	XMLName xml.Name         `xml:"response"`
+	Tool    string           `xml:"tool,attr"`
+	Query   string           `xml:"query"`
+	Results designResultsXML `xml:"results"`
+}
+
+type designResultsXML struct {
+	Count int               `xml:"count,attr"`
+	Items []designResultXML `xml:"result"`
+}
+
+type designResultXML struct {
+	Rank    int    `xml:"rank,attr"`
+	Score   string `xml:"score,attr"`
+	Brand   string `xml:"brand,attr"`
+	File    string `xml:"file,omitempty"`
+	Vibe    string `xml:"vibe,omitempty"`
+	Colors  string `xml:"colors,omitempty"`
+	BestFor string `xml:"best_for,omitempty"`
+	Section string `xml:"matched_section"`
+	Excerpt string `xml:"excerpt"`
+}
+
+// formatDesignResults builds the design_search XML response.
 func formatDesignResults(query string, hits []brandHit, meta map[string]designmd.BrandMeta, mappings []analyze.PathMapping) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<response tool=\"design_search\">")
-	fmt.Fprintf(&sb, "<query>%s</query>", escapeXML(query))
-	fmt.Fprintf(&sb, "<results count=\"%d\">", len(hits))
-
-	for i, h := range hits {
-		score := 1.0 - float64(h.distance)
-		fmt.Fprintf(&sb, "<result rank=\"%d\" score=\"%.2f\" brand=\"%s\">", i+1, score, escapeXML(h.brand))
-
-		if h.filePath != "" {
-			fmt.Fprintf(&sb, "<file>%s</file>", escapeXML(reversePathMapping(h.filePath, mappings)))
-		}
-
-		if m, ok := meta[h.brand]; ok {
-			if m.Vibe != "" {
-				fmt.Fprintf(&sb, "<vibe>%s</vibe>", escapeXML(m.Vibe))
-			}
-			if len(m.Colors) > 0 {
-				fmt.Fprintf(&sb, "<colors>%s</colors>", escapeXML(strings.Join(m.Colors, ", ")))
-			}
-			if m.BestFor != "" {
-				fmt.Fprintf(&sb, "<best_for>%s</best_for>", escapeXML(m.BestFor))
-			}
-		}
-
-		fmt.Fprintf(&sb, "<matched_section>%s</matched_section>", escapeXML(h.section))
-		fmt.Fprintf(&sb, "<excerpt>%s</excerpt>", escapeXML(h.excerpt))
-		fmt.Fprintf(&sb, "</result>")
+	resp := designSearchRespXML{
+		Tool:  "design_search",
+		Query: query,
+		Results: designResultsXML{
+			Count: len(hits),
+			Items: make([]designResultXML, 0, len(hits)),
+		},
 	}
 
-	sb.WriteString("</results></response>")
-	return sb.String()
+	for i, h := range hits {
+		item := designResultXML{
+			Rank:    i + 1,
+			Score:   fmt.Sprintf("%.2f", 1.0-float64(h.distance)),
+			Brand:   h.brand,
+			Section: h.section,
+			Excerpt: h.excerpt,
+		}
+		if h.filePath != "" {
+			item.File = reversePathMapping(h.filePath, mappings)
+		}
+		if m, ok := meta[h.brand]; ok {
+			item.Vibe = m.Vibe
+			if len(m.Colors) > 0 {
+				item.Colors = strings.Join(m.Colors, ", ")
+			}
+			item.BestFor = m.BestFor
+		}
+		resp.Results.Items = append(resp.Results.Items, item)
+	}
+
+	b, err := xml.Marshal(resp)
+	if err != nil {
+		return xmlMarshalErrorFragment(err)
+	}
+	return string(b)
 }

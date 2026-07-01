@@ -123,9 +123,7 @@ func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.D
 	if len(matches) == 0 {
 		if suggestions := semanticSuggest(ctx, sem, root, input.Pattern, input.Language); suggestions != "" {
 			env := mcpmeta.Wrap(time.Since(t0), "")
-			body := fmt.Sprintf("<response tool=\"code_search\"><search pattern=\"%s\" matches=\"0\"/>%s</response>",
-				escapeXML(input.Pattern), suggestions)
-			return metaResult(body, env), nil
+			return metaResult(formatCodeSearchNoMatch(input.Pattern, suggestions), env), nil
 		}
 	}
 

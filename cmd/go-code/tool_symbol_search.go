@@ -133,8 +133,7 @@ func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem
 			hint := indexedPathsHint()
 			if suggestions := semanticSuggest(ctx, sem, root, input.Query, input.Language); suggestions != "" {
 				env := mcpmeta.Wrap(time.Since(t0), "")
-				body := fmt.Sprintf("<response tool=\"symbol_search\"><symbols query=\"%s\" count=\"0\"/>%s</response>\n\n%s",
-					escapeXML(input.Query), suggestions, hint)
+				body := formatSymbolSearchNoMatch(input.Query, suggestions) + "\n\n" + hint
 				return metaResult(body, env), nil
 			}
 			return textResult(fmt.Sprintf("No symbols found matching %q.\n\n%s", input.Query, hint)), nil
@@ -187,7 +186,7 @@ func formatSymbolSearchXML(query string, symbols []*parser.Symbol, root string) 
 	}
 	data, err := xml.Marshal(resp)
 	if err != nil {
-		return fmt.Sprintf("<error>%s</error>", err.Error())
+		return xmlMarshalErrorFragment(err)
 	}
 	return xml.Header + string(data)
 }
