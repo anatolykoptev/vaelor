@@ -28,22 +28,25 @@ func buildMarkupRefsQuery() {
 	markupRefsQuery = mustCompileQuery(markupRefsQueryBytes, tsxLang.Capabilities().SitterLanguage, "markup_refs.scm")
 }
 
-// markupExprReparse extracts the function/method/argref call sites embedded in
-// the template-body {expr} ranges of a preprocessor-language file (Astro today;
-// Svelte in a later phase). It batches every {expr} range into ONE virtual
-// source (preproc.ExtractMarkupExprs) and reparses it with the TSX grammar
-// (tsxLang) rather than plain TypeScript: Astro template expressions legally
-// embed JSX (e.g. {list.map(i => <Card/>)}), which a plain-TS reparse would
-// reject as ERROR nodes, dropping the calls. Under the TSX grammar tsx_calls.scm
-// fires for free (calls / member-calls / argrefs); markup_refs.scm additionally
-// captures bare top-level identifiers ({count}) for React parity.
+// markupExprReparse extracts the function/method/argref call sites embedded in a
+// preprocessor-language file's template expressions. The caller supplies the
+// batched virtual source produced by the language's expr scanner
+// (preproc.ExtractMarkupExprs for Astro plain {expr}; preproc.ExtractSvelteMarkupExprs
+// for Svelte {expr} + sigil-aware block-header EXPR) — this is the SINGLE reparse
+// path both languages share, differing only in which scanner assembled vs.
+//
+// It reparses vs.Code with the TSX grammar (tsxLang) rather than plain
+// TypeScript: template expressions legally embed JSX (e.g. {list.map(i => <Card/>)}),
+// which a plain-TS reparse would reject as ERROR nodes, dropping the calls. Under
+// the TSX grammar tsx_calls.scm fires for free (calls / member-calls / argrefs);
+// markup_refs.scm additionally captures bare top-level identifiers ({count}) for
+// React parity.
 //
 // Call-site line numbers are remapped from virtual to original-file coordinates
 // via the shared virtualToOriginal helper; padding lines are dropped. This
 // mirrors the collectRuneSymbols / appendRuneSymbols post-parse-classifier
 // precedent (operate on the original src via a VirtualSource, remap afterwards).
-func markupExprReparse(path string, src []byte) []CallSite {
-	vs := preproc.ExtractMarkupExprs(src)
+func markupExprReparse(path string, vs *preproc.VirtualSource) []CallSite {
 	if vs == nil || len(vs.Code) == 0 {
 		return nil
 	}
@@ -88,5 +91,17 @@ func markupExprReparse(path string, src []byte) []CallSite {
 // reparse is language-fixed to TSX); it is kept to satisfy the interface and
 // leave room for a future Language-conditional branch.
 func (h *astroHandler) MarkupCalls(path string, src []byte, _ ParseOpts) []CallSite {
-	return markupExprReparse(path, src)
+	return markupExprReparse(path, preproc.ExtractMarkupExprs(src))
+}
+
+// MarkupCalls satisfies markupCallSource (see calls.go) for Svelte: the template
+// body carries plain {expr} mustaches AND sigil-aware block-header expressions
+// ({#if EXPR}, {#each EXPR as x}, {#await EXPR then v}, {#key EXPR}, {:else if EXPR},
+// {@const NAME = EXPR}, {@html EXPR}, {@render EXPR}) whose calls/refs are
+// unreachable by parsing the raw .svelte file's <script> blocks with the delegated
+// grammar. preproc.ExtractSvelteMarkupExprs is the sigil-aware scanner; the reparse
+// path is shared with Astro (markupExprReparse). opts is inert for call extraction
+// today.
+func (h *svelteHandler) MarkupCalls(path string, src []byte, _ ParseOpts) []CallSite {
+	return markupExprReparse(path, preproc.ExtractSvelteMarkupExprs(src))
 }
