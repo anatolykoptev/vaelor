@@ -10,23 +10,30 @@ import "testing"
 
 // ── deliverable #2: Symbol.Language agrees with DetectLanguageFromPath ─
 
-// TestRegistryWideSymbolLanguageAgreesWithDetector generalizes
-// TestJSTSFamily_SymbolLanguageAgreesWithDetector (handler_tsx_test.go),
-// which proved the invariant only for the two handlers Phase 0b (PR #268)
-// happened to fix — tsxLang (.tsx/.jsx) and tsLang (.ts/.js/.mjs/.cjs/.cts/
-// .mts), both routed through the shared applyDetectedSymbolLanguage helper. A
-// council LOW finding on that PR noted the opt-in-by-convention risk: a
-// FUTURE handler that serves more than one canonical language through one
-// shared grammar (the exact shape that produced the Phase 0b mislabel) could
-// reintroduce the class without any existing test noticing, since the JS/TS
-// test only ranges its own two handlers' Extensions().
+// TestRegistryWideSymbolLanguageAgreesWithDetector generalizes the
+// now-removed TestJSTSFamily_SymbolLanguageAgreesWithDetector (it proved the
+// invariant only for the two handlers Phase 0b, PR #268, happened to fix —
+// tsxLang (.tsx/.jsx) and tsLang (.ts/.js/.mjs/.cjs/.cts/.mts), both routed
+// through the shared applyDetectedSymbolLanguage helper; deleted in the
+// parity follow-ups cleanup as fully subsumed by this test, see
+// docs/FOLLOWUPS.md). A council LOW finding on the PR #268 review noted the
+// opt-in-by-convention risk: a FUTURE handler that serves more than one
+// canonical language through one shared grammar (the exact shape that
+// produced the Phase 0b mislabel) could reintroduce the class without any
+// existing test noticing, since the JS/TS test only ranged its own two
+// handlers' Extensions().
 //
 // This test closes that gap by walking EVERY handler in the registry and
 // asserting, for every extension each declares via Extensions(), that a
 // parsed Symbol.Language equals DetectLanguageFromPath(ext). It reuses
 // registrationFixtures (handler_registration_test.go) — the same
 // per-extension fixture corpus TestHandlerRegistrationHealth already proves
-// yields >=1 symbol — instead of hand-rolling a second fixture set.
+// yields >=1 symbol — instead of hand-rolling a second fixture set. Coverage
+// is a strict superset of the removed test's by extension, but not by
+// fixture-sharing: the removed test ran ONE shared jsx-free source across
+// the whole ts/tsx family (a cross-sibling-grammar mislabel catch); this
+// test uses a distinct per-extension fixture instead, so that specific
+// single-shared-source property is intentionally not preserved.
 func TestRegistryWideSymbolLanguageAgreesWithDetector(t *testing.T) {
 	fixtures := registrationFixtures(t)
 
