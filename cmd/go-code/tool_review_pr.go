@@ -177,7 +177,7 @@ func reviewPRDryRun(ctx context.Context, input ReviewPRInput, result *review.Del
 	resp := buildDeltaXML(result)
 	resp.Tool = "review_pr"
 	resp.Verdict = deriveVerdict(result)
-	data, err := xml.MarshalIndent(resp, "", "  ")
+	data, err := xml.Marshal(resp)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}

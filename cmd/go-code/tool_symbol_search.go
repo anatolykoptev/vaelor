@@ -186,7 +186,7 @@ func formatSymbolSearchXML(query string, symbols []*parser.Symbol, root string) 
 		}
 		resp.Symbols.Items[i] = item
 	}
-	data, err := xml.MarshalIndent(resp, "", "  ")
+	data, err := xml.Marshal(resp)
 	if err != nil {
 		return fmt.Sprintf("<error>%s</error>", err.Error())
 	}

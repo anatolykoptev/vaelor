@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -337,11 +336,7 @@ func marshalFedResult(out *FederatedCoChangeResult, t0 time.Time) (*mcp.CallTool
 	if out.Meta.DurationMS == 0 {
 		out.Meta = mcpmeta.Wrap(time.Since(t0), out.Meta.Hint)
 	}
-	body, merr := json.MarshalIndent(out, "", "  ")
-	if merr != nil {
-		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
-	}
-	return textResult(string(body)), nil
+	return jsonMarshalResult(out), nil
 }
 
 // registerFederatedCoChange registers the federated_cochange tool on the MCP server.

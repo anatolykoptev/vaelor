@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -224,11 +223,7 @@ func handleSuggestReviewersCore(ctx context.Context, args SuggestReviewersArgs, 
 
 	out.Meta = mcpmeta.Wrap(time.Since(t0), "")
 
-	body, merr := json.MarshalIndent(out, "", "  ")
-	if merr != nil {
-		return errResult(fmt.Sprintf("marshal: %s", merr)), nil
-	}
-	return textResult(string(body)), nil
+	return jsonMarshalResult(out), nil
 }
 
 // registerSuggestReviewers registers the suggest_reviewers tool on the MCP server.

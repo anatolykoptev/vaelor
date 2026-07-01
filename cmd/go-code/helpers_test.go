@@ -82,8 +82,29 @@ func TestMetaXMLMarshalResult_EmptyEnvelope_NoFooter(t *testing.T) {
 	}
 }
 
-// TestMetaXMLMarshalResult_NonEmptyEnvelope_AppendsFooter verifies meta comment appears.
+// TestMetaXMLMarshalResult_NonEmptyEnvelope_AppendsFooter verifies meta comment appears
+// when the envelope carries a hint. A bare duration_ms (no hint, no staleness) is
+// pure telemetry and must NOT grow a footer — see
+// TestMetaXMLMarshalResult_DurationOnlyEnvelope_NoFooter.
 func TestMetaXMLMarshalResult_NonEmptyEnvelope_AppendsFooter(t *testing.T) {
+	type dummy struct {
+		Val string `xml:"val"`
+	}
+	env := mcpmeta.Wrap(10*time.Millisecond, "use understand(symbol=Foo)")
+	r := metaXMLMarshalResult(dummy{Val: "world"}, "tool", "", env)
+	got := textContentOf(t, r)
+	if !strings.Contains(got, "world") {
+		t.Fatalf("XML body must be present, got:\n%s", got)
+	}
+	if !strings.Contains(got, "<!-- meta:") {
+		t.Fatalf("hint-bearing envelope must append meta comment, got:\n%s", got)
+	}
+}
+
+// TestMetaXMLMarshalResult_DurationOnlyEnvelope_NoFooter verifies that a bare
+// duration_ms (no hint, no staleness warning) does NOT grow a meta footer —
+// duration-only telemetry has zero analytic value to the consumer.
+func TestMetaXMLMarshalResult_DurationOnlyEnvelope_NoFooter(t *testing.T) {
 	type dummy struct {
 		Val string `xml:"val"`
 	}
@@ -93,8 +114,8 @@ func TestMetaXMLMarshalResult_NonEmptyEnvelope_AppendsFooter(t *testing.T) {
 	if !strings.Contains(got, "world") {
 		t.Fatalf("XML body must be present, got:\n%s", got)
 	}
-	if !strings.Contains(got, "<!-- meta:") {
-		t.Fatalf("non-empty envelope must append meta comment, got:\n%s", got)
+	if strings.Contains(got, "<!-- meta:") {
+		t.Fatalf("duration-only envelope must not append meta comment, got:\n%s", got)
 	}
 }
 

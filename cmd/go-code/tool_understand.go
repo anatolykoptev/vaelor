@@ -116,7 +116,7 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 		}
 	}
 
-	data, err := json.MarshalIndent(result, "", "  ")
+	data, err := json.Marshal(result)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
@@ -183,9 +183,5 @@ func understandAmbiguousResult(name string, symbols []*parser.Symbol, mappings [
 		Error:   fmt.Sprintf("symbol %q is ambiguous (%d matches) — provide more context via focus= or use a qualified name", name, len(symbols)),
 		Matches: refs,
 	}
-	data, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return errResult(fmt.Sprintf("marshal: %s", err)), nil
-	}
-	return textResult(string(data)), nil
+	return jsonMarshalResult(resp), nil
 }

@@ -15,11 +15,19 @@ import (
 //
 // Empty optional fields are omitted from the JSON payload via the
 // `omitempty` tags on Hint / StaleWarning / IndexedSHA / LiveSHA, so
-// the caller sees only signal. DurationMS is always populated (clamped
-// to >= 1 by Wrap to enforce the "always populated" contract).
+// the caller sees only signal. DurationMS is always populated on the Go
+// struct (clamped to >= 1 by Wrap to enforce the "always populated"
+// contract) — but that is a struct-level guarantee, not a wire one:
+// cmd/go-code's response-footer renderer (appendMetaFooter) omits the
+// `<!-- meta: ... -->` footer entirely when Hint and StaleWarning are both
+// empty, so a bare duration_ms with no hint and no staleness never actually
+// reaches the consumer — duration-only telemetry has zero analytic value to
+// an agent that can't act on it.
 //
 // Convention:
-//   - DurationMS is always populated.
+//   - DurationMS is always populated on the struct, but is rendered to the
+//     consumer only when paired with a Hint or StaleWarning — a bare
+//     duration is suppressed at the response-footer layer (cmd/go-code).
 //   - Hint is populated only when a clear next-call is cheap and obvious.
 //     A noisy hint trains the calling agent to ignore the field.
 //   - StaleWarning is populated only when the indexed commit no longer
