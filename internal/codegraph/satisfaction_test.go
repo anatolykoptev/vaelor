@@ -283,12 +283,19 @@ func main() {
 
 	t.Run("gate enabled - BUG A fixed", func(t *testing.T) {
 		t.Setenv("CODEGRAPH_TYPED_ENRICH", "1")
+		appliedCounter := agegraphTypedEnrichTotal.WithLabelValues("applied")
+		before := readCounter(t, appliedCounter)
 		edges := runFixture(t)
+		after := readCounter(t, appliedCounter)
 		if !hasWantEdge(edges) {
 			t.Errorf("AGE graph missing CALLS edge %s -> %s with CODEGRAPH_TYPED_ENRICH=1; dead_code "+
 				"will falsely report CacheB.Get as dead despite the real caller UseCacheB (BUG A: typed "+
 				"enrichment did not land); CALLS edges seen: %v",
 				wantFrom, wantTo, callsEdgeSummary(edges))
+		}
+		if after-before != 1 {
+			t.Errorf("expected gocode_agegraph_typed_enrich_total{result=applied} to increment by 1 "+
+				"when the go/types typed pass lands; before=%v after=%v", before, after)
 		}
 	})
 }
@@ -408,12 +415,19 @@ func main() {
 
 	t.Run("gate enabled - BUG A fixed", func(t *testing.T) {
 		t.Setenv("CODEGRAPH_TYPED_ENRICH", "1")
+		appliedCounter := agegraphTypedEnrichTotal.WithLabelValues("applied")
+		before := readCounter(t, appliedCounter)
 		edges := runFixture(t)
+		after := readCounter(t, appliedCounter)
 		if !hasWantEdge(edges) {
 			t.Errorf("AGE graph missing CALLS edge %s -> %s with CODEGRAPH_TYPED_ENRICH=1; dead_code "+
 				"will falsely report realWork as dead despite the real caller UseWorkFn (BUG A: typed "+
 				"enrichment did not land); CALLS edges seen: %v",
 				wantFrom, wantTo, callsEdgeSummary(edges))
+		}
+		if after-before != 1 {
+			t.Errorf("expected gocode_agegraph_typed_enrich_total{result=applied} to increment by 1 "+
+				"when the go/types typed pass lands; before=%v after=%v", before, after)
 		}
 	})
 }

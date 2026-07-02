@@ -326,6 +326,15 @@ func typedEnrichEnabled() bool {
 // resolve against the SAME root within goanalysis.CachedLoadPackages' TTL
 // window, so whichever runs first pays the go/packages load for the other
 // (satisfaction.go:15-28).
+//
+// Stamps cg.Tier/cg.Backend before enriching, matching BuildFromRepo's own
+// setup (repo.go:97-99) — the in-memory CallGraph struct's existing fields,
+// NOT a new persisted schema (Tier/Backend are never written to AGE; see the
+// "cut tier/backend provenance stamping" ADR). Without this, cg.Tier stays
+// the zero value "" and EnrichWithTypedResolution's SCIP-fallback gate
+// (`if cg.Tier == "basic"`) is always false, silently disabling SCIP
+// enrichment for this caller on every mixed-language repo where go/types
+// alone makes no progress.
 func buildAGECallGraph(ctx context.Context, root string, symbols []*parser.Symbol, calls []parser.CallSite, files []*ingest.File) *callgraph.CallGraph {
 	cg := callgraph.BuildCallGraph(symbols, calls)
 
@@ -333,13 +342,20 @@ func buildAGECallGraph(ctx context.Context, root string, symbols []*parser.Symbo
 		return cg
 	}
 
-	// BuildCallGraph never sets Tier/Backend (both zero value here), so any
-	// non-empty Backend after EnrichWithTypedResolution proves the typed pass
-	// landed — no need to depend on the exact literal it sets (repo.go:20-25
-	// documents those as plain strings by design, no exported constant).
-	backendBefore := cg.Backend
+	cg.Tier = "basic"
+	cg.Backend = callgraph.BackendTreeSitter
+
 	enriched := callgraph.EnrichWithTypedResolution(ctx, root, cg, symbols, files)
-	if enriched.Backend != backendBefore {
+
+	// "applied" specifically means the go/types-specific BUG A fix landed.
+	// A SCIP landing (enriched.Backend == callgraph.BackendSCIP, reachable
+	// on a Go-minority go.mod repo whose dominant language SCIP targets
+	// instead of go/types) does not fix the homonymous-method /
+	// var-func-binding shapes this counter exists to monitor, so it counts
+	// as "degraded" even though some enrichment landed — otherwise a rising
+	// SCIP-landing share on mixed-language repos would silently mask BUG A
+	// still being live there, defeating the counter's own purpose.
+	if enriched.Backend == callgraph.BackendGoTypes {
 		agegraphTypedEnrichTotal.WithLabelValues("applied").Inc()
 	} else {
 		agegraphTypedEnrichTotal.WithLabelValues("degraded").Inc()

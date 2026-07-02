@@ -14,10 +14,10 @@ import (
 //
 // extractGoImplements routes through goanalysis.CachedLoadPackages, a small
 // bounded LRU+TTL cache keyed by repo root: if callgraph's typed CALLS
-// resolution (TryGoTypesResolution, callgraph/repo.go) already warmed this
-// root's load within the cache TTL, this call is served from that cached
-// result instead of paying its own NeedDeps load. On a cold cache it still
-// runs a fresh load bounded by implementsLoadTimeout — cold (NeedDeps) loads
+// resolution (the package-private tryGoTypesResolution, callgraph/repo.go)
+// already warmed this root's load within the cache TTL, this call is served
+// from that cached result instead of paying its own NeedDeps load. On a
+// cold cache it still runs a fresh load bounded by implementsLoadTimeout — cold (NeedDeps) loads
 // can run minutes, so the indexer must not block on it. On timeout we emit
 // ZERO IMPLEMENTS edges and the dependent find_duplicates filter degrades to
 // its signature heuristic — never worse than before this pass existed.
