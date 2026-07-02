@@ -51,25 +51,35 @@ type loadCacheEntry struct {
 var packagesLoadCache = cache.NewTTLLRU[string, loadCacheEntry](loadCacheMaxSize, loadCacheTTL)
 
 // loadGroup coalesces concurrent CachedLoadPackages calls for the same root
-// into a single in-flight LoadPackages call — see CachedLoadPackages.
+// into a single in-flight load — see CachedLoadPackages.
 var loadGroup singleflight.Group
+
+// loadPackagesFn is the production go/packages loader the singleflight
+// closure in CachedLoadPackages calls. Indirected through a package-level
+// var (instead of calling LoadPackages directly) purely for testability:
+// white-box tests in this package (goanalysis, not goanalysis_test) swap it
+// for a barrier-controlled fake to deterministically exercise the
+// per-waiter ctx-budget races fixed below — a real LoadPackages call shells
+// out to `go list` and can't be paused at a chosen instant, so proving "a
+// long-budget follower isn't starved/poisoned by a short-budget leader"
+// without this seam would mean guessing sleep durations against real
+// subprocess timing instead of closing a channel on cue.
+var loadPackagesFn = LoadPackages
 
 // cacheTTLFor classifies how long a load's outcome should be cached:
 //
 //   - success (err == nil): loadCacheTTL.
-//   - a caller-BUDGET-specific failure — ctx (the caller's OWN context,
-//     unwrapped) is done (deadline exceeded or explicitly canceled) — this
-//     describes the CALLER's remaining budget at the moment it asked for
-//     the load, not a property of the repo. A 10s synchronous caller timing
-//     out must not stop a subsequent 30s caller against the same root from
-//     getting its own full attempt. Returns 0 ("never cache" — see
-//     cache.TTLLRU.SetWithTTL) so the next call, on whatever budget, always
-//     re-attempts.
+//   - a shared-load-BUDGET-specific failure — ctx (the shared load's own
+//     context, built fresh in CachedLoadPackages' singleflight closure, NOT
+//     any individual caller's context) is done (its own bounded deadline
+//     elapsed) — this describes the shared load's own allotted budget
+//     running out, not a property of the repo. Returns 0 ("never cache" —
+//     see cache.TTLLRU.SetWithTTL) so the next call always re-attempts.
 //   - any other (genuine repo-level) failure — missing go.mod, unbuildable
 //     deps, indexer crash: loadCacheNegativeTTL.
 //
-// Classification reads ctx.Err() on the caller's OWN context object rather
-// than pattern-matching err via errors.Is(err, context.DeadlineExceeded):
+// Classification reads ctx.Err() on the shared load's own context object
+// rather than pattern-matching err via errors.Is(err, context.DeadlineExceeded):
 // golang.org/x/tools/go/packages' underlying `go list` driver does not
 // reliably propagate context.DeadlineExceeded through an unwrappable chain
 // — its own error formatting ("packages.Load: err: context deadline
@@ -104,29 +114,73 @@ func cacheTTLFor(ctx context.Context, err error) time.Duration {
 // Failures are cached per cacheTTLFor: a genuine repo-level failure (no
 // go.mod, unbuildable deps) is cached under loadCacheNegativeTTL so a
 // persistently-broken repo doesn't retry-storm packages.Load on every
-// enrichment call; a caller-budget-specific failure (context.DeadlineExceeded
-// / context.Canceled) is never cached, so a shorter caller's expired budget
-// can't starve a longer caller's own attempt against the same root.
+// enrichment call; a shared-load-budget-specific failure (the coalesced
+// load's own bounded deadline elapsing) is never cached, so it can't
+// poison a later, independently-budgeted attempt against the same root.
 //
-// Concurrency note: when multiple callers race a cold cache for the same
-// root, singleflight runs LoadPackages exactly once and fans the result out
-// to every waiter — but that one call executes under the FIRST caller's
-// ctx (the "leader"), so a later caller with a shorter ctx than the
-// leader's will not see its own deadline independently enforced against
-// that shared in-flight load. This is singleflight's standard caveat,
-// accepted here because the TTL cache (not this coalescing) serves the
-// overwhelming majority of calls once a root is warm.
+// Concurrency: each caller gets its OWN ctx honored independently, even
+// though at most one go/packages load is ever in flight per root. On a
+// cache miss, the underlying load runs under loadGroup.DoChan in a
+// dedicated goroutine (singleflight's own semantics — DoChan does not run
+// the closure on any specific caller's goroutine), bounded by a budget the
+// closure allocates for ITSELF (defaultTimeout, fully decoupled from every
+// caller's ctx — see the closure body). Every caller — whichever happened
+// to trigger the load and every later joiner racing the same cold root —
+// then independently selects between that shared result and its own
+// ctx.Done(): a short-budget caller (e.g. the 10s synchronous warm probe in
+// EnrichWithTypedResolution) returns its own ctx.Err() at its own deadline
+// without waiting out a slower shared load (e.g. the 15-minute background
+// GOCACHE warm, or a longer sibling caller's own load), and a long-budget
+// caller (e.g. the 30s extractGoImplements IMPLEMENTS pass) is never handed
+// a short-budget sibling's premature timeout — it either gets the shared
+// load's real result or, on true failure, its own independent ctx.Err().
+// The shared load itself is unaffected by any caller giving up early: it
+// keeps running (up to its own bounded budget) and still populates the
+// cache for the next caller, since it was never tied to a specific caller's
+// cancellation in the first place.
+//
+// This replaces an earlier version of this function that ran the coalesced
+// load directly under whichever caller's ctx happened to start it (the
+// "leader") and fanned that leader's ctx and result to every other waiter
+// unconditionally — see the go-code PR #294 pr-review-council round-2
+// report (reviews/pr-council/pr-294-2026-07-01.md) for the two failure
+// directions that caused: a short-budget leader's premature ctx-cancel
+// error silently starving a long-budget follower's edges, and a
+// short-budget follower blocking for a slow leader's FULL duration instead
+// of its own deadline.
 func CachedLoadPackages(ctx context.Context, root string) (*LoadResult, error) {
 	if cached, ok := packagesLoadCache.Get(root); ok {
 		return cached.result, cached.err
 	}
 
-	v, err, _ := loadGroup.Do(root, func() (any, error) {
-		result, loadErr := LoadPackages(ctx, root, LoadOpts{})
-		packagesLoadCache.SetWithTTL(root, loadCacheEntry{result: result, err: loadErr}, cacheTTLFor(ctx, loadErr))
+	ch := loadGroup.DoChan(root, func() (any, error) {
+		// The shared load gets its OWN bounded budget, built from
+		// context.Background() rather than any caller's ctx — decoupling it
+		// from whichever caller happened to trigger it (the singleflight
+		// "leader") is the whole point: that caller's cancellation/deadline
+		// must not be able to kill the load out from under other concurrent
+		// waiters with more remaining budget of their own.
+		//
+		// defaultTimeout is LoadPackages' own zero-value fallback
+		// (loader.go); threading it explicitly via LoadOpts.Timeout instead
+		// of relying on that fallback makes loadCtx's deadline and the
+		// deadline LoadPackages actually enforces coincide BY CONSTRUCTION
+		// (both anchored to the same constant from the same instant),
+		// rather than by the two independently happening to agree.
+		loadCtx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		defer cancel()
+
+		result, loadErr := loadPackagesFn(loadCtx, root, LoadOpts{Timeout: defaultTimeout})
+		packagesLoadCache.SetWithTTL(root, loadCacheEntry{result: result, err: loadErr}, cacheTTLFor(loadCtx, loadErr))
 		return result, loadErr
 	})
-	return v.(*LoadResult), err
+
+	select {
+	case res := <-ch:
+		return res.Val.(*LoadResult), res.Err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // InvalidateCachedLoad evicts any cached entry (success or failure) for
