@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
@@ -112,5 +115,59 @@ func TestRecordCodeGraphAge_ZeroAge(t *testing.T) {
 	got := testutil.ToFloat64(codeGraphAgeSeconds.WithLabelValues(repoKey))
 	if got >= 5 {
 		t.Errorf("codeGraphAgeSeconds{repo=%q} = %.1f, want < 5 (builtAt was now)", repoKey, got)
+	}
+}
+
+// countGaugeSamples returns the number of distinct label-combination samples
+// currently exported for the named metric family. Used to detect whether a
+// call fabricated a new series, independent of any single series's value.
+func countGaugeSamples(t *testing.T, name string) int {
+	t.Helper()
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == name {
+			return len(mf.GetMetric())
+		}
+	}
+	return 0
+}
+
+// TestPublishCodeGraphAgeGauge_UnreachableStore_DoesNotFakeData is the
+// regression guard for the "never fake freshness" requirement in the
+// 2026-07-01 boot-warm fix: when the store is unreachable (DB outage at
+// boot, or between ticker runs), publishCodeGraphAgeGauge must not
+// fabricate ANY gocode_code_graph_age_seconds series — neither a seeded-0
+// "looks fresh" value nor a sentinel "unknown repo" label. It must simply
+// leave the gauge untouched and log a warning.
+//
+// RED before the fix: a "helpful" fallback (e.g. seeding a sentinel label
+// on ListMeta error instead of returning early) would add a new sample to
+// the family, and the sample-count-unchanged assertion fails.
+func TestPublishCodeGraphAgeGauge_UnreachableStore_DoesNotFakeData(t *testing.T) {
+	// Port 1 is not listening — pgxpool.Acquire (and therefore ListMeta's
+	// acquireAGE) fails fast without a live network round-trip.
+	cfg, err := pgxpool.ParseConfig("postgres://testuser:testpass@localhost:1/nodb?connect_timeout=1")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+	store := codegraph.NewStore(pool)
+
+	const family = "gocode_code_graph_age_seconds"
+	before := countGaugeSamples(t, family)
+
+	publishCodeGraphAgeGauge(context.Background(), store)
+
+	after := countGaugeSamples(t, family)
+	if after != before {
+		t.Errorf("publishCodeGraphAgeGauge with an unreachable store must not fabricate any "+
+			"%s series: sample count %d -> %d", family, before, after)
 	}
 }
