@@ -12,9 +12,9 @@ import (
 
 const maxSCIPSourceFiles = 2000
 
-// trySCIPResolution runs a SCIP indexer for the dominant language and converts
+// TrySCIPResolution runs a SCIP indexer for the dominant language and converts
 // the resulting index into a typed call graph. Returns nil on any failure.
-func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, tsSymbols []*parser.Symbol) *CallGraph {
+func TrySCIPResolution(ctx context.Context, root string, files []*ingest.File, tsSymbols []*parser.Symbol) *CallGraph {
 	lang := polyglot.DominantLanguage(files)
 	if lang == "" {
 		return nil
