@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/codegraph"
@@ -87,19 +89,71 @@ func recordCodeGraphAge(repoKey string, builtAt time.Time) {
 //     stops firing would never cross the staleness threshold because the
 //     gauge is never touched again.
 //
+// scopeDirs restricts publication to repos tracked under AUTO_INDEX_DIRS
+// (see filterMetasByAutoIndexDirs) — code_graph_meta also holds rows for
+// one-shot WORKSPACE_DIR clones and test sentinels that are never re-queried
+// under AUTO_INDEX_DIRS, so their graphs are permanently "stale" by
+// construction and would otherwise generate permanent false
+// GocodeCodeGraphStale noise (confirmed live 2026-07-01: 7 of 28
+// code_graph_meta rows were /tmp/go-code-workspace/* one-shot clones or a
+// /test/skip/path sentinel). An empty scopeDirs (AUTO_INDEX_DIRS unset, as
+// in dev/test) preserves the prior behavior of publishing every row.
+//
 // Repos with no code_graph_meta row (never built) are left unset. Do NOT
 // seed 0 for them — an absent series correctly reads as "no data yet", and
 // a fake 0 would misreport a never-built repo as freshly built, hiding real
 // never-built state from GocodeCodeGraphStale (which alerts on staleness,
 // not absence). If the store is unreachable, ListMeta returns an error and
 // this call is a no-op — never fake freshness on a DB outage either.
-func publishCodeGraphAgeGauge(ctx context.Context, store *codegraph.Store) {
+func publishCodeGraphAgeGauge(ctx context.Context, store *codegraph.Store, scopeDirs []string) {
 	metas, err := codegraph.ListMeta(ctx, store)
 	if err != nil {
 		slog.Warn("code_graph: age gauge warm failed", slog.Any("error", err))
 		return
 	}
-	for _, m := range metas {
+	recordCodeGraphAges(metas, scopeDirs)
+}
+
+// recordCodeGraphAges sets the age gauge for every meta row in scope of
+// scopeDirs (see filterMetasByAutoIndexDirs). Split out from
+// publishCodeGraphAgeGauge so the scoping behavior is testable against a
+// synthetic []codegraph.GraphMeta slice without a live DB connection.
+func recordCodeGraphAges(metas []codegraph.GraphMeta, scopeDirs []string) {
+	for _, m := range filterMetasByAutoIndexDirs(metas, scopeDirs) {
 		recordCodeGraphAge(m.RepoKey, m.BuiltAt)
 	}
+}
+
+// filterMetasByAutoIndexDirs returns the subset of metas whose RepoPath is
+// in scope — equal to, or a subdirectory of, one of scopeDirs. When
+// scopeDirs is empty (AUTO_INDEX_DIRS unset), all metas are returned
+// unchanged: refusing to publish anything in that case would silently break
+// the gauge in dev/test environments that never set AUTO_INDEX_DIRS.
+func filterMetasByAutoIndexDirs(metas []codegraph.GraphMeta, scopeDirs []string) []codegraph.GraphMeta {
+	if len(scopeDirs) == 0 {
+		return metas
+	}
+	filtered := make([]codegraph.GraphMeta, 0, len(metas))
+	for _, m := range metas {
+		if repoPathInScope(m.RepoPath, scopeDirs) {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
+}
+
+// repoPathInScope reports whether repoPath equals, or is a subdirectory of,
+// any entry in dirs. Boundary-safe: comparison is done on filepath.Clean'd
+// paths with an explicit separator check, so "/host/src" matches
+// "/host/src/go-nerv" but NOT "/host/src-other" (a raw strings.HasPrefix or
+// strings.Contains would falsely match the latter).
+func repoPathInScope(repoPath string, dirs []string) bool {
+	clean := filepath.Clean(repoPath)
+	for _, dir := range dirs {
+		cleanDir := filepath.Clean(dir)
+		if clean == cleanDir || strings.HasPrefix(clean, cleanDir+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
