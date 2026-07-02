@@ -163,7 +163,7 @@ func TestPublishCodeGraphAgeGauge_UnreachableStore_DoesNotFakeData(t *testing.T)
 	const family = "gocode_code_graph_age_seconds"
 	before := countGaugeSamples(t, family)
 
-	publishCodeGraphAgeGauge(context.Background(), store)
+	publishCodeGraphAgeGauge(context.Background(), store, nil)
 
 	after := countGaugeSamples(t, family)
 	if after != before {

@@ -374,7 +374,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	// this change) and two more inline `if + go func` blocks would add to that
 	// debt for no benefit — see each function's doc comment for the incident
 	// writeup (2026-07-01 metrics audit).
-	startCodeGraphAgeGaugeWarm(graphStore)
+	startCodeGraphAgeGaugeWarm(graphStore, autoIndexDirs(cfg))
 	startZeroEmbeddingsCounterWarm(semDeps.Store)
 
 	return deps
@@ -388,16 +388,21 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 // when a repo's graph was ALREADY stale (confirmed live on the v1.22.1
 // deploy). No-ops when graphStore is nil (DATABASE_URL unset or pool init
 // failed — code_graph is already disabled in that case).
-func startCodeGraphAgeGaugeWarm(graphStore *codegraph.Store) {
+//
+// scopeDirs (the resolved AUTO_INDEX_DIRS, see autoIndexDirs(cfg)) restricts
+// publication to tracked repos — see publishCodeGraphAgeGauge's doc comment
+// for why untracked code_graph_meta rows (WORKSPACE_DIR clones, test
+// sentinels) must not carry a series.
+func startCodeGraphAgeGaugeWarm(graphStore *codegraph.Store, scopeDirs []string) {
 	if graphStore == nil {
 		return
 	}
 	go func() {
-		publishCodeGraphAgeGauge(context.Background(), graphStore)
+		publishCodeGraphAgeGauge(context.Background(), graphStore, scopeDirs)
 		t := time.NewTicker(5 * time.Minute)
 		defer t.Stop()
 		for range t.C {
-			publishCodeGraphAgeGauge(context.Background(), graphStore)
+			publishCodeGraphAgeGauge(context.Background(), graphStore, scopeDirs)
 		}
 	}()
 }
