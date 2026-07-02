@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"log/slog"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -66,4 +69,37 @@ func recordCodeGraphBuildFailure(err error) {
 // builtAt is the meta.BuiltAt timestamp returned by IndexRepo.
 func recordCodeGraphAge(repoKey string, builtAt time.Time) {
 	codeGraphAgeSeconds.WithLabelValues(repoKey).Set(time.Since(builtAt).Seconds())
+}
+
+// publishCodeGraphAgeGauge lists every known repo snapshot (code_graph_meta)
+// and (re)sets gocode_code_graph_age_seconds{repo} from its real BuiltAt
+// timestamp. Called at boot and on a periodic ticker (register.go, mirroring
+// the existing 5-min orphan-gauge pattern) so the gauge:
+//
+//   - exists immediately after a restart instead of vanishing until the next
+//     successful build. A stale graph is exactly the state
+//     GocodeCodeGraphStale wants to catch, but an absent series evaluates to
+//     no data — not ">93600" — so the alert went dark on every deploy
+//     (confirmed live 2026-07-01: the v1.22.1 rollout dropped the series).
+//   - keeps growing between builds instead of freezing at the near-zero
+//     value recordCodeGraphAge set right after the last successful build:
+//     without a periodic re-Set, a repo whose background rebuild silently
+//     stops firing would never cross the staleness threshold because the
+//     gauge is never touched again.
+//
+// Repos with no code_graph_meta row (never built) are left unset. Do NOT
+// seed 0 for them — an absent series correctly reads as "no data yet", and
+// a fake 0 would misreport a never-built repo as freshly built, hiding real
+// never-built state from GocodeCodeGraphStale (which alerts on staleness,
+// not absence). If the store is unreachable, ListMeta returns an error and
+// this call is a no-op — never fake freshness on a DB outage either.
+func publishCodeGraphAgeGauge(ctx context.Context, store *codegraph.Store) {
+	metas, err := codegraph.ListMeta(ctx, store)
+	if err != nil {
+		slog.Warn("code_graph: age gauge warm failed", slog.Any("error", err))
+		return
+	}
+	for _, m := range metas {
+		recordCodeGraphAge(m.RepoKey, m.BuiltAt)
+	}
 }
