@@ -6,6 +6,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/polyglot"
 	gocodescip "github.com/anatolykoptev/go-code/internal/scip"
 )
 
@@ -14,7 +15,7 @@ const maxSCIPSourceFiles = 2000
 // trySCIPResolution runs a SCIP indexer for the dominant language and converts
 // the resulting index into a typed call graph. Returns nil on any failure.
 func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, tsSymbols []*parser.Symbol) *CallGraph {
-	lang := dominantLang(files)
+	lang := polyglot.DominantLanguage(files)
 	if lang == "" {
 		return nil
 	}
@@ -71,23 +72,4 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 
 	slog.Info("scip: enhanced", "lang", lang, "edges", len(typedEdges), "documents", idx.DocumentCount())
 	return ConvertToCallGraph(typedEdges, tsSymbols)
-}
-
-// dominantLang returns the most common language among the given files.
-func dominantLang(files []*ingest.File) string {
-	counts := make(map[string]int)
-	for _, f := range files {
-		if f.Language != "" {
-			counts[f.Language]++
-		}
-	}
-	best := ""
-	bestN := 0
-	for lang, n := range counts {
-		if n > bestN {
-			best = lang
-			bestN = n
-		}
-	}
-	return best
 }

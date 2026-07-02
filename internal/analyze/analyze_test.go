@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/goutil"
-	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -340,15 +339,6 @@ func TestWildcardToRegexp(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestDominantLanguage(t *testing.T) {
-	files := []*ingest.File{
-		{Language: "go"}, {Language: "go"}, {Language: "go"}, {Language: "python"},
-	}
-	if got := dominantLanguage(files); got != "go" {
-		t.Errorf("dominantLanguage = %q, want %q", got, "go")
 	}
 }
 
