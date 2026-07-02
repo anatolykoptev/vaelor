@@ -6,15 +6,21 @@ import (
 	"os"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/review"
 )
 
 // handlePushReview runs a delta review on before..after and posts a commit
 // comment on the after SHA. Intended for direct pushes to main (no PR to
-// attach a review to).
+// attach a review to). The forge is resolved from slug via deps.Forges (see
+// resolvePostForge in forge_post.go) instead of hardcoding GitHub.
 func handlePushReview(slug, before, after string, deps analyze.Deps) error {
 	ctx := context.Background()
+
+	g, err := resolvePostForge(deps, slug)
+	if err != nil {
+		return err
+	}
+
 	root, cleanup, err := resolveRoot(ctx, slug, "", deps)
 	if err != nil {
 		return fmt.Errorf("resolve: %w", err)
@@ -47,7 +53,6 @@ func handlePushReview(slug, before, after string, deps analyze.Deps) error {
 	if token == "" {
 		return fmt.Errorf("GITHUB_TOKEN not set")
 	}
-	g := forge.NewGitHubForge(token, forge.AppConfig{})
 	_, err = g.PostCommitComment(ctx, slug, after, body)
 	return err
 }
