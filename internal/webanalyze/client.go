@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/anatolykoptev/go-code/internal/httputil"
 )
 
 const clientTimeout = 30 * time.Second
@@ -83,27 +81,54 @@ type FetchResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Analyze calls POST /analyze on ox-browser. Delegates the JSON POST+decode
-// transport to httputil.Client (mirrors jaegerclient/promclient/dozorclient).
-// ox-browser reports domain-level failures via AnalyzeResponse.Error on a 200
-// response rather than a non-2xx status, so callers must still check
-// resp.Error after a nil error return.
+// Analyze calls POST /analyze on ox-browser. Not migrated to httputil.Client:
+// ox-browser returns HTTP 502 + a JSON body whose Error field carries the
+// failure reason (e.g. target unreachable — see ox-browser
+// crates/js/src/analyze.rs), and httputil discards non-2xx response bodies
+// without decoding them. This client keeps its own decode-regardless-of-status
+// transport so a 502 still yields a populated AnalyzeResponse.Error instead of
+// a truncated opaque error (same carve-out as internal/fleet/upstream).
 func (c *Client) Analyze(ctx context.Context, url string) (*AnalyzeResponse, error) {
+	body, _ := json.Marshal(map[string]string{"url": url})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/analyze", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("analyze request: %w", err)
+	}
+	defer resp.Body.Close()
+
 	var result AnalyzeResponse
-	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
-	if err := hc.PostJSON(ctx, "/analyze", map[string]string{"url": url}, &result); err != nil {
-		return nil, fmt.Errorf("analyze: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return &result, nil
 }
 
 // Fetch calls POST /fetch on ox-browser to download a single URL. Same
-// error-reporting shape as Analyze: check resp.Error after a nil error.
+// non-2xx-carries-a-decodable-error-body contract as Analyze, so it keeps
+// the same hand-rolled decode-regardless-of-status transport.
 func (c *Client) Fetch(ctx context.Context, url string) (*FetchResponse, error) {
+	body, _ := json.Marshal(map[string]string{"url": url})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/fetch", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch request: %w", err)
+	}
+	defer resp.Body.Close()
+
 	var result FetchResponse
-	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
-	if err := hc.PostJSON(ctx, "/fetch", map[string]string{"url": url}, &result); err != nil {
-		return nil, fmt.Errorf("fetch: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return &result, nil
 }
