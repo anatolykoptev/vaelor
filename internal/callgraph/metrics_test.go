@@ -64,14 +64,14 @@ func TestGotypesFallbackCounter_DeadlineReason(t *testing.T) {
 // TestGotypesFallbackCounter_LoadErrorReason verifies that a plain load failure
 // (not a deadline) records reason="load_error".
 //
-// RED guarantee: remove recordGotypesFallback from TryGoTypesResolution → counter
+// RED guarantee: remove recordGotypesFallback from tryGoTypesResolution → counter
 // stays flat → assertion fails.
 func TestGotypesFallbackCounter_LoadErrorReason(t *testing.T) {
 	before := gatherCounterSum(t, "gocode_callgraph_gotypes_fallback_total",
 		map[string]string{"reason": "load_error"})
 
 	// An empty temp dir has no Go module; packages.Load returns a non-deadline error.
-	TryGoTypesResolution(context.Background(), t.TempDir(), nil)
+	tryGoTypesResolution(context.Background(), t.TempDir(), nil)
 
 	after := gatherCounterSum(t, "gocode_callgraph_gotypes_fallback_total",
 		map[string]string{"reason": "load_error"})
@@ -82,7 +82,7 @@ func TestGotypesFallbackCounter_LoadErrorReason(t *testing.T) {
 // TestSCIPFallbackCounter_Increments verifies that recordSCIPFallback bumps
 // gocode_scip_fallback_total with the given indexer and reason labels.
 //
-// RED guarantee: remove the recordSCIPFallback calls from TrySCIPResolution,
+// RED guarantee: remove the recordSCIPFallback calls from trySCIPResolution,
 // and the counter stays flat — this test fails.
 func TestSCIPFallbackCounter_Increments(t *testing.T) {
 	tests := []struct {

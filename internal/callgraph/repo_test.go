@@ -321,7 +321,7 @@ func main() { F(Opts{}) }
 	}
 }
 
-// TestTryGoTypesResolution_WarnOnFailure verifies that TryGoTypesResolution
+// TestTryGoTypesResolution_WarnOnFailure verifies that tryGoTypesResolution
 // emits a slog.Warn when packages.Load fails (e.g. no go.mod present).
 // This gives operators a "why is my repo stuck at basic tier" signal.
 func TestTryGoTypesResolution_WarnOnFailure(t *testing.T) {
@@ -339,7 +339,7 @@ func TestTryGoTypesResolution_WarnOnFailure(t *testing.T) {
 
 	// tempdir has no go.mod — LoadPackages errors immediately on missing module
 	// file, before any context check is reached.
-	result := TryGoTypesResolution(context.Background(), dir, nil)
+	result := tryGoTypesResolution(context.Background(), dir, nil)
 	if result != nil {
 		t.Error("expected nil result for failing packages.Load")
 	}
@@ -366,19 +366,19 @@ func TestBuildPrewarmEnv_ContainsCGODisabled(t *testing.T) {
 	}
 }
 
-// TestTrySCIPResolution_GoIsNoop asserts that TrySCIPResolution returns nil for
+// TestTrySCIPResolution_GoIsNoop asserts that trySCIPResolution returns nil for
 // a Go-dominant file set. Go analysis is handled by go/types (goanalysis package)
 // so scip-go was removed from the indexer registry. DetectIndexer("go") now
-// returns false, causing TrySCIPResolution to return nil without invoking any
+// returns false, causing trySCIPResolution to return nil without invoking any
 // external binary.
 func TestTrySCIPResolution_GoIsNoop(t *testing.T) {
 	files := []*ingest.File{
 		{Path: "/tmp/main.go", Language: "go"},
 		{Path: "/tmp/util.go", Language: "go"},
 	}
-	result := TrySCIPResolution(context.Background(), t.TempDir(), files, nil)
+	result := trySCIPResolution(context.Background(), t.TempDir(), files, nil)
 	if result != nil {
-		t.Errorf("TrySCIPResolution for Go files returned non-nil %+v; expected no-op", result)
+		t.Errorf("trySCIPResolution for Go files returned non-nil %+v; expected no-op", result)
 	}
 }
 
