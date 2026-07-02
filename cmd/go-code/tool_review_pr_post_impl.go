@@ -26,10 +26,12 @@ type learningsPersister interface {
 	Upsert(ctx context.Context, r learnings.Record) error
 }
 
-// reviewPRPost posts the review to GitHub and persists per-symbol learnings.
-// It is the dry_run=false path of handleReviewPR. root is the absolute path to
-// the local repo checkout (needed for learnings path resolution). Behaviour is
-// byte-identical to the former standalone review_pr_post tool behaviour.
+// reviewPRPost posts the review to the PR's forge (GitHub or GitLab, resolved
+// via deps.Forges — see resolvePostForge in forge_post.go) and persists
+// per-symbol learnings. It is the dry_run=false path of handleReviewPR. root
+// is the absolute path to the local repo checkout (needed for learnings path
+// resolution). Behaviour is byte-identical to the former standalone
+// review_pr_post tool behaviour for GitHub repos.
 func reviewPRPost(
 	ctx context.Context,
 	input ReviewPRInput,
@@ -38,13 +40,17 @@ func reviewPRPost(
 	result *review.DeltaResult,
 	findings []policy.Finding,
 ) (*mcp.CallToolResult, error) {
+	g, err := resolvePostForge(deps, input.Repo)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		return errResult("GITHUB_TOKEN not set"), nil
 	}
 
 	body, comments := renderReview(result, findings)
-	g := forge.NewGitHubForge(token, forge.AppConfig{})
 	event := input.Event
 	url, err := g.PostReview(ctx, input.Repo, input.PR, forge.ReviewPayload{
 		Body: body, Event: event, Comments: comments,
