@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 func TestTraceRepo_Integration(t *testing.T) {
@@ -407,89 +406,13 @@ def main():
 	}
 }
 
-// TestBuildCallGraph_VarFuncBindingCalleeUnresolved is P0 regression fixture (b)
-// for BUG A / Track-2 (BUG B) — krolik-server go-code repo-review-council
-// report, reviews/repo-council/2026-07-01.md, HIGH finding: "dead_code
-// (focus=internal/callgraph) tier=enhanced flags recordEagerWarm as
-// high-confidence dead... though invoked 6x via `var recordEagerWarmFn =
-// recordEagerWarm`" — the exact real shape at eager_warm.go:31,69 (this
-// package).
-//
-// This test calls callgraph.BuildCallGraph DIRECTLY — the exact untyped, raw
-// tree-sitter seam codegraph/index.go feeds straight into the AGE graph
-// (`cg := callgraph.BuildCallGraph(allSymbols, allCalls)`, index.go:128) that
-// dead_code's Cypher query reads back (`OPTIONAL MATCH
-// (caller:Symbol)-[:CALLS]->(s) WHERE caller IS NULL`,
-// internal/codegraph/store_dead_code.go). It deliberately does NOT go through
-// TraceRepo/BuildFromRepo (the call_trace/impact_analysis path, which already
-// merges go/types-resolved edges) — this fixture is the AGE-graph/dead_code
-// seam, not call_trace.
-//
-// RED on ad7d6e2: resolveCall's findByName (graph.go) only matches
-// parser.KindFunction/parser.KindMethod symbols. A package-level var bound to
-// a function value (parser.KindVar) never resolves, so CallEdge.Callee stays
-// nil for the `workFn()` call site, and buildGraph's CALLS-edge loop
-// (graph_build.go: `if ce.Caller == nil || ce.Callee == nil { continue }`)
-// drops the edge before it ever reaches the AGE graph — realWork() then shows
-// zero incoming CALLS edges and dead_code/code_health falsely report it dead.
-func TestBuildCallGraph_VarFuncBindingCalleeUnresolved(t *testing.T) {
-	dir := t.TempDir()
-
-	gomod := "module example.com/varfuncbinding\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Mirrors eager_warm.go's shape: a package-level var bound to a function
-	// value, invoked only through the var — never by the function's own name.
-	src := `package main
-
-func realWork() int { return 42 }
-
-var workFn = realWork
-
-func UseWorkFn() int {
-	return workFn()
-}
-
-func main() {
-	_ = UseWorkFn()
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	ir, err := ingest.IngestRepo(context.Background(), ingest.IngestOpts{
-		Root:         dir,
-		MaxFileBytes: maxFileBytes,
-	})
-	if err != nil {
-		t.Fatalf("IngestRepo: %v", err)
-	}
-	results := parseFilesParallel(context.Background(), ir.Files)
-
-	var allSymbols []*parser.Symbol
-	var allCalls []parser.CallSite
-	for _, r := range results {
-		allSymbols = append(allSymbols, r.symbols...)
-		allCalls = append(allCalls, r.calls...)
-	}
-
-	// The exact untyped seam codegraph/index.go calls raw (NOT BuildFromRepo).
-	cg := BuildCallGraph(allSymbols, allCalls)
-
-	found := false
-	for _, e := range cg.Edges {
-		if e.Caller != nil && e.Caller.Name == "UseWorkFn" &&
-			e.CalleeName == "workFn" && e.Callee != nil && e.Callee.Name == "realWork" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected a resolved CALLS edge UseWorkFn -> realWork (via the workFn var " +
-			"binding); without it the AGE graph shows realWork with zero incoming CALLS " +
-			"edges and dead_code/code_health falsely report it dead")
-	}
-}
+// NOTE: the var-func-binding BUG A fixture (b) formerly here
+// (TestBuildCallGraph_VarFuncBindingCalleeUnresolved) asserted against raw
+// callgraph.BuildCallGraph — the one seam the fix (EnrichWithTypedResolution
+// gated by CODEGRAPH_TYPED_ENRICH on the AGE-graph indexing path) deliberately
+// does not touch, so it could never turn GREEN. It has been replaced by
+// internal/codegraph/satisfaction_test.go's TestAGEGraphMissesVarFuncBindingCallee,
+// which asserts against the actual fixed seam (buildAGECallGraph), mirroring
+// TestAGEGraphMissesHomonymousPkgVarMethodCall (fixture (a)). See
+// internal/goanalysis/resolver_hardred_test.go's TestResolve_VarFuncBindingAlias
+// for the resolver-level proof that goanalysis.Resolve itself emits the edge.
