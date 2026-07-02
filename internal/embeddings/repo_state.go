@@ -95,6 +95,32 @@ func (s *Store) SetRepoState(ctx context.Context, repoKey, sha, model string) er
 	return err
 }
 
+// ListRepoKeys returns every repo_key present in code_repo_state — the set of
+// repos go-code has indexed at least once. Used at boot to pre-touch
+// gocode_repo_state_advanced_with_zero_embeddings_total{repo} for known repos
+// (see WarmRepoStateAdvancedZeroEmbeddings) so the counter series exists
+// before any new bad event, not just after it.
+func (s *Store) ListRepoKeys(ctx context.Context) ([]string, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT repo_key FROM public.code_repo_state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if scanErr := rows.Scan(&key); scanErr != nil {
+			return nil, scanErr
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
 // GetStoredModel returns the embed_model stored in code_repo_state for repoKey,
 // or "" when no row exists or on any error. Used by semantic_search to detect
 // stale-space hits at query time: results returned from a repo whose stored

@@ -26,6 +26,7 @@ import (
 
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -563,6 +564,62 @@ func TestCodeRepo_ZeroEmbeddingsCounter_Fires(t *testing.T) {
 	after := sumCounter(t, "gocode_repo_state_advanced_with_zero_embeddings_total")
 	assert.Greater(t, after, before,
 		"code repo with 0 embeddings (real desync) must increment the desync counter")
+}
+
+// seriesExists reports whether the named metric family currently has a
+// sample carrying label repo=repoLabel. Used to distinguish "series absent"
+// from "series present at 0" — testutil.ToFloat64(vec.WithLabelValues(x))
+// cannot make this distinction because WithLabelValues lazily creates the
+// series as a side effect of the lookup itself.
+func seriesExists(t *testing.T, family, repoLabel string) bool {
+	t.Helper()
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, mf := range mfs {
+		if mf.GetName() != family {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "repo" && lp.GetValue() == repoLabel {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// TestWarmRepoStateAdvancedZeroEmbeddings_CreatesSeriesAtZero is the
+// DB-independent regression guard for the boot pre-touch fix (2026-07-01
+// metrics audit): before the warm call, a never-seen repo_key has no
+// gocode_repo_state_advanced_with_zero_embeddings_total series at all —
+// Prometheus increase() over a series's very first sample is 0 regardless
+// of the sample's value, so a repo's first desync in a fresh process would
+// be invisible to GocodeRepoStateAdvancedZeroEmbeddings without this.
+//
+// RED before the fix: WarmRepoStateAdvancedZeroEmbeddings does not exist
+// (compile error) / a no-op implementation leaves the series absent and the
+// post-warm existence assertion fails.
+func TestWarmRepoStateAdvancedZeroEmbeddings_CreatesSeriesAtZero(t *testing.T) {
+	const repo = "test/warm-zero-embeddings-fresh-label"
+
+	require.False(t, seriesExists(t, "gocode_repo_state_advanced_with_zero_embeddings_total", repo),
+		"precondition: series must not exist yet for a never-touched repo_key")
+
+	WarmRepoStateAdvancedZeroEmbeddings([]string{repo})
+
+	require.True(t, seriesExists(t, "gocode_repo_state_advanced_with_zero_embeddings_total", repo),
+		"WarmRepoStateAdvancedZeroEmbeddings must create the series")
+	got := testutil.ToFloat64(repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repo))
+	assert.Equal(t, float64(0), got, "warm must not fake a real event — value must stay 0")
+}
+
+// TestWarmRepoStateAdvancedZeroEmbeddings_EmptyInput_NoOp guards against a
+// panic or spurious series creation when no repos are known yet (e.g. a
+// genuinely fresh deploy with an empty code_repo_state table).
+func TestWarmRepoStateAdvancedZeroEmbeddings_EmptyInput_NoOp(t *testing.T) {
+	assert.NotPanics(t, func() { WarmRepoStateAdvancedZeroEmbeddings(nil) })
 }
 
 // --- helpers ---
