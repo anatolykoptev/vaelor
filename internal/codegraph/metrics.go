@@ -84,6 +84,21 @@ var deadCodeScoresPrunedTotal = promauto.NewCounter(
 	},
 )
 
+// deadCodeScorePruneAbortedTotal counts pruneStaleDeadCodeScores runs that
+// aborted FAIL CLOSED because an orphan vertex returned by the graph could not
+// be parsed (name or file empty) — the keep-set it would have produced cannot
+// be trusted, so no DELETE runs that round rather than risking a live orphan's
+// stored row being dropped. Should stay at 0 in steady state; a sustained
+// non-zero rate means orphan vertices are missing name/file properties and the
+// prune step is silently no-op'ing every run (never crashes — Non-fatal
+// contract — but is worth alerting on).
+var deadCodeScorePruneAbortedTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_dead_code_prune_aborted_total",
+		Help: "Count of dead_code prune runs aborted fail-closed because an orphan vertex could not be parsed (keep-set untrusted).",
+	},
+)
+
 // semanticDupCollapsedTotal counts duplicate file:symbol pairs that were
 // collapsed before reaching the caller. Two labels:
 //

@@ -99,6 +99,16 @@ func (s *Store) DropGraph(ctx context.Context, name, repoKey string) error {
 		slog.Warn("codegraph: delete mtimes on drop", slog.String("repo", repoKey), slog.Any("error", err))
 	}
 
+	// The dead_code score cache is derived from this graph and must die with
+	// it — otherwise a dropped-but-never-rebuilt repo keeps stale
+	// code_dead_code_scores rows forever (pr-review-council #295 Finding 3:
+	// pruneStaleDeadCodeScores only runs as part of ScoreDeadCodeCandidates,
+	// which never runs again for a graph that was dropped and not rebuilt).
+	// Non-fatal, mirroring the mtimes delete above.
+	if _, err := conn.Exec(ctx, `DELETE FROM code_dead_code_scores WHERE repo_key = $1`, repoKey); err != nil {
+		slog.Warn("codegraph: delete dead_code scores on drop", slog.String("repo", repoKey), slog.Any("error", err))
+	}
+
 	return nil
 }
 

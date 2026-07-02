@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/anatolykoptev/go-kit/rerank"
 )
@@ -32,6 +35,16 @@ const rerankServerMaxDocs = 32
 // every candidate scored by the server rather than truncated to a fabricated
 // zero score. Keep these in sync.
 const maxOrphanCandidates = 200
+
+// deadCodeScorePruneChunkSize bounds each positive-IN DELETE chunk in
+// pruneStaleDeadCodeScores, mirroring internal/embeddings/store.go's
+// intraKeyOrphanChunkSize precedent: the codebase already learned (and
+// documented, #201) that an unbounded anti-join / single giant IN-list risks
+// statement_timeout on this 4-core ARM box, and that chunking a POSITIVE IN is
+// safe (each chunk only targets its own disjoint slice of confirmed-stale
+// rows — unlike chunking a NOT-IN anti-join, which would cause cross-chunk
+// data loss).
+const deadCodeScorePruneChunkSize = 500
 
 // orphanCandidateLimit returns a repo-relative limit for dead_code scoring.
 // Scales with symbol count but stays in [50, maxOrphanCandidates] to bound
@@ -245,15 +258,30 @@ func (s *Store) rerankCandidateBatches(ctx context.Context, repoKey string, cand
 // whose rerank batch was skipped this round — so this does not weaken the
 // skipped-batch resilience rerankCandidateBatches documents. Returns rows
 // deleted. Non-fatal to the caller.
+//
+// Design (pr-review-council BLOCKED #295 remediation): the original version
+// computed toDelete via an UNBOUNDED anti-join keyed on a best-effort-parsed
+// keep-set — any orphan vertex whose name/file failed extraction silently
+// dropped OUT of the keep-set, so its still-live row got deleted; an
+// all-fail/empty result wiped the WHOLE repo's score history silently. This
+// version instead: (1) FAILS CLOSED — any unparseable orphan vertex aborts the
+// entire prune (no DELETE at all) rather than narrowing the keep-set, because
+// here a skipped/dropped keep-set entry is destructive (contrast
+// upsertDeadCodeScores, where skipping a candidate is merely "not inserted" —
+// benign); (2) computes toDelete = (stored keys) MINUS (current-orphan keys)
+// in Go, then issues a bounded, CHUNKED POSITIVE-IN delete — the same pattern
+// internal/embeddings/store.go's DeleteExplicitOrphans/deleteExplicitOrphanChunk
+// already established and documented (intraKeyOrphanChunkSize) after learning
+// that an unbounded repo-wide anti-join risks statement_timeout at scale.
 func (s *Store) pruneStaleDeadCodeScores(ctx context.Context, gname, repoKey string) (int64, error) {
-	// Current orphans (unlimited, name+file), same orphan predicate as the
-	// scoring query but with no complexity ordering / LIMIT.
+	// 1. Current orphan keys — light scalar RETURN (name,file), not the full
+	//    vertex blob (cheaper to transfer and parse at scale than RETURN s).
 	const orphanKeysQuery = `
 		MATCH (s:Symbol) WHERE s.kind = 'function'
 		OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s)
 		WITH s, caller WHERE caller IS NULL
-		RETURN s`
-	rows, err := s.ExecCypher(ctx, gname, orphanKeysQuery, 1)
+		RETURN s.name, s.file`
+	rows, err := s.ExecCypher(ctx, gname, orphanKeysQuery, 2)
 	if err != nil {
 		if IsGraphMissingError(err) {
 			return 0, nil
@@ -261,25 +289,32 @@ func (s *Store) pruneStaleDeadCodeScores(ctx context.Context, gname, repoKey str
 		return 0, fmt.Errorf("query orphan keys: %w", err)
 	}
 
-	// Composite keys "name\x1ffile" for every current orphan. Reuse
-	// extractFieldRerank exactly as upsertDeadCodeScores does so parsing is
-	// identical. Separator is the ASCII Unit Separator (0x1F), NOT NUL:
-	// PostgreSQL's text type rejects embedded NUL bytes outright (SQLSTATE
-	// 22021 "invalid byte sequence for encoding UTF8: 0x00" — confirmed
-	// empirically), so a NUL-joined composite key can never round-trip through
-	// a text[] parameter. 0x1F is a valid text byte and is not expected in a
-	// symbol name or file path.
-	orphanKeys := make([]string, 0, len(rows))
+	// 2. Build the protected keep-set. FAIL CLOSED: the keep-set is what
+	//    protects still-orphan rows from deletion, so any unparseable orphan
+	//    vertex means we CANNOT trust it — abort the whole prune (no DELETE)
+	//    rather than silently narrowing the set and deleting a live orphan's
+	//    row. A legitimately EMPTY orphan set (zero rows returned — every
+	//    function has a caller) is NOT a parse failure and does not abort:
+	//    it correctly flows through to step 4 as "delete everything stored"
+	//    (see TestPruneStaleDeadCodeScores_ZeroOrphansWipesRepoRows).
+	const sep = "\x00" // in-Go map key only — never sent to Postgres as text
+	orphanSet := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
-		if len(row) == 0 {
-			continue
+		if len(row) < 2 {
+			deadCodeScorePruneAbortedTotal.Inc()
+			slog.Warn("codegraph: dead_code prune aborted — malformed orphan row",
+				slog.String("repo", repoKey))
+			return 0, nil
 		}
-		name := extractFieldRerank(row[0], "name")
-		file := extractFieldRerank(row[0], "file")
+		name := strings.Trim(row[0], `"`)
+		file := strings.Trim(row[1], `"`)
 		if name == "" || file == "" {
-			continue
+			deadCodeScorePruneAbortedTotal.Inc()
+			slog.Warn("codegraph: dead_code prune aborted — unparseable orphan vertex (name/file empty)",
+				slog.String("repo", repoKey))
+			return 0, nil
 		}
-		orphanKeys = append(orphanKeys, name+"\x1f"+file)
+		orphanSet[name+sep+file] = struct{}{}
 	}
 
 	conn, err := s.acquireAGE(ctx)
@@ -288,16 +323,95 @@ func (s *Store) pruneStaleDeadCodeScores(ctx context.Context, gname, repoKey str
 	}
 	defer conn.Release()
 
-	// Delete every row for this repo whose (name,file) is NOT a current orphan.
-	// Empty orphanKeys ⇒ "<> ALL('{}')" is TRUE for all rows ⇒ delete all rows
-	// for the repo (correct: no orphans ⇒ no dead-code rows).
-	tag, err := conn.Exec(ctx, `
-		DELETE FROM code_dead_code_scores
-		WHERE repo_key = $1
-		  AND (name || E'\x1f' || file) <> ALL($2::text[])`,
-		repoKey, orphanKeys)
+	// 3. Load this repo's stored score keys.
+	stored, err := conn.Query(ctx,
+		`SELECT name, file FROM code_dead_code_scores WHERE repo_key = $1`, repoKey)
 	if err != nil {
-		return 0, fmt.Errorf("delete stale: %w", err)
+		return 0, fmt.Errorf("load stored keys: %w", err)
+	}
+	type nf struct{ name, file string }
+	var storedKeys []nf
+	for stored.Next() {
+		var n, f string
+		if scanErr := stored.Scan(&n, &f); scanErr != nil {
+			stored.Close()
+			return 0, fmt.Errorf("scan stored key: %w", scanErr)
+		}
+		storedKeys = append(storedKeys, nf{n, f})
+	}
+	stored.Close()
+	if err := stored.Err(); err != nil {
+		return 0, fmt.Errorf("iterate stored keys: %w", err)
+	}
+
+	// 4. toDelete = stored keys whose function is no longer a current orphan.
+	var delNames, delFiles []string
+	for _, k := range storedKeys {
+		if _, stillOrphan := orphanSet[k.name+sep+k.file]; !stillOrphan {
+			delNames = append(delNames, k.name)
+			delFiles = append(delFiles, k.file)
+		}
+	}
+	if len(delNames) == 0 {
+		return 0, nil
+	}
+	// Observability: a full-table wipe for a repo is legitimate (repo has zero
+	// current orphans) but rare — never let it be silent.
+	if len(delNames) == len(storedKeys) {
+		slog.Warn("codegraph: dead_code prune removing ALL stored scores for repo (zero current orphans)",
+			slog.String("repo", repoKey), slog.Int("rows", len(delNames)))
+	}
+
+	// 5. Chunked positive-IN delete (mirror embeddings intraKeyOrphanChunkSize).
+	var total int64
+	for start := 0; start < len(delNames); start += deadCodeScorePruneChunkSize {
+		end := min(start+deadCodeScorePruneChunkSize, len(delNames))
+		n, dErr := s.deleteStaleScoreChunk(ctx, conn, repoKey, delNames[start:end], delFiles[start:end])
+		if dErr != nil {
+			return total, dErr
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// deleteStaleScoreChunk issues one positive-IN DELETE for a single chunk of up
+// to deadCodeScorePruneChunkSize confirmed-stale (name, file) pairs — mirrors
+// internal/embeddings/store.go's deleteExplicitOrphanChunk. Unlike a NOT-IN
+// anti-join (which deletes everything NOT in the chunk — cross-chunk data loss
+// once total rows exceed the chunk size), this DELETE targets ONLY the rows
+// whose keys appear in the supplied slice, so chunking is safe: each chunk
+// deletes a disjoint subset of the full stale set; no live row is ever
+// collateral. Takes the already-acquired AGE connection (code_dead_code_scores
+// lives in ag_catalog, reachable only via a connection with the AGE
+// search_path applied — acquireAGE already did that in the caller).
+//
+// SQL shape:
+//
+//	DELETE FROM code_dead_code_scores
+//	WHERE repo_key = $1 AND (name, file) IN (VALUES ($2,$3), ($4,$5), ...)
+func (s *Store) deleteStaleScoreChunk(ctx context.Context, conn *pgxpool.Conn, repoKey string, names, files []string) (int64, error) {
+	n := len(names)
+	if n == 0 {
+		return 0, nil
+	}
+	var b strings.Builder
+	b.WriteString("DELETE FROM code_dead_code_scores WHERE repo_key = $1 AND (name, file) IN (VALUES ")
+	args := make([]any, 0, 1+n*2)
+	args = append(args, repoKey)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		p1 := 2 + i*2
+		p2 := p1 + 1
+		fmt.Fprintf(&b, "($%d,$%d)", p1, p2)
+		args = append(args, names[i], files[i])
+	}
+	b.WriteByte(')')
+	tag, err := conn.Exec(ctx, b.String(), args...)
+	if err != nil {
+		return 0, fmt.Errorf("deleteStaleScoreChunk: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
