@@ -151,6 +151,51 @@ func TestDetectStructure_AstroProjectPrimaryLanguage(t *testing.T) {
 	}
 }
 
+func TestDominantLanguage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		files []*ingest.File
+		want  string
+	}{
+		{
+			name:  "empty files",
+			files: nil,
+			want:  "",
+		},
+		{
+			name: "clear majority",
+			files: []*ingest.File{
+				makeFile("a.go", "go"),
+				makeFile("b.go", "go"),
+				makeFile("c.go", "go"),
+				makeFile("d.py", "python"),
+			},
+			want: "go",
+		},
+		{
+			name: "all empty language",
+			files: []*ingest.File{
+				makeFile("go.mod", ""),
+				makeFile("README.md", ""),
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := DominantLanguage(tt.files)
+			if got != tt.want {
+				t.Errorf("DominantLanguage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsPolyglot(t *testing.T) {
 	t.Parallel()
 

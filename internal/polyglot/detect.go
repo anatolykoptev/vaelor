@@ -55,7 +55,7 @@ func DetectStructure(files []*ingest.File) *RepoStructure {
 	layers := layersFromManifests(manifests, files)
 	if len(layers) == 0 {
 		// Fallback: single root layer with dominant language.
-		lang := dominantLanguage(rs.Languages)
+		lang := DominantLanguageFromCounts(rs.Languages)
 		layers = []Layer{
 			{
 				Name:     "root",
@@ -84,13 +84,31 @@ func (rs *RepoStructure) IsPolyglot() bool {
 	return count >= 2
 }
 
-// dominantLanguage returns the language with the highest file count.
-// Returns "" if the map is empty.
-func dominantLanguage(langs map[string]int) string {
+// DominantLanguage returns the most common language among the given files,
+// counting only files with a non-empty Language. Returns "" if files is
+// empty or no file has a recognised language.
+//
+// This is the canonical implementation shared by every package that needs
+// "most frequent language among a file set" — do not reimplement the
+// argmax locally.
+func DominantLanguage(files []*ingest.File) string {
+	counts := make(map[string]int)
+	for _, f := range files {
+		if f.Language != "" {
+			counts[f.Language]++
+		}
+	}
+	return DominantLanguageFromCounts(counts)
+}
+
+// DominantLanguageFromCounts returns the language with the highest count.
+// Returns "" if the map is empty. Ties resolve by Go's non-deterministic
+// map iteration order, matching prior per-package implementations.
+func DominantLanguageFromCounts(counts map[string]int) string {
 	best := ""
 	bestCount := 0
 
-	for lang, count := range langs {
+	for lang, count := range counts {
 		if count > bestCount {
 			best = lang
 			bestCount = count
