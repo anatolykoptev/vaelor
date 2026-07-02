@@ -125,6 +125,18 @@ func (s *Store) ScoreDeadCodeCandidates(ctx context.Context, gname, repoKey stri
 		return err
 	}
 
+	// Step 0: prune scores for functions that are no longer orphans (or were
+	// deleted). Runs regardless of rerank availability — pruning depends only on
+	// the live graph, not on new scoring. Non-fatal.
+	if pruned, pErr := s.pruneStaleDeadCodeScores(ctx, gname, repoKey); pErr != nil {
+		slog.Warn("codegraph: dead_code prune failed (non-fatal)",
+			slog.String("repo", repoKey), slog.Any("error", pErr))
+	} else if pruned > 0 {
+		deadCodeScoresPrunedTotal.Add(float64(pruned))
+		slog.Info("codegraph: pruned stale dead_code scores",
+			slog.String("repo", repoKey), slog.Int64("pruned", pruned))
+	}
+
 	// Step 1: Query orphan functions with pre-scored ordering.
 	limit := orphanCandidateLimit(symbolCount)
 	query := buildDeadCodeScoringQuery(limit)
@@ -221,6 +233,73 @@ func (s *Store) rerankCandidateBatches(ctx context.Context, repoKey string, cand
 		}
 	}
 	return scored, anyScored
+}
+
+// pruneStaleDeadCodeScores deletes code_dead_code_scores rows whose function is
+// no longer a current orphan in the live graph — a function that gained an
+// incoming CALLS edge (real refactor OR the typed-enrichment fix, BUG A) or was
+// deleted outright. Without this, code_dead_code_scores only ever grows: a
+// once-orphan function's stale score survives forever and code_health keeps
+// counting it as dead (the code_health over-count residual the P2b canary
+// caught). Rows for functions that are STILL orphans are kept — including ones
+// whose rerank batch was skipped this round — so this does not weaken the
+// skipped-batch resilience rerankCandidateBatches documents. Returns rows
+// deleted. Non-fatal to the caller.
+func (s *Store) pruneStaleDeadCodeScores(ctx context.Context, gname, repoKey string) (int64, error) {
+	// Current orphans (unlimited, name+file), same orphan predicate as the
+	// scoring query but with no complexity ordering / LIMIT.
+	const orphanKeysQuery = `
+		MATCH (s:Symbol) WHERE s.kind = 'function'
+		OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s)
+		WITH s, caller WHERE caller IS NULL
+		RETURN s`
+	rows, err := s.ExecCypher(ctx, gname, orphanKeysQuery, 1)
+	if err != nil {
+		if IsGraphMissingError(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("query orphan keys: %w", err)
+	}
+
+	// Composite keys "name\x1ffile" for every current orphan. Reuse
+	// extractFieldRerank exactly as upsertDeadCodeScores does so parsing is
+	// identical. Separator is the ASCII Unit Separator (0x1F), NOT NUL:
+	// PostgreSQL's text type rejects embedded NUL bytes outright (SQLSTATE
+	// 22021 "invalid byte sequence for encoding UTF8: 0x00" — confirmed
+	// empirically), so a NUL-joined composite key can never round-trip through
+	// a text[] parameter. 0x1F is a valid text byte and is not expected in a
+	// symbol name or file path.
+	orphanKeys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		name := extractFieldRerank(row[0], "name")
+		file := extractFieldRerank(row[0], "file")
+		if name == "" || file == "" {
+			continue
+		}
+		orphanKeys = append(orphanKeys, name+"\x1f"+file)
+	}
+
+	conn, err := s.acquireAGE(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("acquire: %w", err)
+	}
+	defer conn.Release()
+
+	// Delete every row for this repo whose (name,file) is NOT a current orphan.
+	// Empty orphanKeys ⇒ "<> ALL('{}')" is TRUE for all rows ⇒ delete all rows
+	// for the repo (correct: no orphans ⇒ no dead-code rows).
+	tag, err := conn.Exec(ctx, `
+		DELETE FROM code_dead_code_scores
+		WHERE repo_key = $1
+		  AND (name || E'\x1f' || file) <> ALL($2::text[])`,
+		repoKey, orphanKeys)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // upsertDeadCodeScores writes each scored candidate's CE probability to

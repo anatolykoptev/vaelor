@@ -71,6 +71,19 @@ func recordRerankBatch(outcome string) {
 	deadCodeRerankBatchTotal.WithLabelValues(outcome).Inc()
 }
 
+// deadCodeScoresPrunedTotal counts code_dead_code_scores rows pruned because
+// their function is no longer a current orphan in the live AGE graph (gained
+// an incoming CALLS edge, or was removed outright). Without this prune,
+// upsertDeadCodeScores is insert/update-only, so the table only ever grows
+// and code_health over-counts dead functions monotonically. Unlabeled to
+// avoid per-repo cardinality.
+var deadCodeScoresPrunedTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_dead_code_scores_pruned_total",
+		Help: "Total code_dead_code_scores rows pruned because their function is no longer a current orphan (or was removed).",
+	},
+)
+
 // semanticDupCollapsedTotal counts duplicate file:symbol pairs that were
 // collapsed before reaching the caller. Two labels:
 //
