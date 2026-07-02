@@ -368,7 +368,69 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		}()
 	}
 
+	// Code-graph age gauge + zero-embeddings desync counter — boot warm, both
+	// extracted to their own functions rather than inlined here: registerTools
+	// already exceeds the gocognit threshold (baseline 40 > 20 on main before
+	// this change) and two more inline `if + go func` blocks would add to that
+	// debt for no benefit — see each function's doc comment for the incident
+	// writeup (2026-07-01 metrics audit).
+	startCodeGraphAgeGaugeWarm(graphStore)
+	startZeroEmbeddingsCounterWarm(semDeps.Store)
+
 	return deps
+}
+
+// startCodeGraphAgeGaugeWarm launches the boot + periodic-ticker goroutine
+// (same 5-min cadence as the orphan gauge above) that keeps
+// gocode_code_graph_age_seconds populated from the real code_graph_meta
+// snapshot. Without this the series vanished on every restart until the
+// next successful build completed — defeating GocodeCodeGraphStale exactly
+// when a repo's graph was ALREADY stale (confirmed live on the v1.22.1
+// deploy). No-ops when graphStore is nil (DATABASE_URL unset or pool init
+// failed — code_graph is already disabled in that case).
+func startCodeGraphAgeGaugeWarm(graphStore *codegraph.Store) {
+	if graphStore == nil {
+		return
+	}
+	go func() {
+		publishCodeGraphAgeGauge(context.Background(), graphStore)
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			publishCodeGraphAgeGauge(context.Background(), graphStore)
+		}
+	}()
+}
+
+// zeroEmbeddingsWarmTimeout bounds the boot-time ListRepoKeys query so a
+// slow/unreachable store cannot hang the warm goroutine indefinitely.
+const zeroEmbeddingsWarmTimeout = 30 * time.Second
+
+// startZeroEmbeddingsCounterWarm pre-touches
+// gocode_repo_state_advanced_with_zero_embeddings_total{repo} at boot for
+// every repo already known via code_repo_state. Prometheus increase() over
+// a series that has just come into existence has nothing to subtract from
+// and reads 0, so a repo's FIRST desync in a fresh process would be
+// invisible to GocodeRepoStateAdvancedZeroEmbeddings until its SECOND
+// desync in the same process lifetime; pre-touching closes that gap.
+// One-shot (no ticker needed): a repo indexed for the first time after boot
+// gets its series established the normal way, via SetRepoState. No-ops when
+// store is nil (EMBED_URL/DATABASE_URL unset — semantic_search is already
+// disabled in that case).
+func startZeroEmbeddingsCounterWarm(store *embeddings.Store) {
+	if store == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), zeroEmbeddingsWarmTimeout)
+		defer cancel()
+		keys, err := store.ListRepoKeys(ctx)
+		if err != nil {
+			slog.Warn("zero-embeddings counter warm failed", slog.Any("error", err))
+			return
+		}
+		embeddings.WarmRepoStateAdvancedZeroEmbeddings(keys)
+	}()
 }
 
 // publishOrphanGauge queries PG for orphan repo_keys and updates the gauge.

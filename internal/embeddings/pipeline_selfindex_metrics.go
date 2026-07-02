@@ -12,6 +12,11 @@ import (
 // required.
 //
 // Cardinality: 1 label (repo) — bounded by indexed repo count (~100).
+//
+// Pre-touched at boot for every known repo_key via
+// WarmRepoStateAdvancedZeroEmbeddings (called from cmd/go-code register.go
+// with embeddings.Store.ListRepoKeys) — see that function's doc comment for
+// why increase() needs the series to already exist before the first event.
 var repoStateAdvancedWithZeroEmbeddingsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_repo_state_advanced_with_zero_embeddings_total",
@@ -100,18 +105,51 @@ func RecordIndexPartialAbort(repo string) {
 func init() {
 	// Pre-touch all counter/gauge label combinations so Prometheus exposes the
 	// series on startup (no "no data" on fresh-deploy dashboards).
-	// repoStateAdvancedWithZeroEmbeddingsTotal: no pre-touch — cardinality
-	//   driven by repos encountered at runtime; pre-touching requires knowing
-	//   the full repo list which is unavailable at init().
 	//
-	// repoEmbeddingsPresent: same rationale — repo labels are runtime-dynamic.
+	// repoStateAdvancedWithZeroEmbeddingsTotal: no pre-touch HERE — the full
+	//   repo_key list lives in Postgres (code_repo_state) and is unavailable
+	//   at package init() (no DB handle yet). Instead it is warmed once the
+	//   store is available, at boot: cmd/go-code register.go calls
+	//   embeddings.Store.ListRepoKeys then WarmRepoStateAdvancedZeroEmbeddings
+	//   (2026-07-01 metrics audit; see that function's doc comment).
 	//
-	// indexPartialAbortTotal: same rationale — repo labels are runtime-dynamic.
+	// repoEmbeddingsPresent, indexPartialAbortTotal: same DB-dependent
+	//   rationale, deliberately left un-warmed for now — unlike the counter
+	//   above, no Prometheus alert rule currently reads either metric
+	//   (config/prometheus/alerts-go-code.yml), so a boot-time N-repo warm
+	//   query buys no alert coverage today. Revisit if/when a rule is added
+	//   (repo-review-council 2026-07-01 NOISE #37 proposes the "frozen-empty"
+	//   compound alert this gauge would back).
 	//
-	// indexCancelledTotal: pre-touch known tool/phase combinations.
+	// indexCancelledTotal: pre-touch known tool/phase combinations — fully
+	//   bounded, no DB dependency, so it stays here in init().
 	for _, tool := range []string{"semantic_search", "code_graph", "understand", "repo_analyze", "autoindex", "code_research"} {
 		for _, phase := range []string{"embed", "db_write", "chunk_loop"} {
 			indexCancelledTotal.WithLabelValues(tool, phase)
 		}
+	}
+}
+
+// WarmRepoStateAdvancedZeroEmbeddings pre-touches
+// gocode_repo_state_advanced_with_zero_embeddings_total{repo} for every
+// repoKey supplied, so the series exists before the first real event.
+//
+// Why this matters: Prometheus increase() treats a counter series's first
+// sample as having nothing to subtract from — a label combination that comes
+// into existence AT the moment of a bad event yields increase()==0 for that
+// exact event. A repo desyncing for the first time after a process restart
+// would therefore be invisible to GocodeRepoStateAdvancedZeroEmbeddings until
+// its SECOND desync in the same process lifetime. Pre-touching at boot with
+// the known repo_key list (code_repo_state — repos indexed at least once)
+// closes that window for every repo already on record.
+//
+// Repos indexed for the first time after boot are not covered by this
+// pre-touch, but are lower risk: SetRepoState establishes their
+// code_repo_state row (and, transitively, their eligibility for this call on
+// the NEXT boot) as part of the same successful-index path that would need to
+// desync to trigger the counter at all.
+func WarmRepoStateAdvancedZeroEmbeddings(repoKeys []string) {
+	for _, repo := range repoKeys {
+		repoStateAdvancedWithZeroEmbeddingsTotal.WithLabelValues(repo).Add(0)
 	}
 }

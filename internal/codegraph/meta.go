@@ -43,6 +43,55 @@ func getMeta(ctx context.Context, store *Store, repoKey string) (*GraphMeta, err
 	return &m, nil
 }
 
+// ListMeta returns every stored GraphMeta row — one per repo that has ever
+// completed a successful build. Used at boot to seed
+// gocode_code_graph_age_seconds with the REAL age of each repo's last build
+// (see cmd/go-code's publishCodeGraphAgeGauge) instead of leaving the series
+// absent — and therefore invisible to GocodeCodeGraphStale — until the next
+// build cycle completes.
+//
+// Returns (nil, nil) when code_graph_meta does not exist yet, matching
+// getMeta's cold-path treatment: an uninitialised schema is "no repos known
+// yet", not an error.
+func ListMeta(ctx context.Context, store *Store) ([]GraphMeta, error) {
+	conn, err := store.acquireAGE(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	rows, err := conn.Query(ctx, `
+		SELECT repo_key, repo_path, graph_name,
+		       file_count, symbol_count, edge_count,
+		       built_at, ttl_seconds
+		FROM code_graph_meta`)
+	if err != nil {
+		// 42P01 = undefined_table: schema not yet initialised; treat as no known repos.
+		if strings.Contains(err.Error(), "42P01") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query meta: %w", err)
+	}
+	defer rows.Close()
+
+	var metas []GraphMeta
+	for rows.Next() {
+		var m GraphMeta
+		if scanErr := rows.Scan(
+			&m.RepoKey, &m.RepoPath, &m.GraphName,
+			&m.FileCount, &m.SymbolCount, &m.EdgeCount,
+			&m.BuiltAt, &m.TTLSeconds,
+		); scanErr != nil {
+			return nil, fmt.Errorf("scan meta row: %w", scanErr)
+		}
+		metas = append(metas, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate meta rows: %w", err)
+	}
+	return metas, nil
+}
+
 // upsertMeta inserts or updates the GraphMeta row.
 func upsertMeta(ctx context.Context, store *Store, meta *GraphMeta) error {
 	conn, err := store.acquireAGE(ctx)
