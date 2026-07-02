@@ -44,8 +44,20 @@ type ParseCache struct {
 
 type parseCacheEntry struct {
 	result  *parser.ParseResult
+	calls   []parser.CallSite
 	modTime int64 // unix nano
 	size    int64
+}
+
+// cacheKey builds the internal LRU key for path scoped to includeBody. The
+// two includeBody modes parse to different *parser.ParseResult shapes (body
+// text present or absent), so they occupy distinct cache slots instead of
+// one overwriting or falsely satisfying the other.
+func cacheKey(path string, includeBody bool) string {
+	if includeBody {
+		return "\x01" + path
+	}
+	return path
 }
 
 // NewParseCache creates a parse cache with the given maximum entry count.
@@ -58,34 +70,38 @@ func NewParseCache(maxSize int) *ParseCache {
 	}
 }
 
-// Get returns a cached parse result if the file hasn't changed.
-// Returns nil if not cached or stale (modTime/size mismatch).
-func (c *ParseCache) Get(path string, modTime int64, size int64) *parser.ParseResult {
+// Get returns a cached parse result and its call sites for path, scoped to
+// the given includeBody mode. Returns (nil, nil) if not cached, stale
+// (modTime/size mismatch), or cached under the other includeBody mode.
+func (c *ParseCache) Get(path string, modTime, size int64, includeBody bool) (*parser.ParseResult, []parser.CallSite) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	e, ok := c.lru.Get(path)
+	key := cacheKey(path, includeBody)
+	e, ok := c.lru.Get(key)
 	if !ok {
 		c.misses++
-		return nil
+		return nil, nil
 	}
 
 	if e.modTime != modTime || e.size != size {
 		// Stale — remove and treat as miss.
-		c.lru.Delete(path)
+		c.lru.Delete(key)
 		c.misses++
-		return nil
+		return nil, nil
 	}
 
 	c.hits++
-	return e.result
+	return e.result, e.calls
 }
 
-// Put stores a parse result. Evicts the least-recently-used entry if at capacity.
-func (c *ParseCache) Put(path string, modTime int64, size int64, result *parser.ParseResult) {
+// Put stores a parse result and its call sites for path, scoped to the given
+// includeBody mode. Evicts the least-recently-used entry if at capacity.
+func (c *ParseCache) Put(path string, modTime, size int64, includeBody bool, result *parser.ParseResult, calls []parser.CallSite) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.lru.Set(path, parseCacheEntry{result: result, modTime: modTime, size: size})
+	key := cacheKey(path, includeBody)
+	c.lru.Set(key, parseCacheEntry{result: result, calls: calls, modTime: modTime, size: size})
 }
 
 // Stats returns current cache statistics.
