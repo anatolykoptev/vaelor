@@ -74,8 +74,8 @@ func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCa
 		}
 		modTime = info.ModTime().UnixNano()
 		size = info.Size()
-		if cached := parseCache.Get(file.Path, modTime, size); cached != nil {
-			return fileParseResult{file: file, result: cached}
+		if cachedResult, cachedCalls := parseCache.Get(file.Path, modTime, size, includeBody); cachedResult != nil {
+			return fileParseResult{file: file, result: cachedResult, calls: cachedCalls}
 		}
 	}
 
@@ -96,7 +96,7 @@ func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCa
 	calls, _ := parser.ExtractCalls(file.Path, source, parser.ParseOpts{Language: file.Language})
 
 	if parseCache != nil {
-		parseCache.Put(file.Path, modTime, size, pr)
+		parseCache.Put(file.Path, modTime, size, includeBody, pr, calls)
 	}
 
 	return fileParseResult{file: file, result: pr, calls: calls}
