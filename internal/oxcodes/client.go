@@ -2,13 +2,12 @@
 package oxcodes
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/httputil"
 )
 
 // httpTimeout is a generous ceiling: a cold ast-grep structural search on a
@@ -161,31 +160,13 @@ func (c *Client) post(ctx context.Context, path string, body any) (*SearchRespon
 	return &result, nil
 }
 
+// doPost issues the JSON POST and decodes the response. Delegates to
+// httputil.Client to avoid duplicating http+json plumbing (mirrors
+// jaegerclient/promclient/dozorclient).
 func (c *Client) doPost(ctx context.Context, path string, body any, result any) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("oxcodes: marshal: %w", err)
+	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
+	if err := hc.PostJSON(ctx, path, body, result); err != nil {
+		return fmt.Errorf("oxcodes: %w", err)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("oxcodes: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("oxcodes: request: %w", err)
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("oxcodes: status %d: %s", resp.StatusCode, string(errBody))
-	}
-
-	return json.NewDecoder(resp.Body).Decode(result)
+	return nil
 }
