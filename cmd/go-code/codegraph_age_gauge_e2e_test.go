@@ -40,7 +40,14 @@ func TestPublishCodeGraphAgeGauge_SeedsFromStoredMeta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", err)
 	}
-	defer pool.Close()
+	// t.Cleanup callbacks run LIFO, AFTER the test function (and any `defer`
+	// inside it) has already returned — a `defer pool.Close()` here would
+	// close the pool BEFORE the DB-cleanup t.Cleanup below runs, and every
+	// pool.Exec inside it would fail with "closed pool" (exactly what broke
+	// CI: an ordering bug in the test's own teardown, not the production
+	// code under test — that assertion had already passed). Registering
+	// pool.Close as the FIRST t.Cleanup makes it run LAST.
+	t.Cleanup(func() { pool.Close() })
 	store := codegraph.NewStore(pool)
 
 	const repoKey = "__test_publish_code_graph_age_gauge__"
@@ -62,6 +69,7 @@ func TestPublishCodeGraphAgeGauge_SeedsFromStoredMeta(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM code_graph_meta WHERE repo_key = $1`, repoKey)
 	}
 	cleanup()
+	// Registered SECOND -> runs FIRST (LIFO), while the pool is still open.
 	t.Cleanup(func() {
 		cleanup()
 		_ = store.DropGraph(ctx, repoKey, repoKey)
