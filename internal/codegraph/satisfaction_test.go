@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -148,6 +149,131 @@ func keysOf(m map[string]struct{}) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
+	}
+	return out
+}
+
+// TestAGEGraphMissesHomonymousPkgVarMethodCall is P0 regression fixture (a) for
+// BUG A (krolik-server go-code repo-review-council report, reviews/repo-council/
+// 2026-07-01.md, HIGH finding): "Dead-code + code-health emit false 'dead'
+// verdicts for functions reachable only via package-level var dispatch."
+//
+// Mirrors the LIVE-CONFIRMED production shape at internal/compare/coupling.go:33
+// (`globalCouplingCache.get(key)`) alongside its sibling churn/touches caches in
+// the same package: several distinct *T package-level vars each expose a
+// same-named method (here `Get`), invoked from a THIRD file. codegraph/index.go
+// builds the AGE graph's CALLS edges from `callgraph.BuildCallGraph` (untyped
+// tree-sitter) — NOT `callgraph.BuildFromRepo` (the call_trace/impact_analysis
+// path, which additionally merges go/types-resolved edges and would disambiguate
+// this correctly). BuildCallGraph's resolveCall (graph.go) matches purely by
+// method NAME — same file -> same dir -> global — with zero receiver-type
+// awareness, so when a call site's own file has no local symbol of that name, a
+// cross-file, same-directory lookup returns whichever homonymous method comes
+// first in the symbol list, not the one the pkgVar's static type actually points
+// at. The other method then gets ZERO CALLS edges in the AGE graph despite a real
+// caller — dead_code's `OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WHERE caller
+// IS NULL` (store_dead_code.go) sees it as an orphan.
+//
+// This test exercises the EXACT seam codegraph/index.go uses to build the AGE
+// graph — ingestAndParse -> callgraph.BuildCallGraph -> buildGraph — and asserts
+// on the resulting []edgeData (the literal CALLS-edge representation persisted to
+// Apache AGE and read back by dead_code), NOT callgraph.TraceRepo/BuildFromRepo
+// (the call_trace path, already typed-aware and not what index.go uses for CALLS).
+//
+// RED on ad7d6e2: no CALLS edgeData exists with ToKey == "Get"+delim+"cacheb.go".
+func TestAGEGraphMissesHomonymousPkgVarMethodCall(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module example.com/pkgvarmethod\n\ngo 1.21\n",
+		// Two distinct concrete types, each with a same-named method, each
+		// exposed via its own package-level *T var — mirrors couplingCache /
+		// churnCache / touchesCache all exposing get/set in internal/compare.
+		"cachea.go": `package main
+
+type CacheA struct{}
+
+func (c *CacheA) Get(key string) string { return "a" }
+
+var globalA = &CacheA{}
+`,
+		"cacheb.go": `package main
+
+type CacheB struct{}
+
+func (c *CacheB) Get(key string) string { return "b" }
+
+var globalB = &CacheB{}
+`,
+		// Callers live in a THIRD file with no local "Get" symbol, forcing
+		// resolveCall's cross-file same-directory fallback (graph.go) — the
+		// exact ambiguous path that misattributes the call.
+		"main.go": `package main
+
+func UseCacheA() string {
+	return globalA.Get("k")
+}
+
+func UseCacheB() string {
+	return globalB.Get("k")
+}
+
+func main() {
+	_ = UseCacheA()
+	_ = UseCacheB()
+}
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	// Exact codegraph/index.go seam (index.go:128-134): ingestAndParse ->
+	// callgraph.BuildCallGraph (untyped) -> buildGraph -> []edgeData, the AGE
+	// representation dead_code's Cypher query reads.
+	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, _, err := ingestAndParse(context.Background(), root)
+	if err != nil {
+		t.Fatalf("ingestAndParse: %v", err)
+	}
+
+	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
+	_, edges, _ := buildGraph(buildGraphInput{
+		Root: root, Files: allFiles, Symbols: allSymbols,
+		CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,
+	})
+
+	wantFrom := "UseCacheB" + compositeKeyDelim + "main.go"
+	wantTo := "Get" + compositeKeyDelim + "cacheb.go"
+
+	found := false
+	for _, e := range edges {
+		if e.EdgeLabel != "CALLS" {
+			continue
+		}
+		if e.FromKey == wantFrom && e.ToKey == wantTo {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("AGE graph missing CALLS edge %s -> %s; dead_code will falsely report "+
+			"CacheB.Get as dead despite the real caller UseCacheB (BUG A: untyped "+
+			"BuildCallGraph resolves homonymous methods by name only); CALLS edges seen: %v",
+			wantFrom, wantTo, callsEdgeSummary(edges))
+	}
+}
+
+// callsEdgeSummary formats every CALLS edgeData's From->To key pair for
+// failure-message readability.
+func callsEdgeSummary(edges []edgeData) []string {
+	out := make([]string, 0, len(edges))
+	for _, e := range edges {
+		if e.EdgeLabel == "CALLS" {
+			out = append(out, e.FromKey+"->"+e.ToKey)
+		}
 	}
 	return out
 }
