@@ -12,17 +12,20 @@ import (
 // implementsLoadTimeout bounds the synchronous go/packages load used to compute
 // interface satisfaction at index time.
 //
-// This is a DEDICATED typed load, not a free or incremental reuse of existing
-// analysis: the IndexRepo path builds its call graph from the tree-sitter symbol
-// table (callgraph.BuildCallGraph in index.go), NOT a go/packages typed load, so
-// no warmed go/types state exists to piggyback on here. extractGoImplements runs a
-// fresh full NeedDeps load via goanalysis.LoadPackages — cold (NeedDeps) loads can
-// run minutes, so the indexer must not block on it. On timeout we emit ZERO
-// IMPLEMENTS edges and the dependent find_duplicates filter degrades to its
-// signature heuristic — never worse than before this pass existed.
+// extractGoImplements routes through goanalysis.CachedLoadPackages, a small
+// bounded LRU+TTL cache keyed by repo root: if callgraph's typed CALLS
+// resolution (the package-private tryGoTypesResolution, callgraph/repo.go)
+// already warmed this root's load within the cache TTL, this call is served
+// from that cached result instead of paying its own NeedDeps load. On a
+// cold cache it still runs a fresh load bounded by implementsLoadTimeout — cold (NeedDeps) loads
+// can run minutes, so the indexer must not block on it. On timeout we emit
+// ZERO IMPLEMENTS edges and the dependent find_duplicates filter degrades to
+// its signature heuristic — never worse than before this pass existed.
 //
-// (The callgraph package's separate type-aware call resolution uses a 10s warm-path
-// bound in callgraph/repo.go; that is a different code path with its own load.)
+// (The callgraph package's separate type-aware call resolution uses a 10s
+// warm-path bound in callgraph/repo.go before falling back to a background
+// warm; both share the SAME underlying cache now, so whichever of the two
+// runs first against a repo pays the load for the other.)
 const implementsLoadTimeout = 30 * time.Second
 
 // extractGoImplements computes structural interface-satisfaction relationships
@@ -47,7 +50,7 @@ func extractGoImplements(ctx context.Context, root string) []parser.TypeRelation
 	loadCtx, cancel := context.WithTimeout(ctx, implementsLoadTimeout)
 	defer cancel()
 
-	lr, err := goanalysis.LoadPackages(loadCtx, root, goanalysis.LoadOpts{Timeout: implementsLoadTimeout})
+	lr, err := goanalysis.CachedLoadPackages(loadCtx, root)
 	if err != nil {
 		// Cold cache, missing/unbuildable deps, or timeout: degrade silently to
 		// the heuristic. Warn (not Debug) so operators can see when the enrichment

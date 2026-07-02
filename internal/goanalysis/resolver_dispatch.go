@@ -9,14 +9,38 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func resolveIdent(info *types.Info, fset *token.FileSet, id *ast.Ident, callerName, callerFile string, callerLine, callLine uint32) []TypedEdge {
+// resolveFuncOrAlias returns the *types.Func denoted by obj — either
+// directly (obj is already a *types.Func) or through the func-value-alias
+// shape-class (obj is a *types.Var with a recorded single-static-initializer
+// alias in aliases). The second return reports whether the alias path was
+// used, so callers bump the burn-in counter only on that path, not on every
+// direct-func resolution.
+func resolveFuncOrAlias(obj types.Object, aliases funcValueAliases) (fn *types.Func, viaAlias bool) {
+	if fn, ok := obj.(*types.Func); ok {
+		return fn, false
+	}
+	v, ok := obj.(*types.Var)
+	if !ok {
+		return nil, false
+	}
+	fn, ok = aliases[v]
+	if !ok {
+		return nil, false
+	}
+	return fn, true
+}
+
+func resolveIdent(info *types.Info, fset *token.FileSet, id *ast.Ident, callerName, callerFile string, callerLine, callLine uint32, aliases funcValueAliases) []TypedEdge {
 	obj, ok := info.Uses[id]
 	if !ok {
 		return nil
 	}
-	fn, ok := obj.(*types.Func)
-	if !ok {
+	fn, viaAlias := resolveFuncOrAlias(obj, aliases)
+	if fn == nil {
 		return nil
+	}
+	if viaAlias {
+		funcValueAliasEdgesTotal.Inc()
 	}
 	calleeFile := posFile(fset, fn.Pos())
 	return []TypedEdge{{
@@ -30,20 +54,24 @@ func resolveIdent(info *types.Info, fset *token.FileSet, id *ast.Ident, callerNa
 	}}
 }
 
-func resolveSelector(info *types.Info, fset *token.FileSet, pkg *packages.Package, sel *ast.SelectorExpr, callerName, callerFile string, callerLine, callLine uint32, concrete concreteTypes) []TypedEdge {
+func resolveSelector(info *types.Info, fset *token.FileSet, pkg *packages.Package, sel *ast.SelectorExpr, callerName, callerFile string, callerLine, callLine uint32, concrete concreteTypes, aliases funcValueAliases) []TypedEdge {
 	// Try method call via Selections.
 	if selection, ok := info.Selections[sel]; ok {
 		return resolveMethodSelection(info, fset, pkg, sel, selection, callerName, callerFile, callerLine, callLine, concrete)
 	}
 
-	// Qualified name (pkg.Func) via Uses.
+	// Qualified name (pkg.Func) via Uses, or pkg.varFuncAlias() via the same
+	// func-value-alias shape-class resolveIdent uses for the bare-ident case.
 	obj, ok := info.Uses[sel.Sel]
 	if !ok {
 		return nil
 	}
-	fn, ok := obj.(*types.Func)
-	if !ok {
+	fn, viaAlias := resolveFuncOrAlias(obj, aliases)
+	if fn == nil {
 		return nil
+	}
+	if viaAlias {
+		funcValueAliasEdgesTotal.Inc()
 	}
 	calleeFile := posFile(fset, fn.Pos())
 	pkgPath := ""

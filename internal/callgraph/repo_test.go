@@ -405,3 +405,14 @@ def main():
 		t.Errorf("expected tier 'basic', got %q", cg.Tier)
 	}
 }
+
+// NOTE: the var-func-binding BUG A fixture (b) formerly here
+// (TestBuildCallGraph_VarFuncBindingCalleeUnresolved) asserted against raw
+// callgraph.BuildCallGraph — the one seam the fix (EnrichWithTypedResolution
+// gated by CODEGRAPH_TYPED_ENRICH on the AGE-graph indexing path) deliberately
+// does not touch, so it could never turn GREEN. It has been replaced by
+// internal/codegraph/satisfaction_test.go's TestAGEGraphMissesVarFuncBindingCallee,
+// which asserts against the actual fixed seam (buildAGECallGraph), mirroring
+// TestAGEGraphMissesHomonymousPkgVarMethodCall (fixture (a)). See
+// internal/goanalysis/resolver_hardred_test.go's TestResolve_VarFuncBindingAlias
+// for the resolver-level proof that goanalysis.Resolve itself emits the edge.
