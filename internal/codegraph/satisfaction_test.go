@@ -151,3 +151,283 @@ func keysOf(m map[string]struct{}) []string {
 	}
 	return out
 }
+
+// TestAGEGraphMissesHomonymousPkgVarMethodCall is the P0/P2a regression fixture
+// (a) for BUG A (krolik-server go-code repo-review-council report, reviews/
+// repo-council/2026-07-01.md, HIGH finding): "Dead-code + code-health emit false
+// 'dead' verdicts for functions reachable only via package-level var dispatch."
+//
+// Mirrors the LIVE-CONFIRMED production shape at internal/compare/coupling.go:33
+// (`globalCouplingCache.get(key)`) alongside its sibling churn/touches caches in
+// the same package: several distinct *T package-level vars each expose a
+// same-named method (here `Get`), invoked from a THIRD file. codegraph/index.go
+// builds the AGE graph's CALLS edges via buildAGECallGraph, whose default (gate
+// off) path is the untyped `callgraph.BuildCallGraph` (tree-sitter) — NOT
+// `callgraph.BuildFromRepo` (the call_trace/impact_analysis path, which
+// additionally merges go/types-resolved edges and would disambiguate this
+// correctly). BuildCallGraph's resolveCall (graph.go) matches purely by method
+// NAME — same file -> same dir -> global — with zero receiver-type awareness, so
+// when a call site's own file has no local symbol of that name, a cross-file,
+// same-directory lookup returns whichever homonymous method comes first in the
+// symbol list, not the one the pkgVar's static type actually points at. The
+// other method then gets ZERO CALLS edges in the AGE graph despite a real
+// caller — dead_code's `OPTIONAL MATCH (caller:Symbol)-[:CALLS]->(s) WHERE caller
+// IS NULL` (store_dead_code.go) sees it as an orphan.
+//
+// This test exercises the EXACT seam codegraph/index.go uses to build the AGE
+// graph — ingestAndParse -> buildAGECallGraph -> buildGraph — and asserts on the
+// resulting []edgeData (the literal CALLS-edge representation persisted to
+// Apache AGE and read back by dead_code), NOT callgraph.TraceRepo/BuildFromRepo
+// (the call_trace path, already typed-aware and not what index.go uses for CALLS).
+//
+// Two subtests prove the gate is load-bearing in both directions (falsifiable
+// either way — deleting the gate check in buildAGECallGraph, or deleting the
+// CODEGRAPH_TYPED_ENRICH call site entirely, fails one of these):
+//   - "gate disabled" (CODEGRAPH_TYPED_ENRICH unset, the default): BUG A is
+//     still present — RED on ad7d6e2, and stays this way today: proves P2a's
+//     gate-off path is byte-identical to the pre-existing untyped behaviour.
+//   - "gate enabled": CODEGRAPH_TYPED_ENRICH=1 routes through
+//     callgraph.EnrichWithTypedResolution, whose go/types pass resolves
+//     globalB's static type and produces the correct edge — GREEN, the P2a
+//     acceptance criterion for fixture (a).
+//
+// Not run with t.Parallel(): t.Setenv (used by the "gate enabled" subtest) may
+// not be combined with parallel tests/ancestors.
+func TestAGEGraphMissesHomonymousPkgVarMethodCall(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module example.com/pkgvarmethod\n\ngo 1.21\n",
+		// Two distinct concrete types, each with a same-named method, each
+		// exposed via its own package-level *T var — mirrors couplingCache /
+		// churnCache / touchesCache all exposing get/set in internal/compare.
+		"cachea.go": `package main
+
+type CacheA struct{}
+
+func (c *CacheA) Get(key string) string { return "a" }
+
+var globalA = &CacheA{}
+`,
+		"cacheb.go": `package main
+
+type CacheB struct{}
+
+func (c *CacheB) Get(key string) string { return "b" }
+
+var globalB = &CacheB{}
+`,
+		// Callers live in a THIRD file with no local "Get" symbol, forcing
+		// resolveCall's cross-file same-directory fallback (graph.go) — the
+		// exact ambiguous path that misattributes the call.
+		"main.go": `package main
+
+func UseCacheA() string {
+	return globalA.Get("k")
+}
+
+func UseCacheB() string {
+	return globalB.Get("k")
+}
+
+func main() {
+	_ = UseCacheA()
+	_ = UseCacheB()
+}
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	// Exact codegraph/index.go seam (index.go: ingestAndParse ->
+	// buildAGECallGraph -> buildGraph -> []edgeData), the AGE representation
+	// dead_code's Cypher query reads. Shared by both subtests below; only the
+	// CODEGRAPH_TYPED_ENRICH env var differs between them.
+	runFixture := func(t *testing.T) []edgeData {
+		t.Helper()
+		allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, _, err := ingestAndParse(context.Background(), root)
+		if err != nil {
+			t.Fatalf("ingestAndParse: %v", err)
+		}
+
+		cg := buildAGECallGraph(context.Background(), root, allSymbols, allCalls, allFiles)
+		_, edges, _ := buildGraph(buildGraphInput{
+			Root: root, Files: allFiles, Symbols: allSymbols,
+			CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,
+		})
+		return edges
+	}
+
+	wantFrom := "UseCacheB" + compositeKeyDelim + "main.go"
+	wantTo := "Get" + compositeKeyDelim + "cacheb.go"
+
+	hasWantEdge := func(edges []edgeData) bool {
+		for _, e := range edges {
+			if e.EdgeLabel == "CALLS" && e.FromKey == wantFrom && e.ToKey == wantTo {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("gate disabled (default) - BUG A still present", func(t *testing.T) {
+		edges := runFixture(t)
+		if hasWantEdge(edges) {
+			t.Errorf("expected CALLS edge %s -> %s to be MISSING with the gate off (byte-identical "+
+				"to the pre-P2a untyped path); it was found — the gate-off default path changed "+
+				"behaviour unexpectedly. CALLS edges seen: %v", wantFrom, wantTo, callsEdgeSummary(edges))
+		}
+	})
+
+	t.Run("gate enabled - BUG A fixed", func(t *testing.T) {
+		t.Setenv("CODEGRAPH_TYPED_ENRICH", "1")
+		appliedCounter := agegraphTypedEnrichTotal.WithLabelValues("applied")
+		before := readCounter(t, appliedCounter)
+		edges := runFixture(t)
+		after := readCounter(t, appliedCounter)
+		if !hasWantEdge(edges) {
+			t.Errorf("AGE graph missing CALLS edge %s -> %s with CODEGRAPH_TYPED_ENRICH=1; dead_code "+
+				"will falsely report CacheB.Get as dead despite the real caller UseCacheB (BUG A: typed "+
+				"enrichment did not land); CALLS edges seen: %v",
+				wantFrom, wantTo, callsEdgeSummary(edges))
+		}
+		if after-before != 1 {
+			t.Errorf("expected gocode_agegraph_typed_enrich_total{result=applied} to increment by 1 "+
+				"when the go/types typed pass lands; before=%v after=%v", before, after)
+		}
+	})
+}
+
+// callsEdgeSummary formats every CALLS edgeData's From->To key pair for
+// failure-message readability.
+func callsEdgeSummary(edges []edgeData) []string {
+	out := make([]string, 0, len(edges))
+	for _, e := range edges {
+		if e.EdgeLabel == "CALLS" {
+			out = append(out, e.FromKey+"->"+e.ToKey)
+		}
+	}
+	return out
+}
+
+// TestAGEGraphMissesVarFuncBindingCallee is the P3 regression fixture (b) for
+// BUG A (krolik-server go-code repo-review-council report, reviews/repo-council/
+// 2026-07-01.md, HIGH finding): "dead_code (focus=internal/callgraph)
+// tier=enhanced flags recordEagerWarm as high-confidence dead... though invoked
+// 6x via `var recordEagerWarmFn = recordEagerWarm`" — the exact real shape at
+// eager_warm.go:31,69 (this repo's own callgraph package).
+//
+// Sibling of TestAGEGraphMissesHomonymousPkgVarMethodCall (fixture (a)): same
+// codegraph/index.go seam (ingestAndParse -> buildAGECallGraph -> buildGraph),
+// same two-subtest gate-off/gate-on structure, different BUG-A sub-shape — a
+// package-level var bound directly to a function value (`var workFn =
+// realWork`), not an ambiguous same-named method. BuildCallGraph's resolveCall
+// (internal/callgraph/graph.go findByName) only matches
+// parser.KindFunction/parser.KindMethod symbols, so a KindVar-typed callee name
+// never resolves at all — CallEdge.Callee stays nil for the `workFn()` call
+// site, and buildGraph's CALLS-edge loop (`if ce.Caller == nil || ce.Callee ==
+// nil { continue }`) drops the edge before it reaches the AGE graph; realWork
+// then shows zero incoming CALLS edges and dead_code/code_health falsely
+// report it dead.
+//
+// This replaces the earlier internal/callgraph/repo_test.go
+// TestBuildCallGraph_VarFuncBindingCalleeUnresolved, which asserted this same
+// shape against raw callgraph.BuildCallGraph directly — the ONE seam the fix
+// (EnrichWithTypedResolution gated by CODEGRAPH_TYPED_ENRICH, "zero
+// tree-sitter-builder changes" per the design) deliberately does not touch, so
+// that fixture could never turn GREEN. This test asserts against the actual
+// fixed seam instead — buildAGECallGraph — mirroring fixture (a). See
+// internal/goanalysis/resolver_hardred_test.go's
+// TestResolve_VarFuncBindingAlias for the resolver-level proof that
+// goanalysis.Resolve itself emits the UseWorkFn -> realWork typed edge.
+//
+// Not run with t.Parallel(): t.Setenv (used by the "gate enabled" subtest) may
+// not be combined with parallel tests/ancestors.
+func TestAGEGraphMissesVarFuncBindingCallee(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module example.com/varfuncbinding\n\ngo 1.22\n",
+		// Mirrors eager_warm.go's shape: a package-level var bound to a
+		// function value, invoked only through the var — never by the
+		// function's own name.
+		"main.go": `package main
+
+func realWork() int { return 42 }
+
+var workFn = realWork
+
+func UseWorkFn() int {
+	return workFn()
+}
+
+func main() {
+	_ = UseWorkFn()
+}
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	// Exact codegraph/index.go seam (index.go: ingestAndParse ->
+	// buildAGECallGraph -> buildGraph -> []edgeData), the AGE representation
+	// dead_code's Cypher query reads. Shared by both subtests below; only the
+	// CODEGRAPH_TYPED_ENRICH env var differs between them.
+	runFixture := func(t *testing.T) []edgeData {
+		t.Helper()
+		allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, _, err := ingestAndParse(context.Background(), root)
+		if err != nil {
+			t.Fatalf("ingestAndParse: %v", err)
+		}
+
+		cg := buildAGECallGraph(context.Background(), root, allSymbols, allCalls, allFiles)
+		_, edges, _ := buildGraph(buildGraphInput{
+			Root: root, Files: allFiles, Symbols: allSymbols,
+			CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,
+		})
+		return edges
+	}
+
+	wantFrom := "UseWorkFn" + compositeKeyDelim + "main.go"
+	wantTo := "realWork" + compositeKeyDelim + "main.go"
+
+	hasWantEdge := func(edges []edgeData) bool {
+		for _, e := range edges {
+			if e.EdgeLabel == "CALLS" && e.FromKey == wantFrom && e.ToKey == wantTo {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("gate disabled (default) - BUG A still present", func(t *testing.T) {
+		edges := runFixture(t)
+		if hasWantEdge(edges) {
+			t.Errorf("expected CALLS edge %s -> %s to be MISSING with the gate off (byte-identical "+
+				"to the pre-P2a untyped path); it was found — the gate-off default path changed "+
+				"behaviour unexpectedly. CALLS edges seen: %v", wantFrom, wantTo, callsEdgeSummary(edges))
+		}
+	})
+
+	t.Run("gate enabled - BUG A fixed", func(t *testing.T) {
+		t.Setenv("CODEGRAPH_TYPED_ENRICH", "1")
+		appliedCounter := agegraphTypedEnrichTotal.WithLabelValues("applied")
+		before := readCounter(t, appliedCounter)
+		edges := runFixture(t)
+		after := readCounter(t, appliedCounter)
+		if !hasWantEdge(edges) {
+			t.Errorf("AGE graph missing CALLS edge %s -> %s with CODEGRAPH_TYPED_ENRICH=1; dead_code "+
+				"will falsely report realWork as dead despite the real caller UseWorkFn (BUG A: typed "+
+				"enrichment did not land); CALLS edges seen: %v",
+				wantFrom, wantTo, callsEdgeSummary(edges))
+		}
+		if after-before != 1 {
+			t.Errorf("expected gocode_agegraph_typed_enrich_total{result=applied} to increment by 1 "+
+				"when the go/types typed pass lands; before=%v after=%v", before, after)
+		}
+	})
+}

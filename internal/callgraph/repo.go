@@ -17,6 +17,22 @@ import (
 
 const maxFileBytes = 512 * 1024
 
+// Backend identifies which resolution pass(es) contributed edges to a
+// CallGraph. Plain strings by design (see docs/adr, "cut tier/backend
+// provenance stamping" — internal/tier is orphaned and neither AGE-graph
+// fixture needs a richer vocabulary); named as consts here only to keep the
+// literal that SETS CallGraph.Backend and the literal that later COMPARES
+// against it from drifting apart. Exported (not package-private) because
+// codegraph/index.go's buildAGECallGraph also stamps and compares against
+// these exact values — a second unexported copy in that package would be
+// the same literal-drift risk these consts exist to prevent, just moved one
+// package over.
+const (
+	BackendTreeSitter = "tree-sitter"
+	BackendGoTypes    = "tree-sitter+go/types"
+	BackendSCIP       = "tree-sitter+scip"
+)
+
 // TraceRepoInput configures a full repo call chain trace.
 type TraceRepoInput struct {
 	Root     string
@@ -83,34 +99,22 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	})
 	cg.TypeRels = allRels
 	cg.Tier = "basic"
-	cg.Backend = "tree-sitter"
+	cg.Backend = BackendTreeSitter
 
-	// Attempt go/types resolution for Go modules — purely additive.
-	// Try with a short timeout first (warm GOCACHE = fast). If it doesn't finish
-	// in time, kick off a background goroutine that warms GOCACHE and updates
-	// the cache entry once done (next call will hit warm cache and succeed).
-	if goanalysis.HasGoModule(input.Root) {
-		warmCtx, warmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		typedCG := tryGoTypesResolution(warmCtx, input.Root, allSymbols)
-		warmCancel()
-		if typedCG != nil {
-			cg = MergeCallGraphs(cg, typedCG)
-			cg.Tier = "enhanced"
-			cg.Backend = "tree-sitter+go/types"
-		} else {
-			// Cold cache — start background analysis to warm GOCACHE.
-			// The next call_trace will complete in <10s (warm cache).
-			go warmGoTypesCache(input.Root, allSymbols, cgCacheKey(input))
-		}
-	}
+	// Attempt go/types resolution for Go modules, falling back to SCIP for
+	// non-Go languages (or when go/types made no progress) — both purely
+	// additive. See EnrichWithTypedResolution for the composition order and
+	// degrade contract; it is the single shared seam for typed enrichment.
+	cg = EnrichWithTypedResolution(ctx, input.Root, cg, allSymbols, ir.Files)
 
-	// Attempt SCIP resolution for non-Go languages (or when go/types failed).
-	if cg.Tier == "basic" {
-		if scipCG := trySCIPResolution(ctx, input.Root, ir.Files, allSymbols); scipCG != nil {
-			cg = MergeCallGraphs(cg, scipCG)
-			cg.Tier = "enhanced"
-			cg.Backend = "tree-sitter+scip"
-		}
+	// The seam bounds its go/types attempt to a 10s warm-path (fast when
+	// GOCACHE is already warm). If that didn't land — Backend still isn't
+	// BackendGoTypes — kick off a background goroutine that warms GOCACHE
+	// and upgrades this cache entry once done (the next call_trace/
+	// impact_analysis against this root will complete in <10s instead of
+	// 3+ minutes).
+	if goanalysis.HasGoModule(input.Root) && cg.Backend != BackendGoTypes {
+		go warmGoTypesCache(input.Root, allSymbols, cgCacheKey(input))
 	}
 
 	// Inject WordPress hook edges for PHP files.
@@ -142,12 +146,57 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 	return &result, nil
 }
 
-// tryGoTypesResolution attempts to load Go packages and resolve typed call edges.
-// Returns nil on any failure — callers fall back to tree-sitter-only graph.
-// On failure, bumps gocode_callgraph_gotypes_fallback_total{reason} so the
-// degradation rate is visible without requiring operators to grep logs.
+// EnrichWithTypedResolution is the single shared composition seam for typed
+// call-edge enrichment: given a base (tree-sitter-only) CallGraph, it
+// attempts go/types resolution for Go modules, then — only if that made no
+// progress — SCIP resolution for non-Go languages, merging any successful
+// pass additively via MergeCallGraphs. Route ANY new typed-edge source
+// through this seam (and MergeCallGraphs) rather than composing typed
+// enrichment ad hoc at a second call site; BuildFromRepo is the reference
+// caller.
+//
+// Both passes are bounded and non-fatal: on any failure (no go.mod, cold
+// GOCACHE, no indexer, timeout) base is returned with Tier/Backend
+// unchanged, exactly the tree-sitter-only degrade contract callers already
+// depend on. root and files are needed independently of base/symbols
+// because SCIP resolution walks the raw ingested file set for the dominant
+// language, not the already-parsed symbol table.
+func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph, symbols []*parser.Symbol, files []*ingest.File) *CallGraph {
+	cg := base
+
+	if goanalysis.HasGoModule(root) {
+		warmCtx, warmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		typedCG := tryGoTypesResolution(warmCtx, root, symbols)
+		warmCancel()
+		if typedCG != nil {
+			cg = MergeCallGraphs(cg, typedCG)
+			cg.Tier = "enhanced"
+			cg.Backend = BackendGoTypes
+		}
+	}
+
+	// Attempt SCIP resolution for non-Go languages (or when go/types failed).
+	if cg.Tier == "basic" {
+		if scipCG := trySCIPResolution(ctx, root, files, symbols); scipCG != nil {
+			cg = MergeCallGraphs(cg, scipCG)
+			cg.Tier = "enhanced"
+			cg.Backend = BackendSCIP
+		}
+	}
+
+	return cg
+}
+
+// tryGoTypesResolution attempts to load Go packages and resolve typed call
+// edges. Returns nil on any failure — callers fall back to tree-sitter-only
+// graph. On failure, bumps gocode_callgraph_gotypes_fallback_total{reason}
+// so the degradation rate is visible without requiring operators to grep
+// logs. Routes through goanalysis.CachedLoadPackages so a load already
+// warmed by extractGoImplements (IMPLEMENTS, codegraph/satisfaction.go)
+// against the same root within the cache TTL is reused here instead of
+// re-run.
 func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {
-	lr, err := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{})
+	lr, err := goanalysis.CachedLoadPackages(ctx, root)
 	if err != nil {
 		recordGotypesFallback(err)
 		slog.Warn("go/packages load failed; falling back to tree-sitter", "err", err)
@@ -226,6 +275,13 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 	}
 	slog.Info("go/types: go build pre-warm done, starting packages.Load", "root", root)
 
+	// tryGoTypesResolution now routes through goanalysis.CachedLoadPackages.
+	// The synchronous 10s probe in EnrichWithTypedResolution that triggered
+	// this background warm almost certainly already ran (and failed) against
+	// this same root, negative-caching that failure. Evict it first so this
+	// patient, now-warm-GOCACHE retry isn't short-circuited by the stale
+	// cold-cache failure instead of actually re-running the load.
+	goanalysis.InvalidateCachedLoad(root)
 	typedCG := tryGoTypesResolution(ctx, root, symbols)
 	if typedCG == nil {
 		slog.Warn("go/types: background warm failed", "root", root)
@@ -236,7 +292,7 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 	if cached, ok := cgCache.get(cacheKey); ok {
 		enhanced := MergeCallGraphs(cached, typedCG)
 		enhanced.Tier = "enhanced"
-		enhanced.Backend = "tree-sitter+go/types"
+		enhanced.Backend = BackendGoTypes
 		cgCache.set(cacheKey, enhanced)
 	}
 	slog.Info("go/types: GOCACHE warmed, cache upgraded to enhanced", "root", root)
