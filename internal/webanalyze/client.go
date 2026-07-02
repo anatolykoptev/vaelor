@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/httputil"
 )
 
 const clientTimeout = 30 * time.Second
@@ -81,46 +83,27 @@ type FetchResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Analyze calls POST /analyze on ox-browser.
+// Analyze calls POST /analyze on ox-browser. Delegates the JSON POST+decode
+// transport to httputil.Client (mirrors jaegerclient/promclient/dozorclient).
+// ox-browser reports domain-level failures via AnalyzeResponse.Error on a 200
+// response rather than a non-2xx status, so callers must still check
+// resp.Error after a nil error return.
 func (c *Client) Analyze(ctx context.Context, url string) (*AnalyzeResponse, error) {
-	body, _ := json.Marshal(map[string]string{"url": url})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/analyze", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("analyze request: %w", err)
-	}
-	defer resp.Body.Close()
-
 	var result AnalyzeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
+	if err := hc.PostJSON(ctx, "/analyze", map[string]string{"url": url}, &result); err != nil {
+		return nil, fmt.Errorf("analyze: %w", err)
 	}
 	return &result, nil
 }
 
-// Fetch calls POST /fetch on ox-browser to download a single URL.
+// Fetch calls POST /fetch on ox-browser to download a single URL. Same
+// error-reporting shape as Analyze: check resp.Error after a nil error.
 func (c *Client) Fetch(ctx context.Context, url string) (*FetchResponse, error) {
-	body, _ := json.Marshal(map[string]string{"url": url})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/fetch", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch request: %w", err)
-	}
-	defer resp.Body.Close()
-
 	var result FetchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
+	if err := hc.PostJSON(ctx, "/fetch", map[string]string{"url": url}, &result); err != nil {
+		return nil, fmt.Errorf("fetch: %w", err)
 	}
 	return &result, nil
 }
@@ -134,7 +117,10 @@ type CrawlInput struct {
 	IncludeMarkdown bool   `json:"include_markdown"`
 }
 
-// Crawl calls POST /crawl on ox-browser and consumes the SSE stream.
+// Crawl calls POST /crawl on ox-browser and consumes the SSE stream. Not
+// migrated to httputil.Client: the response is a long-lived Server-Sent
+// Events stream, not a single JSON body, which httputil.Client does not
+// support.
 func (c *Client) Crawl(ctx context.Context, input CrawlInput) (*CrawlResponse, error) {
 	body, _ := json.Marshal(input)
 	ctx, cancel := context.WithTimeout(ctx, crawlTimeout)
