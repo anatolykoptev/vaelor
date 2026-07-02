@@ -90,7 +90,9 @@ func TestPublishCodeGraphAgeGauge_SeedsFromStoredMeta(t *testing.T) {
 		t.Fatalf("insert meta row: %v", err)
 	}
 
-	publishCodeGraphAgeGauge(ctx, store)
+	// nil scopeDirs = back-compat "publish everything" (AUTO_INDEX_DIRS
+	// unset); this test's repo_path is arbitrary and irrelevant to scoping.
+	publishCodeGraphAgeGauge(ctx, store, nil)
 
 	got := testutil.ToFloat64(codeGraphAgeSeconds.WithLabelValues(repoKey))
 	const wantMinSeconds = 2*3600 - 60 // ~2h, minus a minute of slack
