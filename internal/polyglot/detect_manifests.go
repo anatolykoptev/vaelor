@@ -154,7 +154,7 @@ func layersFromManifests(manifests []Manifest, files []*ingest.File) []Layer {
 			Name:     name,
 			Role:     "",
 			RootDir:  rootDir,
-			Language: dominantLanguage(a.langs),
+			Language: DominantLanguageFromCounts(a.langs),
 			Files:    a.files,
 		})
 	}

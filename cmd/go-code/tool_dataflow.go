@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/go-code/internal/polyglot"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -210,6 +211,10 @@ func runQualityAnalysis(ctx context.Context, client *oxcodes.Client, root string
 // detectDominantLanguage walks root and returns the most common programming language
 // detected from file extensions. Returns "" if the root cannot be walked or no
 // recognised source files are found.
+//
+// The walk itself is bespoke (filesystem paths, not []*ingest.File), but the
+// argmax-over-counts half reuses the canonical primitive so there is still
+// only one "most frequent" tie-break implementation in the repo.
 func detectDominantLanguage(root string) string {
 	counts := make(map[string]int)
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -221,13 +226,5 @@ func detectDominantLanguage(root string) string {
 		}
 		return nil
 	})
-	best := ""
-	bestCount := 0
-	for lang, count := range counts {
-		if count > bestCount {
-			bestCount = count
-			best = lang
-		}
-	}
-	return best
+	return polyglot.DominantLanguageFromCounts(counts)
 }

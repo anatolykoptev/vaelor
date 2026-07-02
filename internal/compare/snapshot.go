@@ -13,6 +13,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/polyglot"
 )
 
 // maxFileBytes is the default maximum file size ingested per file (512 KB).
@@ -209,7 +210,7 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 	return &RepoSnapshot{
 		Name:             filepath.Base(root),
 		Root:             root,
-		Language:         snapshotDominantLanguage(ir.Files),
+		Language:         polyglot.DominantLanguage(ir.Files),
 		Symbols:          allSymbols,
 		Imports:          uniqueImports,
 		Files:            files,
@@ -220,25 +221,6 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 		DroppedReadError: droppedReadError,
 		DroppedCtxCancel: droppedCtxCancel,
 	}
-}
-
-// snapshotDominantLanguage returns the most frequent language among files.
-func snapshotDominantLanguage(files []*ingest.File) string {
-	counts := make(map[string]int)
-	for _, f := range files {
-		if f.Language != "" {
-			counts[f.Language]++
-		}
-	}
-	best := ""
-	bestCount := 0
-	for lang, count := range counts {
-		if count > bestCount {
-			bestCount = count
-			best = lang
-		}
-	}
-	return best
 }
 
 // computeBodyHashes sets BodyHash on each symbol that has a non-empty Body.

@@ -15,6 +15,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-code/internal/polyglot"
 )
 
 // fileParseResult holds the outcome of parsing a single file.
@@ -150,25 +151,6 @@ func matchesSymbol(sym *parser.Symbol, pattern *regexp.Regexp, kind parser.NodeK
 	return pattern.MatchString(sym.Name)
 }
 
-// dominantLanguage returns the most common language among the files.
-func dominantLanguage(files []*ingest.File) string {
-	counts := make(map[string]int)
-	for _, f := range files {
-		if f.Language != "" {
-			counts[f.Language]++
-		}
-	}
-	best := ""
-	max := 0
-	for lang, count := range counts {
-		if count > max {
-			max = count
-			best = lang
-		}
-	}
-	return best
-}
-
 // extractPackages deduplicates directory names from file RelPaths.
 func extractPackages(files []*ingest.File) []string {
 	seen := make(map[string]struct{})
@@ -190,7 +172,7 @@ func extractPackages(files []*ingest.File) []string {
 // buildAnalysisResult assembles the RepoAnalysisResult from parsed data and ContextData.
 func buildAnalysisResult(root string, ir *ingest.IngestResult, results []fileParseResult, cd *ContextData) *RepoAnalysisResult {
 	repoName := filepath.Base(root)
-	lang := dominantLanguage(ir.Files)
+	lang := polyglot.DominantLanguage(ir.Files)
 	packages := extractPackages(ir.Files)
 	symbols := collectTopSymbols(results)
 
