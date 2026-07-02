@@ -260,7 +260,9 @@ func main() {
 	if err != nil {
 		t.Fatalf("LoadPackages: %v", err)
 	}
+	before := gatherCounterSum(t, "gocode_goanalysis_func_value_alias_edges_total", nil)
 	edges := goanalysis.Resolve(lr.Packages)
+	after := gatherCounterSum(t, "gocode_goanalysis_func_value_alias_edges_total", nil)
 
 	found := false
 	for _, e := range edges {
@@ -271,6 +273,9 @@ func main() {
 	}
 	if !found {
 		t.Errorf("expected UseWorkFn -> realWork edge via the workFn var-func-binding alias; got edges: %v", summarizeTyped(edges))
+	}
+	if after != before+1 {
+		t.Errorf("expected gocode_goanalysis_func_value_alias_edges_total to increment by exactly 1 for the single workFn() call site; before=%v after=%v", before, after)
 	}
 }
 
@@ -305,7 +310,12 @@ func main() {
 	if err != nil {
 		t.Fatalf("LoadPackages: %v", err)
 	}
+	before := gatherCounterSum(t, "gocode_goanalysis_func_value_alias_edges_total", nil)
 	edges := goanalysis.Resolve(lr.Packages)
+	after := gatherCounterSum(t, "gocode_goanalysis_func_value_alias_edges_total", nil)
+	if after != before+1 {
+		t.Errorf("expected gocode_goanalysis_func_value_alias_edges_total to increment by exactly 1 for the single greetFn() call site; before=%v after=%v", before, after)
+	}
 
 	found := false
 	for _, e := range edges {
@@ -362,6 +372,61 @@ func main() {
 	}
 	if !found {
 		t.Errorf("expected UseWorkFn -> RealWork edge via the worker.WorkFn qualified var-func-binding alias; got edges: %v", summarizeTyped(edges))
+	}
+}
+
+// TestResolve_QualifiedVarFuncBindingAlias_ReassignedFromImportingPkg_NoEdge
+// is the H1 fix from the go-code PR #294 pr-review-council report
+// (reviews/pr-council/pr-294-2026-07-01.md): dropReassignedAliases only
+// matched an *ast.Ident LHS, so a cross-package qualified reassignment
+// (`worker.WorkFn = otherFunc`, an *ast.SelectorExpr LHS) fell through
+// unhandled — the alias was never dropped, and worker.WorkFn() kept
+// resolving through the stale RealWork initializer instead of yielding no
+// edge, a wrong CALLS edge on the UNGATED BuildFromRepo path (call_trace /
+// impact_analysis). This is the cross-package sibling of
+// TestResolve_ReassignedVarFuncBinding_NoEdge (same-package, *ast.Ident
+// LHS) — same conservatism contract, different LHS shape.
+func TestResolve_QualifiedVarFuncBindingAlias_ReassignedFromImportingPkg_NoEdge(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/qualifiedreassigned\n\ngo 1.22\n")
+	writeTestFile(t, filepath.Join(dir, "worker", "worker.go"), `package worker
+
+func RealWork() int { return 42 }
+
+var WorkFn = RealWork
+`)
+	writeTestFile(t, filepath.Join(dir, "main.go"), `package main
+
+import "example.com/qualifiedreassigned/worker"
+
+func otherFunc() int { return 99 }
+
+func rebind() {
+	worker.WorkFn = otherFunc
+}
+
+func UseWorkFn() int {
+	return worker.WorkFn()
+}
+
+func main() {
+	rebind()
+	_ = UseWorkFn()
+}
+`)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	lr, err := goanalysis.LoadPackages(ctx, dir, goanalysis.LoadOpts{})
+	if err != nil {
+		t.Fatalf("LoadPackages: %v", err)
+	}
+	edges := goanalysis.Resolve(lr.Packages)
+
+	for _, e := range edges {
+		if e.CallerName == "UseWorkFn" && (e.CalleeName == "RealWork" || e.CalleeName == "otherFunc") {
+			t.Errorf("expected NO edge for a cross-package qualified reassignment (worker.WorkFn = otherFunc, ambiguous); got %v", summarizeTyped(edges))
+		}
 	}
 }
 

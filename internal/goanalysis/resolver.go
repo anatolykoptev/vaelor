@@ -179,12 +179,12 @@ func isInterfaceReceiver(t types.Type) bool {
 }
 
 // dropReassignedAliases removes any alias whose var is the target of a plain
-// assignment (`x = ...`) anywhere in file, outside its own declaration — a
-// reassigned var's declaration-time initializer no longer describes every
-// call through it, so resolving through the alias would risk a wrong edge.
-// Assignment targets land in info.Uses (not info.Defs, which is only for new
-// declarations via `var`/`:=`), so this only ever matches a genuine
-// reassignment, never the declaration itself.
+// assignment (`x = ...` or `pkg.X = ...`) anywhere in file, outside its own
+// declaration — a reassigned var's declaration-time initializer no longer
+// describes every call through it, so resolving through the alias would
+// risk a wrong edge. Assignment targets land in info.Uses (not info.Defs,
+// which is only for new declarations via `var`/`:=`), so this only ever
+// matches a genuine reassignment, never the declaration itself.
 func dropReassignedAliases(info *types.Info, file *ast.File, aliases funcValueAliases) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
@@ -192,16 +192,47 @@ func dropReassignedAliases(info *types.Info, file *ast.File, aliases funcValueAl
 			return true
 		}
 		for _, lhs := range assign.Lhs {
-			id, ok := lhs.(*ast.Ident)
-			if !ok {
-				continue
-			}
-			if v, ok := info.Uses[id].(*types.Var); ok {
+			if v := reassignedVar(info, lhs); v != nil {
 				delete(aliases, v)
 			}
 		}
 		return true
 	})
+}
+
+// reassignedVar returns the *types.Var a plain-assignment LHS expression
+// targets, or nil if lhs isn't a var reassignment this pass can classify.
+//
+// Handles both an unqualified identifier (`x = ...`, resolved via
+// info.Uses) and a qualified identifier from an IMPORTING package
+// (`pkg.X = ...`) — a *ast.SelectorExpr whose Sel is NOT a struct-field or
+// method selection (absent from info.Selections) resolves through
+// info.Uses[sel.Sel], exactly mirroring funcValueExpr's own qualified-func
+// branch above. Before this, dropReassignedAliases only matched *ast.Ident
+// LHS, so a cross-package reassignment like `worker.WorkFn = otherFunc`
+// (SelectorExpr LHS) fell through to the default case unhandled — the
+// alias was never dropped, and a later `worker.WorkFn()` call resolved
+// through the stale initializer to the ORIGINAL bound func, a wrong CALLS
+// edge in violation of this function's own "never reassigned anywhere"
+// conservatism contract. A genuine struct-field/method selector (`x.Field =
+// y`) IS present in info.Selections and is correctly ignored — it targets a
+// different object than any package-level alias candidate.
+func reassignedVar(info *types.Info, lhs ast.Expr) *types.Var {
+	switch e := lhs.(type) {
+	case *ast.Ident:
+		v, _ := info.Uses[e].(*types.Var)
+		return v
+
+	case *ast.SelectorExpr:
+		if _, ok := info.Selections[e]; ok {
+			return nil // struct field / method selection, not a qualified package var
+		}
+		v, _ := info.Uses[e.Sel].(*types.Var)
+		return v
+
+	default:
+		return nil
+	}
 }
 
 // collectConcreteTypes maps each interface type to all named non-interface types
