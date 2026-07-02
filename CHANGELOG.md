@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.22.2](https://github.com/anatolykoptev/go-code/compare/v1.22.1...v1.22.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* **callgraph:** resolve generic-function callers in package-level var initializers ([#280](https://github.com/anatolykoptev/go-code/issues/280)) ([599cf02](https://github.com/anatolykoptev/go-code/commit/599cf02b6d17f912ca53a12a31a56ec1ad87e95e))
+* **deadcode:** language-aware exported check for non-IsPublic languages ([#281](https://github.com/anatolykoptev/go-code/issues/281)) ([157f9b9](https://github.com/anatolykoptev/go-code/commit/157f9b91b62a56684fceefaa7c8aa7cf0667d218))
+* **metrics:** pre-register alert-facing series at boot (graph age, zero-embeddings) ([#287](https://github.com/anatolykoptev/go-code/issues/287)) ([6ae4294](https://github.com/anatolykoptev/go-code/commit/6ae42941e3659afb247c2129806c5c0f6e3b8984))
+* ParseCache drops call sites and ignores includeBody on hit ([#286](https://github.com/anatolykoptev/go-code/issues/286)) ([52427a3](https://github.com/anatolykoptev/go-code/commit/52427a3c9df882b56f413e1fc3b5c3803f83b71f))
+* **review:** route PR-post write path through the multi-forge registry ([#284](https://github.com/anatolykoptev/go-code/issues/284)) ([bf32802](https://github.com/anatolykoptev/go-code/commit/bf3280267cd96440a5fccb5acb83ba32dcd009c3))
+
 ## [1.22.1](https://github.com/anatolykoptev/go-code/compare/v1.22.0...v1.22.1) (2026-07-01)
 
 
