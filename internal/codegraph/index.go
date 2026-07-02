@@ -7,6 +7,12 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/go-kit/env"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const (
@@ -125,7 +131,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	allRels = append(allRels, extractGoImplements(ctx, root)...)
 
 	t2 := time.Now()
-	cg := callgraph.BuildCallGraph(allSymbols, allCalls)
+	cg := buildAGECallGraph(ctx, root, allSymbols, allCalls, allFiles)
 	hookRoutes := extractHookRoutes(root, allFiles)
 	if len(hookRoutes) > 0 {
 		callgraph.InjectHookEdges(cg, hookRoutes)
@@ -257,6 +263,88 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 
 	buildStatus = "ok"
 	return meta, nil
+}
+
+// agegraphTypedEnrichTotal counts CODEGRAPH_TYPED_ENRICH attempts on the
+// AGE-graph indexing path (buildAGECallGraph), labelled "applied" (go/types
+// resolution landed and the AGE graph's CALLS edges now include the typed
+// pass, fixing BUG A) or "degraded" (the gate was on but the seam fell back
+// to the pre-existing tree-sitter-only graph — no go.mod, cold GOCACHE, load
+// timeout, or load failure; same result as the gate being off). A rising
+// "degraded" share among Go-module repos with the gate on means dead_code /
+// code_health are still seeing BUG A on the repos where it matters most —
+// the signal the P4 applied-ratio SLO alert watches.
+//
+//	gocode_agegraph_typed_enrich_total{result="applied"} 4
+//	gocode_agegraph_typed_enrich_total{result="degraded"} 1
+var agegraphTypedEnrichTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_agegraph_typed_enrich_total",
+		Help: "Count of CODEGRAPH_TYPED_ENRICH attempts on the AGE-graph indexing path, labelled by result (applied|degraded).",
+	},
+	[]string{"result"},
+)
+
+func init() {
+	// Pre-touch so /metrics exports the series at boot, before any repo is
+	// indexed with the gate on (mirrors implements_metrics.go's init()).
+	agegraphTypedEnrichTotal.WithLabelValues("applied").Add(0)
+	agegraphTypedEnrichTotal.WithLabelValues("degraded").Add(0)
+}
+
+// typedEnrichEnabled reports whether the AGE-graph indexing path
+// (buildAGECallGraph) should additionally attempt go/types-based typed
+// call-edge resolution. Default OFF: CODEGRAPH_TYPED_ENRICH unset or falsy
+// leaves the untyped tree-sitter-only build byte-identical to today. See the
+// callgraph-seam unification plan (2026-07-02) P2b for the canary-then-flip
+// rollout that later moves this default to on.
+func typedEnrichEnabled() bool {
+	return env.Bool("CODEGRAPH_TYPED_ENRICH", false)
+}
+
+// buildAGECallGraph builds the CallGraph the AGE-graph indexing path
+// persists as CALLS edges. It always runs the untyped tree-sitter builder
+// (callgraph.BuildCallGraph) first — with the gate off (the default) this is
+// the entire function, byte-identical to calling callgraph.BuildCallGraph
+// directly as IndexRepo did before this change.
+//
+// When CODEGRAPH_TYPED_ENRICH is set AND root is a Go module, it additionally
+// routes the graph through callgraph.EnrichWithTypedResolution — the SAME
+// single seam BuildFromRepo (the call_trace/impact_analysis path) already
+// uses — so the untyped builder's name-only call resolution (BUG A: a call
+// through a package-level var resolves to the wrong same-named method when a
+// sibling type in the same directory exposes a method of the same name; see
+// TestAGEGraphMissesHomonymousPkgVarMethodCall) gets the same typed fix on
+// the indexing path that call_trace/impact_analysis already have.
+//
+// Bounded and non-fatal, mirroring extractGoImplements's degrade contract
+// (satisfaction.go:44-47): EnrichWithTypedResolution itself bounds the
+// go/types attempt to a 10s warm-path and degrades to the untyped graph
+// unchanged on any failure (no go.mod, cold GOCACHE, load timeout, load
+// error) — this wrapper adds no additional timeout, only the gate and the
+// landed/degraded counter. IMPLEMENTS (extractGoImplements) and CALLS (here)
+// resolve against the SAME root within goanalysis.CachedLoadPackages' TTL
+// window, so whichever runs first pays the go/packages load for the other
+// (satisfaction.go:15-28).
+func buildAGECallGraph(ctx context.Context, root string, symbols []*parser.Symbol, calls []parser.CallSite, files []*ingest.File) *callgraph.CallGraph {
+	cg := callgraph.BuildCallGraph(symbols, calls)
+
+	if !typedEnrichEnabled() || !goanalysis.HasGoModule(root) {
+		return cg
+	}
+
+	// BuildCallGraph never sets Tier/Backend (both zero value here), so any
+	// non-empty Backend after EnrichWithTypedResolution proves the typed pass
+	// landed — no need to depend on the exact literal it sets (repo.go:20-25
+	// documents those as plain strings by design, no exported constant).
+	backendBefore := cg.Backend
+	enriched := callgraph.EnrichWithTypedResolution(ctx, root, cg, symbols, files)
+	if enriched.Backend != backendBefore {
+		agegraphTypedEnrichTotal.WithLabelValues("applied").Inc()
+	} else {
+		agegraphTypedEnrichTotal.WithLabelValues("degraded").Inc()
+	}
+	return enriched
 }
 
 // applyConfigDefaults fills in zero-value fields with sensible defaults.
