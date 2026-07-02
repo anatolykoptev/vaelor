@@ -81,7 +81,13 @@ type FetchResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Analyze calls POST /analyze on ox-browser.
+// Analyze calls POST /analyze on ox-browser. Not migrated to httputil.Client:
+// ox-browser returns HTTP 502 + a JSON body whose Error field carries the
+// failure reason (e.g. target unreachable — see ox-browser
+// crates/js/src/analyze.rs), and httputil discards non-2xx response bodies
+// without decoding them. This client keeps its own decode-regardless-of-status
+// transport so a 502 still yields a populated AnalyzeResponse.Error instead of
+// a truncated opaque error (same carve-out as internal/fleet/upstream).
 func (c *Client) Analyze(ctx context.Context, url string) (*AnalyzeResponse, error) {
 	body, _ := json.Marshal(map[string]string{"url": url})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/analyze", bytes.NewReader(body))
@@ -103,7 +109,9 @@ func (c *Client) Analyze(ctx context.Context, url string) (*AnalyzeResponse, err
 	return &result, nil
 }
 
-// Fetch calls POST /fetch on ox-browser to download a single URL.
+// Fetch calls POST /fetch on ox-browser to download a single URL. Same
+// non-2xx-carries-a-decodable-error-body contract as Analyze, so it keeps
+// the same hand-rolled decode-regardless-of-status transport.
 func (c *Client) Fetch(ctx context.Context, url string) (*FetchResponse, error) {
 	body, _ := json.Marshal(map[string]string{"url": url})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/fetch", bytes.NewReader(body))
@@ -134,7 +142,10 @@ type CrawlInput struct {
 	IncludeMarkdown bool   `json:"include_markdown"`
 }
 
-// Crawl calls POST /crawl on ox-browser and consumes the SSE stream.
+// Crawl calls POST /crawl on ox-browser and consumes the SSE stream. Not
+// migrated to httputil.Client: the response is a long-lived Server-Sent
+// Events stream, not a single JSON body, which httputil.Client does not
+// support.
 func (c *Client) Crawl(ctx context.Context, input CrawlInput) (*CrawlResponse, error) {
 	body, _ := json.Marshal(input)
 	ctx, cancel := context.WithTimeout(ctx, crawlTimeout)

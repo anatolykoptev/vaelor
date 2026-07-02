@@ -3,13 +3,13 @@
 package websearch
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
+
+	"github.com/anatolykoptev/go-code/internal/httputil"
 )
 
 const httpTimeout = 15 * time.Second
@@ -76,44 +76,29 @@ type mcpContent struct {
 }
 
 // Search calls go-search smart_search with depth=fast and returns raw results.
+// The JSON-RPC envelope is built/parsed here; the HTTP transport (marshal,
+// POST, decode) delegates to httputil.Client to avoid duplicating that
+// plumbing (mirrors jaegerclient/promclient/dozorclient).
 func (c *Client) Search(ctx context.Context, query string) ([]Result, error) {
-	args, _ := json.Marshal(map[string]string{
+	args, err := json.Marshal(map[string]string{
 		"query": query,
 		"depth": "fast",
 	})
+	if err != nil {
+		return nil, fmt.Errorf("websearch: marshal args: %w", err)
+	}
 
-	body, err := json.Marshal(mcpRequest{
+	reqBody := mcpRequest{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
 		Params:  mcpParams{Name: "smart_search", Arguments: args},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("websearch: marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("websearch: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("websearch: request failed: %w", err)
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("websearch: unexpected status %d", resp.StatusCode)
 	}
 
 	var mcpResp mcpResponse
-	if err := json.NewDecoder(resp.Body).Decode(&mcpResp); err != nil {
-		return nil, fmt.Errorf("websearch: decode response: %w", err)
+	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
+	if err := hc.PostJSON(ctx, "", reqBody, &mcpResp); err != nil {
+		return nil, fmt.Errorf("websearch: %w", err)
 	}
 	if mcpResp.Error != nil {
 		return nil, fmt.Errorf("websearch: mcp error: %s", mcpResp.Error.Message)
