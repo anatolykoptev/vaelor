@@ -1,8 +1,10 @@
 # ADR 0002: Environment Detect & Verify (static detection → sandboxed execution)
 
-- **Status:** Proposed (Phase 0 ready to ship; Phase 1 design DRAFT — pending
-  `architecture-security-cost` review before any implementation)
-- **Date:** 2026-07-02
+- **Status:** Phase 0 **Accepted** — ready to ship independently. Phase 1
+  **BLOCK-UNTIL-RESOLVED** per `architecture-security-cost` review
+  2026-07-04 — see "Security-Cost Review" section below for the closing
+  conditions.
+- **Date:** 2026-07-02 (review appended 2026-07-04)
 - **Arc:** TBD (krolik-canonical plan store — plan not yet cut; this ADR is the
   design input to that plan and to the security-cost review that gates Phase 1)
 
@@ -13,14 +15,23 @@ go-code today is a purely *static* analyzer: tree-sitter AST
 persistent Apache AGE graph (`internal/codegraph`). It **never runs a target
 repository's own build/test/install commands**. The one place it shells out
 against a cloned repo — `goanalysis.LoadPackages` (`internal/goanalysis/loader.go:46`)
-— only invokes the trusted `go` toolchain with a sanitized env
-(`loader.go:43`: `GOFLAGS`, `GOCACHE=/tmp/...`, `GOPATH=/tmp/gopath`,
-`GOWORK=off`, `context.WithTimeout` at `loader.go:56`). That *compiles*; it runs
-**no** `go:generate`, no tests, no repo-authored scripts. It is therefore **not
-a precedent** for executing a repo's own build: `npm` lifecycle hooks
-(`postinstall`), Cargo `build.rs`, `Makefile` targets and `docker build` all
-execute **arbitrary repo-authored code** — a qualitatively different threat
-class from "invoke a fixed trusted compiler".
+— only invokes the trusted `go` toolchain, with `context.WithTimeout` at
+`loader.go:56` and `GOFLAGS`/`GOCACHE=/tmp/...`/`GOPATH=/tmp/gopath`/`GOWORK=off`
+set via `goEnv` (`loader.go:43`). **Correction (security-cost review,
+2026-07-04):** `goEnv` builds its env via `append(os.Environ(), …)` — it
+**inherits the full process environment, including secrets** (`DATABASE_URL`,
+`GITHUB_TOKEN`, `LLM_API_KEY`); it is not "sanitized," only *additively
+configured*. The argument this ADR draws from it still holds — that path only
+compiles trusted `go` toolchain code, it runs **no** `go:generate`, no tests, no
+repo-authored scripts (modulo a pre-existing latent surface: cgo compiles
+repo-authored C with that same inherited env present, out of scope here) — but
+it is **not a precedent for hygienic env handling**, only for "invoke a fixed
+trusted compiler, arbitrary secrets or not." Phase 1 must not repeat this
+pattern: the verifier's env must be *provably* empty of go-code's secrets, not
+merely additively configured. `npm` lifecycle hooks (`postinstall`), Cargo
+`build.rs`, `Makefile` targets and `docker build` all execute **arbitrary
+repo-authored code** — a qualitatively different threat class from "invoke a
+fixed trusted compiler".
 
 This produces a persistent gap between what go-code *statically claims* and what
 it has *verified by running*. Concretely:
@@ -384,3 +395,61 @@ These are **explicitly not resolved** in this ADR and are handed to the
    global-semaphore-of-1 + preflight bound concurrency, but a flood of *distinct*
    repoKeys could still queue unboundedly. Is a queue depth cap / rate limit
    needed? Open.
+
+## Security-Cost Review (2026-07-04) — Verdict: BLOCK-UNTIL-RESOLVED (Phase 1)
+
+Reviewed by `architecture-security-cost` against the AWS Well-Architected
+Security/Cost/Reliability lenses. **Phase 0: PASS, ship independently now.**
+**Phase 1 as specced: not yet buildable.** Full point-by-point findings live in
+the review transcript; summary below.
+
+**Core finding:** decisions 3-4 correctly harden *secret* isolation (go-code's
+process never touches `docker.sock`) but the ADR under-specifies the boundary
+that actually matters for Phase 1's purpose — running **actively-adversarial,
+repo-authored code** (`npm postinstall`/`build.rs`/`Makefile` targets) on a
+**shared** 4-core/24GB host that also runs postgres, redis, and 15+ other MCP
+services. A hardened `runc` container (`--cap-drop=ALL`, `--read-only`,
+`--network=none`, non-root) is a resource boundary, not a trust boundary,
+against actively hostile code — see runc/cgroup escape CVEs
+(CVE-2019-5736, CVE-2022-0492, CVE-2024-21626). An escape from Phase 1's sandbox
+lands directly on the fleet's shared kernel.
+
+**Blocking conditions to close before implementation starts:**
+
+1. **Isolation runtime ≥ gVisor (`runsc`) + user-namespace remap** — no bare
+   `runc`. (Target: Firecracker/Kata microVM-per-job once justified.)
+2. **Verifier HTTP API must be authenticated and bound to loopback/private
+   network only.** The ADR's decision 4 never specifies this — an
+   unauthenticated `GOCODE_VERIFY_URL` reachable from the shared host's network
+   is strictly *worse* than mounting the socket into go-code itself, because it
+   becomes "docker-run-as-a-service" for every co-located process.
+3. **Provably secret-free verifier env** — an explicit allowlist at process
+   launch, not `append(os.Environ(), …)` inheritance (see the `loader.go`
+   correction above for the anti-pattern to avoid repeating); capped
+   stdout/stderr treated as untrusted and never forwarded verbatim into an LLM
+   prompt.
+4. **Symlink/path containment**: reject any mount target that isn't a fresh
+   clone under `WORKSPACE_DIR` (realpath check, reject symlinks, no
+   `PATH_MAPPINGS`-resolved host paths).
+5. **v1 scope cuts**: no `install`-class execution at all (registry egress +
+   `postinstall` is the worst combination — defer behind a pull-through
+   registry proxy in v2); **detected-only argv**, no caller-supplied commands;
+   no `docker build` of repo Dockerfiles; base images **pinned by digest**,
+   refuse (`buildable: unverified`) rather than fall back to `:latest` when a
+   language/version has no pinned image.
+6. **Sized `tmpfs`** for the container workdir (unbounded tmpfs on a shared
+   host is a memory-DoS vector the preflight PSI gate cannot catch in time) +
+   a bounded job queue with fast-fail rather than unbounded queueing.
+
+**Secondary findings (non-blocking, track separately):** `buildable: verified`
+reflects an attacker-controlled exit code (a `Makefile` `test:` target can
+`exit 0` unconditionally) — do not let it silently upgrade other confidence
+signals elsewhere in `code_health`/`dead_code`. The new verifier deployable
+(runtime patch cadence, pinned-image maintenance, standing CVE surveillance) is
+a sticky operational cost the ADR's "Consequences" section under-weights
+relative to the (real, correctly-claimed) two-way-door env-flag kill switch.
+
+**Disposition:** O2 (Phase 0 only) is the accepted default until items 1-6
+above have concrete, implemented answers. O4 remains the target architecture
+and is fine to build once they close — this is a sequencing gate, not a
+rejection of the design.
