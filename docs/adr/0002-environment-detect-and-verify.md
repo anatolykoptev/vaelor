@@ -2,15 +2,19 @@
 
 - **Status:** Phase 0 **Accepted** — shipped (PR #296). Phase 1
   **BLOCK-UNTIL-RESOLVED** per `architecture-security-cost` review 2026-07-04
-  — see "Security-Cost Review" below. Design resolutions for all six
-  conditions proposed 2026-07-06 (PR #298); a first re-review pass the same
-  day returned **HARDEN** (4/6 closed-with-caveat, 2 still open: verifier
-  network binding, clone-path TOCTOU) — those two plus two cheap fixes are
-  now folded into the "Phase 1 Design Resolution" section in place. **A
-  second `architecture-security-cost` re-review is pending; the BLOCK verdict
+  — see "Security-Cost Review" below. Two resolution/re-review rounds since
+  (2026-07-06): round 1 closed 4/6 items, flagged 2 open (network binding,
+  clone-path TOCTOU) + 3 cheap fixes — all folded in. Round 2 (narrow,
+  items 2+4 only) confirmed those closed but surfaced a **new coupling gap**
+  between the item-2 network fix and the item-4 clone fix (verifier needs
+  egress to clone, but its API network is `internal: true`; the clone step
+  itself was running inside the socket-holding verifier process) — resolved
+  by making the clone step a sandboxed job on a separate egress-only network,
+  reusing decision 1's isolation primitive rather than adding a new one. **A
+  third `architecture-security-cost` re-review is pending; the BLOCK verdict
   stands until that reviewer signs off.**
-- **Date:** 2026-07-02 (review appended 2026-07-04; resolutions appended
-  2026-07-06; hardening pass appended 2026-07-06)
+- **Date:** 2026-07-02 (review appended 2026-07-04; resolutions + two
+  hardening passes appended 2026-07-06)
 - **Arc:** TBD (krolik-canonical plan store — plan not yet cut; this ADR is the
   design input to that plan and to the security-cost review that gates Phase 1)
 
@@ -619,7 +623,12 @@ Mechanism, three layers:
    docs — internal networks have no default gateway), which is a free
    corollary of decision 6's "install is out of scope, most job containers get
    `--network=none` anyway" but is set at the *verifier's own* network too,
-   not just the job sandbox's. This shrinks the reachable-peer set from ~25 to
+   not just the job sandbox's. **This network carries only the go-code↔verifier
+   API traffic — the verifier's per-job clone step needs its own egress and is
+   deliberately kept on a separate `gocode-verify-egress` network instead,
+   attached only to the ephemeral clone container, never to the verifier's own
+   listener; see item 4's revised mechanism for why these must not be the same
+   network.** This shrinks the reachable-peer set from ~25 to
    exactly 2, so network segmentation and the bearer token are now two
    independent layers, matching the original "auth AND isolation" intent
    rather than collapsing to auth-only.
@@ -775,30 +784,83 @@ shares it. Consequences:
   partial-clone technique, so the marginal cost is bounded and is the price of
   removing the shared-write surface entirely rather than policing it.
 
-**Mechanism, revised sequence:**
+**Second re-review (2026-07-06) finding, folded in: the clone step itself must
+not run bare inside the verifier's own process.** A second narrow re-review of
+this revision correctly flagged that "the verifier clones the repo" as first
+written meant the verifier's **own process** — the sole holder of the Docker
+socket — runs `git clone`/`checkout` directly against untrusted repo content.
+A code-exec vector in that path (`.gitattributes` clean/smudge filters,
+submodule path-traversal classes like CVE-2024-32002 — hooks alone are not
+the only untrusted-git-content RCE surface) executing inside the
+socket-holding process is a host compromise: exactly the catastrophe this
+whole ADR exists to prevent, now relocated rather than removed. "Disable
+hooks" alone (the first draft's mitigation) does not cover those other
+vectors, and — per the review — deferring the real fix to "implementation
+time, nice to have" repeats the *same* anti-pattern this ADR already rejected
+once for the `openat2` deferral.
+
+**Revised mechanism: the clone is itself a sandboxed job, using the exact same
+primitive as every build/test/lint job (decision 1), not a bare git
+invocation in the verifier's process.** The verifier's own process never
+executes `git`; it only ever asks Docker to run containers, which is already
+its full job. Sequence:
 
 1. go-code resolves the repo to a concrete `gitSHA` (it already has the clone
    and the ref for `envdetect`/`explore`) and sends `{repoURL, gitSHA, argv,
    workDir, image, limits}` — no path.
-2. The verifier clones `repoURL` at `gitSHA` into
-   `<verifier-private-root>/<job-id>/` (a UUID-per-job directory under a root
-   directory owned by the verifier's own container filesystem — not a
-   bind-mount shared with go-code).
-3. The verifier runs the symlink/containment checks from the original draft
-   against **its own freshly-cloned tree** (defense-in-depth against a
-   malicious repo, per above), then mounts it `-v <that path>:/src:ro`.
-4. On job completion (success, failure, or timeout), the verifier deletes
+2. The verifier launches a **clone job**: `docker run --rm --runtime=runsc
+   --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64
+   --memory=512m --user 65534:65534 --tmpfs /clone:rw,size=1g <thin-git-image>
+   git clone --filter=blob:none -c core.hooksPath=/dev/null --no-checkout
+   <repoURL> /clone && git -C /clone checkout <gitSHA>` — the **same** gVisor
+   `systrap` + userns-remap + cap-drop sandbox as decision 1, just running
+   `git` instead of the target repo's build command. A clone-time RCE is now
+   contained by the identical sandbox boundary that already contains a
+   build-time RCE — no new trust tier, no new mechanism to get wrong.
+3. This clone job is the **only** container in the whole design that needs
+   network egress. It attaches to a **second, dedicated network** —
+   `gocode-verify-egress` — separate from the `gocode-verify` internal
+   two-peer network the verifier's own HTTP listener binds to (item 2). The
+   verifier's long-lived process and its API port are **never** attached to
+   `gocode-verify-egress`; only the short-lived, per-job clone container is.
+   This is what actually reconciles item 2 (the verifier's API network has no
+   gateway/egress, by design) with item 4 (cloning needs egress): egress is
+   scoped to the ephemeral clone container alone, never to the persistent,
+   socket-holding, API-serving verifier process. `gocode-verify-egress` can be
+   a plain bridge network with normal internet egress for v1, or — the v2
+   hardening the review flagged as reasonable — routed through a pull-through
+   git/package proxy the way decision 5's `install`-exclusion already
+   anticipates for v2 registries.
+4. The verifier copies the checked-out tree from the clone job's `tmpfs` into
+   its own per-job private directory (`<verifier-private-root>/<job-id>/`, a
+   UUID-per-job dir under a root only the verifier's *runner* logic touches —
+   `docker cp` out of the (now-stopped) clone container, or a short-lived
+   shared tmpfs volume between the clone job and the runner step, removed
+   immediately after the copy) — **not** a bind-mount shared with go-code, and
+   not the network-attached clone container itself.
+5. The verifier runs the symlink/containment checks from the original draft
+   (`EvalSymlinks` + `Lstat`-walk + `filepath.Rel` containment) against **its
+   own copied tree** — defense-in-depth against a malicious repo's own
+   symlinks, now checking content that already passed through one sandboxed
+   git invocation — then launches the **build/test/lint job** (decision 1,
+   `--network=none`) mounting that tree `-v <that path>:/src:ro`.
+6. On job completion (success, failure, or timeout), the verifier deletes
    `<verifier-private-root>/<job-id>/` — mirroring the
    `cleanupTransferred`-guarded defer-cleanup discipline `spawnHealthBuild`
    already uses (`tool_code_health.go:30-46`), so cleanup fires exactly once,
    after the container has finished reading the tree.
 
-**Deferred to implementation time:** whether the verifier's clone step itself
-runs inside a lightly-sandboxed helper (git's own history of CVEs against
-`.git/hooks`/`.gitattributes` filters makes "clone is fully trusted" not quite
-free — a `git clone --filter=blob:none --no-checkout` followed by an explicit
-`checkout` with hooks disabled, `-c core.hooksPath=/dev/null`, is a reasonable
-v1 floor); the exact per-job directory naming/cleanup helper location.
+This adds one more sandboxed container per job (clone) beyond the one that
+already existed (build/test/lint) — no new isolation *mechanism*, one more
+*use* of the mechanism decision 1 already committed to.
+
+**Deferred to implementation time:** the exact `<thin-git-image>` pin (a
+minimal image with just `git`, digest-pinned per item 5's discipline); whether
+the clone→runner handoff uses `docker cp` or a short-lived shared tmpfs
+(either is fine — pick whichever the Docker SDK/CLI wrapper the verifier uses
+makes less code, not a security-relevant choice since both stay inside the
+verifier's own container boundary); the `gocode-verify-egress` network's exact
+egress policy (open internet vs. proxy-only, v1 vs. v2 as noted above).
 
 ### 5. v1 scope cuts
 
@@ -963,24 +1025,33 @@ Redis-backed (unnecessary for v1).
 ---
 
 **Summary of what remains open after these resolutions (updated 2026-07-06,
-post re-review).** A first re-review pass (2026-07-06) graded 4 of 6 items
-CLOSED-WITH-CAVEAT (1, 3, 5, 6) and 2 STILL-OPEN/gap (2, 4), with an overall
-**HARDEN** verdict — the caveats and the two open items are folded into the
-text above in place (item 2's network binding is now a dedicated two-peer
-`internal: true` network rather than the shared project network; item 4's
-containment check is now "the verifier clones its own tree" rather than "trust
-a path go-code hands over," closing the TOCTOU gap the first draft's
-`openat2` deferral left open; item 3 now names
-`Decoder.DisallowUnknownFields()` as the actual rejection mechanism; item 6's
-preflight threshold is raised to 6 GiB, above the 4 GiB job cap; item 5 now
-states explicitly that `verified` must never upgrade other signals'
-confidence). What is left after this pass is **implementation-time
-parameterization**, not undecided design: literal image digests (item 5), the
-concrete token/port values (item 2), the benign-env allowlist contents (item
-3), measured systrap overhead on the box (item 1), and whether the verifier's
-own clone step sandboxes `git`'s hook/filter execution (item 4). The one
-genuine *architectural* deferral is Firecracker-per-job, which is blocked by
-hardware (no `/dev/kvm` on the A1 VM) and only reopens if verify moves to A1
-bare metal — recorded, not hand-waved. These revisions are submitted for a
-second `architecture-security-cost` **re-review**; the BLOCK verdict stands
-until that reviewer signs off.
+post two re-review rounds).** Round 1 (2026-07-06) graded 4 of 6 items
+CLOSED-WITH-CAVEAT (1, 3, 5, 6) and 2 STILL-OPEN (2, 4), overall **HARDEN**.
+Round 1's fixes (item 2 → dedicated `internal: true` two-peer network; item 4
+→ verifier clones its own tree instead of trusting a go-code-supplied path;
+item 3 → names `Decoder.DisallowUnknownFields()`; item 6 → 6 GiB preflight
+threshold; item 5 → `verified` never upgrades other signals) closed items 1/3/5/6
+and closed items 2/4's *original* findings — but a **narrow round-2 re-review
+(items 2+4 only)** surfaced a **new coupling gap between the two fixes**: the
+verifier's clone step needs network egress, but its API network (item 2) is
+`internal: true` (no egress by design), and the clone itself was running
+inside the verifier's own process — the sole holder of the Docker socket —
+where a git-content RCE (`.gitattributes` filters, submodule traversal
+classes; hooks-disabled alone doesn't cover these) would be a host compromise,
+the exact thing decision 4 as a whole exists to prevent. **Resolved** by making
+the clone step *itself* a sandboxed job (same gVisor/userns/cap-drop primitive
+as every build/test/lint job, decision 1) on a separate, egress-only
+`gocode-verify-egress` network attached only to the ephemeral clone container
+— never to the verifier's long-lived, socket-holding, API-serving process. No
+new isolation mechanism was introduced; the existing one is used one more
+time. What is left after both rounds is **implementation-time
+parameterization**, not undecided design: literal image digests (items 1's
+git-clone image and item 5's language images), the concrete token/port values
+and `gocode-verify`/`gocode-verify-egress` network definitions (item 2),
+the benign-env allowlist contents (item 3), measured systrap overhead on the
+box (item 1), and the clone→runner handoff mechanism (`docker cp` vs. shared
+tmpfs, item 4). The one genuine *architectural* deferral is Firecracker-per-job,
+which is blocked by hardware (no `/dev/kvm` on the A1 VM) and only reopens if
+verify moves to A1 bare metal — recorded, not hand-waved. These revisions are
+submitted for a third `architecture-security-cost` **re-review**; the BLOCK
+verdict stands until that reviewer signs off.
