@@ -37,6 +37,10 @@ type exploreOutput struct {
 	Environment *envdetect.Environment   `json:"environment,omitempty"`
 }
 
+// freshnessTimeout bounds the best-effort dependency-freshness lookup so a
+// slow registry call can never hold up explore's overall response.
+const freshnessTimeout = 5 * time.Second
+
 // buildExploreOutput runs explore plus its two additive enrichments
 // (dependency freshness, ADR-0002-Phase-0 environment detection) against an
 // already-resolved root and composes the final result. Extracted from the
@@ -54,7 +58,7 @@ func buildExploreOutput(ctx context.Context, root string, input ExploreInput) (*
 
 	var fresh *compare.FreshnessStats
 	{
-		fctx, fcancel := context.WithTimeout(ctx, 5*time.Second)
+		fctx, fcancel := context.WithTimeout(ctx, freshnessTimeout)
 		defer fcancel()
 		fresh, _, _ = compare.CollectFreshness(fctx, root)
 	}
