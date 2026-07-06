@@ -1,14 +1,16 @@
 # ADR 0002: Environment Detect & Verify (static detection → sandboxed execution)
 
-- **Status:** Phase 0 **Accepted** — ready to ship independently. Phase 1
-  **BLOCK-UNTIL-RESOLVED** per `architecture-security-cost` review
-  2026-07-04 — see "Security-Cost Review" section below for the closing
-  conditions. **Update 2026-07-06:** concrete design resolutions for all six
-  blocking conditions proposed in the "Phase 1 Design Resolution" section below
-  — **resolutions proposed, pending security-cost re-review** (the verdict is
-  not changed here; re-review is a separate step and remains that reviewer's
-  call).
-- **Date:** 2026-07-02 (review appended 2026-07-04; resolutions appended 2026-07-06)
+- **Status:** Phase 0 **Accepted** — shipped (PR #296). Phase 1
+  **BLOCK-UNTIL-RESOLVED** per `architecture-security-cost` review 2026-07-04
+  — see "Security-Cost Review" below. Design resolutions for all six
+  conditions proposed 2026-07-06 (PR #298); a first re-review pass the same
+  day returned **HARDEN** (4/6 closed-with-caveat, 2 still open: verifier
+  network binding, clone-path TOCTOU) — those two plus two cheap fixes are
+  now folded into the "Phase 1 Design Resolution" section in place. **A
+  second `architecture-security-cost` re-review is pending; the BLOCK verdict
+  stands until that reviewer signs off.**
+- **Date:** 2026-07-02 (review appended 2026-07-04; resolutions appended
+  2026-07-06; hardening pass appended 2026-07-06)
 - **Arc:** TBD (krolik-canonical plan store — plan not yet cut; this ADR is the
   design input to that plan and to the security-cost review that gates Phase 1)
 
@@ -253,7 +255,11 @@ its env is empty of `DATABASE_URL`/`GITHUB_TOKEN`/`LLM_API_KEY`. Interface:
 go-code POSTs `{argv, workDir, image, limits}` for one command; the verifier
 returns `{exitCode, cappedStdout, cappedStderr, durationMs, killedReason}`.
 Gated behind a new `GOCODE_VERIFY_URL` (empty ⇒ Phase 1 unavailable even if the
-flag is on — belt-and-braces).
+flag is on — belt-and-braces). **Payload revised in the Phase 1 Design
+Resolution below (item 4, 2026-07-06 re-review fix):** the request carries
+`{repoURL, gitSHA, argv, workDir, image, limits}` — a repo reference, not a
+filesystem path — so the verifier clones the tree itself instead of trusting a
+path go-code hands it. The response shape is unchanged.
 
 ### 5. Concurrency & resource budget: per-repo dedup + global semaphore of 1 + preflight gate
 
@@ -595,32 +601,45 @@ Mechanism, three layers:
    POST via `http.NewRequestWithContext` (per the repo convention). The token is
    a go-code↔verifier shared secret and is **not** on the verifier's env
    deny-list (item 3) — it is the one credential the verifier legitimately owns.
-2. **Network binding.** The verifier's HTTP listener binds to its container
-   network interface reachable **only** on the compose internal network — it
-   publishes **no** `ports:` to the host (compose `expose:` / internal network
-   only), so it is not reachable from `0.0.0.0` / the host's public interface.
-   `GOCODE_VERIFY_URL` therefore resolves to an internal service alias (e.g.
-   `http://go-code-verify:PORT/verify`), never a host-published port. This
-   mirrors how the existing MCP services already talk (`EMBED_URL`,
-   `GO_SEARCH_URL`, `DATABASE_URL`) — private docker network, not the public
-   internet (`~/AGENTS.md` ports table + CLAUDE.md env seams).
+2. **Network binding — revised after re-review (2026-07-06): a dedicated,
+   two-peer network, not the shared project network.** The first draft of this
+   decision bound the verifier to "the compose internal network" without
+   specifying *which* — on krolik's actual compose stack that is the single
+   project-wide network shared by postgres, redis, and 15+ other MCP services
+   (`~/AGENTS.md` ports table), so "no published host port" stopped an
+   off-host attacker but left the verifier reachable **by service alias from
+   every one of those ~25 co-located containers** — exactly the "co-located
+   compromised container" adversary this ADR names, with the bearer token as
+   the *only* remaining barrier instead of defense-in-depth. **Revised
+   decision:** go-code and the verifier are attached to their own **dedicated
+   compose network with `internal: true` and no other service attached** —
+   e.g. a `gocode-verify` network in `~/deploy/krolik-server/compose/*.yml`
+   listing only these two services. `internal: true` additionally blocks the
+   network from routing to the outside world at all (Docker Compose networking
+   docs — internal networks have no default gateway), which is a free
+   corollary of decision 6's "install is out of scope, most job containers get
+   `--network=none` anyway" but is set at the *verifier's own* network too,
+   not just the job sandbox's. This shrinks the reachable-peer set from ~25 to
+   exactly 2, so network segmentation and the bearer token are now two
+   independent layers, matching the original "auth AND isolation" intent
+   rather than collapsing to auth-only.
 3. **Belt-and-braces.** Empty `GOCODE_VERIFY_URL` ⇒ Phase 1 unavailable even
    with the enable flag on (already in decision 4). Empty token on the go-code
    side ⇒ it never sends a request.
 
-**Why not mTLS (justified against the topology).** The threat mTLS defends —
-network-level impersonation/MITM of the verifier by an off-host or on-wire
-attacker — is not present here: both peers are containers on the **same host**,
-on a **private docker bridge network**, with **no host-published verifier
-port**. The realistic adversary is a *co-located compromised container*, and
-against that, the bearer token (which such a container does not hold — it lives
-only in go-code's and the verifier's env, and item 3 keeps go-code's secrets off
-the verifier) plus "no exposed port" already denies access; mTLS would add
+**Why not mTLS (justified against the topology, as revised).** The threat mTLS
+defends — network-level impersonation/MITM of the verifier by an off-host or
+on-wire attacker — is not present here: both peers are containers on the
+**same host**, on the **dedicated two-peer internal network** above, with **no
+host-published verifier port** and no third container able to reach it at all.
+The realistic remaining adversary is *one of these two peers itself* being
+compromised, and against that neither mTLS nor a bearer token adds anything
+(a compromised go-code already holds the token). mTLS would add
 cert-issuance/rotation operational cost for no additional protection on this
-seam. This is a **two-way door**: if verify is ever exposed beyond the private
-network, or moved cross-host, mTLS is a clean additive upgrade (add a client
-cert check alongside the bearer check) and should be adopted then. Recorded as a
-reversible decision, not a permanent one.
+seam. This is a **two-way door**: if verify is ever exposed beyond this
+two-peer network, or moved cross-host, mTLS is a clean additive upgrade (add a
+client cert check alongside the bearer check) and should be adopted then.
+Recorded as a reversible decision, not a permanent one.
 
 **Deferred to implementation time:** token length/generation (recommend ≥32
 bytes from a CSPRNG, provisioned via `~/deploy/krolik-server/.env`); exact
@@ -673,15 +692,25 @@ Three guarantees:
    verifier's env.
 
 **Request payload carries no secret — confirmed.** The go-code→verifier request
-is `{argv, workDir, image, limits}` (decision 4). None of these is
-secret-shaped: `argv` is a detected command slice (item 5 forbids
-caller-supplied argv), `workDir` is a repo-relative path, `image` is a pinned
-digest, `limits` are integers. The verifier **rejects** any request whose JSON
+is `{repoURL, gitSHA, argv, workDir, image, limits}` (decision 4, as revised
+below to a repo reference rather than a path). None of these is
+secret-shaped: `repoURL`/`gitSHA` identify a public or already-authenticated
+clone target the same way go-code's own `internal/ingest` clone does today,
+`argv` is a detected command slice (item 5 forbids caller-supplied argv),
+`workDir` is a repo-relative path, `image` is a pinned digest, `limits` are
+integers. The verifier **rejects** any request whose JSON
 carries an unexpected field — specifically any `env`, `secrets`, `mounts`,
 `token`, or `dockerArgs` key — with `400`, so a future caller cannot smuggle env
-into a job through the API. This holds by construction: there is no legitimate
-reason for a secret to appear in a verify request, so the schema simply has no
-field for one and unknown fields are rejected rather than ignored.
+into a job through the API. **Mechanism, named (2026-07-06 re-review fix):**
+Go's default `json.Unmarshal`/`Decoder.Decode` silently *ignores* unknown
+fields, which would make the "rejects" claim above false as stated — the
+verifier's request decoder must call
+`json.NewDecoder(r.Body).DisallowUnknownFields()` before `Decode` (stdlib
+`encoding/json`, same strict-decoding pattern Kubernetes uses for its
+`UniversalDeserializer`) so an unrecognized key is a hard decode error, not a
+silent no-op. This holds by construction: there is no legitimate reason for a
+secret to appear in a verify request, so the schema simply has no field for
+one and unknown fields are rejected rather than ignored.
 
 **Untrusted output.** Per the review, capped stdout/stderr are treated as
 attacker-controlled: they are size-capped exactly like the ssh driver's
@@ -696,56 +725,80 @@ cannot be weakened by env.
 
 ### 4. Symlink / path containment
 
-**Decision: verify accepts *only* a freshly-cloned tree under `WORKSPACE_DIR`;
-before any mount, resolve the realpath, reject any symlink in the path,
-containment-check under the canonical `WORKSPACE_DIR`, and refuse
-`PATH_MAPPINGS`/local-checkout inputs entirely for verify.**
+**Decision — revised after re-review (2026-07-06): the verifier clones the
+repo itself, into a directory only it ever writes to. go-code never hands the
+verifier a filesystem path at all, which removes the shared-write surface the
+original design's symlink/containment check was trying to defend, rather than
+just checking it more carefully.**
 
-The containment check runs in go-code **before** it POSTs the mount path, and is
-re-validated in the verifier **before** it issues `docker run -v` (belt-and-
-braces — neither trusts the other). Exact sequence:
+**Why the first draft was insufficient.** The original decision had go-code
+clone into `WORKSPACE_DIR` and pass that path to the verifier, which
+re-validated it (`EvalSymlinks` + per-component `Lstat` + `filepath.Rel`
+containment) before `docker run -v`. Re-review identified this as a
+**time-of-check-to-time-of-use (TOCTOU) gap**: the check validates a path
+string/inode at check-time, but the actual mount happens later, by the Docker
+daemon, at use-time. Between the two, anything with write access to that path
+(and the ADR's own named adversary is *go-code itself*, compromised) could swap
+the target — e.g. replace the directory with a symlink to `/` or
+`/var/run/docker.sock` after the verifier's check but before the `docker run`
+call resolves `-v` again internally. A string-level check cannot close a race
+against the very party the check exists to distrust. Deferring the actual fix
+(`openat2(RESOLVE_BENEATH)` / mount-by-fd) to "implementation time, nice to
+have" was backwards: it is the fix for the *primary* threat, not a polish.
 
-1. **Force a fresh clone; refuse local/mapped inputs.** `resolveRoot`
-   (`cmd/go-code/resolve.go:44`) today has three source shapes: `WPSource`,
-   `RemoteSource` (clone into `WorkspaceDir`), and `LocalSource` (applies
-   `PATH_MAPPINGS`, resolves `/host/src/<name>` checkouts via
-   `localCheckoutFor`/`bareNameCheckoutFor`, `resolve.go:65-95`). **Verify uses
-   `RemoteSource` only.** It explicitly does **not** take the local-checkout
-   optimization and **rejects** `local:` / `path=` inputs — because those resolve
-   to `/host/src/...` paths that are bind-mounted `:ro` from the host
-   (CLAUDE.md gotcha) and are **not under `WORKSPACE_DIR`**. `PATH_MAPPINGS` is
-   fine for read-only static-analysis tools but must never select the tree we
-   *execute code against*. So verify's rule is: the tree is one go-code itself
-   just cloned into `WORKSPACE_DIR`, nothing else.
-2. **Realpath + symlink rejection.** Given the intended mount path `p`:
-   - `real, err := filepath.EvalSymlinks(p)` — fully resolve; error ⇒ reject.
-   - Walk every path component of the *original* `p` with `os.Lstat`; if any
-     component is a symlink (`mode&os.ModeSymlink != 0`), **reject** even if
-     `real` happens to land inside `WORKSPACE_DIR`. Fail loud on symlinks rather
-     than silently following them — a symlink inside the clone pointing at
-     `/etc` or `/var/run/docker.sock` must not be mountable.
-   - Canonicalize the base: `wsReal, _ := filepath.EvalSymlinks(WORKSPACE_DIR)`.
-   - **Containment:** require `real == wsReal` or `real` strictly under it —
-     compute `rel, err := filepath.Rel(wsReal, real)`; reject if `err != nil`,
-     if `rel == ".."`, or if `strings.HasPrefix(rel, ".."+sep)`. (Prefix-string
-     checks alone are insufficient — `/ws-evil` shares the `/ws` prefix — so use
-     `filepath.Rel` + `..` inspection.)
-3. **Mount read-only, execute in tmpfs.** The validated `real` is mounted `-v
-   real:/src:ro`; the writable workdir is the container `tmpfs` (item 6). A build
-   cannot mutate the host-side clone (decision 6 already commits this).
+**Revised decision: eliminate the shared mutable path instead of racing to
+validate it.** go-code's request to the verifier carries `{repoURL, gitSHA,
+argv, workDir, image, limits}` — a **repo reference**, never a filesystem path.
+The verifier performs its **own** clone (the same shallow/partial-clone
+technique `internal/ingest.CloneRepo` already uses, `--filter=blob:none`) into
+a fresh, per-job directory created immediately before the job and destroyed
+immediately after, under a directory tree **only the verifier process ever
+writes to** — go-code has no write access to it and no other job or process
+shares it. Consequences:
 
-This check **sits directly in front of** `internal/ingest`'s clone path handling
-(`clone.go` → `CloneRepo` returns `CloneResult.LocalPath` under `DestDir =
-WORKSPACE_DIR`; `resolve.go`'s `bareNameCheckoutFor`/`localCheckoutFor` already
-reject `/`, `\`, `.`, `..` traversal at `resolve.go:118-122` — verify reuses that
-hygiene but additionally *rejects the local-checkout branch outright*, since a
-valid `/host/src` checkout is precisely the PATH_MAPPINGS case verify must not
-mount).
+- **No TOCTOU window exists**, because there is no second writer: the verifier
+  clones the tree and mounts the tree it just cloned, in the same process,
+  with nothing else in a position to swap it in between. The symlink/realpath
+  checks from the original draft are **kept as defense-in-depth** against a
+  malicious *repo* (a repo whose own working tree contains a symlink to
+  `/etc`), not as the primary defense — that job now falls to "we cloned it,
+  nobody else touched it."
+- **go-code's own clone (in `WORKSPACE_DIR`, used by every other tool) is
+  completely uninvolved in verify** — decision 4's original "refuse
+  `PATH_MAPPINGS`/local-checkout inputs" still holds (the verifier never
+  accepts anything but a `repoURL`+`gitSHA` it resolves itself), and now
+  additionally go-code's *own* clone of the same repo (which it needed anyway,
+  to run `envdetect.Detect` and produce the candidate `argv`) is never handed
+  across the trust boundary either — only the reference is.
+- **Cost:** one redundant clone per verify job (go-code's for detection,
+  the verifier's own for execution). Both use the same `--filter=blob:none`
+  partial-clone technique, so the marginal cost is bounded and is the price of
+  removing the shared-write surface entirely rather than policing it.
 
-**Deferred to implementation time:** whether to `chroot`/`openat2(RESOLVE_
-BENEATH)`-harden the walk (a nice-to-have; the `EvalSymlinks` + `Lstat`-walk +
-`Rel` triple is sufficient for v1); the shared helper's exact location (a small
-unexported validator next to `resolveRoot`, not a new public package).
+**Mechanism, revised sequence:**
+
+1. go-code resolves the repo to a concrete `gitSHA` (it already has the clone
+   and the ref for `envdetect`/`explore`) and sends `{repoURL, gitSHA, argv,
+   workDir, image, limits}` — no path.
+2. The verifier clones `repoURL` at `gitSHA` into
+   `<verifier-private-root>/<job-id>/` (a UUID-per-job directory under a root
+   directory owned by the verifier's own container filesystem — not a
+   bind-mount shared with go-code).
+3. The verifier runs the symlink/containment checks from the original draft
+   against **its own freshly-cloned tree** (defense-in-depth against a
+   malicious repo, per above), then mounts it `-v <that path>:/src:ro`.
+4. On job completion (success, failure, or timeout), the verifier deletes
+   `<verifier-private-root>/<job-id>/` — mirroring the
+   `cleanupTransferred`-guarded defer-cleanup discipline `spawnHealthBuild`
+   already uses (`tool_code_health.go:30-46`), so cleanup fires exactly once,
+   after the container has finished reading the tree.
+
+**Deferred to implementation time:** whether the verifier's clone step itself
+runs inside a lightly-sandboxed helper (git's own history of CVEs against
+`.git/hooks`/`.gitattributes` filters makes "clone is fully trusted" not quite
+free — a `git clone --filter=blob:none --no-checkout` followed by an explicit
+`checkout` with hooks disabled, `-c core.hooksPath=/dev/null`, is a reasonable
+v1 floor); the exact per-job directory naming/cleanup helper location.
 
 ### 5. v1 scope cuts
 
@@ -772,6 +825,23 @@ were never installed will simply fail or error under `--network=none`, yielding
 and correct (v1 verifies what can run without a network install step;
 vendored-dep repos and no-dep builds verify cleanly). v2's pull-through registry
 proxy is what unlocks `install`.
+
+**Caveat, named explicitly (2026-07-06 re-review): "fails cleanly" is not
+guaranteed — an empty-pass can look identical to a real pass.** A lenient
+runner can `exit 0` having verified nothing: `pytest` collecting zero tests
+under `--network=none`-starved deps, an `npm test` script with no `test` files
+configured, a `make test` target that is a no-op. This is the same underlying
+class as the standing secondary finding from the original review (an exit
+code is attacker/repo-controlled, not ground truth) — it is restated here
+because v1's own scope cut (no install) makes an empty-pass *more* likely, not
+less. **Binding contract:** `buildable: verified` means "the detected command
+exited 0 inside the sandbox," full stop — it is a necessary-not-sufficient
+signal and **must never be used to upgrade the confidence of any other
+go-code signal** (`dead_code`'s confidence levels, `code_health`'s other
+sub-scores, etc.), which remain independently computed on their own evidence.
+`code_health`'s `buildable` sub-score itself is reported plainly as
+`verified`/`unverified`/`failed` with no derived "this makes the repo
+healthier" weighting beyond that one field.
 
 **Detected-only argv.** The verifier accepts argv only where the corresponding
 `envdetect.Command` was surfaced by detection; caller-supplied arbitrary argv is
@@ -832,11 +902,27 @@ cap. Two things make this OOM-safe regardless of PSI timing:
   rule. `nr_inodes` caps inode exhaustion (a many-tiny-files DoS) independently
   of byte size.
 
-The preflight PSI/available-memory gate (decision 5, item 3: `REFUSE` when
-available < 3 GiB or PSI avg10 > 20) remains as the *admission* check **on top**
-of the per-container hard cap — it prevents starting a job when the host is
-already stressed by *other* services; the cgroup cap prevents a running job from
-stressing the host. Both are needed; neither replaces the other.
+The preflight PSI/available-memory gate (decision 5, item 3) remains as the
+*admission* check **on top** of the per-container hard cap — it prevents
+starting a job when the host is already stressed by *other* services; the
+cgroup cap prevents a running job from stressing the host. Both are needed;
+neither replaces the other. **Threshold corrected (2026-07-06 re-review): the
+verify-specific admission threshold must sit above the 4 GiB job cap, not
+reuse `~/bin/cargo-load`'s general-purpose 3 GiB.** The original text quoted
+the generic `cargo-load` `REFUSE` threshold (available < 3 GiB) verbatim; a
+job admitted at, say, 3.5 GiB available can still ramp its container up to the
+full 4 GiB `--memory` cap, transiently over-committing the host before the
+cgroup limit (which bounds the *container*, not host-wide availability) has
+any effect. Verify's own admission check uses a **verify-specific** threshold
+of **available < 6 GiB ⇒ REFUSE** (job cap + a ≥2 GiB margin), distinct from
+and stricter than the shared `cargo-load` 3 GiB used for other workloads on
+this box; the PSI avg10 > 20 half of the gate is unchanged. **Worst-case host
+footprint restated honestly:** "≤ ~4 GiB, comfortably within 24 GiB" undercounts
+the gVisor `runsc` sentry's own per-sandbox memory, the verifier process, and
+Docker daemon overhead, and — per `~/AGENTS.md` — this box already runs
+postgres/redis/15+ other services with "no slack." The real safety property is
+not idle headroom; it is **the 6 GiB admission threshold plus the 4 GiB
+container-level hard cap acting together**, not free RAM assumed to exist.
 
 **Bounded queue + fast-fail.** Concurrency is: per-repo dedup → bounded FIFO
 queue (depth **8**) → global semaphore of 1. The queue is a buffered channel of
@@ -876,13 +962,25 @@ Redis-backed (unnecessary for v1).
 
 ---
 
-**Summary of what remains open after these resolutions.** All six blocking
-mechanisms are now decided. What is left is **implementation-time
+**Summary of what remains open after these resolutions (updated 2026-07-06,
+post re-review).** A first re-review pass (2026-07-06) graded 4 of 6 items
+CLOSED-WITH-CAVEAT (1, 3, 5, 6) and 2 STILL-OPEN/gap (2, 4), with an overall
+**HARDEN** verdict — the caveats and the two open items are folded into the
+text above in place (item 2's network binding is now a dedicated two-peer
+`internal: true` network rather than the shared project network; item 4's
+containment check is now "the verifier clones its own tree" rather than "trust
+a path go-code hands over," closing the TOCTOU gap the first draft's
+`openat2` deferral left open; item 3 now names
+`Decoder.DisallowUnknownFields()` as the actual rejection mechanism; item 6's
+preflight threshold is raised to 6 GiB, above the 4 GiB job cap; item 5 now
+states explicitly that `verified` must never upgrade other signals'
+confidence). What is left after this pass is **implementation-time
 parameterization**, not undecided design: literal image digests (item 5), the
-concrete token/port values (item 2), the benign-env allowlist contents (item 3),
-and measured systrap overhead on the box (item 1). The one genuine
-*architectural* deferral is Firecracker-per-job, which is blocked by hardware
-(no `/dev/kvm` on the A1 VM) and only reopens if verify moves to A1 bare metal —
-recorded, not hand-waved. These resolutions are submitted for
-`architecture-security-cost` **re-review**; the BLOCK verdict stands until that
-reviewer signs off.
+concrete token/port values (item 2), the benign-env allowlist contents (item
+3), measured systrap overhead on the box (item 1), and whether the verifier's
+own clone step sandboxes `git`'s hook/filter execution (item 4). The one
+genuine *architectural* deferral is Firecracker-per-job, which is blocked by
+hardware (no `/dev/kvm` on the A1 VM) and only reopens if verify moves to A1
+bare metal — recorded, not hand-waved. These revisions are submitted for a
+second `architecture-security-cost` **re-review**; the BLOCK verdict stands
+until that reviewer signs off.
