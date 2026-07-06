@@ -1,20 +1,27 @@
 # ADR 0002: Environment Detect & Verify (static detection → sandboxed execution)
 
-- **Status:** Phase 0 **Accepted** — shipped (PR #296). Phase 1
-  **BLOCK-UNTIL-RESOLVED** per `architecture-security-cost` review 2026-07-04
-  — see "Security-Cost Review" below. Two resolution/re-review rounds since
-  (2026-07-06): round 1 closed 4/6 items, flagged 2 open (network binding,
-  clone-path TOCTOU) + 3 cheap fixes — all folded in. Round 2 (narrow,
-  items 2+4 only) confirmed those closed but surfaced a **new coupling gap**
-  between the item-2 network fix and the item-4 clone fix (verifier needs
-  egress to clone, but its API network is `internal: true`; the clone step
-  itself was running inside the socket-holding verifier process) — resolved
-  by making the clone step a sandboxed job on a separate egress-only network,
-  reusing decision 1's isolation primitive rather than adding a new one. **A
-  third `architecture-security-cost` re-review is pending; the BLOCK verdict
-  stands until that reviewer signs off.**
-- **Date:** 2026-07-02 (review appended 2026-07-04; resolutions + two
-  hardening passes appended 2026-07-06)
+- **Status:** Phase 0 **Accepted** — shipped (PR #296). Phase 1 design went
+  through an original `architecture-security-cost` review (2026-07-04,
+  BLOCK-UNTIL-RESOLVED, 6 conditions) and three resolution/re-review rounds
+  (2026-07-06): round 1 closed 4/6 conditions outright and fixed the other 2
+  (verifier network binding, clone-path TOCTOU) plus 3 cheap must-fixes; round
+  2 (narrow, items 2+4 only) confirmed those fixes closed their original
+  findings but surfaced a **new coupling gap** between them (the verifier's
+  clone step needs network egress that its `internal: true` API network
+  can't provide, and the clone was running inside the socket-holding
+  verifier process); round 3 (narrow, the coupling fix only) reviewed the fix
+  — making the clone step itself a sandboxed job on a separate egress-only
+  network, reusing decision 1's isolation primitive — and returned
+  **RESOLVED, ready for implementer dispatch**, with two implementation-time
+  (non-blocking) notes folded in (`--rm` vs. the `docker cp` handoff timing;
+  `--read-only` parity on the clone job). **All six original conditions plus
+  the emergent coupling gap are now closed across this review chain. The
+  formal BLOCK-UNTIL-RESOLVED verdict was never re-issued by a human/operator
+  sign-off step — treat Phase 1 as design-complete and reviewed, but get an
+  explicit go/no-go before dispatching an implementer, given the security
+  sensitivity of this feature.**
+- **Date:** 2026-07-02 (review appended 2026-07-04; three resolution/re-review
+  rounds appended 2026-07-06)
 - **Arc:** TBD (krolik-canonical plan store — plan not yet cut; this ADR is the
   design input to that plan and to the security-cost review that gates Phase 1)
 
@@ -808,11 +815,19 @@ its full job. Sequence:
 1. go-code resolves the repo to a concrete `gitSHA` (it already has the clone
    and the ref for `envdetect`/`explore`) and sends `{repoURL, gitSHA, argv,
    workDir, image, limits}` — no path.
-2. The verifier launches a **clone job**: `docker run --rm --runtime=runsc
-   --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64
-   --memory=512m --user 65534:65534 --tmpfs /clone:rw,size=1g <thin-git-image>
-   git clone --filter=blob:none -c core.hooksPath=/dev/null --no-checkout
-   <repoURL> /clone && git -C /clone checkout <gitSHA>` — the **same** gVisor
+2. The verifier launches a **clone job**: `docker run --runtime=runsc
+   --read-only --cap-drop=ALL --security-opt=no-new-privileges
+   --pids-limit=64 --memory=512m --user 65534:65534
+   --tmpfs /clone:rw,size=1g <thin-git-image> git clone --filter=blob:none
+   -c core.hooksPath=/dev/null --no-checkout <repoURL> /clone && git -C /clone
+   checkout <gitSHA>` — `--read-only` added for parity with decision 1's
+   build job (which already has it); **no `--rm`** here specifically, because
+   step 4's handoff needs to read the container's `/clone` tmpfs *after* it
+   exits (`--rm` auto-destroys both the container and its tmpfs on exit,
+   which would race the handoff) — the verifier explicitly `docker rm`s the
+   clone container itself once the handoff (step 4) has finished reading it,
+   the same "cleanup after read, not on synchronous return" discipline
+   `spawnHealthBuild` already uses. The **same** gVisor
    `systrap` + userns-remap + cap-drop sandbox as decision 1, just running
    `git` instead of the target repo's build command. A clone-time RCE is now
    contained by the identical sandbox boundary that already contains a
@@ -831,13 +846,17 @@ its full job. Sequence:
    hardening the review flagged as reasonable — routed through a pull-through
    git/package proxy the way decision 5's `install`-exclusion already
    anticipates for v2 registries.
-4. The verifier copies the checked-out tree from the clone job's `tmpfs` into
-   its own per-job private directory (`<verifier-private-root>/<job-id>/`, a
-   UUID-per-job dir under a root only the verifier's *runner* logic touches —
-   `docker cp` out of the (now-stopped) clone container, or a short-lived
-   shared tmpfs volume between the clone job and the runner step, removed
-   immediately after the copy) — **not** a bind-mount shared with go-code, and
-   not the network-attached clone container itself.
+4. The verifier `docker cp`s the checked-out tree out of the (exited, not-yet
+   `--rm`'d) clone container into its own per-job private directory
+   (`<verifier-private-root>/<job-id>/`, a UUID-per-job dir under a root only
+   the verifier's *runner* logic touches) — **not** a bind-mount shared with
+   go-code, and not the network-attached clone container itself. Once the
+   copy completes, the verifier `docker rm`s the clone container (step 2's
+   note on why `--rm` isn't used at launch). A short-lived shared-tmpfs
+   volume between the clone job and the runner step is an equally valid
+   implementation of this same handoff and avoids the explicit `docker rm`
+   step — either is fine; `--rm` at launch is the one option that is **not**
+   fine, since it would destroy the tmpfs before the handoff reads it.
 5. The verifier runs the symlink/containment checks from the original draft
    (`EvalSymlinks` + `Lstat`-walk + `filepath.Rel` containment) against **its
    own copied tree** — defense-in-depth against a malicious repo's own
