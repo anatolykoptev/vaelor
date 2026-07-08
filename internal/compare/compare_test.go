@@ -359,7 +359,7 @@ func TestComputeDiffStats(t *testing.T) {
 
 func TestCompareRepos_Freshness(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	root := findRepoRootInternal(t)
 	result, err := CompareRepos(context.Background(), CompareInput{

@@ -120,7 +120,7 @@ func TestGetFileHealth_EmptyRepo_ReturnsEmptyList(t *testing.T) {
 // with fix commits yields a scored FileHealth entry with Score >= 3.
 func TestGetFileHealth_ExplicitPaths(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	// 3 fix commits on foo.go → prior_defect fires.
 	dir := mkHealthRepo(t, []string{"fix: a", "fix: b", "fix: c"})
@@ -156,7 +156,7 @@ func TestGetFileHealth_ExplicitPaths(t *testing.T) {
 // tool names or non-existent arg keys.
 func TestGetFileHealth_HintNeverReferencesUnregisteredTools(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	// High-score scenario: many fix commits → prior_defect fires hard.
 	dir := mkHealthRepo(t, []string{
@@ -225,7 +225,7 @@ func mkHotspotRepo(t *testing.T, paths map[string]int) string {
 // TestTopHotspotPaths_SkipsMarkdown verifies markdown docs are excluded.
 func TestTopHotspotPaths_SkipsMarkdown(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	dir := mkHotspotRepo(t, map[string]int{
 		"foo.go":       6,
@@ -245,7 +245,7 @@ func TestTopHotspotPaths_SkipsMarkdown(t *testing.T) {
 // TestTopHotspotPaths_SkipsLockFiles guards lock-file pollution.
 func TestTopHotspotPaths_SkipsLockFiles(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	dir := mkHotspotRepo(t, map[string]int{
 		"main.go":           5,
@@ -271,7 +271,7 @@ func TestTopHotspotPaths_SkipsLockFiles(t *testing.T) {
 // content under known directories is excluded.
 func TestTopHotspotPaths_SkipsExcludedDirs(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	dir := mkHotspotRepo(t, map[string]int{
 		"src/foo.go":              5,
@@ -299,7 +299,7 @@ func TestTopHotspotPaths_SkipsExcludedDirs(t *testing.T) {
 // excluded even though it lives at web/static/, not root-level static/.
 func TestTopHotspotPaths_SkipsNestedStatic(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	dir := mkHotspotRepo(t, map[string]int{
 		"src/main.go":               5,

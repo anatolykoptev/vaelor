@@ -480,7 +480,7 @@ func TestIncrementalSync_BumpsTimestampOnSameSHA(t *testing.T) {
 // diagnostic. Guards: stderr capture is wired — pure err!=nil check would be tautological.
 func TestGitDiffNames_StderrSurfacedInError(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	root := initGitRepo(t, map[string]string{
 		"dummy.go": goFile("Dummy"),

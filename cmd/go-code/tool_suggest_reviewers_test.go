@@ -90,7 +90,7 @@ func TestSuggestReviewers_RequiresPaths(t *testing.T) {
 
 func TestSuggestReviewers_DirectAuthorshipWins(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	dir := mkSuggestReviewersRepo(t)
 
@@ -206,7 +206,7 @@ func TestSuggestReviewers_PerFileErrorSetsErrorField(t *testing.T) {
 // minCoChanges floor (=2).
 func TestSuggestReviewers_CoChangePartnerSignal(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	dir := mkSuggestReviewersCouplingRepo(t)
 	res, err := handleSuggestReviewersCore(t.Context(), SuggestReviewersArgs{

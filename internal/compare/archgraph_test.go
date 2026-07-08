@@ -25,7 +25,7 @@ func TestCollectArchMetrics_Integration(t *testing.T) {
 // directories up from the test file's location to reach the repo root.
 func TestFallbackArchMetrics(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	// Locate the repo root relative to this test file's directory.
 	// internal/compare → ../../ = repo root.

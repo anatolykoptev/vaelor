@@ -39,7 +39,7 @@ func configIdent(t *testing.T, dir string) {
 
 func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
@@ -85,7 +85,7 @@ func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 
 func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
@@ -109,7 +109,7 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 
 func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
@@ -184,7 +184,7 @@ var weeks15 = []string{
 // The distinct-levels assertion (high ≠ medium) confirms confidenceLevel discriminates.
 func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
@@ -289,7 +289,7 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 //     since significance caps were removed (informational, not a ranking signal).
 func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
@@ -391,7 +391,7 @@ func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 // It also verifies that confidenceLevel discriminates across the result set.
 func TestCrossRepoCoChange_IDFDemotesUbiquitousFile(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
@@ -483,7 +483,7 @@ func TestCrossRepoCoChange_IDFDemotesUbiquitousFile(t *testing.T) {
 // documents that Wilson-LB diverges correctly from both G²-only and the IDF composite.
 func TestCrossRepoCoChange_SupportTierBeatsRawG2(t *testing.T) {
 	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
