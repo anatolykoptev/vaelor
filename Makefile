@@ -2,7 +2,7 @@ BINARY  = bin/go-code
 SERVICE = go-code
 COMPOSE = cd $(HOME)/deploy/example-server && docker compose
 
-.PHONY: build lint fmt-check test govulncheck preflight run deploy clean vendor
+.PHONY: build lint fmt-check test test-short govulncheck preflight run deploy clean vendor
 
 build:
 	GOWORK=off CGO_ENABLED=1 go build -o $(BINARY) ./cmd/go-code
@@ -20,6 +20,14 @@ lint: fmt-check
 
 test:
 	GOWORK=off go test -timeout 20m ./...
+
+# test-short — the fast merge-gate variant. Skips heavy integration tests
+# (real-repo git / co-change / snapshot analysis in cmd/go-code and
+# internal/{compare,federate,embeddings}) via testing.Short(). Those still
+# run IN FULL every night via `make test` (.github/workflows/nightly.yml) —
+# a cadence split, NOT skip-to-green. Cuts the gate from ~26m to ~2m.
+test-short:
+	GOWORK=off go test -short -timeout 20m ./...
 
 # govulncheck — dependency + toolchain vulnerability scan (plan ADR 7,
 # plans/go-code/2026-06-30-frontend-parse-parity-react-svelte-astro.md Phase
@@ -68,8 +76,8 @@ preflight: fmt-check
 	GOWORK=off go vet ./...
 	@echo "==> go build ./..."
 	GOWORK=off CGO_ENABLED=1 go build ./...
-	@echo "==> go test ./..."
-	$(MAKE) test
+	@echo "==> go test -short ./... (heavy integration tests run nightly)"
+	$(MAKE) test-short
 	$(MAKE) govulncheck
 
 run: build
