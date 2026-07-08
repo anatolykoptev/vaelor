@@ -29,6 +29,9 @@ func TestFederatedCoChange_RequiresRepos(t *testing.T) {
 }
 
 func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
 	edge := filepath.Join(parent, "oxpulse-partner-edge")
@@ -149,6 +152,9 @@ match m { "peer_joined" => fanout(), _ => {} } // rev %d`, i)
 }
 
 func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
 	edge := filepath.Join(parent, "oxpulse-partner-edge")
@@ -225,6 +231,9 @@ func makeCoChangeTempRepos(t *testing.T) (parent, chatDir, edgeDir string) {
 // inline budget is exhausted the handler returns a non-error response with
 // status "partial" or "building" and retry_after_seconds > 0, never a bare timeout.
 func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	// Clean the cache for this test so repos start cold.
@@ -264,6 +273,9 @@ func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
 // touches cache (by letting a full-budget call populate it) causes a subsequent
 // tight-budget call to return warm pairs immediately.
 func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent, chatDir, edgeDir := makeCoChangeTempRepos(t)
 
 	// Clean state.
@@ -318,6 +330,9 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 // stores its result, a second call with the same args hits the cache and returns
 // status "ready" (empty string in JSON via omitempty) with the full pair set.
 func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	// Clean state.
@@ -371,6 +386,9 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 // LoadOrStore succeeds → hook fires exactly once.  Releasing the gate lets the worker
 // finish.  The test FAILS if the LoadOrStore guard is removed (hook fires N times).
 func TestFederatedCoChange_DeduplicatesConcurrentCalls(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	// Clean state.
@@ -417,6 +435,9 @@ func TestFederatedCoChange_DeduplicatesConcurrentCalls(t *testing.T) {
 // TestFederatedCoChange_BackCompatPairsAlwaysArray verifies the back-compat
 // guarantee: "pairs" is always a JSON array on all response types (ready/partial/building).
 func TestFederatedCoChange_BackCompatPairsAlwaysArray(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	for _, tc := range []struct {

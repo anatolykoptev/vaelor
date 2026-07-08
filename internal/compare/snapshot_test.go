@@ -33,6 +33,9 @@ func findRepoRoot(t *testing.T) string {
 }
 
 func TestBuildSnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	root := findRepoRoot(t)
 
 	snap, err := compare.BuildSnapshot(context.Background(), root, compare.SnapshotOpts{})
@@ -88,6 +91,9 @@ func TestBuildSnapshotWithFocus(t *testing.T) {
 }
 
 func TestBuildSnapshot_ContentFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	root := findRepoRoot(t)
 
 	// "CompareRepos parser" won't match any file path, but should match
@@ -128,6 +134,9 @@ func TestBuildSnapshot_PathFocusNoFallback(t *testing.T) {
 }
 
 func TestBuildSnapshot_BodyHash(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy integration test; runs in the nightly full suite (make test-full)")
+	}
 	root := findRepoRoot(t)
 
 	snap, err := compare.BuildSnapshot(context.Background(), root, compare.SnapshotOpts{
