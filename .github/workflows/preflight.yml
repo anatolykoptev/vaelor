@@ -57,10 +57,10 @@ jobs:
     runs-on: [self-hosted, krolik]
     # krolik-go-code is this repo's ONLY runner — a hung job must not park
     # it for GitHub's 6h default and block every later PR.
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Reap stale CI postgres containers
         run: |
