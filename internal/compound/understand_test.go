@@ -20,6 +20,7 @@ func makeFunc(name, file string, start, end uint32) *parser.Symbol {
 }
 
 func TestUnderstand_Basic(t *testing.T) {
+	t.Parallel()
 	caller := makeFunc("HandleRequest", "handler.go", 10, 30)
 	callee1 := makeFunc("parseBody", "handler.go", 35, 45)
 	callee2 := makeFunc("writeJSON", "response.go", 5, 15)
@@ -56,6 +57,7 @@ func TestUnderstand_Basic(t *testing.T) {
 }
 
 func TestUnderstand_Ambiguous(t *testing.T) {
+	t.Parallel()
 	sym1 := makeFunc("Process", "pkg/a/process.go", 1, 10)
 	sym2 := makeFunc("Process", "pkg/b/process.go", 1, 10)
 	other := makeFunc("Other", "pkg/c/other.go", 1, 5)
@@ -79,6 +81,7 @@ func TestUnderstand_Ambiguous(t *testing.T) {
 }
 
 func TestUnderstand_WithCallers(t *testing.T) {
+	t.Parallel()
 	target := makeFunc("doWork", "worker.go", 50, 80)
 	caller1 := makeFunc("RunJob", "job.go", 10, 40)
 	caller2 := makeFunc("RunScheduled", "scheduler.go", 5, 20)

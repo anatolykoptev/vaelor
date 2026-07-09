@@ -8,6 +8,7 @@ import (
 )
 
 func TestLRU_GetSetBasic(t *testing.T) {
+	t.Parallel()
 	c := NewLRU[string, int](3)
 	c.Set("a", 1)
 	c.Set("b", 2)
@@ -21,6 +22,7 @@ func TestLRU_GetSetBasic(t *testing.T) {
 }
 
 func TestLRU_Len(t *testing.T) {
+	t.Parallel()
 	c := NewLRU[string, int](5)
 	assert.Equal(t, 0, c.Len())
 	c.Set("x", 10)
@@ -30,6 +32,7 @@ func TestLRU_Len(t *testing.T) {
 }
 
 func TestLRU_EvictionOrder(t *testing.T) {
+	t.Parallel()
 	// maxSize=3: insert a,b,c → full. Access "a" to make it MRU.
 	// Insert "d" → evicts "b" (LRU), not "a".
 	c := NewLRU[string, int](3)
@@ -55,6 +58,7 @@ func TestLRU_EvictionOrder(t *testing.T) {
 }
 
 func TestLRU_UpdateExisting(t *testing.T) {
+	t.Parallel()
 	c := NewLRU[string, int](3)
 	c.Set("a", 1)
 	c.Set("a", 99)
@@ -65,6 +69,7 @@ func TestLRU_UpdateExisting(t *testing.T) {
 }
 
 func TestLRU_Delete(t *testing.T) {
+	t.Parallel()
 	c := NewLRU[string, int](3)
 	c.Set("a", 1)
 	c.Delete("a")
@@ -77,6 +82,7 @@ func TestLRU_Delete(t *testing.T) {
 }
 
 func TestLRU_CapacityOne(t *testing.T) {
+	t.Parallel()
 	c := NewLRU[int, string](1)
 	c.Set(1, "first")
 	c.Set(2, "second")

@@ -63,6 +63,7 @@ func setupRepoWithWorktree(t *testing.T) (mainDir, worktreeDir string) {
 // .../.git/worktrees/<name>" error that occurred when go-code's review_delta
 // MCP tool was invoked with a worktree path.
 func TestReviewDelta_OnWorktree(t *testing.T) {
+	t.Parallel()
 	_, worktreeDir := setupRepoWithWorktree(t)
 
 	// Confirm .git in worktree is a file (not a dir) — the precondition that
@@ -101,6 +102,7 @@ func TestReviewDelta_OnWorktree(t *testing.T) {
 // The test creates a "fake remapped" .git file and a shadow gitdir tree to
 // confirm the rewrite is applied before git is invoked.
 func TestReviewDelta_OnWorktreeWithPathRewrite(t *testing.T) {
+	t.Parallel()
 	_, worktreeDir := setupRepoWithWorktree(t)
 
 	// Read the actual .git file to find the real gitdir.
@@ -154,6 +156,7 @@ func TestReviewDelta_OnWorktreeWithPathRewrite(t *testing.T) {
 // TestReviewDelta_OnNormalRepo is a regression guard: normal (non-worktree)
 // repos must continue to work after the worktree fix.
 func TestReviewDelta_OnNormalRepo(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepo(t) // reuse helper from diff_test.go
 
 	files, err := ChangedFiles(context.Background(), dir, "HEAD~1", "")

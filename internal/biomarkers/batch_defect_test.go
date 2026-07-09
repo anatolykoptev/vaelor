@@ -10,6 +10,7 @@ import (
 // TestBatchPriorDefect_PathNotInHistoryReturnsZero locks in the pre-fill
 // contract: paths passed in but absent from git history return a deterministic 0.
 func TestBatchPriorDefect_PathNotInHistoryReturnsZero(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
@@ -39,6 +40,7 @@ func TestBatchPriorDefect_PathNotInHistoryReturnsZero(t *testing.T) {
 }
 
 func TestBatchPriorDefect_ReturnsCountsPerPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(env []string, args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
@@ -85,6 +87,7 @@ func TestBatchPriorDefect_ReturnsCountsPerPath(t *testing.T) {
 }
 
 func TestBatchPriorDefect_EmptyPaths(t *testing.T) {
+	t.Parallel()
 	counts, err := BatchPriorDefect(context.Background(), "/nonexistent", nil)
 	if err != nil {
 		t.Fatal(err)

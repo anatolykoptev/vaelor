@@ -17,6 +17,7 @@ import (
 // <dst>/.ssh with 0700 dir perms and 0600 file perms, and that the copy
 // is byte-identical to the source.
 func TestEnsureWritableSSHHome(t *testing.T) {
+	t.Parallel()
 	src := t.TempDir()
 	files := map[string][]byte{
 		"config":         []byte("Host foo\n  HostName 1.2.3.4\n"),
@@ -72,6 +73,7 @@ func TestEnsureWritableSSHHome(t *testing.T) {
 // is gracefully ignored (no error), so the ssh subprocess gets a clearer failure
 // than a copy-step error.
 func TestEnsureWritableSSHHome_MissingSrc(t *testing.T) {
+	t.Parallel()
 	dst := t.TempDir()
 	if err := ensureWritableSSHHome("/nonexistent/path/.ssh", dst); err != nil {
 		t.Errorf("expected nil for missing src, got %v", err)
@@ -82,6 +84,7 @@ func TestEnsureWritableSSHHome_MissingSrc(t *testing.T) {
 //   - appends HOME=dst when dst is non-empty (overriding any prior HOME).
 //   - returns the parent env unchanged when dst is empty.
 func TestEnvWithHome(t *testing.T) {
+	t.Parallel()
 	t.Run("sets HOME when dst non-empty", func(t *testing.T) {
 		parent := []string{"PATH=/usr/bin", "HOME=/old", "TERM=xterm"}
 		got := envWithHome(parent, "/new/home")
@@ -139,6 +142,7 @@ func TestEnvWithHome(t *testing.T) {
 // actual exec path: a deletion of either the sync.Once call or the
 // ensureWritableSSHHome call inside Run would immediately fail this test.
 func TestRealExecer_RunPopulatesSSHHome(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("false"); err != nil {
 		t.Skip("/bin/false not available")
 	}
@@ -163,6 +167,7 @@ func TestRealExecer_RunPopulatesSSHHome(t *testing.T) {
 // /root/.ssh (the bind-mounted uid-1000 dir), not to $HOME — so IdentityFile
 // lines in the shadow-copy must be rewritten to absolute homeDst paths.
 func TestRewriteSSHConfigPaths_TildeAndHome(t *testing.T) {
+	t.Parallel()
 	dst := t.TempDir()
 	sshDir := filepath.Join(dst, ".ssh")
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
@@ -217,6 +222,7 @@ Host other
 // TestRewriteSSHConfigPaths_Idempotent verifies that running rewriteSSHConfigPaths
 // twice produces the same result as running it once.
 func TestRewriteSSHConfigPaths_Idempotent(t *testing.T) {
+	t.Parallel()
 	dst := t.TempDir()
 	sshDir := filepath.Join(dst, ".ssh")
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {

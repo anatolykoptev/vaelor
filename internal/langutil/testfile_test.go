@@ -3,6 +3,7 @@ package langutil
 import "testing"
 
 func TestIsTestFile(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path string
 		want bool
@@ -42,6 +43,7 @@ func TestIsTestFile(t *testing.T) {
 }
 
 func TestTestStem(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path     string
 		wantStem string
@@ -83,6 +85,7 @@ func TestTestStem(t *testing.T) {
 }
 
 func TestRelPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		abs, root, want string
 	}{

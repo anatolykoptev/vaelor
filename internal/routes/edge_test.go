@@ -5,6 +5,7 @@ import (
 )
 
 func TestGoMatcherEdgeCases(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		source string
@@ -122,6 +123,7 @@ func TestGoMatcherEdgeCases(t *testing.T) {
 }
 
 func TestTypeScriptMatcherEdgeCases(t *testing.T) {
+	t.Parallel()
 	m := &TypeScriptMatcher{}
 	cases := []struct {
 		name   string
@@ -210,6 +212,7 @@ func TestTypeScriptMatcherEdgeCases(t *testing.T) {
 }
 
 func TestPythonMatcherEdgeCases(t *testing.T) {
+	t.Parallel()
 	m := &PythonMatcher{}
 	cases := []struct {
 		name   string
@@ -281,6 +284,7 @@ func TestPythonMatcherEdgeCases(t *testing.T) {
 }
 
 func TestNormalizePathEdgeCases(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		input string
 		want  string

@@ -68,6 +68,7 @@ type Config struct {
 // --- AnalyzeRepo tests ---
 
 func TestAnalyzeRepo(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -107,6 +108,7 @@ func TestAnalyzeRepo(t *testing.T) {
 }
 
 func TestAnalyzeRepo_LanguageFilter(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	// Add a Python file to the fixture.
 	writeFile(t, filepath.Join(root, "script.py"), "def hello(): pass\n")
@@ -133,6 +135,7 @@ func TestAnalyzeRepo_LanguageFilter(t *testing.T) {
 // --- SearchSymbols tests ---
 
 func TestSearchSymbols_MatchAll(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -150,6 +153,7 @@ func TestSearchSymbols_MatchAll(t *testing.T) {
 }
 
 func TestSearchSymbols_PrefixWildcard(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -169,6 +173,7 @@ func TestSearchSymbols_PrefixWildcard(t *testing.T) {
 }
 
 func TestSearchSymbols_ExactMatch(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -191,6 +196,7 @@ func TestSearchSymbols_ExactMatch(t *testing.T) {
 }
 
 func TestSearchSymbols_KindFilter(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -210,6 +216,7 @@ func TestSearchSymbols_KindFilter(t *testing.T) {
 }
 
 func TestSearchSymbols_NoMatch(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -226,6 +233,7 @@ func TestSearchSymbols_NoMatch(t *testing.T) {
 }
 
 func TestSearchSymbols_Limit(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -245,6 +253,7 @@ func TestSearchSymbols_Limit(t *testing.T) {
 // --- BuildDepGraph tests ---
 
 func TestBuildDepGraph_Formats(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -276,6 +285,7 @@ func TestBuildDepGraph_Formats(t *testing.T) {
 }
 
 func TestBuildDepGraph_Focus(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -295,6 +305,7 @@ func TestBuildDepGraph_Focus(t *testing.T) {
 // --- helper unit tests ---
 
 func TestWildcardToRegexp(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern string
 		match   []string
@@ -343,6 +354,7 @@ func TestWildcardToRegexp(t *testing.T) {
 }
 
 func TestMermaidID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  string
@@ -360,6 +372,7 @@ func TestMermaidID(t *testing.T) {
 }
 
 func TestExtractQueryTerms(t *testing.T) {
+	t.Parallel()
 	terms := extractQueryTerms("What functions are defined in util?")
 	expected := []string{"what", "functions", "are", "defined", "util"}
 	if len(terms) != len(expected) {
@@ -373,6 +386,7 @@ func TestExtractQueryTerms(t *testing.T) {
 }
 
 func TestExtractQueryTerms_CamelCase(t *testing.T) {
+	t.Parallel()
 	terms := extractQueryTerms("handleUserAuth middleware")
 	want := map[string]bool{
 		"handle":         true,
@@ -393,6 +407,7 @@ func TestExtractQueryTerms_CamelCase(t *testing.T) {
 }
 
 func TestExtractQueryTerms_SnakeCase(t *testing.T) {
+	t.Parallel()
 	terms := extractQueryTerms("parse_file_content")
 	want := map[string]bool{
 		"parse":              true,
@@ -412,6 +427,7 @@ func TestExtractQueryTerms_SnakeCase(t *testing.T) {
 }
 
 func TestExtractQueryTerms_MixedIdentifiers(t *testing.T) {
+	t.Parallel()
 	terms := extractQueryTerms("What does BuildLLMContext do?")
 	want := map[string]bool{
 		"build":           true,
@@ -433,6 +449,7 @@ func TestExtractQueryTerms_MixedIdentifiers(t *testing.T) {
 }
 
 func TestBuildDepGraph_InvalidFormat(t *testing.T) {
+	t.Parallel()
 	root := makeFixtureRepo(t)
 	ctx := context.Background()
 
@@ -449,6 +466,7 @@ func TestBuildDepGraph_InvalidFormat(t *testing.T) {
 }
 
 func TestIsStdlibImport(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path string
 		want bool
@@ -473,6 +491,7 @@ func TestIsStdlibImport(t *testing.T) {
 // TestSearchSymbols_ExactMatchBeatsContains verifies that an exact name match ranks
 // above a "contains" match when both are in the same file and limit truncates.
 func TestSearchSymbols_ExactMatchBeatsContains(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "proc.go"), `package proc
 
@@ -501,6 +520,7 @@ func ProcessData(data string) string { return Process(data) }
 // TestSearchSymbols_ExportedBeatsUnexported verifies that an exported symbol ranks
 // above an unexported one with the same name pattern.
 func TestSearchSymbols_ExportedBeatsUnexported(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "handler.go"), `package handler
 
@@ -529,6 +549,7 @@ func Handler() string { return "public" }
 // TestSearchSymbols_KindWeight verifies that a struct outranks a function
 // when both match the query prefix and limit truncates.
 func TestSearchSymbols_KindWeight(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "config.go"), `package config
 
@@ -559,6 +580,7 @@ type Config struct {
 // TestSearchSymbols_WildcardSkipsMatchQuality verifies that wildcard queries
 // score symbols by visibility+kind only, without panic.
 func TestSearchSymbols_WildcardSkipsMatchQuality(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "mix.go"), `package mix
 
@@ -586,6 +608,7 @@ var unexported int
 // structurally important files. zz_util/ defines Process (alphabetically last) and
 // aa_main/ calls it — with limit=1 we must get the definition, not the caller.
 func TestSearchSymbols_RankedOrder(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// zz_util is alphabetically last but defines Process — should rank first by exact match.
@@ -631,6 +654,7 @@ func Run(input string) string {
 // TestSearchSymbols_WildcardStillWorks verifies that wildcard "*" queries don't panic
 // or return zero results when ranking gets empty queryTerms (extractQueryTerms("*") → []).
 func TestSearchSymbols_WildcardStillWorks(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "pkg", "a.go"), `package pkg
 
@@ -655,6 +679,7 @@ func Gamma() {}
 
 // TestSearchSymbols_EmptyQueryNoPanic verifies empty query doesn't panic during ranking.
 func TestSearchSymbols_EmptyQueryNoPanic(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "x.go"), `package x
 
@@ -675,6 +700,7 @@ func Foo() {}
 // TestSearchSymbols_RankedMultipleMatches verifies that when the same symbol name
 // exists in multiple files, the ranked file's symbols come first even with a larger limit.
 func TestSearchSymbols_RankedMultipleMatches(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// 5 files each define "Handler" — only one imports "core" which defines "Handler" too.
@@ -735,6 +761,7 @@ func Handler() string { return "dd" }
 
 // TestSearchSymbols_LimitExceedsTotal verifies that limit > total symbols is safe.
 func TestSearchSymbols_LimitExceedsTotal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "one.go"), `package one
 
@@ -758,6 +785,7 @@ func Only() {}
 
 // TestSearchSymbols_KindFilterWithRanking verifies kind filter still works with ranking.
 func TestSearchSymbols_KindFilterWithRanking(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "types.go"), `package types
 
@@ -784,6 +812,7 @@ func NewClient() *Client { return nil }
 // TestAnalyzeRepo_FusionRanking verifies that fusion ranking (BM25F + PPR + exact match)
 // promotes files containing queried symbols and their callers above unrelated files.
 func TestAnalyzeRepo_FusionRanking(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// core/core.go defines Process — the query target.

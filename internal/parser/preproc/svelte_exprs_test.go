@@ -34,17 +34,20 @@ func equalStrs(a, b []string) bool {
 }
 
 func TestSvelteExprRanges_PlainMustache(t *testing.T) {
+	t.Parallel()
 	assertExprs(t, sliceExprs("<p>{format(count)}</p>\n<span>{count}</span>\n"),
 		[]string{"format(count)", "count"})
 }
 
 func TestSvelteExprRanges_AttributeMustache(t *testing.T) {
+	t.Parallel()
 	// Attribute expressions are plain mustaches at the top level of the template.
 	assertExprs(t, sliceExprs("<Card x={fmt(i)} class:on={active}/>\n"),
 		[]string{"fmt(i)", "active"})
 }
 
 func TestSvelteExprRanges_IfKeyHeader(t *testing.T) {
+	t.Parallel()
 	assertExprs(t, sliceExprs("{#if user.isAdmin && canEdit(user)}<b/>{/if}\n"),
 		[]string{"user.isAdmin && canEdit(user)"})
 	assertExprs(t, sliceExprs("{#key sel.id}<X/>{/key}\n"), []string{"sel.id"})
@@ -54,6 +57,7 @@ func TestSvelteExprRanges_IfKeyHeader(t *testing.T) {
 // plan's risk section: EXPR is a.b(c); the `as {x,y}` destructure binding must NOT
 // be part of the expression.
 func TestSvelteExprRanges_EachStripsBinding(t *testing.T) {
+	t.Parallel()
 	assertExprs(t, sliceExprs("{#each a.b(c) as {x,y}}<i/>{/each}\n"), []string{"a.b(c)"})
 	assertExprs(t, sliceExprs("{#each items as item}<i/>{/each}\n"), []string{"items"})
 	assertExprs(t, sliceExprs("{#each getRows() as r, i (r.id)}<i/>{/each}\n"), []string{"getRows()"})
@@ -64,16 +68,19 @@ func TestSvelteExprRanges_EachStripsBinding(t *testing.T) {
 }
 
 func TestSvelteExprRanges_AwaitThenCatch(t *testing.T) {
+	t.Parallel()
 	assertExprs(t, sliceExprs("{#await load() then v}<i/>{/await}\n"), []string{"load()"})
 	assertExprs(t, sliceExprs("{#await p catch e}<i/>{/await}\n"), []string{"p"})
 	assertExprs(t, sliceExprs("{#await fetchThing()}<i/>{/await}\n"), []string{"fetchThing()"})
 }
 
 func TestSvelteExprRanges_ElseIf(t *testing.T) {
+	t.Parallel()
 	assertExprs(t, sliceExprs("{:else if ready(x)}\n"), []string{"ready(x)"})
 }
 
 func TestSvelteExprRanges_SpecialTags(t *testing.T) {
+	t.Parallel()
 	assertExprs(t, sliceExprs("{@const total = sum(a, b)}\n"), []string{"sum(a, b)"})
 	assertExprs(t, sliceExprs("{@html render(item)}\n"), []string{"render(item)"})
 	assertExprs(t, sliceExprs("{@render row(item)}\n"), []string{"row(item)"})
@@ -85,6 +92,7 @@ func TestSvelteExprRanges_SpecialTags(t *testing.T) {
 // TestSvelteExprRanges_NoExprTags proves the block-close, plain-else, and binding
 // continuations produce NOTHING (never mis-parsed as plain mustaches).
 func TestSvelteExprRanges_NoExprTags(t *testing.T) {
+	t.Parallel()
 	for _, s := range []string{
 		"{/if}\n", "{/each}\n", "{/await}\n", "{/key}\n",
 		"{:else}\n", "{:then value}\n", "{:catch err}\n",
@@ -99,6 +107,7 @@ func TestSvelteExprRanges_NoExprTags(t *testing.T) {
 // TestSvelteExprRanges_SkipsScriptStyle proves braces inside <script>/<style> are
 // not scanned as template expressions.
 func TestSvelteExprRanges_SkipsScriptStyle(t *testing.T) {
+	t.Parallel()
 	src := "<script>\nconst o = {a: 1};\nfn({b: 2});\n</script>\n" +
 		"<style>\n.x { color: red; }\n</style>\n" +
 		"<p>{go(x)}</p>\n"
@@ -150,6 +159,7 @@ var svelteDelimCorpus = []svelteDelimCase{
 // this public repo (CLAUDE.md ## CI). The curated corpus is hand-verified, so any
 // regression below 100% is a real delimiting bug, not corpus noise.
 func TestSvelteExprDelimitingAccuracy(t *testing.T) {
+	t.Parallel()
 	correct := 0
 	for _, c := range svelteDelimCorpus {
 		got := sliceExprs(c.src)

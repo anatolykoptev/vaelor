@@ -10,6 +10,7 @@ import (
 )
 
 func TestPrepareChange_Basic(t *testing.T) {
+	t.Parallel()
 	target := makeFunc("ProcessOrder", "order.go", 10, 40)
 	caller1 := makeFunc("HandleRequest", "handler.go", 5, 30)
 	caller2 := makeFunc("RunBatch", "batch.go", 15, 50)
@@ -46,6 +47,7 @@ func TestPrepareChange_Basic(t *testing.T) {
 }
 
 func TestPrepareChange_NotFound(t *testing.T) {
+	t.Parallel()
 	sym := makeFunc("existingFunc", "file.go", 1, 10)
 
 	cg := &callgraph.CallGraph{
@@ -68,6 +70,7 @@ func TestPrepareChange_NotFound(t *testing.T) {
 }
 
 func TestPrepareChange_IsDead(t *testing.T) {
+	t.Parallel()
 	// unexported symbol with no callers → should appear in dead code
 	orphan := &parser.Symbol{
 		Name:      "orphanHelper",

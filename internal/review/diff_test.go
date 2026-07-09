@@ -36,6 +36,7 @@ func setupGitRepo(t *testing.T) string {
 }
 
 func TestChangedFiles(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepo(t)
 	files, err := ChangedFiles(context.Background(), dir, "HEAD~1", "")
 	if err != nil {
@@ -51,6 +52,7 @@ func TestChangedFiles(t *testing.T) {
 // the parameter is silently ignored, the diff falls back to HEAD and returns
 // stale results across repeated PR queries against the same warm clone.
 func TestChangedFilesExplicitHead(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepo(t)
 	run := func(args ...string) string {
 		cmd := exec.Command("git", args...)
@@ -99,6 +101,7 @@ func TestChangedFilesExplicitHead(t *testing.T) {
 }
 
 func TestChangedFilesStagedFallback(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepo(t)
 	os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0o644)
 	exec.Command("git", "-C", dir, "add", "new.go").Run()
@@ -113,6 +116,7 @@ func TestChangedFilesStagedFallback(t *testing.T) {
 }
 
 func TestParseHunkHeader(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		line string
 		want LineRange

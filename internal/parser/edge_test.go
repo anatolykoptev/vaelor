@@ -12,6 +12,7 @@ import (
 // TestEdgeCases_DumpSymbols parses edge case files and prints all discovered symbols.
 // This is a diagnostic test — it never fails, just reports what was found.
 func TestEdgeCases_DumpSymbols(t *testing.T) {
+	t.Parallel()
 	files := []string{
 		"edge_ruby.rb",
 		"edge_java.java",
@@ -48,6 +49,7 @@ func TestEdgeCases_DumpSymbols(t *testing.T) {
 
 // TestEdge_RubyMethodVsFunction verifies Ruby method/function distinction.
 func TestEdge_RubyMethodVsFunction(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "edge_ruby.rb"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -133,6 +135,7 @@ func TestEdge_RubyMethodVsFunction(t *testing.T) {
 
 // TestEdge_JavaEnumMethods tests whether Java enum methods are captured.
 func TestEdge_JavaEnumMethods(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "edge_java.java"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -184,6 +187,7 @@ func TestEdge_JavaEnumMethods(t *testing.T) {
 
 // TestEdge_CppTemplatesAndNamespaces tests C++ template and namespace handling.
 func TestEdge_CppTemplatesAndNamespaces(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "edge_cpp.cpp"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -250,6 +254,7 @@ func TestEdge_CppTemplatesAndNamespaces(t *testing.T) {
 
 // TestEdge_RustNestedAndGenerics tests Rust nested modules and generic functions.
 func TestEdge_RustNestedAndGenerics(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "edge_rust.rs"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -310,6 +315,7 @@ func TestEdge_RustNestedAndGenerics(t *testing.T) {
 
 // TestEdge_CSharpAdvanced tests C# edge cases.
 func TestEdge_CSharpAdvanced(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "edge_csharp.cs"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -393,6 +399,7 @@ func TestEdge_CSharpAdvanced(t *testing.T) {
 
 // TestEdge_CAdvanced tests C edge cases with macros, function pointers, etc.
 func TestEdge_CAdvanced(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "edge_c.c"))
 	if err != nil {
 		t.Fatalf("read: %v", err)

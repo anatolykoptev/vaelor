@@ -37,6 +37,7 @@ func twoContainersJSON() []byte {
 }
 
 func TestDriver_DisabledByDefault(t *testing.T) {
+	t.Parallel()
 	d := flssh.New()
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
 	if err == nil {
@@ -48,6 +49,7 @@ func TestDriver_DisabledByDefault(t *testing.T) {
 }
 
 func TestDriver_BasicList(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{stdout: twoContainersJSON()}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
@@ -66,6 +68,7 @@ func TestDriver_BasicList(t *testing.T) {
 }
 
 func TestDriver_ComposeLabelPopulatesService(t *testing.T) {
+	t.Parallel()
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"com.docker.compose.service=web,com.docker.compose.project=myapp","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
@@ -82,6 +85,7 @@ func TestDriver_ComposeLabelPopulatesService(t *testing.T) {
 }
 
 func TestDriver_CreatedAtParse(t *testing.T) {
+	t.Parallel()
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":"2024-08-12 14:00:00 +0000 UTC"}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
@@ -98,6 +102,7 @@ func TestDriver_CreatedAtParse(t *testing.T) {
 }
 
 func TestDriver_CreatedAtZeroString(t *testing.T) {
+	t.Parallel()
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
@@ -114,6 +119,7 @@ func TestDriver_CreatedAtZeroString(t *testing.T) {
 }
 
 func TestDriver_DigestPin(t *testing.T) {
+	t.Parallel()
 	line := `{"ID":"abc","Names":"db","Image":"postgres:16@sha256:abc","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
@@ -133,6 +139,7 @@ func TestDriver_DigestPin(t *testing.T) {
 }
 
 func TestDriver_FilterServiceExactMatch(t *testing.T) {
+	t.Parallel()
 	line1 := `{"ID":"a","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	line2 := `{"ID":"b","Names":"cache","Image":"redis","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	line3 := `{"ID":"c","Names":"db","Image":"postgres","State":"running","Labels":"","CreatedAt":""}` + "\n"
@@ -151,6 +158,7 @@ func TestDriver_FilterServiceExactMatch(t *testing.T) {
 }
 
 func TestDriver_FilterServiceMatchesLabel(t *testing.T) {
+	t.Parallel()
 	line1 := `{"ID":"a","Names":"app_api_1","Image":"myapp","State":"running","Labels":"com.docker.compose.service=api","CreatedAt":""}` + "\n"
 	line2 := `{"ID":"b","Names":"app_db_1","Image":"postgres","State":"running","Labels":"com.docker.compose.service=db","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line1 + line2)}
@@ -168,6 +176,7 @@ func TestDriver_FilterServiceMatchesLabel(t *testing.T) {
 }
 
 func TestDriver_FilterInvalid_NoExec(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{Service: "web;rm"})
@@ -183,6 +192,7 @@ func TestDriver_FilterInvalid_NoExec(t *testing.T) {
 }
 
 func TestDriver_EmptyTargetHost(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: ""}, fleet.Filter{})
@@ -198,6 +208,7 @@ func TestDriver_EmptyTargetHost(t *testing.T) {
 }
 
 func TestDriver_NonSSHScheme(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "local", Host: "krolik"}, fleet.Filter{})
@@ -210,6 +221,7 @@ func TestDriver_NonSSHScheme(t *testing.T) {
 }
 
 func TestDriver_PortFlagPassed(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik", Port: 2222}, fleet.Filter{})
@@ -239,6 +251,7 @@ func TestDriver_PortFlagPassed(t *testing.T) {
 }
 
 func TestDriver_UserFlagInHostArg(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "hully", User: "ubuntu"}, fleet.Filter{})
@@ -251,6 +264,7 @@ func TestDriver_UserFlagInHostArg(t *testing.T) {
 }
 
 func TestDriver_EmptyStdout(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
@@ -263,6 +277,7 @@ func TestDriver_EmptyStdout(t *testing.T) {
 }
 
 func TestDriver_SingleBlankLine(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("\n")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
@@ -275,6 +290,7 @@ func TestDriver_SingleBlankLine(t *testing.T) {
 }
 
 func TestDriver_StdoutOver1MiB(t *testing.T) {
+	t.Parallel()
 	bigOutput := make([]byte, 1024*1024+1)
 	fake := &fakeExecer{stdout: bigOutput}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
@@ -288,6 +304,7 @@ func TestDriver_StdoutOver1MiB(t *testing.T) {
 }
 
 func TestDriver_ExecErrorPropagates(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{err: errors.New("connection refused")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
@@ -300,6 +317,7 @@ func TestDriver_ExecErrorPropagates(t *testing.T) {
 }
 
 func TestDriver_StderrDiscarded(t *testing.T) {
+	t.Parallel()
 	// stderr contains sensitive text; it must NOT appear in any returned field.
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{
@@ -324,6 +342,7 @@ func TestDriver_StderrDiscarded(t *testing.T) {
 }
 
 func TestDriver_ParseErrorPerLine_BestEffort(t *testing.T) {
+	t.Parallel()
 	// One valid line + one garbage line → best-effort: return 1 valid result, no error.
 	// This follows the partial-info tolerance pattern established in P3.
 	validLine := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":""}` + "\n"
@@ -347,6 +366,7 @@ func TestDriver_ParseErrorPerLine_BestEffort(t *testing.T) {
 // url.Parse("ssh://-G") returns Hostname()=="-G"; without this guard,
 // ssh would interpret "-G" as its "--print-config" flag, not a destination.
 func TestDriver_LeadingDashHost_Rejected(t *testing.T) {
+	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
 	_, err := d.List(context.Background(),

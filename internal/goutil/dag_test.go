@@ -28,6 +28,7 @@ func nodes(specs ...string) []testNode {
 
 // TestRunDAG_empty does nothing without error.
 func TestRunDAG_empty(t *testing.T) {
+	t.Parallel()
 	err := RunDAG(context.Background(), []testNode{}, 2, func(testNode) error { return nil })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -36,6 +37,7 @@ func TestRunDAG_empty(t *testing.T) {
 
 // TestRunDAG_linear ensures A→B→C run in order.
 func TestRunDAG_linear(t *testing.T) {
+	t.Parallel()
 	ns := []testNode{
 		{id: "C", deps: []string{"B"}},
 		{id: "A", deps: nil},
@@ -66,6 +68,7 @@ func TestRunDAG_linear(t *testing.T) {
 
 // TestRunDAG_parallel verifies independent nodes run (no ordering guarantee).
 func TestRunDAG_parallel(t *testing.T) {
+	t.Parallel()
 	ns := nodes("X", "Y", "Z") // no deps — all independent
 
 	var mu sync.Mutex
@@ -87,6 +90,7 @@ func TestRunDAG_parallel(t *testing.T) {
 
 // TestRunDAG_cycle returns an error instead of hanging.
 func TestRunDAG_cycle(t *testing.T) {
+	t.Parallel()
 	ns := []testNode{
 		{id: "A", deps: []string{"B"}},
 		{id: "B", deps: []string{"A"}},
@@ -103,6 +107,7 @@ func TestRunDAG_cycle(t *testing.T) {
 
 // TestRunDAG_error propagates fn error.
 func TestRunDAG_error(t *testing.T) {
+	t.Parallel()
 	ns := nodes("A", "B", "C")
 	boom := fmt.Errorf("boom")
 
@@ -119,6 +124,7 @@ func TestRunDAG_error(t *testing.T) {
 
 // TestRunDAG_contextCancel stops execution on cancel.
 func TestRunDAG_contextCancel(t *testing.T) {
+	t.Parallel()
 	// Build a long chain A→B→C→...→Z (26 nodes).
 	var ns []testNode
 	for i := 0; i < 26; i++ {
@@ -161,6 +167,7 @@ func TestRunDAG_contextCancel(t *testing.T) {
 
 // TestDetectDAGCycle directly tests cycle detection.
 func TestDetectDAGCycle(t *testing.T) {
+	t.Parallel()
 	t.Run("no cycle", func(t *testing.T) {
 		ns := []testNode{
 			{id: "A"},

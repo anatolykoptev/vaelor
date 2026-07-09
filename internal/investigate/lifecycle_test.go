@@ -9,6 +9,7 @@ import (
 )
 
 func TestInvestigationStore_StartReturnsRunning(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	st, fresh := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	if !fresh {
@@ -20,6 +21,7 @@ func TestInvestigationStore_StartReturnsRunning(t *testing.T) {
 }
 
 func TestInvestigationStore_StartDedupsSecondCall(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
@@ -32,6 +34,7 @@ func TestInvestigationStore_StartDedupsSecondCall(t *testing.T) {
 }
 
 func TestInvestigationStore_FinishStoresResult(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	res := &InvestigationResult{}
@@ -50,6 +53,7 @@ func TestInvestigationStore_FinishStoresResult(t *testing.T) {
 }
 
 func TestInvestigationStore_FailMarksFailed(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	s.Fail("svc", time.Unix(100, 0), time.Unix(200, 0), "", "boom")
@@ -64,6 +68,7 @@ func TestInvestigationStore_FailMarksFailed(t *testing.T) {
 }
 
 func TestInvestigationStore_DifferentRangeIsDifferentKey(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 	_, fresh2 := s.Start("svc", time.Unix(300, 0), time.Unix(400, 0), "")
@@ -73,6 +78,7 @@ func TestInvestigationStore_DifferentRangeIsDifferentKey(t *testing.T) {
 }
 
 func TestInvestigationStore_ConcurrentStartIsRaceFree(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	var wg sync.WaitGroup
 	var freshCount atomic.Int32
@@ -93,6 +99,7 @@ func TestInvestigationStore_ConcurrentStartIsRaceFree(t *testing.T) {
 }
 
 func TestStateKey_NoCollisionOnPipeInServiceName(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	s.Start("svc|extra", time.Unix(100, 0), time.Unix(200, 0), "")
 	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
@@ -108,6 +115,7 @@ func TestStateKey_NoCollisionOnPipeInServiceName(t *testing.T) {
 }
 
 func TestInvestigationStore_ConcurrentFinishGet_RaceFree(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "")
 
@@ -134,6 +142,7 @@ func TestInvestigationStore_ConcurrentFinishGet_RaceFree(t *testing.T) {
 // TestInvestigationStore_DifferentRepoIsDifferentKey verifies that same
 // service+range with different repo does NOT dedup (fix for cache-key bug).
 func TestInvestigationStore_DifferentRepoIsDifferentKey(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-a")
 	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-b")
@@ -145,6 +154,7 @@ func TestInvestigationStore_DifferentRepoIsDifferentKey(t *testing.T) {
 // TestInvestigationStore_SameRepoIsDeduplicated verifies that same
 // service+range+repo correctly deduplicates.
 func TestInvestigationStore_SameRepoIsDeduplicated(t *testing.T) {
+	t.Parallel()
 	s := NewInvestigationStore()
 	_, fresh1 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-a")
 	_, fresh2 := s.Start("svc", time.Unix(100, 0), time.Unix(200, 0), "anatolykoptev/repo-a")

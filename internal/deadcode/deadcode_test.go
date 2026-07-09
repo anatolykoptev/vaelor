@@ -10,6 +10,7 @@ import (
 // TestAnalyzeFiltersDead creates 3 symbols (helper, used, main) with 1 edge
 // (main->used) and expects only helper to be reported dead.
 func TestAnalyzeFiltersDead(t *testing.T) {
+	t.Parallel()
 	helper := &parser.Symbol{
 		Name: "helper", Kind: parser.KindFunction,
 		File: "/src/util.go", StartLine: 1, EndLine: 5,
@@ -52,6 +53,7 @@ func TestAnalyzeFiltersDead(t *testing.T) {
 // TestAnalyzeSkipsExported verifies that exported symbols are skipped by default
 // and included when IncludeExported=true.
 func TestAnalyzeSkipsExported(t *testing.T) {
+	t.Parallel()
 	exported := &parser.Symbol{
 		Name: "PublicFunc", Kind: parser.KindFunction,
 		File: "/src/api.go", StartLine: 1, EndLine: 10,
@@ -90,6 +92,7 @@ func TestAnalyzeSkipsExported(t *testing.T) {
 
 // TestAnalyzeSkipsTestFuncs verifies that test functions are filtered out.
 func TestAnalyzeSkipsTestFuncs(t *testing.T) {
+	t.Parallel()
 	testFunc := &parser.Symbol{
 		Name: "TestFoo", Kind: parser.KindFunction,
 		File: "/src/foo_test.go", StartLine: 1, EndLine: 10,
@@ -131,6 +134,7 @@ func TestAnalyzeSkipsTestFuncs(t *testing.T) {
 
 // TestAnalyzeMethodConfidence verifies that methods get "medium" confidence.
 func TestAnalyzeMethodConfidence(t *testing.T) {
+	t.Parallel()
 	method := &parser.Symbol{
 		Name: "doWork", Kind: parser.KindMethod,
 		File: "/src/worker.go", StartLine: 10, EndLine: 25,
@@ -160,6 +164,7 @@ func TestAnalyzeMethodConfidence(t *testing.T) {
 
 // TestAnalyzeSortsByFile verifies output is sorted by file path then line.
 func TestAnalyzeSortsByFile(t *testing.T) {
+	t.Parallel()
 	sym1 := &parser.Symbol{
 		Name: "bHelper", Kind: parser.KindFunction,
 		File: "/src/b.go", StartLine: 1, EndLine: 5,
@@ -201,6 +206,7 @@ func TestAnalyzeSortsByFile(t *testing.T) {
 
 // TestAnalyze_HTTPHandlerNotDead verifies that HTTP handler functions are not flagged as dead.
 func TestAnalyze_HTTPHandlerNotDead(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "handleUserCreate", Kind: parser.KindFunction, File: "/app/handlers.go", StartLine: 10, EndLine: 20,
 			Signature: "func handleUserCreate(w http.ResponseWriter, r *http.Request)"},
@@ -222,6 +228,7 @@ func TestAnalyze_HTTPHandlerNotDead(t *testing.T) {
 
 // TestAnalyze_InterfaceMethodNotDead verifies that well-known interface methods are not flagged as dead.
 func TestAnalyze_InterfaceMethodNotDead(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "ServeHTTP", Kind: parser.KindMethod, File: "/app/server.go", StartLine: 10, EndLine: 20,
 			Signature: "func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request)"},
@@ -239,6 +246,7 @@ func TestAnalyze_InterfaceMethodNotDead(t *testing.T) {
 // TestAnalyze_FuncRefNotDead verifies that a function passed as an argument
 // to another function (e.g. Register("name", handler)) is NOT flagged as dead.
 func TestAnalyze_FuncRefNotDead(t *testing.T) {
+	t.Parallel()
 	handler := &parser.Symbol{
 		Name: "renderHeading", Kind: parser.KindFunction,
 		File: "/app/render.go", StartLine: 10, EndLine: 20,
@@ -284,6 +292,7 @@ func TestAnalyze_FuncRefNotDead(t *testing.T) {
 // RED without HookCallbacks: both callbacks would be reported dead (no callers).
 // GREEN with HookCallbacks: callbacks excluded from dead code results.
 func TestAnalyze_HookCallbackNotDead(t *testing.T) {
+	t.Parallel()
 	// Simulate a WordPress plugin with hook registrations.
 	// These functions have ZERO direct callers — only reachable via hooks.
 	onInit := &parser.Symbol{
@@ -328,6 +337,7 @@ func TestAnalyze_HookCallbackNotDead(t *testing.T) {
 // TestAnalyze_HookCallbackNotDead_RED proves the test above is meaningful:
 // WITHOUT HookCallbacks, the same callbacks ARE reported as dead.
 func TestAnalyze_HookCallbackNotDead_RED(t *testing.T) {
+	t.Parallel()
 	onInit := &parser.Symbol{
 		Name: "on_init", Kind: parser.KindFunction,
 		File: "/wp-content/plugins/myplugin/main.php", StartLine: 10, EndLine: 20,
@@ -374,6 +384,7 @@ func TestAnalyze_HookCallbackNotDead_RED(t *testing.T) {
 // InjectHookEdges + deadcode analysis work together: hook callbacks become
 // "called" via synthetic edges and are no longer dead.
 func TestAnalyze_InjectHookEdges_Integration(t *testing.T) {
+	t.Parallel()
 	// PHP WordPress plugin symbols.
 	onInit := &parser.Symbol{
 		Name: "on_init", Kind: parser.KindFunction,
@@ -429,6 +440,7 @@ func TestAnalyze_InjectHookEdges_Integration(t *testing.T) {
 // add_action/add_filter (server-side only, no do_action in repo) are NOT
 // flagged as dead. This covers WP core hooks like admin_notices, init, etc.
 func TestAnalyze_ServerOnlyHooks(t *testing.T) {
+	t.Parallel()
 	enqueueEditor := &parser.Symbol{
 		Name: "enqueue_editor", Kind: parser.KindMethod,
 		File: "/plugin/assets.php", StartLine: 10, EndLine: 30,
@@ -474,6 +486,7 @@ func TestAnalyze_ServerOnlyHooks(t *testing.T) {
 // TestAnalyze_ConstructorNotDead verifies that language constructors are
 // not flagged as dead code — they're called implicitly by new ClassName().
 func TestAnalyze_ConstructorNotDead(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		file string
@@ -508,6 +521,7 @@ func TestAnalyze_ConstructorNotDead(t *testing.T) {
 }
 
 func TestAnalyze_RustTestAttributeNotDead(t *testing.T) {
+	t.Parallel()
 	testFn := &parser.Symbol{
 		Name: "test_something", Kind: parser.KindFunction,
 		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
@@ -540,6 +554,7 @@ func TestAnalyze_RustTestAttributeNotDead(t *testing.T) {
 }
 
 func TestAnalyze_RustPubVisibility(t *testing.T) {
+	t.Parallel()
 	pubFn := &parser.Symbol{
 		Name: "new", Kind: parser.KindMethod,
 		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
@@ -577,6 +592,7 @@ func TestAnalyze_RustPubVisibility(t *testing.T) {
 }
 
 func TestAnalyze_RustWellKnownTraitMethods(t *testing.T) {
+	t.Parallel()
 	methods := []string{"fmt", "clone", "drop", "default", "from", "into", "next", "eq", "hash", "poll", "serialize", "deserialize"}
 	var symbols []*parser.Symbol
 	for i, name := range methods {
@@ -602,6 +618,7 @@ func TestAnalyze_RustWellKnownTraitMethods(t *testing.T) {
 }
 
 func TestAnalyze_RustTraitImplMethodConfidence(t *testing.T) {
+	t.Parallel()
 	traitMethod := &parser.Symbol{
 		Name: "custom_method", Kind: parser.KindMethod,
 		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,
@@ -625,6 +642,7 @@ func TestAnalyze_RustTraitImplMethodConfidence(t *testing.T) {
 }
 
 func TestAnalyze_RustTestFileRs(t *testing.T) {
+	t.Parallel()
 	sym := &parser.Symbol{
 		Name: "helper_in_test", Kind: parser.KindFunction,
 		Language: "rust", File: "/src/foo_test.rs", StartLine: 1, EndLine: 10,
@@ -646,6 +664,7 @@ func TestAnalyze_RustTestFileRs(t *testing.T) {
 // TestAnalyze_IsInterfaceEdgeExcludesMethod verifies that a method called via
 // interface dispatch (IsInterface=true edge) is not flagged as dead code.
 func TestAnalyze_IsInterfaceEdgeExcludesMethod(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "main", Kind: parser.KindFunction, File: "main.go", StartLine: 1, EndLine: 5},
 		{Name: "Greet", Kind: parser.KindMethod, Receiver: "EnglishGreeter", File: "greet.go", StartLine: 1, EndLine: 3},
@@ -668,6 +687,7 @@ func TestAnalyze_IsInterfaceEdgeExcludesMethod(t *testing.T) {
 // TestAnalyze_CrossTypeInterfaceFiltering verifies that when interface method "Greet"
 // is dispatched on one type, ALL implementors' Greet methods are excluded from dead code.
 func TestAnalyze_CrossTypeInterfaceFiltering(t *testing.T) {
+	t.Parallel()
 	iface := &parser.Symbol{Name: "Greeter", Kind: parser.KindInterface, File: "a.go", StartLine: 1, EndLine: 3}
 	eng := &parser.Symbol{Name: "Greet", Kind: parser.KindMethod, Receiver: "EnglishGreeter", File: "b.go", StartLine: 1, EndLine: 3}
 	spa := &parser.Symbol{Name: "Greet", Kind: parser.KindMethod, Receiver: "SpanishGreeter", File: "c.go", StartLine: 1, EndLine: 3}
@@ -692,6 +712,7 @@ func TestAnalyze_CrossTypeInterfaceFiltering(t *testing.T) {
 // TestAnalyze_WithNilOxCodes verifies that existing behavior is unchanged when
 // OxCodes is nil — no second pass is attempted and the full dead list is returned.
 func TestAnalyze_WithNilOxCodes(t *testing.T) {
+	t.Parallel()
 	helper := &parser.Symbol{
 		Name: "helperFn", Kind: parser.KindFunction,
 		File: "/src/util.go", StartLine: 1, EndLine: 5,
@@ -723,6 +744,7 @@ func TestAnalyze_WithNilOxCodes(t *testing.T) {
 
 // TestAnalyzeDeadRatio verifies the ratio calculation.
 func TestAnalyzeDeadRatio(t *testing.T) {
+	t.Parallel()
 	mainSym := &parser.Symbol{Name: "main", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 5}
 	used := &parser.Symbol{Name: "used", Kind: parser.KindFunction, File: "/src/a.go", StartLine: 1, EndLine: 5}
 	dead1 := &parser.Symbol{Name: "dead1", Kind: parser.KindFunction, File: "/src/a.go", StartLine: 10, EndLine: 15}
@@ -761,6 +783,7 @@ func TestAnalyzeDeadRatio(t *testing.T) {
 // medium/no report reflects TS's "any non-underscore name is public API"
 // convention instead of Go's uppercase-first one.
 func TestAnalyze_TSExportedCamelCaseNotHighConfidenceDead(t *testing.T) {
+	t.Parallel()
 	tsFn := &parser.Symbol{
 		Name: "fooBar", Kind: parser.KindFunction,
 		Language: "typescript", File: "/src/index.ts", StartLine: 10, EndLine: 20,
@@ -791,6 +814,7 @@ func TestAnalyze_TSExportedCamelCaseNotHighConfidenceDead(t *testing.T) {
 // running it against this test flips the result from dead (correct) to
 // not-dead (silences a real finding).
 func TestAnalyze_RustPrivateSnakeCaseNameStillDead(t *testing.T) {
+	t.Parallel()
 	privateFn := &parser.Symbol{
 		Name: "compute_totals", Kind: parser.KindFunction,
 		Language: "rust", File: "/src/lib.rs", StartLine: 10, EndLine: 20,

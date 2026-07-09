@@ -5,6 +5,7 @@ import (
 )
 
 func TestParseCargoTomlFreshness_Full(t *testing.T) {
+	t.Parallel()
 	input := `[package]
 name = "my-crate"
 version = "0.1.0"
@@ -41,6 +42,7 @@ assert_cmd = "2.0"
 }
 
 func TestParseCargoTomlFreshness_EditionOnly(t *testing.T) {
+	t.Parallel()
 	input := `[package]
 name = "minimal"
 edition = "2021"
@@ -56,6 +58,7 @@ log = "0.4"
 }
 
 func TestParseCargoTomlFreshness_NoDeps(t *testing.T) {
+	t.Parallel()
 	input := `[package]
 name = "bare"
 version = "0.1.0"
@@ -67,6 +70,7 @@ version = "0.1.0"
 }
 
 func TestParseCargoTomlFreshness_PathDep(t *testing.T) {
+	t.Parallel()
 	input := `[dependencies]
 local-crate = { path = "../local" }
 versioned = { version = "2.0", optional = true }

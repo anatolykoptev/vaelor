@@ -15,6 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestSplitCamelCase_Basic(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitCamelCase("parseJSONString")
 	want := []string{"parse", "json", "string"}
 	if !reflect.DeepEqual(got, want) {
@@ -23,6 +24,7 @@ func TestSplitCamelCase_Basic(t *testing.T) {
 }
 
 func TestSplitCamelCase_Empty(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitCamelCase("")
 	if got != nil {
 		t.Errorf("SplitCamelCase(%q) = %v, want nil", "", got)
@@ -30,6 +32,7 @@ func TestSplitCamelCase_Empty(t *testing.T) {
 }
 
 func TestSplitCamelCase_AllCaps(t *testing.T) {
+	t.Parallel()
 	// "HTTP" → one part, len<2 parts dropped; "S" dropped
 	got := lextoken.SplitCamelCase("HTTPServer")
 	want := []string{"http", "server"}
@@ -39,6 +42,7 @@ func TestSplitCamelCase_AllCaps(t *testing.T) {
 }
 
 func TestSplitCamelCase_SingleWord(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitCamelCase("parse")
 	want := []string{"parse"}
 	if !reflect.DeepEqual(got, want) {
@@ -47,6 +51,7 @@ func TestSplitCamelCase_SingleWord(t *testing.T) {
 }
 
 func TestSplitCamelCase_LenFilter(t *testing.T) {
+	t.Parallel()
 	// "aB" → ["a","b"] but len<2 → both dropped → nil
 	got := lextoken.SplitCamelCase("aB")
 	if len(got) != 0 {
@@ -59,6 +64,7 @@ func TestSplitCamelCase_LenFilter(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSplitIdentifier_SnakeCase(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitIdentifier("parse_json_string")
 	want := []string{"parse", "json", "string"}
 	if !reflect.DeepEqual(got, want) {
@@ -67,6 +73,7 @@ func TestSplitIdentifier_SnakeCase(t *testing.T) {
 }
 
 func TestSplitIdentifier_CamelSnakeMix(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitIdentifier("parseJSONString")
 	want := []string{"parse", "json", "string"}
 	if !reflect.DeepEqual(got, want) {
@@ -75,6 +82,7 @@ func TestSplitIdentifier_CamelSnakeMix(t *testing.T) {
 }
 
 func TestSplitIdentifier_Empty(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitIdentifier("")
 	if got != nil {
 		t.Errorf("SplitIdentifier(%q) = %v, want nil", "", got)
@@ -82,6 +90,7 @@ func TestSplitIdentifier_Empty(t *testing.T) {
 }
 
 func TestSplitIdentifier_LeadingTrailingUnderscores(t *testing.T) {
+	t.Parallel()
 	got := lextoken.SplitIdentifier("_get_value_")
 	// "_" splits → ["", "get", "value", ""] — empty parts skipped
 	want := []string{"get", "value"}
@@ -96,6 +105,7 @@ func TestSplitIdentifier_LeadingTrailingUnderscores(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTokenize_SimpleQuery(t *testing.T) {
+	t.Parallel()
 	got := lextoken.Tokenize("What functions are defined in util?")
 	// "what", "functions", "are", "defined", "util" — no identifier split on
 	// plain words; "are" and "what" are short or kept (no stopword filter here)
@@ -122,6 +132,7 @@ func TestTokenize_SimpleQuery(t *testing.T) {
 }
 
 func TestTokenize_CamelCase(t *testing.T) {
+	t.Parallel()
 	got := lextoken.Tokenize("find the HTTPServer handler")
 	want := map[string]bool{
 		"find":       true,
@@ -143,6 +154,7 @@ func TestTokenize_CamelCase(t *testing.T) {
 }
 
 func TestTokenize_SnakeCase(t *testing.T) {
+	t.Parallel()
 	got := lextoken.Tokenize("parse_file_content")
 	want := map[string]bool{
 		"parse":              true,
@@ -162,6 +174,7 @@ func TestTokenize_SnakeCase(t *testing.T) {
 }
 
 func TestTokenize_Empty(t *testing.T) {
+	t.Parallel()
 	got := lextoken.Tokenize("")
 	if len(got) != 0 {
 		t.Errorf("Tokenize(%q) = %v, want empty", "", got)
@@ -169,6 +182,7 @@ func TestTokenize_Empty(t *testing.T) {
 }
 
 func TestTokenize_Dedup(t *testing.T) {
+	t.Parallel()
 	got := lextoken.Tokenize("foo foo foo")
 	count := 0
 	for _, t2 := range got {
@@ -187,6 +201,7 @@ func TestTokenize_Dedup(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFilterStopwords_RemovesStopwords(t *testing.T) {
+	t.Parallel()
 	// These are exactly the stopwords from both callers.
 	stopwords := []string{"the", "and", "for", "that", "with", "this", "from",
 		"are", "not", "have", "function", "method", "code", "file",
@@ -200,6 +215,7 @@ func TestFilterStopwords_RemovesStopwords(t *testing.T) {
 }
 
 func TestFilterStopwords_KeepsNonStopwords(t *testing.T) {
+	t.Parallel()
 	input := []string{"parse", "config", "handler"}
 	got := lextoken.FilterStopwords(input)
 	if !reflect.DeepEqual(got, input) {
@@ -208,6 +224,7 @@ func TestFilterStopwords_KeepsNonStopwords(t *testing.T) {
 }
 
 func TestFilterStopwords_Nil(t *testing.T) {
+	t.Parallel()
 	got := lextoken.FilterStopwords(nil)
 	if got != nil {
 		t.Errorf("FilterStopwords(nil) = %v, want nil", got)
@@ -220,6 +237,7 @@ func TestFilterStopwords_Nil(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestKeywordTokenize_Basic(t *testing.T) {
+	t.Parallel()
 	// "find the HTTPServer handler" → ["find", "httpserver", "handler"] (no id-split)
 	got := lextoken.KeywordTokenize("find the HTTPServer handler")
 	want := map[string]bool{"find": true, "httpserver": true, "handler": true}
@@ -239,6 +257,7 @@ func TestKeywordTokenize_Basic(t *testing.T) {
 }
 
 func TestKeywordTokenize_StopwordFromRankGo(t *testing.T) {
+	t.Parallel()
 	// "what code is in file function" — all stopwords → empty
 	got := lextoken.KeywordTokenize("what code is in file function")
 	// "is" and "in" are <3 chars → already filtered by len; rest are stopwords
@@ -248,6 +267,7 @@ func TestKeywordTokenize_StopwordFromRankGo(t *testing.T) {
 }
 
 func TestKeywordTokenize_Dedup(t *testing.T) {
+	t.Parallel()
 	got := lextoken.KeywordTokenize("parse parse parse")
 	count := 0
 	for _, t2 := range got {
@@ -261,6 +281,7 @@ func TestKeywordTokenize_Dedup(t *testing.T) {
 }
 
 func TestKeywordTokenize_Empty(t *testing.T) {
+	t.Parallel()
 	got := lextoken.KeywordTokenize("")
 	if len(got) != 0 {
 		t.Errorf("KeywordTokenize(%q) = %v, want empty", "", got)
@@ -272,6 +293,7 @@ func TestKeywordTokenize_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestStopwordsSet_ExactMembership(t *testing.T) {
+	t.Parallel()
 	// These must all be in the set (from analyze/rank.go and embeddings/store_keyword.go).
 	must := []string{
 		"the", "and", "for", "that", "with", "this", "from", "are", "not", "have",
@@ -285,6 +307,7 @@ func TestStopwordsSet_ExactMembership(t *testing.T) {
 }
 
 func TestStopwordsSet_NonMembers(t *testing.T) {
+	t.Parallel()
 	nonStop := []string{"parse", "config", "handler", "server", "query"}
 	for _, w := range nonStop {
 		if lextoken.IsStopword(w) {

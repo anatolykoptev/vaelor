@@ -5,6 +5,7 @@ import (
 )
 
 func TestRankHypotheses_OrdersByCompositeScore(t *testing.T) {
+	t.Parallel()
 	// Hand-trace under LinearMinMax:
 	// SpanCount: [1, 100, 10, 0]. min=0, max=100. Norm: [0.01, 1.0, 0.1, 0.0].
 	// AnomalyScore: [0.9, 0.1, 0.5, 0.0]. min=0, max=0.9. Norm: [1.0, 0.111, 0.555, 0.0].
@@ -29,6 +30,7 @@ func TestRankHypotheses_OrdersByCompositeScore(t *testing.T) {
 }
 
 func TestRankHypotheses_StableOnTies(t *testing.T) {
+	t.Parallel()
 	// Flat lists: all SpanCount=5, all AnomalyScore=0.5 — LinearMinMax max==min
 	// for both lists → fused=0 for all → stable first-seen order preserved.
 	in := []Hypothesis{
@@ -46,6 +48,7 @@ func TestRankHypotheses_StableOnTies(t *testing.T) {
 }
 
 func TestRankHypotheses_PreservesCallerConfidence(t *testing.T) {
+	t.Parallel()
 	in := []Hypothesis{
 		{Subject: "preset_high", SpanCount: 1, AnomalyScore: 0.1, Confidence: ConfidenceHigh},
 		{Subject: "no_preset", SpanCount: 100, AnomalyScore: 0.9},
@@ -71,6 +74,7 @@ func TestRankHypotheses_PreservesCallerConfidence(t *testing.T) {
 }
 
 func TestRankHypotheses_EmptyInput(t *testing.T) {
+	t.Parallel()
 	if got := RankHypotheses(nil); got != nil {
 		t.Errorf("expected nil for nil input, got %+v", got)
 	}
@@ -80,6 +84,7 @@ func TestRankHypotheses_EmptyInput(t *testing.T) {
 }
 
 func TestRankHypotheses_SingleElement(t *testing.T) {
+	t.Parallel()
 	in := []Hypothesis{{Subject: "only", SpanCount: 100, AnomalyScore: 0.5}}
 	got := RankHypotheses(in)
 	if len(got) != 1 {
@@ -92,6 +97,7 @@ func TestRankHypotheses_SingleElement(t *testing.T) {
 }
 
 func TestConfidenceFromScore(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		score float64
 		want  ConfidenceLevel
@@ -118,6 +124,7 @@ func TestConfidenceFromScore(t *testing.T) {
 
 // TestNextCheck_StructFields verifies NextCheck has Tool and Args fields.
 func TestNextCheck_StructFields(t *testing.T) {
+	t.Parallel()
 	nc := NextCheck{
 		Tool: "understand",
 		Args: map[string]string{"symbol": "HandleMessage", "repo": "/host/src/go-code"},
@@ -132,6 +139,7 @@ func TestNextCheck_StructFields(t *testing.T) {
 
 // TestNextCheck_EmptyArgs is valid (tool-only recommendation).
 func TestNextCheck_EmptyArgs(t *testing.T) {
+	t.Parallel()
 	nc := NextCheck{Tool: "code_health"}
 	if nc.Tool != "code_health" {
 		t.Errorf("Tool = %q, want 'code_health'", nc.Tool)
@@ -143,6 +151,7 @@ func TestNextCheck_EmptyArgs(t *testing.T) {
 
 // TestHypothesis_NextChecksIsStructured verifies NextChecks is []NextCheck, not []string.
 func TestHypothesis_NextChecksIsStructured(t *testing.T) {
+	t.Parallel()
 	h := Hypothesis{
 		Subject: "handleRequest",
 		NextChecks: []NextCheck{

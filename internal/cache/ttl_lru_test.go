@@ -9,6 +9,7 @@ import (
 )
 
 func TestTTLLRU_HitWithinTTL(t *testing.T) {
+	t.Parallel()
 	c := NewTTLLRU[string, int](3, time.Hour)
 	c.Set("a", 1)
 
@@ -18,6 +19,7 @@ func TestTTLLRU_HitWithinTTL(t *testing.T) {
 }
 
 func TestTTLLRU_MissAfterTTL(t *testing.T) {
+	t.Parallel()
 	c := NewTTLLRU[string, int](3, time.Millisecond)
 	c.Set("a", 1)
 
@@ -29,12 +31,14 @@ func TestTTLLRU_MissAfterTTL(t *testing.T) {
 }
 
 func TestTTLLRU_MissWhenAbsent(t *testing.T) {
+	t.Parallel()
 	c := NewTTLLRU[string, int](3, time.Hour)
 	_, ok := c.Get("missing")
 	assert.False(t, ok)
 }
 
 func TestTTLLRU_Eviction(t *testing.T) {
+	t.Parallel()
 	// maxSize=2: insert a,b → full. Insert c → evicts LRU entry "a".
 	c := NewTTLLRU[string, int](2, time.Hour)
 	c.Set("a", 1)
@@ -56,6 +60,7 @@ func TestTTLLRU_Eviction(t *testing.T) {
 }
 
 func TestTTLLRU_SetWithTTLOverridesDefault(t *testing.T) {
+	t.Parallel()
 	c := NewTTLLRU[string, int](3, time.Hour)
 	c.SetWithTTL("short", 1, time.Millisecond)
 	c.Set("long", 2) // uses the hour-long default
@@ -84,6 +89,7 @@ func TestTTLLRU_SetWithTTLOverridesDefault(t *testing.T) {
 // stays 0 immediately after Set, which only holds if Set genuinely skipped
 // the insert.
 func TestTTLLRU_SetWithTTLNonPositiveIsNoop(t *testing.T) {
+	t.Parallel()
 	c := NewTTLLRU[string, int](3, time.Hour)
 	c.SetWithTTL("never", 1, 0)
 

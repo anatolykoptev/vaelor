@@ -5,6 +5,7 @@ import (
 )
 
 func TestParseGemfile_Full(t *testing.T) {
+	t.Parallel()
 	input := `source 'https://rubygems.org'
 
 ruby '3.2.0'
@@ -49,6 +50,7 @@ gem 'rake'
 }
 
 func TestParseGemfile_Empty(t *testing.T) {
+	t.Parallel()
 	info := ParseGemfile([]byte(""))
 	if len(info.Dependencies) != 0 {
 		t.Errorf("Dependencies count = %d, want 0", len(info.Dependencies))
@@ -56,6 +58,7 @@ func TestParseGemfile_Empty(t *testing.T) {
 }
 
 func TestParseGemfile_CommentsOnly(t *testing.T) {
+	t.Parallel()
 	input := `# just a comment
 source 'https://rubygems.org'
 `

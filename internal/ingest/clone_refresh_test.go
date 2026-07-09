@@ -38,6 +38,7 @@ func mustRun(t *testing.T, dir, name string, args ...string) {
 // two calls. Pre-fix, the cache-hit branch returned the on-disk state
 // unconditionally and the second call would silently serve stale code.
 func TestCloneRepo_CacheHitRefreshesToRemoteHEAD(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -89,6 +90,7 @@ func TestCloneRepo_CacheHitRefreshesToRemoteHEAD(t *testing.T) {
 // call), refreshClone fails and the code falls through to a fresh clone
 // rather than returning a broken path.
 func TestCloneRepo_CacheHitRecoversFromCorruptClone(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")

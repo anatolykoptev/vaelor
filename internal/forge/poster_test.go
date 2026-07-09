@@ -10,6 +10,7 @@ import (
 )
 
 func TestGitHubPostReview(t *testing.T) {
+	t.Parallel()
 	var gotBody map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/foo/bar/pulls/42/reviews", func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +48,7 @@ func TestGitHubPostReview(t *testing.T) {
 }
 
 func TestGitHubPostIssueComment(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/foo/bar/issues/7/comments", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

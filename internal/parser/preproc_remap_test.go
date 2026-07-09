@@ -7,6 +7,7 @@ import (
 )
 
 func TestRemapSymbolLines(t *testing.T) {
+	t.Parallel()
 	// Build a synthetic VirtualSource: 5 virtual lines.
 	// Virtual line 1 → original 3
 	// Virtual line 2 → original 4
@@ -56,6 +57,7 @@ func TestRemapSymbolLines(t *testing.T) {
 // The function must fall back to EndLine = StartLine (origStart) so the
 // range stays non-empty.
 func TestRemapSymbolLines_EndLinePadding(t *testing.T) {
+	t.Parallel()
 	// Virtual line map:
 	//   virt 1 → orig 5  (real)
 	//   virt 2 → orig 0  (padding)
@@ -93,6 +95,7 @@ func TestRemapSymbolLines_EndLinePadding(t *testing.T) {
 }
 
 func TestRemapSymbolLines_Nil(t *testing.T) {
+	t.Parallel()
 	RemapSymbolLines(nil, nil) // must not panic
 	RemapSymbolLines(&ParseResult{}, nil)
 	RemapSymbolLines(nil, &preproc.VirtualSource{Lang: "svelte"})

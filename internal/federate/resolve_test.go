@@ -18,6 +18,7 @@ func gitInit(t *testing.T, dir string) {
 }
 
 func TestResolveRepos_All(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "acme-web"))
 	gitInit(t, filepath.Join(parent, "acme-admin"))
@@ -33,6 +34,7 @@ func TestResolveRepos_All(t *testing.T) {
 }
 
 func TestResolveRepos_Glob(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "acme-web"))
 	gitInit(t, filepath.Join(parent, "acme-admin"))
@@ -53,6 +55,7 @@ func TestResolveRepos_Glob(t *testing.T) {
 }
 
 func TestResolveRepos_SinglePath(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	root := filepath.Join(parent, "acme-web")
 	gitInit(t, root)
@@ -67,6 +70,7 @@ func TestResolveRepos_SinglePath(t *testing.T) {
 }
 
 func TestResolveRepos_PlainName(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "acme-web"))
 	gitInit(t, filepath.Join(parent, "go-code"))
@@ -81,6 +85,7 @@ func TestResolveRepos_PlainName(t *testing.T) {
 }
 
 func TestResolveRepos_GlobNoMatch(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "go-code"))
 	got, err := ResolveRepos("nonexistent-*", []string{parent})

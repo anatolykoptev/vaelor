@@ -10,6 +10,7 @@ import (
 )
 
 func TestRunIndexer_MissingBinary(t *testing.T) {
+	t.Parallel()
 	cfg := gocodescip.IndexerConfig{
 		Name: "nonexistent-scip-indexer-xyz",
 		Args: nil,
@@ -21,6 +22,7 @@ func TestRunIndexer_MissingBinary(t *testing.T) {
 }
 
 func TestRunIndexerSafe_ReadOnlyDir(t *testing.T) {
+	t.Parallel()
 	// Create a read-only source directory with a Go file.
 	srcDir := t.TempDir()
 

@@ -6,6 +6,7 @@ import (
 )
 
 func TestCleanSource_Full(t *testing.T) {
+	t.Parallel()
 	input := `package main
 
 // Regular comment
@@ -38,6 +39,7 @@ func main() {
 }
 
 func TestCleanSource_MaxFileChars(t *testing.T) {
+	t.Parallel()
 	const limit = 20
 	input := "abcdefghijklmnopqrstuvwxyz"
 	result := CleanSource(input, "go", CleanOpts{MaxFileChars: limit})
@@ -50,6 +52,7 @@ func TestCleanSource_MaxFileChars(t *testing.T) {
 }
 
 func TestCleanSource_InvalidUTF8(t *testing.T) {
+	t.Parallel()
 	input := string([]byte{0xff, 0xfe, 0x00})
 	result := CleanSource(input, "go", CleanOpts{StripComments: true})
 	if result != "[binary or invalid UTF-8 content omitted]" {
@@ -59,6 +62,7 @@ func TestCleanSource_InvalidUTF8(t *testing.T) {
 
 // TestCollapseBlankLines tests the helper directly.
 func TestCollapseBlankLines(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -81,6 +85,7 @@ func TestCollapseBlankLines(t *testing.T) {
 
 // TestTruncateLongLines tests the helper directly.
 func TestTruncateLongLines(t *testing.T) {
+	t.Parallel()
 	input := "short\n" + strings.Repeat("x", 10) + "\n"
 	result := truncateLongLines(input, 5)
 	lines := strings.Split(result, "\n")

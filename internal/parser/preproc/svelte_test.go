@@ -7,6 +7,7 @@ import (
 )
 
 func TestExtractSvelte_Empty(t *testing.T) {
+	t.Parallel()
 	vs := ExtractSvelte([]byte(""))
 	if len(vs.Code) != 0 {
 		t.Errorf("empty src: expected empty Code, got %q", vs.Code)
@@ -20,6 +21,7 @@ func TestExtractSvelte_Empty(t *testing.T) {
 }
 
 func TestExtractSvelte_NoScript(t *testing.T) {
+	t.Parallel()
 	src := "<div>hello world</div>\n"
 	vs := ExtractSvelte([]byte(src))
 	if len(vs.Code) != 0 {
@@ -28,6 +30,7 @@ func TestExtractSvelte_NoScript(t *testing.T) {
 }
 
 func TestExtractSvelte_SingleBlock(t *testing.T) {
+	t.Parallel()
 	// Line 1: <script>
 	// Line 2: let x = 1;
 	// Line 3: let y = 2;
@@ -47,6 +50,7 @@ func TestExtractSvelte_SingleBlock(t *testing.T) {
 }
 
 func TestExtractSvelte_LangTs(t *testing.T) {
+	t.Parallel()
 	src := "<script lang=\"ts\">\nconst greeting: string = \"hello\";\n</script>\n"
 	vs := ExtractSvelte([]byte(src))
 	if !strings.Contains(string(vs.Code), "const greeting") {
@@ -58,6 +62,7 @@ func TestExtractSvelte_LangTs(t *testing.T) {
 }
 
 func TestExtractSvelte_MultipleBlocks(t *testing.T) {
+	t.Parallel()
 	src := "<script context=\"module\">\nexport const preload = true;\n</script>\n\n<script>\nlet count = 0;\n</script>\n"
 	vs := ExtractSvelte([]byte(src))
 	if !strings.Contains(string(vs.Code), "preload") {
@@ -75,6 +80,7 @@ func TestExtractSvelte_MultipleBlocks(t *testing.T) {
 }
 
 func TestExtractSvelte_Svelte5Module(t *testing.T) {
+	t.Parallel()
 	src := "<script module>\nexport const ssr = false;\n</script>\n<script>\nlet data = {};\n</script>\n"
 	vs := ExtractSvelte([]byte(src))
 	if !strings.Contains(string(vs.Code), "ssr") {
@@ -86,6 +92,7 @@ func TestExtractSvelte_Svelte5Module(t *testing.T) {
 }
 
 func TestExtractSvelte_CRLF(t *testing.T) {
+	t.Parallel()
 	src := "<script>\r\nlet a = 1;\r\nlet b = 2;\r\n</script>\r\n"
 	vs := ExtractSvelte([]byte(src))
 	if !strings.Contains(string(vs.Code), "let a") {
@@ -95,6 +102,7 @@ func TestExtractSvelte_CRLF(t *testing.T) {
 }
 
 func TestExtractSvelte_MissingCloseTag(t *testing.T) {
+	t.Parallel()
 	src := "<script>\nlet x = 1;\n"
 	vs := ExtractSvelte([]byte(src))
 	if !strings.Contains(string(vs.Code), "let x") {
@@ -107,6 +115,7 @@ func TestExtractSvelte_MissingCloseTag(t *testing.T) {
 // "&gt;" as a tag-closing '>'. The raw bytes of &gt; contain no '>' byte, so
 // the scanner finds the actual tag-closing '>' after the attribute list.
 func TestExtractSvelte_AttrGtEntity(t *testing.T) {
+	t.Parallel()
 	// The attribute src="x&gt;y.js" contains the raw bytes '&','g','t',';' — no
 	// raw '>' byte — so the first '>' in the line is the tag-closing one.
 	src := `<script lang="ts" src="x&gt;y.js">let x: number = 1;</script>`
@@ -123,6 +132,7 @@ func TestExtractSvelte_AttrGtEntity(t *testing.T) {
 // not parse HTML attributes.
 // Pins current limited behavior. If the scanner gains escape handling, update this assertion.
 func TestExtractSvelte_AttrLiteralGt(t *testing.T) {
+	t.Parallel()
 	// The scanner sees the first '>' inside "<<<>>>" as the tag close, so content
 	// starts after that '>', yielding the remaining attr garbage plus the real JS.
 	src := `<script title="<<<>>>" src="ok.js">let x = 1;</script>`
@@ -141,6 +151,7 @@ func TestExtractSvelte_AttrLiteralGt(t *testing.T) {
 // Removing the newline-cap logic would allow the scanner to find '>' on the next
 // line and incorrectly extract the block.
 func TestExtractSvelte_BoundSingleLine(t *testing.T) {
+	t.Parallel()
 	// Opening tag spans two lines — '>' is on line 2, not line 1.
 	src := "<script\nsrc=\"really-long-attr\">\nlet x = 1;\n</script>\n"
 	vs := ExtractSvelte([]byte(src))
@@ -156,6 +167,7 @@ func TestExtractSvelte_BoundSingleLine(t *testing.T) {
 // limit, finds no '>', and breaks. Removing the 512-byte cap would let the
 // scanner scan arbitrarily far and eventually find the '>' after the long pad.
 func TestExtractSvelte_BoundMaxBytes(t *testing.T) {
+	t.Parallel()
 	// Construct: <script src="<600 bytes of 'a'>">let x = 1;</script>
 	// The opening tag has no newline and no '>' within the first 512 bytes.
 	pad := strings.Repeat("a", tagOpenScanLimit+88) // pad past the bound
@@ -168,6 +180,7 @@ func TestExtractSvelte_BoundMaxBytes(t *testing.T) {
 }
 
 func TestExtractSvelte_OffsetLineMap(t *testing.T) {
+	t.Parallel()
 	// prefix = 3 lines; <script> tag is on line 4, content \n is still line 4.
 	prefix := "line1\nline2\nline3\n"               // lines 1-3
 	script := "<script>\nconst a = 1;\n</script>\n" // <script> on line 4

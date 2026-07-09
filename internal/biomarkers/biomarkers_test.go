@@ -16,6 +16,7 @@ func (f fakeBM) Score(_ context.Context, _ string, _ string) (float64, string, e
 }
 
 func TestRegistry_RegisterAndList(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(fakeBM{name: "x", score: 0.5})
 	r.Register(fakeBM{name: "y", score: 0.8})
@@ -26,6 +27,7 @@ func TestRegistry_RegisterAndList(t *testing.T) {
 }
 
 func TestRegistry_DuplicateNamePanics(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(fakeBM{name: "x"})
 	defer func() {
@@ -37,6 +39,7 @@ func TestRegistry_DuplicateNamePanics(t *testing.T) {
 }
 
 func TestRegistry_GetReturnsNil(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	if got := r.Get("nope"); got != nil {
 		t.Fatalf("Get on unregistered name: want nil, got %v", got)

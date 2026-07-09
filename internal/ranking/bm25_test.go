@@ -5,6 +5,7 @@ import (
 )
 
 func TestBM25F_EmptyCorpus(t *testing.T) {
+	t.Parallel()
 	scorer := NewBM25F(nil)
 
 	doc := Document{Path: "main.go", Symbols: []string{"main"}}
@@ -21,6 +22,7 @@ func TestBM25F_EmptyCorpus(t *testing.T) {
 }
 
 func TestBM25F_SingleDocument(t *testing.T) {
+	t.Parallel()
 	docs := []Document{
 		{Path: "handler.go", Symbols: []string{"HandleRequest", "ServeHTTP"}},
 	}
@@ -39,6 +41,7 @@ func TestBM25F_SingleDocument(t *testing.T) {
 }
 
 func TestBM25F_SymbolWeightHigherThanPath(t *testing.T) {
+	t.Parallel()
 	docs := []Document{
 		{
 			Path:    "file_a.go",
@@ -60,6 +63,7 @@ func TestBM25F_SymbolWeightHigherThanPath(t *testing.T) {
 }
 
 func TestBM25F_PathMatchWeighted(t *testing.T) {
+	t.Parallel()
 	docs := []Document{
 		{
 			Path:    "auth/handler.go",
@@ -81,6 +85,7 @@ func TestBM25F_PathMatchWeighted(t *testing.T) {
 }
 
 func TestBM25F_MultipleTerms(t *testing.T) {
+	t.Parallel()
 	docs := []Document{
 		{
 			Path:    "auth_handler.go",
@@ -103,6 +108,7 @@ func TestBM25F_MultipleTerms(t *testing.T) {
 }
 
 func TestBM25F_IDF_CommonTermLowerScore(t *testing.T) {
+	t.Parallel()
 	// "main" appears in all 3 docs (common), "auth" appears in only 1 (rare).
 	docs := []Document{
 		{
@@ -130,6 +136,7 @@ func TestBM25F_IDF_CommonTermLowerScore(t *testing.T) {
 }
 
 func TestBM25FMatchesDocComment(t *testing.T) {
+	t.Parallel()
 	docs := []Document{
 		{Path: "a.go", Symbols: []string{"Foo"}, Docs: []string{"retries the request with exponential backoff"}},
 		{Path: "b.go", Symbols: []string{"Bar"}, Docs: []string{"unrelated helper"}},
@@ -145,6 +152,7 @@ func TestBM25FMatchesDocComment(t *testing.T) {
 }
 
 func TestBM25FDocWeightLowerThanSymbol(t *testing.T) {
+	t.Parallel()
 	// A symbol-name match should out-rank a doc-comment-only match
 	// because symbols carry stronger signal (WeightSymbol=5.0 > WeightDoc=2.0).
 	docs := []Document{

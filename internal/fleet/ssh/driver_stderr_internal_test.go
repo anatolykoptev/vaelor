@@ -30,6 +30,7 @@ import (
 // of content OpenSSH writes to stderr on a failed auth) to stderr and exits
 // non-zero. The returned error must not contain any of the marker strings.
 func TestRealExecer_StderrNotInErrorMessage(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
 	}

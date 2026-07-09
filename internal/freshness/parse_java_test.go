@@ -5,6 +5,7 @@ import (
 )
 
 func TestParsePomXML_Full(t *testing.T) {
+	t.Parallel()
 	input := `<?xml version="1.0" encoding="UTF-8"?>
 <project>
   <modelVersion>4.0.0</modelVersion>
@@ -41,6 +42,7 @@ func TestParsePomXML_Full(t *testing.T) {
 }
 
 func TestParsePomXML_NoDeps(t *testing.T) {
+	t.Parallel()
 	input := `<project><modelVersion>4.0.0</modelVersion></project>`
 	info := ParsePomXML([]byte(input))
 	if len(info.Dependencies) != 0 {
@@ -49,6 +51,7 @@ func TestParsePomXML_NoDeps(t *testing.T) {
 }
 
 func TestParsePomXML_InvalidXML(t *testing.T) {
+	t.Parallel()
 	info := ParsePomXML([]byte(`<broken`))
 	if info.Language != "java" {
 		t.Errorf("Language = %q, want %q", info.Language, "java")
@@ -56,6 +59,7 @@ func TestParsePomXML_InvalidXML(t *testing.T) {
 }
 
 func TestParsePomXML_NoVersion(t *testing.T) {
+	t.Parallel()
 	input := `<project>
   <dependencies>
     <dependency>

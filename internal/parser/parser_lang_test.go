@@ -8,6 +8,7 @@ import (
 )
 
 func TestDetectLanguage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path string
 		want string
@@ -47,6 +48,7 @@ func TestDetectLanguage(t *testing.T) {
 }
 
 func TestSupportedLanguages(t *testing.T) {
+	t.Parallel()
 	langs := parser.SupportedLanguages()
 	mustHave := []string{"go", "python", "typescript", "javascript", "rust", "java", "c", "cpp", "ruby", "csharp", "php", "svelte", "astro"}
 	for _, want := range mustHave {
@@ -57,6 +59,7 @@ func TestSupportedLanguages(t *testing.T) {
 }
 
 func TestParseUnsupportedExtension(t *testing.T) {
+	t.Parallel()
 	_, err := parser.ParseFile("file.unknown", []byte("content"), parser.ParseOpts{})
 	if err == nil {
 		t.Error("expected error for unsupported extension, got nil")
@@ -64,6 +67,7 @@ func TestParseUnsupportedExtension(t *testing.T) {
 }
 
 func TestParseFileAliases(t *testing.T) {
+	t.Parallel()
 	src := []byte("function hello() { return 42; }\n")
 	cases := []struct {
 		ext      string

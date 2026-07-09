@@ -22,6 +22,7 @@ import (
 // the test fails because the fake server receives a scoped request with
 // "language":"" and returns 400.
 func TestFindHiddenCallers_EmptyLanguage_SkipsScopedSearch(t *testing.T) {
+	t.Parallel()
 	scopedCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/search/scoped" {
@@ -50,6 +51,7 @@ func TestFindHiddenCallers_EmptyLanguage_SkipsScopedSearch(t *testing.T) {
 // set, /search/scoped IS called (the fix must not suppress the scoped search for
 // callers that provide a language).
 func TestFindHiddenCallers_WithLanguage_CallsScopedSearch(t *testing.T) {
+	t.Parallel()
 	scopedCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -11,6 +11,7 @@ import (
 // TestRunesBasic verifies that Svelte 5 rune call expressions are classified as
 // KindRune with the appropriate RuneKind, using the runes_basic.svelte fixture.
 func TestRunesBasic(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "svelte", "runes_basic.svelte"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -84,6 +85,7 @@ func TestRunesBasic(t *testing.T) {
 
 // TestRunesNegative verifies that non-rune calls (missing $) are NOT classified.
 func TestRunesNegative(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "svelte", "runes_negative.svelte"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestIsWordPressPlugin(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  bool
@@ -36,6 +37,7 @@ func TestIsWordPressPlugin(t *testing.T) {
 }
 
 func TestNormalizeWPSlug(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input   string
 		want    string
@@ -60,6 +62,7 @@ func TestNormalizeWPSlug(t *testing.T) {
 }
 
 func TestFetchWPPluginMeta(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping network test in short mode")
 	}
@@ -81,6 +84,7 @@ func TestFetchWPPluginMeta(t *testing.T) {
 }
 
 func TestFetchWPPluginMeta_NotFound(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping network test in short mode")
 	}
@@ -93,6 +97,7 @@ func TestFetchWPPluginMeta_NotFound(t *testing.T) {
 }
 
 func TestFetchWPPlugin(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping network test in short mode")
 	}

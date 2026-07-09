@@ -26,6 +26,7 @@ import (
 // ──────────────────── matching ────────────────────
 
 func TestMatchExpected_AllForms(t *testing.T) {
+	t.Parallel()
 	hit := SearchHit{File: "internal/embeddings/rrf.go", Symbol: "MergeRRF"}
 	cases := []struct {
 		name   string
@@ -66,6 +67,7 @@ func mkHits(items ...string) []SearchHit {
 }
 
 func TestNDCG10_PerfectRanking(t *testing.T) {
+	t.Parallel()
 	hits := mkHits("a.go:Foo", "b.go:Bar", "c.go:Baz")
 	expected := []string{"Foo", "Bar", "Bar"} // dedupe-ish; expected_top_3 of 3
 	got := NDCG10(hits, expected)
@@ -78,6 +80,7 @@ func TestNDCG10_PerfectRanking(t *testing.T) {
 }
 
 func TestNDCG10_NoMatch(t *testing.T) {
+	t.Parallel()
 	hits := mkHits("a.go:X", "b.go:Y")
 	got := NDCG10(hits, []string{"Foo", "Bar"})
 	if got != 0 {
@@ -86,6 +89,7 @@ func TestNDCG10_NoMatch(t *testing.T) {
 }
 
 func TestNDCG10_EmptyExpected(t *testing.T) {
+	t.Parallel()
 	got := NDCG10(mkHits("a.go:X"), nil)
 	if got != 0 {
 		t.Errorf("NDCG10 with no labels = %f, want 0", got)
@@ -93,6 +97,7 @@ func TestNDCG10_EmptyExpected(t *testing.T) {
 }
 
 func TestRecallAtK(t *testing.T) {
+	t.Parallel()
 	hits := mkHits("a:Foo", "b:Bar", "c:Baz", "d:Qux")
 	expected := []string{"Foo", "Bar", "Missing"}
 
@@ -108,6 +113,7 @@ func TestRecallAtK(t *testing.T) {
 }
 
 func TestMRR(t *testing.T) {
+	t.Parallel()
 	hits := mkHits("a:Wrong", "b:Foo", "c:Bar")
 	if got := MRR(hits, []string{"Foo"}); math.Abs(got-0.5) > 1e-9 {
 		t.Errorf("MRR first match at 2 = %f, want 0.5", got)
@@ -139,6 +145,7 @@ const sampleSemanticXML = `<response tool="semantic_search">
 </response>`
 
 func TestParseSemanticXML(t *testing.T) {
+	t.Parallel()
 	hits, err := parseSemanticXML(sampleSemanticXML)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -155,6 +162,7 @@ func TestParseSemanticXML(t *testing.T) {
 }
 
 func TestParseSemanticXML_StatusEnvelope(t *testing.T) {
+	t.Parallel()
 	body := `<response tool="semantic_search"><status>indexing</status></response>`
 	hits, err := parseSemanticXML(body)
 	if err != nil {
@@ -168,6 +176,7 @@ func TestParseSemanticXML_StatusEnvelope(t *testing.T) {
 // ──────────────────── HTTP roundtrip ────────────────────
 
 func TestMCPClient_Search_RoundTrip(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != restToolPath {
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -207,6 +216,7 @@ func TestMCPClient_Search_RoundTrip(t *testing.T) {
 // ──────────────────── runner end-to-end ────────────────────
 
 func TestRunEval_EndToEnd(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := restCallToolResp{}
 		resp.Content = append(resp.Content, struct {
@@ -241,6 +251,7 @@ func TestRunEval_EndToEnd(t *testing.T) {
 // ──────────────────── paired t-test ────────────────────
 
 func TestPairedTTest_IdenticalInputs(t *testing.T) {
+	t.Parallel()
 	a := []float64{0.5, 0.6, 0.7, 0.8, 0.9}
 	mean, p := pairedTTest(a, a)
 	if mean != 0 {
@@ -253,6 +264,7 @@ func TestPairedTTest_IdenticalInputs(t *testing.T) {
 }
 
 func TestPairedTTest_LargeDelta(t *testing.T) {
+	t.Parallel()
 	// Candidate consistently ~0.1 above baseline → strong significance.
 	baseline := []float64{0.50, 0.55, 0.60, 0.45, 0.52, 0.58, 0.51, 0.49, 0.53, 0.57}
 	candidate := make([]float64, len(baseline))
@@ -269,6 +281,7 @@ func TestPairedTTest_LargeDelta(t *testing.T) {
 }
 
 func TestPairedTTest_NoEffect(t *testing.T) {
+	t.Parallel()
 	// Symmetric noise around zero → small effect, p > 0.05.
 	a := []float64{0.5, 0.55, 0.45, 0.50, 0.52}
 	b := []float64{0.51, 0.54, 0.46, 0.49, 0.53}
@@ -279,6 +292,7 @@ func TestPairedTTest_NoEffect(t *testing.T) {
 }
 
 func TestPairedTTest_StudentTReference(t *testing.T) {
+	t.Parallel()
 	// Spot-check Student-t two-tailed CDF against a published reference value:
 	// t = 2.776, df = 4 → two-tailed p ≈ 0.05. (Standard t-table critical value.)
 	got := studentTTwoTailed(2.776, 4)
@@ -290,6 +304,7 @@ func TestPairedTTest_StudentTReference(t *testing.T) {
 // ──────────────────── JSON output stability ────────────────────
 
 func TestReport_RoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.json")
 
@@ -324,6 +339,7 @@ func TestReport_RoundTrip(t *testing.T) {
 // ──────────────────── golden loader ────────────────────
 
 func TestLoadGolden(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := `# comment line, skipped
 {"query": "q1", "expected_top_3": ["A"]}
@@ -346,6 +362,7 @@ func TestLoadGolden(t *testing.T) {
 }
 
 func TestLoadGolden_RejectsBadRecords(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	bad := `{"query": "", "expected_top_3": ["X"]}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "x.jsonl"), []byte(bad), 0o600); err != nil {
@@ -379,6 +396,7 @@ func makeResults(repo string, n int, ndcg, r20 float64) []QueryResult {
 // Falsification: remove the ndcgSig condition in EvaluateGate (always false)
 // → verdict becomes GateFail and this test goes RED.
 func TestEvaluateGate_Pass(t *testing.T) {
+	t.Parallel()
 	// Candidate consistently +0.12 on nDCG, +0.05 on Recall20.
 	// With 20 pairs and zero within-pair variance this is maximally significant.
 	n := 20
@@ -411,6 +429,7 @@ func TestEvaluateGate_Pass(t *testing.T) {
 // Falsification: lower pAlpha to 0.5 in abgate.go (always "significant") →
 // verdict flips to PASS and this test goes RED.
 func TestEvaluateGate_Fail_NoSignificance(t *testing.T) {
+	t.Parallel()
 	// Symmetric noise: tiny alternating effect, zero net improvement.
 	// pairedTTest will return p≈1.
 	bl := []QueryResult{
@@ -446,6 +465,7 @@ func TestEvaluateGate_Fail_NoSignificance(t *testing.T) {
 // Falsification: remove the !r20NonInf branch in EvaluateGate (collapse to
 // single ndcgSig check) → verdict flips to PASS and this test goes RED.
 func TestEvaluateGate_Fail_Recall20Regression(t *testing.T) {
+	t.Parallel()
 	// nDCG improves significantly (+0.15 with zero variance → p≈0).
 	// Recall@20 regresses significantly (-0.05, beyond nonInferiorMargin=0.02).
 	n := 15
@@ -472,6 +492,7 @@ func TestEvaluateGate_Fail_Recall20Regression(t *testing.T) {
 // the insufficient branch never fires and verdict becomes PASS/FAIL instead
 // of INSUFFICIENT_DATA; test goes RED.
 func TestEvaluateGate_InsufficientData(t *testing.T) {
+	t.Parallel()
 	// Only 1 query in baseline → 1 pair at most.
 	bl := []QueryResult{{Repo: "r", Query: "q0", NDCG10: 0.5, Recall20: 0.6}}
 	cn := []QueryResult{{Repo: "r", Query: "q0", NDCG10: 0.7, Recall20: 0.7}}
@@ -486,6 +507,7 @@ func TestEvaluateGate_InsufficientData(t *testing.T) {
 // TestEvaluateGate_TestedWeightRecorded verifies the tested weight is carried
 // through to GateResult regardless of verdict.
 func TestEvaluateGate_TestedWeightRecorded(t *testing.T) {
+	t.Parallel()
 	bl := makeResults("r", 10, 0.5, 0.6)
 	cn := makeResults("r", 10, 0.5, 0.6) // identical → FAIL (no sig improvement)
 
@@ -505,6 +527,7 @@ func TestEvaluateGate_TestedWeightRecorded(t *testing.T) {
 // INSUFFICIENT_DATA case (only 1 healthy pair) the verdict may flip to
 // GateFail which would red-fail this test.
 func TestEvaluateGate_ErrorQueriesExcluded(t *testing.T) {
+	t.Parallel()
 	bl := []QueryResult{
 		{Repo: "r", Query: "ok", NDCG10: 0.5, Recall20: 0.6},
 		{Repo: "r", Query: "bad", NDCG10: 0.9, Recall20: 0.9, Error: "embed timeout"},
@@ -529,6 +552,7 @@ func TestEvaluateGate_ErrorQueriesExcluded(t *testing.T) {
 // ──────────────────── delta computation ────────────────────
 
 func TestComputeDelta_PairedQueriesOnly(t *testing.T) {
+	t.Parallel()
 	baseline := []QueryResult{
 		{Repo: "x", Query: "q1", NDCG10: 0.4, Recall10: 0.4, Recall20: 0.4, MRR: 0.4},
 		{Repo: "x", Query: "q2", NDCG10: 0.5, Recall10: 0.5, Recall20: 0.5, MRR: 0.5},

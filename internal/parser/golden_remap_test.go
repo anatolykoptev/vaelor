@@ -20,6 +20,7 @@ import (
 // language/name/kind/line fails here — the byte-identical proof for the
 // extract-and-share.
 func TestTSLangRemapGolden(t *testing.T) {
+	t.Parallel()
 	got := snapshotRemapCorpus(t)
 	goldenPath := filepath.Join("testdata", "golden", "tslang_remap.txt")
 

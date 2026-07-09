@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseSvelteSimpleInstance(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "svelte", "simple_instance.svelte"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -41,6 +42,7 @@ func TestParseSvelteSimpleInstance(t *testing.T) {
 }
 
 func TestParseSvelteModuleSvelte4(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "svelte", "module_svelte4.svelte"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -59,6 +61,7 @@ func TestParseSvelteModuleSvelte4(t *testing.T) {
 }
 
 func TestParseSvelteModuleSvelte5(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "svelte", "module_svelte5.svelte"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -77,6 +80,7 @@ func TestParseSvelteModuleSvelte5(t *testing.T) {
 }
 
 func TestParseSvelteLangTs(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "svelte", "lang_ts.svelte"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -100,6 +104,7 @@ func TestParseSvelteLangTs(t *testing.T) {
 // Svelte-composition wire-up: <Card/> in the markup becomes a TemplateRef;
 // lowercase HTML tags and <svelte:*> special elements do not.
 func TestParseSvelteTemplateRefs(t *testing.T) {
+	t.Parallel()
 	src := []byte("<script>\n  import Card from './Card.svelte';\n</script>\n" +
 		"<main>\n  <svelte:head><title>t</title></svelte:head>\n  <Card />\n</main>\n")
 	result, err := parser.ParseFile("Home.svelte", src, parser.ParseOpts{})

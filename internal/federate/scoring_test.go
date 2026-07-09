@@ -6,6 +6,7 @@ import (
 )
 
 func TestWilsonLowerBound_PenalizesThinSupport(t *testing.T) {
+	t.Parallel()
 	thin := wilsonLowerBound(2, 2, wilsonZ)
 	loose := wilsonLowerBound(8, 10, wilsonZ)
 	strong := wilsonLowerBound(40, 45, wilsonZ)
@@ -21,6 +22,7 @@ func TestWilsonLowerBound_PenalizesThinSupport(t *testing.T) {
 }
 
 func TestWilsonLowerBound_Degenerate(t *testing.T) {
+	t.Parallel()
 	if got := wilsonLowerBound(0, 0, wilsonZ); got != 0 {
 		t.Fatalf("wilsonLowerBound(0,0) must be 0, got %.3f", got)
 	}
@@ -30,6 +32,7 @@ func TestWilsonLowerBound_Degenerate(t *testing.T) {
 }
 
 func TestIsUbiquitous(t *testing.T) {
+	t.Parallel()
 	// CHANGELOG in every window → ubiquitous.
 	if !isUbiquitous(15, 15) {
 		t.Fatal("file in 100% of windows must be ubiquitous")

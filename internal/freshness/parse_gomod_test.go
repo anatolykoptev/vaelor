@@ -5,6 +5,7 @@ import (
 )
 
 func TestParseGoMod_Full(t *testing.T) {
+	t.Parallel()
 	input := `module github.com/example/foo
 
 go 1.22.0
@@ -41,6 +42,7 @@ require github.com/single/dep v2.0.0
 }
 
 func TestParseGoMod_MultipleBlocks(t *testing.T) {
+	t.Parallel()
 	input := `module example.com/m
 
 go 1.21
@@ -61,6 +63,7 @@ require (
 }
 
 func TestParseGoMod_Minimal(t *testing.T) {
+	t.Parallel()
 	input := `module example.com/m
 
 go 1.20
@@ -75,6 +78,7 @@ go 1.20
 }
 
 func TestParseGoMod_SingleLineRequire(t *testing.T) {
+	t.Parallel()
 	input := `module example.com/m
 
 go 1.21

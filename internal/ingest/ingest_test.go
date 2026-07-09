@@ -23,6 +23,7 @@ func writeFile(t *testing.T, path, content string) {
 
 // TestIngestRepo verifies end-to-end filesystem walking with filtering.
 func TestIngestRepo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Regular source files.
@@ -140,6 +141,7 @@ func TestIngestRepo(t *testing.T) {
 
 // TestIngestRepoLanguageFilter verifies the Languages filter works.
 func TestIngestRepoLanguageFilter(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
 	writeFile(t, filepath.Join(root, "app.py"), "print('hi')\n")
@@ -165,6 +167,7 @@ func TestIngestRepoLanguageFilter(t *testing.T) {
 
 // TestIngestRepoMaxFileBytes verifies large files are skipped and counted.
 func TestIngestRepoMaxFileBytes(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// Small file — should be included.
 	writeFile(t, filepath.Join(root, "small.go"), "package main\n")
@@ -191,6 +194,7 @@ func TestIngestRepoMaxFileBytes(t *testing.T) {
 
 // TestIngestRepoFocus verifies the Focus filter restricts files.
 func TestIngestRepoFocus(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
 	writeFile(t, filepath.Join(root, "internal", "handler.go"), "package internal\n")
@@ -212,6 +216,7 @@ func TestIngestRepoFocus(t *testing.T) {
 
 // TestIngestRepoContextCancel verifies context cancellation stops the walk.
 func TestIngestRepoContextCancel(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for range 50 {
 		writeFile(t, filepath.Join(root, "sub", "file"+strings.Repeat("x", 5)+".go"),
@@ -227,6 +232,7 @@ func TestIngestRepoContextCancel(t *testing.T) {
 
 // TestShouldIgnoreDir verifies the default ignore directory list.
 func TestShouldIgnoreDir(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		want bool
@@ -256,6 +262,7 @@ func TestShouldIgnoreDir(t *testing.T) {
 
 // TestIsBinaryData verifies null-byte detection.
 func TestIsBinaryData(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		data []byte
@@ -279,6 +286,7 @@ func TestIsBinaryData(t *testing.T) {
 
 // TestRenderTree verifies the tree output format and content.
 func TestRenderTree(t *testing.T) {
+	t.Parallel()
 	files := []*File{
 		{RelPath: "cmd/main.go"},
 		{RelPath: "internal/handler.go"},
@@ -315,6 +323,7 @@ func TestRenderTree(t *testing.T) {
 
 // TestRenderTreeTruncation verifies long trees are capped at treeMaxLines.
 func TestRenderTreeTruncation(t *testing.T) {
+	t.Parallel()
 	// Create 200 files each in its own unique subdirectory to guarantee the
 	// rendered tree has well over treeMaxLines (100) output lines.
 	files := make([]*File, 200)
@@ -335,6 +344,7 @@ func TestRenderTreeTruncation(t *testing.T) {
 
 // TestRenderTreeEmpty verifies empty input produces empty output.
 func TestRenderTreeEmpty(t *testing.T) {
+	t.Parallel()
 	output := RenderTree(nil)
 	if output != "" {
 		t.Errorf("RenderTree(nil) should return empty string, got %q", output)
@@ -343,6 +353,7 @@ func TestRenderTreeEmpty(t *testing.T) {
 
 // TestParseGitignore verifies patterns are read from .gitignore.
 func TestParseGitignore(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".gitignore"), "# comment\n*.log\n\nsecrets/\n!important.log\n")
 
@@ -364,6 +375,7 @@ func TestParseGitignore(t *testing.T) {
 
 // TestMatchGitignore verifies gitignore pattern matching.
 func TestMatchGitignore(t *testing.T) {
+	t.Parallel()
 	patterns := []string{"*.log", "secrets/", "docs/api/"}
 
 	cases := []struct {
@@ -393,6 +405,7 @@ func TestMatchGitignore(t *testing.T) {
 
 // TestMatchGitignoreAnchored verifies leading "/" anchors to root only.
 func TestMatchGitignoreAnchored(t *testing.T) {
+	t.Parallel()
 	patterns := []string{"/go-content"}
 
 	cases := []struct {
@@ -418,6 +431,7 @@ func TestMatchGitignoreAnchored(t *testing.T) {
 
 // TestIngestRepoExcludeTests verifies that ExcludeTests=true filters out _test.go files.
 func TestIngestRepoExcludeTests(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
 	writeFile(t, filepath.Join(root, "main_test.go"), "package main\n")
@@ -444,6 +458,7 @@ func TestIngestRepoExcludeTests(t *testing.T) {
 
 // TestIngestRepoFocusKeywords verifies keyword-based focus (spaces = keywords, not path).
 func TestIngestRepoFocusKeywords(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "cmd", "server", "main.go"), "package main\n")
 	writeFile(t, filepath.Join(root, "internal", "auth", "middleware.go"), "package auth\n")
@@ -472,6 +487,7 @@ func TestIngestRepoFocusKeywords(t *testing.T) {
 
 // TestIngestRepoFocusKeywordsNoMatch verifies keyword focus returns 0 when no file matches all keywords.
 func TestIngestRepoFocusKeywordsNoMatch(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "internal", "auth", "login.go"), "package auth\n")
 	writeFile(t, filepath.Join(root, "internal", "handler", "middleware.go"), "package handler\n")
@@ -496,6 +512,7 @@ func TestIngestRepoFocusKeywordsNoMatch(t *testing.T) {
 
 // TestIngestRepoFocusPathUnchanged verifies path-based focus still works exactly as before.
 func TestIngestRepoFocusPathUnchanged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "cmd", "main.go"), "package main\n")
 	writeFile(t, filepath.Join(root, "internal", "auth", "handler.go"), "package auth\n")
@@ -529,6 +546,7 @@ func keys(m map[string]bool) []string {
 
 // TestIngestRepoSkippedReasons verifies SkippedReasons tracks per-reason counts.
 func TestIngestRepoSkippedReasons(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Accepted: .go and .svelte
