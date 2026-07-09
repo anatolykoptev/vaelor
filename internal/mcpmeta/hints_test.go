@@ -6,6 +6,7 @@ import (
 )
 
 func TestHintAfterCodeSearch_SingleHitSuggestsUnderstand(t *testing.T) {
+	t.Parallel()
 	h := HintAfterCodeSearch("foo", 1, "Bar")
 	if h == "" || !strings.Contains(h, "understand") || !strings.Contains(h, "Bar") {
 		t.Fatalf("expected understand+Bar, got %q", h)
@@ -13,24 +14,28 @@ func TestHintAfterCodeSearch_SingleHitSuggestsUnderstand(t *testing.T) {
 }
 
 func TestHintAfterCodeSearch_ZeroHitsSilent(t *testing.T) {
+	t.Parallel()
 	if h := HintAfterCodeSearch("foo", 0, ""); h != "" {
 		t.Fatalf("zero hits must be silent, got %q", h)
 	}
 }
 
 func TestHintAfterCodeSearch_ManyHitsSilent(t *testing.T) {
+	t.Parallel()
 	if h := HintAfterCodeSearch("foo", 42, "Sym"); h != "" {
 		t.Fatalf("42 hits must be silent, got %q", h)
 	}
 }
 
 func TestHintAfterCodeSearch_EmptySymbolSilent(t *testing.T) {
+	t.Parallel()
 	if h := HintAfterCodeSearch("foo", 1, ""); h != "" {
 		t.Fatalf("empty symbol must be silent, got %q", h)
 	}
 }
 
 func TestHintAfterCodeSearch_ExplainQuerySilent(t *testing.T) {
+	t.Parallel()
 	cases := []string{"why does X do Y", "how is this implemented", "describe X", "explain the loop"}
 	for _, q := range cases {
 		if h := HintAfterCodeSearch(q, 1, "Sym"); h != "" {
@@ -40,6 +45,7 @@ func TestHintAfterCodeSearch_ExplainQuerySilent(t *testing.T) {
 }
 
 func TestHintAfterDeadCode_HighCountSuggestsHealth(t *testing.T) {
+	t.Parallel()
 	h := HintAfterDeadCode("foo.go", 7)
 	if h == "" || !strings.Contains(h, "get_file_health") || !strings.Contains(h, "foo.go") {
 		t.Fatalf("expected get_file_health+foo.go, got %q", h)
@@ -47,18 +53,21 @@ func TestHintAfterDeadCode_HighCountSuggestsHealth(t *testing.T) {
 }
 
 func TestHintAfterDeadCode_LowCountSilent(t *testing.T) {
+	t.Parallel()
 	if h := HintAfterDeadCode("foo.go", 4); h != "" {
 		t.Fatalf("4 below threshold must be silent, got %q", h)
 	}
 }
 
 func TestHintAfterDeadCode_EmptyFileSilent(t *testing.T) {
+	t.Parallel()
 	if h := HintAfterDeadCode("", 10); h != "" {
 		t.Fatalf("empty file must be silent, got %q", h)
 	}
 }
 
 func TestHintAfterDeadCode_ExactlyThreshold_Fires(t *testing.T) {
+	t.Parallel()
 	// threshold=5, exactly 5 → fires (condition is <, so 5 is NOT below threshold)
 	h := HintAfterDeadCode("foo.go", deadCodeHotspotThreshold)
 	if h == "" {
@@ -67,6 +76,7 @@ func TestHintAfterDeadCode_ExactlyThreshold_Fires(t *testing.T) {
 }
 
 func TestExtractSymbolFromHit(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in   string
 		want string
@@ -86,6 +96,7 @@ func TestExtractSymbolFromHit(t *testing.T) {
 }
 
 func TestHintAfterCodeSearch_RussianExplainQuerySilent(t *testing.T) {
+	t.Parallel()
 	cases := []string{"почему X не работает", "как устроен Y", "опиши Z", "объясни flow", "расскажи про auth"}
 	for _, q := range cases {
 		if h := HintAfterCodeSearch(q, 1, "Sym"); h != "" {
@@ -95,6 +106,7 @@ func TestHintAfterCodeSearch_RussianExplainQuerySilent(t *testing.T) {
 }
 
 func TestExtractSymbolFromHit_NonDeclarationSilent(t *testing.T) {
+	t.Parallel()
 	cases := []string{
 		"foo.go:42:\tfoo.Bar(x)",          // call site
 		`foo.go:42:msg := "feature-flag"`, // string literal line
@@ -109,6 +121,7 @@ func TestExtractSymbolFromHit_NonDeclarationSilent(t *testing.T) {
 }
 
 func TestExtractSymbolFromHit_DeclarationsStillWork(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ in, want string }{
 		{"foo.go:42:func Bar(", "Bar"},
 		{"foo.go:42:type Foo struct", "Foo"},

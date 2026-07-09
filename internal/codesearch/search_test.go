@@ -9,6 +9,7 @@ import (
 )
 
 func TestSearch_LiteralMatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "package main\n\nfunc main() {\n\tfmt.Println(\"hello world\")\n}\n")
 	writeFile(t, dir, "util.go", "package main\n\nfunc helper() string {\n\treturn \"hello world\"\n}\n")
@@ -26,6 +27,7 @@ func TestSearch_LiteralMatch(t *testing.T) {
 }
 
 func TestSearch_RegexMatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "package main\n\nfunc handleUserCreate() {}\nfunc handleUserDelete() {}\nfunc otherFunc() {}\n")
 
@@ -43,6 +45,7 @@ func TestSearch_RegexMatch(t *testing.T) {
 }
 
 func TestSearch_FileFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "TODO: fix this\n")
 	writeFile(t, dir, "readme.md", "TODO: update docs\n")
@@ -62,6 +65,7 @@ func TestSearch_FileFilter(t *testing.T) {
 }
 
 func TestSearch_ContextLines(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "line1\nline2\nMATCH\nline4\nline5\n")
 
@@ -82,6 +86,7 @@ func TestSearch_ContextLines(t *testing.T) {
 }
 
 func TestSearch_MaxResults(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := strings.Repeat("match_line\n", 20)
 	writeFile(t, dir, "main.go", content)
@@ -100,6 +105,7 @@ func TestSearch_MaxResults(t *testing.T) {
 }
 
 func TestSearch_Empty(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "nothing here\n")
 
@@ -116,6 +122,7 @@ func TestSearch_Empty(t *testing.T) {
 }
 
 func TestSearch_CaseInsensitive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "Hello World\nhello world\nHELLO WORLD\n")
 
@@ -136,6 +143,7 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 // Three files: aa.go (1 match), bb.go (5 matches), cc.go (3 matches).
 // With MaxResults=6, results should come from bb.go first (5), then cc.go (1).
 func TestSearch_MatchDensityRanking(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "aa.go", "package main\n// TODO fix\nfunc aa() {}\n")
 	writeFile(t, dir, "bb.go", "package main\n// TODO one\n// TODO two\n// TODO three\n// TODO four\n// TODO five\n")
@@ -168,6 +176,7 @@ func TestSearch_MatchDensityRanking(t *testing.T) {
 // TestSearch_LineOrderPreservedAfterRanking verifies that within a file, matches
 // keep their original line order after density re-ranking.
 func TestSearch_LineOrderPreservedAfterRanking(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// sparse.go has 1 match — will be ranked lower.
 	writeFile(t, dir, "sparse.go", "package main\n// MARKER here\nfunc sparse() {}\n")
@@ -203,6 +212,7 @@ func TestSearch_LineOrderPreservedAfterRanking(t *testing.T) {
 
 // TestSearch_MaxResults1 verifies that MaxResults=1 picks from the densest file.
 func TestSearch_MaxResults1(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "aa.go", "package main\n// HIT one\n")
 	writeFile(t, dir, "bb.go", "package main\n// HIT one\n// HIT two\n// HIT three\n")
@@ -226,6 +236,7 @@ func TestSearch_MaxResults1(t *testing.T) {
 // TestSearch_EqualDensityStableOrder verifies that files with equal match counts
 // preserve their original filesystem order (stable sort).
 func TestSearch_EqualDensityStableOrder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// All 3 files have exactly 2 matches each. Filesystem order: aa < bb < cc.
 	writeFile(t, dir, "aa.go", "package main\n// TAG x\n// TAG y\n")
@@ -258,6 +269,7 @@ func TestSearch_EqualDensityStableOrder(t *testing.T) {
 // TestSearch_AllMatchesInOneFile verifies ranking is a no-op when all matches
 // come from a single file (no re-ordering needed).
 func TestSearch_AllMatchesInOneFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "only.go", "package main\nfoo\nbar\nfoo\nbaz\nfoo\n")
 	writeFile(t, dir, "empty.go", "package main\nnothing here\n")
@@ -289,6 +301,7 @@ func TestSearch_AllMatchesInOneFile(t *testing.T) {
 
 // TestSearch_ContextLinesWithRanking verifies context lines survive the ranking reorder.
 func TestSearch_ContextLinesWithRanking(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// sparse has 1 match with context.
 	writeFile(t, dir, "sparse.go", "package main\naaa\nbbb\n// FIND me\nccc\nddd\n")
@@ -320,6 +333,7 @@ func TestSearch_ContextLinesWithRanking(t *testing.T) {
 
 // TestSearch_NoMatchesNoPanic verifies zero matches don't trigger ranking.
 func TestSearch_NoMatchesNoPanic(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "a.go", "package main\nnothing\n")
 
@@ -339,6 +353,7 @@ func TestSearch_NoMatchesNoPanic(t *testing.T) {
 // TestSearch_HardcapPreventsOOM verifies that hardcap (5×MaxResults) actually
 // limits collection and doesn't scan the entire repo.
 func TestSearch_HardcapPreventsOOM(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Create 10 files with 10 matches each = 100 total.
 	for i := 0; i < 10; i++ {
@@ -363,6 +378,7 @@ func TestSearch_HardcapPreventsOOM(t *testing.T) {
 
 // TestSearch_RankByMatchDensity_Unit directly tests the ranking helper.
 func TestSearch_RankByMatchDensity_Unit(t *testing.T) {
+	t.Parallel()
 	matches := []SearchMatch{
 		{File: "a.go", Line: 1},
 		{File: "b.go", Line: 1},
@@ -403,6 +419,7 @@ func TestSearch_RankByMatchDensity_Unit(t *testing.T) {
 }
 
 func TestMatchesFileGlob(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		relPath string
 		glob    string
@@ -433,6 +450,7 @@ func TestMatchesFileGlob(t *testing.T) {
 }
 
 func TestSearch_PathFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "pkg/engine/deploy.go", "package engine\n// MARKER in engine\n")
 	writeFile(t, dir, "pkg/other/util.go", "package other\n// MARKER in other\n")

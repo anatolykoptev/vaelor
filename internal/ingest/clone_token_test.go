@@ -18,6 +18,7 @@ import (
 // (no real network) and a sentinel TokenFunc, then asserting the expected
 // env vars would be constructed correctly via the internal helper directly.
 func TestRefreshClone_InjectsTokenViaGitConfig(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -74,6 +75,7 @@ func TestRefreshClone_InjectsTokenViaGitConfig(t *testing.T) {
 // the network. It calls refreshClone against a local file:// repo and
 // captures the expected env var format.
 func TestRefreshClone_EnvVarsFormat(t *testing.T) {
+	t.Parallel()
 	const tok = "ghs_testtoken123"
 	want := "Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+tok))
 
@@ -102,6 +104,7 @@ func TestRefreshClone_EnvVarsFormat(t *testing.T) {
 // TestRefreshClone_BackwardsCompat_NoTokenFunc ensures nil TokenFunc leaves
 // existing behaviour unchanged (no env injection, file:// remote still works).
 func TestRefreshClone_BackwardsCompat_NoTokenFunc(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -141,6 +144,7 @@ func TestRefreshClone_BackwardsCompat_NoTokenFunc(t *testing.T) {
 // propagated and causes CloneRepo to fall through to a re-clone.
 // We simulate this by making tokenFunc error on the second call (cache-hit).
 func TestRefreshClone_TokenFuncError(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -203,6 +207,7 @@ func TestRefreshClone_TokenFuncError(t *testing.T) {
 }
 
 func TestSanitizeGitOutput(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string

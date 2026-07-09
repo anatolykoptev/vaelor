@@ -56,6 +56,7 @@ func commitFiles(t *testing.T, dir, message string, files map[string]string) str
 // CommitSummary reflects only the files touched in that single commit, not a
 // cumulative count across the whole branch.
 func TestCollectRecentCommits_FilesChangedPerCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 
@@ -112,6 +113,7 @@ func TestCollectRecentCommits_FilesChangedPerCommit(t *testing.T) {
 // the feature branch, not by how git log iterates — but diff-tree still
 // produces the correct per-commit answer in all cases.
 func TestCollectRecentCommits_SquashNotCumulative(t *testing.T) {
+	t.Parallel()
 	main := t.TempDir()
 	initGitRepo(t, main)
 
@@ -179,6 +181,7 @@ func TestCollectRecentCommits_SquashNotCumulative(t *testing.T) {
 // TestCollectRecentCommits_InitialCommit verifies that the very first commit
 // in a repo (no parent) is handled without error and counts files correctly.
 func TestCollectRecentCommits_InitialCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 
@@ -204,6 +207,7 @@ func TestCollectRecentCommits_InitialCommit(t *testing.T) {
 // TestCollectRecentCommits_NotARepo verifies the non-fatal empty result when
 // the directory is not a git repository.
 func TestCollectRecentCommits_NotARepo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	commits, err := collectRecentCommits(context.Background(), dir, 5)
 	if err != nil {

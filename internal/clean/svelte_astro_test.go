@@ -8,6 +8,7 @@ import (
 // Svelte and Astro use C-style (// and /* */) comment syntax.
 
 func TestStripComments_Svelte_LineComment(t *testing.T) {
+	t.Parallel()
 	input := "let x = 1; // line comment\nlet y = 2;\n"
 	result := CleanSource(input, "svelte", CleanOpts{StripComments: true})
 	if strings.Contains(result, "line comment") {
@@ -22,6 +23,7 @@ func TestStripComments_Svelte_LineComment(t *testing.T) {
 }
 
 func TestStripComments_Svelte_BlockComment(t *testing.T) {
+	t.Parallel()
 	input := "let x = 1; /* block */ let y = 2;\n"
 	result := CleanSource(input, "svelte", CleanOpts{StripComments: true})
 	if strings.Contains(result, "block") {
@@ -36,6 +38,7 @@ func TestStripComments_Svelte_BlockComment(t *testing.T) {
 }
 
 func TestStripComments_Svelte_TodoPreserved(t *testing.T) {
+	t.Parallel()
 	input := "// TODO: fix\nlet x = 1;\n"
 	result := CleanSource(input, "svelte", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "TODO: fix") {
@@ -44,6 +47,7 @@ func TestStripComments_Svelte_TodoPreserved(t *testing.T) {
 }
 
 func TestStripComments_Svelte_FixmePreserved(t *testing.T) {
+	t.Parallel()
 	input := "// FIXME(name): bug\nlet x = 1;\n"
 	result := CleanSource(input, "svelte", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "FIXME(name): bug") {
@@ -52,6 +56,7 @@ func TestStripComments_Svelte_FixmePreserved(t *testing.T) {
 }
 
 func TestStripComments_Astro_LineComment(t *testing.T) {
+	t.Parallel()
 	input := "let x = 1; // line comment\nlet y = 2;\n"
 	result := CleanSource(input, "astro", CleanOpts{StripComments: true})
 	if strings.Contains(result, "line comment") {
@@ -66,6 +71,7 @@ func TestStripComments_Astro_LineComment(t *testing.T) {
 }
 
 func TestStripComments_Astro_BlockComment(t *testing.T) {
+	t.Parallel()
 	input := "let x = 1; /* block */ let y = 2;\n"
 	result := CleanSource(input, "astro", CleanOpts{StripComments: true})
 	if strings.Contains(result, "block") {
@@ -80,6 +86,7 @@ func TestStripComments_Astro_BlockComment(t *testing.T) {
 }
 
 func TestStripComments_Astro_TodoPreserved(t *testing.T) {
+	t.Parallel()
 	input := "// TODO: fix\nlet x = 1;\n"
 	result := CleanSource(input, "astro", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "TODO: fix") {
@@ -88,6 +95,7 @@ func TestStripComments_Astro_TodoPreserved(t *testing.T) {
 }
 
 func TestStripComments_Astro_FixmePreserved(t *testing.T) {
+	t.Parallel()
 	input := "// FIXME(name): bug\nlet x = 1;\n"
 	result := CleanSource(input, "astro", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "FIXME(name): bug") {

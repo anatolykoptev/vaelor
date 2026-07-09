@@ -37,6 +37,7 @@ func writeFile(p string, b []byte) error {
 }
 
 func TestPriorDefect_NoFixes_ScoreZero(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithCommits(t, []string{"feat: a", "feat: b"})
 	score, reason, err := PriorDefect{}.Score(context.Background(), dir, "foo.go")
 	if err != nil {
@@ -48,6 +49,7 @@ func TestPriorDefect_NoFixes_ScoreZero(t *testing.T) {
 }
 
 func TestPriorDefect_FiveFixesRanksMidHigh(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithCommits(t, []string{
 		"fix: a", "fix: b", "hotfix: c", "bug: d", "regress: e",
 	})
@@ -64,6 +66,7 @@ func TestPriorDefect_FiveFixesRanksMidHigh(t *testing.T) {
 }
 
 func TestPriorDefect_IgnoresFeatureCommits(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithCommits(t, []string{
 		"feat: a", "feat: b", "refactor: c", "docs: d",
 	})
@@ -80,6 +83,7 @@ func TestPriorDefect_IgnoresFeatureCommits(t *testing.T) {
 // that would let "affix" / "prefix" / "fixture" / "suffix" / "debug" /
 // "bugzilla" trigger the defect signal. None of these are bug-fix verbs.
 func TestPriorDefect_AffixWordsDontMatch(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithCommits(t, []string{
 		"feat: prefix the route",
 		"feat: add fixture for parser",
@@ -101,6 +105,7 @@ func TestPriorDefect_AffixWordsDontMatch(t *testing.T) {
 // Commits "fix(scope): msg" shape is detected (parens are non-word, so
 // the \b anchor must still allow the scope-decorated form).
 func TestPriorDefect_ConventionalCommitFixMatches(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithCommits(t, []string{
 		"fix(rpc): handle timeout",
 		"fix(ui-shell): null-check selection",
@@ -121,6 +126,7 @@ func TestPriorDefect_ConventionalCommitFixMatches(t *testing.T) {
 // (a deletion commit) giving count=2, while batch skips it giving count=1. Same
 // (repo, path) yields different scores depending on which path fired.
 func TestPriorDefect_PerFileParity_DiffFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
@@ -174,6 +180,7 @@ func TestPriorDefect_PerFileParity_DiffFilter(t *testing.T) {
 // TestPriorDefect_FollowsRenames guards that a file's defect history
 // survives a rename via git log --follow in the per-file path.
 func TestPriorDefect_FollowsRenames(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
@@ -217,6 +224,7 @@ func TestPriorDefect_FollowsRenames(t *testing.T) {
 // the attached cache. Asserted by: the cache returns a synthetic value (7)
 // that the score computation must match exactly.
 func TestPriorDefect_ScoreReadsCacheWhenAttached(t *testing.T) {
+	t.Parallel()
 	cache := map[string]int{"foo.go": 7}
 	ctx := WithBatchDefectCache(context.Background(), cache)
 	// repoRoot is bogus on purpose — if the cache is NOT consulted, the

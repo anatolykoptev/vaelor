@@ -16,6 +16,7 @@ import (
 // each bound rune declaration emits a secondary symbol with Name="$<root>:L<line>".
 // This covers the full normalisation path including dotted variants.
 func TestRuneTokenNameNormalization(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name          string
 		declaration   string // e.g. "let x = $state.raw([]);"

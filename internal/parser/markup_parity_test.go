@@ -156,6 +156,7 @@ func rowPasses(calls, refs map[string]int, r capRow) bool {
 // TestMarkupCapabilityMatrix asserts each capability row's shared expected edges
 // surface for BOTH Astro and Svelte.
 func TestMarkupCapabilityMatrix(t *testing.T) {
+	t.Parallel()
 	for _, row := range capabilityMatrix {
 		t.Run(row.name, func(t *testing.T) {
 			aCalls, aRefs := surfaced(t, "cap.astro", row.astroSrc)
@@ -184,6 +185,7 @@ func TestMarkupCapabilityMatrix(t *testing.T) {
 // TestSvelteEqualsAstroCapabilities is the literal "rows EQUAL" gate: for every
 // capability row, the Svelte cell must pass IFF the Astro cell passes.
 func TestSvelteEqualsAstroCapabilities(t *testing.T) {
+	t.Parallel()
 	for _, row := range capabilityMatrix {
 		aCalls, aRefs := surfaced(t, "cap.astro", row.astroSrc)
 		sCalls, sRefs := surfaced(t, "cap.svelte", row.svelteSrc)
@@ -205,6 +207,7 @@ func TestSvelteEqualsAstroCapabilities(t *testing.T) {
 // receiver (`user`, not the garbled `{user`). Covers BOTH Astro and Svelte, since
 // the fix corrects the pre-existing shared-mechanism double-emit in both.
 func TestNoDuplicateMarkupEdges(t *testing.T) {
+	t.Parallel()
 	type ec struct {
 		path string
 		src  string
@@ -251,6 +254,7 @@ func TestNoDuplicateMarkupEdges(t *testing.T) {
 // <script>/frontmatter calls: those still surface (from ScriptCalls), exactly
 // once, while the template call surfaces once from MarkupCalls.
 func TestScriptRegionCallsPreserved(t *testing.T) {
+	t.Parallel()
 	svelte := "<script>\n  import { fetchUser } from './api';\n  function load() { return fetchUser(1); }\n</script>\n<p>{user.greet()}</p>\n"
 	calls, _ := surfaced(t, "s.svelte", svelte)
 	if calls["fetchUser"] != 1 {
@@ -276,6 +280,7 @@ func TestScriptRegionCallsPreserved(t *testing.T) {
 // plain mustache. Without svelteHandler.MarkupCalls (the Phase-3 wiring) none of
 // these surface.
 func TestSvelteBlockHeaderCalls(t *testing.T) {
+	t.Parallel()
 	src := "" +
 		"{#if canView(user)}\n" + // canView call, user argref
 		"  {#each fetchRows() as row}\n" + // fetchRows call

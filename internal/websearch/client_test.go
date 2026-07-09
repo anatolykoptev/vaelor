@@ -9,6 +9,7 @@ import (
 )
 
 func TestSearchParsesResults(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -46,6 +47,7 @@ func TestSearchParsesResults(t *testing.T) {
 }
 
 func TestSearchHandlesError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -59,6 +61,7 @@ func TestSearchHandlesError(t *testing.T) {
 }
 
 func TestSearchHandlesMCPError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := map[string]any{
 			"result": nil,
@@ -77,6 +80,7 @@ func TestSearchHandlesMCPError(t *testing.T) {
 }
 
 func TestSearchNilClient(t *testing.T) {
+	t.Parallel()
 	var client *Client
 	if client != nil {
 		t.Error("expected nil client")
@@ -84,6 +88,7 @@ func TestSearchNilClient(t *testing.T) {
 }
 
 func TestSearchEmptyResults(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		out := searchOutput{Query: "empty"}
 		text, _ := json.Marshal(out)

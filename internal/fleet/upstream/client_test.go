@@ -33,6 +33,7 @@ func buildTestCompareResponse(status string, nCommits int) githubCompareResp {
 // TestCompare_HappyPath_VPrefix: bare tags requested, server responds 404 for bare
 // form but 200 for v-prefix form → Resolved=true.
 func TestCompare_HappyPath_VPrefix(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Paths look like /repos/owner/repo/compare/BASE...HEAD
 		parts := strings.Split(r.URL.Path, "/compare/")
@@ -72,6 +73,7 @@ func TestCompare_HappyPath_VPrefix(t *testing.T) {
 
 // TestCompare_AllTagAttemptsFail: all three tag forms (bare, v, release-) get 404.
 func TestCompare_AllTagAttemptsFail(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -94,6 +96,7 @@ func TestCompare_AllTagAttemptsFail(t *testing.T) {
 
 // TestCompare_422_NoCommonAncestor: 422 → Resolved=false, Reason mentions ancestor.
 func TestCompare_422_NoCommonAncestor(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}))
@@ -116,6 +119,7 @@ func TestCompare_422_NoCommonAncestor(t *testing.T) {
 
 // TestCompare_403_RateLimit: 403 + X-RateLimit-Remaining: 0 → Resolved=false, Reason mentions rate limit.
 func TestCompare_403_RateLimit(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "0")
 		w.WriteHeader(http.StatusForbidden)
@@ -139,6 +143,7 @@ func TestCompare_403_RateLimit(t *testing.T) {
 
 // TestCompare_ContextDeadline: context times out → Resolved=false, Reason mentions timeout.
 func TestCompare_ContextDeadline(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 		w.WriteHeader(http.StatusGatewayTimeout)
@@ -167,6 +172,7 @@ func TestCompare_ContextDeadline(t *testing.T) {
 
 // TestCompare_CommitCap: upstream returns 100 commits → capped at 20, Truncated=true.
 func TestCompare_CommitCap(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := buildTestCompareResponse("ahead", 100)
 		w.Header().Set("Content-Type", "application/json")
@@ -194,6 +200,7 @@ func TestCompare_CommitCap(t *testing.T) {
 
 // TestCompare_BodyCap: huge response body → no panic, returns something.
 func TestCompare_BodyCap(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ahead","commits":[`))
@@ -220,6 +227,7 @@ func TestCompare_BodyCap(t *testing.T) {
 
 // TestCompare_CommitSubjectExtraction: only first line used as Subject.
 func TestCompare_CommitSubjectExtraction(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := githubCompareResp{
 			Status:  "ahead",
@@ -259,6 +267,7 @@ func TestCompare_CommitSubjectExtraction(t *testing.T) {
 
 // TestCompare_URLPopulated: Resolved=true → URL is populated from html_url.
 func TestCompare_URLPopulated(t *testing.T) {
+	t.Parallel()
 	const compareURL = "https://github.com/owner/repo/compare/v1.0...v1.1"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := githubCompareResp{

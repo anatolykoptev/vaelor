@@ -6,6 +6,7 @@ import (
 )
 
 func TestParseDockerfile(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		fixture string
@@ -131,6 +132,7 @@ func TestParseDockerfile(t *testing.T) {
 }
 
 func TestParseDockerfile_NonExistent(t *testing.T) {
+	t.Parallel()
 	_, err := ParseDockerfile("testdata/nope.Dockerfile")
 	if err == nil {
 		t.Fatal("expected error for missing file")

@@ -5,6 +5,7 @@ import (
 )
 
 func TestExtractCalls_Go(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 import "fmt"
@@ -66,6 +67,7 @@ func main() {
 }
 
 func TestExtractCalls_Python(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 def helper():
     return 42
@@ -106,6 +108,7 @@ def main():
 }
 
 func TestExtractCalls_GoFuncRef(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 import "sync"
@@ -138,6 +141,7 @@ func setup() {
 }
 
 func TestExtractCalls_PHP(t *testing.T) {
+	t.Parallel()
 	source := []byte(`<?php
 function helper($x) { return $x + 1; }
 
@@ -185,6 +189,7 @@ class Controller {
 }
 
 func TestExtractCalls_PHPNewExpression(t *testing.T) {
+	t.Parallel()
 	source := []byte(`<?php
 class Settings {
     public function __construct() {}
@@ -221,6 +226,7 @@ class Plugin {
 }
 
 func TestExtractCalls_JSXAttributeRef(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 import { useState } from 'react';
 
@@ -270,6 +276,7 @@ export default Component;
 }
 
 func TestExtractCalls_GoStructLiteralFuncRef(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 type CrossDeps struct {
@@ -305,6 +312,7 @@ func setup() {
 }
 
 func TestExtractCalls_GoStructLiteralQualifiedRef(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 type Deps struct {
@@ -337,6 +345,7 @@ func setup() {
 // (`helper`) is tagged IsArgRef=false. The call graph uses this to drop
 // unresolved argref entries (vars / member access) from callee lists.
 func TestExtractCalls_GoArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package x
 
 type Opts struct{ Slug string }
@@ -388,6 +397,7 @@ func f(opts Opts, ctx int) int {
 
 // TestExtractCalls_PythonArgRefTagging mirrors the Go test for Python.
 func TestExtractCalls_PythonArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 def helper(x):
     return x
@@ -418,6 +428,7 @@ def f(opts, ctx):
 
 // TestExtractCalls_TypeScriptArgRefTagging covers TS argument-position refs.
 func TestExtractCalls_TypeScriptArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 function helper(x: number): number { return x; }
 function f(ctx: number) { return helper(ctx); }
@@ -445,6 +456,7 @@ function f(ctx: number) { return helper(ctx); }
 
 // TestExtractCalls_JavaArgRefTagging covers Java method_invocation argrefs.
 func TestExtractCalls_JavaArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 class X {
     int helper(int x) { return x; }
@@ -476,6 +488,7 @@ class X {
 // wildcard, so plain identifier args (`ctx`) MUST NOT appear as CallSites.
 // Acts as a regression guard against importing the noisy heuristic to Rust.
 func TestExtractCalls_RustNoArgRefNoise(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 fn helper(x: i32) -> i32 { x }
 fn f(ctx: i32) -> i32 { helper(ctx) }
@@ -494,6 +507,7 @@ fn f(ctx: i32) -> i32 { helper(ctx) }
 // TestExtractCalls_CArgRefTagging verifies that the C call query correctly tags
 // the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
 func TestExtractCalls_CArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 void helper(int x) {}
 
@@ -525,6 +539,7 @@ void f(int arg) {
 // TestExtractCalls_CppArgRefTagging verifies that the C++ call query correctly
 // tags the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
 func TestExtractCalls_CppArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 int helper(int x) { return x; }
 
@@ -559,6 +574,7 @@ int f(int arg) {
 // maps it to call.method (not call.function), so helper appears with IsArgRef=false
 // via the @call.method capture.
 func TestExtractCalls_RubyArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 def helper(x)
   x
@@ -595,6 +611,7 @@ end
 // function references) in argument position — not $variables, which are
 // variable_name nodes and thus not captured as argrefs.
 func TestExtractCalls_PHPArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`<?php
 function helper($fn) { $fn(); }
 function callback() {}
@@ -627,6 +644,7 @@ function f() {
 // TestExtractCalls_CSharpArgRefTagging verifies that the C# call query tags
 // the callee (helper) as IsArgRef=false and the argument (arg) as IsArgRef=true.
 func TestExtractCalls_CSharpArgRefTagging(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 class X {
     int Helper(int x) { return x; }
@@ -658,6 +676,7 @@ class X {
 }
 
 func TestExtractCalls_Unsupported(t *testing.T) {
+	t.Parallel()
 	calls, err := ExtractCalls("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

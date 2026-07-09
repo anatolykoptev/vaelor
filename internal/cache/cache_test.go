@@ -14,6 +14,7 @@ import (
 // ──────────────────────────────────────────────────────────────────
 
 func TestParseCacheGetSet(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	result := &parser.ParseResult{File: "/a.go", Language: "go"}
@@ -29,6 +30,7 @@ func TestParseCacheGetSet(t *testing.T) {
 }
 
 func TestParseCacheMiss(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	got, _ := c.Get("/missing.go", 1000, 200, false)
@@ -43,6 +45,7 @@ func TestParseCacheMiss(t *testing.T) {
 }
 
 func TestParseCacheStaleModTime(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	result := &parser.ParseResult{File: "/a.go"}
@@ -56,6 +59,7 @@ func TestParseCacheStaleModTime(t *testing.T) {
 }
 
 func TestParseCacheStaleSize(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	result := &parser.ParseResult{File: "/a.go"}
@@ -69,6 +73,7 @@ func TestParseCacheStaleSize(t *testing.T) {
 }
 
 func TestParseCacheLRUEviction(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(3)
 
 	c.Put("/a.go", 1, 1, false, &parser.ParseResult{File: "/a.go"}, nil)
@@ -93,6 +98,7 @@ func TestParseCacheLRUEviction(t *testing.T) {
 }
 
 func TestParseCacheUpdate(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	c.Put("/a.go", 1, 1, false, &parser.ParseResult{File: "/a.go", Language: "go"}, nil)
@@ -108,6 +114,7 @@ func TestParseCacheUpdate(t *testing.T) {
 }
 
 func TestParseCacheStats(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	c.Put("/a.go", 1, 1, false, &parser.ParseResult{}, nil)
@@ -127,6 +134,7 @@ func TestParseCacheStats(t *testing.T) {
 }
 
 func TestParseCacheConcurrent(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(100)
 
 	var wg sync.WaitGroup
@@ -154,6 +162,7 @@ func TestParseCacheConcurrent(t *testing.T) {
 // cache, silently returning a body-less result. Both modes must be keyed
 // independently and coexist.
 func TestParseCacheIncludeBodyKeyed(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	bodyFalse := &parser.ParseResult{File: "/a.go", Language: "go"}
@@ -186,6 +195,7 @@ func TestParseCacheIncludeBodyKeyed(t *testing.T) {
 // cache HIT returned nil calls — silently emptying the PageRank call-graph
 // on the second repo_analyze of an unchanged repo.
 func TestParseCacheRoundTripsCalls(t *testing.T) {
+	t.Parallel()
 	c := NewParseCache(10)
 
 	calls := []parser.CallSite{
@@ -211,6 +221,7 @@ func TestParseCacheRoundTripsCalls(t *testing.T) {
 // ──────────────────────────────────────────────────────────────────
 
 func TestLLMCacheGetSet(t *testing.T) {
+	t.Parallel()
 	c := NewLLMCache(10, time.Hour)
 
 	key := PromptHash("system", "user")
@@ -226,6 +237,7 @@ func TestLLMCacheGetSet(t *testing.T) {
 }
 
 func TestLLMCacheMiss(t *testing.T) {
+	t.Parallel()
 	c := NewLLMCache(10, time.Hour)
 
 	_, ok := c.Get(12345)
@@ -235,6 +247,7 @@ func TestLLMCacheMiss(t *testing.T) {
 }
 
 func TestLLMCacheTTLExpiry(t *testing.T) {
+	t.Parallel()
 	// 1ms TTL for fast expiry.
 	c := NewLLMCache(10, time.Millisecond)
 
@@ -250,6 +263,7 @@ func TestLLMCacheTTLExpiry(t *testing.T) {
 }
 
 func TestLLMCacheLRUEviction(t *testing.T) {
+	t.Parallel()
 	c := NewLLMCache(3, time.Hour)
 
 	c.Put(1, "a")
@@ -271,6 +285,7 @@ func TestLLMCacheLRUEviction(t *testing.T) {
 }
 
 func TestLLMCacheUpdate(t *testing.T) {
+	t.Parallel()
 	c := NewLLMCache(10, time.Hour)
 
 	c.Put(1, "old")
@@ -286,6 +301,7 @@ func TestLLMCacheUpdate(t *testing.T) {
 }
 
 func TestLLMCacheStats(t *testing.T) {
+	t.Parallel()
 	c := NewLLMCache(10, time.Hour)
 
 	c.Put(1, "a")
@@ -302,6 +318,7 @@ func TestLLMCacheStats(t *testing.T) {
 }
 
 func TestLLMCacheConcurrent(t *testing.T) {
+	t.Parallel()
 	c := NewLLMCache(100, time.Hour)
 
 	var wg sync.WaitGroup
@@ -342,6 +359,7 @@ func TestLLMCacheConcurrent(t *testing.T) {
 // go-kit/cache's TTL check (time.Now().After(e.expiresAt)) is exercised
 // unmodified, just against virtual time.
 func TestLLMCacheTTLBoundary(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const ttl = 20 * time.Millisecond
 		c := NewLLMCache(10, ttl)
@@ -372,6 +390,7 @@ func TestLLMCacheTTLBoundary(t *testing.T) {
 // scope) and why the deferred c.c.Close() is required (unblocks
 // kitcache's background cleanupLoop so it exits before the bubble closes).
 func TestLLMCacheTTLUpdateResetsExpiry(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const ttl = 20 * time.Millisecond
 		c := NewLLMCache(10, ttl)
@@ -488,6 +507,7 @@ func TestLLMCacheEvictionPrefersStalest(t *testing.T) {
 }
 
 func TestPromptHash(t *testing.T) {
+	t.Parallel()
 	h1 := PromptHash("system", "user")
 	h2 := PromptHash("system", "user")
 	h3 := PromptHash("system", "different")

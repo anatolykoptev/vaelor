@@ -6,10 +6,12 @@ import (
 )
 
 func TestAssert_passes(t *testing.T) {
+	t.Parallel()
 	Assert(true, "should not panic")
 }
 
 func TestAssert_panics(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -24,6 +26,7 @@ func TestAssert_panics(t *testing.T) {
 }
 
 func TestAssertf_panics(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -38,6 +41,7 @@ func TestAssertf_panics(t *testing.T) {
 }
 
 func TestFail_panics(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {

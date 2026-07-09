@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseAstroFrontmatterOnly(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "astro", "frontmatter_only.astro"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -41,6 +42,7 @@ func TestParseAstroFrontmatterOnly(t *testing.T) {
 }
 
 func TestParseAstroScriptOnly(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "astro", "script_only.astro"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -58,6 +60,7 @@ func TestParseAstroScriptOnly(t *testing.T) {
 }
 
 func TestParseAstroFrontmatterAndScript(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "astro", "frontmatter_and_script.astro"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -91,6 +94,7 @@ func TestParseAstroFrontmatterAndScript(t *testing.T) {
 }
 
 func TestParseAstroEmpty(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "astro", "empty.astro"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -126,6 +130,7 @@ func astroContainsName(names []string, target string) bool {
 }
 
 func TestParseAstroTemplateRefs(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "astro", "template_refs.astro"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -166,6 +171,7 @@ func TestParseAstroTemplateRefs(t *testing.T) {
 }
 
 func TestParseAstroNoTemplateRefs(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "astro", "frontmatter_only.astro"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

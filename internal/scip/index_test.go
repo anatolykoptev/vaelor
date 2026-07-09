@@ -8,6 +8,7 @@ import (
 )
 
 func TestReadIndex_EmptyFile(t *testing.T) {
+	t.Parallel()
 	f, err := os.CreateTemp(t.TempDir(), "scip-*.scip")
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
@@ -24,6 +25,7 @@ func TestReadIndex_EmptyFile(t *testing.T) {
 }
 
 func TestReadIndex_NotFound(t *testing.T) {
+	t.Parallel()
 	_, err := gocodescip.ReadIndex("/nonexistent/path/index.scip")
 	if err == nil {
 		t.Fatal("expected error for missing file, got nil")

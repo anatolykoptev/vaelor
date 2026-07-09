@@ -8,6 +8,7 @@ import (
 // C-style (Go, C, JavaScript, …) comment stripping.
 
 func TestStripComments_CStyle(t *testing.T) {
+	t.Parallel()
 	input := `package main
 // This is a comment
 func main() {
@@ -51,6 +52,7 @@ func main() {
 }
 
 func TestStripComments_CStyle_BlockSameLine(t *testing.T) {
+	t.Parallel()
 	input := `int x = /* the value */ 42;`
 	result := CleanSource(input, "c", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "42") {
@@ -62,6 +64,7 @@ func TestStripComments_CStyle_BlockSameLine(t *testing.T) {
 }
 
 func TestStripComments_CStyle_DocBlock(t *testing.T) {
+	t.Parallel()
 	input := "/** This documents the API */\nfunc Foo() {}"
 	result := CleanSource(input, "go", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "/** This documents the API */") {
@@ -70,6 +73,7 @@ func TestStripComments_CStyle_DocBlock(t *testing.T) {
 }
 
 func TestStripComments_CStyle_StringLiteral(t *testing.T) {
+	t.Parallel()
 	input := `s := "http://example.com"` + "\n"
 	result := CleanSource(input, "go", CleanOpts{StripComments: true})
 	if !strings.Contains(result, `"http://example.com"`) {
@@ -78,6 +82,7 @@ func TestStripComments_CStyle_StringLiteral(t *testing.T) {
 }
 
 func TestStripComments_Multiline_BlockComment(t *testing.T) {
+	t.Parallel()
 	input := "code before\n/* this is\n   a multi-line\n   block comment */\ncode after\n"
 	result := CleanSource(input, "go", CleanOpts{StripComments: true})
 	if !strings.Contains(result, "code before") {
@@ -94,6 +99,7 @@ func TestStripComments_Multiline_BlockComment(t *testing.T) {
 // Python / hash-style comment stripping.
 
 func TestStripComments_Python(t *testing.T) {
+	t.Parallel()
 	input := "import os\n# This is a comment\ndef main():\n    x = 1  # inline\n    # TODO: fix\n    # noqa: E501\n    pass\n"
 	result := CleanSource(input, "python", CleanOpts{StripComments: true})
 
@@ -117,6 +123,7 @@ func TestStripComments_Python(t *testing.T) {
 }
 
 func TestStripComments_Python_HashInString(t *testing.T) {
+	t.Parallel()
 	input := `s = "color: #fff"` + "\n"
 	result := CleanSource(input, "python", CleanOpts{StripComments: true})
 	if !strings.Contains(result, `"color: #fff"`) {
@@ -125,6 +132,7 @@ func TestStripComments_Python_HashInString(t *testing.T) {
 }
 
 func TestStripComments_UnknownLanguage(t *testing.T) {
+	t.Parallel()
 	input := "// comment\ncode line\n"
 	result := CleanSource(input, "haskell", CleanOpts{StripComments: true})
 	if result != input {

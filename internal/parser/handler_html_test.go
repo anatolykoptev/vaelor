@@ -15,6 +15,7 @@ import (
 // TestParseHTMLFile_templateDefine verifies that a single {{define "X"}} block
 // produces a symbol Name="hunt_jobs", Kind=KindFunction in a .html file.
 func TestParseHTMLFile_templateDefine(t *testing.T) {
+	t.Parallel()
 	src := []byte(`{{define "hunt_jobs"}}
 <div class="page-header">
   <h1>Jobs</h1>
@@ -53,6 +54,7 @@ func TestParseHTMLFile_templateDefine(t *testing.T) {
 // TestParseHTMLFile_multipleTemplates verifies that two {{define}} blocks in one
 // file both produce symbols.
 func TestParseHTMLFile_multipleTemplates(t *testing.T) {
+	t.Parallel()
 	src := []byte(`{{define "layout"}}<html><body>{{template "content" .}}</body></html>{{end}}
 {{define "content"}}<h1>Page</h1>{{end}}
 `)
@@ -80,6 +82,7 @@ func TestParseHTMLFile_multipleTemplates(t *testing.T) {
 // TestParseHTMLFile_pureHTML verifies that a plain HTML file (no Go template
 // actions) parses without panic and has Language="html" with no template symbols.
 func TestParseHTMLFile_pureHTML(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<!DOCTYPE html>
 <html>
   <body>
@@ -104,6 +107,7 @@ func TestParseHTMLFile_pureHTML(t *testing.T) {
 // TestParseHTMLFile_extensionRouting verifies that .html, .gohtml, and .tmpl
 // all route to Language="html".
 func TestParseHTMLFile_extensionRouting(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<!DOCTYPE html><html><body></body></html>`)
 
 	cases := []struct {

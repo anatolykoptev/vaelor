@@ -7,6 +7,7 @@ import (
 )
 
 func TestIsCompiledArtifact_ServiceWorkers(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		path string
 		want bool

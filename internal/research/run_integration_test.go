@@ -22,6 +22,7 @@ func fixtureRoot(t *testing.T) string {
 }
 
 func TestRunEndToEndKeyword(t *testing.T) {
+	t.Parallel()
 	root := fixtureRoot(t)
 	res, err := Run(context.Background(), Input{
 		Root:       root,
@@ -53,6 +54,7 @@ func TestRunEndToEndKeyword(t *testing.T) {
 }
 
 func TestRunEndToEndIncludeTests(t *testing.T) {
+	t.Parallel()
 	root := fixtureRoot(t)
 	res, err := Run(context.Background(), Input{
 		Root:         root,
@@ -85,6 +87,7 @@ func TestRunEndToEndIncludeTests(t *testing.T) {
 }
 
 func TestRunEndToEndFileGlob(t *testing.T) {
+	t.Parallel()
 	root := fixtureRoot(t)
 	res, err := Run(context.Background(), Input{
 		Root:      root,
@@ -104,6 +107,7 @@ func TestRunEndToEndFileGlob(t *testing.T) {
 }
 
 func TestRunEndToEndCallGraphOptIn(t *testing.T) {
+	t.Parallel()
 	root := fixtureRoot(t)
 
 	// Build a stub call graph hook that returns a hand-built CallGraph

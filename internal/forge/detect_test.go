@@ -5,6 +5,7 @@ import (
 )
 
 func TestDetectForge(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  ForgeKind
@@ -44,6 +45,7 @@ func TestDetectForge(t *testing.T) {
 }
 
 func TestExtractSlug(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -94,6 +96,7 @@ func TestExtractSlug(t *testing.T) {
 }
 
 func TestExtractOwnerRepo(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		rawURL    string
 		wantOwner string
@@ -122,6 +125,7 @@ func TestExtractOwnerRepo(t *testing.T) {
 }
 
 func TestIsRemote(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  bool
@@ -155,6 +159,7 @@ func TestIsRemote(t *testing.T) {
 }
 
 func TestCloneURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		kind  ForgeKind
 		slug  string

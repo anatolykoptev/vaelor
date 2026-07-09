@@ -53,6 +53,7 @@ var sampleSymbols = []*parser.Symbol{
 }
 
 func TestRenderFile_DefaultMode(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeDefault})
 	if result != sampleGoSource {
 		t.Errorf("default mode should return source unchanged\ngot:\n%s", result)
@@ -60,6 +61,7 @@ func TestRenderFile_DefaultMode(t *testing.T) {
 }
 
 func TestRenderFile_NoSymbols(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, nil, Opts{Mode: ModeSignatures})
 	if result != sampleGoSource {
 		t.Errorf("no symbols should return source unchanged\ngot:\n%s", result)
@@ -67,6 +69,7 @@ func TestRenderFile_NoSymbols(t *testing.T) {
 }
 
 func TestRenderFile_Signatures(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSignatures})
 
 	// Struct body should be preserved (structural kind).
@@ -102,6 +105,7 @@ func TestRenderFile_Signatures(t *testing.T) {
 }
 
 func TestRenderFile_Skeleton(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSkeleton})
 
 	// Struct body should be preserved.
@@ -135,6 +139,7 @@ func TestRenderFile_Skeleton(t *testing.T) {
 }
 
 func TestRenderFile_Focused_RelevantSymbol(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{
 		Mode:       ModeFocused,
 		QueryTerms: []string{"hello"},
@@ -150,6 +155,7 @@ func TestRenderFile_Focused_RelevantSymbol(t *testing.T) {
 }
 
 func TestRenderFile_Focused_NoRelevantSymbols(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{
 		Mode:       ModeFocused,
 		QueryTerms: []string{"nonexistent"},
@@ -165,6 +171,7 @@ func TestRenderFile_Focused_NoRelevantSymbols(t *testing.T) {
 }
 
 func TestRenderFile_Focused_CaseInsensitive(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{
 		Mode:       ModeFocused,
 		QueryTerms: []string{"hello"}, // lowercase matches "Hello"
@@ -175,6 +182,7 @@ func TestRenderFile_Focused_CaseInsensitive(t *testing.T) {
 }
 
 func TestRenderFile_Focused_MatchesSignature(t *testing.T) {
+	t.Parallel()
 	// "string" appears in the signature but not the function name.
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{
 		Mode:       ModeFocused,
@@ -187,6 +195,7 @@ func TestRenderFile_Focused_MatchesSignature(t *testing.T) {
 }
 
 func TestRenderFile_Focused_EmptyQueryTerms(t *testing.T) {
+	t.Parallel()
 	// Empty terms means nothing is relevant — acts like signatures mode.
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{
 		Mode:       ModeFocused,
@@ -198,6 +207,7 @@ func TestRenderFile_Focused_EmptyQueryTerms(t *testing.T) {
 }
 
 func TestRenderFile_SingleLineSymbol(t *testing.T) {
+	t.Parallel()
 	source := "package main\n\nvar X = 42\n"
 	symbols := []*parser.Symbol{
 		{Name: "X", Kind: parser.KindVar, StartLine: 3, EndLine: 3},
@@ -211,6 +221,7 @@ func TestRenderFile_SingleLineSymbol(t *testing.T) {
 }
 
 func TestRenderFile_EmptySource(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "X", Kind: parser.KindFunction, StartLine: 1, EndLine: 3, Signature: "func X()"},
 	}
@@ -222,6 +233,7 @@ func TestRenderFile_EmptySource(t *testing.T) {
 }
 
 func TestRenderFile_NestedSymbols(t *testing.T) {
+	t.Parallel()
 	// Python-style: class contains methods. Class is structural (kept),
 	// methods should have bodies stripped in signatures mode.
 	source := `class MyClass:
@@ -256,6 +268,7 @@ func TestRenderFile_NestedSymbols(t *testing.T) {
 }
 
 func TestRenderFile_NestedFunctions(t *testing.T) {
+	t.Parallel()
 	// Nested functions: outer contains inner. Both are non-structural.
 	// In signatures mode, outer replacement should cover inner.
 	source := `def outer():
@@ -280,6 +293,7 @@ func TestRenderFile_NestedFunctions(t *testing.T) {
 }
 
 func TestRenderFile_NestedFunctions_Skeleton(t *testing.T) {
+	t.Parallel()
 	source := `def outer():
     def inner():
         return 1
@@ -301,6 +315,7 @@ func TestRenderFile_NestedFunctions_Skeleton(t *testing.T) {
 }
 
 func TestRenderFile_InvalidMode(t *testing.T) {
+	t.Parallel()
 	// Invalid mode is treated as default — source returned unchanged.
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: "typo"})
 	if result != sampleGoSource {
@@ -309,6 +324,7 @@ func TestRenderFile_InvalidMode(t *testing.T) {
 }
 
 func TestValidMode(t *testing.T) {
+	t.Parallel()
 	valid := []string{"", "signatures", "skeleton", "focused"}
 	for _, m := range valid {
 		if !ValidMode(m) {
@@ -325,6 +341,7 @@ func TestValidMode(t *testing.T) {
 }
 
 func TestIsRelevant(t *testing.T) {
+	t.Parallel()
 	sym := &parser.Symbol{Name: "ParseFile", Signature: "func ParseFile(path string) error"}
 
 	tests := []struct {
@@ -350,6 +367,7 @@ func TestIsRelevant(t *testing.T) {
 }
 
 func TestIsStructuralKind(t *testing.T) {
+	t.Parallel()
 	structural := []parser.NodeKind{
 		parser.KindStruct, parser.KindInterface, parser.KindClass, parser.KindType,
 	}
@@ -371,6 +389,7 @@ func TestIsStructuralKind(t *testing.T) {
 }
 
 func TestRemoveNested(t *testing.T) {
+	t.Parallel()
 	input := []replacement{
 		{startLine: 1, endLine: 10, action: actionSignatures},
 		{startLine: 3, endLine: 5, action: actionSignatures},   // nested in first
@@ -388,12 +407,14 @@ func TestRemoveNested(t *testing.T) {
 }
 
 func TestRenderFile_Skeleton_EllipsisMarker(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSkeleton})
 	assertContains(t, result, "⋮...")
 	assertNotContains(t, result, "    // ...")
 }
 
 func TestRenderFile_Skeleton_LinePrefix(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSkeleton})
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {
@@ -407,6 +428,7 @@ func TestRenderFile_Skeleton_LinePrefix(t *testing.T) {
 }
 
 func TestRenderFile_Signatures_LinePrefix(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeSignatures})
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {
@@ -420,6 +442,7 @@ func TestRenderFile_Signatures_LinePrefix(t *testing.T) {
 }
 
 func TestRenderFile_DefaultMode_NoPrefix(t *testing.T) {
+	t.Parallel()
 	result := RenderFile(sampleGoSource, sampleSymbols, Opts{Mode: ModeDefault})
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {

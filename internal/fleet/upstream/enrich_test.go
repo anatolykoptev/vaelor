@@ -39,6 +39,7 @@ func testJSONServer(body string) *httptest.Server {
 
 // TestEnrich_SkipsNonTagDrift: Match, OnlySource, OnlyRuntime rows → Changelog=nil, no API calls.
 func TestEnrich_SkipsNonTagDrift(t *testing.T) {
+	t.Parallel()
 	var callCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
@@ -68,6 +69,7 @@ func TestEnrich_SkipsNonTagDrift(t *testing.T) {
 
 // TestEnrich_MaxEnrichCapRespected: 5 TagDrift rows, maxEnrich=2 → at most 2 enriched.
 func TestEnrich_MaxEnrichCapRespected(t *testing.T) {
+	t.Parallel()
 	srv := testJSONServer(`{"status":"ahead","commits":[],"html_url":"http://example.com"}`)
 	defer srv.Close()
 
@@ -97,6 +99,7 @@ func TestEnrich_MaxEnrichCapRespected(t *testing.T) {
 
 // TestEnrich_SoftFail_UnmappedImage: TagDrift on unmapped image → Changelog=nil or Resolved=false.
 func TestEnrich_SoftFail_UnmappedImage(t *testing.T) {
+	t.Parallel()
 	var callCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
@@ -124,6 +127,7 @@ func TestEnrich_SoftFail_UnmappedImage(t *testing.T) {
 // TestEnrich_DeduplicatesCompareCalls: 3 TagDrift rows for same (slug, base, head)
 // → at most 3 Compare API calls (1 per tag-form attempt), not 9.
 func TestEnrich_DeduplicatesCompareCalls(t *testing.T) {
+	t.Parallel()
 	var callCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
@@ -161,6 +165,7 @@ func TestEnrich_DeduplicatesCompareCalls(t *testing.T) {
 
 // TestEnrich_ParallelExecution: enrichment of multiple images runs in parallel.
 func TestEnrich_ParallelExecution(t *testing.T) {
+	t.Parallel()
 	const slowDelay = 150 * time.Millisecond
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

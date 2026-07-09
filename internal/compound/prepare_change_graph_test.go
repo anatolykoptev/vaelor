@@ -58,6 +58,7 @@ func makePCCallGraph(targetName string, callerNames ...string) (*callgraph.CallG
 
 // TestPrepareChange_Graph_ColdNil — Graph: nil → CommunitiesCrossed==0, HighPRCallers==nil.
 func TestPrepareChange_Graph_ColdNil(t *testing.T) {
+	t.Parallel()
 	cg, _ := makePCCallGraph("DoWork", "Caller1", "Caller2")
 
 	result := compound.PrepareChange(context.Background(), cg, "DoWork", compound.PrepareChangeOpts{
@@ -76,6 +77,7 @@ func TestPrepareChange_Graph_ColdNil(t *testing.T) {
 // TestPrepareChange_Graph_CommunitiesAndHighPR — 3 callers in 2 distinct communities,
 // 1 high-PR caller (above top-decile threshold).
 func TestPrepareChange_Graph_CommunitiesAndHighPR(t *testing.T) {
+	t.Parallel()
 	// callerA and callerB share community "comm-1"; callerC is in "comm-2".
 	// target is in "comm-1". That gives 2 distinct communities for callers,
 	// plus target's community "comm-1" → still 2 distinct total.
@@ -124,6 +126,7 @@ func TestPrepareChange_Graph_CommunitiesAndHighPR(t *testing.T) {
 // TestPrepareChange_Graph_AllFoundFalse — all Symbol() calls return Found=false
 // → CommunitiesCrossed==0, HighPRCallers==nil.
 func TestPrepareChange_Graph_AllFoundFalse(t *testing.T) {
+	t.Parallel()
 	cg, _ := makePCCallGraph("DoWork", "Caller1", "Caller2")
 
 	// No signals registered → all return Found=false.

@@ -11,6 +11,7 @@ import "testing"
 // .jsx -> "javascript" (matching GitHub Linguist) — this test asserts the
 // parser AGREES with its own path-based detector for .jsx symbols.
 func TestTSXHandler_JSXSymbolLanguage(t *testing.T) {
+	t.Parallel()
 	src := []byte(`
 function Greeter() {
 	return <div>hi</div>;
@@ -42,6 +43,7 @@ class Widget {
 // would mislabel EVERY .tsx symbol too — a worse fleet-wide regression.
 // .tsx must keep emitting Symbol.Language == "typescript".
 func TestTSXHandler_TSXSymbolLanguageUnchanged(t *testing.T) {
+	t.Parallel()
 	src := []byte(`
 function Greeter(): JSX.Element {
 	return <div>hi</div>;
@@ -75,6 +77,7 @@ class Widget {
 // "typescript" before parity) would re-parse as "javascript", its hash would
 // change, and the backfill would leave it a NULL sparse vector that never heals.
 func TestJSTSFamily_OptsLanguageOverrideHonored(t *testing.T) {
+	t.Parallel()
 	src := []byte("function greet() { return 1; }")
 	for _, path := range []string{"component.jsx", "mod.js", "mod.mjs", "mod.cjs"} {
 		t.Run(path, func(t *testing.T) {
@@ -104,6 +107,7 @@ func TestJSTSFamily_OptsLanguageOverrideHonored(t *testing.T) {
 // did not exist pre-parity (both were uniformly "typescript"). The fixture mixes an
 // ordinary declaration with runes so the split is actually exercised.
 func TestSvelteRuneModule_SymbolLanguageUniform(t *testing.T) {
+	t.Parallel()
 	src := []byte("export function makeCounter() { return 0; }\nexport const counter = $state(0);\nexport const doubled = $derived(counter * 2);\n")
 	for _, path := range []string{"store.svelte.js", "store.svelte.ts"} {
 		t.Run(path, func(t *testing.T) {

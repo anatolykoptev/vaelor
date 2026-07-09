@@ -6,6 +6,7 @@ import (
 )
 
 func TestPPR_SeedBias(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"a.go": {"core.go"}, "b.go": {"core.go"},
 		"c.go": {"core.go"}, "core.go": {},
@@ -18,6 +19,7 @@ func TestPPR_SeedBias(t *testing.T) {
 }
 
 func TestPPR_NoSeeds_EqualsStandard(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{"a.go": {"b.go"}, "b.go": {"c.go"}, "c.go": {"a.go"}}
 	ppr := PersonalizedPageRank(graph, nil, 20, 0.85)
 	pr := PageRank(graph, 20, 0.85)
@@ -29,12 +31,14 @@ func TestPPR_NoSeeds_EqualsStandard(t *testing.T) {
 }
 
 func TestPPR_EmptyGraph(t *testing.T) {
+	t.Parallel()
 	if PersonalizedPageRank(nil, nil, 20, 0.85) != nil {
 		t.Error("expected nil for empty graph")
 	}
 }
 
 func TestPPR_MultipleSeeds(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{"a.go": {"core.go"}, "b.go": {"core.go"}, "c.go": {}, "core.go": {}}
 	seeds := map[string]float64{"a.go": 1.0, "b.go": 1.0}
 	result := PersonalizedPageRank(graph, seeds, 20, 0.85)
@@ -44,6 +48,7 @@ func TestPPR_MultipleSeeds(t *testing.T) {
 }
 
 func TestPPR_Normalized(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{"a.go": {"b.go"}, "b.go": {"c.go"}, "c.go": {}}
 	seeds := map[string]float64{"a.go": 1.0}
 	result := PersonalizedPageRank(graph, seeds, 20, 0.85)

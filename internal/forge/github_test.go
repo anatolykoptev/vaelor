@@ -16,6 +16,7 @@ func newTestGitHubForge(t *testing.T, mux *http.ServeMux) *GitHubForge {
 }
 
 func TestGitHubForgeKind(t *testing.T) {
+	t.Parallel()
 	g := NewGitHubForge("", AppConfig{})
 	if got := g.Kind(); got != GitHub {
 		t.Errorf("Kind() = %v, want GitHub", got)
@@ -23,6 +24,7 @@ func TestGitHubForgeKind(t *testing.T) {
 }
 
 func TestGitHubFetchRepoMeta(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /repos/foo/bar", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get(ghHeaderAPIVersion) != ghAPIVersion {
@@ -78,6 +80,7 @@ func TestGitHubFetchRepoMeta(t *testing.T) {
 }
 
 func TestGitHubFetchRepoMeta_NotFound(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /repos/foo/missing", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -91,6 +94,7 @@ func TestGitHubFetchRepoMeta_NotFound(t *testing.T) {
 }
 
 func TestGitHubFetchREADME(t *testing.T) {
+	t.Parallel()
 	const readmeContent = "# Hello\nThis is a readme."
 
 	mux := http.NewServeMux()
@@ -129,6 +133,7 @@ func TestGitHubFetchREADME(t *testing.T) {
 }
 
 func TestGitHubSearchCode(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /search/code", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get(ghHeaderAccept) != ghMediaTypeText {
@@ -178,6 +183,7 @@ func TestGitHubSearchCode(t *testing.T) {
 }
 
 func TestGitHubSearchRepos(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /search/repositories", func(w http.ResponseWriter, r *http.Request) {
 		sort := r.URL.Query().Get("sort")
@@ -228,6 +234,7 @@ func TestGitHubSearchRepos(t *testing.T) {
 }
 
 func TestGitHubSearchIssues(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -303,6 +310,7 @@ func TestGitHubSearchIssues(t *testing.T) {
 }
 
 func TestGitHubSearchIssues_UnprocessableEntity(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unprocessable", http.StatusUnprocessableEntity)
@@ -316,6 +324,7 @@ func TestGitHubSearchIssues_UnprocessableEntity(t *testing.T) {
 }
 
 func TestAppConfigIsConfigured(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		cfg  AppConfig

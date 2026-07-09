@@ -5,6 +5,7 @@ import (
 )
 
 func TestParsePyProject_Full(t *testing.T) {
+	t.Parallel()
 	input := `[project]
 name = "my-project"
 requires-python = ">=3.11"
@@ -30,6 +31,7 @@ dev = ["pytest>=7.0"]
 }
 
 func TestParsePyProject_InlineArray(t *testing.T) {
+	t.Parallel()
 	input := `[project]
 dependencies = ["click>=8.0", "rich>=13.0"]
 `
@@ -40,6 +42,7 @@ dependencies = ["click>=8.0", "rich>=13.0"]
 }
 
 func TestParseRequirementsTxt(t *testing.T) {
+	t.Parallel()
 	input := `# This is a comment
 flask==3.0.0
 requests>=2.28.0
@@ -78,6 +81,7 @@ click
 }
 
 func TestParseRequirementsTxt_Empty(t *testing.T) {
+	t.Parallel()
 	info := ParseRequirementsTxt([]byte(""))
 	if len(info.Dependencies) != 0 {
 		t.Errorf("Dependencies count = %d, want 0", len(info.Dependencies))
@@ -85,6 +89,7 @@ func TestParseRequirementsTxt_Empty(t *testing.T) {
 }
 
 func TestParsePythonRequirement_Extras(t *testing.T) {
+	t.Parallel()
 	dep := parsePythonRequirement("requests[security]>=2.28.0")
 	if dep.Name != "requests" {
 		t.Errorf("Name = %q, want %q", dep.Name, "requests")

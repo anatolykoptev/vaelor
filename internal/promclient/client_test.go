@@ -10,6 +10,7 @@ import (
 )
 
 func TestNewClient_DefaultsTimeout(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://localhost:9090", 0)
 	if c.httpClient.Timeout != 30*time.Second {
 		t.Errorf("expected default 30s timeout, got %v", c.httpClient.Timeout)
@@ -17,6 +18,7 @@ func TestNewClient_DefaultsTimeout(t *testing.T) {
 }
 
 func TestNewClient_RespectsCustomTimeout(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://localhost:9090", 60*time.Second)
 	if c.httpClient.Timeout != 60*time.Second {
 		t.Errorf("expected 60s timeout, got %v", c.httpClient.Timeout)
@@ -24,6 +26,7 @@ func TestNewClient_RespectsCustomTimeout(t *testing.T) {
 }
 
 func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://localhost:9090/", 0)
 	if c.baseURL != "http://localhost:9090" {
 		t.Errorf("expected trimmed baseURL, got %q", c.baseURL)
@@ -31,6 +34,7 @@ func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
 }
 
 func TestClient_GetJSON_DecodesResponse(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"success"}`))
@@ -50,6 +54,7 @@ func TestClient_GetJSON_DecodesResponse(t *testing.T) {
 }
 
 func TestQueryRange_ParsesMatrixResponse(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.RawQuery, "query=up") {
 			t.Errorf("missing query=up in %q", r.URL.RawQuery)
@@ -84,6 +89,7 @@ func TestQueryRange_ParsesMatrixResponse(t *testing.T) {
 }
 
 func TestQueryRange_EncodesParamsCorrectly(t *testing.T) {
+	t.Parallel()
 	var capturedQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedQuery = r.URL.RawQuery
@@ -112,6 +118,7 @@ func TestQueryRange_EncodesParamsCorrectly(t *testing.T) {
 }
 
 func TestQueryRange_RejectsSubMicrosecondStep(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://x", 5*time.Second)
 	_, err := c.QueryRange(t.Context(), "up",
 		time.Unix(1700000000, 0), time.Unix(1700000060, 0), 100*time.Nanosecond)
@@ -121,6 +128,7 @@ func TestQueryRange_RejectsSubMicrosecondStep(t *testing.T) {
 }
 
 func TestQueryRange_AcceptsSubSecondStep(t *testing.T) {
+	t.Parallel()
 	var captured string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = r.URL.RawQuery
@@ -142,6 +150,7 @@ func TestQueryRange_AcceptsSubSecondStep(t *testing.T) {
 }
 
 func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"status":"error","errorType":"bad_data","error":"parse error"}`))
@@ -160,6 +169,7 @@ func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
 }
 
 func TestAlerts_Parse(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/alerts" {
 			t.Errorf("unexpected path %q", r.URL.Path)
@@ -217,6 +227,7 @@ func TestAlerts_Parse(t *testing.T) {
 }
 
 func TestAlerts_ErrorStatus(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"error","errorType":"internal","error":"boom"}`))

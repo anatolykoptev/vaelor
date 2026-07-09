@@ -9,6 +9,7 @@ import (
 )
 
 func TestCacheKey_StableAndNonEmpty(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
@@ -27,6 +28,7 @@ func TestCacheKey_StableAndNonEmpty(t *testing.T) {
 }
 
 func TestCacheLookup_Miss(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	c := gocodescip.NewCache(cacheDir)
 
@@ -37,6 +39,7 @@ func TestCacheLookup_Miss(t *testing.T) {
 }
 
 func TestCachePutGet(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	c := gocodescip.NewCache(cacheDir)
 

@@ -8,6 +8,7 @@ import (
 )
 
 func TestBuildSystemPrompt_IncludesGroundTruth(t *testing.T) {
+	t.Parallel()
 	ctx := PromptContext{
 		Service:           "go-code",
 		AvailableMetrics:  []string{"http_requests_total", "http_request_duration_seconds"},
@@ -29,6 +30,7 @@ func TestBuildSystemPrompt_IncludesGroundTruth(t *testing.T) {
 }
 
 func TestBuildSystemPrompt_TruncatesLongMetricList(t *testing.T) {
+	t.Parallel()
 	metrics := make([]string, 200)
 	for i := range metrics {
 		metrics[i] = fmt.Sprintf("metric_%03d", i)

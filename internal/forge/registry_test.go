@@ -3,6 +3,7 @@ package forge
 import "testing"
 
 func TestRegistryGet(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(GitHub, NewGitHubForge("", AppConfig{}))
 	r.Register(GitLab, NewGitLabForge("", ""))
@@ -19,6 +20,7 @@ func TestRegistryGet(t *testing.T) {
 }
 
 func TestRegistryForURL(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(GitHub, NewGitHubForge("", AppConfig{}))
 	r.Register(GitLab, NewGitLabForge("", ""))
@@ -47,6 +49,7 @@ func TestRegistryForURL(t *testing.T) {
 }
 
 func TestRegistryDefault(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(GitHub, NewGitHubForge("", AppConfig{}))
 

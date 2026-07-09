@@ -42,6 +42,7 @@ import (
 //   - total = 0.12+0.07+0.05+0+0.09+0.08+0+0.07+0.07+0.05+0.06+0.02+0+0 = 0.68
 //   - score = round(68) = 68, grade = C
 func TestComputeHealth_GoldenInvariant(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		symbols   []*parser.Symbol

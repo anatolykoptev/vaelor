@@ -11,6 +11,7 @@ import (
 // representing 3 Astro files that each render Breadcrumbs.astro, and verifies
 // that Analyze returns Found=true, 3 DirectCallers, and TotalAffected=3.
 func TestImpactAnalysis_AstroComponent(t *testing.T) {
+	t.Parallel()
 	target := "src/components/Breadcrumbs.astro"
 	callers := []string{
 		"src/pages/Home.astro",

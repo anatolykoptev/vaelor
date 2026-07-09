@@ -15,6 +15,7 @@ func setOrigin(t *testing.T, dir, url string) {
 }
 
 func TestResolveRepos_DedupsByOrigin(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
 	chatDev := filepath.Join(parent, "oxpulse-chat-dev")
@@ -46,6 +47,7 @@ func TestResolveRepos_DedupsByOrigin(t *testing.T) {
 }
 
 func TestResolveRepos_NoOriginKeptDistinct(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "repo-a"))
 	gitInit(t, filepath.Join(parent, "repo-b"))
@@ -60,6 +62,7 @@ func TestResolveRepos_NoOriginKeptDistinct(t *testing.T) {
 }
 
 func TestRepoIdentity(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ in, want string }{
 		{"git@github.com:anatolykoptev/oxpulse-chat.git", "anatolykoptev/oxpulse-chat"},
 		{"https://github.com/anatolykoptev/oxpulse-chat.git", "anatolykoptev/oxpulse-chat"},
@@ -77,6 +80,7 @@ func TestRepoIdentity(t *testing.T) {
 // A repo reachable via SSH and another via HTTPS but pointing at the SAME
 // GitHub repo must collapse (slugparse canonicalizes both to "owner/repo").
 func TestResolveRepos_DedupsAcrossSSHAndHTTPS(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	a := filepath.Join(parent, "svc-ssh")
 	b := filepath.Join(parent, "svc-https")
@@ -97,6 +101,7 @@ func TestResolveRepos_DedupsAcrossSSHAndHTTPS(t *testing.T) {
 // When two checkouts share an origin, the lexically-first directory wins
 // (Discover returns lexical order; dedupeByOrigin keeps the first occurrence).
 func TestResolveRepos_DedupKeepsLexicallyFirstCheckout(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	chat := filepath.Join(parent, "oxpulse-chat")
 	chatDev := filepath.Join(parent, "oxpulse-chat-dev")

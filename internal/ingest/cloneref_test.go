@@ -32,6 +32,7 @@ func exists(p string) bool {
 // This is the exact code_health-vs-sibling-tool race — a synchronous sibling's
 // cleanup must not pull the clone out from under code_health's background read.
 func TestCloneRef_LastReleaseDeletes(t *testing.T) {
+	t.Parallel()
 	dir := makeCloneDir(t)
 
 	// Two readers acquire the same shared clone dir.
@@ -68,6 +69,7 @@ func TestCloneRef_LastReleaseDeletes(t *testing.T) {
 // TestCloneRef_SingleHolderDeletes proves the common case (one reader) still
 // deletes on release — the refcount must not leak dirs when uncontended.
 func TestCloneRef_SingleHolderDeletes(t *testing.T) {
+	t.Parallel()
 	dir := makeCloneDir(t)
 	AcquireCloneRef(dir)
 	if err := ReleaseCloneRef(dir); err != nil {
@@ -82,6 +84,7 @@ func TestCloneRef_SingleHolderDeletes(t *testing.T) {
 // acquire (or a double release) does NOT delete the directory — an unbalanced
 // call must be a safe no-op, never a delete of a dir nobody holds.
 func TestCloneRef_UnbalancedReleaseIsNoop(t *testing.T) {
+	t.Parallel()
 	dir := makeCloneDir(t)
 
 	// Never acquired: release must leave the dir intact.
@@ -110,6 +113,7 @@ func TestCloneRef_UnbalancedReleaseIsNoop(t *testing.T) {
 // acquire/release pairs against one shared dir; the dir must survive while any
 // holder is live and be gone once all release. Run with -race.
 func TestCloneRef_ConcurrentAcquireRelease(t *testing.T) {
+	t.Parallel()
 	dir := makeCloneDir(t)
 
 	const holders = 32

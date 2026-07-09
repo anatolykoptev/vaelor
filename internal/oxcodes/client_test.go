@@ -18,6 +18,7 @@ import (
 // RED guarantee: remove the omitempty tag from ScopedSearchInput.Language, and this
 // test fails because the marshaled JSON contains "\"language\":\"\"".
 func TestScopedSearchInput_EmptyLanguage_Omitted(t *testing.T) {
+	t.Parallel()
 	input := ScopedSearchInput{
 		Root:    "/some/repo",
 		Pattern: "MyFunc",
@@ -37,6 +38,7 @@ func TestScopedSearchInput_EmptyLanguage_Omitted(t *testing.T) {
 // TestScopedSearchInput_NonEmptyLanguage_Included asserts that a non-empty Language
 // IS included in the marshaled JSON (omitempty must not drop meaningful values).
 func TestScopedSearchInput_NonEmptyLanguage_Included(t *testing.T) {
+	t.Parallel()
 	input := ScopedSearchInput{
 		Root:     "/some/repo",
 		Pattern:  "MyFunc",
@@ -55,6 +57,7 @@ func TestScopedSearchInput_NonEmptyLanguage_Included(t *testing.T) {
 // TestSearchInput_EmptyLanguage_Omitted is the baseline: SearchInput already has
 // omitempty and must not regress.
 func TestSearchInput_EmptyLanguage_Omitted(t *testing.T) {
+	t.Parallel()
 	input := SearchInput{
 		Root:    "/some/repo",
 		Pattern: "MyFunc",

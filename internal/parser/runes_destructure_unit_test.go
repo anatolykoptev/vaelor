@@ -45,6 +45,7 @@ func firstDestructurePattern(t *testing.T, code string) (*sitter.Node, []byte) {
 // integration path. The "rename+default" and "array default" cases route through
 // an assignment_pattern node and were the silent-drop bug (review HIGH).
 func TestDestructuredBindingNames(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		code string

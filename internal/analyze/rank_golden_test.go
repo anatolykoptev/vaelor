@@ -14,6 +14,7 @@ import (
 // After the lextoken extract, this test should delegate to lextoken.KeywordTokenize
 // via the rewired extractKeywordsForBoost — and still pass byte-identically.
 func TestExtractKeywordsForBoost_Golden(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		query string

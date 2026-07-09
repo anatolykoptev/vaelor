@@ -5,6 +5,7 @@ import (
 )
 
 func TestExtractRelationships_Go(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 import "io"
@@ -77,6 +78,7 @@ type Plain struct {
 }
 
 func TestExtractRelationships_Go_PointerEmbedding(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 type Base struct{}
@@ -106,6 +108,7 @@ type Child struct {
 }
 
 func TestExtractRelationships_Go_NoEmbedding(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package main
 
 type Config struct {
@@ -126,6 +129,7 @@ type Config struct {
 }
 
 func TestExtractRelationships_Python(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 class Base:
     pass
@@ -182,6 +186,7 @@ class Dotted(module.Base):
 }
 
 func TestExtractRelationships_TypeScript(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 class Base {}
 class Child extends Base {}
@@ -226,6 +231,7 @@ interface IChild extends IBase {}
 }
 
 func TestExtractRelationships_Java(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 class Animal {}
 class Dog extends Animal implements Runnable, Serializable {}
@@ -269,6 +275,7 @@ interface Child extends Base, Cloneable {}
 }
 
 func TestExtractRelationships_Unsupported(t *testing.T) {
+	t.Parallel()
 	rels, err := ExtractRelationships("readme.txt", []byte("hello"), ParseOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -26,6 +26,7 @@ func makeServer(t *testing.T, status int, body any, checkFn func(r *http.Request
 }
 
 func TestGetLogs_HappyPath(t *testing.T) {
+	t.Parallel()
 	want := dozorclient.LogsResponse{
 		Service:     "oxpulse-chat",
 		ContainerID: "abc123",
@@ -54,6 +55,7 @@ func TestGetLogs_HappyPath(t *testing.T) {
 }
 
 func TestGetLogs_AuthHeader(t *testing.T) {
+	t.Parallel()
 	var gotAuth string
 	srv := makeServer(t, http.StatusOK, dozorclient.LogsResponse{Service: "svc", Lines: nil}, func(r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -71,6 +73,7 @@ func TestGetLogs_AuthHeader(t *testing.T) {
 }
 
 func TestGetLogs_NoAuthWhenNoToken(t *testing.T) {
+	t.Parallel()
 	var gotAuth string
 	srv := makeServer(t, http.StatusOK, dozorclient.LogsResponse{Service: "svc", Lines: nil}, func(r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -88,6 +91,7 @@ func TestGetLogs_NoAuthWhenNoToken(t *testing.T) {
 }
 
 func TestGetLogs_502Error(t *testing.T) {
+	t.Parallel()
 	srv := makeServer(t, http.StatusBadGateway, map[string]string{"error": "docker unreachable"}, nil)
 	defer srv.Close()
 
@@ -99,6 +103,7 @@ func TestGetLogs_502Error(t *testing.T) {
 }
 
 func TestGetLogs_BadJSON(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("{invalid json"))
@@ -113,6 +118,7 @@ func TestGetLogs_BadJSON(t *testing.T) {
 }
 
 func TestGetLogs_NilClient(t *testing.T) {
+	t.Parallel()
 	var c *dozorclient.Client
 	_, err := c.GetLogs(context.Background(), "svc", time.Time{}, time.Time{}, "", 0)
 	if err == nil {

@@ -14,6 +14,7 @@ import (
 // (renameat2 RENAME_EXCHANGE on Linux; best-effort on other platforms).
 // A concurrent goroutine polling the path should never observe it absent.
 func TestAtomicReclone_FinalPathNeverAbsent(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -87,6 +88,7 @@ func TestAtomicReclone_FinalPathNeverAbsent(t *testing.T) {
 // TestAtomicReclone_TmpCleanedUpOnCloneFailure asserts that if the git clone
 // into the tmp directory fails, no tmp directory is left on disk.
 func TestAtomicReclone_TmpCleanedUpOnCloneFailure(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -136,6 +138,7 @@ func TestAtomicReclone_TmpCleanedUpOnCloneFailure(t *testing.T) {
 // TestAtomicReclone_OldContentPreservedOnCloneFailure asserts that when the
 // re-clone fails (bad URL), the original finalDest is untouched.
 func TestAtomicReclone_OldContentPreservedOnCloneFailure(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")
@@ -185,6 +188,7 @@ func TestAtomicReclone_OldContentPreservedOnCloneFailure(t *testing.T) {
 // successful atomicReclone, no stale directory lingers in the workspace.
 // (The stale/old removal is async; we poll briefly.)
 func TestAtomicReclone_StaleRemovedAfterSuccessfulSwap(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
 	dest := filepath.Join(tmp, "workspace")

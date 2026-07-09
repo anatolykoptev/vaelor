@@ -8,6 +8,7 @@ import (
 )
 
 func TestParseGoFile_NoLocalVars(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package example
 
 import "strings"
@@ -55,6 +56,7 @@ func process(input string) string {
 }
 
 func TestParseGoFile_ConstBlockSignature(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package example
 
 const (
@@ -85,6 +87,7 @@ func symbolNames(syms []*parser.Symbol) []string {
 }
 
 func TestDocCommentExtraction(t *testing.T) {
+	t.Parallel()
 	source := []byte(`package sample
 
 // Exported is a documented function.

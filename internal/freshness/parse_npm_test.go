@@ -5,6 +5,7 @@ import (
 )
 
 func TestParsePackageJSON_Full(t *testing.T) {
+	t.Parallel()
 	input := `{
   "name": "my-app",
   "engines": {"node": ">=18.0.0"},
@@ -33,6 +34,7 @@ func TestParsePackageJSON_Full(t *testing.T) {
 }
 
 func TestParsePackageJSON_NoDeps(t *testing.T) {
+	t.Parallel()
 	input := `{"name": "empty"}`
 	info := ParsePackageJSON([]byte(input))
 	if len(info.Dependencies) != 0 {
@@ -41,6 +43,7 @@ func TestParsePackageJSON_NoDeps(t *testing.T) {
 }
 
 func TestParsePackageJSON_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	info := ParsePackageJSON([]byte(`{invalid`))
 	if info.Language != "typescript" {
 		t.Errorf("Language = %q, want %q", info.Language, "typescript")
@@ -51,6 +54,7 @@ func TestParsePackageJSON_InvalidJSON(t *testing.T) {
 }
 
 func TestParsePackageJSON_NoEngines(t *testing.T) {
+	t.Parallel()
 	input := `{"dependencies": {"react": "^18.0.0"}}`
 	info := ParsePackageJSON([]byte(input))
 	if info.RuntimeVersion != "" {
