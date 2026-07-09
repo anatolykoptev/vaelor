@@ -7,6 +7,7 @@ import (
 )
 
 func TestParseImageRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		ref               string

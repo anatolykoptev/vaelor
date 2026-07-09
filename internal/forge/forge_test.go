@@ -3,6 +3,7 @@ package forge
 import "testing"
 
 func TestForgeKindString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		kind ForgeKind
 		want string

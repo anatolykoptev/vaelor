@@ -8,6 +8,7 @@ import (
 )
 
 func TestLoadPolicy(t *testing.T) {
+	t.Parallel()
 	p, err := Load("testdata")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -21,6 +22,7 @@ func TestLoadPolicy(t *testing.T) {
 }
 
 func TestApplyForbiddenImports(t *testing.T) {
+	t.Parallel()
 	p, err := Load("testdata")
 	if err != nil {
 		t.Fatalf("Load: %v", err)

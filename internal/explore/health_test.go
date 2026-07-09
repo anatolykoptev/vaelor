@@ -19,6 +19,7 @@ import (
 //   - buildExploreRepoMetrics mapped a field incorrectly
 //   - computeHealth rounded differently from compare.GradeScore
 func TestComputeHealth_UsesCompareGradeScore(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{
 			Name: "PublicA", Kind: parser.KindFunction,
@@ -81,6 +82,7 @@ func TestComputeHealth_UsesCompareGradeScore(t *testing.T) {
 // vuln scanning). Removing Approximate=true or clearing the Hint from
 // computeHealth will make this test fail (red-on-revert guarantee).
 func TestComputeHealth_ApproximateFlag(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{
 			Name: "Foo", Kind: parser.KindFunction,
@@ -120,6 +122,7 @@ func TestComputeHealth_ApproximateFlag(t *testing.T) {
 // handles the zero-function edge case without division-by-zero or panic, and
 // that Files is populated correctly.
 func TestBuildExploreRepoMetrics_ZeroFuncs(t *testing.T) {
+	t.Parallel()
 	sm := symbolMetrics{
 		funcCount:       0,
 		exportedCount:   1,
@@ -144,6 +147,7 @@ func TestBuildExploreRepoMetrics_ZeroFuncs(t *testing.T) {
 
 // TestComputeHealth_EmptyFiles verifies the nil-guard on empty file lists.
 func TestComputeHealth_EmptyFiles(t *testing.T) {
+	t.Parallel()
 	got := computeHealth(nil, nil)
 	if got != nil {
 		t.Errorf("computeHealth(nil, nil) = %+v, want nil", got)

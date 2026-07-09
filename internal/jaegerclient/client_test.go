@@ -11,6 +11,7 @@ import (
 )
 
 func TestNewClient_DefaultsTimeout(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://localhost:16686", 0)
 	if c.httpClient.Timeout != 30*time.Second {
 		t.Errorf("expected default 30s, got %v", c.httpClient.Timeout)
@@ -18,6 +19,7 @@ func TestNewClient_DefaultsTimeout(t *testing.T) {
 }
 
 func TestListServices_ParsesResponse(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/services" {
 			t.Errorf("expected /api/services, got %q", r.URL.Path)
@@ -38,6 +40,7 @@ func TestListServices_ParsesResponse(t *testing.T) {
 }
 
 func TestListServices_EmptyResponse(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"data":null,"total":0}`))
@@ -55,6 +58,7 @@ func TestListServices_EmptyResponse(t *testing.T) {
 }
 
 func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://localhost:16686/", 0)
 	if !strings.HasSuffix(c.baseURL, "16686") {
 		t.Errorf("expected trimmed, got %q", c.baseURL)
@@ -62,6 +66,7 @@ func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
 }
 
 func TestFindTraces_BuildsCorrectQuery(t *testing.T) {
+	t.Parallel()
 	var captured string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = r.URL.RawQuery
@@ -89,6 +94,7 @@ func TestFindTraces_BuildsCorrectQuery(t *testing.T) {
 }
 
 func TestFindTraces_DecodesSpansAndOperations(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -124,6 +130,7 @@ func TestFindTraces_DecodesSpansAndOperations(t *testing.T) {
 }
 
 func TestGetTrace_FetchesByID(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/traces/abc123" {
 			t.Errorf("path: got %q", r.URL.Path)
@@ -144,6 +151,7 @@ func TestGetTrace_FetchesByID(t *testing.T) {
 }
 
 func TestGetTrace_NotFound(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[],"total":0}`))
@@ -158,6 +166,7 @@ func TestGetTrace_NotFound(t *testing.T) {
 }
 
 func TestFindTraces_TagsWithSpecialChars_ProducesValidJSON(t *testing.T) {
+	t.Parallel()
 	var capturedTags string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedTags = r.URL.Query().Get("tags")
@@ -188,6 +197,7 @@ func TestFindTraces_TagsWithSpecialChars_ProducesValidJSON(t *testing.T) {
 }
 
 func TestGetTrace_NotFound_IsSentinelError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[],"total":0}`))
@@ -202,6 +212,7 @@ func TestGetTrace_NotFound_IsSentinelError(t *testing.T) {
 }
 
 func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"errorMessage":"bad query"}`))
@@ -219,6 +230,7 @@ func TestGetJSON_Returns_4xx_With_Body_Preview(t *testing.T) {
 }
 
 func TestFindTraces_DecodesProcessesAsTypedStruct(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{

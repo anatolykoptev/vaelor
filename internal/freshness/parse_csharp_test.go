@@ -5,6 +5,7 @@ import (
 )
 
 func TestParseCsproj_Full(t *testing.T) {
+	t.Parallel()
 	input := `<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -37,6 +38,7 @@ func TestParseCsproj_Full(t *testing.T) {
 }
 
 func TestParseCsproj_Empty(t *testing.T) {
+	t.Parallel()
 	input := `<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -49,6 +51,7 @@ func TestParseCsproj_Empty(t *testing.T) {
 }
 
 func TestParseCsproj_InvalidXML(t *testing.T) {
+	t.Parallel()
 	info := ParseCsproj([]byte(`<broken`))
 	if info.Language != "csharp" {
 		t.Errorf("Language = %q, want %q", info.Language, "csharp")

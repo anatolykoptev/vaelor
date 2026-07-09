@@ -15,6 +15,7 @@ import (
 
 // TestExpandFromSeeds_downward verifies that files imported by seeds are found.
 func TestExpandFromSeeds_downward(t *testing.T) {
+	t.Parallel()
 	// seed: a.go imports b.go, b.go imports c.go
 	importGraph := map[string][]string{
 		"a.go": {"b.go"},
@@ -36,6 +37,7 @@ func TestExpandFromSeeds_downward(t *testing.T) {
 
 // TestExpandFromSeeds_upward verifies importers of seeds are found.
 func TestExpandFromSeeds_upward(t *testing.T) {
+	t.Parallel()
 	// x.go imports seed, y.go imports seed
 	importGraph := map[string][]string{
 		"x.go": {"seed.go"},
@@ -57,6 +59,7 @@ func TestExpandFromSeeds_upward(t *testing.T) {
 
 // TestExpandFromSeeds_maxHops limits traversal depth.
 func TestExpandFromSeeds_maxHops(t *testing.T) {
+	t.Parallel()
 	// chain: seed → a → b → c → d
 	importGraph := map[string][]string{
 		"seed.go": {"a.go"},
@@ -82,6 +85,7 @@ func TestExpandFromSeeds_maxHops(t *testing.T) {
 
 // TestPruneToTokenBudget verifies files are selected within budget.
 func TestPruneToTokenBudget(t *testing.T) {
+	t.Parallel()
 	expanded := []expandResult{
 		{relPath: "high.go", distance: 0, whyLinked: "seed"},
 		{relPath: "mid.go", distance: 1, whyLinked: "imports seed"},
@@ -103,6 +107,7 @@ func TestPruneToTokenBudget(t *testing.T) {
 
 // TestPruneToTokenBudget_budget enforces token limit.
 func TestPruneToTokenBudget_budget(t *testing.T) {
+	t.Parallel()
 	// 100 files, tiny budget — should keep only a few
 	expanded := make([]expandResult, 100)
 	scores := make(map[string]float64, 100)
@@ -119,12 +124,14 @@ func TestPruneToTokenBudget_budget(t *testing.T) {
 
 // TestRenderMap_empty returns empty string for no files.
 func TestRenderMap_empty(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "", RenderMap(nil, false, ""))
 	assert.Equal(t, "", RenderMap([]scoredFile{}, false, ""))
 }
 
 // TestRenderMap_basic produces path + annotation line.
 func TestRenderMap_basic(t *testing.T) {
+	t.Parallel()
 	files := []scoredFile{
 		{
 			expand:  expandResult{relPath: "internal/foo/bar.go", distance: 0, whyLinked: "seed"},
@@ -143,6 +150,7 @@ func TestRenderMap_basic(t *testing.T) {
 }
 
 func TestRenderMap_stripsRoot(t *testing.T) {
+	t.Parallel()
 	files := []scoredFile{
 		{
 			expand:  expandResult{relPath: "/tmp/workspace/repo/pkg/foo.go", distance: 0, whyLinked: "seed"},
@@ -155,6 +163,7 @@ func TestRenderMap_stripsRoot(t *testing.T) {
 }
 
 func TestRenderMap_skipsEmptySymbols(t *testing.T) {
+	t.Parallel()
 	files := []scoredFile{
 		{
 			expand:  expandResult{relPath: "a.go", distance: 0, whyLinked: "seed"},
@@ -172,6 +181,7 @@ func TestRenderMap_skipsEmptySymbols(t *testing.T) {
 
 // TestFilterSymbolsByQuery matches on name substring.
 func TestFilterSymbolsByQuery(t *testing.T) {
+	t.Parallel()
 	syms := makeSymbols("RunDAG", "detectCycle", "helper", "dagColor")
 	terms := []string{"dag"}
 
@@ -185,11 +195,13 @@ func TestFilterSymbolsByQuery(t *testing.T) {
 
 // TestFilterSymbolsByQuery_noTerms returns all symbols when no terms given.
 func TestFilterSymbolsByQuery_noTerms(t *testing.T) {
+	t.Parallel()
 	syms := makeSymbols("A", "B", "C")
 	assert.Equal(t, syms, filterSymbolsByQuery(syms, nil))
 }
 
 func TestEstimateTokensRespectsIncludeBody(t *testing.T) {
+	t.Parallel()
 	syms := []*parser.Symbol{{
 		Name:      "Foo",
 		Kind:      parser.KindFunction,
@@ -213,6 +225,7 @@ func TestEstimateTokensRespectsIncludeBody(t *testing.T) {
 }
 
 func TestRRFFusionIsRankBased(t *testing.T) {
+	t.Parallel()
 	// foo.go is rank 1 in both input lists → must come out on top
 	// after rank-based RRF, regardless of absolute score magnitudes.
 	fused := map[string]float64{
@@ -247,6 +260,7 @@ func TestRRFFusionIsRankBased(t *testing.T) {
 }
 
 func TestFuseScoresIgnoresAbsoluteMagnitudes(t *testing.T) {
+	t.Parallel()
 	// Prove the fusion is rank-based, not score-based, by using wildly
 	// different score magnitudes that share the same rank ordering.
 	smallScores := map[string]float64{"a": 0.001, "b": 0.0005}
@@ -261,6 +275,7 @@ func TestFuseScoresIgnoresAbsoluteMagnitudes(t *testing.T) {
 }
 
 func TestInputAcceptsFileGlob(t *testing.T) {
+	t.Parallel()
 	in := Input{
 		Root:     "/tmp/x",
 		Query:    "Foo",
@@ -272,6 +287,7 @@ func TestInputAcceptsFileGlob(t *testing.T) {
 }
 
 func TestRunFiltersByFileGlob(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	mustWriteFile(t, filepath.Join(tmp, "internal/foo/foo.go"), "package foo\nfunc Foo() {}\n")
 	mustWriteFile(t, filepath.Join(tmp, "cmd/main.go"), "package main\nfunc Foo() {}\n")
@@ -292,6 +308,7 @@ func TestRunFiltersByFileGlob(t *testing.T) {
 }
 
 func TestRunExcludesTestFilesByDefault(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	mustWriteFile(t, filepath.Join(tmp, "foo.go"), "package foo\nfunc Foo() {}\n")
 	mustWriteFile(t, filepath.Join(tmp, "foo_test.go"), "package foo\nimport \"testing\"\nfunc TestFoo(t *testing.T) {}\n")
@@ -308,6 +325,7 @@ func TestRunExcludesTestFilesByDefault(t *testing.T) {
 }
 
 func TestRunIncludesTestsWhenAsked(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	// foo.go has no reference to "UniqueTestHelper" — the test file is the sole match.
 	mustWriteFile(t, filepath.Join(tmp, "foo.go"), "package foo\nfunc Foo() {}\n")
@@ -329,6 +347,7 @@ func TestRunIncludesTestsWhenAsked(t *testing.T) {
 }
 
 func TestLinkTestFilesAttachesSiblings(t *testing.T) {
+	t.Parallel()
 	allFiles := map[string]bool{
 		"foo.go":      true,
 		"foo_test.go": true,
@@ -358,6 +377,7 @@ func TestLinkTestFilesAttachesSiblings(t *testing.T) {
 }
 
 func TestLinkTestFilesSkipsExistingTestFiles(t *testing.T) {
+	t.Parallel()
 	// When a kept file is itself a test file, don't try to link a sibling.
 	allFiles := map[string]bool{
 		"foo_test.go": true,
@@ -372,6 +392,7 @@ func TestLinkTestFilesSkipsExistingTestFiles(t *testing.T) {
 }
 
 func TestPruneAppliesMMRDiversity(t *testing.T) {
+	t.Parallel()
 	// Three files: two near-duplicates (foo, foo2) and one unique (bar).
 	// Budget fits exactly 2. MMR should pick foo + bar (not foo + foo2)
 	// because foo2 is ~100% Jaccard-similar to foo.
@@ -419,6 +440,7 @@ func TestPruneAppliesMMRDiversity(t *testing.T) {
 }
 
 func TestJaccardBasic(t *testing.T) {
+	t.Parallel()
 	a := map[string]bool{"x": true, "y": true, "z": true}
 	b := map[string]bool{"x": true, "y": true, "z": true}
 	if got := jaccard(a, b); got != 1.0 {
@@ -439,6 +461,7 @@ func TestJaccardBasic(t *testing.T) {
 }
 
 func TestTestCandidatesPython(t *testing.T) {
+	t.Parallel()
 	got := testCandidates("pkg/foo.py")
 	want := map[string]bool{"pkg/test_foo.py": true, "pkg/tests/test_foo.py": true}
 	for _, c := range got {
@@ -450,6 +473,7 @@ func TestTestCandidatesPython(t *testing.T) {
 }
 
 func TestTestCandidatesSvelte(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		prod string
 		want []string
@@ -483,6 +507,7 @@ func TestTestCandidatesSvelte(t *testing.T) {
 }
 
 func TestTestCandidatesAstro(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		prod string
 		want []string
@@ -541,6 +566,7 @@ func (fakeEmbedClient) EmbedQuery(_ context.Context, _ string) ([]float32, error
 }
 
 func TestRunPropagatesSemanticSymbols(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	mustWriteFile(t, filepath.Join(tmp, "foo.go"),
 		"package foo\n"+
@@ -591,6 +617,7 @@ func TestRunPropagatesSemanticSymbols(t *testing.T) {
 }
 
 func TestSemanticTopKScales(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		maxTokens, want int
 	}{
@@ -610,6 +637,7 @@ func TestSemanticTopKScales(t *testing.T) {
 }
 
 func TestFilterSymbolsByQueryMatchesDocComment(t *testing.T) {
+	t.Parallel()
 	syms := []*parser.Symbol{
 		{Name: "Backoff", Kind: parser.KindFunction, DocComment: "implements exponential retry backoff"},
 		{Name: "Encode", Kind: parser.KindFunction, DocComment: "URL encoding helper"},
@@ -625,6 +653,7 @@ func TestFilterSymbolsByQueryMatchesDocComment(t *testing.T) {
 }
 
 func TestFilterSymbolsByQueryStillMatchesName(t *testing.T) {
+	t.Parallel()
 	// Regression: name matching must still work when doc is empty or non-matching.
 	syms := []*parser.Symbol{
 		{Name: "RetryWithBackoff", Kind: parser.KindFunction},

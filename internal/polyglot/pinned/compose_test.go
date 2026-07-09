@@ -158,6 +158,7 @@ func TestParseCompose(t *testing.T) {
 }
 
 func TestParseCompose_Malformed(t *testing.T) {
+	t.Parallel()
 	_, err := ParseCompose("testdata/compose-malformed.yml")
 	if err == nil {
 		t.Fatal("expected error for malformed yaml")
@@ -165,6 +166,7 @@ func TestParseCompose_Malformed(t *testing.T) {
 }
 
 func TestParseCompose_Missing(t *testing.T) {
+	t.Parallel()
 	_, err := ParseCompose("testdata/nope.yml")
 	if err == nil {
 		t.Fatal("expected error for missing file")

@@ -18,6 +18,7 @@ import (
 //   - bare "count" ({count}): typescript_calls.scm has no bare-identifier
 //     capture, so a lone {count} is never a CallSite without markup_refs.scm.
 func TestAstroMarkupExprCalls(t *testing.T) {
+	t.Parallel()
 	src := readMarkupFixture(t)
 
 	calls, err := parser.ExtractCalls("markup_exprs.astro", src, parser.ParseOpts{})
@@ -45,6 +46,7 @@ func TestAstroMarkupExprCalls(t *testing.T) {
 // works via scanTemplateRefs (which walks into {expr} ranges); the test pins the
 // Phase-1 gate that JSX-in-expr refs light up.
 func TestAstroMarkupExprRefs(t *testing.T) {
+	t.Parallel()
 	src := readMarkupFixture(t)
 
 	result, err := parser.ParseFile("markup_exprs.astro", src, parser.ParseOpts{})

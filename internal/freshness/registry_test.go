@@ -12,6 +12,7 @@ func newTestServer(handler http.HandlerFunc) *httptest.Server {
 }
 
 func TestGoRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/golang.org/x/text/@latest" {
 			http.NotFound(w, r)
@@ -28,6 +29,7 @@ func TestGoRegistry_Latest(t *testing.T) {
 }
 
 func TestNpmRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/express/latest" {
 			http.NotFound(w, r)
@@ -44,6 +46,7 @@ func TestNpmRegistry_Latest(t *testing.T) {
 }
 
 func TestPyPIRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/pypi/requests/json" {
 			http.NotFound(w, r)
@@ -60,6 +63,7 @@ func TestPyPIRegistry_Latest(t *testing.T) {
 }
 
 func TestCratesRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/crates/serde" {
 			http.NotFound(w, r)
@@ -76,6 +80,7 @@ func TestCratesRegistry_Latest(t *testing.T) {
 }
 
 func TestMavenRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/solrsearch/select" {
 			http.NotFound(w, r)
@@ -92,6 +97,7 @@ func TestMavenRegistry_Latest(t *testing.T) {
 }
 
 func TestMavenRegistry_InvalidName(t *testing.T) {
+	t.Parallel()
 	reg := &MavenRegistry{BaseURL: "http://unused", Client: http.DefaultClient}
 	_, err := reg.Latest(context.Background(), "no-colon-here")
 	if err == nil {
@@ -100,6 +106,7 @@ func TestMavenRegistry_InvalidName(t *testing.T) {
 }
 
 func TestRubyGemsRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/gems/rails.json" {
 			http.NotFound(w, r)
@@ -116,6 +123,7 @@ func TestRubyGemsRegistry_Latest(t *testing.T) {
 }
 
 func TestNuGetRegistry_Latest(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v3-flatcontainer/newtonsoft.json/index.json" {
 			http.NotFound(w, r)
@@ -132,6 +140,7 @@ func TestNuGetRegistry_Latest(t *testing.T) {
 }
 
 func TestMultiRegistry_ForLanguage(t *testing.T) {
+	t.Parallel()
 	mr := NewMultiRegistry(http.DefaultClient)
 
 	languages := []string{"go", "npm", "typescript", "python", "rust", "java", "ruby", "csharp"}

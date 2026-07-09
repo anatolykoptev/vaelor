@@ -8,6 +8,7 @@ import (
 )
 
 func TestConvertToEdges_Empty(t *testing.T) {
+	t.Parallel()
 	idx := &gocodescip.Index{}
 	edges := gocodescip.ConvertToEdges(idx)
 	if len(edges) != 0 {
@@ -16,6 +17,7 @@ func TestConvertToEdges_Empty(t *testing.T) {
 }
 
 func TestConvertToEdges_SimpleCall(t *testing.T) {
+	t.Parallel()
 	// main at line 0 (1-indexed: 1), greet at line 5 (1-indexed: 6)
 	// reference to greet at line 2 (inside main body)
 	doc := &sciplib.Document{
@@ -72,6 +74,7 @@ func TestConvertToEdges_SimpleCall(t *testing.T) {
 }
 
 func TestConvertToEdges_SkipLocalSymbols(t *testing.T) {
+	t.Parallel()
 	doc := &sciplib.Document{
 		RelativePath: "main.go",
 		Occurrences: []*sciplib.Occurrence{
@@ -100,6 +103,7 @@ func TestConvertToEdges_SkipLocalSymbols(t *testing.T) {
 }
 
 func TestConvertToEdges_SkipSelfCalls(t *testing.T) {
+	t.Parallel()
 	// Reference to a symbol that has no definition (external) — still skipped for caller resolution
 	doc := &sciplib.Document{
 		RelativePath: "main.go",
@@ -134,6 +138,7 @@ func TestConvertToEdges_SkipSelfCalls(t *testing.T) {
 }
 
 func TestConvertToEdges_MultiDocument(t *testing.T) {
+	t.Parallel()
 	docA := &sciplib.Document{
 		RelativePath: "a.go",
 		Occurrences: []*sciplib.Occurrence{

@@ -8,6 +8,7 @@ import (
 )
 
 func TestBuildPackageList_FiltersNonCodeDirs(t *testing.T) {
+	t.Parallel()
 	root := "/repo"
 	files := []*ingest.File{
 		{Path: "/repo/cmd/svc/main.go", Language: "go"},

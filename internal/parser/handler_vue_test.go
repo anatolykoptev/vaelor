@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseVueScriptSetupTs(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "vue", "script_setup_ts.vue"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -42,6 +43,7 @@ func TestParseVueScriptSetupTs(t *testing.T) {
 }
 
 func TestParseVueBothScripts(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "vue", "both_scripts.vue"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

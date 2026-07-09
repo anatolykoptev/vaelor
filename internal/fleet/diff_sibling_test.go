@@ -21,6 +21,7 @@ func mockReport(target string, diffs []ImageDiff) TargetReportLike {
 
 // TestSiblingDiff_NoDriftReturnsNil: same image+tag on both hosts → no drift.
 func TestSiblingDiff_NoDriftReturnsNil(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://a", []ImageDiff{
 		{Image: "nginx", Runtime: &RuntimeImage{Image: "nginx", Tag: "1.27"}, Status: DiffMatch},
 	})
@@ -35,6 +36,7 @@ func TestSiblingDiff_NoDriftReturnsNil(t *testing.T) {
 
 // TestSiblingDiff_TagDrift: same image, different tags across two hosts → one drift row.
 func TestSiblingDiff_TagDrift(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://krolik", []ImageDiff{
 		{Image: "teddysun/xray", Runtime: &RuntimeImage{Image: "teddysun/xray", Tag: "latest"}, Status: DiffMatch},
 	})
@@ -53,6 +55,7 @@ func TestSiblingDiff_TagDrift(t *testing.T) {
 // TestSiblingDiff_OnlySourceVariantsSkipped: OnlySource rows (no Runtime) must not
 // contribute to sibling drift comparison — only actually-running containers count.
 func TestSiblingDiff_OnlySourceVariantsSkipped(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://a", []ImageDiff{
 		// No Runtime — this is a pinned-only row; skip.
 		{Image: "redis", Status: DiffOnlySource},
@@ -69,6 +72,7 @@ func TestSiblingDiff_OnlySourceVariantsSkipped(t *testing.T) {
 
 // TestSiblingDiff_SingleTargetEmptyResult: one report → no cross-host comparison possible.
 func TestSiblingDiff_SingleTargetEmptyResult(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://a", []ImageDiff{
 		{Image: "x", Runtime: &RuntimeImage{Image: "x", Tag: "1"}, Status: DiffMatch},
 	})
@@ -80,6 +84,7 @@ func TestSiblingDiff_SingleTargetEmptyResult(t *testing.T) {
 
 // TestSiblingDiff_DeterministicOrder: output sorted by Image asc, then Variant.Target asc.
 func TestSiblingDiff_DeterministicOrder(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://b", []ImageDiff{
 		{Image: "redis", Runtime: &RuntimeImage{Image: "redis", Tag: "7"}, Status: DiffMatch},
 		{Image: "nginx", Runtime: &RuntimeImage{Image: "nginx", Tag: "1.27"}, Status: DiffMatch},
@@ -104,6 +109,7 @@ func TestSiblingDiff_DeterministicOrder(t *testing.T) {
 // TestSiblingDiff_SameTagEmptyDigestVsRealDigest: same tag but one side has empty
 // digest and other has real digest → NOT drift (we don't have full info on one side).
 func TestSiblingDiff_SameTagEmptyDigestVsRealDigest(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://a", []ImageDiff{
 		{Image: "alpine", Runtime: &RuntimeImage{Image: "alpine", Tag: "3.19", Digest: "sha256:abc"}, Status: DiffMatch},
 	})
@@ -118,6 +124,7 @@ func TestSiblingDiff_SameTagEmptyDigestVsRealDigest(t *testing.T) {
 
 // TestSiblingDiff_DigestDriftSameTag: same tag, both have digests but they differ → drift.
 func TestSiblingDiff_DigestDriftSameTag(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://a", []ImageDiff{
 		{Image: "postgres", Runtime: &RuntimeImage{Image: "postgres", Tag: "16", Digest: "sha256:aaa"}, Status: DiffMatch},
 	})
@@ -133,6 +140,7 @@ func TestSiblingDiff_DigestDriftSameTag(t *testing.T) {
 // TestSiblingDiff_MultipleContainersSameImage: one host has two containers for the
 // same image; they should be deduplicated to one variant per host in the drift row.
 func TestSiblingDiff_MultipleContainersSameImage(t *testing.T) {
+	t.Parallel()
 	r1 := mockReport("ssh://a", []ImageDiff{
 		{Image: "nginx", Runtime: &RuntimeImage{Image: "nginx", Tag: "1.27", Container: "web1"}, Status: DiffMatch},
 		{Image: "nginx", Runtime: &RuntimeImage{Image: "nginx", Tag: "1.27", Container: "web2"}, Status: DiffMatch},

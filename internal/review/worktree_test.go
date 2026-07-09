@@ -11,6 +11,7 @@ import (
 // TestCreatePRWorktree verifies the worktree carries the PR ref's tree,
 // independent of the source clone's checkout.
 func TestCreatePRWorktree(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepo(t)
 	run := func(args ...string) []byte {
 		cmd := exec.Command("git", args...)
@@ -57,6 +58,7 @@ func TestCreatePRWorktree(t *testing.T) {
 
 // TestCreatePRWorktree_Cleanup verifies cleanup removes the worktree dir.
 func TestCreatePRWorktree_Cleanup(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepo(t)
 	wt, err := CreatePRWorktree(context.Background(), dir, "HEAD")
 	if err != nil {

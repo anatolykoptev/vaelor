@@ -33,6 +33,7 @@ func statusHandler(code int) http.HandlerFunc {
 
 // TestGetJSON_Happy verifies a successful GET decodes the response into dst.
 func TestGetJSON_Happy(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(okHandler(payload{Msg: "hello"}))
 	defer srv.Close()
 
@@ -48,6 +49,7 @@ func TestGetJSON_Happy(t *testing.T) {
 
 // TestPostJSON_Happy verifies a successful POST encodes body and decodes response.
 func TestPostJSON_Happy(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "wrong method", http.StatusMethodNotAllowed)
@@ -75,6 +77,7 @@ func TestPostJSON_Happy(t *testing.T) {
 
 // TestGetJSON_4xx verifies a 4xx response returns an error.
 func TestGetJSON_4xx(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(statusHandler(http.StatusNotFound))
 	defer srv.Close()
 
@@ -86,6 +89,7 @@ func TestGetJSON_4xx(t *testing.T) {
 
 // TestGetJSON_5xx verifies a 5xx response returns an error including status code.
 func TestGetJSON_5xx(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(statusHandler(http.StatusInternalServerError))
 	defer srv.Close()
 
@@ -101,6 +105,7 @@ func TestGetJSON_5xx(t *testing.T) {
 
 // TestGetJSON_MalformedJSON verifies malformed JSON body returns decode error.
 func TestGetJSON_MalformedJSON(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte(`{not json`))
@@ -116,6 +121,7 @@ func TestGetJSON_MalformedJSON(t *testing.T) {
 
 // TestWithHeader verifies WithHeader option propagates headers in requests.
 func TestWithHeader(t *testing.T) {
+	t.Parallel()
 	var gotHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeader = r.Header.Get("X-Test-Key")
@@ -137,6 +143,7 @@ func TestWithHeader(t *testing.T) {
 // so the handler exits cleanly when the client disconnects, allowing
 // httptest.Server.Close to complete without blocking.
 func TestWithTimeout(t *testing.T) {
+	t.Parallel()
 	done := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -159,6 +166,7 @@ func TestWithTimeout(t *testing.T) {
 // TestContextCancel verifies context cancellation is respected. Uses a done
 // channel so the handler exits when the client disconnects.
 func TestContextCancel(t *testing.T) {
+	t.Parallel()
 	done := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -183,6 +191,7 @@ func TestContextCancel(t *testing.T) {
 
 // TestNew_TrailingSlash verifies base URL trailing slash is stripped.
 func TestNew_TrailingSlash(t *testing.T) {
+	t.Parallel()
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -201,6 +210,7 @@ func TestNew_TrailingSlash(t *testing.T) {
 
 // TestNewWithHTTPClient verifies reusing an existing http.Client.
 func TestNewWithHTTPClient(t *testing.T) {
+	t.Parallel()
 	var gotHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeader = r.Header.Get("X-Custom")

@@ -7,6 +7,7 @@ import (
 )
 
 func TestRustVisibilityAndAttributes(t *testing.T) {
+	t.Parallel()
 	source := []byte(`
 use std::io;
 

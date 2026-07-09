@@ -4,6 +4,7 @@ import "testing"
 
 // TestLouvainWeighted_StrongEdgesCluster verifies that weighted edges affect clustering.
 func TestLouvainWeighted_StrongEdgesCluster(t *testing.T) {
+	t.Parallel()
 	graph := map[string]map[string]int{
 		"a": {"b": 5},
 		"b": {"a": 5, "c": 1},
@@ -26,6 +27,7 @@ func TestLouvainWeighted_StrongEdgesCluster(t *testing.T) {
 }
 
 func TestLouvainWeighted_Empty(t *testing.T) {
+	t.Parallel()
 	if LouvainWeighted(nil) != nil {
 		t.Error("expected nil for nil input")
 	}

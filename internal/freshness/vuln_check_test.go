@@ -8,6 +8,7 @@ import (
 )
 
 func TestOSVEcosystems_AllLanguages(t *testing.T) {
+	t.Parallel()
 	languages := []string{"go", "npm", "typescript", "python", "rust", "java", "ruby", "csharp"}
 	for _, lang := range languages {
 		if _, ok := osvEcosystems[lang]; !ok {
@@ -17,6 +18,7 @@ func TestOSVEcosystems_AllLanguages(t *testing.T) {
 }
 
 func TestOSVEcosystems_Values(t *testing.T) {
+	t.Parallel()
 	expected := map[string]string{
 		"go":         "Go",
 		"npm":        "npm",
@@ -34,6 +36,7 @@ func TestOSVEcosystems_Values(t *testing.T) {
 }
 
 func TestQueryOSV_Vulnerable(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		var req osvRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -56,6 +59,7 @@ func TestQueryOSV_Vulnerable(t *testing.T) {
 }
 
 func TestQueryOSV_Clean(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"vulns":[]}`))
@@ -70,6 +74,7 @@ func TestQueryOSV_Clean(t *testing.T) {
 }
 
 func TestQueryOSV_NoVulnsField(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{}`))
@@ -84,6 +89,7 @@ func TestQueryOSV_NoVulnsField(t *testing.T) {
 }
 
 func TestExtractSeverity_CVSS(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		vector string
@@ -104,6 +110,7 @@ func TestExtractSeverity_CVSS(t *testing.T) {
 }
 
 func TestExtractSeverity_DatabaseSpecific(t *testing.T) {
+	t.Parallel()
 	v := osvVuln{
 		Severity:         []osvSeverity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/E:H"}},
 		DatabaseSpecific: &osvDBSpecific{Severity: "LOW"},
@@ -113,6 +120,7 @@ func TestExtractSeverity_DatabaseSpecific(t *testing.T) {
 }
 
 func TestCheckVulnerabilities_Mixed(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		var req osvRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -146,6 +154,7 @@ func TestCheckVulnerabilities_Mixed(t *testing.T) {
 }
 
 func TestCheckVulnerabilities_Empty(t *testing.T) {
+	t.Parallel()
 	result := CheckVulnerabilities(context.Background(), nil, http.DefaultClient, DefaultOSVURL)
 	if result.Ratio != 1.0 {
 		t.Errorf("ratio: got %f, want 1.0", result.Ratio)
@@ -156,6 +165,7 @@ func TestCheckVulnerabilities_Empty(t *testing.T) {
 }
 
 func TestCheckVulnerabilities_UnknownLanguage(t *testing.T) {
+	t.Parallel()
 	deps := []Dependency{
 		{Name: "cobol-pkg", Version: "1.0.0", Language: "cobol"},
 	}
@@ -166,6 +176,7 @@ func TestCheckVulnerabilities_UnknownLanguage(t *testing.T) {
 }
 
 func TestCheckVulnerabilities_AllClean(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"vulns":[]}`))

@@ -10,6 +10,7 @@ import (
 // populated by ParseFile. Run BEFORE the fix to confirm it returns 0 (RED),
 // then again after (GREEN).
 func TestCognitiveComplexityPopulated(t *testing.T) {
+	t.Parallel()
 	// Flat function: 5 sequential if-branches, no nesting.
 	// Cyclomatic complexity = 6 (5 branches + 1), cognitive >= 5.
 	flatCode := []byte(`package flat

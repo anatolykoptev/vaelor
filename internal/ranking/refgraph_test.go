@@ -7,6 +7,7 @@ import (
 )
 
 func TestBuildRefGraph_CallEdges(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "main", Kind: parser.KindFunction, File: "/repo/cmd/main.go"},
 		{Name: "Handler", Kind: parser.KindFunction, File: "/repo/internal/handler.go"},
@@ -28,6 +29,7 @@ func TestBuildRefGraph_CallEdges(t *testing.T) {
 }
 
 func TestBuildRefGraph_WeightDistribution(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "Do", Kind: parser.KindFunction, File: "/repo/a.go"},
 		{Name: "Do", Kind: parser.KindFunction, File: "/repo/b.go"},
@@ -46,6 +48,7 @@ func TestBuildRefGraph_WeightDistribution(t *testing.T) {
 }
 
 func TestBuildRefGraph_SelfCallsExcluded(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "foo", Kind: parser.KindFunction, File: "/repo/a.go"},
 	}
@@ -59,6 +62,7 @@ func TestBuildRefGraph_SelfCallsExcluded(t *testing.T) {
 }
 
 func TestBuildRefGraph_ImportEdges(t *testing.T) {
+	t.Parallel()
 	imports := map[string][]string{"/repo/a.go": {"/repo/b.go"}}
 	graph := BuildRefGraph(RefGraphInput{ImportEdges: imports})
 
@@ -68,6 +72,7 @@ func TestBuildRefGraph_ImportEdges(t *testing.T) {
 }
 
 func TestBuildRefGraph_MergedEdges(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "B", Kind: parser.KindFunction, File: "/repo/b.go"},
 	}
@@ -82,6 +87,7 @@ func TestBuildRefGraph_MergedEdges(t *testing.T) {
 }
 
 func TestBuildRefGraph_Empty(t *testing.T) {
+	t.Parallel()
 	graph := BuildRefGraph(RefGraphInput{})
 	if graph.Len() != 0 {
 		t.Errorf("expected empty graph, got %d edges", graph.Len())

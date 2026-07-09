@@ -10,6 +10,7 @@ import (
 
 // TestCappedWriter_AllowsWritesBelowCap verifies normal writes pass through.
 func TestCappedWriter_AllowsWritesBelowCap(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	w := &cappedWriter{inner: &buf, max: 10}
 	n, err := w.Write([]byte("hello"))
@@ -27,6 +28,7 @@ func TestCappedWriter_AllowsWritesBelowCap(t *testing.T) {
 // TestCappedWriter_ExactBoundary verifies a write filling exactly the cap
 // succeeds without error.
 func TestCappedWriter_ExactBoundary(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	w := &cappedWriter{inner: &buf, max: 5}
 	n, err := w.Write([]byte("hello"))
@@ -41,6 +43,7 @@ func TestCappedWriter_ExactBoundary(t *testing.T) {
 // TestCappedWriter_TruncatesAndReturnsShortWrite verifies that a write
 // exceeding the cap is truncated and returns io.ErrShortWrite.
 func TestCappedWriter_TruncatesAndReturnsShortWrite(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	var cancelCalled bool
 	w := &cappedWriter{
@@ -67,6 +70,7 @@ func TestCappedWriter_TruncatesAndReturnsShortWrite(t *testing.T) {
 // TestCappedWriter_WriteAfterExhausted verifies that once the cap is hit,
 // subsequent writes return io.ErrShortWrite immediately without writing.
 func TestCappedWriter_WriteAfterExhausted(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cancelCount := 0
 	w := &cappedWriter{

@@ -38,6 +38,7 @@ func (f *fakeHandler) MapCapture(_ string, _ *sitter.Node, _ []byte) *Symbol { r
 // like ".svelte" without anyone noticing until symbols/edges silently
 // changed producer.
 func TestRegisterHandlerCollisionPanics(t *testing.T) {
+	t.Parallel()
 	const testExt = ".gocode_test_synthetic"
 	t.Cleanup(func() { delete(registry, testExt) })
 
@@ -172,6 +173,7 @@ func isGrammarBacked(ext string) bool {
 // closing that blind spot for every registered handler, not just the four
 // named in the landmine's history.
 func TestHandlerRegistrationHealth(t *testing.T) {
+	t.Parallel()
 	fixtures := registrationFixtures(t)
 
 	for ext := range registry {

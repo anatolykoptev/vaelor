@@ -7,6 +7,7 @@ import (
 )
 
 func TestCheckGoRuntime_Current(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[{"version":"go1.22.5","stable":true}]`))
 	})
@@ -18,6 +19,7 @@ func TestCheckGoRuntime_Current(t *testing.T) {
 }
 
 func TestCheckGoRuntime_Outdated(t *testing.T) {
+	t.Parallel()
 	status := compareGoVersions("1.21", "1.23.0")
 	if status == verCurrent || status == "" {
 		t.Errorf("expected outdated status, got %q", status)
@@ -25,11 +27,13 @@ func TestCheckGoRuntime_Outdated(t *testing.T) {
 }
 
 func TestCheckGoRuntime_Empty(t *testing.T) {
+	t.Parallel()
 	status := CheckGoRuntime(context.Background(), http.DefaultClient, "")
 	assertEqual(t, "", status)
 }
 
 func TestCompareGoVersions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		have, latest string
 		wantCurrent  bool
@@ -53,6 +57,7 @@ func TestCompareGoVersions(t *testing.T) {
 }
 
 func TestFetchLatestGoVersion_Server(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
 			{"version":"go1.23rc1","stable":false},

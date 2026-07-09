@@ -7,6 +7,7 @@ import (
 )
 
 func TestDiscoverManifests(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create go.mod.
@@ -45,6 +46,7 @@ go 1.20
 }
 
 func TestDiscoverManifests_SkipDirs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	for _, skip := range []string{"node_modules", ".git", "testdata"} {
@@ -60,6 +62,7 @@ func TestDiscoverManifests_SkipDirs(t *testing.T) {
 }
 
 func TestDiscoverManifests_Csproj(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeTestFile(t, dir, "MyApp.csproj", `<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
@@ -77,6 +80,7 @@ func TestDiscoverManifests_Csproj(t *testing.T) {
 }
 
 func TestCollectDeps(t *testing.T) {
+	t.Parallel()
 	manifests := []ManifestInfo{
 		{Dependencies: []Dependency{{Name: "a"}, {Name: "b"}}},
 		{Dependencies: []Dependency{{Name: "c"}}},
@@ -88,6 +92,7 @@ func TestCollectDeps(t *testing.T) {
 }
 
 func TestCollectDeps_Empty(t *testing.T) {
+	t.Parallel()
 	deps := CollectDeps(nil)
 	if len(deps) != 0 {
 		t.Errorf("deps count = %d, want 0", len(deps))
@@ -95,6 +100,7 @@ func TestCollectDeps_Empty(t *testing.T) {
 }
 
 func TestDiscoverManifests_EmptyDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	manifests := DiscoverManifests(dir)
 	if len(manifests) != 0 {

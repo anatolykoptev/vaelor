@@ -8,6 +8,7 @@ import (
 )
 
 func TestExpandFromCallGraph_callers(t *testing.T) {
+	t.Parallel()
 	foo := &parser.Symbol{Name: "Foo", File: "foo.go", Kind: parser.KindFunction}
 	bar := &parser.Symbol{Name: "Bar", File: "bar.go", Kind: parser.KindFunction}
 	baz := &parser.Symbol{Name: "Baz", File: "baz.go", Kind: parser.KindFunction}
@@ -38,6 +39,7 @@ func TestExpandFromCallGraph_callers(t *testing.T) {
 }
 
 func TestExpandFromCallGraph_callees(t *testing.T) {
+	t.Parallel()
 	foo := &parser.Symbol{Name: "Foo", File: "foo.go", Kind: parser.KindFunction}
 	helper := &parser.Symbol{Name: "Helper", File: "util.go", Kind: parser.KindFunction}
 
@@ -61,6 +63,7 @@ func TestExpandFromCallGraph_callees(t *testing.T) {
 }
 
 func TestExpandFromCallGraph_nilSafe(t *testing.T) {
+	t.Parallel()
 	if got := expandFromCallGraph(map[string]bool{"x": true}, nil, 2); got != nil {
 		t.Errorf("expected nil for nil graph, got %+v", got)
 	}
@@ -70,6 +73,7 @@ func TestExpandFromCallGraph_nilSafe(t *testing.T) {
 }
 
 func TestMergeExpandResultsKeepsShorterDistance(t *testing.T) {
+	t.Parallel()
 	a := []expandResult{{relPath: "x.go", distance: 3, whyLinked: "imports foo"}}
 	b := []expandResult{{relPath: "x.go", distance: 1, whyLinked: "calls Foo"}}
 	out := mergeExpandResults(a, b)

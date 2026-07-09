@@ -18,6 +18,7 @@ import (
 // not just described. The rename+default form (pair_pattern > assignment_pattern)
 // is the review HIGH: it dropped its binding pre-fix.
 func TestRuneDestructuredProps(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		src  string
@@ -79,6 +80,7 @@ func TestRuneDestructuredProps(t *testing.T) {
 // TestRuneAssignmentChain verifies that assignment-form $inspect(val).with(cb) emits
 // exactly one KindRune with RuneKind="inspect" (bound to the variable name).
 func TestRuneAssignmentChain(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   let stop = $inspect(count).with(callback);
 </script>`)
@@ -121,6 +123,7 @@ func TestRuneAssignmentChain(t *testing.T) {
 //
 // Also covers $effect.pre, which uses the same expression_statement code path.
 func TestRuneDualEmitStatementForm(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   $effect(() => { console.log('a'); });
   $effect(() => { console.log('b'); });
@@ -165,6 +168,7 @@ func TestRuneDualEmitStatementForm(t *testing.T) {
 
 // TestRunesInSvelteTSFile verifies that runes in a .svelte.ts module are detected.
 func TestRunesInSvelteTSFile(t *testing.T) {
+	t.Parallel()
 	src := []byte(`export const counter = $state(0);
 export const doubled = $derived(counter * 2);
 `)

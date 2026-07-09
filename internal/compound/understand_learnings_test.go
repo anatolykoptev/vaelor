@@ -46,6 +46,7 @@ func testCallGraphFoo(target *parser.Symbol) *callgraph.CallGraph {
 }
 
 func TestUnderstand_PriorLearnings_EmptyOmitsField(t *testing.T) {
+	t.Parallel()
 	target := testSymFoo()
 	cg := testCallGraphFoo(target)
 
@@ -54,6 +55,7 @@ func TestUnderstand_PriorLearnings_EmptyOmitsField(t *testing.T) {
 }
 
 func TestUnderstand_PriorLearnings_StoreReturnsNoRecords(t *testing.T) {
+	t.Parallel()
 	target := testSymFoo()
 	cg := testCallGraphFoo(target)
 
@@ -65,6 +67,7 @@ func TestUnderstand_PriorLearnings_StoreReturnsNoRecords(t *testing.T) {
 }
 
 func TestUnderstand_PriorLearnings_OneRecord(t *testing.T) {
+	t.Parallel()
 	const wantNote = "previous review flagged missing input validation"
 	target := testSymFoo()
 	cg := testCallGraphFoo(target)

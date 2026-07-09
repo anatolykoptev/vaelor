@@ -9,6 +9,7 @@ import (
 )
 
 func TestContentFilter_MatchesBySymbolName(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "NewLLMClient", File: "/repo/llm/client.go"},
 		{Name: "HandleHTTP", File: "/repo/http/handler.go"},
@@ -25,6 +26,7 @@ func TestContentFilter_MatchesBySymbolName(t *testing.T) {
 }
 
 func TestContentFilter_MatchesByImport(t *testing.T) {
+	t.Parallel()
 	imports := map[string][]string{
 		"/repo/main.go": {"github.com/prometheus/client_golang/prometheus"},
 		"/repo/util.go": {"fmt", "strings"},
@@ -41,6 +43,7 @@ func TestContentFilter_MatchesByImport(t *testing.T) {
 }
 
 func TestContentFilter_MatchesByCallSite(t *testing.T) {
+	t.Parallel()
 	calls := []parser.CallSite{
 		{Name: "Retry", Receiver: "backoff", File: "/repo/retry.go"},
 		{Name: "Println", Receiver: "fmt", File: "/repo/main.go"},
@@ -57,6 +60,7 @@ func TestContentFilter_MatchesByCallSite(t *testing.T) {
 }
 
 func TestContentFilter_ORLogic(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "NewLLMClient", File: "/repo/llm.go"},
 		{Name: "RetryWithBackoff", File: "/repo/retry.go"},
@@ -77,6 +81,7 @@ func TestContentFilter_ORLogic(t *testing.T) {
 }
 
 func TestContentFilter_EmptyFocus(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "Foo", File: "/repo/foo.go"},
 	}
@@ -87,6 +92,7 @@ func TestContentFilter_EmptyFocus(t *testing.T) {
 }
 
 func TestContentFilter_CaseInsensitive(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "NewMetricsCollector", File: "/repo/metrics.go"},
 	}
@@ -98,6 +104,7 @@ func TestContentFilter_CaseInsensitive(t *testing.T) {
 }
 
 func TestFilterFiles_ByMatchSet(t *testing.T) {
+	t.Parallel()
 	files := []*File{
 		{Path: "/repo/a.go", RelPath: "a.go"},
 		{Path: "/repo/b.go", RelPath: "b.go"},
@@ -119,6 +126,7 @@ func TestFilterFiles_ByMatchSet(t *testing.T) {
 }
 
 func TestParseLightweight_ExtractsSymbolsAndCalls(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "main.go"), `package main
 
@@ -151,6 +159,7 @@ func add(a, b int) int {
 }
 
 func TestContentFallback_FiltersCorrectly(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "llm.go"), `package main
 

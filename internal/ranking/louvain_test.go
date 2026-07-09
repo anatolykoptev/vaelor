@@ -7,6 +7,7 @@ import (
 // TestLouvain_TwoClusters verifies two triangles connected by a bridge edge
 // land in the same community within each triangle but different communities overall.
 func TestLouvain_TwoClusters(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"a": {"b", "c"},
 		"b": {"a", "c"},
@@ -40,6 +41,7 @@ func TestLouvain_TwoClusters(t *testing.T) {
 
 // TestLouvain_EmptyGraph verifies nil input returns nil output.
 func TestLouvain_EmptyGraph(t *testing.T) {
+	t.Parallel()
 	result := Louvain(nil)
 	if result != nil {
 		t.Errorf("expected nil for nil input, got %v", result)
@@ -48,6 +50,7 @@ func TestLouvain_EmptyGraph(t *testing.T) {
 
 // TestLouvain_SingleNode verifies a single node with no edges gets a community assigned.
 func TestLouvain_SingleNode(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"a": {},
 	}
@@ -62,6 +65,7 @@ func TestLouvain_SingleNode(t *testing.T) {
 
 // TestLouvain_DisconnectedComponents verifies two isolated pairs land in different communities.
 func TestLouvain_DisconnectedComponents(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"a": {"b"},
 		"b": {"a"},
@@ -93,6 +97,7 @@ func TestLouvain_DisconnectedComponents(t *testing.T) {
 
 // TestLouvain_Deterministic verifies identical input produces identical output across 10 runs.
 func TestLouvain_Deterministic(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"a": {"b", "c"},
 		"b": {"a", "c"},
@@ -114,6 +119,7 @@ func TestLouvain_Deterministic(t *testing.T) {
 
 // TestLouvain_ThreeClusters verifies three well-separated clusters are detected.
 func TestLouvain_ThreeClusters(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"a1": {"a2", "a3"},
 		"a2": {"a1", "a3"},
@@ -150,6 +156,7 @@ func TestLouvain_ThreeClusters(t *testing.T) {
 
 // TestLouvainWithResolution verifies that higher resolution produces more communities.
 func TestLouvainWithResolution(t *testing.T) {
+	t.Parallel()
 	// Ring of 8 nodes with local clustering.
 	graph := map[string][]string{
 		"a": {"b", "h"},
@@ -177,6 +184,7 @@ func TestLouvainWithResolution(t *testing.T) {
 // TestLouvain_OversizedSplit verifies a fully-connected clique of 10 nodes
 // gets communities assigned (exercises the split path when needed).
 func TestLouvain_OversizedSplit(t *testing.T) {
+	t.Parallel()
 	nodes := []string{"n0", "n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8", "n9"}
 	graph := make(map[string][]string, len(nodes))
 	for _, a := range nodes {

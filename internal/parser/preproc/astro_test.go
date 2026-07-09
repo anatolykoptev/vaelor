@@ -7,6 +7,7 @@ import (
 )
 
 func TestExtractAstro_Empty(t *testing.T) {
+	t.Parallel()
 	vs := ExtractAstro([]byte(""))
 	if len(vs.Code) != 0 {
 		t.Errorf("empty: expected empty Code, got %q", vs.Code)
@@ -17,6 +18,7 @@ func TestExtractAstro_Empty(t *testing.T) {
 }
 
 func TestExtractAstro_FrontmatterOnly(t *testing.T) {
+	t.Parallel()
 	// Line 1: ---
 	// Line 2: const title = "Hello";
 	// Line 3: const desc = "World";
@@ -37,6 +39,7 @@ func TestExtractAstro_FrontmatterOnly(t *testing.T) {
 }
 
 func TestExtractAstro_ScriptOnly(t *testing.T) {
+	t.Parallel()
 	// Line 1: <html>
 	// Line 2: <head>
 	// Line 3: <script>
@@ -56,6 +59,7 @@ func TestExtractAstro_ScriptOnly(t *testing.T) {
 }
 
 func TestExtractAstro_FrontmatterAndScript(t *testing.T) {
+	t.Parallel()
 	src := "---\nimport Foo from './Foo.astro';\n---\n<html>\n<script>\ndocument.title = \"hi\";\n</script>\n</html>\n"
 	vs := ExtractAstro([]byte(src))
 	if !strings.Contains(string(vs.Code), "Foo") {
@@ -71,6 +75,7 @@ func TestExtractAstro_FrontmatterAndScript(t *testing.T) {
 }
 
 func TestExtractAstro_MultipleScripts(t *testing.T) {
+	t.Parallel()
 	src := "---\nconst x = 1;\n---\n<script>\nlet a = 2;\n</script>\n<p>text</p>\n<script>\nlet b = 3;\n</script>\n"
 	vs := ExtractAstro([]byte(src))
 	if !strings.Contains(string(vs.Code), "let a") {
@@ -91,6 +96,7 @@ func TestExtractAstro_MultipleScripts(t *testing.T) {
 }
 
 func TestExtractAstro_CRLF(t *testing.T) {
+	t.Parallel()
 	src := "---\r\nconst x = 1;\r\n---\r\n<p>hi</p>\r\n"
 	vs := ExtractAstro([]byte(src))
 	if !strings.Contains(string(vs.Code), "x = 1") {
@@ -102,6 +108,7 @@ func TestExtractAstro_CRLF(t *testing.T) {
 // does not confuse the tag-close search. The raw bytes of &gt; contain no '>' byte,
 // so the scanner correctly finds the actual closing '>' of the opening tag.
 func TestExtractAstro_AttrGtEntity(t *testing.T) {
+	t.Parallel()
 	src := `<script src="x&gt;y.js">let x = 1;</script>`
 	vs := ExtractAstro([]byte(src))
 	code := string(vs.Code)
@@ -114,6 +121,7 @@ func TestExtractAstro_AttrGtEntity(t *testing.T) {
 // attribute value fools the raw-byte scanner. This is a known limitation.
 // Pins current limited behavior. If the scanner gains escape handling, update this assertion.
 func TestExtractAstro_AttrLiteralGt(t *testing.T) {
+	t.Parallel()
 	// The scanner sees the first '>' inside "<<<>>>" as the tag close, so content
 	// starts after that '>', yielding the remaining attr garbage plus the real JS.
 	src := `<script title="<<<>>>" src="ok.js">let x = 1;</script>`
@@ -130,6 +138,7 @@ func TestExtractAstro_AttrLiteralGt(t *testing.T) {
 // newline; since no '>' appears before the newline, gtIdx < 0 → break.
 // Removing the newline-cap would let the scanner find '>' on the next line.
 func TestExtractAstro_BoundSingleLine(t *testing.T) {
+	t.Parallel()
 	src := "<html>\n<script\nsrc=\"long-attr\">\nlet x = 1;\n</script>\n</html>\n"
 	vs := ExtractAstro([]byte(src))
 	code := string(vs.Code)
@@ -143,6 +152,7 @@ func TestExtractAstro_BoundSingleLine(t *testing.T) {
 // scanner run past the 512-byte window. Without the cap the scanner would
 // eventually find '>' and incorrectly extract content.
 func TestExtractAstro_BoundMaxBytes(t *testing.T) {
+	t.Parallel()
 	pad := strings.Repeat("a", tagOpenScanLimit+88) // pad past the bound
 	src := `<script src="` + pad + `">let x = 1;</script>`
 	vs := ExtractAstro([]byte(src))
@@ -153,6 +163,7 @@ func TestExtractAstro_BoundMaxBytes(t *testing.T) {
 }
 
 func TestExtractAstro_NoFrontmatterNoScript(t *testing.T) {
+	t.Parallel()
 	src := "<html><body>plain</body></html>\n"
 	vs := ExtractAstro([]byte(src))
 	if len(vs.Code) != 0 {
@@ -163,6 +174,7 @@ func TestExtractAstro_NoFrontmatterNoScript(t *testing.T) {
 // ---- TemplateRef / scanTemplateRefs tests ----
 
 func TestScanTemplateRefs_CapitalisedTags(t *testing.T) {
+	t.Parallel()
 	src := "---\nimport Breadcrumbs from './Breadcrumbs.astro';\n---\n<Header />\n<main>\n  <Breadcrumbs items={items} />\n  <Footer />\n</main>\n"
 	refs := scanTemplateRefs([]byte(src))
 	names := refNames(refs)
@@ -173,6 +185,7 @@ func TestScanTemplateRefs_CapitalisedTags(t *testing.T) {
 }
 
 func TestScanTemplateRefs_HTMLTagsSkipped(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<div><span /><p>text</p></div>\n"
 	refs := scanTemplateRefs([]byte(src))
 	if len(refs) != 0 {
@@ -181,6 +194,7 @@ func TestScanTemplateRefs_HTMLTagsSkipped(t *testing.T) {
 }
 
 func TestScanTemplateRefs_Mixed(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<Header /><div><Footer /></div>\n"
 	refs := scanTemplateRefs([]byte(src))
 	names := refNames(refs)
@@ -191,6 +205,7 @@ func TestScanTemplateRefs_Mixed(t *testing.T) {
 }
 
 func TestScanTemplateRefs_NamespacedSkipped(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<astro:fragment><Foo /></astro:fragment>\n"
 	refs := scanTemplateRefs([]byte(src))
 	names := refNames(refs)
@@ -201,6 +216,7 @@ func TestScanTemplateRefs_NamespacedSkipped(t *testing.T) {
 }
 
 func TestScanTemplateRefs_Conditional(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n{cond && <Foo />}\n"
 	refs := scanTemplateRefs([]byte(src))
 	if len(refs) != 1 || refs[0].Name != "Foo" {
@@ -209,6 +225,7 @@ func TestScanTemplateRefs_Conditional(t *testing.T) {
 }
 
 func TestScanTemplateRefs_SelfClosingAndNested(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<Foo /><Bar><Baz /></Bar>\n"
 	refs := scanTemplateRefs([]byte(src))
 	names := refNames(refs)
@@ -219,6 +236,7 @@ func TestScanTemplateRefs_SelfClosingAndNested(t *testing.T) {
 }
 
 func TestScanTemplateRefs_SkipsScriptContent(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<script>const X = <Header />;</script>\n<Real />\n"
 	refs := scanTemplateRefs([]byte(src))
 	names := refNames(refs)
@@ -229,6 +247,7 @@ func TestScanTemplateRefs_SkipsScriptContent(t *testing.T) {
 }
 
 func TestScanTemplateRefs_SkipsHTMLComment(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<!-- <Hidden /> -->\n<Visible />\n"
 	refs := scanTemplateRefs([]byte(src))
 	if len(refs) != 1 || refs[0].Name != "Visible" {
@@ -237,6 +256,7 @@ func TestScanTemplateRefs_SkipsHTMLComment(t *testing.T) {
 }
 
 func TestScanTemplateRefs_PositionTracking(t *testing.T) {
+	t.Parallel()
 	// Breadcrumbs is on line 4, col 1 (after 3-line frontmatter).
 	src := "---\nimport B from './B.astro';\n---\n<Breadcrumbs />\n"
 	refs := scanTemplateRefs([]byte(src))
@@ -252,6 +272,7 @@ func TestScanTemplateRefs_PositionTracking(t *testing.T) {
 }
 
 func TestScanTemplateRefs_MultipleOccurrences(t *testing.T) {
+	t.Parallel()
 	src := "---\n---\n<Foo /><Foo /><Foo />\n"
 	refs := scanTemplateRefs([]byte(src))
 	if len(refs) != 3 {
@@ -260,6 +281,7 @@ func TestScanTemplateRefs_MultipleOccurrences(t *testing.T) {
 }
 
 func TestScanTemplateRefs_NoFrontmatter(t *testing.T) {
+	t.Parallel()
 	src := "<Bar /><div />\n"
 	refs := scanTemplateRefs([]byte(src))
 	if len(refs) != 1 || refs[0].Name != "Bar" {
@@ -268,6 +290,7 @@ func TestScanTemplateRefs_NoFrontmatter(t *testing.T) {
 }
 
 func TestExtractAstroWithRefs_ReturnsVSAndRefs(t *testing.T) {
+	t.Parallel()
 	src := "---\nconst x = 1;\n---\n<MyComp />\n"
 	vs, refs := ExtractAstroWithRefs([]byte(src))
 	if vs == nil {

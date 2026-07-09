@@ -13,6 +13,7 @@ import (
 // TestBuildTestedSet_FrontendConventions verifies that .test./.spec. file infixes
 // in svelte/astro/ts/js symbol paths cause the stem to be marked as tested.
 func TestBuildTestedSet_FrontendConventions(t *testing.T) {
+	t.Parallel()
 	type tc struct {
 		name     string
 		language string
@@ -87,6 +88,7 @@ func TestBuildTestedSet_FrontendConventions(t *testing.T) {
 // name is marked in the tested set.
 // Relies on the Swift case in buildTestedSet (internal/review/delta.go).
 func TestBuildTestedSet_Swift_TestPrefix(t *testing.T) {
+	t.Parallel()
 	syms := []*parser.Symbol{
 		// production symbol
 		{Name: "fetchOrder", Language: "swift", File: "OrderService.swift", Kind: parser.KindFunction},
@@ -104,6 +106,7 @@ func TestBuildTestedSet_Swift_TestPrefix(t *testing.T) {
 // does NOT start with "test" is not detected as an XCTest function.
 // Relies on the Swift case in buildTestedSet (internal/review/delta.go).
 func TestBuildTestedSet_Swift_NoTestPrefix(t *testing.T) {
+	t.Parallel()
 	syms := []*parser.Symbol{
 		// helper function in a test file — not a test itself
 		{Name: "makeOrder", Language: "swift", File: "OrderServiceTests.swift", Kind: parser.KindFunction},
@@ -119,6 +122,7 @@ func TestBuildTestedSet_Swift_NoTestPrefix(t *testing.T) {
 // test function and its name marked in the tested set.
 // Relies on the "@Test" branch in buildTestedSet (internal/review/delta.go).
 func TestBuildTestedSet_Kotlin_AtTest(t *testing.T) {
+	t.Parallel()
 	syms := []*parser.Symbol{
 		// production symbol
 		{Name: "processPayment", Language: "kotlin", File: "Payment.kt", Kind: parser.KindFunction},
@@ -136,6 +140,7 @@ func TestBuildTestedSet_Kotlin_AtTest(t *testing.T) {
 // a @Test annotation is NOT automatically treated as a test by name prefix alone
 // (prefix-based detection is Go/Python convention, not Kotlin/JUnit).
 func TestBuildTestedSet_Kotlin_NoAnnotation(t *testing.T) {
+	t.Parallel()
 	syms := []*parser.Symbol{
 		// name starts with "test" — valid in Go, not in Kotlin without annotation
 		{Name: "testSomething", Language: "kotlin", File: "Foo.kt", Kind: parser.KindFunction},
@@ -148,6 +153,7 @@ func TestBuildTestedSet_Kotlin_NoAnnotation(t *testing.T) {
 }
 
 func TestDeltaReview(t *testing.T) {
+	t.Parallel()
 	dir := setupGitRepoWithSymbols(t)
 	result, err := DeltaReview(context.Background(), DeltaInput{
 		Root:  dir,

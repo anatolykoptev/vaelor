@@ -11,6 +11,7 @@ import (
 // Hard red tests — boundary conditions, invariants, edge cases.
 
 func TestTier_InvalidValue(t *testing.T) {
+	t.Parallel()
 	// Unknown tier value should not panic, should return "tier(N)".
 	unknown := tier.Tier(99)
 	s := unknown.String()
@@ -20,6 +21,7 @@ func TestTier_InvalidValue(t *testing.T) {
 }
 
 func TestTier_ZeroValue(t *testing.T) {
+	t.Parallel()
 	// Zero-value Tier is not Basic (Basic=1). Should be "tier(0)".
 	var zero tier.Tier
 	if zero == tier.Basic {
@@ -31,6 +33,7 @@ func TestTier_ZeroValue(t *testing.T) {
 }
 
 func TestDetector_VTAWithoutGoTypes(t *testing.T) {
+	t.Parallel()
 	// VTA=true but GoTypes=false is an invalid combination.
 	// Should still detect Basic (GoTypes is the gate).
 	d := tier.NewDetector(tier.Backends{GoTypes: false, VTA: true})
@@ -47,6 +50,7 @@ func TestDetector_VTAWithoutGoTypes(t *testing.T) {
 }
 
 func TestDetector_AllBackends(t *testing.T) {
+	t.Parallel()
 	// All backends enabled — should be Full with no warnings.
 	d := tier.NewDetector(tier.Backends{GoTypes: true, VTA: true, Graph: true, LLM: true})
 	if d.Current() != tier.Full {
@@ -58,6 +62,7 @@ func TestDetector_AllBackends(t *testing.T) {
 }
 
 func TestDetector_WarningsNilNotEmpty(t *testing.T) {
+	t.Parallel()
 	// Full tier: warnings must be nil, not []DegradationWarning{}.
 	d := tier.NewDetector(tier.Backends{GoTypes: true, VTA: true})
 	if w := d.Warnings(); w != nil {
@@ -66,6 +71,7 @@ func TestDetector_WarningsNilNotEmpty(t *testing.T) {
 }
 
 func TestDetector_EnhancedWarningCapability(t *testing.T) {
+	t.Parallel()
 	// Enhanced tier (GoTypes=true, VTA=false) → 70% capability.
 	d := tier.NewDetector(tier.Backends{GoTypes: true})
 	warns := d.Warnings()
@@ -81,6 +87,7 @@ func TestDetector_EnhancedWarningCapability(t *testing.T) {
 }
 
 func TestProvenance_BackendsOrder(t *testing.T) {
+	t.Parallel()
 	// Provenance should always start with "tree-sitter".
 	d := tier.NewDetector(tier.Backends{GoTypes: true, VTA: true, Graph: true, LLM: true})
 	p := d.ProvenanceFor("custom")
@@ -103,6 +110,7 @@ func TestProvenance_BackendsOrder(t *testing.T) {
 }
 
 func TestProvenance_BasicMinimal(t *testing.T) {
+	t.Parallel()
 	// Basic tier provenance should only have tree-sitter.
 	d := tier.NewDetector(tier.Backends{})
 	p := d.ProvenanceFor()
@@ -115,6 +123,7 @@ func TestProvenance_BasicMinimal(t *testing.T) {
 }
 
 func TestDegradationWarning_JSONRoundtrip(t *testing.T) {
+	t.Parallel()
 	w := tier.DegradationWarning{
 		Code:          "go_types_missing",
 		Message:       "test message with special chars: <>&\"",
@@ -134,6 +143,7 @@ func TestDegradationWarning_JSONRoundtrip(t *testing.T) {
 }
 
 func TestDegradationWarning_XMLRoundtrip(t *testing.T) {
+	t.Parallel()
 	w := tier.DegradationWarning{
 		Code:          "vta_missing",
 		Message:       "test <xml> & chars",
@@ -153,6 +163,7 @@ func TestDegradationWarning_XMLRoundtrip(t *testing.T) {
 }
 
 func TestTier_Ordering(t *testing.T) {
+	t.Parallel()
 	// Tiers should be ordered: Basic < Enhanced < Full.
 	if tier.Basic >= tier.Enhanced {
 		t.Error("Basic must be < Enhanced")

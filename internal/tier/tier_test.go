@@ -7,6 +7,7 @@ import (
 )
 
 func TestDetectBasic(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{GoTypes: false, VTA: false})
 	if got := d.Current(); got != tier.Basic {
 		t.Fatalf("expected Basic tier, got %v", got)
@@ -14,6 +15,7 @@ func TestDetectBasic(t *testing.T) {
 }
 
 func TestDetectEnhanced(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{GoTypes: true, VTA: false})
 	if got := d.Current(); got != tier.Enhanced {
 		t.Fatalf("expected Enhanced tier, got %v", got)
@@ -21,6 +23,7 @@ func TestDetectEnhanced(t *testing.T) {
 }
 
 func TestDetectFull(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{GoTypes: true, VTA: true})
 	if got := d.Current(); got != tier.Full {
 		t.Fatalf("expected Full tier, got %v", got)
@@ -28,6 +31,7 @@ func TestDetectFull(t *testing.T) {
 }
 
 func TestDegradationWarnings(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{GoTypes: false, VTA: false})
 
 	warns := d.Warnings()
@@ -51,6 +55,7 @@ func TestDegradationWarnings(t *testing.T) {
 }
 
 func TestDetectSCIPEnhanced(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{SCIP: true})
 	if got := d.Current(); got != tier.Enhanced {
 		t.Fatalf("expected Enhanced tier with SCIP only, got %v", got)
@@ -58,6 +63,7 @@ func TestDetectSCIPEnhanced(t *testing.T) {
 }
 
 func TestDetectSCIPAndGoTypesEnhanced(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{GoTypes: true, SCIP: true})
 	if got := d.Current(); got != tier.Enhanced {
 		t.Fatalf("expected Enhanced tier with both backends, got %v", got)
@@ -65,6 +71,7 @@ func TestDetectSCIPAndGoTypesEnhanced(t *testing.T) {
 }
 
 func TestProvenanceIncludesSCIP(t *testing.T) {
+	t.Parallel()
 	d := tier.NewDetector(tier.Backends{SCIP: true})
 	p := d.ProvenanceFor()
 	found := false
@@ -79,6 +86,7 @@ func TestProvenanceIncludesSCIP(t *testing.T) {
 }
 
 func TestTierString(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		tier tier.Tier
 		want string

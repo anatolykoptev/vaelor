@@ -19,6 +19,7 @@ func gitInit(t *testing.T, dir string) {
 }
 
 func TestDiscover_FindsGitSubdirs(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "repo-a"))
 	gitInit(t, filepath.Join(parent, "repo-b"))
@@ -44,6 +45,7 @@ func TestDiscover_FindsGitSubdirs(t *testing.T) {
 }
 
 func TestDiscover_MissingDirSkipped(t *testing.T) {
+	t.Parallel()
 	got := Discover([]string{"/nonexistent/parent"})
 	if got != nil && len(got) != 0 {
 		t.Fatalf("missing dir → empty, got %v", got)

@@ -9,6 +9,7 @@ import (
 // capitalised component tags from the markup while skipping lowercase HTML tags,
 // <svelte:*> special elements, and <script>/<style> contents.
 func TestExtractSvelteWithRefs_ComponentTag(t *testing.T) {
+	t.Parallel()
 	src := []byte("<script>\n" +
 		"  import Card from './Card.svelte';\n" +
 		"  const Local = 1; // not a tag\n" +
@@ -48,6 +49,7 @@ func TestExtractSvelteWithRefs_ComponentTag(t *testing.T) {
 // TestExtractSvelteWithRefs_NoComponents verifies a component with only HTML tags
 // produces no refs.
 func TestExtractSvelteWithRefs_NoComponents(t *testing.T) {
+	t.Parallel()
 	src := []byte("<script>\n  let x = 1;\n</script>\n<div><span>{x}</span></div>\n")
 	_, refs := ExtractSvelteWithRefs(src)
 	if len(refs) != 0 {

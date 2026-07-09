@@ -6,6 +6,7 @@ import (
 )
 
 func TestResearchDataFieldName(t *testing.T) {
+	t.Parallel()
 	d := ResearchData{}
 	v := reflect.TypeOf(d)
 	if _, ok := v.FieldByName("FusedScores"); !ok {
