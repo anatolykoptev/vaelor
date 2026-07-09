@@ -9,6 +9,7 @@ import (
 // with no resolver configured, IndexedSHA returns "" (never panics, never
 // errors) so WithFreshness stays silent.
 func TestIndexedSHA_NilResolverReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	var d Deps // IndexedSHAFunc nil
 	if got := d.IndexedSHA(context.Background(), "any/repo"); got != "" {
 		t.Fatalf("nil resolver must return empty, got %q", got)
@@ -17,6 +18,7 @@ func TestIndexedSHA_NilResolverReturnsEmpty(t *testing.T) {
 
 // TestIndexedSHA_ResolverWins verifies the accessor delegates to the func.
 func TestIndexedSHA_ResolverWins(t *testing.T) {
+	t.Parallel()
 	d := Deps{
 		IndexedSHAFunc: func(_ context.Context, repoKey string) string {
 			if repoKey == "known/repo" {

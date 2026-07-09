@@ -8,6 +8,7 @@ import (
 )
 
 func TestParseDockerPSLine(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		line            string
@@ -142,6 +143,7 @@ func TestParseDockerPSLine(t *testing.T) {
 }
 
 func TestParseLabels(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		labels  string

@@ -7,6 +7,7 @@ import (
 )
 
 func TestDiscoverManifests_LocalRepo(t *testing.T) {
+	t.Parallel()
 	// Use go-code's own repo root (two levels up from internal/freshness/).
 	root := filepath.Join("..", "..")
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
@@ -41,6 +42,7 @@ func TestDiscoverManifests_LocalRepo(t *testing.T) {
 }
 
 func TestCollectDeps_LocalRepo(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join("..", "..")
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		t.Skip("cannot find repo root go.mod")
@@ -71,6 +73,7 @@ func TestCollectDeps_LocalRepo(t *testing.T) {
 }
 
 func TestCompareGoVersions_Table(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		have        string

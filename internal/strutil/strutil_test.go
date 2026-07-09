@@ -3,6 +3,7 @@ package strutil
 import "testing"
 
 func TestCommonPrefixLen(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		a, b string
 		want int
@@ -25,6 +26,7 @@ func TestCommonPrefixLen(t *testing.T) {
 }
 
 func TestTextHash(t *testing.T) {
+	t.Parallel()
 	h1 := TextHash("hello")
 	h2 := TextHash("hello")
 	h3 := TextHash("world")

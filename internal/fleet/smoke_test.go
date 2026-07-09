@@ -42,6 +42,7 @@ import (
 //
 // Reads SMOKE_REPO env (default deploy-config) and SMOKE_HOST env (default local://).
 func TestSmoke(t *testing.T) {
+	t.Parallel()
 	repo := os.Getenv("SMOKE_REPO")
 	if repo == "" {
 		repo = "/home/user/deploy/deploy-config"

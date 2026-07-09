@@ -11,6 +11,7 @@ import (
 const sampleMap = `{"version":3,"sources":["src/foo.svelte"],"names":["handleClick"],"mappings":"AAAA,SAASA,WAAW","file":"chunk-abc.js"}`
 
 func TestResolver_Resolve(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_app/immutable/chunks/chunk-abc.js.map" {
 			w.Header().Set("Content-Type", "application/json")
@@ -32,6 +33,7 @@ func TestResolver_Resolve(t *testing.T) {
 }
 
 func TestResolver_CacheHit(t *testing.T) {
+	t.Parallel()
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
@@ -49,6 +51,7 @@ func TestResolver_CacheHit(t *testing.T) {
 }
 
 func TestIsAllowedURL(t *testing.T) {
+	t.Parallel()
 	allowed := []string{"cdn.example.com", "static.app.io"}
 	tests := []struct {
 		url  string

@@ -6,6 +6,7 @@ import (
 )
 
 func TestWeightedPPR_HighWeightEdge(t *testing.T) {
+	t.Parallel()
 	// hub.go distributes rank to heavy.go (weight 5) and light.go (weight 1).
 	// heavy.go should receive more rank because it gets a larger share of hub's outflow.
 	graph := map[string]map[string]float64{
@@ -21,6 +22,7 @@ func TestWeightedPPR_HighWeightEdge(t *testing.T) {
 }
 
 func TestWeightedPPR_SeedBias(t *testing.T) {
+	t.Parallel()
 	graph := map[string]map[string]float64{
 		"a.go":    {"core.go": 1.0},
 		"b.go":    {"core.go": 1.0},
@@ -35,6 +37,7 @@ func TestWeightedPPR_SeedBias(t *testing.T) {
 }
 
 func TestWeightedPPR_EmptyGraph(t *testing.T) {
+	t.Parallel()
 	if WeightedPersonalizedPageRank(nil, nil, 20, 0.85) != nil {
 		t.Error("expected nil for nil graph")
 	}
@@ -45,6 +48,7 @@ func TestWeightedPPR_EmptyGraph(t *testing.T) {
 }
 
 func TestWeightedPPR_UniformWeights_MatchesUnweighted(t *testing.T) {
+	t.Parallel()
 	unweighted := map[string][]string{
 		"a.go": {"b.go"}, "b.go": {"c.go"}, "c.go": {"a.go"},
 	}
@@ -65,6 +69,7 @@ func TestWeightedPPR_UniformWeights_MatchesUnweighted(t *testing.T) {
 }
 
 func TestWeightedPPR_Normalized(t *testing.T) {
+	t.Parallel()
 	graph := map[string]map[string]float64{
 		"a.go": {"b.go": 2.0, "c.go": 0.5},
 		"b.go": {"c.go": 1.0},

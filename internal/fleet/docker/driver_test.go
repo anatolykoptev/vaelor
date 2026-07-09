@@ -99,6 +99,7 @@ func waitDone(t *testing.T, done <-chan struct{}) {
 // ---- Tests -------------------------------------------------------------------
 
 func TestDriver_Scheme(t *testing.T) {
+	t.Parallel()
 	d := docker.New()
 	if d.Scheme() != "docker" {
 		t.Fatalf("want Scheme()=docker, got %q", d.Scheme())
@@ -106,6 +107,7 @@ func TestDriver_Scheme(t *testing.T) {
 }
 
 func TestList_EmptyList(t *testing.T) {
+	t.Parallel()
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServer(t, serverConn, httpOK("[]"))
 	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "docker"}, fleet.Filter{})
@@ -119,6 +121,7 @@ func TestList_EmptyList(t *testing.T) {
 }
 
 func TestList_RequestLine(t *testing.T) {
+	t.Parallel()
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServerAssert(t, serverConn,
 		func(req string) {
@@ -141,6 +144,7 @@ func TestList_RequestLine(t *testing.T) {
 }
 
 func TestList_SingleContainer(t *testing.T) {
+	t.Parallel()
 	body := `[{"Id":"abc","Names":["/web"],"Image":"nginx:1.27-alpine","ImageID":"sha256:def","Created":1700000000,"State":"running","Labels":{}}]`
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServer(t, serverConn, httpOK(body))
@@ -175,6 +179,7 @@ func TestList_SingleContainer(t *testing.T) {
 }
 
 func TestList_ComposeLabel(t *testing.T) {
+	t.Parallel()
 	body := `[{"Id":"def","Names":["/myapp_redis_1"],"Image":"redis:7.4","ImageID":"sha256:abc","Created":1700000001,"State":"running","Labels":{"com.docker.compose.service":"redis"}}]`
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServer(t, serverConn, httpOK(body))
@@ -195,6 +200,7 @@ func TestList_ComposeLabel(t *testing.T) {
 }
 
 func TestList_DigestPin(t *testing.T) {
+	t.Parallel()
 	// Image with @sha256 digest in the user-facing Image field.
 	body := `[{"Id":"ghi","Names":["/db"],"Image":"postgres:16@sha256:abc123","ImageID":"sha256:localonly","Created":1700000002,"State":"running","Labels":{}}]`
 	d, serverConn := newPipeDriver(t)
@@ -220,6 +226,7 @@ func TestList_DigestPin(t *testing.T) {
 }
 
 func TestList_PortRegistry(t *testing.T) {
+	t.Parallel()
 	// localhost:5000/foo:1.0 — last colon+no-slash-in-suffix = tag, but first
 	// colon is part of registry host:port.
 	body := `[{"Id":"jkl","Names":["/custom"],"Image":"localhost:5000/foo:1.0","ImageID":"sha256:x","Created":0,"State":"exited","Labels":{}}]`
@@ -246,6 +253,7 @@ func TestList_PortRegistry(t *testing.T) {
 }
 
 func TestList_NoNamesShortID(t *testing.T) {
+	t.Parallel()
 	body := `[{"Id":"123456789012abcdefgh","Names":[],"Image":"alpine","ImageID":"sha256:z","Created":0,"State":"created","Labels":{}}]`
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServer(t, serverConn, httpOK(body))
@@ -270,6 +278,7 @@ func TestList_NoNamesShortID(t *testing.T) {
 }
 
 func TestList_FilterByContainerName(t *testing.T) {
+	t.Parallel()
 	body := `[
 		{"Id":"a","Names":["/web"],"Image":"nginx:1.27","Created":1700000000,"State":"running","Labels":{}},
 		{"Id":"b","Names":["/cache"],"Image":"redis:7","Created":1700000001,"State":"running","Labels":{}},
@@ -291,6 +300,7 @@ func TestList_FilterByContainerName(t *testing.T) {
 }
 
 func TestList_FilterByComposeLabel(t *testing.T) {
+	t.Parallel()
 	body := `[
 		{"Id":"aa","Names":["/app_api_1"],"Image":"myapp:latest","Created":1700000000,"State":"running","Labels":{"com.docker.compose.service":"api"}},
 		{"Id":"bb","Names":["/app_db_1"],"Image":"postgres:16","Created":1700000001,"State":"running","Labels":{"com.docker.compose.service":"db"}}
@@ -311,6 +321,7 @@ func TestList_FilterByComposeLabel(t *testing.T) {
 }
 
 func TestList_FilterInvalidService(t *testing.T) {
+	t.Parallel()
 	// Invalid filter char — must return ErrInvalidFilter WITHOUT dialing.
 	dialCalled := false
 	d := docker.New(
@@ -332,6 +343,7 @@ func TestList_FilterInvalidService(t *testing.T) {
 }
 
 func TestList_HTTP500(t *testing.T) {
+	t.Parallel()
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServer(t, serverConn, httpError(500, "Internal Server Error"))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "docker"}, fleet.Filter{})
@@ -345,6 +357,7 @@ func TestList_HTTP500(t *testing.T) {
 }
 
 func TestList_NonJSONBody(t *testing.T) {
+	t.Parallel()
 	d, serverConn := newPipeDriver(t)
 	done := fakeDockerServer(t, serverConn, httpOK("not json"))
 	_, err := d.List(context.Background(), fleet.Target{Scheme: "docker"}, fleet.Filter{})
@@ -358,6 +371,7 @@ func TestList_NonJSONBody(t *testing.T) {
 }
 
 func TestList_DialError(t *testing.T) {
+	t.Parallel()
 	dialErr := fmt.Errorf("no such file: %w", &net.OpError{Op: "dial", Net: "unix", Err: fmt.Errorf("no such file or directory")})
 	d := docker.New(
 		docker.WithDialer(func(_ context.Context, _, _ string) (net.Conn, error) {
@@ -374,6 +388,7 @@ func TestList_DialError(t *testing.T) {
 }
 
 func TestList_BodyCapExceeded(t *testing.T) {
+	t.Parallel()
 	// Write a response body that exceeds the 8MiB cap.
 	// Build ~9MiB body that starts with '[' so it's not caught by JSON parse first.
 	// We just fill with spaces inside a JSON array that's never closed so JSON decode fails,
@@ -432,6 +447,7 @@ func TestList_BodyCapExceeded(t *testing.T) {
 }
 
 func TestList_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
 	defer serverConn.Close()
@@ -450,6 +466,7 @@ func TestList_ContextCanceled(t *testing.T) {
 }
 
 func TestList_ImageNoTagNoDigest_DefaultsToLatest(t *testing.T) {
+	t.Parallel()
 	// "alpine" with no tag and no digest → tag should be "latest"
 	body := `[{"Id":"xyz","Names":["/mycontainer"],"Image":"alpine","ImageID":"sha256:z","Created":1700000000,"State":"running","Labels":{}}]`
 	d, serverConn := newPipeDriver(t)
@@ -468,6 +485,7 @@ func TestList_ImageNoTagNoDigest_DefaultsToLatest(t *testing.T) {
 }
 
 func TestList_InvalidDigestFormatDropped(t *testing.T) {
+	t.Parallel()
 	// @<non-sha256> in user-facing Image field → Digest should be "" (silent drop, not error).
 	body := `[{"Id":"bad","Names":["/badsig"],"Image":"registry.io/img:1.0@md5:notvalid","ImageID":"sha256:z","Created":1700000000,"State":"running","Labels":{}}]`
 	d, serverConn := newPipeDriver(t)

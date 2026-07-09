@@ -11,6 +11,7 @@ import (
 // Hard red tests — boundary conditions for compound tools.
 
 func TestFindSymbol_NoMatch(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "Foo", Kind: parser.KindFunction},
 		{Name: "Bar", Kind: parser.KindStruct}, // not a function
@@ -22,6 +23,7 @@ func TestFindSymbol_NoMatch(t *testing.T) {
 }
 
 func TestFindSymbol_SkipsNonFunctions(t *testing.T) {
+	t.Parallel()
 	symbols := []*parser.Symbol{
 		{Name: "Foo", Kind: parser.KindStruct},
 		{Name: "Foo", Kind: parser.KindConst},
@@ -34,6 +36,7 @@ func TestFindSymbol_SkipsNonFunctions(t *testing.T) {
 }
 
 func TestFindSymbol_EmptySlice(t *testing.T) {
+	t.Parallel()
 	matches := FindSymbol(nil, "Foo")
 	if matches != nil {
 		t.Errorf("expected nil for nil input, got %v", matches)
@@ -41,6 +44,7 @@ func TestFindSymbol_EmptySlice(t *testing.T) {
 }
 
 func TestUnderstand_NilCallGraph(t *testing.T) {
+	t.Parallel()
 	// Should not panic with zero-value CallGraph.
 	sym := &parser.Symbol{
 		Name: "Foo", Kind: parser.KindFunction,
@@ -57,6 +61,7 @@ func TestUnderstand_NilCallGraph(t *testing.T) {
 }
 
 func TestUnderstand_MaxCalleesRespected(t *testing.T) {
+	t.Parallel()
 	sym := &parser.Symbol{
 		Name: "Hub", Kind: parser.KindFunction,
 		File: "a.go", StartLine: 1, EndLine: 50,
@@ -85,6 +90,7 @@ func TestUnderstand_MaxCalleesRespected(t *testing.T) {
 }
 
 func TestUnderstand_MaxCallersRespected(t *testing.T) {
+	t.Parallel()
 	sym := &parser.Symbol{
 		Name: "Target", Kind: parser.KindFunction,
 		File: "a.go", StartLine: 1, EndLine: 5,
@@ -115,6 +121,7 @@ func TestUnderstand_MaxCallersRespected(t *testing.T) {
 }
 
 func TestUnderstand_CallersDeduplicated(t *testing.T) {
+	t.Parallel()
 	sym := &parser.Symbol{
 		Name: "Target", Kind: parser.KindFunction,
 		File: "a.go", StartLine: 1, EndLine: 5,
@@ -140,6 +147,7 @@ func TestUnderstand_CallersDeduplicated(t *testing.T) {
 }
 
 func TestPrepareChange_DeadExportedSymbol(t *testing.T) {
+	t.Parallel()
 	// Exported symbol with zero callers — should detect as dead
 	// when IncludeExported=true (which PrepareChange sets).
 	sym := &parser.Symbol{
@@ -165,6 +173,7 @@ func TestPrepareChange_DeadExportedSymbol(t *testing.T) {
 }
 
 func TestPrepareChange_ZeroDepthDefault(t *testing.T) {
+	t.Parallel()
 	// MaxDepth=0 should use default (5), not cause infinite traversal.
 	foo := &parser.Symbol{Name: "foo", Kind: parser.KindFunction, File: "a.go", StartLine: 1, EndLine: 5}
 	bar := &parser.Symbol{Name: "bar", Kind: parser.KindFunction, File: "b.go", StartLine: 1, EndLine: 5}
@@ -187,6 +196,7 @@ func TestPrepareChange_ZeroDepthDefault(t *testing.T) {
 }
 
 func TestPrepareChange_SymbolInfoPopulated(t *testing.T) {
+	t.Parallel()
 	sym := &parser.Symbol{
 		Name: "Process", Kind: parser.KindMethod,
 		File: "handler.go", StartLine: 10, EndLine: 50,

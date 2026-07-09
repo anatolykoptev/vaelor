@@ -7,6 +7,7 @@ import (
 )
 
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in, want string
 	}{
@@ -34,6 +35,7 @@ func TestShellQuote(t *testing.T) {
 // This is the exact failure mode fixed in this PR: "--format={{json .}}"
 // contains a space that causes sshd's remote shell to split it into two args.
 func TestShellQuoteRoundTrip(t *testing.T) {
+	t.Parallel()
 	args := []string{
 		"docker",
 		"ps",

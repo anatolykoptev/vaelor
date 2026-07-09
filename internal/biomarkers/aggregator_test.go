@@ -17,6 +17,7 @@ func (b stubBM) Name() string                                                  {
 func (b stubBM) Score(_ context.Context, _, _ string) (float64, string, error) { return b.s, b.r, nil }
 
 func TestAggregator_AllZeroIsOne(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(stubBM{name: "prior_defect", s: 0})
 	r.Register(stubBM{name: "churn_risk", s: 0})
@@ -31,6 +32,7 @@ func TestAggregator_AllZeroIsOne(t *testing.T) {
 }
 
 func TestAggregator_AllMaxIsTen(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(stubBM{name: "prior_defect", s: 1, r: "all the defects"})
 	r.Register(stubBM{name: "churn_risk", s: 1, r: "all the churn"})
@@ -45,6 +47,7 @@ func TestAggregator_AllMaxIsTen(t *testing.T) {
 }
 
 func TestAggregator_WeightsApplied(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(stubBM{name: "prior_defect", s: 1})
 	r.Register(stubBM{name: "churn_risk", s: 0})
@@ -59,6 +62,7 @@ func TestAggregator_WeightsApplied(t *testing.T) {
 // TestAggregator_BadWeightSumPanics guards the load-bearing invariant
 // that NewAggregator rejects weight maps that don't sum to 1.0.
 func TestAggregator_BadWeightSumPanics(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(stubBM{name: "prior_defect"})
 	r.Register(stubBM{name: "churn_risk"})
@@ -73,6 +77,7 @@ func TestAggregator_BadWeightSumPanics(t *testing.T) {
 // TestAggregator_UnknownWeightKeyPanics guards against silent score-drop
 // when a weight name has no registered biomarker (e.g. a typo).
 func TestAggregator_UnknownWeightKeyPanics(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(stubBM{name: "prior_defect"})
 	// Note: churn_risk NOT registered.
@@ -87,6 +92,7 @@ func TestAggregator_UnknownWeightKeyPanics(t *testing.T) {
 // TestAggregator_BiomarkerErrorWrapsName ensures ScoreFile's error
 // preserves the biomarker name so callers can identify the failing one.
 func TestAggregator_BiomarkerErrorWrapsName(t *testing.T) {
+	t.Parallel()
 	r := NewRegistry()
 	r.Register(failBM{name: "boom"})
 	agg := NewAggregator(r, map[string]float64{"boom": 1.0})

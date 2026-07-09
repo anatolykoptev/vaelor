@@ -11,6 +11,7 @@ import (
 // Captures a golden ordering pre-change so any future tweak that drifts the
 // minmax path will fail this test.
 func TestFuseSignals_MinmaxModeUnchanged(t *testing.T) {
+	t.Parallel()
 	bm25 := map[string]float64{"a.go": 10, "b.go": 5, "c.go": 1}
 	pr := map[string]float64{"a.go": 0.1, "b.go": 0.5, "c.go": 0.9}
 	exact := map[string]float64{"a.go": 2, "b.go": 0, "c.go": 0}
@@ -44,6 +45,7 @@ func TestFuseSignals_MinmaxModeUnchanged(t *testing.T) {
 // TestFuseSignals_RRFMode_DefaultWeights checks that with default weights and
 // a doc that's #1 in all three signal lists, that doc is the fused top result.
 func TestFuseSignals_RRFMode_DefaultWeights(t *testing.T) {
+	t.Parallel()
 	// "winner.go" tops every list; the others vary.
 	bm25 := map[string]float64{"winner.go": 100, "x.go": 10, "y.go": 1}
 	pr := map[string]float64{"winner.go": 0.9, "x.go": 0.4, "y.go": 0.1}
@@ -66,6 +68,7 @@ func TestFuseSignals_RRFMode_DefaultWeights(t *testing.T) {
 // TestFuseSignals_RRFMode_PageRankHeavier verifies that bumping the PageRank
 // weight makes the top-PageRank doc win even when BM25 disagrees.
 func TestFuseSignals_RRFMode_PageRankHeavier(t *testing.T) {
+	t.Parallel()
 	// pr_winner is #1 in PageRank but #3 in BM25/exact.
 	// bm_winner is #1 in BM25/exact but #3 in PageRank.
 	bm25 := map[string]float64{"bm_winner.go": 100, "mid.go": 50, "pr_winner.go": 1}
@@ -88,6 +91,7 @@ func TestFuseSignals_RRFMode_PageRankHeavier(t *testing.T) {
 // TestRankByScore_DeterministicTieBreak guards the lex tie-break used to make
 // RRF input reproducible across runs (Go map iteration order is randomized).
 func TestRankByScore_DeterministicTieBreak(t *testing.T) {
+	t.Parallel()
 	scores := map[string]float64{"b.go": 1, "a.go": 1, "c.go": 1}
 	got := rankByScore(scores)
 	want := []string{"a.go", "b.go", "c.go"} // alphabetic on score-tie

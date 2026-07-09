@@ -12,6 +12,7 @@ import (
 )
 
 func TestIgnoredDirNames_ReturnsSorted(t *testing.T) {
+	t.Parallel()
 	names := IgnoredDirNames()
 	if len(names) == 0 {
 		t.Fatal("expected non-empty list from IgnoredDirNames")
@@ -22,6 +23,7 @@ func TestIgnoredDirNames_ReturnsSorted(t *testing.T) {
 }
 
 func TestIgnoredDirNames_ContainsKnownEntries(t *testing.T) {
+	t.Parallel()
 	names := IgnoredDirNames()
 	set := make(map[string]bool, len(names))
 	for _, n := range names {
@@ -95,6 +97,7 @@ func TestIndexSkipDirsEnvOverride(t *testing.T) {
 // Falsification: deleting "vendor" from defaultIgnoreDirs causes the test to
 // fail because vendor/lib.go appears in results.
 func TestVendorDirSkipped(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "vendor", "github.com", "foo"), 0o750); err != nil {
 		t.Fatal(err)
@@ -124,6 +127,7 @@ func TestVendorDirSkipped(t *testing.T) {
 // Falsification: removing "vendor" from defaultIgnoreDirs causes shouldIgnoreDir
 // to return false and the counter never increments for "vendor".
 func TestSkipDirsCounterBumped(t *testing.T) {
+	t.Parallel()
 	before := gatherCounterValue(t, "gocode_ingest_skipped_dirs_total", "dir", "vendor")
 
 	root := t.TempDir()

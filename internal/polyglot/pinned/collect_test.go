@@ -8,6 +8,7 @@ import (
 )
 
 func TestCollect_SampleRepo(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join("testdata", "sample-repo")
 	got, err := Collect(root)
 	if err != nil {
@@ -63,6 +64,7 @@ func TestCollect_SampleRepo(t *testing.T) {
 }
 
 func TestCollect_EmptyDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	got, err := Collect(dir)
 	if err != nil {
@@ -78,6 +80,7 @@ func TestCollect_EmptyDir(t *testing.T) {
 // in /home/user/deploy/deploy-config produced 0 pinned because filepath.Walk
 // returned the perm-denied error and aborted before reaching siblings.
 func TestCollect_SkipsUnreadableSubdir(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("permission tests cannot run as root")
 	}
@@ -140,6 +143,7 @@ func TestCollect_SkipsUnreadableSubdir(t *testing.T) {
 // Real-world repro: fleet_versions reported false drifts from agent-session
 // worktrees and third-party submodules inside the deploy clone.
 func TestCollect_SkipsNestedGitAndAgentWorktrees(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Top-level (the legit operator-controlled repo):

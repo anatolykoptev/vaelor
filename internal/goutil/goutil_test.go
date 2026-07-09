@@ -3,6 +3,7 @@ package goutil
 import "testing"
 
 func TestIsStdlibImport(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path string
 		want bool
@@ -22,6 +23,7 @@ func TestIsStdlibImport(t *testing.T) {
 }
 
 func TestPackageDir(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		root, file, want string
 	}{
@@ -37,6 +39,7 @@ func TestPackageDir(t *testing.T) {
 }
 
 func TestSortedSetKeys(t *testing.T) {
+	t.Parallel()
 	m := map[string]struct{}{"c": {}, "a": {}, "b": {}}
 	got := SortedSetKeys(m)
 	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
@@ -48,6 +51,7 @@ func TestSortedSetKeys(t *testing.T) {
 }
 
 func TestCountLines(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  int

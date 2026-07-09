@@ -8,6 +8,7 @@ import (
 
 // TestRuneVariants verifies dotted variants ($state.raw, $derived.by, etc.) are classified.
 func TestRuneVariants(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   let raw = $state.raw([]);
   let eager = $state.eager(0);
@@ -71,6 +72,7 @@ func TestRuneVariants(t *testing.T) {
 
 // TestRunesNotInTypeScript verifies the rune detector does NOT fire on plain .ts files.
 func TestRunesNotInTypeScript(t *testing.T) {
+	t.Parallel()
 	src := []byte(`let count = $state(0);
 let doubled = $derived(count * 2);
 $effect(() => console.log(count));
@@ -88,6 +90,7 @@ $effect(() => console.log(count));
 
 // TestRuneEffectAnonymous verifies standalone $effect(...) produces a KindRune symbol.
 func TestRuneEffectAnonymous(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   $effect(() => console.log("hello"));
 </script>`)
@@ -110,6 +113,7 @@ func TestRuneEffectAnonymous(t *testing.T) {
 // TestRuneAntiPatterns verifies that Svelte 4 double-dollar variables, internal
 // helpers ($.xxx), and chained $inspect.with calls are NOT classified as runes.
 func TestRuneAntiPatterns(t *testing.T) {
+	t.Parallel()
 	// $$slots / $$props — Svelte 4 legacy double-dollar variables.
 	src := []byte(`<script>
   let s = $$slots;
@@ -160,6 +164,7 @@ func TestRuneAntiPatterns(t *testing.T) {
 
 // TestRuneLineNumbers verifies StartLine is remapped to original .svelte coordinates.
 func TestRuneLineNumbers(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   let count = $state(0);
   let doubled = $derived(count * 2);
@@ -199,6 +204,7 @@ func TestRuneLineNumbers(t *testing.T) {
 //   - symbol_search query="count"  -> finds the declaration site via variable name
 //   - symbol_search query="$state" -> finds every $state site via trigram/ILIKE match on "$state:L<n>"
 func TestRuneDualEmit(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   let count = $state(0);
   let doubled = $derived(count * 2);
@@ -280,6 +286,7 @@ func TestRuneDualEmit(t *testing.T) {
 // Before the fix: pipeline dedup (key=file+":"+name) and DB PK (repo,file,symbol_name)
 // both collapsed them to one row. After the fix: each gets "$state:L<line>" so all survive.
 func TestRuneDualEmitMultiState(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<script>
   let a = $state(0);
   let b = $state(1);

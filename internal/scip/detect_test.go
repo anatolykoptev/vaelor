@@ -7,6 +7,7 @@ import (
 )
 
 func TestDetectIndexer(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		lang     string
 		wantOK   bool
@@ -55,6 +56,7 @@ func TestDetectIndexer(t *testing.T) {
 }
 
 func TestIndexerAvailable(t *testing.T) {
+	t.Parallel()
 	// A binary that definitely doesn't exist.
 	if gocodescip.IndexerAvailable("nonexistent-scip-indexer-xyz") {
 		t.Error("IndexerAvailable should return false for nonexistent binary")

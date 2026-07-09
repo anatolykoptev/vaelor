@@ -6,6 +6,7 @@ import (
 )
 
 func TestPageRank_EmptyGraph(t *testing.T) {
+	t.Parallel()
 	result := PageRank(nil, 20, 0.85)
 	if result != nil {
 		t.Errorf("expected nil for empty graph, got %v", result)
@@ -18,6 +19,7 @@ func TestPageRank_EmptyGraph(t *testing.T) {
 }
 
 func TestPageRank_SingleNode(t *testing.T) {
+	t.Parallel()
 	graph := map[string][]string{
 		"core.go": {},
 	}
@@ -37,6 +39,7 @@ func TestPageRank_SingleNode(t *testing.T) {
 }
 
 func TestPageRank_StarTopology(t *testing.T) {
+	t.Parallel()
 	// All files import "core.go" → core.go should have the highest rank.
 	graph := map[string][]string{
 		"a.go":    {"core.go"},
@@ -61,6 +64,7 @@ func TestPageRank_StarTopology(t *testing.T) {
 }
 
 func TestPageRank_ChainTopology(t *testing.T) {
+	t.Parallel()
 	// a→b→c: importance flows downstream, so c > b > a.
 	graph := map[string][]string{
 		"a.go": {"b.go"},
@@ -82,6 +86,7 @@ func TestPageRank_ChainTopology(t *testing.T) {
 }
 
 func TestPageRank_Convergence(t *testing.T) {
+	t.Parallel()
 	// Cycle: a→b→c→a — all nodes should converge to roughly equal ranks.
 	graph := map[string][]string{
 		"a.go": {"b.go"},
@@ -106,6 +111,7 @@ func TestPageRank_Convergence(t *testing.T) {
 }
 
 func TestPageRank_Normalized(t *testing.T) {
+	t.Parallel()
 	// Various graph shapes — ranks should sum to approximately 1.0.
 	graphs := []map[string][]string{
 		// Star topology.

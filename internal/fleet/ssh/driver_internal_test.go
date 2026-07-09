@@ -12,6 +12,7 @@ import (
 // TestBuildSSHArgv_NoFFlag verifies that buildSSHArgv without a homeDst
 // produces the classic shape: [(-p N)? -- host remote-cmd...].
 func TestBuildSSHArgv_NoFFlag(t *testing.T) {
+	t.Parallel()
 	host := "host-a"
 	args := []string{"docker", "ps", "--no-trunc", "--format={{json .}}"}
 	got := buildSSHArgv(host, args, "")
@@ -43,6 +44,7 @@ func TestBuildSSHArgv_NoFFlag(t *testing.T) {
 // TestBuildSSHArgv_NoFFlag_WithPort verifies that -p N is included before --
 // and no -F is inserted when homeDst is empty.
 func TestBuildSSHArgv_NoFFlag_WithPort(t *testing.T) {
+	t.Parallel()
 	host := "host-a"
 	args := []string{"-p", "1987", "docker", "ps", "--no-trunc", "--format={{json .}}"}
 	got := buildSSHArgv(host, args, "")
@@ -58,6 +60,7 @@ func TestBuildSSHArgv_NoFFlag_WithPort(t *testing.T) {
 // TestBuildSSHArgv_FFlag verifies that buildSSHArgv with a non-empty homeDst
 // prepends -F <homeDst>/.ssh/config BEFORE any -p and -- flags.
 func TestBuildSSHArgv_FFlag(t *testing.T) {
+	t.Parallel()
 	host := "host-a"
 	args := []string{"docker", "ps", "--no-trunc", "--format={{json .}}"}
 	homeDst := "/tmp/fleet-ssh-home"
@@ -94,6 +97,7 @@ func TestBuildSSHArgv_FFlag(t *testing.T) {
 // TestBuildSSHArgv_FFlag_WithPort verifies that when both a port and a homeDst
 // are provided, argv shape is: -F <cfg> -p N -- host remote-cmd...
 func TestBuildSSHArgv_FFlag_WithPort(t *testing.T) {
+	t.Parallel()
 	host := "host-a"
 	args := []string{"-p", "1987", "docker", "ps", "--no-trunc", "--format={{json .}}"}
 	homeDst := "/tmp/fleet-ssh-home"

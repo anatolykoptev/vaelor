@@ -35,6 +35,7 @@ func mkRepoWithChurn(t *testing.T, lines int, churnCycles int) string {
 }
 
 func TestChurnRisk_StableFileZero(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithChurn(t, 50, 1) // one commit, never edited again
 	score, _, err := ChurnRisk{}.Score(context.Background(), dir, "f.go")
 	if err != nil {
@@ -46,6 +47,7 @@ func TestChurnRisk_StableFileZero(t *testing.T) {
 }
 
 func TestChurnRisk_RewrittenFileHighScore(t *testing.T) {
+	t.Parallel()
 	dir := mkRepoWithChurn(t, 50, 6) // 6 cycles * 50 lines ≈ 300 line-changes / 50 LOC = 6
 	score, reason, err := ChurnRisk{}.Score(context.Background(), dir, "f.go")
 	if err != nil {
@@ -60,6 +62,7 @@ func TestChurnRisk_RewrittenFileHighScore(t *testing.T) {
 // file created small then grown substantially post-creation has real
 // churn that the old (A+D-LOC) formula zeroed out.
 func TestChurnRisk_GrownFileScoresNonZero(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)

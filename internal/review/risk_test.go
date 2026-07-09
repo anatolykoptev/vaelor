@@ -8,6 +8,7 @@ import (
 )
 
 func TestGenerateRiskGuidance(t *testing.T) {
+	t.Parallel()
 	input := RiskInput{
 		ChangedSymbols: []ChangedSymbol{
 			{Symbol: &parser.Symbol{Name: "Auth"}, ChangeType: ChangeModified},
@@ -29,6 +30,7 @@ func TestGenerateRiskGuidance(t *testing.T) {
 }
 
 func TestGenerateRiskGuidanceLow(t *testing.T) {
+	t.Parallel()
 	input := RiskInput{
 		ChangedSymbols: []ChangedSymbol{
 			{Symbol: &parser.Symbol{Name: "helper"}, ChangeType: ChangeModified},

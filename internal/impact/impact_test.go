@@ -11,6 +11,7 @@ import (
 // TestAnalyze_DirectCallers builds A->B->C and verifies that analyzing C
 // finds B as a direct caller and A as a transitive caller.
 func TestAnalyze_DirectCallers(t *testing.T) {
+	t.Parallel()
 	symA := &parser.Symbol{Name: "A", Kind: parser.KindFunction, File: "/src/a.go", StartLine: 1, EndLine: 10}
 	symB := &parser.Symbol{Name: "B", Kind: parser.KindFunction, File: "/src/b.go", StartLine: 1, EndLine: 10}
 	symC := &parser.Symbol{Name: "C", Kind: parser.KindFunction, File: "/src/c.go", StartLine: 1, EndLine: 10}
@@ -47,6 +48,7 @@ func TestAnalyze_DirectCallers(t *testing.T) {
 
 // TestAnalyze_NotFound verifies that a non-existent symbol returns blast radius "none".
 func TestAnalyze_NotFound(t *testing.T) {
+	t.Parallel()
 	cg := &callgraph.CallGraph{
 		Symbols: []*parser.Symbol{
 			{Name: "Existing", Kind: parser.KindFunction, File: "/src/main.go", StartLine: 1, EndLine: 10},
@@ -65,6 +67,7 @@ func TestAnalyze_NotFound(t *testing.T) {
 
 // TestClassifyBlastRadius is a table test for the classification thresholds.
 func TestClassifyBlastRadius(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		callers  int
@@ -93,6 +96,7 @@ func TestClassifyBlastRadius(t *testing.T) {
 
 // TestAnalyze_ConfidenceDegrades verifies that confidence drops with distance.
 func TestAnalyze_ConfidenceDegrades(t *testing.T) {
+	t.Parallel()
 	// Build chain: A -> B -> C -> D -> target
 	target := &parser.Symbol{Name: "target", Kind: parser.KindFunction, File: "/src/target.go", StartLine: 1, EndLine: 10}
 	symD := &parser.Symbol{Name: "D", Kind: parser.KindFunction, File: "/src/d.go", StartLine: 1, EndLine: 10}
@@ -142,6 +146,7 @@ func TestAnalyze_ConfidenceDegrades(t *testing.T) {
 
 // TestAnalyze_MaxDepthLimits verifies that MaxDepth restricts traversal.
 func TestAnalyze_MaxDepthLimits(t *testing.T) {
+	t.Parallel()
 	// Chain: A -> B -> C -> target
 	target := &parser.Symbol{Name: "target", Kind: parser.KindFunction, File: "/src/target.go", StartLine: 1, EndLine: 10}
 	symC := &parser.Symbol{Name: "C", Kind: parser.KindFunction, File: "/src/c.go", StartLine: 1, EndLine: 10}
@@ -173,6 +178,7 @@ func TestAnalyze_MaxDepthLimits(t *testing.T) {
 
 // TestAnalyze_MultipleDirectCallers verifies fan-in from multiple callers.
 func TestAnalyze_MultipleDirectCallers(t *testing.T) {
+	t.Parallel()
 	target := &parser.Symbol{Name: "target", Kind: parser.KindFunction, File: "/src/target.go", StartLine: 1, EndLine: 10}
 	caller1 := &parser.Symbol{Name: "caller1", Kind: parser.KindFunction, File: "/pkg1/a.go", StartLine: 1, EndLine: 10}
 	caller2 := &parser.Symbol{Name: "caller2", Kind: parser.KindFunction, File: "/pkg2/b.go", StartLine: 1, EndLine: 10}

@@ -14,6 +14,7 @@ import (
 // RED guarantee: break the path/method passed to httputil.PostJSON (or drop
 // the decode), and this test fails.
 func TestClientSearch_RequestShapeAndDecode(t *testing.T) {
+	t.Parallel()
 	var gotPath, gotMethod string
 	var gotBody SearchInput
 
@@ -57,6 +58,7 @@ func TestClientSearch_RequestShapeAndDecode(t *testing.T) {
 // TestClientSearch_ErrorStatus proves a non-2xx status still surfaces as a
 // non-nil error through the httputil-backed transport.
 func TestClientSearch_ErrorStatus(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("boom"))
@@ -74,6 +76,7 @@ func TestClientSearch_ErrorStatus(t *testing.T) {
 // unlike Search/SearchScoped/SearchStructural decodes into a distinct
 // response type via the shared doPost helper.
 func TestClientRewrite_RequestShapeAndDecode(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rewrite" {
 			t.Errorf("expected /rewrite, got %s", r.URL.Path)

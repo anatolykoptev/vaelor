@@ -15,6 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestRewritePath_NoMappings_ReturnsUnchanged(t *testing.T) {
+	t.Parallel()
 	got := workspace.RewritePath("/host/src/foo", nil)
 	if got != "/host/src/foo" {
 		t.Fatalf("want %q, got %q", "/host/src/foo", got)
@@ -22,6 +23,7 @@ func TestRewritePath_NoMappings_ReturnsUnchanged(t *testing.T) {
 }
 
 func TestRewritePath_MatchingPrefix_Rewrites(t *testing.T) {
+	t.Parallel()
 	mappings := []analyze.PathMapping{{External: "/host/src", Internal: "/container/src"}}
 	got := workspace.RewritePath("/host/src/foo", mappings)
 	want := "/container/src/foo"
@@ -31,6 +33,7 @@ func TestRewritePath_MatchingPrefix_Rewrites(t *testing.T) {
 }
 
 func TestRewritePath_NoMatchingPrefix_ReturnsUnchanged(t *testing.T) {
+	t.Parallel()
 	mappings := []analyze.PathMapping{{External: "/other", Internal: "/container"}}
 	got := workspace.RewritePath("/host/src/foo", mappings)
 	if got != "/host/src/foo" {
@@ -39,6 +42,7 @@ func TestRewritePath_NoMatchingPrefix_ReturnsUnchanged(t *testing.T) {
 }
 
 func TestRewritePath_FirstMatchWins(t *testing.T) {
+	t.Parallel()
 	mappings := []analyze.PathMapping{
 		{External: "/host", Internal: "/first"},
 		{External: "/host/src", Internal: "/second"},
@@ -56,6 +60,7 @@ func TestRewritePath_FirstMatchWins(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTranslateDirs_EmptyMappings_ReturnsInput(t *testing.T) {
+	t.Parallel()
 	dirs := []string{"/a", "/b"}
 	got := workspace.TranslateDirs(dirs, nil)
 	for i, d := range dirs {
@@ -66,6 +71,7 @@ func TestTranslateDirs_EmptyMappings_ReturnsInput(t *testing.T) {
 }
 
 func TestTranslateDirs_AppliesMappings(t *testing.T) {
+	t.Parallel()
 	mappings := []analyze.PathMapping{{External: "/host/repos", Internal: "/repos"}}
 	dirs := []string{"/host/repos/foo", "/host/repos/bar", "/other/baz"}
 	got := workspace.TranslateDirs(dirs, mappings)
@@ -78,6 +84,7 @@ func TestTranslateDirs_AppliesMappings(t *testing.T) {
 }
 
 func TestTranslateDirs_ReturnsNewSlice(t *testing.T) {
+	t.Parallel()
 	dirs := []string{"/a"}
 	mappings := []analyze.PathMapping{{External: "/a", Internal: "/b"}}
 	got := workspace.TranslateDirs(dirs, mappings)
@@ -91,6 +98,7 @@ func TestTranslateDirs_ReturnsNewSlice(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLocalSource_Root_ExistingDir_NoMappings(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := workspace.LocalSource{Path: dir}
 	got, cleanup, err := s.Root(context.Background())
@@ -104,6 +112,7 @@ func TestLocalSource_Root_ExistingDir_NoMappings(t *testing.T) {
 }
 
 func TestLocalSource_Root_AppliesMapping(t *testing.T) {
+	t.Parallel()
 	// Create a real dir that acts as the "internal" path.
 	dir := t.TempDir()
 	// external prefix is "/fake/host", internal prefix is dir.
@@ -129,6 +138,7 @@ func TestLocalSource_Root_AppliesMapping(t *testing.T) {
 }
 
 func TestLocalSource_Root_NonExistent_ReturnsError(t *testing.T) {
+	t.Parallel()
 	s := workspace.LocalSource{Path: "/does/not/exist/ever"}
 	_, cleanup, err := s.Root(context.Background())
 	defer cleanup()
@@ -138,6 +148,7 @@ func TestLocalSource_Root_NonExistent_ReturnsError(t *testing.T) {
 }
 
 func TestLocalSource_Root_FileNotDir_ReturnsError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	f := filepath.Join(dir, "file.txt")
 	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
@@ -157,6 +168,7 @@ func TestLocalSource_Root_FileNotDir_ReturnsError(t *testing.T) {
 
 // TestTranslateDirs_ZeroLengthInput returns empty without panic.
 func TestTranslateDirs_ZeroLengthInput(t *testing.T) {
+	t.Parallel()
 	got := workspace.TranslateDirs(nil, []analyze.PathMapping{{External: "/a", Internal: "/b"}})
 	if len(got) != 0 {
 		t.Fatalf("want empty, got %v", got)
@@ -172,6 +184,7 @@ func TestTranslateDirs_ZeroLengthInput(t *testing.T) {
 // slice, not the original. This covers the gap flagged in code review: the
 // nil-mappings fast path previously returned dirs unchanged (same pointer).
 func TestTranslateDirs_EmptyMappingsNonNil_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	dirs := []string{"/a", "/b"}
 	got := workspace.TranslateDirs(dirs, []analyze.PathMapping{})
 	if len(got) != len(dirs) {
@@ -198,6 +211,7 @@ func TestTranslateDirs_EmptyMappingsNonNil_ReturnsCopy(t *testing.T) {
 // This guards the documented contract: "TokenFunc returns an authentication
 // token for the clone; may be nil." — StaticToken is the fallback.
 func TestRemoteSource_BothStaticTokenAndTokenFunc_TokenFuncWins(t *testing.T) {
+	t.Parallel()
 	funcToken := "func-token"
 	called := false
 	s := workspace.RemoteSource{

@@ -5,6 +5,7 @@ import (
 )
 
 func TestStripGoTemplate_singleDefine(t *testing.T) {
+	t.Parallel()
 	src := []byte(`{{define "hunt_jobs"}}
 <div class="page-header">
   <h1>Jobs</h1>
@@ -28,6 +29,7 @@ func TestStripGoTemplate_singleDefine(t *testing.T) {
 }
 
 func TestStripGoTemplate_multipleDefines(t *testing.T) {
+	t.Parallel()
 	src := []byte(`{{define "layout"}}<html><body>{{template "content" .}}</body></html>{{end}}
 {{define "content"}}<h1>Page</h1>{{end}}
 `)
@@ -48,6 +50,7 @@ func TestStripGoTemplate_multipleDefines(t *testing.T) {
 }
 
 func TestStripGoTemplate_pureHTML(t *testing.T) {
+	t.Parallel()
 	src := []byte(`<!DOCTYPE html><html><body><h1>Hello</h1></body></html>`)
 	cleaned, defines := StripGoTemplate(src)
 	if len(defines) != 0 {
@@ -60,6 +63,7 @@ func TestStripGoTemplate_pureHTML(t *testing.T) {
 }
 
 func TestStripGoTemplate_actionInsideAttr(t *testing.T) {
+	t.Parallel()
 	// {{.ID}} inside an attribute value must be stripped without crashing.
 	src := []byte(`<button hx-put="/admin/hunt/job/{{.ID}}/rate">Rate</button>`)
 	cleaned, defines := StripGoTemplate(src)
@@ -76,6 +80,7 @@ func TestStripGoTemplate_actionInsideAttr(t *testing.T) {
 }
 
 func TestStripGoTemplate_comment(t *testing.T) {
+	t.Parallel()
 	src := []byte(`{{/* This is a comment */}}<div></div>`)
 	cleaned, defines := StripGoTemplate(src)
 	if len(defines) != 0 {
@@ -87,6 +92,7 @@ func TestStripGoTemplate_comment(t *testing.T) {
 }
 
 func TestStripGoTemplate_nestedBlocks(t *testing.T) {
+	t.Parallel()
 	// {{define}} containing {{range}} and {{if}} blocks — only the outer define
 	// should be recorded.
 	src := []byte(`{{define "page"}}
@@ -105,6 +111,7 @@ func TestStripGoTemplate_nestedBlocks(t *testing.T) {
 }
 
 func TestStripGoTemplate_linePreservation(t *testing.T) {
+	t.Parallel()
 	// Verify that newlines are NOT blanked — line count of cleaned must equal
 	// line count of src.
 	src := []byte(`{{define "a"}}

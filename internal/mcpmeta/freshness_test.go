@@ -34,6 +34,7 @@ func mkRepo(t *testing.T) string {
 }
 
 func TestLiveHead_DirectRef(t *testing.T) {
+	t.Parallel()
 	dir := mkRepo(t)
 	sha, err := LiveHead(dir)
 	if err != nil {
@@ -45,6 +46,7 @@ func TestLiveHead_DirectRef(t *testing.T) {
 }
 
 func TestLiveHead_PackedRefs(t *testing.T) {
+	t.Parallel()
 	dir := mkRepo(t)
 	refPath := filepath.Join(dir, ".git", "refs", "heads", "main")
 	loose, err := os.ReadFile(refPath)
@@ -71,6 +73,7 @@ func TestLiveHead_PackedRefs(t *testing.T) {
 }
 
 func TestWithFreshness_MatchSilent(t *testing.T) {
+	t.Parallel()
 	dir := mkRepo(t)
 	sha, _ := LiveHead(dir)
 	env := WithFreshness(Wrap(1, ""), dir, sha)
@@ -83,6 +86,7 @@ func TestWithFreshness_MatchSilent(t *testing.T) {
 }
 
 func TestWithFreshness_MismatchSpeaks(t *testing.T) {
+	t.Parallel()
 	dir := mkRepo(t)
 	env := WithFreshness(Wrap(1, ""), dir, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 	if env.StaleWarning == "" {
@@ -94,6 +98,7 @@ func TestWithFreshness_MismatchSpeaks(t *testing.T) {
 }
 
 func TestWithFreshness_EmptyIndexedSilent(t *testing.T) {
+	t.Parallel()
 	dir := mkRepo(t)
 	env := WithFreshness(Wrap(1, ""), dir, "")
 	if env.StaleWarning != "" {
@@ -115,6 +120,7 @@ func TestWithFreshness_EmptyIndexedSilent(t *testing.T) {
 // a false alarm on every feature-branch checkout. Post-fix, mainBranchHeadSHA
 // returns the main-branch tip == indexedSHA → silent.
 func TestWithFreshness_FeatureBranchSilentWhenMainMatches(t *testing.T) {
+	t.Parallel()
 	dir := mkRepo(t) // one commit on main
 	mainSHA, err := mainBranchHeadSHA(dir)
 	if err != nil {
@@ -137,6 +143,7 @@ func TestWithFreshness_FeatureBranchSilentWhenMainMatches(t *testing.T) {
 }
 
 func TestLiveHead_LinkedWorktree(t *testing.T) {
+	t.Parallel()
 	// Create a primary repo, then add a linked worktree, then verify
 	// LiveHead resolves the worktree's HEAD by following the gitdir
 	// pointer file.

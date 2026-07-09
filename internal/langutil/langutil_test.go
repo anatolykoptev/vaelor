@@ -3,6 +3,7 @@ package langutil
 import "testing"
 
 func TestIsExportedForDoc(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		symName  string

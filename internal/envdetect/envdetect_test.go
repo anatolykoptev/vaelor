@@ -63,6 +63,7 @@ func hasCommand(cmds []envdetect.Command, kind envdetect.CommandKind, source env
 }
 
 func TestDetect_Go(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/foo\n\ngo 1.22\n")
 
@@ -92,6 +93,7 @@ func TestDetect_Go(t *testing.T) {
 }
 
 func TestDetect_NPM_FullScripts(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "package.json"), `{
 		"name": "demo",
@@ -123,6 +125,7 @@ func TestDetect_NPM_FullScripts(t *testing.T) {
 // TestDetect_NPM_PartialScripts is required case (a): only "test" is
 // declared — asserts no fabricated build command appears.
 func TestDetect_NPM_PartialScripts(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "package.json"), `{"name": "demo", "scripts": {"test": "jest"}}`)
 
@@ -146,6 +149,7 @@ func TestDetect_NPM_PartialScripts(t *testing.T) {
 }
 
 func TestDetect_NPM_YarnLockfile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "package.json"), `{"name": "demo", "scripts": {"build": "vite build"}}`)
 	writeFile(t, filepath.Join(root, "yarn.lock"), "")
@@ -167,6 +171,7 @@ func TestDetect_NPM_YarnLockfile(t *testing.T) {
 }
 
 func TestDetect_Cargo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "Cargo.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
 
@@ -187,6 +192,7 @@ func TestDetect_Cargo(t *testing.T) {
 }
 
 func TestDetect_Python_PoetryScripts(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "pyproject.toml"), `[tool.poetry]
 name = "demo"
@@ -228,6 +234,7 @@ lint = "demo.cli:lint"
 }
 
 func TestDetect_Python_RequirementsOnly(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "requirements.txt"), "flask==3.0.0\n")
 
@@ -256,6 +263,7 @@ func TestDetect_Python_RequirementsOnly(t *testing.T) {
 // go.mod in the same directory — Makefile targets must win for overlapping
 // kinds.
 func TestDetect_MakefileOverridesGoConvention(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/foo\n\ngo 1.22\n")
 	writeFile(t, filepath.Join(root, "Makefile"), "build:\n\tgo build -o bin/foo ./...\n\ntest:\n\tgo test ./... -race\n")
@@ -304,6 +312,7 @@ func TestDetect_MakefileOverridesGoConvention(t *testing.T) {
 }
 
 func TestDetect_StandaloneMakefile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "Makefile"), "install:\n\t./setup.sh\n\ncheck:\n\t./run-tests.sh\n")
 
@@ -328,6 +337,7 @@ func TestDetect_StandaloneMakefile(t *testing.T) {
 // TestDetect_Polyglot is required case (c): go.mod at the root, package.json
 // in a subdirectory — two Toolchains with correct WorkDir each.
 func TestDetect_Polyglot(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/foo\n\ngo 1.22\n")
 	writeFile(t, filepath.Join(root, "web", "package.json"), `{"name": "web", "scripts": {"build": "vite build", "test": "vitest"}}`)
@@ -360,6 +370,7 @@ func TestDetect_Polyglot(t *testing.T) {
 // recognized manifests — Detect must return an empty (not nil-panic)
 // Environment without error.
 func TestDetect_NoManifests(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "README.md"), "# demo\n")
 
@@ -379,6 +390,7 @@ func TestDetect_NoManifests(t *testing.T) {
 }
 
 func TestDetect_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

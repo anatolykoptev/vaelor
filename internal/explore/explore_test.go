@@ -8,6 +8,7 @@ import (
 )
 
 func TestExplore_BasicRepo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	writeFile(t, dir, "main.go", `package main
@@ -68,6 +69,7 @@ func sub(a, b int) int {
 }
 
 func TestExplore_DeadCodeSection(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	writeFile(t, dir, "main.go", `package main
@@ -121,6 +123,7 @@ func deadTwo() {
 }
 
 func TestExplore_TopSymbols(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	writeFile(t, dir, "main.go", `package main
@@ -162,6 +165,7 @@ func c() {
 }
 
 func TestExplore_LanguageFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	writeFile(t, dir, "main.go", `package main

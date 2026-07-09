@@ -16,6 +16,7 @@ func newTestGitLabForge(t *testing.T, mux *http.ServeMux) *GitLabForge {
 }
 
 func TestGitLabForgeKind(t *testing.T) {
+	t.Parallel()
 	g := NewGitLabForge("", "")
 	if got := g.Kind(); got != GitLab {
 		t.Errorf("Kind() = %v, want GitLab", got)
@@ -23,6 +24,7 @@ func TestGitLabForgeKind(t *testing.T) {
 }
 
 func TestGitLabDefaultAPIBase(t *testing.T) {
+	t.Parallel()
 	g := NewGitLabForge("", "")
 	if g.apiBase != glDefaultAPIBase {
 		t.Errorf("apiBase = %q, want %q", g.apiBase, glDefaultAPIBase)
@@ -30,6 +32,7 @@ func TestGitLabDefaultAPIBase(t *testing.T) {
 }
 
 func TestGitLabFetchRepoMeta(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/group%2Frepo", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -90,6 +93,7 @@ func TestGitLabFetchRepoMeta(t *testing.T) {
 }
 
 func TestGitLabFetchREADME(t *testing.T) {
+	t.Parallel()
 	const content = "# GitLab Readme\nHello world."
 
 	mux := http.NewServeMux()
@@ -146,6 +150,7 @@ func TestGitLabFetchREADME(t *testing.T) {
 }
 
 func TestGitLabSearchCode(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/owner%2Frepo/search", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("scope") != "blobs" {
@@ -183,6 +188,7 @@ func TestGitLabSearchCode(t *testing.T) {
 }
 
 func TestGitLabSearchCode_EmptyRepos(t *testing.T) {
+	t.Parallel()
 	g := newGitLabForgeWithBase("", "http://unused")
 	results, err := g.SearchCode(context.Background(), "anything", nil)
 	if err != nil {
@@ -194,6 +200,7 @@ func TestGitLabSearchCode_EmptyRepos(t *testing.T) {
 }
 
 func TestGitLabSearchRepos(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("order_by") != "star_count" {
@@ -236,6 +243,7 @@ func TestGitLabSearchRepos(t *testing.T) {
 }
 
 func TestGitLabSearchIssues(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/owner%2Frepo/search", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("scope") != "issues" {
@@ -286,6 +294,7 @@ func TestGitLabSearchIssues(t *testing.T) {
 }
 
 func TestGitLabSearchIssues_NoRepo(t *testing.T) {
+	t.Parallel()
 	g := newGitLabForgeWithBase("", "http://unused")
 	results, err := g.SearchIssues(context.Background(), "some query without repo token")
 	if err != nil {
@@ -297,6 +306,7 @@ func TestGitLabSearchIssues_NoRepo(t *testing.T) {
 }
 
 func TestGitLabAuthHeader(t *testing.T) {
+	t.Parallel()
 	var gotToken string
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/a%2Fb", func(w http.ResponseWriter, r *http.Request) {

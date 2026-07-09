@@ -9,6 +9,7 @@ import (
 )
 
 func TestAnalyze(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/analyze" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -45,6 +46,7 @@ func TestAnalyze(t *testing.T) {
 }
 
 func TestFetch(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := FetchResponse{Status: 200, Body: "hello"}
 		json.NewEncoder(w).Encode(resp)
@@ -62,6 +64,7 @@ func TestFetch(t *testing.T) {
 }
 
 func TestAnalyze_Error(t *testing.T) {
+	t.Parallel()
 	c := NewClient("http://127.0.0.1:1") // connection refused
 	_, err := c.Analyze(context.Background(), "https://example.com")
 	if err == nil {

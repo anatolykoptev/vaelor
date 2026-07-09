@@ -36,6 +36,7 @@ func assertLineMapAt(t *testing.T, name string, vs *VirtualSource, virtualLine i
 // ---- Builder direct tests ---------------------------------------------------
 
 func TestBuilder_Empty(t *testing.T) {
+	t.Parallel()
 	b := NewBuilder("svelte")
 	vs := b.Build()
 	if len(vs.Code) != 0 {
@@ -47,6 +48,7 @@ func TestBuilder_Empty(t *testing.T) {
 }
 
 func TestBuilder_SingleBlock(t *testing.T) {
+	t.Parallel()
 	src := []byte("line1\nline2\nline3\n")
 	b := NewBuilder("svelte")
 	b.AppendBlock(src, 0, len(src))
@@ -70,6 +72,7 @@ func TestBuilder_SingleBlock(t *testing.T) {
 }
 
 func TestBuilder_BlockAtOffset(t *testing.T) {
+	t.Parallel()
 	// Block starts at byte 4 ("line3...") — that's after "a\nb\n" (3 lines → line 3 starts).
 	src := []byte("a\nb\nline3\nline4\n")
 	b := NewBuilder("svelte")
@@ -86,6 +89,7 @@ func TestBuilder_BlockAtOffset(t *testing.T) {
 }
 
 func TestBuilder_BlankLinePadding(t *testing.T) {
+	t.Parallel()
 	src := []byte("aa\nbb\n")
 	b := NewBuilder("test")
 	b.AppendBlock(src, 0, 3) // "aa\n"

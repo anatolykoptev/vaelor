@@ -10,6 +10,7 @@ import (
 )
 
 func TestParseGoFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.go"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.go: %v", err)
@@ -88,6 +89,7 @@ func TestParseGoFile(t *testing.T) {
 }
 
 func TestParseGoFileWithBody(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.go"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.go: %v", err)
@@ -115,6 +117,7 @@ func TestParseGoFileWithBody(t *testing.T) {
 }
 
 func TestParsePythonFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.py"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.py: %v", err)
@@ -191,6 +194,7 @@ func TestParsePythonFile(t *testing.T) {
 }
 
 func TestParseTypeScriptFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.ts"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.ts: %v", err)
@@ -268,6 +272,7 @@ func TestParseTypeScriptFile(t *testing.T) {
 }
 
 func TestParseRustFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.rs"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.rs: %v", err)
@@ -349,6 +354,7 @@ func TestParseRustFile(t *testing.T) {
 }
 
 func TestParseJavaFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.java"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.java: %v", err)
@@ -427,6 +433,7 @@ func TestParseJavaFile(t *testing.T) {
 }
 
 func TestParseCFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.c"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.c: %v", err)
@@ -504,6 +511,7 @@ func TestParseCFile(t *testing.T) {
 }
 
 func TestParseCppFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.cpp"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.cpp: %v", err)
@@ -583,6 +591,7 @@ func TestParseCppFile(t *testing.T) {
 }
 
 func TestParseRubyFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.rb"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.rb: %v", err)
@@ -651,6 +660,7 @@ func TestParseRubyFile(t *testing.T) {
 }
 
 func TestParseCSharpFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.cs"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.cs: %v", err)
@@ -744,6 +754,7 @@ func containsSymbol(symbols []*parser.Symbol, name string, kind parser.NodeKind)
 // A pass after deleting handler_kotlin.go would be a tautology — this test calls
 // parser.ParseFile("user.kt", ...) and asserts on its return value.
 func TestParseKotlinFile_dataClass(t *testing.T) {
+	t.Parallel()
 	// Multi-line fixture so AST handler's EndLine > StartLine is verifiable.
 	src := []byte("data class User(\n\tval name: String,\n\tval age: Int,\n)")
 
@@ -787,6 +798,7 @@ func TestParseKotlinFile_dataClass(t *testing.T) {
 // We assert EndLine >= StartLine AND that no unexpected extra symbols appear
 // (fallback cannot distinguish KindMethod-vs-KindFunction context correctly).
 func TestParseKotlinFile_topLevelFun(t *testing.T) {
+	t.Parallel()
 	// Multi-line so that AST end-row > start-row; single-expr body still spans 1 line,
 	// so we use a proper block body to guarantee EndLine > StartLine from tree-sitter.
 	src := []byte(`fun greet(name: String): String {
@@ -821,6 +833,7 @@ func TestParseKotlinFile_topLevelFun(t *testing.T) {
 // TestParseKotlinFile_extensionFn verifies that a Kotlin extension function is
 // parsed as KindFunction with Name=="shout" (receiver context is Wave 2).
 func TestParseKotlinFile_extensionFn(t *testing.T) {
+	t.Parallel()
 	src := []byte(`fun String.shout(): String { return this.uppercase() }`)
 
 	result, err := parser.ParseFile("shout.kt", src, parser.ParseOpts{})
@@ -843,6 +856,7 @@ func TestParseKotlinFile_extensionFn(t *testing.T) {
 // Fallback regex cannot see the Calculator class span correctly (EndLine==StartLine
 // for the single `class Calculator {` line); AST handler gives EndLine==5.
 func TestParseKotlinFile_companionObject(t *testing.T) {
+	t.Parallel()
 	src := []byte(`class Calculator {
 	companion object {
 		fun add(a: Int, b: Int) = a + b
@@ -886,6 +900,7 @@ func TestParseKotlinFile_companionObject(t *testing.T) {
 // TestParseKotlinFile_interfaceModifier verifies that an interface declaration is
 // emitted as KindInterface rather than KindClass, and that its methods are captured.
 func TestParseKotlinFile_interfaceModifier(t *testing.T) {
+	t.Parallel()
 	src := []byte(`interface Greeter { fun greet(): String }`)
 
 	result, err := parser.ParseFile("greeter.kt", src, parser.ParseOpts{})
@@ -912,6 +927,7 @@ func TestParseKotlinFile_interfaceModifier(t *testing.T) {
 // regression: for `fun <T> List<T>.first(): T`, the captured name must be "first",
 // not the type parameter "T" or receiver "List".
 func TestParseKotlinFile_genericReceiverExtension(t *testing.T) {
+	t.Parallel()
 	src := []byte(`fun <T> List<T>.first(): T = this[0]`)
 
 	result, err := parser.ParseFile("ext.kt", src, parser.ParseOpts{})
@@ -933,6 +949,7 @@ func TestParseKotlinFile_genericReceiverExtension(t *testing.T) {
 // TestParseKotlinFile_callSites verifies that ExtractCalls captures plain function
 // calls and identifies them by name, using the Kotlin calls query.
 func TestParseKotlinFile_callSites(t *testing.T) {
+	t.Parallel()
 	src := []byte(`fun caller() {
     println("hi")
     compute(1, 2)
@@ -959,6 +976,7 @@ fun compute(a: Int, b: Int) = a + b
 // TestParseKotlinFile_relationshipsInheritance verifies that ExtractRelationships
 // returns an inherit/extend edge from Cat to Animal.
 func TestParseKotlinFile_relationshipsInheritance(t *testing.T) {
+	t.Parallel()
 	src := []byte(`interface Animal { fun sound(): String }
 open class Cat : Animal { override fun sound() = "meow" }
 `)
@@ -982,6 +1000,7 @@ open class Cat : Animal { override fun sound() = "meow" }
 // TestParseKotlinFile_sealedClass verifies that sealed classes and their nested
 // subclasses are all emitted as KindClass (sealed is a modifier, not a separate kind).
 func TestParseKotlinFile_sealedClass(t *testing.T) {
+	t.Parallel()
 	src := []byte(`sealed class Result { class Ok : Result(); class Err : Result() }`)
 
 	result, err := parser.ParseFile("result.kt", src, parser.ParseOpts{})
@@ -999,6 +1018,7 @@ func TestParseKotlinFile_sealedClass(t *testing.T) {
 // TestParseKotlinFile_enumClass verifies that an enum class is emitted as KindClass,
 // consistent with Java handler behaviour for enum_declaration.
 func TestParseKotlinFile_enumClass(t *testing.T) {
+	t.Parallel()
 	src := []byte(`enum class Color { RED, GREEN, BLUE }`)
 
 	result, err := parser.ParseFile("color.kt", src, parser.ParseOpts{})
@@ -1012,6 +1032,7 @@ func TestParseKotlinFile_enumClass(t *testing.T) {
 }
 
 func TestParsePHPFile(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile(filepath.Join("testdata", "sample.php"))
 	if err != nil {
 		t.Fatalf("read testdata/sample.php: %v", err)
@@ -1094,6 +1115,7 @@ func TestParsePHPFile(t *testing.T) {
 // Anti-tautology: asserts against parser.ParseFile return value.
 // AST discriminator: EndLine > StartLine (multi-line fixture).
 func TestParseSwiftFile_classDecl(t *testing.T) {
+	t.Parallel()
 	// Multi-line so that EndLine > StartLine, proving AST parse (not regex fallback).
 	src := []byte("class User {\n\tvar name: String\n\tvar age: Int\n}")
 
@@ -1127,6 +1149,7 @@ func TestParseSwiftFile_classDecl(t *testing.T) {
 // parsed as KindFunction with Language=="swift".
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_topLevelFunction(t *testing.T) {
+	t.Parallel()
 	src := []byte("func greet(name: String) -> String {\n\treturn \"Hello, \\(name)\"\n}")
 
 	result, err := parser.ParseFile("greet.swift", src, parser.ParseOpts{})
@@ -1158,6 +1181,7 @@ func TestParseSwiftFile_topLevelFunction(t *testing.T) {
 // Swift protocols are the closest analog to Kotlin interfaces / Java interfaces.
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_protocolDecl(t *testing.T) {
+	t.Parallel()
 	src := []byte("protocol Greeter {\n\tfunc greet() -> String\n}")
 
 	result, err := parser.ParseFile("greeter.swift", src, parser.ParseOpts{})
@@ -1184,6 +1208,7 @@ func TestParseSwiftFile_protocolDecl(t *testing.T) {
 // Regex fallback would emit KindFunction; AST handler must emit KindMethod.
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_extensionDecl(t *testing.T) {
+	t.Parallel()
 	src := []byte("extension String {\n\tfunc shout() -> String {\n\t\treturn self.uppercased()\n\t}\n}")
 
 	result, err := parser.ParseFile("string_ext.swift", src, parser.ParseOpts{})
@@ -1215,6 +1240,7 @@ func TestParseSwiftFile_extensionDecl(t *testing.T) {
 // a distinct node from function_declaration used in class/struct bodies.
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_protocolBodyMethods(t *testing.T) {
+	t.Parallel()
 	src := []byte("protocol Greeter {\n\tfunc greet() -> String\n\tfunc farewell(name: String) -> String\n}")
 
 	result, err := parser.ParseFile("greeter.swift", src, parser.ParseOpts{})
@@ -1246,6 +1272,7 @@ func TestParseSwiftFile_protocolBodyMethods(t *testing.T) {
 // calls originating inside a Swift function body.
 // Anti-tautology: asserts against parser.ExtractCalls return value.
 func TestParseSwiftFile_callSites(t *testing.T) {
+	t.Parallel()
 	src := []byte("func caller() {\n\tprint(\"hi\")\n\tcompute(1, 2)\n}\nfunc compute(a: Int, b: Int) -> Int {\n\treturn a + b\n}")
 
 	calls, err := parser.ExtractCalls("main.swift", src, parser.ParseOpts{})
@@ -1269,6 +1296,7 @@ func TestParseSwiftFile_callSites(t *testing.T) {
 // Swift uses "class Cat: Animal" (single colon) for both inheritance and conformance.
 // Anti-tautology: asserts against parser.ExtractRelationships return value.
 func TestParseSwiftFile_relationshipsConformance(t *testing.T) {
+	t.Parallel()
 	src := []byte("protocol Animal {\n\tfunc sound() -> String\n}\nclass Cat: Animal {\n\tfunc sound() -> String { return \"meow\" }\n}")
 
 	rels, err := parser.ExtractRelationships("cat.swift", src, parser.ParseOpts{})
@@ -1293,6 +1321,7 @@ func TestParseSwiftFile_relationshipsConformance(t *testing.T) {
 // swiftNameNode scans children left-to-right and must find "swap" before type_parameters.
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_genericFunction(t *testing.T) {
+	t.Parallel()
 	src := []byte("func swap<T>(_ a: inout T, _ b: inout T) {\n\tlet tmp = a\n}")
 
 	result, err := parser.ParseFile("swap.swift", src, parser.ParseOpts{})
@@ -1321,6 +1350,7 @@ func TestParseSwiftFile_genericFunction(t *testing.T) {
 // if distinct NodeKind constants are introduced in a later wave.
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_struct(t *testing.T) {
+	t.Parallel()
 	// Multi-line so EndLine > StartLine (AST discriminator).
 	src := []byte("struct Point {\n\tvar x: Double\n\tvar y: Double\n}")
 
@@ -1356,6 +1386,7 @@ func TestParseSwiftFile_struct(t *testing.T) {
 // Actors parse as class_declaration with an "actor" keyword child (same umbrella node).
 // Anti-tautology: asserts against parser.ParseFile return value.
 func TestParseSwiftFile_actor(t *testing.T) {
+	t.Parallel()
 	src := []byte("actor Counter {\n\tvar value: Int = 0\n\tfunc increment() {\n\t\tvalue += 1\n\t}\n}")
 
 	result, err := parser.ParseFile("counter.swift", src, parser.ParseOpts{})

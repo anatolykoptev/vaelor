@@ -35,6 +35,7 @@ import "testing"
 // test uses a distinct per-extension fixture instead, so that specific
 // single-shared-source property is intentionally not preserved.
 func TestRegistryWideSymbolLanguageAgreesWithDetector(t *testing.T) {
+	t.Parallel()
 	fixtures := registrationFixtures(t)
 
 	for ext := range registry {
@@ -87,6 +88,7 @@ func TestRegistryWideSymbolLanguageAgreesWithDetector(t *testing.T) {
 // (markup_calls.go); this test forecloses a future third preprocessor
 // handler (e.g. a Vue template pass) shipping only half of it.
 func TestScriptCallSourceImpliesMarkupCallSource(t *testing.T) {
+	t.Parallel()
 	for ext, h := range registry {
 		_, hasScript := h.(scriptCallSource)
 		_, hasMarkup := h.(markupCallSource)

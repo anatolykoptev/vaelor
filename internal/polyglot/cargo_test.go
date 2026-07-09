@@ -3,6 +3,7 @@ package polyglot
 import "testing"
 
 func TestParseCargoToml(t *testing.T) {
+	t.Parallel()
 	content := []byte(`
 [package]
 name = "ox-browser"
@@ -35,6 +36,7 @@ mockall = "0.13"
 }
 
 func TestParseCargoToml_Workspace(t *testing.T) {
+	t.Parallel()
 	content := []byte(`
 [workspace]
 members = ["crates/core", "crates/http", "crates/mcp"]
@@ -49,6 +51,7 @@ resolver = "2"
 }
 
 func TestParseCargoToml_Empty(t *testing.T) {
+	t.Parallel()
 	info := ParseCargoToml([]byte(""))
 	if info.Name != "" {
 		t.Errorf("expected empty name for empty input")

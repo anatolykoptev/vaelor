@@ -7,6 +7,7 @@ import (
 )
 
 func TestCompareSemver(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		current, latest, want string
 	}{
@@ -64,6 +65,7 @@ func (m *mockRegistry) Latest(_ context.Context, name string) (string, error) {
 }
 
 func TestCheckFreshness_AllCurrent(t *testing.T) {
+	t.Parallel()
 	deps := []Dependency{
 		{Name: "foo", Version: "1.0.0", Language: "go"},
 		{Name: "bar", Version: "2.3.4", Language: "go"},
@@ -91,6 +93,7 @@ func TestCheckFreshness_AllCurrent(t *testing.T) {
 }
 
 func TestCheckFreshness_Mixed(t *testing.T) {
+	t.Parallel()
 	deps := []Dependency{
 		{Name: "a", Version: "1.0.0", Language: "npm"},
 		{Name: "b", Version: "1.0.0", Language: "npm"},
@@ -123,6 +126,7 @@ func TestCheckFreshness_Mixed(t *testing.T) {
 }
 
 func TestCheckFreshness_Empty(t *testing.T) {
+	t.Parallel()
 	reg := &MultiRegistry{registries: map[string]Registry{}}
 	result := CheckFreshness(context.Background(), nil, reg)
 	if result.Total != 0 {
@@ -134,6 +138,7 @@ func TestCheckFreshness_Empty(t *testing.T) {
 }
 
 func TestCheckFreshness_RegistryError(t *testing.T) {
+	t.Parallel()
 	deps := []Dependency{
 		{Name: "ok", Version: "1.0.0", Language: "go"},
 		{Name: "fail", Version: "1.0.0", Language: "go"},
@@ -153,6 +158,7 @@ func TestCheckFreshness_RegistryError(t *testing.T) {
 }
 
 func TestCheckFreshness_UnknownLanguage(t *testing.T) {
+	t.Parallel()
 	deps := []Dependency{
 		{Name: "x", Version: "1.0.0", Language: "haskell"},
 	}
@@ -165,6 +171,7 @@ func TestCheckFreshness_UnknownLanguage(t *testing.T) {
 }
 
 func TestCheckFreshness_MultiLanguage(t *testing.T) {
+	t.Parallel()
 	deps := []Dependency{
 		{Name: "a", Version: "1.0.0", Language: "go"},
 		{Name: "b", Version: "1.0.0", Language: "npm"},

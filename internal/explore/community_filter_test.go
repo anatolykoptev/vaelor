@@ -28,6 +28,7 @@ func connect(syms []*parser.Symbol) []callgraph.CallEdge {
 // and pairs are filtered out of both Count and Clusters. Before the fix,
 // Count reported 1000+ Louvain singletons polluting the field.
 func TestBuildCommunityOverview_KeepsOnlyNonTrivial(t *testing.T) {
+	t.Parallel()
 	g1 := []*parser.Symbol{mkSym("g1a", "g1.go"), mkSym("g1b", "g1.go"), mkSym("g1c", "g1.go"), mkSym("g1d", "g1.go")}
 	g2 := []*parser.Symbol{mkSym("g2a", "g2.go"), mkSym("g2b", "g2.go"), mkSym("g2c", "g2.go"), mkSym("g2d", "g2.go")}
 	pair := []*parser.Symbol{mkSym("pa", "p.go"), mkSym("pb", "p.go")}

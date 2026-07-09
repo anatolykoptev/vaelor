@@ -11,6 +11,7 @@ import (
 )
 
 func TestIsGitRepo_NormalRepo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	mustGit(t, dir, "init")
 	if !IsGitRepo(dir) {
@@ -19,6 +20,7 @@ func TestIsGitRepo_NormalRepo(t *testing.T) {
 }
 
 func TestIsGitRepo_Worktree(t *testing.T) {
+	t.Parallel()
 	// Create the main repo with at least one commit so "git worktree add" works.
 	main := t.TempDir()
 	mustGit(t, main, "init")
@@ -42,6 +44,7 @@ func TestIsGitRepo_Worktree(t *testing.T) {
 }
 
 func TestIsGitRepo_NotARepo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if IsGitRepo(dir) {
 		t.Fatalf("IsGitRepo(%q) = true for an empty dir; want false", dir)
@@ -49,6 +52,7 @@ func TestIsGitRepo_NotARepo(t *testing.T) {
 }
 
 func TestIsGitRepo_BareDir(t *testing.T) {
+	t.Parallel()
 	// .git exists as a regular file but does not start with "gitdir: ".
 	// We treat this as a repo (true) — downstream git commands will error
 	// with a precise message if the pointer is invalid.
@@ -78,6 +82,7 @@ func mustGit(t *testing.T, dir string, args ...string) {
 // ---- γ.D.2 tests ----
 
 func TestCommitsSince_CountsFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	mustGit(t, dir, "init")
 	writeTestFile(t, dir, "foo.go", "package main")
@@ -102,6 +107,7 @@ func TestCommitsSince_CountsFiles(t *testing.T) {
 }
 
 func TestCommitsSince_BadRoot_EmptyMap(t *testing.T) {
+	t.Parallel()
 	counts := CommitsSince(context.Background(), "/nonexistent/path/xyz", 30*24*time.Hour)
 	if len(counts) != 0 {
 		t.Errorf("expected empty map for bad root, got %v", counts)
@@ -109,6 +115,7 @@ func TestCommitsSince_BadRoot_EmptyMap(t *testing.T) {
 }
 
 func TestFileDiffSince_HappyPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	mustGit(t, dir, "init")
 	writeTestFile(t, dir, "hello.go", "package main\n// v1\n")
@@ -126,6 +133,7 @@ func TestFileDiffSince_HappyPath(t *testing.T) {
 }
 
 func TestFileDiffSince_NoChange_EmptyDiff(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	mustGit(t, dir, "init")
 	writeTestFile(t, dir, "stable.go", "package main\n")
@@ -137,6 +145,7 @@ func TestFileDiffSince_NoChange_EmptyDiff(t *testing.T) {
 }
 
 func TestFileDiffSince_CapsLines(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	mustGit(t, dir, "init")
 
@@ -174,6 +183,7 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 }
 
 func TestOriginURL(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)

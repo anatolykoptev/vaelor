@@ -7,6 +7,7 @@ import (
 )
 
 func TestParseSourceMap(t *testing.T) {
+	t.Parallel()
 	raw := `{
 		"version": 3,
 		"sources": ["src/App.tsx", "src/utils/helper.ts"],
@@ -25,6 +26,7 @@ func TestParseSourceMap(t *testing.T) {
 }
 
 func TestWriteSourceTree(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	sm := &SourceMap{
 		Sources:        []string{"src/App.tsx", "src/utils/helper.ts"},
@@ -48,6 +50,7 @@ func TestWriteSourceTree(t *testing.T) {
 }
 
 func TestParseSourceMap_Empty(t *testing.T) {
+	t.Parallel()
 	raw := `{"version": 3, "sources": [], "sourcesContent": []}`
 	sm, err := ParseSourceMap([]byte(raw))
 	if err != nil {
@@ -59,6 +62,7 @@ func TestParseSourceMap_Empty(t *testing.T) {
 }
 
 func TestWriteSourceTree_Mismatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	sm := &SourceMap{
 		Sources:        []string{"a.js", "b.js"},
@@ -74,6 +78,7 @@ func TestWriteSourceTree_Mismatch(t *testing.T) {
 }
 
 func TestFindSourceMapURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		body string
 		want string

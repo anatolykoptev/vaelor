@@ -9,6 +9,7 @@ import (
 )
 
 func TestBatchInitialCreationLines_FirstAddPerPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
@@ -53,6 +54,7 @@ func TestBatchInitialCreationLines_FirstAddPerPath(t *testing.T) {
 }
 
 func TestBatchInitialCreationLines_EmptyPaths(t *testing.T) {
+	t.Parallel()
 	got, err := BatchInitialCreationLines(context.Background(), "/nonexistent", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +71,7 @@ func TestBatchInitialCreationLines_EmptyPaths(t *testing.T) {
 // it cannot distinguish "cache used" from "git silently spawned". The sentinel
 // makes the two paths produce DIFFERENT scores, so a green test = cache won.
 func TestChurnRisk_ScoreReadsCreationCache(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)

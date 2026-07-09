@@ -82,6 +82,7 @@ func newAppTokenSourceForTest(t *testing.T, srv *httptest.Server, pemData []byte
 // ── parse / constructor ────────────────────────────────────────────────────
 
 func TestNewAppTokenSource_RejectsInvalidPEM(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		pem  []byte
@@ -106,6 +107,7 @@ func TestNewAppTokenSource_RejectsInvalidPEM(t *testing.T) {
 }
 
 func TestNewAppTokenSource_AcceptsValidPEM(t *testing.T) {
+	t.Parallel()
 	src, err := NewAppTokenSource(AppAuthConfig{
 		AppID:          3613880,
 		InstallationID: 129820682,
@@ -122,6 +124,7 @@ func TestNewAppTokenSource_AcceptsValidPEM(t *testing.T) {
 // ── JWT signing ────────────────────────────────────────────────────────────
 
 func TestAppTokenSource_GeneratesJWT(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Not called in this test.
 		http.Error(w, "unexpected call", http.StatusInternalServerError)
@@ -193,6 +196,7 @@ func TestAppTokenSource_GeneratesJWT(t *testing.T) {
 // ── token fetch & cache ────────────────────────────────────────────────────
 
 func TestAppTokenSource_FetchesToken(t *testing.T) {
+	t.Parallel()
 	const wantToken = "ghs_test_token_abc"
 	expiry := time.Now().Add(time.Hour)
 
@@ -217,6 +221,7 @@ func TestAppTokenSource_FetchesToken(t *testing.T) {
 }
 
 func TestAppTokenSource_CachesToken(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	expiry := time.Now().Add(time.Hour)
 
@@ -248,6 +253,7 @@ func TestAppTokenSource_CachesToken(t *testing.T) {
 }
 
 func TestAppTokenSource_RefreshesNearExpiry(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	// Issue tokens that expire in 4 minutes — well inside the 5-minute refresh leeway.
 	// So every Token() call should trigger a new fetch.
@@ -411,6 +417,7 @@ func TestAppRoundTripper_TransportError_EmitsMetric(t *testing.T) {
 }
 
 func TestAppTokenSource_ServesStaleOnRefreshError(t *testing.T) {
+	t.Parallel()
 	// First call succeeds and caches. Subsequent call fails at fetch.
 	// Token must return the stale cached value (still valid clock-wise).
 	callCount := 0
@@ -460,6 +467,7 @@ func TestAppTokenSource_ServesStaleOnRefreshError(t *testing.T) {
 // ── fallback to PAT ────────────────────────────────────────────────────────
 
 func TestAppTokenSource_FallsBackToPAT_WhenAppEnvMissing(t *testing.T) {
+	t.Parallel()
 	// When AppConfig is zero, NewGitHubForge must use PAT transport.
 	// Verify by checking that the Authorization header is "token <pat>".
 	const pat = "ghp_test_pat_xyz"
@@ -491,6 +499,7 @@ func TestAppTokenSource_FallsBackToPAT_WhenAppEnvMissing(t *testing.T) {
 }
 
 func TestNewGitHubForge_AppAuthInjectsInstallationToken(t *testing.T) {
+	t.Parallel()
 	// When valid AppConfig is provided, requests must carry the installation token,
 	// NOT the PAT — proving they use a separate rate-limit pool.
 	const installationToken = "ghs_installation_xyz"
@@ -538,6 +547,7 @@ func TestNewGitHubForge_AppAuthInjectsInstallationToken(t *testing.T) {
 }
 
 func TestNewGitHubForge_FallsBackToPAT_OnInvalidKey(t *testing.T) {
+	t.Parallel()
 	// Invalid KeyPEM → App init fails → newGitHubForgeWithBase falls back to PAT.
 	const pat = "ghp_fallback_pat"
 	var gotAuth string
@@ -579,6 +589,7 @@ func TestNewGitHubForge_FallsBackToPAT_OnInvalidKey(t *testing.T) {
 // ── endpointLabel ──────────────────────────────────────────────────────────
 
 func TestEndpointLabel(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		path string
 		want string

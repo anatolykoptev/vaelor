@@ -8,6 +8,7 @@ import (
 )
 
 func TestRegistry_NotFound(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
@@ -21,6 +22,7 @@ func TestRegistry_NotFound(t *testing.T) {
 }
 
 func TestRegistry_BadJSON(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{not json`))
 	})
@@ -34,6 +36,7 @@ func TestRegistry_BadJSON(t *testing.T) {
 }
 
 func TestRegistry_Timeout(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		_, _ = w.Write([]byte(`{"version":"1.0.0"}`))
@@ -51,6 +54,7 @@ func TestRegistry_Timeout(t *testing.T) {
 }
 
 func TestNuGetRegistry_EmptyVersions(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"versions":[]}`))
 	})

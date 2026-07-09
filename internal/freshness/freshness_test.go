@@ -5,6 +5,7 @@ import (
 )
 
 func TestDependencyFields(t *testing.T) {
+	t.Parallel()
 	d := Dependency{Name: "foo", Version: "1.0.0", Language: "go"}
 	if d.Name != "foo" {
 		t.Errorf("Name = %q, want %q", d.Name, "foo")
@@ -18,6 +19,7 @@ func TestDependencyFields(t *testing.T) {
 }
 
 func TestManifestInfoDefaults(t *testing.T) {
+	t.Parallel()
 	m := ManifestInfo{Language: "python"}
 	if m.Language != "python" {
 		t.Errorf("Language = %q, want %q", m.Language, "python")
@@ -31,6 +33,7 @@ func TestManifestInfoDefaults(t *testing.T) {
 }
 
 func TestFreshnessResultZeroValue(t *testing.T) {
+	t.Parallel()
 	r := FreshnessResult{}
 	if r.Total != 0 || r.Ratio != 0 {
 		t.Errorf("zero value not as expected: %+v", r)
@@ -38,6 +41,7 @@ func TestFreshnessResultZeroValue(t *testing.T) {
 }
 
 func TestOutdatedDepFields(t *testing.T) {
+	t.Parallel()
 	o := OutdatedDep{Name: "pkg", Current: "1.0", Latest: "2.0", Kind: "major"}
 	if o.Name != "pkg" || o.Current != "1.0" || o.Latest != "2.0" || o.Kind != "major" {
 		t.Errorf("unexpected fields: %+v", o)

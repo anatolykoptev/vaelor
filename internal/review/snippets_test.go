@@ -9,6 +9,7 @@ import (
 )
 
 func TestExtractSnippets(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	src := "package main\n\nimport \"fmt\"\n\nfunc Hello() {\n\tfmt.Println(\"hello\")\n}\n\nfunc World() {\n\tfmt.Println(\"world\")\n}\n"
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644)
@@ -41,6 +42,7 @@ func TestExtractSnippets(t *testing.T) {
 }
 
 func TestExtractSnippetsMaxLines(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Write a file with 50 lines.
 	var lines string

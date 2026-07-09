@@ -67,6 +67,7 @@ func (errCache) Set(context.Context, string, string, time.Duration) error {
 }
 
 func TestCachedRegistry_HitSkipsInner(t *testing.T) {
+	t.Parallel()
 	inner := &fakeRegistry{version: "2.0.0"}
 	cache := newMemCache()
 	cached := NewCachedRegistry(inner, cache, "go", DefaultCacheTTL)
@@ -99,6 +100,7 @@ func TestCachedRegistry_HitSkipsInner(t *testing.T) {
 }
 
 func TestCachedRegistry_CacheKeyFormat(t *testing.T) {
+	t.Parallel()
 	inner := &fakeRegistry{version: "1.0.0"}
 	cache := newMemCache()
 	cached := NewCachedRegistry(inner, cache, "npm", DefaultCacheTTL)
@@ -113,6 +115,7 @@ func TestCachedRegistry_CacheKeyFormat(t *testing.T) {
 }
 
 func TestCachedRegistry_FallbackOnCacheError(t *testing.T) {
+	t.Parallel()
 	inner := &fakeRegistry{version: "3.0.0"}
 	cached := NewCachedRegistry(inner, errCache{}, "rust", DefaultCacheTTL)
 
@@ -138,6 +141,7 @@ func TestCachedRegistry_FallbackOnCacheError(t *testing.T) {
 }
 
 func TestNewMultiRegistryWithCache_NilCache(t *testing.T) {
+	t.Parallel()
 	mr := NewMultiRegistryWithCache(nil, nil)
 	// All 7 languages should be registered without caching.
 	for _, lang := range []string{"go", "npm", "python", "rust", "java", "ruby", "csharp"} {
@@ -148,6 +152,7 @@ func TestNewMultiRegistryWithCache_NilCache(t *testing.T) {
 }
 
 func TestNewMultiRegistryWithCache_WithCache(t *testing.T) {
+	t.Parallel()
 	cache := newMemCache()
 	mr := NewMultiRegistryWithCache(nil, cache)
 	// All registries should be CachedRegistry.

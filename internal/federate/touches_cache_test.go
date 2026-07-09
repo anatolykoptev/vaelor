@@ -10,6 +10,7 @@ import (
 // TestTouchesCache_Behavior asserts TTL-expiry and capacity-eviction semantics
 // for the touchesCache backed by cache.LRU (migrated in PR #258).
 func TestTouchesCache_Behavior(t *testing.T) {
+	t.Parallel()
 	t.Run("TTL expiry returns miss", func(t *testing.T) {
 		c := &touchesCache{
 			lru: cache.NewLRU[string, touchesCacheEntry](10),

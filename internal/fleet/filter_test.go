@@ -7,6 +7,7 @@ import (
 )
 
 func TestIsValidFilter(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -44,6 +45,7 @@ func TestIsValidFilter(t *testing.T) {
 }
 
 func TestMatchesFilter(t *testing.T) {
+	t.Parallel()
 	img := fleet.RuntimeImage{
 		Container: "myapp_web_1",
 		Service:   "web",

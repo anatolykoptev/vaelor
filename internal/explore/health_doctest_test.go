@@ -15,6 +15,7 @@ import (
 // to an uppercase-first check makes isPublic=false + lowercase JS name invisible
 // → exportedCount stays 0, documentedCount stays 0, failing both assertions.
 func TestCollectSymbolMetrics_JSDocPath(t *testing.T) {
+	t.Parallel()
 	// camelCase JS function: not public by IsPublic flag, not uppercase-first,
 	// but should count as exported under JS rules.
 	sym := &parser.Symbol{
@@ -52,6 +53,7 @@ func TestCollectSymbolMetrics_JSDocPath(t *testing.T) {
 // Use a deliberately underscore-prefixed name to make the IsPublic gate
 // the only path that classifies it as exported.
 func TestCollectSymbolMetrics_RustIsPublicUnderscore(t *testing.T) {
+	t.Parallel()
 	// "_internal_helper" starts with '_', so name-based checks would return
 	// not-exported.  Only the IsPublic=true early-return makes it exported.
 	sym := &parser.Symbol{

@@ -22,6 +22,7 @@ import (
 // asserts the cache-hit pass returns the same call sites as the cache-miss
 // pass.
 func TestParseOneFileReturnsCallsOnCacheHit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "caller.go")
 	src := []byte(`package sample

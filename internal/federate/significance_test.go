@@ -6,6 +6,7 @@ import (
 )
 
 func TestLogLikelihoodG2_Independence(t *testing.T) {
+	t.Parallel()
 	// A in 5/10, B in 4/10, co=2 = expected under independence (0.5·0.4·10). G²≈0.
 	g2 := logLikelihoodG2(2, 5, 4, 10)
 	if g2 > 0.01 {
@@ -14,6 +15,7 @@ func TestLogLikelihoodG2_Independence(t *testing.T) {
 }
 
 func TestLogLikelihoodG2_PerfectCoupling(t *testing.T) {
+	t.Parallel()
 	g2 := logLikelihoodG2(8, 8, 8, 20) // both in the same 8 of 20 windows
 	if g2 < 10 {
 		t.Fatalf("tight 8/20 coupling → high G², got %.4f", g2)
@@ -21,6 +23,7 @@ func TestLogLikelihoodG2_PerfectCoupling(t *testing.T) {
 }
 
 func TestLogLikelihoodG2_RareCoincidenceIsWeak(t *testing.T) {
+	t.Parallel()
 	rare := logLikelihoodG2(2, 2, 2, 200)       // raw lift = 100, but only 2 samples
 	genuine := logLikelihoodG2(10, 12, 12, 200) // well-supported coupling
 	if rare >= genuine {
@@ -29,6 +32,7 @@ func TestLogLikelihoodG2_RareCoincidenceIsWeak(t *testing.T) {
 }
 
 func TestLogLikelihoodG2_ZeroCells(t *testing.T) {
+	t.Parallel()
 	if g2 := logLikelihoodG2(0, 3, 4, 10); g2 < 0 || math.IsNaN(g2) {
 		t.Fatalf("co=0 → finite non-negative G², got %.4f", g2)
 	}
@@ -38,6 +42,7 @@ func TestLogLikelihoodG2_ZeroCells(t *testing.T) {
 }
 
 func TestSignificanceLabel(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		g2   float64
 		want string
