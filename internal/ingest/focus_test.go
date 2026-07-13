@@ -103,6 +103,27 @@ func TestContentFilter_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestContentFilter_CommaSeparated(t *testing.T) {
+	t.Parallel()
+	symbols := []*parser.Symbol{
+		{Name: "NewLLMClient", File: "/repo/llm/client.go"},
+		{Name: "RetryWithBackoff", File: "/repo/retry.go"},
+		{Name: "HandleHTTP", File: "/repo/http.go"},
+	}
+
+	matched := ContentFilter("llm,retry", symbols, nil, nil)
+
+	if !matched["/repo/llm/client.go"] {
+		t.Error("expected llm/client.go to match keyword 'llm'")
+	}
+	if !matched["/repo/retry.go"] {
+		t.Error("expected retry.go to match keyword 'retry'")
+	}
+	if matched["/repo/http.go"] {
+		t.Error("http.go should not match either keyword")
+	}
+}
+
 func TestFilterFiles_ByMatchSet(t *testing.T) {
 	t.Parallel()
 	files := []*File{

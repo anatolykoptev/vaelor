@@ -13,7 +13,7 @@ import (
 // a symbol name, import path, or call site (case-insensitive, OR logic).
 // Returns nil when focus is empty or has no keywords.
 func ContentFilter(focus string, symbols []*parser.Symbol, imports map[string][]string, calls []parser.CallSite) map[string]bool {
-	keywords := strings.Fields(strings.ToLower(focus))
+	keywords := splitFocus(strings.ToLower(focus))
 	if len(keywords) == 0 {
 		return nil
 	}
