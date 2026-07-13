@@ -50,7 +50,7 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 	}
 
 	cypher := fmt.Sprintf(
-		"MATCH (s:Symbol {name: '%s', file: '%s'})-[:HANDLES]->(r:Route) RETURN r.method, r.path LIMIT 1",
+		"MATCH (s:Symbol {name: '%s', file: '%s'})-[:HANDLES]->(r:Route {side: 'server'}) RETURN r.method, r.path LIMIT 1",
 		escapeCypher(symbolName), escapeCypher(relFile),
 	)
 
@@ -99,7 +99,7 @@ func (c *crossRefsAdapter) FetchedBy(ctx context.Context, repoKey string, route 
 	}
 
 	cypher := fmt.Sprintf(
-		"MATCH (client:Symbol)-[:FETCHES]->(r:Route {method: '%s', path: '%s'}) RETURN client.name, client.file",
+		"MATCH (client:Symbol)-[:FETCHES]->(r:Route {method: '%s', path: '%s', side: 'client'}) RETURN client.name, client.file",
 		escapeCypher(route.Method), escapeCypher(route.Path),
 	)
 

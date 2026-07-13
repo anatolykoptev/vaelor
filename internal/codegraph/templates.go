@@ -206,22 +206,22 @@ var templates = map[string]*Template{
 		ID:          "hook_handlers",
 		Description: "Find all callback functions registered for a WordPress hook",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (s:Symbol)-[:HANDLES]->(r:Route {framework: 'wordpress', path: '{name}'}) RETURN s.name, s.file, s.kind, r.method",
+		Cypher:      "MATCH (s:Symbol)-[:HANDLES]->(r:Route {framework: 'wordpress', path: '{name}', side: 'server'}) RETURN s.name, s.file, s.kind, r.method",
 		Cols:        4,
 	},
 	"hook_fires": {
 		ID:          "hook_fires",
 		Description: "Find all functions that fire (invoke) a WordPress hook",
 		Params:      []string{"name"},
-		Cypher:      "MATCH (s:Symbol)-[:FETCHES]->(r:Route {framework: 'wordpress', path: '{name}'}) RETURN s.name, s.file",
+		Cypher:      "MATCH (s:Symbol)-[:FETCHES]->(r:Route {framework: 'wordpress', path: '{name}', side: 'client'}) RETURN s.name, s.file",
 		Cols:        2,
 	},
 	"all_hooks": {
 		ID:          "all_hooks",
 		Description: "List all WordPress hooks found in the codebase",
 		Params:      []string{},
-		Cypher:      "MATCH (r:Route {framework: 'wordpress'}) RETURN r.method, r.path ORDER BY r.path",
-		Cols:        2,
+		Cypher:      "MATCH (r:Route {framework: 'wordpress'}) RETURN r.method, r.path, r.side ORDER BY r.path",
+		Cols:        3,
 	},
 }
 
