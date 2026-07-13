@@ -99,6 +99,20 @@ type traceStats struct {
 
 const defaultTraceDepth = 5
 
+// normalizeCallTraceDirection maps the tool's documented direction values
+// (forward/reverse/callees/callers) to the canonical values expected by
+// internal/callgraph.Trace ("callers" for reverse, "callees" otherwise).
+func normalizeCallTraceDirection(direction string) string {
+	switch direction {
+	case "reverse", "callers":
+		return "callers"
+	case "forward", "callees":
+		return "callees"
+	default:
+		return "callees"
+	}
+}
+
 // registerCallTrace registers the call_trace MCP tool.
 func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
@@ -135,10 +149,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		depth = defaultTraceDepth
 	}
 
-	direction := input.Direction
-	if direction == "" {
-		direction = "callees"
-	}
+	direction := normalizeCallTraceDirection(input.Direction)
 
 	result, err := callgraph.TraceRepo(ctx, callgraph.TraceRepoInput{
 		Root:               root,
