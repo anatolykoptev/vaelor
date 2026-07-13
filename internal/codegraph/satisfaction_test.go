@@ -161,8 +161,8 @@ func keysOf(m map[string]struct{}) []string {
 // (`globalCouplingCache.get(key)`) alongside its sibling churn/touches caches in
 // the same package: several distinct *T package-level vars each expose a
 // same-named method (here `Get`), invoked from a THIRD file. codegraph/index.go
-// builds the AGE graph's CALLS edges via buildAGECallGraph, whose default (gate
-// off) path is the untyped `callgraph.BuildCallGraph` (tree-sitter) — NOT
+// builds the AGE graph's CALLS edges via buildAGECallGraph; with typed enrichment
+// disabled its path is the untyped `callgraph.BuildCallGraph` (tree-sitter) — NOT
 // `callgraph.BuildFromRepo` (the call_trace/impact_analysis path, which
 // additionally merges go/types-resolved edges and would disambiguate this
 // correctly). BuildCallGraph's resolveCall (graph.go) matches purely by method
@@ -272,11 +272,12 @@ func main() {
 		return false
 	}
 
-	t.Run("gate disabled (default) - BUG A still present", func(t *testing.T) {
+	t.Run("gate disabled - BUG A still present", func(t *testing.T) {
+		t.Setenv("CODEGRAPH_TYPED_ENRICH", "0")
 		edges := runFixture(t)
 		if hasWantEdge(edges) {
 			t.Errorf("expected CALLS edge %s -> %s to be MISSING with the gate off (byte-identical "+
-				"to the pre-P2a untyped path); it was found — the gate-off default path changed "+
+				"to the pre-P2a untyped path); it was found — the gate-off path changed "+
 				"behaviour unexpectedly. CALLS edges seen: %v", wantFrom, wantTo, callsEdgeSummary(edges))
 		}
 	})
@@ -404,11 +405,12 @@ func main() {
 		return false
 	}
 
-	t.Run("gate disabled (default) - BUG A still present", func(t *testing.T) {
+	t.Run("gate disabled - BUG A still present", func(t *testing.T) {
+		t.Setenv("CODEGRAPH_TYPED_ENRICH", "0")
 		edges := runFixture(t)
 		if hasWantEdge(edges) {
 			t.Errorf("expected CALLS edge %s -> %s to be MISSING with the gate off (byte-identical "+
-				"to the pre-P2a untyped path); it was found — the gate-off default path changed "+
+				"to the pre-P2a untyped path); it was found — the gate-off path changed "+
 				"behaviour unexpectedly. CALLS edges seen: %v", wantFrom, wantTo, callsEdgeSummary(edges))
 		}
 	})
