@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/sourcemap"
+	"github.com/anatolykoptev/go-kit/ratelimit"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -14,6 +15,11 @@ import (
 // resolveFrameResolver is the package-level Resolver shared by the MCP tool
 // and the POST /resolve HTTP endpoint. Initialized once in registerResolveFrame.
 var resolveFrameResolver *sourcemap.Resolver
+
+// resolveHTTPRateLimiter is the per-IP rate limiter for POST /resolve. Nil when
+// SOURCEMAP_RATE_LIMIT is 0 (default). It is also nil when resolve_frame is
+// disabled entirely (SourcemapAllowedHosts empty).
+var resolveHTTPRateLimiter *ratelimit.KeyLimiter
 
 // resolveFrameCacheSize is the LRU cache size (entries) for parsed source maps.
 const resolveFrameCacheSize = 64
@@ -45,6 +51,11 @@ func registerResolveFrame(server *mcp.Server, cfg Config) {
 		resolveFrameTTL,
 		cfg.SourcemapMaxBodyBytes,
 	)
+
+	if cfg.SourcemapRateLimit > 0 {
+		resolveHTTPRateLimiter = ratelimit.NewKeyLimiter(cfg.SourcemapRateLimit, cfg.SourcemapRateBurst)
+		resolveHTTPRateLimiter.StartCleanup(1*time.Minute, 5*time.Minute)
+	}
 
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "resolve_frame",
