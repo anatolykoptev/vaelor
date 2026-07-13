@@ -22,7 +22,7 @@ func TestResolver_Resolve(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := NewResolver(http.DefaultClient, 10, 5*time.Minute)
+	r := NewResolver(http.DefaultClient, 10, 5*time.Minute, 0)
 	got, err := r.Resolve(context.Background(), srv.URL+"/_app/immutable/chunks/chunk-abc.js", 1, 9)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -41,12 +41,28 @@ func TestResolver_CacheHit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := NewResolver(http.DefaultClient, 10, 5*time.Minute)
+	r := NewResolver(http.DefaultClient, 10, 5*time.Minute, 0)
 	for i := 0; i < 3; i++ {
 		_, _ = r.Resolve(context.Background(), srv.URL+"/x.js", 1, 9)
 	}
 	if hits != 1 {
 		t.Errorf("expected 1 fetch (cached), got %d", hits)
+	}
+}
+
+func TestResolver_MaxBodyBytes(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(sampleMap))
+	}))
+	defer srv.Close()
+
+	// Cap smaller than sampleMap so the body is truncated and parse fails.
+	r := NewResolver(http.DefaultClient, 10, 5*time.Minute, 64)
+	_, err := r.Resolve(context.Background(), srv.URL+"/chunk-abc.js", 1, 9)
+	if err == nil {
+		t.Fatalf("expected error when body exceeds maxBodyBytes, got nil")
 	}
 }
 
