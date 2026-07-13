@@ -135,7 +135,7 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 			score, ok := graphStore.LoadDeadCodeScore(ctx, root, s.Symbol.Name, s.Symbol.File)
 			if ok && score > 0.25 {
 				s.DeadCodeScore = score
-				s.DeadCodeNote = fmt.Sprintf("CE dead-code probability %.0f%% â likely safe to remove", float64(score)*100)
+				s.DeadCodeNote = fmt.Sprintf("CE dead-code probability %.0f%% - likely safe to remove", float64(score)*100)
 			}
 		}
 	}

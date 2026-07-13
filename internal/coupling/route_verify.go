@@ -57,6 +57,14 @@ func NewRouteVerifier() *routeVerifier {
 
 // Verify implements Verifier: returns route Evidence when a server route in one
 // file matches a client route in the other by method + normalized path.
+// isServerClientPair reports whether x and y are opposite sides of the same
+// HTTP route (one server, one client). This is the signal that a provider in
+// one file is consumed by the other.
+func isServerClientPair(x, y routes.Route) bool {
+	return (x.Side == "server" && y.Side == "client") ||
+		(x.Side == "client" && y.Side == "server")
+}
+
 func (v *routeVerifier) Verify(_ context.Context, a, b FilePair) ([]Evidence, error) {
 	ra := v.routesOf(a)
 	rb := v.routesOf(b)
@@ -67,8 +75,7 @@ func (v *routeVerifier) Verify(_ context.Context, a, b FilePair) ([]Evidence, er
 	seen := make(map[string]bool)
 	for _, x := range ra {
 		for _, y := range rb {
-			if !((x.Side == "server" && y.Side == "client") ||
-				(x.Side == "client" && y.Side == "server")) {
+			if !isServerClientPair(x, y) {
 				continue
 			}
 			if routeKey(x) != routeKey(y) {

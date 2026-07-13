@@ -96,12 +96,13 @@ func matchesContinuation(line string) bool {
 func countLeadingSpaces(s string) int {
 	n := 0
 	for _, ch := range s {
-		if ch == ' ' {
+		switch ch {
+		case ' ':
 			n++
-		} else if ch == '\t' {
+		case '\t':
 			n += pythonIndentSize
-		} else {
-			break
+		default:
+			return n
 		}
 	}
 	return n
