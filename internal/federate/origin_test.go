@@ -1,6 +1,7 @@
 package federate
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -27,7 +28,7 @@ func TestResolveRepos_DedupsByOrigin(t *testing.T) {
 	setOrigin(t, chatDev, "git@github.com:anatolykoptev/oxpulse-chat.git")
 	setOrigin(t, admin, "git@github.com:anatolykoptev/oxpulse-admin.git")
 
-	got, err := ResolveRepos("oxpulse-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "oxpulse-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestResolveRepos_NoOriginKeptDistinct(t *testing.T) {
 	gitInit(t, filepath.Join(parent, "repo-a"))
 	gitInit(t, filepath.Join(parent, "repo-b"))
 
-	got, err := ResolveRepos("all", []string{parent})
+	got, err := ResolveRepos(context.Background(), "all", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestResolveRepos_DedupsAcrossSSHAndHTTPS(t *testing.T) {
 	setOrigin(t, a, "git@github.com:anatolykoptev/oxpulse-chat.git")
 	setOrigin(t, b, "https://github.com/anatolykoptev/oxpulse-chat.git")
 
-	got, err := ResolveRepos("all", []string{parent})
+	got, err := ResolveRepos(context.Background(), "all", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestResolveRepos_DedupKeepsLexicallyFirstCheckout(t *testing.T) {
 	setOrigin(t, chat, "git@github.com:anatolykoptev/oxpulse-chat.git")
 	setOrigin(t, chatDev, "git@github.com:anatolykoptev/oxpulse-chat.git")
 
-	got, err := ResolveRepos("oxpulse-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "oxpulse-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}

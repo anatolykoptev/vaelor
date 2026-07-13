@@ -12,11 +12,11 @@ import (
 // first occurrence (roots arrive in lexical order from repofind.Discover, so
 // "oxpulse-chat" wins over "oxpulse-chat-dev"). Repos with no origin remote
 // are kept as-is — each is treated as distinct. Order is preserved.
-func dedupeByOrigin(roots []string) []string {
+func dedupeByOrigin(ctx context.Context, roots []string) []string {
 	seen := make(map[string]bool, len(roots))
 	out := make([]string, 0, len(roots))
 	for _, root := range roots {
-		origin := gitutil.OriginURL(context.Background(), root)
+		origin := gitutil.OriginURL(ctx, root)
 		id := repoIdentity(origin)
 		if id != "" {
 			if seen[id] {
