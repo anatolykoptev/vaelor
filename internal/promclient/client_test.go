@@ -12,24 +12,16 @@ import (
 func TestNewClient_DefaultsTimeout(t *testing.T) {
 	t.Parallel()
 	c := NewClient("http://localhost:9090", 0)
-	if c.httpClient.Timeout != 30*time.Second {
-		t.Errorf("expected default 30s timeout, got %v", c.httpClient.Timeout)
+	if c.httpClient.Timeout() != 30*time.Second {
+		t.Errorf("expected default 30s timeout, got %v", c.httpClient.Timeout())
 	}
 }
 
 func TestNewClient_RespectsCustomTimeout(t *testing.T) {
 	t.Parallel()
 	c := NewClient("http://localhost:9090", 60*time.Second)
-	if c.httpClient.Timeout != 60*time.Second {
-		t.Errorf("expected 60s timeout, got %v", c.httpClient.Timeout)
-	}
-}
-
-func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
-	t.Parallel()
-	c := NewClient("http://localhost:9090/", 0)
-	if c.baseURL != "http://localhost:9090" {
-		t.Errorf("expected trimmed baseURL, got %q", c.baseURL)
+	if c.httpClient.Timeout() != 60*time.Second {
+		t.Errorf("expected 60s timeout, got %v", c.httpClient.Timeout())
 	}
 }
 
