@@ -21,14 +21,17 @@ var (
 )
 
 // Match scans Ruby source and returns all detected routes.
+// Each returned Route has its Line field set to the 1-based line number of the
+// match in source — a hard prerequisite for the enclosing-function resolver.
 func (rb *RubyMatcher) Match(source []byte) []Route {
 	var routes []Route
 
 	// Server: Sinatra-style routes.
-	for _, m := range rubySinatraRe.FindAllSubmatch(source, -1) {
-		raw := string(m[1])
+	for _, loc := range rubySinatraRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e]
+		raw := string(source[loc[2]:loc[3]])
 		// Extract the method keyword from the full match.
-		full := string(m[0])
+		full := string(source[loc[0]:loc[1]])
 		method := extractRubyMethod(full)
 		routes = append(routes, Route{
 			Method:    normalizeMethod(method),
@@ -36,6 +39,7 @@ func (rb *RubyMatcher) Match(source []byte) []Route {
 			RawPath:   raw,
 			Framework: "ruby",
 			Side:      "server",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
