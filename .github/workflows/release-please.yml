@@ -35,8 +35,8 @@ jobs:
           manifest-file: .release-please-manifest.json
 
       - name: Enable auto-merge on release PR
-        if: steps.release.outputs.pr != ''
+        if: steps.release.outputs.pr
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr || '{}').number }}
         run: gh pr merge --auto --squash "$PR_NUMBER"
