@@ -109,8 +109,16 @@ func buildCrossLanguageData(root string, allFiles []*ingest.File, allSymbols []*
 		relFileSymbols[rel] = spans
 	}
 
+	// Build a set of all Symbol vertex keys so we can verify HANDLES/FETCHES
+	// edges will actually MATCH an endpoint before counting them as built.
+	symbolKeys := make(map[string]bool, len(allSymbols))
+	for _, sym := range allSymbols {
+		rel := relPath(sym.File, root)
+		symbolKeys[sym.Name+compositeKeyDelim+rel] = true
+	}
+
 	// Build Layer/Route vertices and HANDLES/FETCHES edges.
-	crossVertices, crossEdges := buildCrossLanguageGraph(repo, structure.Layers, routeList, fileToLayer, relFileSymbols)
+	crossVertices, crossEdges := buildCrossLanguageGraph(repo, structure.Layers, routeList, fileToLayer, relFileSymbols, symbolKeys)
 
 	// Append BELONGS_TO edges (File -> Layer).
 	for file, layerName := range fileToLayer {
@@ -330,7 +338,12 @@ func handlesFromKey(r routes.Route) string {
 // as a fallback when r.Handler is empty (arrow callbacks, inline handlers, fetch
 // calls that don't name a function). Named handlers (go-nerv pattern) bypass
 // the resolver entirely — their path is byte-identical to the previous behaviour.
-func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string, fileSymbols map[string][]symbolSpan) ([]vertexData, []edgeData) {
+//
+// symbolKeys is the set of all Symbol vertex keys (name\x00file) that will be
+// inserted into the graph. If nil, endpoint verification is skipped and every
+// resolvable edge is counted as built (useful for tests that don't need the
+// verification gate).
+func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []routes.Route, fileToLayer map[string]string, fileSymbols map[string][]symbolSpan, symbolKeys map[string]bool) ([]vertexData, []edgeData) {
 	var vertices []vertexData
 	var edges []edgeData
 
@@ -421,6 +434,21 @@ func buildCrossLanguageGraph(repo string, layers []polyglot.Layer, routeList []r
 			edgeLabel = "FETCHES"
 			fromKey = htmxFetchesFromKey(resolved)
 		}
+
+		// Verify the edge endpoints exist before counting the edge as built.
+		// If symbolKeys is nil (unit tests), skip verification and preserve the
+		// previous behaviour.
+		if symbolKeys != nil {
+			if !routeSeen[routeKey] {
+				recordRouteEdgeUnmatched(repo, edgeLabel, "missing_route")
+				continue
+			}
+			if !symbolKeys[fromKey] {
+				recordRouteEdgeUnmatched(repo, edgeLabel, "missing_symbol")
+				continue
+			}
+		}
+
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
 			FromKey:   fromKey,
