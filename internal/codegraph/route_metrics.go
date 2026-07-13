@@ -19,17 +19,29 @@ var routesExtractedTotal = promauto.NewCounterVec(
 	[]string{"repo", "framework", "side"},
 )
 
-// routeEdgesBuiltTotal counts HANDLES/FETCHES edges actually created in the
-// AGE graph per repo.  Before this counter was added, zero edges were built
-// silently (HANDLES=0 fleet-wide) with no observability.
+// routeEdgesBuiltTotal counts HANDLES/FETCHES edges that will actually be
+// created in the AGE graph per repo.  Edges whose endpoint Symbol does not
+// exist are not counted here; they are counted by routeEdgesUnmatchedTotal.
 //
 //	codegraph_route_edges_built_total{repo="…",label="HANDLES"} 17
 var routeEdgesBuiltTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "codegraph_route_edges_built_total",
-		Help: "HANDLES/FETCHES edges created in the AGE graph per repo (label = HANDLES|FETCHES).",
+		Help: "HANDLES/FETCHES edges whose endpoint Symbol exists and are queued for insertion (label = HANDLES|FETCHES).",
 	},
 	[]string{"repo", "label"},
+)
+
+// routeEdgesUnmatchedTotal counts HANDLES/FETCHES edges that were built in Go
+// but whose endpoint Symbol/Route does not exist, so the AGE MATCH would fail.
+//
+//	codegraph_route_edges_unmatched_total{repo="…",label="HANDLES",reason="missing_symbol"} 4
+var routeEdgesUnmatchedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "codegraph_route_edges_unmatched_total",
+		Help: "HANDLES/FETCHES edges dropped because an endpoint does not exist (label = HANDLES|FETCHES, reason = missing_symbol|missing_route).",
+	},
+	[]string{"repo", "label", "reason"},
 )
 
 // routeHandlerUnresolvedTotal counts routes dropped because neither a named
@@ -78,6 +90,13 @@ func recordRoutesExtracted(repo, framework, side string) {
 // and edge label ("HANDLES"|"FETCHES").
 func recordRouteEdgeBuilt(repo, label string) {
 	routeEdgesBuiltTotal.WithLabelValues(repo, label).Inc()
+}
+
+// recordRouteEdgeUnmatched bumps the route-edges-unmatched counter for the given
+// repo, edge label ("HANDLES"|"FETCHES"), and reason ("missing_symbol"|
+// "missing_route").
+func recordRouteEdgeUnmatched(repo, label, reason string) {
+	routeEdgesUnmatchedTotal.WithLabelValues(repo, label, reason).Inc()
 }
 
 // recordRouteHandlerUnresolved bumps the handler-unresolved counter for the
