@@ -142,7 +142,7 @@ func handleFederatedCoChangeCoreWithBudget(
 	}
 
 	// Step 1: resolve repos (fast — filesystem scan only).
-	repos, err := federate.ResolveRepos(args.Repos, deps.LocalRepoDirs)
+	repos, err := federate.ResolveRepos(ctx, args.Repos, deps.LocalRepoDirs)
 	if err != nil {
 		return errResult(fmt.Sprintf("resolve repos %q: %v", args.Repos, err)), nil
 	}
