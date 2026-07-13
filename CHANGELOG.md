@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.23.0](https://github.com/anatolykoptev/go-code/compare/v1.22.2...v1.23.0) (2026-07-13)
+
+
+### Features
+
+* **envdetect:** ADR 0002 Phase 0 — static build/test/install command detection ([#296](https://github.com/anatolykoptev/go-code/issues/296)) ([011eddd](https://github.com/anatolykoptev/go-code/commit/011eddd82299d7d3a0e4cdad42c33406cd9ba375))
+
+
+### Bug Fixes
+
+* **callgraph:** wire typed call-edge resolution into the AGE-graph path for dead-code accuracy (BUG A, gated default-off) ([328b7d2](https://github.com/anatolykoptev/go-code/commit/328b7d2923dc416bdeaebb5b40bfe833aa1dafde))
+* **compare:** raise code_compare deadline from 90s to 3m ([#309](https://github.com/anatolykoptev/go-code/issues/309)) ([987559e](https://github.com/anatolykoptev/go-code/commit/987559e95738d1d951b2d049b1b0864890a2dc73))
+* **forge:** deflake metrics_test.go counter delta assertions ([#308](https://github.com/anatolykoptev/go-code/issues/308)) ([05a906e](https://github.com/anatolykoptev/go-code/commit/05a906ecbc06db16a803ee119cfb76801ae86160))
+* **ingest:** accept comma-separated focus keywords ([#305](https://github.com/anatolykoptev/go-code/issues/305)) ([7148b9f](https://github.com/anatolykoptev/go-code/commit/7148b9f13e62642746fcfc57d4f3c9f92499fb61))
+* **metrics:** scope code-graph age gauge to AUTO_INDEX_DIRS repos ([#291](https://github.com/anatolykoptev/go-code/issues/291)) ([808976e](https://github.com/anatolykoptev/go-code/commit/808976e32975abe643d1d3d412f36b0b70dd6d55))
+
+
+### Performance Improvements
+
+* **ci:** -short merge gate + nightly full suite (26m -&gt; ~min) ([#301](https://github.com/anatolykoptev/go-code/issues/301)) ([deba927](https://github.com/anatolykoptev/go-code/commit/deba927b56db92e4438fb010ca05919afbd575bf))
+* **test:** parallelize DB-free test packages (gate ~8m -&gt; ~3.2m) ([#302](https://github.com/anatolykoptev/go-code/issues/302)) ([0d47c6f](https://github.com/anatolykoptev/go-code/commit/0d47c6fc74afac50349518de0dd458eec587b7fb))
+
 ## [1.22.2](https://github.com/anatolykoptev/go-code/compare/v1.22.1...v1.22.2) (2026-07-02)
 
 
