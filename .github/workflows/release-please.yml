@@ -39,4 +39,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr || '{}').number }}
-        run: gh pr merge --auto --squash "$PR_NUMBER"
+        run: gh pr merge --repo anatolykoptev/go-code --auto --squash "$PR_NUMBER"
