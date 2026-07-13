@@ -63,6 +63,16 @@ func NewWithHTTPClient(baseURL string, hc *http.Client, opts ...Option) *Client 
 	return c
 }
 
+// Timeout returns the underlying http.Client timeout. It is exposed for
+// callers (e.g. client tests) that need to verify the timeout configured at
+// construction time.
+func (c *Client) Timeout() time.Duration {
+	if c.http == nil {
+		return 0
+	}
+	return c.http.Timeout
+}
+
 // GetJSON issues GET <base><path> and decodes a successful JSON response into
 // dst (may be nil to discard body). Non-2xx status returns a wrapped error
 // including the status code and up to 256 bytes of body for diagnostics.

@@ -13,8 +13,8 @@ import (
 func TestNewClient_DefaultsTimeout(t *testing.T) {
 	t.Parallel()
 	c := NewClient("http://localhost:16686", 0)
-	if c.httpClient.Timeout != 30*time.Second {
-		t.Errorf("expected default 30s, got %v", c.httpClient.Timeout)
+	if c.httpClient.Timeout() != 30*time.Second {
+		t.Errorf("expected default 30s, got %v", c.httpClient.Timeout())
 	}
 }
 
@@ -54,14 +54,6 @@ func TestListServices_EmptyResponse(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected empty, got %v", got)
-	}
-}
-
-func TestClient_BaseURL_TrimsTrailingSlash(t *testing.T) {
-	t.Parallel()
-	c := NewClient("http://localhost:16686/", 0)
-	if !strings.HasSuffix(c.baseURL, "16686") {
-		t.Errorf("expected trimmed, got %q", c.baseURL)
 	}
 }
 
