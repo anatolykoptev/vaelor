@@ -8,7 +8,7 @@ import (
 // gocode_rrf_weights publishes the per-retriever weights deployed for the
 // hybrid MergeRRF fusion. Operators read /metrics to confirm what's actually
 // running matches RRF_WEIGHT_SEMANTIC / RRF_WEIGHT_KEYWORD / RRF_WEIGHT_SPARSE /
-// RRF_WEIGHT_GRAPH env config.
+// RRF_WEIGHT_GRAPH / RRF_WEIGHT_HOTSPOT / RRF_WEIGHT_RECENCY env config.
 //
 // One gauge sample per label value, set once at startup via PublishRRFWeights.
 var rrfWeightsGauge = promauto.NewGaugeVec(
@@ -57,14 +57,15 @@ func init() {
 
 // PublishRRFWeights records the deployed RRF weights to Prometheus. Idempotent
 // (set, not increment); safe to call multiple times if config reloads land.
-// Sparse defaults to 0.0 (dark-launched); Graph defaults to 0.0 (dark-launched).
-// Flipping RRF_WEIGHT_SPARSE or RRF_WEIGHT_GRAPH after A/B gate will be visible
-// here at next startup.
+// Sparse, Graph, Hotspot, and Recency default to 0.0 (dark-launched).
+// Flipping RRF_WEIGHT_* after A/B gate will be visible here at next startup.
 func PublishRRFWeights(w RRFWeights) {
 	rrfWeightsGauge.WithLabelValues("semantic").Set(w.Semantic)
 	rrfWeightsGauge.WithLabelValues("keyword").Set(w.Keyword)
 	rrfWeightsGauge.WithLabelValues("sparse").Set(w.Sparse)
 	rrfWeightsGauge.WithLabelValues("graph").Set(w.Graph)
+	rrfWeightsGauge.WithLabelValues("hotspot").Set(w.Hotspot)
+	rrfWeightsGauge.WithLabelValues("recency").Set(w.Recency)
 }
 
 // RecordGraphCandidates increments the per-stage counters and the latency

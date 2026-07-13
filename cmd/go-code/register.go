@@ -214,6 +214,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		slog.Float64("semantic", rrfWeights.Semantic),
 		slog.Float64("keyword", rrfWeights.Keyword),
 		slog.Float64("sparse", rrfWeights.Sparse),
+		slog.Float64("graph", rrfWeights.Graph),
+		slog.Float64("hotspot", rrfWeights.Hotspot),
+		slog.Float64("recency", rrfWeights.Recency),
 	)
 
 	// Keyword arm: published at startup (gauge + log) so ops can see which arm
@@ -268,6 +271,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 				Pipeline:     embeddings.NewPipeline(ec, es, cfg.EmbedModel, pipelineOpts...),
 				AnalyzeDeps:  deps,
 				Expander:     embeddings.NewExpander(agePool),
+				GraphStore:   graphStore,
 				OxCodes:      buildOxCodesClient(cfg),
 				RRFWeights:   rrfWeights,
 				SparseClient: sparseClient,
