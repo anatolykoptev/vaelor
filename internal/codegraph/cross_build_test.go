@@ -20,7 +20,7 @@ func TestBuildLayerVertices(t *testing.T) {
 		{Name: "frontend", Role: "client", RootDir: "frontend", Language: "typescript", Files: 15},
 	}
 
-	vertices, _ := buildCrossLanguageGraph("", layers, nil, nil, nil)
+	vertices, _ := buildCrossLanguageGraph("", layers, nil, nil, nil, nil)
 
 	layerCount := 0
 	for _, v := range vertices {
@@ -78,7 +78,7 @@ func TestBuildRouteVerticesAndEdges(t *testing.T) {
 		},
 	}
 
-	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil, nil)
 
 	// CG-T5: same method+path but DIFFERENT sides → 2 distinct Route vertices.
 	// server GET /api/users and client GET /api/users are different endpoints of
@@ -192,7 +192,7 @@ func TestBuildCrossLanguageGraph_HtmxFetchesCompositeKey(t *testing.T) {
 		},
 	}
 
-	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil, nil)
 
 	var fetchEdge *edgeData
 	for i := range edges {
@@ -278,7 +278,7 @@ func TestBuildCrossLanguageGraph_HandlesCompositeKey(t *testing.T) {
 		},
 	}
 
-	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil, nil)
 
 	var handlesEdge *edgeData
 	for i := range edges {
@@ -585,7 +585,7 @@ func TestBuildCrossLang_ArrowCallbackResolvesEnclosingFn(t *testing.T) {
 		},
 	}
 
-	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, fileSymbols)
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, fileSymbols, nil)
 
 	var handlesEdge *edgeData
 	for i := range edges {
@@ -629,7 +629,7 @@ func TestBuildCrossLang_NamedHandlerUnchanged(t *testing.T) {
 		},
 	}
 
-	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, fileSymbols)
+	_, edges := buildCrossLanguageGraph("", nil, routeList, nil, fileSymbols, nil)
 
 	var handlesEdge *edgeData
 	for i := range edges {
@@ -675,7 +675,7 @@ func TestBuildCrossLang_NoEnclosingFn_Unresolved(t *testing.T) {
 	unresolvedBefore := readCounter(t,
 		routeHandlerUnresolvedTotal.WithLabelValues("test-repo"))
 
-	_, edges := buildCrossLanguageGraph("test-repo", nil, routeList, nil, fileSymbols)
+	_, edges := buildCrossLanguageGraph("test-repo", nil, routeList, nil, fileSymbols, nil)
 
 	// No edge must be built.
 	for _, e := range edges {
@@ -689,6 +689,52 @@ func TestBuildCrossLang_NoEnclosingFn_Unresolved(t *testing.T) {
 	if unresolvedAfter-unresolvedBefore < 1 {
 		t.Errorf("routeHandlerUnresolvedTotal did not increment: before=%.0f after=%.0f",
 			unresolvedBefore, unresolvedAfter)
+	}
+}
+
+// TestBuildCrossLang_NamedHandlerMissingSymbol_Unmatched verifies that a route
+// with an explicit Handler name that does NOT exist in the symbol set bumps
+// routeEdgesUnmatchedTotal instead of routeEdgesBuiltTotal.
+func TestBuildCrossLang_NamedHandlerMissingSymbol_Unmatched(t *testing.T) {
+	t.Parallel()
+
+	routeList := []routes.Route{
+		{
+			Method:    "GET",
+			Path:      "/admin/users",
+			Handler:   "myHandler",
+			Framework: "chi",
+			Side:      "server",
+			File:      "internal/admin/handler.go",
+			Line:      42,
+		},
+	}
+	symbolKeys := map[string]bool{
+		// myHandler is NOT present in the symbol set.
+		"otherHandler" + compositeKeyDelim + "internal/admin/handler.go": true,
+	}
+
+	builtBefore := readCounter(t,
+		routeEdgesBuiltTotal.WithLabelValues("test-repo", "HANDLES"))
+	unmatchedBefore := readCounter(t,
+		routeEdgesUnmatchedTotal.WithLabelValues("test-repo", "HANDLES", "missing_symbol"))
+
+	_, edges := buildCrossLanguageGraph("test-repo", nil, routeList, nil, nil, symbolKeys)
+
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges for missing handler, got %d", len(edges))
+	}
+
+	builtAfter := readCounter(t,
+		routeEdgesBuiltTotal.WithLabelValues("test-repo", "HANDLES"))
+	unmatchedAfter := readCounter(t,
+		routeEdgesUnmatchedTotal.WithLabelValues("test-repo", "HANDLES", "missing_symbol"))
+
+	if builtAfter-builtBefore != 0 {
+		t.Errorf("routeEdgesBuiltTotal should not increment, got +%.0f", builtAfter-builtBefore)
+	}
+	if unmatchedAfter-unmatchedBefore != 1 {
+		t.Errorf("routeEdgesUnmatchedTotal should increment by 1, got +%.0f", unmatchedAfter-unmatchedBefore)
 	}
 }
 
@@ -866,7 +912,7 @@ func TestRouteSide_ServerAndClientDistinct(t *testing.T) {
 		},
 	}
 
-	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil, nil)
 
 	// Must have 2 distinct Route vertices (server and client are different vertices).
 	var routeVertices []vertexData
@@ -1019,7 +1065,7 @@ func TestRouteSide_EmptyDefaultsToServer_VertexAndEdgeAgree(t *testing.T) {
 		},
 	}
 
-	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil)
+	vertices, edges := buildCrossLanguageGraph("", nil, routeList, nil, nil, nil)
 
 	// (a) Assert the Route VERTEX was built with Props["side"] == "server".
 	var routeVertex *vertexData
