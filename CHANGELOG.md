@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.0](https://github.com/anatolykoptev/go-code/compare/v1.23.6...v1.24.0) (2026-07-13)
+
+
+### Added
+
+* **sourcemap:** make sourcemap max body size configurable ([#324](https://github.com/anatolykoptev/go-code/issues/324)) ([a1ebdaf](https://github.com/anatolykoptev/go-code/commit/a1ebdafe84a42185bc4b10bb95cce430772b0aba))
+
 ## [1.23.6](https://github.com/anatolykoptev/go-code/compare/v1.23.5...v1.23.6) (2026-07-13)
 
 
