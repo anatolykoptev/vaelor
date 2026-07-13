@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.4](https://github.com/anatolykoptev/go-code/compare/v1.23.3...v1.23.4) (2026-07-13)
+
+
+### Fixed
+
+* **debug_investigate:** drop t.Skip and document %q/%s label choice ([#318](https://github.com/anatolykoptev/go-code/issues/318)) ([f37117f](https://github.com/anatolykoptev/go-code/commit/f37117fa39c5965856327b917d1026a9d3db347f))
+
 ## [1.23.3](https://github.com/anatolykoptev/go-code/compare/v1.23.2...v1.23.3) (2026-07-13)
 
 
