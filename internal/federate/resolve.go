@@ -5,6 +5,7 @@
 package federate
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ type RepoRef struct {
 // A pattern that is an absolute path to an existing git repo is treated as a
 // single explicit repo. localDirs are the parent directories holding
 // checkouts (deps.LocalRepoDirs, e.g. /host/src).
-func ResolveRepos(pattern string, localDirs []string) ([]RepoRef, error) {
+func ResolveRepos(ctx context.Context, pattern string, localDirs []string) ([]RepoRef, error) {
 	// Single explicit path (absolute, points at a git repo).
 	if filepath.IsAbs(pattern) && gitutil.IsGitRepo(pattern) {
 		return []RepoRef{{Slug: filepath.Base(pattern), Root: pattern}}, nil
@@ -37,7 +38,7 @@ func ResolveRepos(pattern string, localDirs []string) ([]RepoRef, error) {
 	roots := repofind.Discover(localDirs)
 
 	if pattern == "all" {
-		return toRefs(dedupeByOrigin(roots)), nil
+		return toRefs(dedupeByOrigin(ctx, roots)), nil
 	}
 
 	// Glob match on basename.
@@ -53,7 +54,7 @@ func ResolveRepos(pattern string, localDirs []string) ([]RepoRef, error) {
 		}
 	}
 	if len(matched) > 0 {
-		return toRefs(dedupeByOrigin(matched)), nil
+		return toRefs(dedupeByOrigin(ctx, matched)), nil
 	}
 
 	// Fallback: exact basename match (pattern is a plain repo name).
