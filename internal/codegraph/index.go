@@ -294,27 +294,27 @@ func init() {
 
 // typedEnrichEnabled reports whether the AGE-graph indexing path
 // (buildAGECallGraph) should additionally attempt go/types-based typed
-// call-edge resolution. Default OFF: CODEGRAPH_TYPED_ENRICH unset or falsy
-// leaves the untyped tree-sitter-only build byte-identical to today. See the
-// callgraph-seam unification plan (2026-07-02) P2b for the canary-then-flip
-// rollout that later moves this default to on.
+// call-edge resolution. Default ON: the production canary (2026-07-02) showed
+// a healthy applied ratio and no load regression, so the gate is now on by
+// default. Set CODEGRAPH_TYPED_ENRICH=0 to disable and fall back to the
+// untyped tree-sitter-only build.
 func typedEnrichEnabled() bool {
-	return env.Bool("CODEGRAPH_TYPED_ENRICH", false)
+	return env.Bool("CODEGRAPH_TYPED_ENRICH", true)
 }
 
 // buildAGECallGraph builds the CallGraph the AGE-graph indexing path
 // persists as CALLS edges. It always runs the untyped tree-sitter builder
-// (callgraph.BuildCallGraph) first — with the gate off (the default) this is
+// (callgraph.BuildCallGraph) first. With typed enrichment disabled this is
 // the entire function, byte-identical to calling callgraph.BuildCallGraph
 // directly as IndexRepo did before this change.
 //
-// When CODEGRAPH_TYPED_ENRICH is set AND root is a Go module, it additionally
-// routes the graph through callgraph.EnrichWithTypedResolution — the SAME
-// single seam BuildFromRepo (the call_trace/impact_analysis path) already
-// uses — so the untyped builder's name-only call resolution (BUG A: a call
-// through a package-level var resolves to the wrong same-named method when a
-// sibling type in the same directory exposes a method of the same name; see
-// TestAGEGraphMissesHomonymousPkgVarMethodCall) gets the same typed fix on
+// When typed enrichment is enabled (default) AND root is a Go module, it
+// additionally routes the graph through callgraph.EnrichWithTypedResolution —
+// the SAME single seam BuildFromRepo (the call_trace/impact_analysis path)
+// already uses — so the untyped builder's name-only call resolution (BUG A: a
+// call through a package-level var resolves to the wrong same-named method
+// when a sibling type in the same directory exposes a method of the same name;
+// see TestAGEGraphMissesHomonymousPkgVarMethodCall) gets the same typed fix on
 // the indexing path that call_trace/impact_analysis already have.
 //
 // Bounded and non-fatal, mirroring extractGoImplements's degrade contract
