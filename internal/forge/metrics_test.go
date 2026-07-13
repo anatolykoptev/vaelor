@@ -45,7 +45,9 @@ func forgeMatchLabels(m *dto.Metric, want map[string]string) bool {
 const metricForgeResolve = "gocode_forge_resolve_total"
 
 func TestForgeResolveCounter_GitHubSuccess(t *testing.T) {
-	t.Parallel()
+	// Intentionally not parallel: ExtractSlug increments the global
+	// gocode_forge_resolve_total counter, so before/after delta tests must
+	// run sequentially to avoid races with other tests in this package.
 	before := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "github", "outcome": "success"})
 	slug, ok := ExtractSlug("https://github.com/owner/repo")
 	if !ok || slug == "" {
@@ -58,7 +60,7 @@ func TestForgeResolveCounter_GitHubSuccess(t *testing.T) {
 }
 
 func TestForgeResolveCounter_GitLabSuccess(t *testing.T) {
-	t.Parallel()
+	// Not parallel: global counter delta must be measured sequentially.
 	before := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "gitlab", "outcome": "success"})
 	slug, ok := ExtractSlug("https://gitlab.com/group/sub/repo")
 	if !ok || slug == "" {
@@ -71,7 +73,7 @@ func TestForgeResolveCounter_GitLabSuccess(t *testing.T) {
 }
 
 func TestForgeResolveCounter_UnknownHostReject(t *testing.T) {
-	t.Parallel()
+	// Not parallel: global counter delta must be measured sequentially.
 	before := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "unknown", "outcome": "reject_unknown_host"})
 	_, ok := ExtractSlug("git@evil.com:owner/repo.git")
 	if ok {
@@ -84,7 +86,7 @@ func TestForgeResolveCounter_UnknownHostReject(t *testing.T) {
 }
 
 func TestForgeResolveCounter_InvalidForm(t *testing.T) {
-	t.Parallel()
+	// Not parallel: global counter delta must be measured sequentially.
 	before := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "unknown", "outcome": "invalid_form"})
 	_, ok := ExtractSlug("")
 	if ok {
@@ -97,7 +99,7 @@ func TestForgeResolveCounter_InvalidForm(t *testing.T) {
 }
 
 func TestForgeResolveCounter_GitHubSSHSuccess(t *testing.T) {
-	t.Parallel()
+	// Not parallel: global counter delta must be measured sequentially.
 	before := forgeCounterValue(t, metricForgeResolve, map[string]string{"forge": "github", "outcome": "success"})
 	slug, ok := ExtractSlug("git@github.com:owner/repo.git")
 	if !ok || slug == "" {
@@ -112,7 +114,7 @@ func TestForgeResolveCounter_GitHubSSHSuccess(t *testing.T) {
 // TestResolveOutcome_SSHEdgeCases verifies the three-way distinction that
 // resolveOutcome must make for SSH-like inputs.
 func TestResolveOutcome_SSHEdgeCases(t *testing.T) {
-	t.Parallel()
+	// Not parallel: global counter delta must be measured sequentially.
 	tests := []struct {
 		name    string
 		input   string
