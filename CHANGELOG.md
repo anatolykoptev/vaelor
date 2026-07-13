@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.5](https://github.com/anatolykoptev/go-code/compare/v1.23.4...v1.23.5) (2026-07-13)
+
+
+### Fixed
+
+* **call_trace:** normalize direction values to callers/callees ([#320](https://github.com/anatolykoptev/go-code/issues/320)) ([fbc1c1f](https://github.com/anatolykoptev/go-code/commit/fbc1c1face793cb117d9a135a701ccc2ae0bc31c))
+
 ## [1.23.4](https://github.com/anatolykoptev/go-code/compare/v1.23.3...v1.23.4) (2026-07-13)
 
 
