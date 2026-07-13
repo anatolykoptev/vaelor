@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.1](https://github.com/anatolykoptev/go-code/compare/v1.23.0...v1.23.1) (2026-07-13)
+
+
+### Fixed
+
+* **release-please:** guard auto-merge step when no release PR ([#311](https://github.com/anatolykoptev/go-code/issues/311)) ([6c355f0](https://github.com/anatolykoptev/go-code/commit/6c355f0846b6c8e84259877dcbaef85dc0a171db))
+
 ## [1.23.0](https://github.com/anatolykoptev/go-code/compare/v1.22.2...v1.23.0) (2026-07-13)
 
 
