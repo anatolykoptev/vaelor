@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 	"sync"
@@ -36,6 +37,18 @@ func Register(m RouteMatcher) {
 
 	lang := m.Language()
 	matchers[lang] = append(matchers[lang], m)
+}
+
+// lineAt returns the 1-based line number of the byte at offset within source.
+// It counts the number of newlines before offset and adds 1.
+func lineAt(source []byte, offset int) uint32 {
+	if offset <= 0 {
+		return 1
+	}
+	if offset > len(source) {
+		offset = len(source)
+	}
+	return uint32(bytes.Count(source[:offset], []byte{'\n'})) + 1
 }
 
 // ExtractAll runs all registered matchers for the given language and returns
