@@ -14,7 +14,7 @@ import (
 const resolveTestMap = `{"version":3,"sources":["src/app.svelte"],"names":["onMount"],"mappings":"AAAA,SAASA,SAAS","file":"app.js"}`
 
 func newTestResolver() *sourcemap.Resolver {
-	return sourcemap.NewResolver(http.DefaultClient, 10, 5*time.Minute)
+	return sourcemap.NewResolver(http.DefaultClient, 10, 5*time.Minute, 0)
 }
 
 func TestResolveHTTPHandler_200(t *testing.T) {

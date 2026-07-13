@@ -25,11 +25,12 @@ type Frame struct {
 
 // Resolver fetches and caches source maps. Safe for concurrent use.
 type Resolver struct {
-	client  *http.Client
-	mu      sync.Mutex
-	cache   map[string]*cacheEntry // key: map URL
-	maxSize int
-	ttl     time.Duration
+	client       *http.Client
+	mu           sync.Mutex
+	cache        map[string]*cacheEntry // key: map URL
+	maxSize      int
+	ttl          time.Duration
+	maxBodyBytes int
 }
 
 type cacheEntry struct {
@@ -38,13 +39,18 @@ type cacheEntry struct {
 }
 
 // NewResolver creates a Resolver. maxSize is the FIFO-by-insertion-time bound
-// (entries evicted oldest-first when full), ttl is per-entry expiry duration.
-func NewResolver(client *http.Client, maxSize int, ttl time.Duration) *Resolver {
+// (entries evicted oldest-first when full), ttl is per-entry expiry duration,
+// maxBodyBytes caps how many bytes of a source map response are read.
+func NewResolver(client *http.Client, maxSize int, ttl time.Duration, maxBodyBytes int) *Resolver {
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = 16 << 20 // 16 MiB
+	}
 	return &Resolver{
-		client:  client,
-		cache:   make(map[string]*cacheEntry),
-		maxSize: maxSize,
-		ttl:     ttl,
+		client:       client,
+		cache:        make(map[string]*cacheEntry),
+		maxSize:      maxSize,
+		ttl:          ttl,
+		maxBodyBytes: maxBodyBytes,
 	}
 }
 
@@ -131,8 +137,7 @@ func (r *Resolver) consumerFor(ctx context.Context, mapURL string) (*gosourcemap
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
-	const maxBodyBytes = 16 << 20 // 16 MiB
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(r.maxBodyBytes)))
 	if err != nil {
 		return nil, err
 	}
