@@ -206,7 +206,7 @@ func main() {
 			wrapped.Handle("POST /webhook/github", webhookHandler)
 		}
 		if len(resolveHosts) > 0 && resolveFrameResolver != nil {
-			wrapped.Handle("POST /resolve", resolveHTTPHandler(resolveHosts, resolveFrameResolver))
+			wrapped.Handle("POST /resolve", resolveHTTPHandler(resolveHosts, resolveFrameResolver, resolveHTTPRateLimiter))
 			slog.Info("resolve endpoint registered", slog.String("path", "/resolve"))
 		}
 	}

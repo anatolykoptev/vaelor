@@ -6,6 +6,7 @@ github.com/anatolykoptev/go-kit/env
 github.com/anatolykoptev/go-kit/llm
 github.com/anatolykoptev/go-kit/metrics
 github.com/anatolykoptev/go-kit/metrics/mcpmw
+github.com/anatolykoptev/go-kit/ratelimit
 github.com/anatolykoptev/go-kit/rerank
 github.com/anatolykoptev/go-kit/score
 github.com/anatolykoptev/go-kit/sparse
