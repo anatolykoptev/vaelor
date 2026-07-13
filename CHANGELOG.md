@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.26.0](https://github.com/anatolykoptev/go-code/compare/v1.25.0...v1.26.0) (2026-07-13)
+
+
+### Added
+
+* **routes:** consolidate lineAt helper and add Line capture to 5 matchers (FU-CG.7) ([#331](https://github.com/anatolykoptev/go-code/issues/331)) ([513e808](https://github.com/anatolykoptev/go-code/commit/513e8085460993e5670029e684b65d26f5aafccc))
+
+
+### Documentation
+
+* **debug_investigate:** align hint_kind count with code ([#328](https://github.com/anatolykoptev/go-code/issues/328)) ([982ef21](https://github.com/anatolykoptev/go-code/commit/982ef2192ede4aeab4c37080f6817d8b701112b0))
+
 ## [1.25.0](https://github.com/anatolykoptev/go-code/compare/v1.24.0...v1.25.0) (2026-07-13)
 
 
