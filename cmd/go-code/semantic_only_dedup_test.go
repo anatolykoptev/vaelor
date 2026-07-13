@@ -28,10 +28,10 @@ func TestSemanticOnlyResult_DedupDropsDuplicate(t *testing.T) {
 		Query:       "validate token",
 		MaxDistance: 0.85,
 	}
-	// Empty deps → cold-path reranker (no URL), nil graph, nil store.
-	// RerankSemanticResults cold-path just cappedResults → safe.
-	// annotateWithPageRank is nil-safe when graph==nil.
-	deps := SemanticDeps{}
+	// Minimal deps with the RRF identity so MergeRRF in the semantic-only path
+	// does not discard the filtered results. Cold-path reranker (no URL), nil
+	// graph, nil store keep the test hermetic.
+	deps := SemanticDeps{RRFWeights: embeddings.DefaultRRFWeights()}
 
 	in := []embeddings.SearchResult{
 		{FilePath: "pkg/auth.go", SymbolName: "Validate", Distance: 0.5178, Source: "semantic"},
@@ -71,7 +71,7 @@ func TestSemanticOnlyResult_NoDupUnchanged(t *testing.T) {
 		Query:       "something",
 		MaxDistance: 0.85,
 	}
-	deps := SemanticDeps{}
+	deps := SemanticDeps{RRFWeights: embeddings.DefaultRRFWeights()}
 
 	in := []embeddings.SearchResult{
 		{FilePath: "pkg/a.go", SymbolName: "Foo", Distance: 0.30, Source: "semantic"},
