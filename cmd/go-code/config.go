@@ -256,6 +256,15 @@ type Config struct {
 	// SOURCEMAP_MAX_BODY_BYTES env var (bytes).
 	SourcemapMaxBodyBytes int
 
+	// SourcemapRateLimit is the per-IP rate limit for POST /resolve in
+	// requests per second. 0 (default) disables the rate limit. The MCP
+	// resolve_frame tool is not affected. Env: SOURCEMAP_RATE_LIMIT.
+	SourcemapRateLimit float64
+
+	// SourcemapRateBurst is the per-IP burst bucket for POST /resolve.
+	// Ignored when SourcemapRateLimit is 0. Default 10. Env: SOURCEMAP_RATE_BURST.
+	SourcemapRateBurst int
+
 	// Fleet runtime-image probing (fleet_versions tool and debug_investigate Phase 7).
 	// All settings are safe-by-default: SSH disabled, socket is well-known location,
 	// timeout is conservative. Existing operators see no behaviour change unless they
@@ -316,6 +325,11 @@ const (
 
 	// 16 MiB source map body cap.
 	defaultSourcemapMaxBodyBytes = 16 << 20
+
+	// Default rate-limit for POST /resolve: disabled (0 rps).
+	// Per-IP token bucket; set SOURCEMAP_RATE_LIMIT to enable.
+	defaultSourcemapRateLimit = 0
+	defaultSourcemapRateBurst = 10
 
 	// 512 KB per file.
 	defaultMaxFileBytesKB = 512
@@ -495,6 +509,8 @@ func loadConfig() (Config, error) {
 		JaegerURL:              env.Str("JAEGER_URL", ""),
 		SourcemapAllowedHosts:  env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
 		SourcemapMaxBodyBytes:  env.Int("SOURCEMAP_MAX_BODY_BYTES", defaultSourcemapMaxBodyBytes),
+		SourcemapRateLimit:     env.Float("SOURCEMAP_RATE_LIMIT", defaultSourcemapRateLimit),
+		SourcemapRateBurst:     env.Int("SOURCEMAP_RATE_BURST", defaultSourcemapRateBurst),
 
 		// Fleet probe settings — safe-by-default (SSH off, standard socket).
 		FleetDefaultHost:     env.Str("GOCODE_FLEET_DEFAULT_HOST", ""),

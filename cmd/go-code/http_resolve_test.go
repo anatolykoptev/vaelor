@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/sourcemap"
+	"github.com/anatolykoptev/go-kit/ratelimit"
 )
 
 const resolveTestMap = `{"version":3,"sources":["src/app.svelte"],"names":["onMount"],"mappings":"AAAA,SAASA,SAAS","file":"app.js"}`
@@ -31,7 +32,7 @@ func TestResolveHTTPHandler_200(t *testing.T) {
 
 	resolver := newTestResolver()
 	host := mapSrv.Listener.Addr().String()
-	handler := resolveHTTPHandler([]string{host}, resolver)
+	handler := resolveHTTPHandler([]string{host}, resolver, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"url":    mapSrv.URL + "/app.js",
@@ -64,7 +65,7 @@ func TestResolveHTTPHandler_502_MissingMap(t *testing.T) {
 
 	host := mapSrv.Listener.Addr().String()
 	resolver := newTestResolver()
-	handler := resolveHTTPHandler([]string{host}, resolver)
+	handler := resolveHTTPHandler([]string{host}, resolver, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"url":    mapSrv.URL + "/missing.js",
@@ -83,7 +84,7 @@ func TestResolveHTTPHandler_502_MissingMap(t *testing.T) {
 
 func TestResolveHTTPHandler_403_DisallowedHost(t *testing.T) {
 	resolver := newTestResolver()
-	handler := resolveHTTPHandler([]string{"allowed.example.com"}, resolver)
+	handler := resolveHTTPHandler([]string{"allowed.example.com"}, resolver, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"url":    "https://evil.com/app.js",
@@ -102,7 +103,7 @@ func TestResolveHTTPHandler_403_DisallowedHost(t *testing.T) {
 
 func TestResolveHTTPHandler_400_BadJSON(t *testing.T) {
 	resolver := newTestResolver()
-	handler := resolveHTTPHandler([]string{"example.com"}, resolver)
+	handler := resolveHTTPHandler([]string{"example.com"}, resolver, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/resolve", bytes.NewReader([]byte("not json")))
 	req.Header.Set("Content-Type", "application/json")
@@ -116,7 +117,7 @@ func TestResolveHTTPHandler_400_BadJSON(t *testing.T) {
 
 func TestResolveHTTPHandler_405_GET(t *testing.T) {
 	resolver := newTestResolver()
-	handler := resolveHTTPHandler([]string{"example.com"}, resolver)
+	handler := resolveHTTPHandler([]string{"example.com"}, resolver, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/resolve", nil)
 	w := httptest.NewRecorder()
@@ -124,5 +125,25 @@ func TestResolveHTTPHandler_405_GET(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestResolveHTTPHandler_429_RateLimit(t *testing.T) {
+	resolver := newTestResolver()
+	limiter := ratelimit.NewKeyLimiter(1, 0) // 1 rps, burst 0 → first request is already over.
+	handler := resolveHTTPHandler([]string{"example.com"}, resolver, limiter)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"url":    "https://example.com/app.js",
+		"line":   1,
+		"column": 1,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/resolve", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", w.Code)
 	}
 }
