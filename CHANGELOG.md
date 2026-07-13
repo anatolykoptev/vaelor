@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.26.1](https://github.com/anatolykoptev/go-code/compare/v1.26.0...v1.26.1) (2026-07-13)
+
+
+### Fixed
+
+* **codegraph:** add side to side-blind Route MATCH queries (FU-CG.8) ([#333](https://github.com/anatolykoptev/go-code/issues/333)) ([4ee9f1f](https://github.com/anatolykoptev/go-code/commit/4ee9f1fa14040223231508d8d6742f8524da21e0))
+
 ## [1.26.0](https://github.com/anatolykoptev/go-code/compare/v1.25.0...v1.26.0) (2026-07-13)
 
 
