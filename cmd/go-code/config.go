@@ -251,6 +251,11 @@ type Config struct {
 	// disabled. Set via SOURCEMAP_ALLOWED_HOSTS env var (CSV).
 	SourcemapAllowedHosts []string
 
+	// SourcemapMaxBodyBytes caps the source map response body read by
+	// resolve_frame and POST /resolve. Default 16 MiB. Override via
+	// SOURCEMAP_MAX_BODY_BYTES env var (bytes).
+	SourcemapMaxBodyBytes int
+
 	// Fleet runtime-image probing (fleet_versions tool and debug_investigate Phase 7).
 	// All settings are safe-by-default: SSH disabled, socket is well-known location,
 	// timeout is conservative. Existing operators see no behaviour change unless they
@@ -308,6 +313,9 @@ const (
 	defaultLLMMaxTokens = 16384
 	defaultWorkspaceDir = "/tmp/go-code-workspace"
 	defaultEmbedModel   = "code-rank-embed"
+
+	// 16 MiB source map body cap.
+	defaultSourcemapMaxBodyBytes = 16 << 20
 
 	// 512 KB per file.
 	defaultMaxFileBytesKB = 512
@@ -486,6 +494,7 @@ func loadConfig() (Config, error) {
 		DozorAPIToken:          env.Str("DOZOR_API_TOKEN", ""),
 		JaegerURL:              env.Str("JAEGER_URL", ""),
 		SourcemapAllowedHosts:  env.List("SOURCEMAP_ALLOWED_HOSTS", ""),
+		SourcemapMaxBodyBytes:  env.Int("SOURCEMAP_MAX_BODY_BYTES", defaultSourcemapMaxBodyBytes),
 
 		// Fleet probe settings — safe-by-default (SSH off, standard socket).
 		FleetDefaultHost:     env.Str("GOCODE_FLEET_DEFAULT_HOST", ""),

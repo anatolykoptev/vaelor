@@ -43,6 +43,7 @@ func registerResolveFrame(server *mcp.Server, cfg Config) {
 		&http.Client{Timeout: 15 * time.Second},
 		resolveFrameCacheSize,
 		resolveFrameTTL,
+		cfg.SourcemapMaxBodyBytes,
 	)
 
 	mcpserver.AddTool(server, &mcp.Tool{
