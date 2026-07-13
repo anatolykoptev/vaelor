@@ -223,16 +223,23 @@ func handleFile(relPath, absPath string, d fs.DirEntry, opts IngestOpts, pattern
 }
 
 // IsKeywordFocus returns true when focus looks like a keyword query
-// rather than a path or glob pattern. Heuristic: contains spaces.
+// rather than a path or glob pattern. Heuristic: contains multiple keywords
+// separated by spaces or commas.
 func IsKeywordFocus(focus string) bool {
-	return strings.Contains(focus, " ")
+	return len(splitFocus(focus)) > 1
 }
 
-// matchKeywords checks whether ALL space-separated keywords appear
+// splitFocus normalizes commas to spaces and returns whitespace-separated keywords.
+func splitFocus(focus string) []string {
+	normalized := strings.ReplaceAll(focus, ",", " ")
+	return strings.Fields(normalized)
+}
+
+// matchKeywords checks whether ALL keywords (space- or comma-separated) appear
 // somewhere in the relPath (case-insensitive). Keywords match against
 // directory names and file name components.
 func matchKeywords(focus, relPath string) bool {
-	keywords := strings.Fields(focus)
+	keywords := splitFocus(focus)
 	if len(keywords) == 0 {
 		return false
 	}
