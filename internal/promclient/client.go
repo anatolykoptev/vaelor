@@ -3,20 +3,17 @@ package promclient
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/httputil"
 )
 
-const defaultTimeout = 30 * time.Second
-
 // Client is a minimal HTTP client for the Prometheus query API.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	httpClient *httputil.Client
 }
+
+const defaultTimeout = 30 * time.Second
 
 // NewClient creates a new Client. If timeout is 0 or negative, defaultTimeout (30s) is used.
 func NewClient(baseURL string, timeout time.Duration) *Client {
@@ -24,8 +21,7 @@ func NewClient(baseURL string, timeout time.Duration) *Client {
 		timeout = defaultTimeout
 	}
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: httputil.New(baseURL, httputil.WithTimeout(timeout)),
 	}
 }
 
@@ -33,7 +29,7 @@ func NewClient(baseURL string, timeout time.Duration) *Client {
 // decodes the JSON response body into dest, and returns any error.
 // Delegates to httputil.Client to avoid duplicating http+json plumbing.
 func (c *Client) GetJSON(ctx context.Context, path string, dest any) error {
-	return httputil.NewWithHTTPClient(c.baseURL, c.httpClient).GetJSON(ctx, path, dest)
+	return c.httpClient.GetJSON(ctx, path, dest)
 }
 
 // Alert represents a single Prometheus alerting rule result from /api/v1/alerts.
