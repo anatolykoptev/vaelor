@@ -1,6 +1,7 @@
 package federate
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,7 +25,7 @@ func TestResolveRepos_All(t *testing.T) {
 	gitInit(t, filepath.Join(parent, "acme-admin"))
 	gitInit(t, filepath.Join(parent, "go-code"))
 
-	got, err := ResolveRepos("all", []string{parent})
+	got, err := ResolveRepos(context.Background(), "all", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestResolveRepos_Glob(t *testing.T) {
 	gitInit(t, filepath.Join(parent, "acme-admin"))
 	gitInit(t, filepath.Join(parent, "go-code"))
 
-	got, err := ResolveRepos("acme-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "acme-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestResolveRepos_SinglePath(t *testing.T) {
 	root := filepath.Join(parent, "acme-web")
 	gitInit(t, root)
 
-	got, err := ResolveRepos(root, []string{parent})
+	got, err := ResolveRepos(context.Background(), root, []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestResolveRepos_PlainName(t *testing.T) {
 	gitInit(t, filepath.Join(parent, "acme-web"))
 	gitInit(t, filepath.Join(parent, "go-code"))
 
-	got, err := ResolveRepos("go-code", []string{parent})
+	got, err := ResolveRepos(context.Background(), "go-code", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestResolveRepos_GlobNoMatch(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
 	gitInit(t, filepath.Join(parent, "go-code"))
-	got, err := ResolveRepos("nonexistent-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "nonexistent-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
