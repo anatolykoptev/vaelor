@@ -100,7 +100,7 @@ func runFusionRank(
 		{Name: fusionSigHistorical, Weight: 0.10, Scores: historicalScores},
 	}
 
-	fused := ranking.FusionRank(signals)
+	fused := ranking.FusionRank(signals) //nolint:staticcheck // SA1019: intentional deprecated ANALYZE_RANK_FUSION_MODE=minmax path
 
 	// Rebuild per-signal normalized scores for breakdown (re-apply normalizeMinMax logic).
 	// FusionRank does not expose per-signal normalized values, so we compute them inline.

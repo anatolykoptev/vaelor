@@ -93,7 +93,7 @@ func isTestFile(relPath string) bool {
 // Truncates at line boundary within maxEmbedText chars.
 func buildEmbedText(sym *parser.Symbol, filePath string) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s %s %s %s: %s\n", filePath, sym.Language, sym.Kind, sym.Name, sym.Signature))
+	fmt.Fprintf(&sb, "%s %s %s %s: %s\n", filePath, sym.Language, sym.Kind, sym.Name, sym.Signature)
 	if doc := strings.TrimSpace(sym.DocComment); doc != "" {
 		sb.WriteString(doc)
 		sb.WriteString("\n")

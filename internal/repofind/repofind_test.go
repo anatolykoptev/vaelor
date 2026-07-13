@@ -47,7 +47,7 @@ func TestDiscover_FindsGitSubdirs(t *testing.T) {
 func TestDiscover_MissingDirSkipped(t *testing.T) {
 	t.Parallel()
 	got := Discover([]string{"/nonexistent/parent"})
-	if got != nil && len(got) != 0 {
+	if len(got) != 0 {
 		t.Fatalf("missing dir → empty, got %v", got)
 	}
 }

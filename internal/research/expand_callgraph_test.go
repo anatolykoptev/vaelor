@@ -67,7 +67,7 @@ func TestExpandFromCallGraph_nilSafe(t *testing.T) {
 	if got := expandFromCallGraph(map[string]bool{"x": true}, nil, 2); got != nil {
 		t.Errorf("expected nil for nil graph, got %+v", got)
 	}
-	if got := expandFromCallGraph(map[string]bool{"x": true}, &callgraph.CallGraph{}, 0); got != nil && len(got) != 0 {
+	if got := expandFromCallGraph(map[string]bool{"x": true}, &callgraph.CallGraph{}, 0); len(got) != 0 {
 		t.Errorf("expected empty for zero hops, got %+v", got)
 	}
 }

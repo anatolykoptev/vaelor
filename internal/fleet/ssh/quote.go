@@ -30,13 +30,13 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+const safeArgChars = "_-./=,abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
 // isSafeArg reports whether every byte in s is in the safe set
 // [a-zA-Z0-9._/=,-], which never requires quoting in a POSIX shell.
 func isSafeArg(s string) bool {
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c == '_' || c == '-' || c == '.' || c == '/' || c == '=' || c == ',' ||
-			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+		if strings.IndexByte(safeArgChars, s[i]) < 0 {
 			return false
 		}
 	}

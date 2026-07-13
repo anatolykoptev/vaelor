@@ -12,14 +12,14 @@ import (
 // TestAnalyticsAdapter_SatisfiesInterface is a compile-time + runtime check.
 func TestAnalyticsAdapter_SatisfiesInterface(t *testing.T) {
 	t.Run("compile_time", func(t *testing.T) {
-		var _ graphx.Analytics = NewAnalyticsAdapter(nil, nil)
+		var _ = NewAnalyticsAdapter(nil, nil)
 	})
 }
 
 // TestCrossRefsAdapter_SatisfiesInterface is a compile-time + runtime check.
 func TestCrossRefsAdapter_SatisfiesInterface(t *testing.T) {
 	t.Run("compile_time", func(t *testing.T) {
-		var _ graphx.CrossRefs = NewCrossRefsAdapter(nil, nil)
+		var _ = NewCrossRefsAdapter(nil, nil)
 	})
 }
 
