@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.6](https://github.com/anatolykoptev/go-code/compare/v1.23.5...v1.23.6) (2026-07-13)
+
+
+### Documentation
+
+* **adr:** add 0003 callgraph resolver strategy ([#322](https://github.com/anatolykoptev/go-code/issues/322)) ([4a8976a](https://github.com/anatolykoptev/go-code/commit/4a8976a5e919594a08898e1d27b82943f1883907))
+
 ## [1.23.5](https://github.com/anatolykoptev/go-code/compare/v1.23.4...v1.23.5) (2026-07-13)
 
 
