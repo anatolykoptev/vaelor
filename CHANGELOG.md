@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.25.0](https://github.com/anatolykoptev/go-code/compare/v1.24.0...v1.25.0) (2026-07-13)
+
+
+### Added
+
+* **resolve:** per-IP rate limit for POST /resolve ([#326](https://github.com/anatolykoptev/go-code/issues/326)) ([97cc6ed](https://github.com/anatolykoptev/go-code/commit/97cc6ed390a76b596f34ff3f60c4234c66100095))
+
 ## [1.24.0](https://github.com/anatolykoptev/go-code/compare/v1.23.6...v1.24.0) (2026-07-13)
 
 
