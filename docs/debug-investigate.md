@@ -64,11 +64,12 @@ The optional `hint_kind` field lets callers communicate a known failure class, s
 
 | Value | Meaning |
 |---|---|
-| _(empty)_ | Auto-detect — full pipeline runs (default). |
 | `frontend_reactive_cycle` | Suspected infinite Svelte reactive cycle / client-side error storm. |
 | `panic_at_handler` | Go server panic in an HTTP/gRPC handler. |
 | `metric_spike_unknown_source` | Anomalous counter spike with no matching trace. |
 | `latency_spike` | P99 or mean latency jump without a clear error signal. |
+
+Empty or omitted `hint_kind` = auto-detect — the full pipeline runs (default). It is still a valid value, but it is not a failure class on its own.
 
 > **Note:** `hint_kind` is validated on input and surfaced in output XML (`hint_kind` attribute on `<investigation>`). It does not yet alter which data sources are queried — that routing is the Phase β/γ work item.
 
