@@ -118,16 +118,33 @@ func readBuildConstraint(absPath string) constraint.Expr {
 // rather than enumerating 2^n assignments.
 const maxConstraintTags = 12
 
+// goosTags and goarchTags are the mutually-exclusive GOOS/GOARCH build tags
+// as reported by `go tool dist list`. A valid build target has at most one GOOS
+// and one GOARCH tag true, so any truth assignment with two GOOS (or two GOARCH)
+// tags set is impossible and is skipped during enumeration.
+var (
+	goosTags = map[string]bool{
+		"aix": true, "android": true, "darwin": true, "dragonfly": true, "freebsd": true,
+		"illumos": true, "ios": true, "js": true, "linux": true, "netbsd": true,
+		"openbsd": true, "plan9": true, "solaris": true, "wasip1": true, "windows": true,
+	}
+	goarchTags = map[string]bool{
+		"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true,
+		"mips": true, "mips64": true, "mips64le": true, "mipsle": true, "ppc64": true,
+		"ppc64le": true, "riscv64": true, "s390x": true, "wasm": true,
+	}
+)
+
 // constraintsDisjoint reports whether two build-constraint expressions can never
 // both be satisfied by the same build target — i.e. whether `a ∧ b` is
 // unsatisfiable over the build-tag space.
 //
-// It decides this exactly (sound AND complete, no heuristic) by enumerating every
-// truth assignment over the UNION of tags referenced by both expressions: if no
-// assignment satisfies both, the files never compile together and the pair is the
-// platform-split idiom (linux vs !linux, windows vs darwin, etc.), not a
-// duplicate. The tag union for real platform splits is tiny (≤3); the
-// maxConstraintTags guard bounds the worst case to a "keep the pair" fallback.
+// It enumerates every truth assignment over the UNION of tags referenced by both
+// expressions and respects GOOS/GOARCH mutex: if no assignment satisfies both,
+// the files never compile together and the pair is the platform-split idiom
+// (linux vs !linux, windows vs darwin, etc.), not a duplicate. The tag union for
+// real platform splits is tiny (≤3); the maxConstraintTags guard bounds the worst
+// case to a "keep the pair" fallback.
 func constraintsDisjoint(a, b constraint.Expr) bool {
 	tags, unknown := unionTags(a, b)
 	// An unrecognized constraint.Expr variant means unionTags could not collect
@@ -151,8 +168,35 @@ func constraintsDisjoint(a, b constraint.Expr) bool {
 			}
 			return false
 		}
+		if !isMutexConsistent(assign, tags) {
+			continue
+		}
 		if a.Eval(assign) && b.Eval(assign) {
 			return false // a satisfying assignment for both → not disjoint
+		}
+	}
+	return true
+}
+
+// isMutexConsistent reports whether a truth assignment respects the GOOS/GOARCH
+// mutex: at most one GOOS tag and at most one GOARCH tag may be true.
+func isMutexConsistent(assign func(string) bool, tags []string) bool {
+	var goos, goarch int
+	for _, tag := range tags {
+		if !assign(tag) {
+			continue
+		}
+		if goosTags[tag] {
+			goos++
+			if goos > 1 {
+				return false
+			}
+		}
+		if goarchTags[tag] {
+			goarch++
+			if goarch > 1 {
+				return false
+			}
 		}
 	}
 	return true
