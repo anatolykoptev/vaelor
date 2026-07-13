@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.2](https://github.com/anatolykoptev/go-code/compare/v1.23.1...v1.23.2) (2026-07-13)
+
+
+### Fixed
+
+* **codegraph:** enable typed call enrichment by default ([#314](https://github.com/anatolykoptev/go-code/issues/314)) ([c425f89](https://github.com/anatolykoptev/go-code/commit/c425f895ce14e606692b87587125d0fb23eab4e0))
+
 ## [1.23.1](https://github.com/anatolykoptev/go-code/compare/v1.23.0...v1.23.1) (2026-07-13)
 
 
