@@ -3,7 +3,6 @@ package dozorclient
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -29,17 +28,17 @@ type LogsResponse struct {
 
 // Client is an HTTP client for the dozor sidecar API.
 type Client struct {
-	baseURL string
-	token   string // optional Bearer token
-	http    *http.Client
+	http *httputil.Client
 }
 
 // NewClient creates a new dozor Client. token may be empty (no auth header sent).
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
+	opts := []httputil.Option{httputil.WithTimeout(timeout)}
+	if token != "" {
+		opts = append(opts, httputil.WithHeader("Authorization", "Bearer "+token))
+	}
 	return &Client{
-		baseURL: baseURL,
-		token:   token,
-		http:    &http.Client{Timeout: timeout},
+		http: httputil.New(baseURL, opts...),
 	}
 }
 
@@ -66,15 +65,8 @@ func (c *Client) GetLogs(ctx context.Context, service string, since, until time.
 		q.Set("limit", strconv.Itoa(limit))
 	}
 
-	// Build per-call options: conditionally add auth header.
-	opts := []httputil.Option{}
-	if c.token != "" {
-		opts = append(opts, httputil.WithHeader("Authorization", "Bearer "+c.token))
-	}
-	hc := httputil.NewWithHTTPClient(c.baseURL, c.http, opts...)
-
 	var out LogsResponse
-	if err := hc.GetJSON(ctx, "/api/logs?"+q.Encode(), &out); err != nil {
+	if err := c.http.GetJSON(ctx, "/api/logs?"+q.Encode(), &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
