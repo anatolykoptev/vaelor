@@ -148,6 +148,8 @@ func analyzeFailureCandidate(ctx context.Context, prom *promclient.Client, servi
 	if score <= scoreNominal {
 		return nil, queries // not anomalous
 	}
+	// Display label uses %s (no quotes) because formatInvestigationResult renders
+	// it as an XML attribute with %q; PromQL queries above use %q for label values.
 	labelStr := fmt.Sprintf(`{service=%s}`, service)
 	if usedJob {
 		labelStr = fmt.Sprintf(`{job=%s}`, service)
@@ -367,6 +369,8 @@ func analyzeLatencyCandidate(ctx context.Context, prom *promclient.Client, servi
 	if score == 0 {
 		return nil, queries
 	}
+	// Display label uses %s (no quotes) because formatInvestigationResult renders
+	// it as an XML attribute with %q; PromQL queries above use %q for label values.
 	labelStr := fmt.Sprintf(`{service=%s}`, service)
 	if usedJob {
 		labelStr = fmt.Sprintf(`{job=%s}`, service)
@@ -470,6 +474,8 @@ func analyzeSaturationCandidate(ctx context.Context, prom *promclient.Client, se
 	if score == 0 {
 		return nil, queries
 	}
+	// Display label uses %s (no quotes) because formatInvestigationResult renders
+	// it as an XML attribute with %q; PromQL queries above use %q for label values.
 	labelStr := fmt.Sprintf(`{service=%s}`, service)
 	if usedJob {
 		labelStr = fmt.Sprintf(`{job=%s}`, service)
