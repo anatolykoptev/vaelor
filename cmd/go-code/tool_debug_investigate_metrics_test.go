@@ -579,27 +579,9 @@ func TestComputeSaturationSpikes_JobLabelFallback(t *testing.T) {
 // double-escaped by labels=%q in formatInvestigationResult.
 // Regression test for the %q Labels double-escape bug (issue #65).
 func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
-	// Simulate a failure spike with window > baseline.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
-			q := r.URL.Query().Get("query")
-			if strings.Contains(q, "service=") {
-				// window high, baseline low → spike
-				if strings.Contains(q, "start=") || true {
-					fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"10.0"]]}]}}`)
-				}
-			} else {
-				fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1700000000,"1.0"]]}]}}`)
-			}
-		} else {
-			http.Error(w, "not found", 404)
-		}
-	}))
-	defer srv.Close()
-
 	// Two requests: window (high) + baseline (low) → ratio=10 > 5 → critical spike.
 	callNum := 0
-	srvAlt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
 			callNum++
 			val := "10.0"
@@ -611,9 +593,9 @@ func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
 			http.Error(w, "not found", 404)
 		}
 	}))
-	defer srvAlt.Close()
+	defer srv.Close()
 
-	prom := promclient.NewClient(srvAlt.URL, 5*time.Second)
+	prom := promclient.NewClient(srv.URL, 5*time.Second)
 	start := time.Unix(1700000000, 0)
 	end := start.Add(5 * time.Minute)
 	diags := &investigate.Diagnostics{}
@@ -621,7 +603,7 @@ func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
 	metricNames := []string{"ws_handshake_failed_total"}
 	spikes := computeFailureSpikes(context.Background(), prom, "oxpulse-chat", metricNames, start, end, diags)
 	if len(spikes) == 0 {
-		t.Skip("no spikes produced (network condition); skipping escape check")
+		t.Fatal("no spikes produced; deterministic fixture should always produce a critical spike")
 	}
 
 	res := &investigate.InvestigationResult{
