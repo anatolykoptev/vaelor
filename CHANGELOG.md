@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.26.3](https://github.com/anatolykoptev/go-code/compare/v1.26.2...v1.26.3) (2026-07-13)
+
+
+### Fixed
+
+* **federate:** FU-1.1 — thread request ctx into ResolveRepos for cancellable origin dedup ([#337](https://github.com/anatolykoptev/go-code/issues/337)) ([fc12d53](https://github.com/anatolykoptev/go-code/commit/fc12d53400912e6d4e4f37c37baaaff5633c22d1))
+
 ## [1.26.2](https://github.com/anatolykoptev/go-code/compare/v1.26.1...v1.26.2) (2026-07-13)
 
 
