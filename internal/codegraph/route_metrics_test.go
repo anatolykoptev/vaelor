@@ -19,7 +19,7 @@ func readCounter(t *testing.T, c prometheus.Counter) float64 {
 	return m.GetCounter().GetValue()
 }
 
-// TestRouteMetrics_RecordHelpers calls each of the five record helpers once
+// TestRouteMetrics_RecordHelpers calls each of the six record helpers once
 // with sample labels and asserts the backing CounterVec incremented by 1.
 // This is the CG-T1 registration smoke test for the route->graph observability
 // scaffold.  The test is white-box (package codegraph) so it can reference the
@@ -42,6 +42,16 @@ func TestRouteMetrics_RecordHelpers(t *testing.T) {
 		after := readCounter(t, c)
 		if after-before != 1 {
 			t.Errorf("routeEdgesBuiltTotal: want +1, got +%.0f", after-before)
+		}
+	})
+
+	t.Run("routeEdgeUnmatched", func(t *testing.T) {
+		c := routeEdgesUnmatchedTotal.WithLabelValues("repo1", "FETCHES", "missing_symbol")
+		before := readCounter(t, c)
+		recordRouteEdgeUnmatched("repo1", "FETCHES", "missing_symbol")
+		after := readCounter(t, c)
+		if after-before != 1 {
+			t.Errorf("routeEdgesUnmatchedTotal: want +1, got +%.0f", after-before)
 		}
 	})
 
