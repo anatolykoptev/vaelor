@@ -12,8 +12,8 @@ import (
 
 const (
 	defaultSimilarityThreshold float32 = 0.92
-	defaultSimilarLimit                = 50
-	maxSimilarLimit                    = 200
+	defaultSimilarLimit        int     = 50
+	maxSimilarLimit            int     = 200
 
 	// similarPairsStatementTimeout is applied as SET LOCAL statement_timeout
 	// inside the FindSimilarPairs transaction. The O(n²) pgvector self-join can
@@ -21,19 +21,19 @@ const (
 	// pinning a CPU core on the 4-core ARM box. 15s allows reasonable repos
 	// (≤5k functions from the semhealth guard) to complete while bounding the
 	// worst case. SQLSTATE 57014 (query_canceled) is treated as "no pairs".
-	similarPairsStatementTimeout = "15s"
+	similarPairsStatementTimeout string = "15s"
 
 	// pgErrQueryCanceled is the PostgreSQL SQLSTATE for statement_timeout / query cancel.
-	pgErrQueryCanceled = "57014"
+	pgErrQueryCanceled string = "57014"
 
 	// defaultNearDupK is the number of nearest neighbours requested per symbol
 	// in FindNearDuplicates. k+1 is passed to Store.Search because the symbol
 	// itself (distance 0) is always in the result and is dropped.
-	defaultNearDupK = 5
+	defaultNearDupK int = 5
 
 	// DefaultNearDupK is the exported form of defaultNearDupK for callers in
 	// other packages (e.g. semhealth) that need to pass k to FindNearDuplicates.
-	DefaultNearDupK = defaultNearDupK
+	DefaultNearDupK int = defaultNearDupK
 )
 
 // nearDupSymbol is an internal record for a symbol loaded by FindNearDuplicates.

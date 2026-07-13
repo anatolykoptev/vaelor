@@ -229,7 +229,7 @@ func (c *Client) compareOnce(ctx context.Context, slug, bForm, hForm, rawBase, r
 			Head:     rawHead,
 			Status:   "unresolved",
 			Resolved: false,
-			Reason:   fmt.Sprintf("HTTP 403 Forbidden"),
+			Reason:   "HTTP 403 Forbidden",
 		}, true, nil
 
 	case http.StatusOK:

@@ -43,8 +43,10 @@ func TestFilterBuildTagVariants_DropsDisjointPlatformSplit(t *testing.T) {
 	}
 }
 
-func TestFilterBuildTagVariants_DropsGoosSplit(t *testing.T) {
+func TestFilterBuildTagVariants_DropsDisjointGoosSibling(t *testing.T) {
 	root := t.TempDir()
+	// Sibling files named by GOOS: a_windows.go and a_darwin.go. These never
+	// compile together because GOOS tags are mutually exclusive.
 	writeFile(t, root, "a_windows.go", "//go:build windows\n\npackage p\nfunc f() {}\n")
 	writeFile(t, root, "a_darwin.go", "//go:build darwin\n\npackage p\nfunc f() {}\n")
 
@@ -53,12 +55,8 @@ func TestFilterBuildTagVariants_DropsGoosSplit(t *testing.T) {
 		FileB: "a_darwin.go", SymbolB: "f", KindB: "function",
 	}}
 	_, dropped := filterBuildTagVariants(root, pairs)
-	// windows and darwin are independent tags; {windows:true,darwin:true} is a
-	// satisfying assignment for BOTH single-tag exprs, so they are NOT provably
-	// disjoint by tag-space enumeration alone. The filter keeps the pair —
-	// soundness over completeness (no false drop).
-	if dropped != 0 {
-		t.Errorf("dropped = %d, want 0 (windows vs darwin not provably disjoint without GOOS mutex)", dropped)
+	if dropped != 1 {
+		t.Errorf("dropped = %d, want 1 (windows vs darwin are mutually exclusive GOOS tags)", dropped)
 	}
 }
 

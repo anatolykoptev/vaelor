@@ -33,6 +33,7 @@ linters:
     - bodyclose     # HTTP response body must be closed
     - errorlint     # proper error wrapping (Go 1.13+)
     - perfsprint    # faster alternatives to fmt.Sprintf
+    - staticcheck   # SA/ST/S/QF checks from honnef.co/go/tools
 
   settings:
     funlen:

@@ -141,10 +141,10 @@ func TestCollectRecentCommits_SquashNotCumulative(t *testing.T) {
 	})
 
 	// Switch back to main and squash-merge the feature branch.
-	checkoutOut, err := exec.Command("git", "-C", main, "checkout", "master").CombinedOutput()
+	_, err = exec.Command("git", "-C", main, "checkout", "master").CombinedOutput()
 	if err != nil {
 		// Some git versions use "main" as the default branch.
-		checkoutOut, err = exec.Command("git", "-C", main, "checkout", "main").CombinedOutput()
+		checkoutOut, err := exec.Command("git", "-C", main, "checkout", "main").CombinedOutput()
 		if err != nil {
 			t.Fatalf("checkout main/master: %v: %s", err, checkoutOut)
 		}

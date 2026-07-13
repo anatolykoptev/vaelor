@@ -45,12 +45,12 @@ func extractCppAttributes(node *sitter.Node, source []byte) []string {
 			continue
 		}
 		ct := child.Type()
-		if ct == "virtual" || ct == "storage_class_specifier" ||
-			ct == "type_qualifier" || ct == "virtual_specifier" {
+		switch ct {
+		case "virtual", "storage_class_specifier", "type_qualifier", "virtual_specifier":
 			if kw := matchCppKeyword(child.Content(source)); kw != "" {
 				attrs = append(attrs, kw)
 			}
-		} else if ct == nodeFunctionDeclarator {
+		case nodeFunctionDeclarator:
 			attrs = append(attrs, scanDeclChildren(child, source)...)
 		}
 	}
