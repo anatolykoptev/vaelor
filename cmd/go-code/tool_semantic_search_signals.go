@@ -187,14 +187,25 @@ func queryComplexityByFile(
 		if len(r) != 2 {
 			continue
 		}
-		c, err := strconv.Atoi(r[1])
+		// AGE string agtypes are JSON-quoted ("cmd/eval/main.go"), but integer
+		// properties may return bare ("15" or 15). Unquote if possible, fall back
+		// to the raw value, then parse the complexity number.
+		file, err := strconv.Unquote(r[0])
+		if err != nil {
+			file = r[0]
+		}
+		comp, err := strconv.Unquote(r[1])
+		if err != nil {
+			comp = r[1]
+		}
+		c, err := strconv.Atoi(comp)
 		if err != nil {
 			continue
 		}
-		a := byFile[r[0]]
+		a := byFile[file]
 		if a == nil {
 			a = &acc{}
-			byFile[r[0]] = a
+			byFile[file] = a
 		}
 		a.total += c
 		a.count++
