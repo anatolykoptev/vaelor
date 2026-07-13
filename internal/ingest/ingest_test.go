@@ -214,6 +214,67 @@ func TestIngestRepoFocus(t *testing.T) {
 	}
 }
 
+func TestIsKeywordFocus(t *testing.T) {
+	t.Parallel()
+	if !IsKeywordFocus("auth,middleware") {
+		t.Error("expected comma-separated focus to be keyword focus")
+	}
+	if !IsKeywordFocus("auth, middleware") {
+		t.Error("expected comma+space separated focus to be keyword focus")
+	}
+	if !IsKeywordFocus("auth middleware") {
+		t.Error("expected space-separated focus to be keyword focus")
+	}
+	if IsKeywordFocus("internal") {
+		t.Error("expected path focus not to be keyword focus")
+	}
+	if IsKeywordFocus("auth,middleware,handler") {
+		// multi keyword comma is valid keyword focus
+	} else {
+		t.Error("expected multiple comma-separated keywords to be keyword focus")
+	}
+}
+
+func TestMatchKeywords_CommaSeparated(t *testing.T) {
+	t.Parallel()
+	if !matchKeywords("auth,middleware", "internal/auth/middleware.go") {
+		t.Error("expected comma-separated keywords to match path containing both")
+	}
+	if matchKeywords("auth,middleware", "internal/auth/login.go") {
+		t.Error("expected keywords to require all terms")
+	}
+	if !matchKeywords("auth,middleware", "internal/auth/middleware/handler.go") {
+		t.Error("expected comma-separated keywords to match nested path containing both")
+	}
+}
+
+func TestIngestRepoFocusKeywordsComma(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "cmd", "server", "main.go"), "package main\n")
+	writeFile(t, filepath.Join(root, "internal", "auth", "middleware.go"), "package auth\n")
+	writeFile(t, filepath.Join(root, "internal", "auth", "handler.go"), "package auth\n")
+
+	result, err := IngestRepo(context.Background(), IngestOpts{
+		Root:  root,
+		Focus: "auth,middleware",
+	})
+	if err != nil {
+		t.Fatalf("IngestRepo: %v", err)
+	}
+
+	if len(result.Files) != 1 {
+		t.Fatalf("keyword focus with comma: expected 1 file, got %d", len(result.Files))
+	}
+
+	for _, f := range result.Files {
+		rp := strings.ToLower(f.RelPath)
+		if !strings.Contains(rp, "auth") || !strings.Contains(rp, "middleware") {
+			t.Errorf("keyword focus: unexpected file %q (should contain auth AND middleware)", f.RelPath)
+		}
+	}
+}
+
 // TestIngestRepoContextCancel verifies context cancellation stops the walk.
 func TestIngestRepoContextCancel(t *testing.T) {
 	t.Parallel()
