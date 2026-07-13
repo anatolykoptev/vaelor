@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.3](https://github.com/anatolykoptev/go-code/compare/v1.23.2...v1.23.3) (2026-07-13)
+
+
+### Fixed
+
+* **clients:** stop allocating httputil.Client on every call ([#316](https://github.com/anatolykoptev/go-code/issues/316)) ([a8c168c](https://github.com/anatolykoptev/go-code/commit/a8c168cd3b0809e0c36b73a487a2bedb10ccfed0))
+
 ## [1.23.2](https://github.com/anatolykoptev/go-code/compare/v1.23.1...v1.23.2) (2026-07-13)
 
 
