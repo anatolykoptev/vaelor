@@ -51,12 +51,15 @@ var (
 )
 
 // Match scans Go source code and returns all detected routes.
+// Each returned Route has its Line field set to the 1-based line number of the
+// match in source — a hard prerequisite for the enclosing-function resolver.
 func (g *GoMatcher) Match(source []byte) []Route {
 	var routes []Route
 
 	// Server: http.HandleFunc / http.Handle.
-	for _, m := range handleFuncRe.FindAllSubmatch(source, -1) {
-		raw := string(m[1])
+	for _, loc := range handleFuncRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e, g2s,g2e]
+		raw := string(source[loc[2]:loc[3]])
 		method := "*"
 		path := raw
 		// Go 1.22+ pattern: "GET /path" — extract method from the string.
@@ -75,49 +78,56 @@ func (g *GoMatcher) Match(source []byte) []Route {
 			Method:    method,
 			Path:      NormalizePath(path),
 			RawPath:   raw,
-			Handler:   stripReceiver(string(m[2])),
+			Handler:   stripReceiver(string(source[loc[4]:loc[5]])),
 			Framework: "net/http",
 			Side:      "server",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
 	// Server: router method calls (chi / gin / echo style).
-	for _, m := range routerMethodRe.FindAllSubmatch(source, -1) {
-		method := normalizeMethod(string(m[1]))
-		raw := string(m[2])
+	for _, loc := range routerMethodRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e, g2s,g2e, g3s,g3e]
+		method := normalizeMethod(string(source[loc[2]:loc[3]]))
+		raw := string(source[loc[4]:loc[5]])
 		routes = append(routes, Route{
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
-			Handler:   stripReceiver(string(m[3])),
+			Handler:   stripReceiver(string(source[loc[6]:loc[7]])),
 			Framework: "chi",
 			Side:      "server",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
 	// Client: http.Get / http.Post / http.Head.
-	for _, m := range httpShortcutRe.FindAllSubmatch(source, -1) {
-		method := normalizeMethod(string(m[1]))
-		raw := string(m[2])
+	for _, loc := range httpShortcutRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e, g2s,g2e]
+		method := normalizeMethod(string(source[loc[2]:loc[3]]))
+		raw := string(source[loc[4]:loc[5]])
 		routes = append(routes, Route{
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
 			Framework: "net/http",
 			Side:      "client",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
 	// Client: http.NewRequest / http.NewRequestWithContext.
-	for _, m := range httpNewRequestRe.FindAllSubmatch(source, -1) {
-		method := normalizeMethod(string(m[1]))
-		raw := string(m[2])
+	for _, loc := range httpNewRequestRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e, g2s,g2e]
+		method := normalizeMethod(string(source[loc[2]:loc[3]]))
+		raw := string(source[loc[4]:loc[5]])
 		routes = append(routes, Route{
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
 			Framework: "net/http",
 			Side:      "client",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 

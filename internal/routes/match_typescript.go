@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"bytes"
 	"regexp"
 )
 
@@ -48,18 +47,6 @@ var (
 		`axios\.(get|post|put|delete|patch)\(\s*["']([^"']+)["']`,
 	)
 )
-
-// lineAt returns the 1-based line number of the byte at offset within source.
-// It counts the number of newlines before offset and adds 1.
-func lineAt(source []byte, offset int) uint32 {
-	if offset <= 0 {
-		return 1
-	}
-	if offset > len(source) {
-		offset = len(source)
-	}
-	return uint32(bytes.Count(source[:offset], []byte{'\n'})) + 1
-}
 
 // Match scans TypeScript/JavaScript source and returns all detected routes.
 // Each returned Route has its Line field set to the 1-based line number of

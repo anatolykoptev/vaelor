@@ -34,44 +34,52 @@ var (
 )
 
 // Match scans Python source and returns all detected routes.
+// Each returned Route has its Line field set to the 1-based line number of the
+// match in source — a hard prerequisite for the enclosing-function resolver.
 func (p *PythonMatcher) Match(source []byte) []Route {
 	var routes []Route
 
 	// Server: Flask @app.route.
-	for _, m := range pyFlaskRouteRe.FindAllSubmatch(source, -1) {
-		raw := string(m[1])
+	for _, loc := range pyFlaskRouteRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e]
+		raw := string(source[loc[2]:loc[3]])
 		routes = append(routes, Route{
 			Method:    "*",
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
 			Framework: "python",
 			Side:      "server",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
 	// Server: FastAPI @router.get / @app.post.
-	for _, m := range pyFastAPIRe.FindAllSubmatch(source, -1) {
-		method := normalizeMethod(string(m[1]))
-		raw := string(m[2])
+	for _, loc := range pyFastAPIRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e, g2s,g2e]
+		method := normalizeMethod(string(source[loc[2]:loc[3]]))
+		raw := string(source[loc[4]:loc[5]])
 		routes = append(routes, Route{
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
 			Framework: "python",
 			Side:      "server",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
 	// Client: requests / httpx / aiohttp.
-	for _, m := range pyHTTPClientRe.FindAllSubmatch(source, -1) {
-		method := normalizeMethod(string(m[1]))
-		raw := string(m[2])
+	for _, loc := range pyHTTPClientRe.FindAllSubmatchIndex(source, -1) {
+		// loc layout: [full0,full1, g1s,g1e, g2s,g2e]
+		method := normalizeMethod(string(source[loc[2]:loc[3]]))
+		raw := string(source[loc[4]:loc[5]])
 		routes = append(routes, Route{
 			Method:    method,
 			Path:      NormalizePath(raw),
 			RawPath:   raw,
 			Framework: "python",
 			Side:      "client",
+			Line:      lineAt(source, loc[0]),
 		})
 	}
 
