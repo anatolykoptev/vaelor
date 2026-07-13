@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.26.2](https://github.com/anatolykoptev/go-code/compare/v1.26.1...v1.26.2) (2026-07-13)
+
+
+### Fixed
+
+* **codegraph:** FU-CG.9 — make route edge counters truthful (built vs unmatched) ([#335](https://github.com/anatolykoptev/go-code/issues/335)) ([2cce1a5](https://github.com/anatolykoptev/go-code/commit/2cce1a531dbfd898ae0a731332d4c9c0af26b7db))
+
 ## [1.26.1](https://github.com/anatolykoptev/go-code/compare/v1.26.0...v1.26.1) (2026-07-13)
 
 
