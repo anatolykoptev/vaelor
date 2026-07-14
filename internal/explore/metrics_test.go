@@ -63,7 +63,6 @@ const metricFilesChangedMethod = "gocode_explore_files_changed_method_total"
 // TestCountDiffTreeFilesMetric_DiffTree checks that a normal commit increments
 // the diff_tree method counter.
 func TestCountDiffTreeFilesMetric_DiffTree(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	// Create a second commit so it has a parent (normal diff-tree path).
@@ -87,7 +86,6 @@ func TestCountDiffTreeFilesMetric_DiffTree(t *testing.T) {
 // TestCountDiffTreeFilesMetric_RootFallback checks that the initial commit
 // triggers the root_fallback counter.
 func TestCountDiffTreeFilesMetric_RootFallback(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	// Only one commit — the initial commit triggers the --root retry path.
@@ -109,7 +107,6 @@ func TestCountDiffTreeFilesMetric_RootFallback(t *testing.T) {
 // TestCountDiffTreeFilesMetric_Error checks that a bad SHA increments the
 // error counter.
 func TestCountDiffTreeFilesMetric_Error(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	commitFiles(t, dir, "init", map[string]string{"a.go": "package main\n"})
@@ -149,7 +146,6 @@ func latestSHA(t *testing.T, dir string) string {
 // reported files_changed=2397 for a 6-file squash commit (c995fdb) because
 // the --root fallback fired against the empty tree and counted every file.
 func TestCountDiffTreeFiles_ShallowClone_Depth1(t *testing.T) {
-	t.Parallel()
 	// Build a source repo with 3 commits touching different files.
 	src := t.TempDir()
 	initGitRepo(t, src)
@@ -192,7 +188,6 @@ func TestCountDiffTreeFiles_ShallowClone_Depth1(t *testing.T) {
 // fixed clone depth) non-initial commits have a visible parent and diff-tree
 // returns the correct per-commit file count, not 0 and not all-files.
 func TestCountDiffTreeFiles_ShallowClone_Depth2(t *testing.T) {
-	t.Parallel()
 	// Build a source repo: init + 3 data commits, each touching exactly 1 file.
 	src := t.TempDir()
 	initGitRepo(t, src)
@@ -246,7 +241,6 @@ func TestCountDiffTreeFiles_ShallowClone_Depth2(t *testing.T) {
 // return false in this case so that the --root fallback fires and the actual
 // file count is returned instead of 0.
 func TestCountDiffTreeFiles_ShallowClone_SingleCommitRepo(t *testing.T) {
-	t.Parallel()
 	// Source repo with exactly 1 commit touching 4 files.
 	src := t.TempDir()
 	initGitRepo(t, src)
