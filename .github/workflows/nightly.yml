@@ -6,9 +6,10 @@ name: nightly
 # here every night, so the -short split in preflight is a cadence change, NOT
 # skip-to-green: nothing is dropped, just moved off the hot PR path.
 #
-# Same self-hosted krolik runner + same ephemeral krolik-postgres-age:17 setup
-# as preflight.yml (see that file for the postgres-readiness / random-host-port
-# rationale). Runs off-peak on the shared 4-core prod box.
+# Runs on GitHub-hosted `ubuntu-24.04-arm` (free for public repos, arm64
+# parity with prod) with the same vendored postgres+age image as
+# preflight.yml — see that file for the image/readiness/random-port
+# rationale. Moved off the krolik self-hosted runner 2026-07-14.
 
 on:
   schedule:
@@ -24,10 +25,11 @@ permissions:
 
 jobs:
   full-test:
-    runs-on: [self-hosted, krolik]
-    # Full suite is ~26m warm; 50m covers an occasional cold GOCACHE (e.g. after
-    # a Go toolchain bump) without parking the repo's only runner indefinitely.
-    timeout-minutes: 50
+    runs-on: ubuntu-24.04-arm
+    # Full suite was ~26m warm on a 4-core ARM box; hosted runners restore Go
+    # caches over the network and may build the postgres image cold, so give
+    # generous headroom without letting a real hang run for 6h.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v5
@@ -37,15 +39,30 @@ jobs:
           # depth-1 clone would yield empty churn and fail the assertion).
           fetch-depth: 0
 
-      - name: Reap stale CI postgres containers
-        run: |
-          set -euo pipefail
-          docker ps -aq --filter "name=gocode-nightly-pg-" | xargs -r docker rm -f
+      - uses: actions/setup-go@v5
+        with:
+          # Latest patched toolchain, not go.mod's pin — see preflight.yml.
+          go-version: stable
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build postgres+age image (GHA-cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/ci/postgres-age
+          tags: ci-postgres-age:17
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Start ephemeral postgres+age
         id: pg
         run: |
           set -euo pipefail
+          if ! command -v pg_isready >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
           name="gocode-nightly-pg-${{ github.run_id }}-${{ github.run_attempt }}"
           echo "container=$name" >> "$GITHUB_OUTPUT"
           docker run -d --rm --name "$name" \
@@ -54,12 +71,15 @@ jobs:
             -e POSTGRES_DB=gocode_test \
             --shm-size=512mb \
             -p 127.0.0.1::5432 \
-            krolik-postgres-age:17 \
+            ci-postgres-age:17 \
             postgres -c shared_preload_libraries=age,pg_stat_statements
 
           port=$(docker inspect -f '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "$name")
           echo "port=$port" >> "$GITHUB_OUTPUT"
 
+          # Poll the mapped host port, not `docker exec pg_isready` — the
+          # entrypoint's transient first startup false-positives the latter
+          # (see preflight.yml).
           ready=0
           for i in $(seq 1 60); do
             if pg_isready -h 127.0.0.1 -p "$port" -U postgres >/dev/null 2>&1; then
