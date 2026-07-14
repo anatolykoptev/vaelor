@@ -96,6 +96,68 @@ func TestLoadConfig_LLMPerAttemptTimeoutDefault(t *testing.T) {
 	}
 }
 
+// TestLoadConfig_LLMModelDefault guards the fresh-deploy fallback model id.
+// Prod always overrides via LLM_MODEL (fleet llm.env), so this only fires on
+// a fresh deploy without that env — it must stay a currently-live
+// cliproxyapi model, not a removed one (a dead default previously silently
+// 502'd "unknown provider").
+func TestLoadConfig_LLMModelDefault(t *testing.T) {
+	t.Setenv("LLM_MODEL", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.LLMModel != defaultLLMModel {
+		t.Errorf("LLMModel default = %q, want %q", cfg.LLMModel, defaultLLMModel)
+	}
+
+	// Explicit override must pass through.
+	t.Setenv("LLM_MODEL", "some-other-model")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.LLMModel != "some-other-model" {
+		t.Errorf("LLM_MODEL override: want %q, got %q", "some-other-model", cfg.LLMModel)
+	}
+}
+
+// TestLoadConfig_SourcemapRateLimitDefault guards the /resolve per-IP rate
+// limiter being enabled by default (issue #388: it used to ship disabled,
+// leaving a network-exposed, bearer-auth-gated endpoint unthrottled).
+func TestLoadConfig_SourcemapRateLimitDefault(t *testing.T) {
+	// Force the unset path hermetically: env.Float/env.Int treat "" as unset
+	// and return the default, so this holds even if the runner exports the
+	// var.
+	t.Setenv("SOURCEMAP_RATE_LIMIT", "")
+	t.Setenv("SOURCEMAP_RATE_BURST", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.SourcemapRateLimit != 30 {
+		t.Errorf("SourcemapRateLimit default = %v, want 30", cfg.SourcemapRateLimit)
+	}
+	if cfg.SourcemapRateBurst != 60 {
+		t.Errorf("SourcemapRateBurst default = %v, want 60", cfg.SourcemapRateBurst)
+	}
+
+	// Explicit override must pass through (including the operator opt-out
+	// path, SOURCEMAP_RATE_LIMIT=0).
+	t.Setenv("SOURCEMAP_RATE_LIMIT", "5")
+	t.Setenv("SOURCEMAP_RATE_BURST", "15")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.SourcemapRateLimit != 5 {
+		t.Errorf("SOURCEMAP_RATE_LIMIT=5: want 5, got %v", cfg.SourcemapRateLimit)
+	}
+	if cfg.SourcemapRateBurst != 15 {
+		t.Errorf("SOURCEMAP_RATE_BURST=15: want 15, got %v", cfg.SourcemapRateBurst)
+	}
+}
+
 func TestLoadConfig_SparseBackfillDeadline_ZeroClamped(t *testing.T) {
 	const defaultDeadline = defaultSparseBackfillDeadlineS * time.Second
 
