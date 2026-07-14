@@ -39,8 +39,8 @@ func (f *fakeForge) FetchRepoMeta(context.Context, string) (*forge.RepoMeta, err
 
 func (f *fakeForge) FetchREADME(context.Context, string) (string, error) { return "", nil }
 
-func (f *fakeForge) SearchCode(context.Context, string, []string) ([]forge.CodeResult, error) {
-	return nil, nil
+func (f *fakeForge) SearchCode(context.Context, string, []string, ...forge.SearchCodeOptions) (forge.CodeSearchResult, error) {
+	return forge.CodeSearchResult{}, nil
 }
 
 func (f *fakeForge) SearchIssues(context.Context, string) ([]forge.IssueItem, error) {

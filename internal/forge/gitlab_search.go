@@ -13,27 +13,44 @@ import (
 
 // SearchCode implements Forge.
 // GitLab code search is per-project, so we iterate over repos.
-// When repos is empty we return an empty slice — GitLab has no global code search in v4 REST.
-func (g *GitLabForge) SearchCode(ctx context.Context, query string, repos []string) ([]CodeResult, error) {
+// When repos is empty we return an empty result — GitLab has no global code search in v4 REST.
+func (g *GitLabForge) SearchCode(ctx context.Context, query string, repos []string, opts ...SearchCodeOptions) (CodeSearchResult, error) {
+	var opt SearchCodeOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	if len(repos) == 0 {
-		return nil, nil
+		return CodeSearchResult{}, nil
+	}
+
+	perPage := opt.PerPage
+	if perPage <= 0 {
+		perPage = glSearchPerPage
+	}
+	page := opt.Page
+	if page <= 0 {
+		page = 1
 	}
 
 	var results []CodeResult
 	for _, repo := range repos {
-		hits, err := g.searchCodeInRepo(ctx, repo, query)
+		hits, err := g.searchCodeInRepo(ctx, repo, query, perPage, page)
 		if err != nil {
-			return nil, err
+			return CodeSearchResult{}, err
 		}
 		results = append(results, hits...)
+		if opt.MaxResults > 0 && len(results) >= opt.MaxResults {
+			results = results[:opt.MaxResults]
+			break
+		}
 	}
-	return results, nil
+	return CodeSearchResult{Results: results}, nil
 }
 
 // searchCodeInRepo searches blobs in a single GitLab project.
-func (g *GitLabForge) searchCodeInRepo(ctx context.Context, repo, query string) (_ []CodeResult, err error) {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%s/search?scope=blobs&search=%s",
-		g.apiBase, encodeSlug(repo), url.QueryEscape(query))
+func (g *GitLabForge) searchCodeInRepo(ctx context.Context, repo, query string, perPage, page int) (_ []CodeResult, err error) {
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%s/search?scope=blobs&search=%s&per_page=%d&page=%d",
+		g.apiBase, encodeSlug(repo), url.QueryEscape(query), perPage, page)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
