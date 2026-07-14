@@ -18,9 +18,9 @@ func TestParseCacheGetSet(t *testing.T) {
 	c := NewParseCache(10)
 
 	result := &parser.ParseResult{File: "/a.go", Language: "go"}
-	c.Put("/a.go", 1000, 200, false, result, nil)
+	c.Put("/a.go", 1000, 200, false, false, result, nil)
 
-	got, _ := c.Get("/a.go", 1000, 200, false)
+	got, _ := c.Get("/a.go", 1000, 200, false, false)
 	if got == nil {
 		t.Fatal("expected cache hit")
 	}
@@ -33,7 +33,7 @@ func TestParseCacheMiss(t *testing.T) {
 	t.Parallel()
 	c := NewParseCache(10)
 
-	got, _ := c.Get("/missing.go", 1000, 200, false)
+	got, _ := c.Get("/missing.go", 1000, 200, false, false)
 	if got != nil {
 		t.Fatal("expected cache miss for missing key")
 	}
@@ -49,10 +49,10 @@ func TestParseCacheStaleModTime(t *testing.T) {
 	c := NewParseCache(10)
 
 	result := &parser.ParseResult{File: "/a.go"}
-	c.Put("/a.go", 1000, 200, false, result, nil)
+	c.Put("/a.go", 1000, 200, false, false, result, nil)
 
 	// Different modTime → stale.
-	got, _ := c.Get("/a.go", 2000, 200, false)
+	got, _ := c.Get("/a.go", 2000, 200, false, false)
 	if got != nil {
 		t.Fatal("expected stale miss on modTime change")
 	}
@@ -63,10 +63,10 @@ func TestParseCacheStaleSize(t *testing.T) {
 	c := NewParseCache(10)
 
 	result := &parser.ParseResult{File: "/a.go"}
-	c.Put("/a.go", 1000, 200, false, result, nil)
+	c.Put("/a.go", 1000, 200, false, false, result, nil)
 
 	// Different size → stale.
-	got, _ := c.Get("/a.go", 1000, 300, false)
+	got, _ := c.Get("/a.go", 1000, 300, false, false)
 	if got != nil {
 		t.Fatal("expected stale miss on size change")
 	}
@@ -76,23 +76,23 @@ func TestParseCacheLRUEviction(t *testing.T) {
 	t.Parallel()
 	c := NewParseCache(3)
 
-	c.Put("/a.go", 1, 1, false, &parser.ParseResult{File: "/a.go"}, nil)
-	c.Put("/b.go", 2, 2, false, &parser.ParseResult{File: "/b.go"}, nil)
-	c.Put("/c.go", 3, 3, false, &parser.ParseResult{File: "/c.go"}, nil)
+	c.Put("/a.go", 1, 1, false, false, &parser.ParseResult{File: "/a.go"}, nil)
+	c.Put("/b.go", 2, 2, false, false, &parser.ParseResult{File: "/b.go"}, nil)
+	c.Put("/c.go", 3, 3, false, false, &parser.ParseResult{File: "/c.go"}, nil)
 
 	// Access /a.go to make it recent.
-	c.Get("/a.go", 1, 1, false)
+	c.Get("/a.go", 1, 1, false, false)
 
 	// Add /d.go — should evict /b.go (LRU).
-	c.Put("/d.go", 4, 4, false, &parser.ParseResult{File: "/d.go"}, nil)
+	c.Put("/d.go", 4, 4, false, false, &parser.ParseResult{File: "/d.go"}, nil)
 
-	if got, _ := c.Get("/b.go", 2, 2, false); got != nil {
+	if got, _ := c.Get("/b.go", 2, 2, false, false); got != nil {
 		t.Fatal("expected /b.go to be evicted")
 	}
-	if got, _ := c.Get("/a.go", 1, 1, false); got == nil {
+	if got, _ := c.Get("/a.go", 1, 1, false, false); got == nil {
 		t.Fatal("expected /a.go to survive (recently accessed)")
 	}
-	if got, _ := c.Get("/d.go", 4, 4, false); got == nil {
+	if got, _ := c.Get("/d.go", 4, 4, false, false); got == nil {
 		t.Fatal("expected /d.go to be present")
 	}
 }
@@ -101,10 +101,10 @@ func TestParseCacheUpdate(t *testing.T) {
 	t.Parallel()
 	c := NewParseCache(10)
 
-	c.Put("/a.go", 1, 1, false, &parser.ParseResult{File: "/a.go", Language: "go"}, nil)
-	c.Put("/a.go", 2, 2, false, &parser.ParseResult{File: "/a.go", Language: "python"}, nil)
+	c.Put("/a.go", 1, 1, false, false, &parser.ParseResult{File: "/a.go", Language: "go"}, nil)
+	c.Put("/a.go", 2, 2, false, false, &parser.ParseResult{File: "/a.go", Language: "python"}, nil)
 
-	got, _ := c.Get("/a.go", 2, 2, false)
+	got, _ := c.Get("/a.go", 2, 2, false, false)
 	if got == nil {
 		t.Fatal("expected cache hit after update")
 	}
@@ -117,9 +117,9 @@ func TestParseCacheStats(t *testing.T) {
 	t.Parallel()
 	c := NewParseCache(10)
 
-	c.Put("/a.go", 1, 1, false, &parser.ParseResult{}, nil)
-	c.Get("/a.go", 1, 1, false) // hit
-	c.Get("/b.go", 2, 2, false) // miss
+	c.Put("/a.go", 1, 1, false, false, &parser.ParseResult{}, nil)
+	c.Get("/a.go", 1, 1, false, false) // hit
+	c.Get("/b.go", 2, 2, false, false) // miss
 
 	stats := c.Stats()
 	if stats.Hits != 1 {
@@ -143,8 +143,8 @@ func TestParseCacheConcurrent(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			path := "/file" + string(rune('A'+n%26)) + ".go"
-			c.Put(path, int64(n), int64(n), false, &parser.ParseResult{File: path}, nil)
-			c.Get(path, int64(n), int64(n), false)
+			c.Put(path, int64(n), int64(n), false, false, &parser.ParseResult{File: path}, nil)
+			c.Get(path, int64(n), int64(n), false, false)
 		}(i)
 	}
 	wg.Wait()
@@ -166,27 +166,59 @@ func TestParseCacheIncludeBodyKeyed(t *testing.T) {
 	c := NewParseCache(10)
 
 	bodyFalse := &parser.ParseResult{File: "/a.go", Language: "go"}
-	c.Put("/a.go", 1000, 200, false, bodyFalse, nil)
+	c.Put("/a.go", 1000, 200, false, false, bodyFalse, nil)
 
 	// A includeBody=true request against a includeBody=false entry must miss.
-	if got, _ := c.Get("/a.go", 1000, 200, true); got != nil {
+	if got, _ := c.Get("/a.go", 1000, 200, true, false); got != nil {
 		t.Fatal("expected miss for includeBody=true against a includeBody=false entry")
 	}
 
 	// The original includeBody=false entry is still retrievable.
-	if got, _ := c.Get("/a.go", 1000, 200, false); got != bodyFalse {
+	if got, _ := c.Get("/a.go", 1000, 200, false, false); got != bodyFalse {
 		t.Fatal("expected includeBody=false entry to remain retrievable")
 	}
 
 	// Both modes coexist once both are cached.
 	bodyTrue := &parser.ParseResult{File: "/a.go", Language: "go", Imports: []string{"marker"}}
-	c.Put("/a.go", 1000, 200, true, bodyTrue, nil)
+	c.Put("/a.go", 1000, 200, true, false, bodyTrue, nil)
 
-	if got, _ := c.Get("/a.go", 1000, 200, true); got != bodyTrue {
+	if got, _ := c.Get("/a.go", 1000, 200, true, false); got != bodyTrue {
 		t.Fatal("expected includeBody=true entry to be retrievable")
 	}
-	if got, _ := c.Get("/a.go", 1000, 200, false); got != bodyFalse {
+	if got, _ := c.Get("/a.go", 1000, 200, false, false); got != bodyFalse {
 		t.Fatal("expected includeBody=false entry to still be retrievable after includeBody=true Put")
+	}
+}
+
+// TestParseCacheIncludeTypeRelsKeyed is a regression test for the cache key
+// adding includeTypeRels: an entry cached without type relationships must not
+// be served to a request that asks for them, and vice versa.
+func TestParseCacheIncludeTypeRelsKeyed(t *testing.T) {
+	t.Parallel()
+	c := NewParseCache(10)
+
+	relsFalse := &parser.ParseResult{File: "/a.go", Language: "go"}
+	c.Put("/a.go", 1000, 200, false, false, relsFalse, nil)
+
+	// A includeTypeRels=true request against an includeTypeRels=false entry must miss.
+	if got, _ := c.Get("/a.go", 1000, 200, false, true); got != nil {
+		t.Fatal("expected miss for includeTypeRels=true against includeTypeRels=false entry")
+	}
+
+	// The original includeTypeRels=false entry is still retrievable.
+	if got, _ := c.Get("/a.go", 1000, 200, false, false); got != relsFalse {
+		t.Fatal("expected includeTypeRels=false entry to remain retrievable")
+	}
+
+	// Both modes coexist once both are cached.
+	relsTrue := &parser.ParseResult{File: "/a.go", Language: "go", TypeRels: []parser.TypeRelationship{{Subject: "A", Target: "B", Kind: parser.RelEmbeds}}}
+	c.Put("/a.go", 1000, 200, false, true, relsTrue, nil)
+
+	if got, _ := c.Get("/a.go", 1000, 200, false, true); got != relsTrue {
+		t.Fatal("expected includeTypeRels=true entry to be retrievable")
+	}
+	if got, _ := c.Get("/a.go", 1000, 200, false, false); got != relsFalse {
+		t.Fatal("expected includeTypeRels=false entry to still be retrievable after includeTypeRels=true Put")
 	}
 }
 
@@ -202,9 +234,9 @@ func TestParseCacheRoundTripsCalls(t *testing.T) {
 		{Name: "Foo", Receiver: "pkg", Line: 3, File: "/a.go"},
 		{Name: "Bar", Line: 7, File: "/a.go"},
 	}
-	c.Put("/a.go", 1000, 200, false, &parser.ParseResult{File: "/a.go"}, calls)
+	c.Put("/a.go", 1000, 200, false, false, &parser.ParseResult{File: "/a.go"}, calls)
 
-	_, gotCalls := c.Get("/a.go", 1000, 200, false)
+	_, gotCalls := c.Get("/a.go", 1000, 200, false, false)
 	if len(gotCalls) != len(calls) {
 		t.Fatalf("expected %d calls, got %d", len(calls), len(gotCalls))
 	}

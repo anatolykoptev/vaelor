@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
@@ -22,7 +23,9 @@ func runLLMAnalysis(ctx context.Context, client llm.Completer, matches []SymbolM
 		hotspotsA, hotspotsB, relStatsA, relStatsB,
 		freshnessA, freshnessB, dataflowA, dataflowB, apiDiff, routeDiff,
 		archA, archB)
-	answer, err := client.Complete(ctx, prompts.SystemPromptCodeCompare, compareCtx)
+	llmCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	answer, err := client.Complete(llmCtx, prompts.SystemPromptCodeCompare, compareCtx)
 	if err != nil {
 		return LLMAnalysis{
 			Recommendations: []string{fmt.Sprintf("LLM analysis unavailable: %v", err)},
