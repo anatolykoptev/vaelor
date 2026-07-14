@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.6](https://github.com/anatolykoptev/go-code/compare/v1.31.5...v1.31.6) (2026-07-14)
+
+
+### Performance
+
+* **parser:** share one tree between ParseFile and ExtractCalls ([#400](https://github.com/anatolykoptev/go-code/issues/400)) ([#408](https://github.com/anatolykoptev/go-code/issues/408)) ([1331695](https://github.com/anatolykoptev/go-code/commit/13316954ea28ca29b2191fdea9244633c804e900))
+
 ## [1.31.5](https://github.com/anatolykoptev/go-code/compare/v1.31.4...v1.31.5) (2026-07-14)
 
 
