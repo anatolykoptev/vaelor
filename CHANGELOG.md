@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.31.5](https://github.com/anatolykoptev/go-code/compare/v1.31.4...v1.31.5) (2026-07-14)
+
+
+### Performance
+
+* **parser:** add BenchmarkParseFile and BenchmarkBuildSnapshot ([#404](https://github.com/anatolykoptev/go-code/issues/404)) ([9b41631](https://github.com/anatolykoptev/go-code/commit/9b41631b646ab9b1c6993a70c8ad9539e5343b97))
+* **parser:** single-parse Svelte runes instead of double parse ([#406](https://github.com/anatolykoptev/go-code/issues/406)) ([f453d47](https://github.com/anatolykoptev/go-code/commit/f453d475c4ab50ee4f339f1ffa01bf767c3557fd)), closes [#401](https://github.com/anatolykoptev/go-code/issues/401)
+
 ## [1.31.4](https://github.com/anatolykoptev/go-code/compare/v1.31.3...v1.31.4) (2026-07-14)
 
 
