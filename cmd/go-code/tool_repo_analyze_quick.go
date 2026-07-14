@@ -37,28 +37,34 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 		return errResult("no forge configured for code search"), nil
 	}
 
-	results, err := f.SearchCode(ctx, codeQuery, repos)
+	var searchOpts forge.SearchCodeOptions
+	searchOpts.MaxResults = 10
+	if input.Language != "" {
+		searchOpts.Language = input.Language
+	}
+
+	result, err := f.SearchCode(ctx, codeQuery, repos, searchOpts)
 	if err != nil {
 		return errResult(fmt.Sprintf("code search: %s", err)), nil
 	}
 
-	if len(results) == 0 {
+	if len(result.Results) == 0 {
 		return handleQuickFallback(ctx, input, repos, repoSlug, deps)
 	}
 
 	var sb strings.Builder
-	for i, r := range results {
+	for i, r := range result.Results {
 		fmt.Fprintf(&sb, "[%d] %s (%s)\n%s\n\n", i+1, r.Path, r.Repo, r.Content)
 	}
 
 	if input.Mode == modeRaw {
-		return textResult(fmt.Sprintf("Found %d code matches in %s:\n\n%s", len(results), repoSlug, sb.String())), nil
+		return textResult(fmt.Sprintf("Found %d code matches in %s:\n\n%s", len(result.Results), repoSlug, sb.String())), nil
 	}
 
 	summary, llmErr := deps.LLM.Complete(ctx, prompts.SystemPromptQuickSearch,
 		fmt.Sprintf("Query: %s\n\nCode search results:\n%s", input.Query, sb.String()))
 	if llmErr != nil {
-		return textResult(fmt.Sprintf("Found %d code matches (LLM unavailable):\n\n%s", len(results), sb.String())), nil
+		return textResult(fmt.Sprintf("Found %d code matches (LLM unavailable):\n\n%s", len(result.Results), sb.String())), nil
 	}
 
 	return textResult(fmt.Sprintf("# Quick Search: %s\nRepos: %s\n\n%s", input.Query, repoSlug, summary)), nil

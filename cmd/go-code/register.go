@@ -104,7 +104,6 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		JitterPercent: 0.1,
 	})
 
-	// Build LLM option set. Model chain and key-rotation are mutually exclusive:
 	// WithEndpoints owns per-endpoint retry; WithFallbackKeys keys same-model retries.
 	// When chain is configured, use it (cross-provider failure-domain via cliproxyapi
 	// model routing). Otherwise fall back to key-rotation for single-provider pools.
@@ -150,7 +149,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		LocalRepoDirs:  autoIndexDirs(cfg),
 		ParseCache:     parseCache,
 		LLMCache:       llmCache,
-		Forges:         buildForgeRegistry(cfg),
+		Forges:         buildForgeRegistry(cfg, toolCache),
 		WebSearch:      buildWebSearchClient(cfg),
 		ToolCache:      toolCache,
 		OxCodes:        buildOxCodesClient(cfg),
@@ -310,6 +309,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerCodeGraph(server, cfg, deps, graphStore)
 	registerRememberGraphInsights(server, cfg, deps, graphStore)
 	registerRepoSearch(server, cfg, deps)
+	registerGithubCodeSearch(server, cfg, deps)
 	registerCodeSearch(server, cfg, deps, &semDeps)
 	registerWPPluginSearch(server, cfg, deps)
 	registerSemanticSearch(server, cfg, semDeps)
@@ -473,9 +473,9 @@ func buildOxCodesClient(cfg Config) *oxcodes.Client {
 }
 
 // buildForgeRegistry creates a forge registry from config.
-func buildForgeRegistry(cfg Config) *forge.Registry {
+func buildForgeRegistry(cfg Config, toolCache *kitcache.Cache) *forge.Registry {
 	reg := forge.NewRegistry()
-	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken, cfg.GithubAppConfig))
+	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken, cfg.GithubAppConfig, forge.WithCache(toolCache)))
 	if cfg.GitLabToken != "" || cfg.GitLabURL != "" {
 		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
 	}

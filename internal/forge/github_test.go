@@ -159,14 +159,14 @@ func TestGitHubSearchCode(t *testing.T) {
 	})
 
 	g := newTestGitHubForge(t, mux)
-	results, err := g.SearchCode(context.Background(), "func main", []string{"foo/bar"})
+	result, err := g.SearchCode(context.Background(), "func main", []string{"foo/bar"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("len(results) = %d, want 1", len(results))
+	if len(result.Results) != 1 {
+		t.Fatalf("len(result.Results) = %d, want 1", len(result.Results))
 	}
-	r := results[0]
+	r := result.Results[0]
 	if r.Name != "main.go" {
 		t.Errorf("Name = %q, want main.go", r.Name)
 	}
