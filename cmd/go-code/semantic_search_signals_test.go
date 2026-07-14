@@ -48,13 +48,17 @@ func TestSignalHitsLiveIntegration(t *testing.T) {
 	graphStore := codegraph.NewStore(pool)
 
 	// Build the AGE graph for this checkout so the recency (file mtimes) and
-	// hotspot (symbol complexity) arms have real data to rank. Reuses the exact
-	// production entrypoint code_graph/repo_analyze call — no hand-seeded tables
-	// or duplicated DDL. On the ephemeral CI Postgres the graph starts empty and
-	// this populates it; on a warm instance IndexRepo's build cache makes it a
-	// near no-op.
-	if _, err := codegraph.IndexRepo(ctx, graphStore, root, false, codegraph.IndexConfig{}); err != nil {
+	// hotspot (git churn × symbol complexity) arms have real data to rank.
+	// Reuses the exact production entrypoint code_graph/repo_analyze call — no
+	// hand-seeded tables or duplicated DDL. On the ephemeral CI Postgres the
+	// graph starts empty and this populates it; on a warm instance IndexRepo's
+	// build cache makes it a near no-op.
+	meta, err := codegraph.IndexRepo(ctx, graphStore, root, false, codegraph.IndexConfig{})
+	if err != nil {
 		t.Fatalf("IndexRepo: %v", err)
+	}
+	if meta == nil || meta.FileCount == 0 {
+		t.Fatalf("IndexRepo produced an empty graph (meta=%+v) — later arm assertions would be meaningless", meta)
 	}
 
 	repoKey := codegraph.GraphNameFor(root)
