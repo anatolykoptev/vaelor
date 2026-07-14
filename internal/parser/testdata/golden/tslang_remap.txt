@@ -34,5 +34,6 @@ svelte/runes_basic.svelte|svelte|sum|rune|8|8
 svelte/runes_basic.svelte|svelte|val|rune|14|14
 svelte/simple_instance.svelte|svelte|greet|function|2|4
 vue/both_scripts.vue|vue|greet|function|5|7
+vue/script_and_template.vue|vue|load|function|7|9
 vue/script_setup_ts.vue|vue|Props|interface|4|6
 vue/script_setup_ts.vue|vue|increment|function|10|12
