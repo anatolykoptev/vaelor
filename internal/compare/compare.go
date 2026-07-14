@@ -84,16 +84,22 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 	var errA, errB error
 	var wg sync.WaitGroup
 
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	if input.RootA == input.RootB {
+		// Self-comparison: a single snapshot is sufficient for both sides.
 		snapA, errA = BuildSnapshot(ctx, input.RootA, input.Opts)
-	}()
-	go func() {
-		defer wg.Done()
-		snapB, errB = BuildSnapshot(ctx, input.RootB, input.Opts)
-	}()
-	wg.Wait()
+		snapB, errB = snapA, errA
+	} else {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			snapA, errA = BuildSnapshot(ctx, input.RootA, input.Opts)
+		}()
+		go func() {
+			defer wg.Done()
+			snapB, errB = BuildSnapshot(ctx, input.RootB, input.Opts)
+		}()
+		wg.Wait()
+	}
 
 	if errA != nil {
 		return nil, fmt.Errorf("snapshot repo_a: %w", errA)
