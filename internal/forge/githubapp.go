@@ -356,6 +356,9 @@ func (rt *appRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	// Clone the request so we don't mutate the caller's headers.
 	r2 := req.Clone(req.Context())
+	if r2.Header.Get(ghHeaderUserAgent) == "" {
+		r2.Header.Set(ghHeaderUserAgent, ghUserAgent)
+	}
 	// "Bearer" is the modern scheme for installation tokens; "token" is
 	// deprecated for App auth.
 	r2.Header.Set(ghHeaderAuth, "Bearer "+tok)
@@ -372,6 +375,9 @@ type patRoundTripper struct {
 
 func (rt *patRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	r2 := req.Clone(req.Context())
+	if r2.Header.Get(ghHeaderUserAgent) == "" {
+		r2.Header.Set(ghHeaderUserAgent, ghUserAgent)
+	}
 	mode := authModeNone
 	if rt.token != "" {
 		// Classic PATs use "token" prefix; "Bearer" is reserved for App tokens.

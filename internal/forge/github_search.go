@@ -45,10 +45,10 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 		return CodeSearchResult{}, err
 	}
 
-	key := cache.Key("github:code:search", q, sort, order, strconv.Itoa(perPage), strconv.Itoa(page), strconv.Itoa(maxResults), strconv.Itoa(opt.MinStars))
+	key := cache.Key("github:code:search", q, sort, order, strconv.Itoa(perPage), strconv.Itoa(page), strconv.Itoa(maxResults), strconv.Itoa(opt.MinStars), strconv.Itoa(opt.MaxFragmentChars), strconv.Itoa(opt.MaxTotalChars))
 
 	result, err := cacheGetOrLoadJSONWithTTL(g.cache, ctx, key, codeSearchCacheTTL, func(ctx context.Context) (CodeSearchResult, error) {
-		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars)
+		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars, opt.MaxFragmentChars, opt.MaxTotalChars)
 	})
 	if err != nil {
 		return CodeSearchResult{}, err
@@ -78,7 +78,7 @@ type ghCodeSearchItem struct {
 
 // collectCodeSearchResults fetches code search pages, applies min_stars
 // filtering, and stops when maxResults is reached or there are no more results.
-func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, order string, perPage, page, maxResults, minStars int) (CodeSearchResult, error) {
+func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, order string, perPage, page, maxResults, minStars, maxFragmentChars, maxTotalChars int) (CodeSearchResult, error) {
 	var result CodeSearchResult
 	currentPage := page
 
@@ -103,7 +103,7 @@ func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, ord
 			break
 		}
 
-		pageResults, err := g.filterCodeSearchPage(ctx, data.Items, minStars)
+		pageResults, err := g.filterCodeSearchPage(ctx, data.Items, minStars, maxFragmentChars, maxTotalChars)
 		if err != nil {
 			return CodeSearchResult{}, err
 		}
@@ -158,33 +158,53 @@ func (g *GitHubForge) fetchCodeSearchPage(ctx context.Context, q, sort, order st
 }
 
 // filterCodeSearchPage converts API items into CodeResult and applies min_stars filtering.
-func (g *GitHubForge) filterCodeSearchPage(ctx context.Context, items []ghCodeSearchItem, minStars int) ([]CodeResult, error) {
-	results := convertCodeSearchItems(items)
+func (g *GitHubForge) filterCodeSearchPage(ctx context.Context, items []ghCodeSearchItem, minStars, maxFragmentChars, maxTotalChars int) ([]CodeResult, error) {
+	results := convertCodeSearchItems(items, maxFragmentChars, maxTotalChars)
 	if minStars <= 0 {
 		return results, nil
 	}
 	return g.filterByMinStars(ctx, results, minStars)
 }
 
+// buildCodeSearchContent joins text-match fragments into a snippet and optionally
+// limits per-fragment and total length. If maxFragmentChars or maxTotalChars is 0,
+// no limit is applied for that axis.
+func buildCodeSearchContent(item ghCodeSearchItem, maxFragmentChars, maxTotalChars int) string {
+	var fragments []string
+	for _, tm := range item.TextMatches {
+		frag := strings.TrimSpace(tm.Fragment)
+		if frag == "" {
+			continue
+		}
+		if maxFragmentChars > 0 && len(frag) > maxFragmentChars {
+			frag = frag[:maxFragmentChars-3] + "..."
+		}
+		fragments = append(fragments, frag)
+	}
+
+	content := strings.Join(fragments, "\n---\n")
+	if content == "" {
+		return "File: " + item.Path
+	}
+	if maxTotalChars > 0 && len(content) > maxTotalChars {
+		return content[:maxTotalChars-3] + "..."
+	}
+	return content
+}
+
 // convertCodeSearchItems converts GitHub code search API items into CodeResult values.
-func convertCodeSearchItems(items []ghCodeSearchItem) []CodeResult {
+func convertCodeSearchItems(items []ghCodeSearchItem, maxFragmentChars, maxTotalChars int) []CodeResult {
 	results := make([]CodeResult, 0, len(items))
 	for _, item := range items {
 		if item.HTMLURL == "" {
 			continue
-		}
-		var frags []string
-		for _, tm := range item.TextMatches {
-			if tm.Fragment != "" {
-				frags = append(frags, tm.Fragment)
-			}
 		}
 		results = append(results, CodeResult{
 			Name:    item.Name,
 			Path:    item.Path,
 			URL:     item.HTMLURL,
 			Repo:    item.Repository.FullName,
-			Content: strings.Join(frags, "\n---\n"),
+			Content: buildCodeSearchContent(item, maxFragmentChars, maxTotalChars),
 		})
 	}
 	return results
