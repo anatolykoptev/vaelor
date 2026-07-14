@@ -2,6 +2,7 @@ package compare_test
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,8 +44,11 @@ func BenchmarkBuildSnapshot(b *testing.B) {
 	root := findRepoRootTB(b)
 	opts := compare.SnapshotOpts{Focus: filepath.Join("internal", "parser")}
 
-	b.ResetTimer()
+	// Mute per-iteration ingest INFO logs so benchstat -benchtime=Nx output
+	// is not flooded with N "starting repo walk" lines.
+	slog.SetLogLoggerLevel(slog.LevelError)
 	b.ReportAllocs()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := compare.BuildSnapshot(context.Background(), root, opts); err != nil {
 			b.Fatalf("BuildSnapshot: %v", err)
