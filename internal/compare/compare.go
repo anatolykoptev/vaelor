@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-kit/embed"
@@ -25,8 +26,9 @@ type CompareInput struct {
 	Query       string
 	Opts        SnapshotOpts
 	OxCodes     *oxcodes.Client
-	EmbedClient *embed.Client    // nil = skip semantic matching
-	GraphStore  *codegraph.Store // nil = skip architecture graph analysis
+	EmbedClient *embed.Client     // nil = skip semantic matching
+	GraphStore  *codegraph.Store  // nil = skip architecture graph analysis
+	ParseCache  *cache.ParseCache // nil = skip parse caching
 }
 
 // compareTimeout is the hard deadline for the entire CompareRepos operation.
@@ -84,19 +86,26 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 	var errA, errB error
 	var wg sync.WaitGroup
 
+	// Propagate CompareInput.ParseCache into SnapshotOpts if the caller did
+	// not already set it in Opts.ParseCache.
+	opts := input.Opts
+	if opts.ParseCache == nil {
+		opts.ParseCache = input.ParseCache
+	}
+
 	if input.RootA == input.RootB {
 		// Self-comparison: a single snapshot is sufficient for both sides.
-		snapA, errA = BuildSnapshot(ctx, input.RootA, input.Opts)
+		snapA, errA = BuildSnapshot(ctx, input.RootA, opts)
 		snapB, errB = snapA, errA
 	} else {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			snapA, errA = BuildSnapshot(ctx, input.RootA, input.Opts)
+			snapA, errA = BuildSnapshot(ctx, input.RootA, opts)
 		}()
 		go func() {
 			defer wg.Done()
-			snapB, errB = BuildSnapshot(ctx, input.RootB, input.Opts)
+			snapB, errB = BuildSnapshot(ctx, input.RootB, opts)
 		}()
 		wg.Wait()
 	}

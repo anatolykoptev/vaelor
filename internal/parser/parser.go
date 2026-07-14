@@ -117,6 +117,10 @@ type ParseResult struct {
 	// extracted during parse. Populated only when ParseOpts.IncludeTypeRels is true.
 	TypeRels []TypeRelationship `json:"type_rels,omitempty"`
 
+	// Lines is the number of lines in the source file. Optional; populated by
+	// callers that already count lines while reading source.
+	Lines int `json:"lines,omitempty"`
+
 	// Error is set if parsing failed or produced an error node in the tree.
 	Error error
 }
