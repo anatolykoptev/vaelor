@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.31.8](https://github.com/anatolykoptev/go-code/compare/v1.31.7...v1.31.8) (2026-07-14)
+
+
+### Fixed
+
+* **parser:** route Vue call extraction through the two-region ScriptCalls/MarkupCalls split ([#409](https://github.com/anatolykoptev/go-code/issues/409)) ([#414](https://github.com/anatolykoptev/go-code/issues/414)) ([7276002](https://github.com/anatolykoptev/go-code/commit/727600228c934f2286b2f3071018f958034d397d))
+
+
+### Performance
+
+* **review:** cap review_delta impacted_symbols by default ([#391](https://github.com/anatolykoptev/go-code/issues/391)) ([#415](https://github.com/anatolykoptev/go-code/issues/415)) ([600e5e0](https://github.com/anatolykoptev/go-code/commit/600e5e0cc0588fd79b15089a54e4ae738505e95d))
+
 ## [1.31.7](https://github.com/anatolykoptev/go-code/compare/v1.31.6...v1.31.7) (2026-07-14)
 
 
