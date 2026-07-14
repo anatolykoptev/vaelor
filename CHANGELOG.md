@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.0](https://github.com/anatolykoptev/go-code/compare/v1.30.1...v1.31.0) (2026-07-14)
+
+
+### Added
+
+* **github_code_search:** add max_fragment_chars and max_total_chars ([#383](https://github.com/anatolykoptev/go-code/issues/383)) ([50cad3d](https://github.com/anatolykoptev/go-code/commit/50cad3dfa1eed923b7abb304f9e6d52796d50d04))
+
 ## [1.30.1](https://github.com/anatolykoptev/go-code/compare/v1.30.0...v1.30.1) (2026-07-14)
 
 
