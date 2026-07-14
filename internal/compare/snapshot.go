@@ -28,6 +28,10 @@ type SnapshotOpts struct {
 	// Language limits ingestion to files of this programming language.
 	// Empty means accept all supported languages.
 	Language string
+
+	// MaxFiles limits the number of files ingested and parsed.
+	// 0 means use the default cap (10,000).
+	MaxFiles int
 }
 
 // snapshotParseResult pairs an ingest.File with its parsed output and source.
@@ -56,12 +60,15 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 		langs = []string{opts.Language}
 	}
 
-	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+	ingestOpts := ingest.IngestOpts{
 		Root:         root,
 		Focus:        opts.Focus,
 		Languages:    langs,
 		MaxFileBytes: maxFileBytes,
-	})
+		MaxFiles:     opts.MaxFiles,
+	}
+
+	ir, err := ingest.IngestRepo(ctx, ingestOpts)
 	if err != nil {
 		return nil, fmt.Errorf("ingest repo: %w", err)
 	}
@@ -71,7 +78,7 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 	// Content-based fallback: when focus matches no file paths,
 	// re-ingest all files and filter by symbol names, imports, and calls.
 	if len(ir.Files) == 0 && opts.Focus != "" {
-		ir, err = ingest.ContentFallback(ctx, root, langs, maxFileBytes, opts.Focus)
+		ir, err = ingest.ContentFallback(ctx, ingestOpts, opts.Focus)
 		if err != nil {
 			return nil, err
 		}

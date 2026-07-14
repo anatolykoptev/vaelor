@@ -93,12 +93,11 @@ func ParseLightweight(ctx context.Context, files []*File) ([]*parser.Symbol, map
 // ContentFallback re-ingests a repo without focus filtering, then uses
 // ParseLightweight + ContentFilter to find files matching focus keywords
 // by symbol name, import path, or call site content.
-func ContentFallback(ctx context.Context, root string, langs []string, maxFileBytes int64, focus string) (*IngestResult, error) {
-	ir, err := IngestRepo(ctx, IngestOpts{
-		Root:         root,
-		Languages:    langs,
-		MaxFileBytes: maxFileBytes,
-	})
+// opts.Focus is ignored so the full repo is walked; the content focus string
+// is supplied separately.
+func ContentFallback(ctx context.Context, opts IngestOpts, focus string) (*IngestResult, error) {
+	opts.Focus = ""
+	ir, err := IngestRepo(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("ingest repo (fallback): %w", err)
 	}
