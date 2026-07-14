@@ -1,7 +1,13 @@
 name: preflight
 
-# Pre-merge build/test gate. Runs on the self-hosted runner on host-a — NOT a
-# paid GitHub-hosted runner (operator rule: only self-hosted; free minutes).
+# Pre-merge build/test gate. Runs on GitHub-hosted `ubuntu-24.04-arm` — free
+# unlimited minutes for public repos, and arm64 matches the ARM prod boxes
+# this code deploys to. Moved off the host-a self-hosted runner 2026-07-14:
+# a public repo's CI on a prod box is a fork-PR exposure by construction,
+# and CI contended with prod services for the box's 4 cores. GitHub-hosted
+# runners sandbox every job in a throwaway VM, so the old same-repo fork
+# guard is intentionally gone — external PRs may now run CI (first-time
+# contributors still need maintainer approval per GitHub's default).
 #
 # go-code persists three independent pgvector stores (internal/embeddings,
 # internal/designmd, internal/learnings) plus an Apache AGE property graph
@@ -10,34 +16,28 @@ name: preflight
 # #251 flipped table ownership on the prod DB — see internal/embeddings/
 # store_test.go). Every DB-gated test t.Skip's cleanly when its var is unset.
 #
-# This job starts an ephemeral instance of the SAME custom image prod runs —
-# deploy-postgres-age:17 (PostgreSQL 17 + pgvector 0.8.1 + Apache AGE 1.7.0,
-# built from ~/deploy/deploy-config/postgres-age/Dockerfile on this host) —
-# already cached locally on the runner box, so no registry pull happens. It
-# is started with the same `-c shared_preload_libraries=age,pg_stat_statements`
-# flag prod uses (compose/data.yml) — AGE requires server-side preload for its
-# operators/types, verified by codegraph.CheckAGEPreloaded at prod startup.
+# The job builds the SAME image shape prod runs — PostgreSQL 17 + pgvector +
+# Apache AGE, vendored at .github/ci/postgres-age/Dockerfile (mirror of
+# deploy-config/postgres-age/Dockerfile) — through a buildx GHA cache, so the
+# AGE source compile only happens on a cache miss (~5 min cold, seconds warm).
+# It is started with the same `-c shared_preload_libraries=age,pg_stat_statements`
+# flag prod uses — AGE requires server-side preload for its operators/types,
+# verified by codegraph.CheckAGEPreloaded at prod startup.
 #
-# Each store bootstraps its OWN tables on first use (EnsureSchema / EnsureGraph),
+# Each store bootstraps its OWN tables on first use (EnsureSchema/EnsureGraph),
 # but deliberately does NOT create the `vector` / `age` / `pg_trgm` extensions
 # themselves — prod's database has carried those since it was first
-# provisioned, so the app code has never needed to. A brand-new ephemeral DB
-# has none of that history, so this job creates all three once, up front
-# (mirrors go-job's preflight.yml "Run migrations" step for the same reason).
+# provisioned. A brand-new ephemeral DB has none of that history, so this job
+# creates all three once, up front.
 #
-# Shared self-hosted box: host-a's prod postgres already holds host
-# 127.0.0.1:5432, so the ephemeral container must NOT publish on a fixed host
-# port (it would either fail to bind or, worse, silently point tests at the
-# wrong DB). We bind the container's 5432 to a RANDOM free host port on the
-# loopback interface only (`-p 127.0.0.1::5432`) and read it back via
-# `docker inspect`. Collision-proof against the prod DB and any other
-# concurrent runner job; never reachable off-box.
+# The container still publishes 5432 to a RANDOM free host port on loopback
+# (`-p 127.0.0.1::5432`, read back via docker inspect). The VM is ours alone
+# now, but the pattern is collision-proof by construction and keeps this file
+# and nightly.yml identical in shape.
 
 on:
   pull_request:
 
-# One run per ref; cancel in-flight if a new push arrives. Keeps the 4-core
-# prod box free between runs.
 concurrency:
   group: preflight-${{ github.ref }}
   cancel-in-progress: true
@@ -47,34 +47,46 @@ permissions:
 
 jobs:
   preflight:
-    # go-code is a PUBLIC repo on a self-hosted runner living on the prod
-    # host-a box. Without this guard, `on: pull_request` would hand a
-    # fork PR's workflow run (which executes THIS file's steps, incl.
-    # `make preflight`) straight to that runner — arbitrary-code-execution
-    # on prod from an untrusted fork. Restrict to same-repo PRs (i.e. the
-    # operator's own branches); external forks never reach the runner.
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, host-a]
-    # ci-runner is this repo's ONLY runner — a hung job must not park
-    # it for GitHub's 6h default and block every later PR.
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04-arm
+    # Gate is ~2m of tests; headroom covers a cold buildx cache (AGE compile)
+    # plus a cold Go module cache without letting a real hang run for
+    # GitHub's 6h default.
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v5
 
-      - name: Reap stale CI postgres containers
-        run: |
-          set -euo pipefail
-          # Safety net for a hard-killed prior run (timeout/OOM/manual
-          # cancel) whose `if: always()` teardown never got to execute —
-          # removes any leftover ${name}-prefixed container before we start
-          # a fresh one, so an orphan never leaks port bindings/CPU across runs.
-          docker ps -aq --filter "name=gocode-ci-pg-" | xargs -r docker rm -f
+      - uses: actions/setup-go@v5
+        with:
+          # Fleet policy: CI runs the latest patched toolchain (go.mod is the
+          # minimum, not the pin). govulncheck below gates on stdlib CVEs that
+          # are fixed in patch releases — pinning go.mod's version fails the
+          # gate the day a stdlib CVE lands (seen live: GO-2026-4970/5856,
+          # fixed in go1.26.5 while go.mod pinned 1.26.4).
+          go-version: stable
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build postgres+age image (GHA-cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/ci/postgres-age
+          tags: ci-postgres-age:17
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Start ephemeral postgres+age
         id: pg
         run: |
           set -euo pipefail
+          # Unlike the x64 ubuntu images, ubuntu-24.04-arm ships NO postgres
+          # client — this install is load-bearing on every run, not a rare
+          # safety net (runner-images Ubuntu2404-Arm64 readme: MySQL only).
+          if ! command -v pg_isready >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
           name="gocode-ci-pg-${{ github.run_id }}-${{ github.run_attempt }}"
           echo "container=$name" >> "$GITHUB_OUTPUT"
           docker run -d --rm --name "$name" \
@@ -83,20 +95,19 @@ jobs:
             -e POSTGRES_DB=gocode_test \
             --shm-size=512mb \
             -p 127.0.0.1::5432 \
-            deploy-postgres-age:17 \
+            ci-postgres-age:17 \
             postgres -c shared_preload_libraries=age,pg_stat_statements
 
           port=$(docker inspect -f '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "$name")
           echo "port=$port" >> "$GITHUB_OUTPUT"
 
           # The postgres entrypoint does an ephemeral FIRST startup (initdb +
-          # docker-entrypoint-initdb.d/*.sql, unix-socket only) then restarts
-          # for the real listener on TCP :5432 — `docker exec ... pg_isready`
-          # false-positives during that transient first startup (verified
-          # empirically: it returns ready, then the ephemeral instance shuts
-          # down for the restart). Poll over the MAPPED HOST PORT instead —
-          # the same path `make preflight` below actually connects through —
-          # so we only proceed once the stable, TCP-reachable instance is up.
+          # unix-socket only) then restarts for the real listener on TCP :5432
+          # — `docker exec ... pg_isready` false-positives during that
+          # transient first startup (verified empirically). Poll over the
+          # MAPPED HOST PORT instead — the same path `make preflight` below
+          # actually connects through — so we only proceed once the stable,
+          # TCP-reachable instance is up.
           ready=0
           for i in $(seq 1 60); do
             if pg_isready -h 127.0.0.1 -p "$port" -U postgres >/dev/null 2>&1; then
@@ -122,10 +133,8 @@ jobs:
             -c 'CREATE EXTENSION IF NOT EXISTS age;' \
             -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
 
-      # make preflight runs gofmt + vet + build + test + govulncheck (plan
-      # ADR 7 — govulncheck was the missing piece: later parity-plan phases
-      # vendor third-party tree-sitter grammars and claim they are
-      # "OSV-scanned", but nothing actually ran that scan before this).
+      # make preflight runs gofmt + vet + build + test-short + govulncheck
+      # (govulncheck self-installs via the Makefile).
       - name: make preflight
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ steps.pg.outputs.port }}/gocode_test?sslmode=disable
