@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -12,11 +13,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestSignalHitsLiveIntegration exercises buildSignalHits against the real AGE
-// graph and the filesystem for the go-code repo. It is gated by DATABASE_URL.
+// TestSignalHitsLiveIntegration exercises buildSignalHits against a real AGE
+// graph and the filesystem for this checkout. It is gated by DATABASE_URL and
+// is self-contained: it discovers the repo root portably and builds the graph
+// in-test via the production IndexRepo path, so it runs identically on a
+// developer box, the deployed container, and ephemeral CI (where the database
+// starts empty) — no assumption of a pre-populated graph or a fixed mount path.
 //
 // Practical check: hotspot and recency arms are not only wired but actually
-// produce ranked hits from stored mtimes and symbol complexity.
+// produce ranked hits from stored mtimes, symbol complexity, and git churn.
 func TestSignalHitsLiveIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("live integration test")
@@ -26,6 +31,11 @@ func TestSignalHitsLiveIntegration(t *testing.T) {
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL not set")
 	}
+
+	// Discover the repo root portably rather than assuming the container mount
+	// path. Skips (not fails) when the working tree is not a git checkout — the
+	// hotspot arm sources churn from `git log`, so a real checkout is required.
+	root := repoTopLevel(t)
 
 	ctx := context.Background()
 
@@ -37,7 +47,20 @@ func TestSignalHitsLiveIntegration(t *testing.T) {
 
 	graphStore := codegraph.NewStore(pool)
 
-	root := "/host/src/go-code"
+	// Build the AGE graph for this checkout so the recency (file mtimes) and
+	// hotspot (git churn × symbol complexity) arms have real data to rank.
+	// Reuses the exact production entrypoint code_graph/repo_analyze call — no
+	// hand-seeded tables or duplicated DDL. On the ephemeral CI Postgres the
+	// graph starts empty and this populates it; on a warm instance IndexRepo's
+	// build cache makes it a near no-op.
+	meta, err := codegraph.IndexRepo(ctx, graphStore, root, false, codegraph.IndexConfig{})
+	if err != nil {
+		t.Fatalf("IndexRepo: %v", err)
+	}
+	if meta == nil || meta.FileCount == 0 {
+		t.Fatalf("IndexRepo produced an empty graph (meta=%+v) — later arm assertions would be meaningless", meta)
+	}
+
 	repoKey := codegraph.GraphNameFor(root)
 
 	candidates := []embeddings.GraphHit{
@@ -102,4 +125,22 @@ func TestSignalHitsLiveIntegration(t *testing.T) {
 	if hotspot[0].FilePath == "" {
 		t.Fatal("hotspot leader has no file path")
 	}
+}
+
+// repoTopLevel returns the absolute path of the git checkout containing the test
+// (via `git rev-parse --show-toplevel`, run from the package dir which is always
+// inside the checkout). It skips the test when the tree is not a git checkout,
+// so the live-integration test degrades to a skip rather than a hard failure in
+// environments without git history.
+func repoTopLevel(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Skipf("not a git checkout (git rev-parse --show-toplevel: %v)", err)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		t.Skip("git rev-parse --show-toplevel returned empty root")
+	}
+	return root
 }
