@@ -37,6 +37,11 @@ func configIdent(t *testing.T, dir string) {
 	exec.Command("git", "-C", dir, "config", "user.name", "t").Run()
 }
 
+// testAsOf is a fixed wall-clock reference for the co-change history window.
+// It is after all test fixtures, so git log --since=testAsOf-365d is always
+// deterministic and does not depend on the real current date.
+var testAsOf = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
 func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -71,7 +76,7 @@ func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 		{Slug: "acme-edge", Root: edge},
 	}
 	// minLift=0 → no floor; pairs returned if co ≥ minPairs.
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0) // 24h window, min 2
+	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0) // 24h window, min 2
 	if len(pairs) == 0 {
 		t.Fatal("expected at least one cross-repo pair")
 	}
@@ -103,7 +108,7 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 	pairs := CrossRepoCoChange(context.Background(), []RepoRef{
 		{Slug: "acme-web", Root: chat},
 		{Slug: "acme-edge", Root: edge},
-	}, 24, 2, 0)
+	}, testAsOf, 24, 2, 0)
 	if len(pairs) != 0 {
 		t.Fatalf("disjoint timelines → no pairs, got %v", pairs)
 	}
@@ -140,11 +145,11 @@ func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
 	}
 	// Under a 24h window they co-occur (same bucket).
 	// minLift=0 → no floor; minPairs=1 → single co-occurrence returned.
-	if got := CrossRepoCoChange(context.Background(), repos, 24, 1, 0); len(got) == 0 {
+	if got := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 1, 0); len(got) == 0 {
 		t.Fatal("3h-apart commits must pair under a 24h window")
 	}
 	// Under a 1h window they do NOT (different buckets).
-	if got := CrossRepoCoChange(context.Background(), repos, 1, 1, 0); len(got) != 0 {
+	if got := CrossRepoCoChange(context.Background(), repos, testAsOf, 1, 1, 0); len(got) != 0 {
 		t.Fatalf("3h-apart commits must NOT pair under a 1h window, got %v", got)
 	}
 }
@@ -221,7 +226,7 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 		{Slug: "acme-web", Root: chat},
 		{Slug: "acme-edge", Root: edge},
 	}
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
 		t.Fatal("expected pairs")
 	}
@@ -334,7 +339,7 @@ func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 		{Slug: "acme-web", Root: chat},
 		{Slug: "acme-edge", Root: edge},
 	}
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
 		t.Fatal("expected pairs")
 	}
@@ -439,7 +444,7 @@ func TestCrossRepoCoChange_IDFDemotesUbiquitousFile(t *testing.T) {
 		{Slug: "acme-web", Root: chat},
 		{Slug: "acme-edge", Root: edge},
 	}
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
 		t.Fatal("expected pairs")
 	}
@@ -532,7 +537,7 @@ func TestCrossRepoCoChange_SupportTierBeatsRawG2(t *testing.T) {
 		{Slug: "acme-web", Root: chat},
 		{Slug: "acme-edge", Root: edge},
 	}
-	pairs := CrossRepoCoChange(context.Background(), repos, 24, 2, 0)
+	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
 		t.Fatal("expected pairs")
 	}
