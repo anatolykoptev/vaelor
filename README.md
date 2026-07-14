@@ -19,6 +19,7 @@ Code intelligence [MCP](https://modelcontextprotocol.io/) server powered by [tre
 |------|-------------|
 | `repo_analyze` | Analyze a repository. Deep mode (AST + LLM), quick mode (GitHub Code Search), or issue/PR search |
 | `repo_search` | Discover GitHub repos via parallel SearXNG + GitHub API search with LLM-ranked results |
+| `github_code_search` | Search code on GitHub via the Code Search API. Returns file paths and matching code fragments |
 | `file_parse` | Parse a single file with tree-sitter. Returns symbol table or raw AST |
 | `code_compare` | Compare two repositories structurally — architecture, API design, code quality |
 | `dep_graph` | Build dependency graph. Output as Mermaid, Graphviz DOT, or JSON |
