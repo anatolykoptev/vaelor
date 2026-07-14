@@ -197,6 +197,10 @@ func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 						// Go capitalizes the first letter of the target in the test
 						// name even when the target is unexported (TestResolveFoo
 						// covers resolveFoo), so record the lower-first variant too.
+						// Accepted trade-off: a package with BOTH an exported Foo and
+						// an unexported foo would mark both tested from one test —
+						// a rare naming smell, and far less common than the
+						// case-mismatch false-positive this fixes.
 						tested[lowerFirstRune(base)] = true
 					}
 				}
