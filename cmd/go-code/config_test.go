@@ -74,6 +74,9 @@ func TestLoadConfig_NegativeWeightRejected(t *testing.T) {
 // endpoint instead of a single slow attempt consuming the whole tool deadline
 // (the code_compare empty-recommendation failure mode).
 func TestLoadConfig_LLMPerAttemptTimeoutDefault(t *testing.T) {
+	// Force the unset path hermetically: env.Duration treats "" as unset and
+	// returns the default, so this holds even if the runner exports the var.
+	t.Setenv("LLM_PER_ATTEMPT_TIMEOUT", "")
 	cfg, err := loadConfig()
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
