@@ -59,7 +59,7 @@ type Config struct {
 	LLMFallbackKeys []string
 
 	// LLMModelFallback is a CSV cross-provider model chain (e.g.
-	// "gemini-3.1-flash-lite-preview,cerebras-qwen-3-235b"). When non-empty,
+	// "cerebras-gpt-oss-120b,groq-llama-70b"). When non-empty,
 	// cliproxyapi routes each model id to its upstream provider, enabling
 	// cross-provider failover without rotating API keys.
 	// Env: LLM_MODEL_FALLBACK.
@@ -270,9 +270,11 @@ type Config struct {
 	// SOURCEMAP_MAX_BODY_BYTES env var (bytes).
 	SourcemapMaxBodyBytes int
 
-	// SourcemapRateLimit is the per-IP rate limit for POST /resolve in
-	// requests per second. Default 30 (defense-in-depth for this
-	// network-exposed, bearer-auth-gated endpoint); set to 0 to disable.
+	// SourcemapRateLimit is the per-source-IP rate limit for POST /resolve in
+	// requests per second (keyed on X-Forwarded-For/RemoteAddr; with a single
+	// trusted caller it is effectively a per-source cap, not per-end-user).
+	// Default 30 (defense-in-depth for this network-exposed,
+	// bearer-auth-gated endpoint); set to 0 to disable.
 	// The MCP resolve_frame tool is not affected. Env: SOURCEMAP_RATE_LIMIT.
 	SourcemapRateLimit float64
 
