@@ -18,8 +18,17 @@ import (
 //   - <script lang="ts"> … </script>
 //   - Both blocks in the same SFC — both contribute symbols
 //
+// Call extraction (ExtractCalls) uses the two-region split shared with Astro and
+// Svelte (issue #409): ScriptCalls (markup_calls.go) runs the delegated TS
+// CallsQuery over the extracted <script> VirtualSource ONLY — never a raw
+// whole-file CallsQuery, which relied on the plain-TS grammar error-recovering
+// the <template> region into junk nodes (no clean calls) and leaked garbled
+// cross-region calls when a template expression reached the TS parser. MarkupCalls is implemented as the required
+// second region but returns nil: Vue template-expression call extraction is
+// deferred (see below).
+//
 // Not supported (silently ignored, matches plan scope):
-//   - <template> expressions and component references
+//   - <template> expressions (mustache / v-directive) as calls or component refs
 //   - <style> blocks
 type vueHandler struct {
 	parserBase
