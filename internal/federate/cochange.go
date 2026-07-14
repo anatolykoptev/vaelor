@@ -111,7 +111,7 @@ type fileKey struct {
 // The fixed ts/windowSec bucketing is a coarse approximation: two commits a
 // second apart but across a bucket boundary are missed. Accepted for "roughly
 // coordinated changes"; a sliding window would be heavier (YAGNI here).
-func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPairs int, minLift float64) []CrossPair {
+func CrossRepoCoChange(ctx context.Context, repos []RepoRef, asOf time.Time, windowHours, minPairs int, minLift float64) []CrossPair {
 	if len(repos) < 2 || windowHours <= 0 {
 		return nil
 	}
@@ -120,7 +120,7 @@ func CrossRepoCoChange(ctx context.Context, repos []RepoRef, windowHours, minPai
 	}
 	var touches []touch
 	for _, r := range repos {
-		touches = append(touches, collectTouchesCached(ctx, r)...)
+		touches = append(touches, collectTouchesCached(ctx, r, asOf)...)
 	}
 	return CrossRepoCoChangeFromTouches(ctx, touches, windowHours, minPairs, minLift)
 }
@@ -270,26 +270,56 @@ func sortCrossPairs(out []CrossPair) {
 
 // collectTouchesCached returns touches for r, hitting globalTouchesCache first.
 // On a cache miss it calls collectTouches and populates the cache.
-func collectTouchesCached(ctx context.Context, r RepoRef) []touch {
+func collectTouchesCached(ctx context.Context, r RepoRef, asOf time.Time) []touch {
 	key := touchesCacheKey(r.Root)
 	if cached, ok := globalTouchesCache.get(key); ok {
 		return cached
 	}
-	result := collectTouches(ctx, r)
+	result := collectTouches(ctx, r, asOf)
 	globalTouchesCache.set(key, result)
 	return result
+}
+
+// emitCommitTouches converts the files of a single commit into RepoTouch entries.
+// It filters compiled artifacts first, then drops bulk/merge commits that touch
+// more than maxFilesPerCommitFederate source files. Returns nil when the commit
+// should be skipped.
+func emitCommitTouches(slug string, ts int64, files []string) []touch {
+	// Mirror compare.CollectCoupling: filter artifacts FIRST, then apply the
+	// bulk-commit cap to the source-file count.  A 21-file commit with 5
+	// artifacts (16 source ≤ 20) is kept; without this order it would be
+	// wrongly discarded.
+	var srcFiles []string
+	for _, f := range files {
+		if !artifactfilter.IsCompiledArtifact(f) {
+			srcFiles = append(srcFiles, f)
+		}
+	}
+	if len(srcFiles) > maxFilesPerCommitFederate {
+		return nil
+	}
+	out := make([]touch, 0, len(srcFiles))
+	for _, f := range srcFiles {
+		out = append(out, touch{repo: slug, file: f, ts: ts})
+	}
+	return out
 }
 
 // collectTouches runs one git log for the repo and returns a touch per
 // (file) per commit, tagged with the repo slug and committer timestamp.
 // Bulk/merge commits (>maxFilesPerCommitFederate files) are skipped.
-func collectTouches(ctx context.Context, r RepoRef) []touch {
+// asOf is the wall-clock reference for the history window; the git log --since
+// value is computed as asOf - crossCoChangeSinceDays, so tests can pass a fixed
+// date and remain deterministic instead of relying on the current time.
+func collectTouches(ctx context.Context, r RepoRef, asOf time.Time) []touch {
 	ctx, cancel := context.WithTimeout(ctx, crossCoChangeGitTimeout)
 	defer cancel()
+
+	sinceDate := asOf.AddDate(0, 0, -crossCoChangeSinceDays).Format(time.RFC3339)
 	//nolint:gosec // r.Root is a trusted local path from ResolveRepos.
 	cmd := exec.CommandContext(ctx, "git", "-C", r.Root, "log",
 		"--name-only", "--pretty=format:%x00%ct",
-		"--since="+strconv.Itoa(crossCoChangeSinceDays)+" days")
+		"--since="+sinceDate)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -305,23 +335,8 @@ func collectTouches(ctx context.Context, r RepoRef) []touch {
 			curFiles = nil
 			return
 		}
-		// Mirror compare.CollectCoupling: filter artifacts FIRST, then apply the
-		// bulk-commit cap to the source-file count.  A 21-file commit with 5
-		// artifacts (16 source ≤ 20) is kept; without this order it would be
-		// wrongly discarded.
-		var srcFiles []string
-		for _, f := range curFiles {
-			if !artifactfilter.IsCompiledArtifact(f) {
-				srcFiles = append(srcFiles, f)
-			}
-		}
+		touches = append(touches, emitCommitTouches(r.Slug, curTS, curFiles)...)
 		curFiles = nil
-		if len(srcFiles) > maxFilesPerCommitFederate {
-			return
-		}
-		for _, f := range srcFiles {
-			touches = append(touches, touch{repo: r.Slug, file: f, ts: curTS})
-		}
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) //nolint:mnd

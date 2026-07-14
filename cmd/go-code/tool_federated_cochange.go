@@ -131,6 +131,7 @@ func handleFederatedCoChangeCoreWithBudget(
 	}
 
 	t0 := time.Now()
+	asOf := t0
 	cacheKey := federatedCoChangeCacheKey(args.Repos, window, minPairs, args.MinLift, deps.LocalRepoDirs)
 
 	// Poll path: check if a previous background job has completed.
@@ -164,7 +165,7 @@ func handleFederatedCoChangeCoreWithBudget(
 				resultCh <- &FederatedCoChangeResult{Pairs: []coupling.VerifiedPair{}}
 			}
 		}()
-		rawPairs := federate.CrossRepoCoChange(budgetCtx, repos, window, minPairs, args.MinLift)
+		rawPairs := federate.CrossRepoCoChange(budgetCtx, repos, asOf, window, minPairs, args.MinLift)
 		roots := reposToRootsMap(repos)
 		verified := coupling.VerifyPairs(budgetCtx, rawPairs, roots,
 			coupling.NewCompositeVerifier(
@@ -194,7 +195,7 @@ func handleFederatedCoChangeCoreWithBudget(
 	partial := buildPartialResult(ctx, repos, args, window, minPairs, t0)
 
 	// Step 4: kick background job (dedup via fedInFlight).
-	kickFedBackground(cacheKey, repos, args, window, minPairs)
+	kickFedBackground(cacheKey, repos, asOf, args, window, minPairs)
 
 	return marshalFedResult(partial, t0)
 }
@@ -261,6 +262,7 @@ func buildPartialResult(
 func kickFedBackground(
 	cacheKey string,
 	repos []federate.RepoRef,
+	asOf time.Time,
 	args FederatedCoChangeArgs,
 	window, minPairs int,
 ) {
@@ -290,7 +292,7 @@ func kickFedBackground(
 		bgCtx, bgCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer bgCancel()
 
-		rawPairs := federate.CrossRepoCoChange(bgCtx, bgRepos, bgWindow, bgMinPairs, bgArgs.MinLift)
+		rawPairs := federate.CrossRepoCoChange(bgCtx, bgRepos, asOf, bgWindow, bgMinPairs, bgArgs.MinLift)
 		roots := reposToRootsMap(bgRepos)
 		verified := coupling.VerifyPairs(bgCtx, rawPairs, roots,
 			coupling.NewCompositeVerifier(

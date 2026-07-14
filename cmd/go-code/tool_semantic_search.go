@@ -38,9 +38,10 @@ type SemanticDeps struct {
 	Pipeline    *embeddings.Pipeline
 	AnalyzeDeps analyze.Deps
 	Expander    *embeddings.Expander
+	GraphStore  *codegraph.Store // nil when DATABASE_URL is unset; used by hotspot/recency arms
 	OxCodes     *oxcodes.Client
 	// RRFWeights are the per-retriever weights threaded into MergeRRF.
-	// Defaults to (1.0, 1.0, 0.0, 0.0) — Sparse and Graph are dark-launched at 0.0.
+	// Defaults to (1.0, 1.0, 0.0, 0.25, 0.15, 0.1) — Sparse dark-launched at 0.0.
 	RRFWeights embeddings.RRFWeights
 	// SparseClient is the SPLADE sparse embedder used for query-time retrieval
 	// (P4 dark-launch). Nil when SPARSE_EMBED_URL is unset — arm is bypassed
@@ -96,7 +97,7 @@ func registerSemanticSearch(server *mcp.Server, _ Config, deps SemanticDeps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "semantic_search",
 		Description: "Find code by meaning using natural language queries. " +
-			"Uses hybrid RRF (keyword + vector similarity) with 1-hop graph expansion via Apache AGE. " +
+			"Uses hybrid RRF (semantic + keyword + graph-candidate + hotspot + recency) with 1-hop graph expansion via Apache AGE. " +
 			"Works best after the repository has been indexed via code_graph or repo_analyze. " +
 			"Returns ranked results with file paths, symbol names, and similarity scores.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input SemanticSearchInput) (*mcp.CallToolResult, error) {
@@ -361,8 +362,14 @@ func hybridResult(
 	prSignals []graphx.Signal,
 	rerankCap, topK int, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
+	// Build the union of candidate symbols so the signal arms (hotspot/recency)
+	// can rank the same pool the primary retrievers produced.
+	candidates := buildHybridCandidates(semantic, matched, sparse, graph)
+	hotspot, recency := buildSignalHits(ctx, deps, repoKey, root, candidates, rerankCap)
+
 	// Merge with an enlarged pool so CE reranker can pick the best topK.
-	hybrid := embeddings.MergeRRF(semantic, matched, sparse, graph, rerankCap, deps.RRFWeights)
+	hybrid := embeddings.MergeRRF(semantic, matched, sparse, graph, hotspot, recency, rerankCap, deps.RRFWeights)
+
 	// Flatten HybridResult → SearchResult for CE reranker.
 	flat := make([]embeddings.SearchResult, len(hybrid))
 	for i, h := range hybrid {
@@ -408,7 +415,29 @@ func semanticOnlyResult(
 		seen[key] = len(filtered)
 		filtered = append(filtered, r)
 	}
-	return finalResult(ctx, input, deps, repoKey, root, filtered, prSignals, topK, t0)
+
+	// If the signal arms are enabled, fuse them with the filtered semantic list.
+	// This keeps the semantic-only path equivalent to the hybrid path when the
+	// other retrievers are empty, while letting hotspot/recency boost ranking.
+	rerankCap := max(topK*2, semanticRerankCandidates)
+	candidates := make([]embeddings.GraphHit, 0, len(filtered))
+	for _, r := range filtered {
+		candidates = append(candidates, embeddings.GraphHit{
+			FilePath:   r.FilePath,
+			SymbolName: r.SymbolName,
+			SymbolKind: r.SymbolKind,
+			Line:       r.StartLine,
+		})
+	}
+	hotspot, recency := buildSignalHits(ctx, deps, repoKey, root, candidates, rerankCap)
+
+	hybrid := embeddings.MergeRRF(filtered, nil, nil, nil, hotspot, recency, rerankCap, deps.RRFWeights)
+	flat := make([]embeddings.SearchResult, len(hybrid))
+	for i, h := range hybrid {
+		flat[i] = h.SearchResult
+		flat[i].Source = h.Source
+	}
+	return finalResult(ctx, input, deps, repoKey, root, flat, prSignals, topK, t0)
 }
 
 // finalResult runs stale-demote → CE reranking → PageRank annotation → freshness wrap → format.
