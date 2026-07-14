@@ -127,9 +127,10 @@ func parseSnapshotFile(file *ingest.File) snapshotParseResult {
 	}
 
 	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
-		Language:       file.Language,
-		IncludeBody:    true,
-		IncludeImports: true,
+		Language:        file.Language,
+		IncludeBody:     true,
+		IncludeImports:  true,
+		IncludeTypeRels: true,
 	})
 	if err != nil {
 		return snapshotParseResult{file: file, lines: goutil.CountLines(source)}
@@ -197,14 +198,7 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 		if pr.file == nil || pr.result == nil {
 			continue
 		}
-		source, err := os.ReadFile(pr.file.Path)
-		if err != nil {
-			continue
-		}
-		rels, _ := parser.ExtractRelationships(pr.file.Path, source, parser.ParseOpts{
-			Language: pr.file.Language,
-		})
-		allRels = append(allRels, rels...)
+		allRels = append(allRels, pr.result.TypeRels...)
 	}
 
 	return &RepoSnapshot{
