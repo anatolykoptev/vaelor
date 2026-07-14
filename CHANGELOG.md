@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.7](https://github.com/anatolykoptev/go-code/compare/v1.31.6...v1.31.7) (2026-07-14)
+
+
+### Fixed
+
+* sane fresh-deploy defaults for LLM model and /resolve rate limit ([#412](https://github.com/anatolykoptev/go-code/issues/412)) ([cba14fb](https://github.com/anatolykoptev/go-code/commit/cba14fb842451dcd73e9ce96ece7481345a283cf))
+
 ## [1.31.6](https://github.com/anatolykoptev/go-code/compare/v1.31.5...v1.31.6) (2026-07-14)
 
 
