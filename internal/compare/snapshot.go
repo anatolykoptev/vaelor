@@ -10,6 +10,7 @@ import (
 
 	xxhash "github.com/cespare/xxhash/v2"
 
+	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -28,6 +29,14 @@ type SnapshotOpts struct {
 	// Language limits ingestion to files of this programming language.
 	// Empty means accept all supported languages.
 	Language string
+
+	// MaxFiles limits the number of files ingested and parsed.
+	// 0 means use the default cap (10,000).
+	MaxFiles int
+
+	// ParseCache caches parsed files across BuildSnapshot calls. When non-nil,
+	// unchanged files are skipped on repeated builds.
+	ParseCache *cache.ParseCache
 }
 
 // snapshotParseResult pairs an ingest.File with its parsed output and source.
@@ -56,12 +65,15 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 		langs = []string{opts.Language}
 	}
 
-	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+	ingestOpts := ingest.IngestOpts{
 		Root:         root,
 		Focus:        opts.Focus,
 		Languages:    langs,
 		MaxFileBytes: maxFileBytes,
-	})
+		MaxFiles:     opts.MaxFiles,
+	}
+
+	ir, err := ingest.IngestRepo(ctx, ingestOpts)
 	if err != nil {
 		return nil, fmt.Errorf("ingest repo: %w", err)
 	}
@@ -71,14 +83,14 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 	// Content-based fallback: when focus matches no file paths,
 	// re-ingest all files and filter by symbol names, imports, and calls.
 	if len(ir.Files) == 0 && opts.Focus != "" {
-		ir, err = ingest.ContentFallback(ctx, root, langs, maxFileBytes, opts.Focus)
+		ir, err = ingest.ContentFallback(ctx, ingestOpts, opts.Focus)
 		if err != nil {
 			return nil, err
 		}
 		focusMode = "content"
 	}
 
-	parsed := parseSnapshotFiles(ctx, ir.Files)
+	parsed := parseSnapshotFiles(ctx, ir.Files, opts.ParseCache)
 	snap := buildSnapshotResult(root, ir, parsed)
 	snap.FocusMode = focusMode
 
@@ -86,7 +98,7 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 }
 
 // parseSnapshotFiles parses all files concurrently using a CPU-bounded worker pool.
-func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotParseResult {
+func parseSnapshotFiles(ctx context.Context, files []*ingest.File, parseCache *cache.ParseCache) []snapshotParseResult {
 	results := make([]snapshotParseResult, len(files))
 
 	workers := runtime.NumCPU()
@@ -109,7 +121,7 @@ func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotPar
 				if ctx.Err() != nil {
 					return
 				}
-				results[idx] = parseSnapshotFile(files[idx])
+				results[idx] = parseSnapshotFile(files[idx], parseCache)
 			}
 		}()
 	}
@@ -118,24 +130,43 @@ func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotPar
 	return results
 }
 
+const (
+	snapshotIncludeBody     = true
+	snapshotIncludeTypeRels = true
+)
+
 // parseSnapshotFile reads and parses a single file. Failures are non-fatal:
 // the result field remains nil and lines is zero.
-func parseSnapshotFile(file *ingest.File) snapshotParseResult {
+func parseSnapshotFile(file *ingest.File, parseCache *cache.ParseCache) snapshotParseResult {
+	modTime := file.ModTime.UnixNano()
+
+	if parseCache != nil {
+		if pr, _ := parseCache.Get(file.Path, modTime, file.Size, snapshotIncludeBody, snapshotIncludeTypeRels); pr != nil {
+			return snapshotParseResult{file: file, result: pr, lines: pr.Lines}
+		}
+	}
+
 	source, err := os.ReadFile(file.Path)
 	if err != nil {
 		return snapshotParseResult{file: file, readErr: true}
 	}
 
 	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
-		Language:       file.Language,
-		IncludeBody:    true,
-		IncludeImports: true,
+		Language:        file.Language,
+		IncludeBody:     snapshotIncludeBody,
+		IncludeImports:  true,
+		IncludeTypeRels: snapshotIncludeTypeRels,
 	})
 	if err != nil {
 		return snapshotParseResult{file: file, lines: goutil.CountLines(source)}
 	}
 
-	return snapshotParseResult{file: file, result: pr, lines: goutil.CountLines(source)}
+	pr.Lines = goutil.CountLines(source)
+	if parseCache != nil {
+		parseCache.Put(file.Path, modTime, file.Size, snapshotIncludeBody, snapshotIncludeTypeRels, pr, nil)
+	}
+
+	return snapshotParseResult{file: file, result: pr, lines: pr.Lines}
 }
 
 // buildSnapshotResult assembles a RepoSnapshot from parse results.
@@ -197,14 +228,7 @@ func buildSnapshotResult(root string, ir *ingest.IngestResult, parsed []snapshot
 		if pr.file == nil || pr.result == nil {
 			continue
 		}
-		source, err := os.ReadFile(pr.file.Path)
-		if err != nil {
-			continue
-		}
-		rels, _ := parser.ExtractRelationships(pr.file.Path, source, parser.ParseOpts{
-			Language: pr.file.Language,
-		})
-		allRels = append(allRels, rels...)
+		allRels = append(allRels, pr.result.TypeRels...)
 	}
 
 	return &RepoSnapshot{

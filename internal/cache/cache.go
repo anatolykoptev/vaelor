@@ -45,12 +45,13 @@ type ParseCache struct {
 	misses int64
 }
 
-// parseCacheKey scopes a cache entry to a file path and the includeBody mode
-// it was parsed with — the two modes produce differently-shaped
+// parseCacheKey scopes a cache entry to a file path and the parse options
+// it was produced with — different modes produce differently-shaped
 // *parser.ParseResult values for the same path, so they must not collide.
 type parseCacheKey struct {
-	path        string
-	includeBody bool
+	path            string
+	includeBody     bool
+	includeTypeRels bool
 }
 
 type parseCacheEntry struct {
@@ -71,13 +72,13 @@ func NewParseCache(maxSize int) *ParseCache {
 }
 
 // Get returns a cached parse result and its call sites for path, scoped to
-// the given includeBody mode. Returns (nil, nil) if not cached, stale
-// (modTime/size mismatch), or cached under the other includeBody mode.
-func (c *ParseCache) Get(path string, modTime, size int64, includeBody bool) (*parser.ParseResult, []parser.CallSite) {
+// the given includeBody and includeTypeRels modes. Returns (nil, nil) if not
+// cached, stale (modTime/size mismatch), or cached under a different mode.
+func (c *ParseCache) Get(path string, modTime, size int64, includeBody, includeTypeRels bool) (*parser.ParseResult, []parser.CallSite) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	key := parseCacheKey{path: path, includeBody: includeBody}
+	key := parseCacheKey{path: path, includeBody: includeBody, includeTypeRels: includeTypeRels}
 	e, ok := c.lru.Get(key)
 	if !ok {
 		c.misses++
@@ -96,11 +97,11 @@ func (c *ParseCache) Get(path string, modTime, size int64, includeBody bool) (*p
 }
 
 // Put stores a parse result and its call sites for path, scoped to the given
-// includeBody mode. Evicts the least-recently-used entry if at capacity.
-func (c *ParseCache) Put(path string, modTime, size int64, includeBody bool, result *parser.ParseResult, calls []parser.CallSite) {
+// includeBody and includeTypeRels modes. Evicts the least-recently-used entry if at capacity.
+func (c *ParseCache) Put(path string, modTime, size int64, includeBody, includeTypeRels bool, result *parser.ParseResult, calls []parser.CallSite) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	key := parseCacheKey{path: path, includeBody: includeBody}
+	key := parseCacheKey{path: path, includeBody: includeBody, includeTypeRels: includeTypeRels}
 	c.lru.Set(key, parseCacheEntry{result: result, calls: calls, modTime: modTime, size: size})
 }
 

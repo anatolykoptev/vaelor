@@ -49,6 +49,10 @@ type IngestOpts struct {
 	// MaxFileBytes skips files larger than this size. 0 means no limit.
 	MaxFileBytes int64
 
+	// MaxFiles is the maximum number of files to keep from the walk.
+	// 0 means use the default cap (maxWalkFiles).
+	MaxFiles int
+
 	// FollowSymlinks controls whether symlinks are followed.
 	FollowSymlinks bool
 
@@ -84,6 +88,16 @@ const maxWalkDepth = 20
 // maxWalkFiles is the maximum number of files collected in one walk.
 const maxWalkFiles = 10_000
 
+// effectiveMaxFiles returns the file cap for a walk. optsMaxFiles<=0 means
+// use the default maxWalkFiles; otherwise it caps to the requested value (not
+// exceeding the safe default when the caller asks for more).
+func effectiveMaxFiles(optsMaxFiles int) int {
+	if optsMaxFiles > 0 && optsMaxFiles < maxWalkFiles {
+		return optsMaxFiles
+	}
+	return maxWalkFiles
+}
+
 // IngestRepo walks a local repository directory and returns all source files
 // that match the given options.
 //
@@ -97,6 +111,7 @@ func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 	gitignorePatterns := parseGitignore(root)
 
 	result := &IngestResult{Root: root, SkippedReasons: make(map[string]int)}
+	maxFiles := effectiveMaxFiles(opts.MaxFiles)
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -130,9 +145,11 @@ func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 			return nil
 		}
 
-		if len(result.Files) < maxWalkFiles {
+		if len(result.Files) < maxFiles {
 			result.Files = append(result.Files, file)
 			result.TotalBytes += file.Size
+		} else {
+			result.SkippedReasons["max_files"]++
 		}
 
 		return nil
