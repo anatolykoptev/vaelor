@@ -10,6 +10,7 @@ import (
 
 	xxhash "github.com/cespare/xxhash/v2"
 
+	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/goutil"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -32,6 +33,10 @@ type SnapshotOpts struct {
 	// MaxFiles limits the number of files ingested and parsed.
 	// 0 means use the default cap (10,000).
 	MaxFiles int
+
+	// ParseCache caches parsed files across BuildSnapshot calls. When non-nil,
+	// unchanged files are skipped on repeated builds.
+	ParseCache *cache.ParseCache
 }
 
 // snapshotParseResult pairs an ingest.File with its parsed output and source.
@@ -85,7 +90,7 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 		focusMode = "content"
 	}
 
-	parsed := parseSnapshotFiles(ctx, ir.Files)
+	parsed := parseSnapshotFiles(ctx, ir.Files, opts.ParseCache)
 	snap := buildSnapshotResult(root, ir, parsed)
 	snap.FocusMode = focusMode
 
@@ -93,7 +98,7 @@ func BuildSnapshot(ctx context.Context, root string, opts SnapshotOpts) (*RepoSn
 }
 
 // parseSnapshotFiles parses all files concurrently using a CPU-bounded worker pool.
-func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotParseResult {
+func parseSnapshotFiles(ctx context.Context, files []*ingest.File, parseCache *cache.ParseCache) []snapshotParseResult {
 	results := make([]snapshotParseResult, len(files))
 
 	workers := runtime.NumCPU()
@@ -116,7 +121,7 @@ func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotPar
 				if ctx.Err() != nil {
 					return
 				}
-				results[idx] = parseSnapshotFile(files[idx])
+				results[idx] = parseSnapshotFile(files[idx], parseCache)
 			}
 		}()
 	}
@@ -125,9 +130,22 @@ func parseSnapshotFiles(ctx context.Context, files []*ingest.File) []snapshotPar
 	return results
 }
 
+const (
+	snapshotIncludeBody     = true
+	snapshotIncludeTypeRels = true
+)
+
 // parseSnapshotFile reads and parses a single file. Failures are non-fatal:
 // the result field remains nil and lines is zero.
-func parseSnapshotFile(file *ingest.File) snapshotParseResult {
+func parseSnapshotFile(file *ingest.File, parseCache *cache.ParseCache) snapshotParseResult {
+	modTime := file.ModTime.UnixNano()
+
+	if parseCache != nil {
+		if pr, _ := parseCache.Get(file.Path, modTime, file.Size, snapshotIncludeBody, snapshotIncludeTypeRels); pr != nil {
+			return snapshotParseResult{file: file, result: pr, lines: pr.Lines}
+		}
+	}
+
 	source, err := os.ReadFile(file.Path)
 	if err != nil {
 		return snapshotParseResult{file: file, readErr: true}
@@ -135,15 +153,20 @@ func parseSnapshotFile(file *ingest.File) snapshotParseResult {
 
 	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
 		Language:        file.Language,
-		IncludeBody:     true,
+		IncludeBody:     snapshotIncludeBody,
 		IncludeImports:  true,
-		IncludeTypeRels: true,
+		IncludeTypeRels: snapshotIncludeTypeRels,
 	})
 	if err != nil {
 		return snapshotParseResult{file: file, lines: goutil.CountLines(source)}
 	}
 
-	return snapshotParseResult{file: file, result: pr, lines: goutil.CountLines(source)}
+	pr.Lines = goutil.CountLines(source)
+	if parseCache != nil {
+		parseCache.Put(file.Path, modTime, file.Size, snapshotIncludeBody, snapshotIncludeTypeRels, pr, nil)
+	}
+
+	return snapshotParseResult{file: file, result: pr, lines: pr.Lines}
 }
 
 // buildSnapshotResult assembles a RepoSnapshot from parse results.
