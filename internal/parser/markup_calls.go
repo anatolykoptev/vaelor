@@ -155,8 +155,8 @@ func (h *svelteHandler) MarkupCalls(path string, src []byte, _ ParseOpts) []Call
 // .vue file. It reuses scriptRegionCalls + preproc.ExtractVue, the same seam Astro
 // and Svelte use.
 //
-// The pre-#409 whole-file path leaned on tree-sitter-typescript swallowing
-// <template>…</template> as an opaque glimmer_template node, so on a well-formed
+// The pre-#409 whole-file path leaned on the plain-TS grammar error-recovering
+// <template>…</template> into junk nodes (no clean calls), so on a well-formed
 // SFC it happened to emit only the script calls. That accident is fragile: when a
 // template expression instead reaches the TS parser (markup not enclosed in a
 // recognised <template> tag, or a grammar version change) error-recovery captures a
@@ -181,8 +181,8 @@ func (h *vueHandler) ScriptCalls(path string, src []byte, _ ParseOpts) []CallSit
 // would leave the template region with no producer at all — the exact half-wiring
 // TestScriptCallSourceImpliesMarkupCallSource forecloses. nil is the deliberate "no
 // template calls yet" producer: identical call-graph output to the historical
-// whole-file path on every valid Vue SFC (where <template> was glimmer-swallowed to
-// zero calls), minus the garbled-edge hazard.
+// whole-file path on every valid Vue SFC (where <template> error-recovered to
+// zero clean calls), minus the garbled-edge hazard.
 func (h *vueHandler) MarkupCalls(_ string, _ []byte, _ ParseOpts) []CallSite {
 	return nil
 }
