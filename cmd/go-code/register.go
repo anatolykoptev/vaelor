@@ -309,6 +309,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerCodeGraph(server, cfg, deps, graphStore)
 	registerRememberGraphInsights(server, cfg, deps, graphStore)
 	registerRepoSearch(server, cfg, deps)
+	registerGithubCodeSearch(server, cfg, deps)
 	registerCodeSearch(server, cfg, deps, &semDeps)
 	registerWPPluginSearch(server, cfg, deps)
 	registerSemanticSearch(server, cfg, semDeps)
