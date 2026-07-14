@@ -71,6 +71,27 @@ type CodeResult struct {
 	Content string // joined text-match fragments
 }
 
+// CodeSearchResult is the full result of a code search.
+type CodeSearchResult struct {
+	Results    []CodeResult
+	Total      int
+	Query      string
+	Incomplete bool
+}
+
+// SearchCodeOptions holds optional server-side filters for code search.
+type SearchCodeOptions struct {
+	ExcludeRepos   []string
+	FileExtensions []string
+	Language       string
+	Sort           string
+	Order          string
+	MinStars       int
+	MaxResults     int
+	PerPage        int
+	Page           int
+}
+
 // IssueItem represents an issue or pull request from a forge search.
 type IssueItem struct {
 	Number    int
@@ -114,7 +135,7 @@ type Forge interface {
 
 	// SearchCode searches for code matching query, optionally restricted to
 	// the given repos ("owner/repo" slugs).
-	SearchCode(ctx context.Context, query string, repos []string) ([]CodeResult, error)
+	SearchCode(ctx context.Context, query string, repos []string, opts ...SearchCodeOptions) (CodeSearchResult, error)
 
 	// SearchIssues searches issues and pull requests matching query.
 	SearchIssues(ctx context.Context, query string) ([]IssueItem, error)

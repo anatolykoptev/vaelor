@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	kitcache "github.com/anatolykoptev/go-kit/cache"
 )
 
 // AppConfig carries optional GitHub App credentials. When all three fields are
@@ -49,6 +51,17 @@ type GitHubForge struct {
 	token   string
 	apiBase string
 	http    *http.Client
+	cache   *kitcache.Cache
+}
+
+// GitHubForgeOption configures a GitHubForge.
+type GitHubForgeOption func(*GitHubForge)
+
+// WithCache sets the cache used by GitHubForge.
+func WithCache(c *kitcache.Cache) GitHubForgeOption {
+	return func(g *GitHubForge) {
+		g.cache = c
+	}
 }
 
 // NewGitHubForge creates a GitHubForge targeting api.github.com.
@@ -59,13 +72,13 @@ type GitHubForge struct {
 //     user's gh CLI PAT). Falls back to PAT on key-parse error (logged as warning).
 //  2. PAT — when token is non-empty.
 //  3. Unauthenticated — 60 req/h rate limit.
-func NewGitHubForge(token string, app AppConfig) *GitHubForge {
-	return newGitHubForgeWithBase(token, app, ghDefaultAPIBase)
+func NewGitHubForge(token string, app AppConfig, opts ...GitHubForgeOption) *GitHubForge {
+	return newGitHubForgeWithBase(token, app, ghDefaultAPIBase, opts...)
 }
 
 // newGitHubForgeWithBase creates a GitHubForge with an explicit API base URL.
 // Used in tests to point at an httptest server.
-func newGitHubForgeWithBase(token string, app AppConfig, base string) *GitHubForge {
+func newGitHubForgeWithBase(token string, app AppConfig, base string, opts ...GitHubForgeOption) *GitHubForge {
 	if base == "" {
 		base = ghDefaultAPIBase
 	}
@@ -90,11 +103,15 @@ func newGitHubForgeWithBase(token string, app AppConfig, base string) *GitHubFor
 		transport = &patRoundTripper{token: token, next: http.DefaultTransport}
 	}
 
-	return &GitHubForge{
+	g := &GitHubForge{
 		token:   token,
 		apiBase: base,
 		http:    &http.Client{Timeout: ghDefaultTimeout, Transport: transport},
 	}
+	for _, opt := range opts {
+		opt(g)
+	}
+	return g
 }
 
 // logGitHubAppFallback emits a warning when App auth is requested but fails
