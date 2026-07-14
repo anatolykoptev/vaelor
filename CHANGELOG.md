@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.4](https://github.com/anatolykoptev/go-code/compare/v1.31.3...v1.31.4) (2026-07-14)
+
+
+### Fixed
+
+* shrink code_compare LLM prompt to fit 8k-token fleet models ([#398](https://github.com/anatolykoptev/go-code/issues/398)) ([5f74acd](https://github.com/anatolykoptev/go-code/commit/5f74acd664dd71ee35c540f9857eab3afe65d024))
+
 ## [1.31.3](https://github.com/anatolykoptev/go-code/compare/v1.31.2...v1.31.3) (2026-07-14)
 
 
