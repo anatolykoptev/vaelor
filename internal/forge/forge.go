@@ -90,6 +90,10 @@ type SearchCodeOptions struct {
 	MaxResults     int
 	PerPage        int
 	Page           int
+	// MaxFragmentChars limits each text-match fragment. 0 means no limit.
+	MaxFragmentChars int
+	// MaxTotalChars limits the total joined content per result. 0 means no limit.
+	MaxTotalChars int
 }
 
 // IssueItem represents an issue or pull request from a forge search.
