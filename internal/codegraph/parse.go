@@ -158,9 +158,10 @@ func indexParseFile(root string, f *ingest.File) indexParseResult {
 	}
 
 	opts := parser.ParseOpts{
-		Language:       f.Language,
-		IncludeImports: true,
-		IncludeBody:    true,
+		Language:        f.Language,
+		IncludeImports:  true,
+		IncludeBody:     true,
+		IncludeTypeRels: true,
 	}
 
 	pr, err := parser.ParseFile(f.Path, source, opts)
@@ -173,10 +174,7 @@ func indexParseFile(root string, f *ingest.File) indexParseResult {
 	if callErr != nil {
 		slog.Debug("codegraph: extract calls failed", slog.String("file", f.Path), slog.Any("error", callErr))
 	}
-	rels, relErr := parser.ExtractRelationships(f.Path, source, opts)
-	if relErr != nil {
-		slog.Debug("codegraph: extract relationships failed", slog.String("file", f.Path), slog.Any("error", relErr))
-	}
+	rels := pr.TypeRels
 
 	// Resolve template refs to file paths immediately; unresolved refs are dropped.
 	var tplRefs []templateFileRef

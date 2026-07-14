@@ -113,6 +113,10 @@ type ParseResult struct {
 	// Resolution of names to file paths requires joining against Imports.
 	TemplateRefs []preproc.TemplateRef `json:"template_refs,omitempty"`
 
+	// TypeRels is the list of type relationships (embeds/extends/implements)
+	// extracted during parse. Populated only when ParseOpts.IncludeTypeRels is true.
+	TypeRels []TypeRelationship `json:"type_rels,omitempty"`
+
 	// Error is set if parsing failed or produced an error node in the tree.
 	Error error
 }
@@ -127,6 +131,10 @@ type ParseOpts struct {
 
 	// IncludeImports includes import declarations in the result.
 	IncludeImports bool
+
+	// IncludeTypeRels extracts type relationships (embeds/extends/implements)
+	// during parse. When false, TypeRels is left empty.
+	IncludeTypeRels bool
 }
 
 // ParseFile parses a single source file and returns its symbol table.

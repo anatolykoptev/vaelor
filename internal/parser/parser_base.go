@@ -71,6 +71,9 @@ func (p *parserBase) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 		Imports:  make([]string, 0),
 	}
 	runQueryWithCaps(result, p.caps, root, src, path, opts)
+	if opts.IncludeTypeRels && p.caps.RelationshipsQuery != nil {
+		result.TypeRels = runRelQuery(p.caps.RelationshipsQuery, root, src, path, p.lang)
+	}
 	return result, nil
 }
 
