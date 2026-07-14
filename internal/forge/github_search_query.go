@@ -18,9 +18,9 @@ const (
 // ownerRepoSegRe validates a single GitHub owner or repo path segment.
 var ownerRepoSegRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// normalizeGitHubRepo converts a variety of GitHub repository identifier forms
+// NormalizeGitHubRepo converts a variety of GitHub repository identifier forms
 // to the canonical "owner/repo" slug.
-func normalizeGitHubRepo(input string) (string, error) {
+func NormalizeGitHubRepo(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return "", errors.New("empty repo identifier")
@@ -79,7 +79,7 @@ func normalizeGitHubSlug(s string) (string, error) {
 func normalizeRepoSet(repos []string) (map[string]struct{}, error) {
 	set := make(map[string]struct{}, len(repos))
 	for _, r := range repos {
-		normalized, err := normalizeGitHubRepo(r)
+		normalized, err := NormalizeGitHubRepo(r)
 		if err != nil {
 			return nil, fmt.Errorf("invalid repo %q: %w", r, err)
 		}
@@ -111,7 +111,7 @@ func buildGitHubCodeSearchQuery(query string, repos, excludeRepos, fileExtension
 // addRepoQualifiers appends repo: qualifiers for included repos, skipping excluded ones.
 func addRepoQualifiers(q string, repos []string, excluded map[string]struct{}) (string, error) {
 	for _, r := range repos {
-		normalized, err := normalizeGitHubRepo(r)
+		normalized, err := NormalizeGitHubRepo(r)
 		if err != nil {
 			return "", fmt.Errorf("invalid repo %q: %w", r, err)
 		}
