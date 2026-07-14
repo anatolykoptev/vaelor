@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"sort"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
@@ -18,13 +19,14 @@ type ReviewDeltaInput struct {
 	Depth           int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
 	Language        string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
 	ExcludeSnippets bool   `json:"exclude_snippets,omitempty" jsonschema_description:"Set true to omit source code snippets (included by default)"`
+	FullImpact      bool   `json:"full_impact,omitempty" jsonschema_description:"Set true to return the COMPLETE impacted_symbols list, uncapped. Default caps to the top maxReviewImpacted entries (ranked by impact distance ascending, then confidence descending) and marks the response truncated=true with the true total when more exist."`
 }
 
 const (
 	defaultReviewDepth   = 2
 	maxReviewDepth       = 5
-	maxReviewOutputChars = 40_000 // ~10K tokens; drop snippets then impacted if exceeded
-	maxReviewImpacted    = 50     // max impacted symbols after truncation
+	maxReviewOutputChars = 40_000 // ~10K tokens; backstop that drops snippets if still oversized
+	maxReviewImpacted    = 50     // default cap on impacted_symbols entries (see capImpactedSymbols)
 )
 
 func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphStore *codegraph.Store) {
@@ -33,7 +35,10 @@ func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphS
 		Description: "Analyze changes between two git refs and compute differential impact. " +
 			"Returns changed files, changed symbols, impacted downstream symbols, " +
 			"untested changes, and risk guidance. " +
-			"Ideal for pre-merge review: shows blast radius of a branch's changes.",
+			"Ideal for pre-merge review: shows blast radius of a branch's changes. " +
+			"impacted_symbols is capped to the top " + fmt.Sprint(maxReviewImpacted) +
+			" entries by default (ranked by impact distance then confidence); " +
+			"set full_impact=true for the complete list.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ReviewDeltaInput) (*mcp.CallToolResult, error) {
 		return handleReviewDelta(ctx, input, deps, graphStore)
 	})
@@ -46,7 +51,7 @@ type xmlDeltaResponse struct {
 
 	ChangedFiles    []xmlChangedFile   `xml:"changed_files>file"`
 	ChangedSymbols  []xmlChangedSymbol `xml:"changed_symbols>symbol"`
-	ImpactedSymbols []xmlImpacted      `xml:"impacted_symbols>symbol"`
+	ImpactedSymbols xmlImpactedList    `xml:"impacted_symbols"`
 	Untested        []string           `xml:"untested>symbol,omitempty"`
 	Snippets        []xmlSnippet       `xml:"snippets>snippet,omitempty"`
 	Risk            xmlRisk            `xml:"risk"`
@@ -78,6 +83,18 @@ type xmlImpacted struct {
 	Distance   int     `xml:"distance,attr"`
 	ChangedBy  string  `xml:"changed_by,attr"`
 	Confidence float64 `xml:"confidence,attr"`
+}
+
+// xmlImpactedList wraps the impacted_symbols entries with an explicit count so
+// a capped default can never be mistaken for a complete list. Total is the
+// true number of impacted symbols the analysis found; Shown is how many are
+// serialized below; Truncated is set only when Shown < Total. See
+// capImpactedSymbols for how the default cap is applied.
+type xmlImpactedList struct {
+	Total     int           `xml:"total,attr"`
+	Shown     int           `xml:"shown,attr"`
+	Truncated bool          `xml:"truncated,attr,omitempty"`
+	Symbols   []xmlImpacted `xml:"symbol"`
 }
 
 type xmlRisk struct {
@@ -152,26 +169,65 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 
 	resp := buildDeltaXML(result)
 	resp.Quality = collectQualitySignals(ctx, root, input.Language, deps.OxCodes)
+
+	// Compact-by-default: cap impacted_symbols to the top maxReviewImpacted
+	// entries (ranked, not a source-order prefix) unless the caller explicitly
+	// asked for the full list. This is the primary size lever — a large multi-
+	// day delta's response is dominated by hundreds of impacted_symbols
+	// entries, not by risk/summary data (#391).
+	resp.ImpactedSymbols = capImpactedSymbols(resp.ImpactedSymbols.Symbols, maxReviewImpacted, input.FullImpact)
+
 	data, err := xml.Marshal(resp)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
-
 	out := string(data)
-	// Token-aware truncation: if output exceeds limit, drop snippets first,
-	// then truncate impacted symbols to keep risk guidance visible.
-	if len(out) > maxReviewOutputChars {
+
+	// Defensive backstop: impacted_symbols is already bounded above, but a
+	// caller-requested full_impact=true on a huge changeset — combined with
+	// source snippets — can still overflow the token ceiling. Dropping
+	// snippets is the last lever; it no longer needs to touch impacted_symbols,
+	// which always carries an honest total/shown/truncated.
+	if len(out) > maxReviewOutputChars && len(resp.Snippets) > 0 {
 		resp.Snippets = nil
-		data, _ = xml.Marshal(resp)
-		out = string(data)
-	}
-	if len(out) > maxReviewOutputChars && len(resp.ImpactedSymbols) > maxReviewImpacted {
-		resp.ImpactedSymbols = resp.ImpactedSymbols[:maxReviewImpacted]
-		data, _ = xml.Marshal(resp)
+		data, err = xml.Marshal(resp)
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal: %s", err)), nil
+		}
 		out = string(data)
 	}
 
 	return textResult(out), nil
+}
+
+// capImpactedSymbols bounds the impacted_symbols list returned to the caller.
+// Entries are ranked by impact distance ascending (closer callers are more
+// actionable) then confidence descending, so a capped default keeps the most
+// meaningful entries rather than an arbitrary source-order prefix. full
+// disables capping entirely — the caller explicitly asked for the complete
+// list. The result always reports the true Total and Symbols/Shown length, and
+// Truncated is set whenever Shown < Total, so a caller can never mistake a
+// capped response for a complete one.
+func capImpactedSymbols(all []xmlImpacted, limit int, full bool) xmlImpactedList {
+	ranked := make([]xmlImpacted, len(all))
+	copy(ranked, all)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].Distance != ranked[j].Distance {
+			return ranked[i].Distance < ranked[j].Distance
+		}
+		return ranked[i].Confidence > ranked[j].Confidence
+	})
+
+	total := len(ranked)
+	if full || total <= limit {
+		return xmlImpactedList{Total: total, Shown: total, Symbols: ranked}
+	}
+	return xmlImpactedList{
+		Total:     total,
+		Shown:     limit,
+		Truncated: true,
+		Symbols:   ranked[:limit],
+	}
 }
 
 func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
@@ -199,11 +255,21 @@ func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
 		}
 		resp.ChangedSymbols = append(resp.ChangedSymbols, xcs)
 	}
+	var impacted []xmlImpacted
 	for _, is := range r.ImpactedSymbols {
-		resp.ImpactedSymbols = append(resp.ImpactedSymbols, xmlImpacted{
+		impacted = append(impacted, xmlImpacted{
 			Name: is.Name, File: is.File, Distance: is.Distance,
 			ChangedBy: is.ChangedBy, Confidence: is.Confidence,
 		})
+	}
+	// Full, unranked, uncapped baseline — review_pr's dry-run path marshals
+	// this as-is (it has its own consumers and isn't in scope for #391's
+	// default-cap change); review_delta's handler re-caps it via
+	// capImpactedSymbols before marshaling its own response.
+	resp.ImpactedSymbols = xmlImpactedList{
+		Total:   len(impacted),
+		Shown:   len(impacted),
+		Symbols: impacted,
 	}
 	for _, s := range r.Snippets {
 		resp.Snippets = append(resp.Snippets, xmlSnippet{
