@@ -191,7 +191,7 @@ func NewLLMClient() {}
 func HandleHTTP() {}
 `)
 
-	ir, err := ContentFallback(context.Background(), dir, nil, 512*1024, "llm")
+	ir, err := ContentFallback(context.Background(), IngestOpts{Root: dir, MaxFileBytes: 512 * 1024}, "llm")
 	if err != nil {
 		t.Fatalf("ContentFallback: %v", err)
 	}
