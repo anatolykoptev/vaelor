@@ -116,7 +116,8 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 			OpenDuration:   30 * time.Second, // fail-fast for 30s, then probe
 			HalfOpenProbes: 1,                // one probe request before closing
 		}),
-		llm.WithMiddleware(newLLMObs(reg).middleware), // records gocode_llm_calls_total / gocode_llm_request_seconds
+		llm.WithPerAttemptTimeout(cfg.LLMPerAttemptTimeout), // 0 = disabled; per-attempt cap on WithEndpoints chains
+		llm.WithMiddleware(newLLMObs(reg).middleware),       // records gocode_llm_calls_total / gocode_llm_request_seconds
 	}
 	if len(modelChain) > 0 {
 		// Each model in the chain is already a retry layer; cap per-endpoint retries

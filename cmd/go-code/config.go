@@ -20,10 +20,11 @@ type Config struct {
 	Port string
 
 	// LLM (CLIProxyAPI) config.
-	LLMURL       string
-	LLMAPIKey    string
-	LLMModel     string
-	LLMMaxTokens int
+	LLMURL               string
+	LLMAPIKey            string
+	LLMModel             string
+	LLMMaxTokens         int
+	LLMPerAttemptTimeout time.Duration
 
 	// GitHub API token for cloning private repos and higher rate limits.
 	GithubToken string
@@ -496,6 +497,7 @@ func loadConfig() (Config, error) {
 		LLMAPIKey:              env.Str("LLM_API_KEY", ""),
 		LLMModel:               env.Str("LLM_MODEL", defaultLLMModel),
 		LLMMaxTokens:           env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
+		LLMPerAttemptTimeout:   env.Duration("LLM_PER_ATTEMPT_TIMEOUT", 0),
 		GithubToken:            env.Str("GITHUB_TOKEN", ""),
 		GithubAppConfig:        loadGithubAppConfig(),
 		WorkspaceDir:           env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
