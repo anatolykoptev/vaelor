@@ -18,6 +18,11 @@ import (
 // buildingRepos tracks repos currently being indexed to prevent concurrent builds.
 var buildingRepos sync.Map
 
+const (
+	codeGraphBuildingStatus  = "building"
+	codeGraphBuildingMessage = "graph is being built — retry in 2-3 minutes"
+)
+
 type xmlGraphResponse struct {
 	XMLName xml.Name      `xml:"response"`
 	Graph   xmlGraphQuery `xml:"graph"`
@@ -43,6 +48,18 @@ type xmlGraphRow struct {
 	Cols []string `xml:"col"`
 }
 
+// codeGraphStatusXML is the building/unavailable status shape returned by
+// code_graph, mirroring semanticStatusXML so the caller gets a status response
+// instead of a tool error.
+type codeGraphStatusXML struct {
+	XMLName xml.Name `xml:"response"`
+	Tool    string   `xml:"tool,attr"`
+	Query   string   `xml:"query"`
+	Repo    string   `xml:"repo"`
+	Status  string   `xml:"status"`
+	Message string   `xml:"message"`
+}
+
 // CodeGraphInput is the input schema for the code_graph tool.
 type CodeGraphInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
@@ -65,6 +82,8 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			"Indexes the repository as a property graph with vertices (Package, File, Symbol, Layer, Route) " +
 			"and edges (CONTAINS, CALLS, INHERITS, IMPLEMENTS, IMPORTS, HANDLES, FETCHES, BELONGS_TO, TESTED_BY). " +
 			"Answers natural-language questions using Cypher query templates or LLM-generated Cypher. " +
+			"Lazy indexing: if the graph is not cached, it builds in the background and returns a " +
+			"<status>building</status> response; retry the same query in 2-3 minutes. " +
 			"Ideal for: call chains, type hierarchies, dependency analysis, dead code detection, " +
 			"API route mapping, cross-language connections, coupling analysis, " +
 			"community detection (Louvain clusters — 'show communities'), " +
@@ -140,7 +159,7 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 		// (AGE is not concurrency-safe for writes to the same graph).
 		repoKey := codegraph.GraphNameFor(root)
 		if _, alreadyBuilding := buildingRepos.LoadOrStore(repoKey, true); alreadyBuilding {
-			return errResult("graph is being built — retry in 2-3 minutes"), nil
+			return textResult(buildCodeGraphStatusResponse(input, codeGraphBuildingStatus, codeGraphBuildingMessage)), nil
 		}
 		bgRoot := root
 		go func() {
@@ -156,7 +175,7 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 				slog.Info("code_graph: background index complete", slog.String("repo", bgRoot))
 			}
 		}()
-		return errResult("graph is being built — retry in 2-3 minutes"), nil
+		return textResult(buildCodeGraphStatusResponse(input, codeGraphBuildingStatus, codeGraphBuildingMessage)), nil
 	}
 
 	meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, indexCfg)
@@ -203,4 +222,17 @@ func formatGraphXML(result *codegraph.QueryResult) (string, error) {
 		return "", err
 	}
 	return xml.Header + string(data), nil
+}
+
+// buildCodeGraphStatusResponse returns an XML status response similar to
+// semantic_search's buildStatusResponse, so code_graph can signal "graph is
+// building" as a normal (non-error) status and include the retry hint.
+func buildCodeGraphStatusResponse(input CodeGraphInput, status, message string) string {
+	return xmlMarshalFragment(codeGraphStatusXML{
+		Tool:    "code_graph",
+		Query:   input.Query,
+		Repo:    input.Repo,
+		Status:  status,
+		Message: message,
+	})
 }
