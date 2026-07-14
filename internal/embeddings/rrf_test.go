@@ -18,7 +18,7 @@ func TestRRFMerge(t *testing.T) {
 		{FilePath: "qux.go", SymbolName: "Qux", Line: 20},
 	}
 
-	results := MergeRRF(semantic, keyword, nil, nil, 10, DefaultRRFWeights())
+	results := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, DefaultRRFWeights())
 
 	if len(results) == 0 {
 		t.Fatal("expected non-empty results")
@@ -49,7 +49,7 @@ func TestRRFMergeEmptySemantic(t *testing.T) {
 		{FilePath: "b.go", SymbolName: "Beta", Line: 5},
 	}
 
-	results := MergeRRF(nil, keyword, nil, nil, 10, DefaultRRFWeights())
+	results := MergeRRF(nil, keyword, nil, nil, nil, nil, 10, DefaultRRFWeights())
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -67,7 +67,7 @@ func TestRRFMergeEmptyKeyword(t *testing.T) {
 		{FilePath: "y.go", SymbolName: "Y", Distance: 0.2},
 	}
 
-	results := MergeRRF(semantic, nil, nil, nil, 10, DefaultRRFWeights())
+	results := MergeRRF(semantic, nil, nil, nil, nil, nil, 10, DefaultRRFWeights())
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -94,7 +94,7 @@ func TestRRFMergeTopK(t *testing.T) {
 		semantic[i].SymbolName = "Sym" + string(rune('A'+i))
 	}
 
-	results := MergeRRF(semantic, nil, nil, nil, 5, DefaultRRFWeights())
+	results := MergeRRF(semantic, nil, nil, nil, nil, nil, 5, DefaultRRFWeights())
 
 	if len(results) != 5 {
 		t.Errorf("expected exactly 5 results with topK=5, got %d", len(results))
@@ -102,7 +102,7 @@ func TestRRFMergeTopK(t *testing.T) {
 }
 
 func TestRRFMergeBothEmpty(t *testing.T) {
-	results := MergeRRF(nil, nil, nil, nil, 10, DefaultRRFWeights())
+	results := MergeRRF(nil, nil, nil, nil, nil, nil, 10, DefaultRRFWeights())
 	if len(results) != 0 {
 		t.Errorf("expected empty results, got %d", len(results))
 	}
@@ -123,7 +123,7 @@ func TestMergeRRFWeighted_AllOnesEqualsRRF(t *testing.T) {
 		{FilePath: "d.go", SymbolName: "Delta", Line: 9},
 	}
 
-	weighted := MergeRRF(semantic, keyword, nil, nil, 10, DefaultRRFWeights())
+	weighted := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, DefaultRRFWeights())
 
 	// Reference: build the exact same input lists, run plain RRF, compare scores.
 	semIDs := []string{"a.go:Alpha", "b.go:Beta", "c.go:Gamma"}
@@ -163,7 +163,7 @@ func TestMergeRRFWeighted_SemanticHeavier(t *testing.T) {
 		{FilePath: "kw.go", SymbolName: "OnlyKw", Line: 1},
 	}
 
-	results := MergeRRF(semantic, keyword, nil, nil, 10, RRFWeights{Semantic: 2.0, Keyword: 1.0})
+	results := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, RRFWeights{Semantic: 2.0, Keyword: 1.0})
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -189,7 +189,7 @@ func TestMergeRRFWeighted_KeywordHeavier(t *testing.T) {
 		{FilePath: "kw.go", SymbolName: "OnlyKw", Line: 1},
 	}
 
-	results := MergeRRF(semantic, keyword, nil, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 2.0})
+	results := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 2.0})
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -222,7 +222,7 @@ func TestMergeRRFWeighted_NegativePanics(t *testing.T) {
 		{FilePath: "b.go", SymbolName: "B", Line: 1},
 	}
 
-	_ = MergeRRF(semantic, keyword, nil, nil, 10, RRFWeights{Semantic: -0.1, Keyword: 1.0})
+	_ = MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, RRFWeights{Semantic: -0.1, Keyword: 1.0})
 }
 
 // TestMergeRRF_EmptySparseArmIdentical is the load-bearing dark-launch safety
@@ -260,10 +260,10 @@ func TestMergeRRF_EmptySparseArmIdentical(t *testing.T) {
 	w := RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.0}
 
 	// 2-arm reference (no sparse, no graph).
-	ref := MergeRRF(semantic, keyword, nil, nil, 10, w)
+	ref := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, w)
 
 	// 3-arm with non-empty sparse at weight 0.
-	got := MergeRRF(semantic, keyword, sparseArm, nil, 10, w)
+	got := MergeRRF(semantic, keyword, sparseArm, nil, nil, nil, 10, w)
 
 	// Ranking invariant: same count (sparse-only docs must NOT appear), same
 	// order, same RRFScores. Source attribution may differ (metadata only).
@@ -317,10 +317,10 @@ func TestMergeRRF_EmptyGraphArmIdentical(t *testing.T) {
 	w := RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.0, Graph: 0.0}
 
 	// 3-arm reference (no graph).
-	ref := MergeRRF(semantic, keyword, nil, nil, 10, w)
+	ref := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, w)
 
 	// 4-arm with non-empty graph at weight 0.
-	got := MergeRRF(semantic, keyword, nil, graphArm, 10, w)
+	got := MergeRRF(semantic, keyword, nil, graphArm, nil, nil, 10, w)
 
 	// Ranking invariant: same count (graph-only docs must NOT appear), same
 	// order, same RRFScores. Source attribution is metadata and may differ.
@@ -361,7 +361,7 @@ func TestMergeRRF_GraphContributesWhenWeightPositive(t *testing.T) {
 	}
 
 	// With Graph=0.0: GraphOnly must NOT appear.
-	darkLaunch := MergeRRF(semantic, keyword, nil, graphArm, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Graph: 0.0})
+	darkLaunch := MergeRRF(semantic, keyword, nil, graphArm, nil, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Graph: 0.0})
 	for _, r := range darkLaunch {
 		if r.SymbolName == "GraphOnly" {
 			t.Errorf("Graph=0.0: GraphOnly must not appear, but got source=%q", r.Source)
@@ -369,7 +369,7 @@ func TestMergeRRF_GraphContributesWhenWeightPositive(t *testing.T) {
 	}
 
 	// With Graph=0.5: GraphOnly MUST appear and carry source="graph".
-	active := MergeRRF(semantic, keyword, nil, graphArm, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Graph: 0.5})
+	active := MergeRRF(semantic, keyword, nil, graphArm, nil, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Graph: 0.5})
 	found := false
 	for _, r := range active {
 		if r.SymbolName == "GraphOnly" {
@@ -404,7 +404,7 @@ func TestMergeRRF_SparseContributesWhenWeightPositive(t *testing.T) {
 	}
 
 	// With Sparse=0.0: SparseOnly must NOT appear.
-	darkLaunch := MergeRRF(semantic, keyword, sparseArm, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.0})
+	darkLaunch := MergeRRF(semantic, keyword, sparseArm, nil, nil, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.0})
 	for _, r := range darkLaunch {
 		if r.SymbolName == "SparseOnly" {
 			t.Errorf("Sparse=0.0: SparseOnly must not appear, but got source=%q", r.Source)
@@ -412,7 +412,7 @@ func TestMergeRRF_SparseContributesWhenWeightPositive(t *testing.T) {
 	}
 
 	// With Sparse=0.5: SparseOnly MUST appear and carry source="sparse".
-	active := MergeRRF(semantic, keyword, sparseArm, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.5})
+	active := MergeRRF(semantic, keyword, sparseArm, nil, nil, nil, 10, RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 0.5})
 	found := false
 	for _, r := range active {
 		if r.SymbolName == "SparseOnly" {
@@ -441,8 +441,8 @@ func TestMergeRRF_SparseNilClientIdentical(t *testing.T) {
 
 	w := RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0}
 
-	withNil := MergeRRF(semantic, keyword, nil, nil, 10, w)
-	withEmpty := MergeRRF(semantic, keyword, []SparseHit{}, nil, 10, w)
+	withNil := MergeRRF(semantic, keyword, nil, nil, nil, nil, 10, w)
+	withEmpty := MergeRRF(semantic, keyword, []SparseHit{}, nil, nil, nil, 10, w)
 
 	if len(withNil) != len(withEmpty) {
 		t.Fatalf("nil vs empty sparse: count mismatch nil=%d empty=%d", len(withNil), len(withEmpty))
@@ -471,7 +471,7 @@ func TestMergeRRF_SparseThreeWayHybrid(t *testing.T) {
 		{FilePath: "x.go", SymbolName: "Tri", Line: 5},
 	}
 
-	results := MergeRRF(semantic, keyword, sparseArm, nil, 10,
+	results := MergeRRF(semantic, keyword, sparseArm, nil, nil, nil, 10,
 		RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0})
 
 	if len(results) != 1 {
@@ -501,7 +501,7 @@ func TestMergeRRF_FourWayHybrid(t *testing.T) {
 		{FilePath: "x.go", SymbolName: "Quad"},
 	}
 
-	results := MergeRRF(semantic, keyword, sparseArm, graphArm, 10,
+	results := MergeRRF(semantic, keyword, sparseArm, graphArm, nil, nil, 10,
 		RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0, Graph: 1.0})
 
 	if len(results) != 1 {
