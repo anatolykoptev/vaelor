@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.1](https://github.com/anatolykoptev/go-code/compare/v1.31.0...v1.31.1) (2026-07-14)
+
+
+### Fixed
+
+* **test:** make TestSignalHitsLiveIntegration self-contained (nightly green) ([#389](https://github.com/anatolykoptev/go-code/issues/389)) ([39b3bdb](https://github.com/anatolykoptev/go-code/commit/39b3bdb5fcdae190117205efd9c4c4fe44ccdcda))
+
 ## [1.31.0](https://github.com/anatolykoptev/go-code/compare/v1.30.1...v1.31.0) (2026-07-14)
 
 
