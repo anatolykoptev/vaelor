@@ -148,3 +148,41 @@ func (h *svelteHandler) ScriptCalls(path string, src []byte, _ ParseOpts) []Call
 func (h *svelteHandler) MarkupCalls(path string, src []byte, _ ParseOpts) []CallSite {
 	return markupExprReparse(path, preproc.ExtractSvelteMarkupExprs(src))
 }
+
+// ScriptCalls satisfies scriptCallSource (see calls.go) for Vue (issue #409):
+// script-region calls come from the extracted <script setup>/<script>
+// VirtualSource, clean and line-remapped — never a raw CallsQuery over the whole
+// .vue file. It reuses scriptRegionCalls + preproc.ExtractVue, the same seam Astro
+// and Svelte use.
+//
+// The pre-#409 whole-file path leaned on tree-sitter-typescript swallowing
+// <template>…</template> as an opaque glimmer_template node, so on a well-formed
+// SFC it happened to emit only the script calls. That accident is fragile: when a
+// template expression instead reaches the TS parser (markup not enclosed in a
+// recognised <template> tag, or a grammar version change) error-recovery captures a
+// GARBLED cross-region call — a template identifier with a receiver spanning
+// </script> into the markup. Extracting from the isolated <script> region makes the
+// leak impossible, while producing byte-identical calls to the old path on every
+// valid Vue SFC.
+func (h *vueHandler) ScriptCalls(path string, src []byte, _ ParseOpts) []CallSite {
+	return scriptRegionCalls(path, preproc.ExtractVue(src))
+}
+
+// MarkupCalls satisfies markupCallSource (see calls.go) for Vue. It returns nil:
+// Vue's <template> uses {{ mustache }} interpolation plus v-bind/v-on/v-directive
+// attribute expressions — a different surface from the JSX-style {expr} that
+// markupExprReparse (Astro/Svelte) reparses — so template-expression call
+// extraction is intentionally deferred (matches vueHandler's documented scope:
+// <template> expressions are silently ignored; issue #409 leaves it "if desired").
+//
+// Implementing this method is nonetheless REQUIRED, not optional: ScriptCalls makes
+// Vue a scriptCallSource, which routes ExtractCalls away from the raw whole-file
+// CallsQuery fallback, so a scriptCallSource that were NOT also a markupCallSource
+// would leave the template region with no producer at all — the exact half-wiring
+// TestScriptCallSourceImpliesMarkupCallSource forecloses. nil is the deliberate "no
+// template calls yet" producer: identical call-graph output to the historical
+// whole-file path on every valid Vue SFC (where <template> was glimmer-swallowed to
+// zero calls), minus the garbled-edge hazard.
+func (h *vueHandler) MarkupCalls(_ string, _ []byte, _ ParseOpts) []CallSite {
+	return nil
+}
