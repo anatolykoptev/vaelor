@@ -229,6 +229,60 @@ func TestMatchPriorityWeighted(t *testing.T) {
 	}
 }
 
+func TestBuildCompareContext_ExactMatchesSkipBodyAndRespectIssue397Budget(t *testing.T) {
+	// Regression test for go-code#397: the old 80_000-char budget produced
+	// ~15,379 tokens of LLM context, overflowing the fleet models 8,192-token
+	// window (HTTP 400 context_length_exceeded -> empty recommendation).
+	// Exact matches are byte-identical in both repos, so dumping both bodies
+	// was the dominant source of redundant bloat.
+	const exactBodyMarker = "EXACT_MATCH_BODY_MARKER_9f3a"
+	exactBody := exactBodyMarker + strings.Repeat("z", 5_000)
+
+	matches := make([]SymbolMatch, 0, 121)
+	for i := 0; i < 120; i++ {
+		matches = append(matches, SymbolMatch{
+			SymbolA:   makeSymbol("SameFunc", "function", "/repo-a/same.go", exactBody),
+			SymbolB:   makeSymbol("SameFunc", "function", "/repo-b/same.go", exactBody),
+			MatchType: MatchExact,
+			Category:  "function",
+			Score:     1.0,
+		})
+	}
+
+	const modifiedBodyMarker = "MODIFIED_BODY_PREFIX_MARKER_7c2d"
+	modifiedBody := modifiedBodyMarker + strings.Repeat("y", 2_000)
+	matches = append(matches, SymbolMatch{
+		SymbolA:   makeSymbol("ChangedFunc", "function", "/repo-a/changed.go", modifiedBody),
+		SymbolB:   makeSymbol("ChangedFunc", "function", "/repo-b/changed.go", modifiedBody+"2"),
+		MatchType: MatchModified,
+		Category:  "function",
+		Score:     1.0,
+	})
+
+	result := BuildCompareContext(matches, RepoMetrics{}, RepoMetrics{}, "budget+redundancy test")
+
+	t.Run("fits maxContextChars budget with 100+ large exact matches", func(t *testing.T) {
+		if len(result) > maxContextChars {
+			t.Errorf("result length %d exceeds maxContextChars %d", len(result), maxContextChars)
+		}
+	})
+
+	t.Run("exact match body is NOT emitted", func(t *testing.T) {
+		if strings.Contains(result, exactBodyMarker) {
+			t.Error("expected exact-match body marker to be ABSENT (bodies must be skipped for MatchExact)")
+		}
+		if !strings.Contains(result, "Identical implementation") {
+			t.Error("expected the compact Identical implementation note for the exact match")
+		}
+	})
+
+	t.Run("modified match body IS emitted (truncated)", func(t *testing.T) {
+		if !strings.Contains(result, modifiedBodyMarker) {
+			t.Error("expected modified-match body prefix to be present in output")
+		}
+	})
+}
+
 func TestBuildCompareContextBudget(t *testing.T) {
 	// Each symbol body is ~20K chars — well above maxSnippetChars (3000).
 	largeBody := strings.Repeat("x", 20_000)
