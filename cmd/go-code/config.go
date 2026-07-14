@@ -193,11 +193,20 @@ type Config struct {
 
 	// RRFWeightGraph is the per-list weight applied to the graph-candidate arm
 	// inside MergeRRF (Phase 1 graph-first retrieval plan, 2026-06-02).
-	// Default 0.0 — DARK-LAUNCHED: the arm is plumbed but contributes nothing to
-	// ranking (and adds ZERO hot-path latency — the GraphCandidates call is skipped)
-	// until A/B gate clears. Post-A/B recommended band: 0.2–0.4 (below dense per
-	// graph-first plan ADR). Tune via RRF_WEIGHT_GRAPH env. Must be ≥ 0.
+	// Default 0.25 — enabled by default after the graph-first plan ADR. When 0
+	// the GraphCandidates call is skipped entirely. Tune via RRF_WEIGHT_GRAPH env.
+	// Must be ≥ 0.
 	RRFWeightGraph float64
+
+	// RRFWeightHotspot is the per-list weight applied to the churn x complexity
+	// signal arm inside MergeRRF. Default 0.15 — enabled by default. When 0 the
+	// hotspot arm is skipped entirely. Tune via RRF_WEIGHT_HOTSPOT env. Must be ≥ 0.
+	RRFWeightHotspot float64
+
+	// RRFWeightRecency is the per-list weight applied to the last-modified time
+	// signal arm inside MergeRRF. Default 0.1 — enabled by default. When 0 the
+	// recency arm is skipped entirely. Tune via RRF_WEIGHT_RECENCY env. Must be ≥ 0.
+	RRFWeightRecency float64
 
 	// KeywordArm selects the lexical retriever that feeds the Keyword slot of
 	// MergeRRF. Allowed values: "grep" (default, byte-identical to today) |
@@ -391,13 +400,24 @@ const (
 	// post-A/B per SPLADE landscape research (2026-06-01).
 	defaultRRFWeightSparse = 0.0
 
-	// defaultRRFWeightGraph: 0.0 = DARK-LAUNCHED. The graph-candidate arm (Phase 1
-	// graph-first retrieval plan, 2026-06-02) is plumbed but contributes nothing to
-	// ranking until A/B gate clears (target p<0.05 nDCG@10 improvement).
-	// When weight == 0 the GraphCandidates call is skipped entirely — zero added
-	// hot-path latency. Post-A/B recommended band: 0.2–0.4 (below dense per plan ADR).
-	// Flip via RRF_WEIGHT_GRAPH env (≥ 0, negative rejected at startup).
-	defaultRRFWeightGraph = 0.0
+	// defaultRRFWeightGraph: 0.25 enables the graph-candidate arm (Phase 1
+	// graph-first retrieval plan, 2026-06-02) by default. PageRank-based candidates
+	// are fused below the dense retrievers so the ranking is improved while the
+	// semantic arm remains dominant. Set RRF_WEIGHT_GRAPH=0 to disable.
+	// Must be ≥ 0 (negative rejected at startup).
+	defaultRRFWeightGraph = 0.25
+
+	// defaultRRFWeightHotspot: 0.15 enables the churn x complexity signal arm by
+	// default. It is fused below the dense retrievers so the ranking is improved
+	// while the semantic arm remains dominant. Set RRF_WEIGHT_HOTSPOT=0 to disable.
+	// Must be ≥ 0 (negative rejected at startup).
+	defaultRRFWeightHotspot = 0.15
+
+	// defaultRRFWeightRecency: 0.1 enables the last-modified time signal arm by
+	// default. It is fused below the dense retrievers so recent changes get a
+	// small boost. Set RRF_WEIGHT_RECENCY=0 to disable.
+	// Must be ≥ 0 (negative rejected at startup).
+	defaultRRFWeightRecency = 0.1
 
 	// defaultKeywordArm: "grep" = byte-identical to pre-BM25F behavior.
 	// Dark-launched: no prod change until operator sets KEYWORD_ARM=bm25f after
@@ -442,6 +462,30 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 	wSeed, err := parseNonNegFloat("ANALYZE_RANK_WEIGHT_SEED", defaultAnalyzeRankWeightSeed)
+	if err != nil {
+		return Config{}, err
+	}
+	wSemantic, err := parseNonNegFloat("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic)
+	if err != nil {
+		return Config{}, err
+	}
+	wKeyword, err := parseNonNegFloat("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword)
+	if err != nil {
+		return Config{}, err
+	}
+	wSparse, err := parseNonNegFloat("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse)
+	if err != nil {
+		return Config{}, err
+	}
+	wGraph, err := parseNonNegFloat("RRF_WEIGHT_GRAPH", defaultRRFWeightGraph)
+	if err != nil {
+		return Config{}, err
+	}
+	wHotspot, err := parseNonNegFloat("RRF_WEIGHT_HOTSPOT", defaultRRFWeightHotspot)
+	if err != nil {
+		return Config{}, err
+	}
+	wRecency, err := parseNonNegFloat("RRF_WEIGHT_RECENCY", defaultRRFWeightRecency)
 	if err != nil {
 		return Config{}, err
 	}
@@ -494,10 +538,12 @@ func loadConfig() (Config, error) {
 		AnalyzeRankWeightPageRank: wPR,
 		AnalyzeRankWeightSeed:     wSeed,
 
-		RRFWeightSemantic:      env.Float("RRF_WEIGHT_SEMANTIC", defaultRRFWeightSemantic),
-		RRFWeightKeyword:       env.Float("RRF_WEIGHT_KEYWORD", defaultRRFWeightKeyword),
-		RRFWeightSparse:        env.Float("RRF_WEIGHT_SPARSE", defaultRRFWeightSparse),
-		RRFWeightGraph:         env.Float("RRF_WEIGHT_GRAPH", defaultRRFWeightGraph),
+		RRFWeightSemantic:      wSemantic,
+		RRFWeightKeyword:       wKeyword,
+		RRFWeightSparse:        wSparse,
+		RRFWeightGraph:         wGraph,
+		RRFWeightHotspot:       wHotspot,
+		RRFWeightRecency:       wRecency,
 		KeywordArm:             parseKeywordArm(env.Str("KEYWORD_ARM", defaultKeywordArm)),
 		SparseEmbedURL:         env.Str("SPARSE_EMBED_URL", ""),
 		SparseEmbedModel:       env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
@@ -556,13 +602,17 @@ func parseKeywordArm(raw string) string {
 
 // RRFWeights returns the configured per-retriever weights for embeddings.MergeRRF.
 // Semantic and Keyword default to 1.0 (byte-identical to the unweighted RRF
-// baseline). Sparse defaults to 0.0 (dark-launched — inert until Phase 6 A/B).
+// baseline). Sparse defaults to 0.0 (dark-launched). Graph, Hotspot, and Recency
+// are enabled by default (0.25, 0.15, 0.1) and can be disabled by setting their
+// env weights to 0.0.
 func (c Config) RRFWeights() embeddings.RRFWeights {
 	return embeddings.RRFWeights{
 		Semantic: c.RRFWeightSemantic,
 		Keyword:  c.RRFWeightKeyword,
 		Sparse:   c.RRFWeightSparse,
 		Graph:    c.RRFWeightGraph,
+		Hotspot:  c.RRFWeightHotspot,
+		Recency:  c.RRFWeightRecency,
 	}
 }
 

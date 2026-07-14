@@ -25,10 +25,10 @@ type SparseHit struct {
 	Line       int // start_line from the index row
 }
 
-// GraphHit is a single graph-candidate result produced by the graph arm
-// (high-PageRank + term match, 2-hop CALLS neighbors, or same-community members).
-// Shape is symmetric with KeywordHit/SparseHit for uniform MergeRRF wiring.
-// Source is always "graph" before fusion.
+// GraphHit is a single graph-candidate or signal result. The same shape is used
+// by the graph, hotspot, and recency RRF arms because all three are keyed by
+// FilePath:SymbolName and carry the same symbol metadata.
+// Source is set per-arm before fusion.
 type GraphHit struct {
 	FilePath   string
 	SymbolName string
@@ -36,27 +36,38 @@ type GraphHit struct {
 	Line       int // start_line from the index row; 0 when unknown
 }
 
+// HotspotHit is a ranked list entry for the hotspot RRF arm (churn x complexity).
+// It is a type alias for GraphHit so the two arms remain distinct in signatures.
+type HotspotHit = GraphHit
+
+// RecencyHit is a ranked list entry for the recency RRF arm (last-modified time).
+// It is a type alias for GraphHit so the two arms remain distinct in signatures.
+type RecencyHit = GraphHit
+
 // Source constants for HybridResult.Source attribution.
 const (
 	sourceSemantic = "semantic"
 	sourceKeyword  = "keyword"
 	sourceSparse   = "sparse"
 	sourceGraph    = "graph"
+	sourceHotspot  = "hotspot"
+	sourceRecency  = "recency"
 	sourceHybrid   = "hybrid"
 )
 
 // HybridResult extends SearchResult with source attribution.
 type HybridResult struct {
 	SearchResult
-	Source   string  // "semantic", "keyword", "sparse", "graph", or "hybrid"
+	Source   string  // "semantic", "keyword", "sparse", "graph", "hotspot", "recency", or "hybrid"
 	RRFScore float64 // combined reciprocal rank fusion score
 }
 
 // RRFWeights are per-retriever weights for the WeightedRRF fusion in MergeRRF.
 // All fields must be ≥ 0 (negative values panic in go-kit/rerank.WeightedRRF
-// — programmer error, not runtime). Weights == (1.0, 1.0, 0.0, 0.0) preserves
-// byte-identical rollback to the pre-SPLADE 2-arm baseline: the Sparse and Graph
-// arms are DARK-LAUNCHED at 0.0 by default.
+// — programmer error, not runtime). Weights == (1.0, 1.0, 1.0, 1.0, 1.0, 1.0) is
+// the math identity used by tests; deployed defaults are controlled by
+// cmd/go-code/config.go and keep Sparse/Hotspot/Recency dark-launched when
+// their env weights are unset.
 // Weights == (1.0, 1.0) in the 2-arm sense is mathematically identical to
 // plain RRF (Cormack-Clarke 2009).
 type RRFWeights struct {
@@ -66,20 +77,33 @@ type RRFWeights struct {
 	// Default env value: 0.0 (dark-launched — plumbed but inert until A/B
 	// in Phase 6 clears the gate). Post-A/B recommended value: 0.2–0.4
 	// (below dense per research note in 2026-06-01 SPLADE landscape report).
+	// Tune via RRF_WEIGHT_SPARSE env. Must be ≥ 0.
 	Sparse float64
 	// Graph is the per-list weight for the graph-candidate arm (Phase 1 graph-first
 	// retrieval plan). Default env value: 0.0 (dark-launched — byte-identical until
 	// A/B clears the gate). See RRF_WEIGHT_GRAPH in cmd/go-code/config.go.
-	// Post-A/B recommended band: 0.2–0.4 (below dense, per graph-first plan ADR).
+	// Post-A/B recommended band: 0.2–0.4 (below dense per plan ADR).
+	// Tune via RRF_WEIGHT_GRAPH env. Must be ≥ 0.
 	Graph float64
+	// Hotspot is the per-list weight for the churn x complexity signal arm.
+	// Default env value: 0.0 (dark-launched — plumbed but inert until A/B
+	// validates the quality gain). Post-A/B recommended band: 0.1–0.2.
+	// Tune via RRF_WEIGHT_HOTSPOT env. Must be ≥ 0.
+	Hotspot float64
+	// Recency is the per-list weight for the last-modified time signal arm.
+	// Default env value: 0.0 (dark-launched — plumbed but inert until A/B
+	// validates the quality gain). Post-A/B recommended band: 0.05–0.15.
+	// Tune via RRF_WEIGHT_RECENCY env. Must be ≥ 0.
+	Recency float64
 }
 
-// DefaultRRFWeights returns the (1.0, 1.0, 1.0, 1.0) math identity used by tests
-// that don't thread per-deployment config. The deployed env defaults for Sparse
-// and Graph are 0.0 (dark-launch); DefaultRRFWeights() is the math identity, not
-// the rollout policy. See defaultRRFWeightSparse/Graph in cmd/go-code/config.go.
+// DefaultRRFWeights returns the (1.0, 1.0, 1.0, 1.0, 1.0, 1.0) math identity
+// used by tests that don't thread per-deployment config. The deployed env
+// defaults for Sparse, Graph, Hotspot, and Recency are 0.0 (dark-launch);
+// DefaultRRFWeights() is the math identity, not the rollout policy.
+// See defaultRRFWeight* in cmd/go-code/config.go.
 func DefaultRRFWeights() RRFWeights {
-	return RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0, Graph: 1.0}
+	return RRFWeights{Semantic: 1.0, Keyword: 1.0, Sparse: 1.0, Graph: 1.0, Hotspot: 1.0, Recency: 1.0}
 }
 
 // rrfEntry tracks per-arm membership for a single dedup key in the MergeRRF index.
@@ -89,18 +113,23 @@ type rrfEntry struct {
 	inKeyword  bool
 	inSparse   bool
 	inGraph    bool
+	inHotspot  bool
+	inRecency  bool
 }
 
-// buildRRFIndex populates the dedup index and per-arm ID lists from all four arms.
+// buildRRFIndex populates the dedup index and per-arm ID lists from all six arms.
 // Extracted to keep MergeRRF below the cyclop threshold (max 15).
 func buildRRFIndex(
-	semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit, graph []GraphHit,
-) (index map[string]*rrfEntry, semIDs, kwIDs, sparseIDs, graphIDs []string) {
-	index = make(map[string]*rrfEntry, len(semantic)+len(keyword)+len(sparse)+len(graph))
+	semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit,
+	graph, hotspot, recency []GraphHit,
+) (index map[string]*rrfEntry, semIDs, kwIDs, sparseIDs, graphIDs, hotspotIDs, recencyIDs []string) {
+	index = make(map[string]*rrfEntry, len(semantic)+len(keyword)+len(sparse)+len(graph)+len(hotspot)+len(recency))
 	semIDs = make([]string, 0, len(semantic))
 	kwIDs = make([]string, 0, len(keyword))
 	sparseIDs = make([]string, 0, len(sparse))
 	graphIDs = make([]string, 0, len(graph))
+	hotspotIDs = make([]string, 0, len(hotspot))
+	recencyIDs = make([]string, 0, len(recency))
 
 	for _, r := range semantic {
 		key := r.FilePath + ":" + r.SymbolName
@@ -144,35 +173,66 @@ func buildRRFIndex(
 		index[key].inGraph = true
 		graphIDs = append(graphIDs, key)
 	}
-	return index, semIDs, kwIDs, sparseIDs, graphIDs
+	for _, h := range hotspot {
+		key := h.FilePath + ":" + h.SymbolName
+		if _, ok := index[key]; !ok {
+			index[key] = &rrfEntry{result: SearchResult{
+				FilePath:   h.FilePath,
+				SymbolName: h.SymbolName,
+				SymbolKind: h.SymbolKind,
+				StartLine:  h.Line,
+				Source:     sourceHotspot,
+			}}
+		}
+		index[key].inHotspot = true
+		hotspotIDs = append(hotspotIDs, key)
+	}
+	for _, h := range recency {
+		key := h.FilePath + ":" + h.SymbolName
+		if _, ok := index[key]; !ok {
+			index[key] = &rrfEntry{result: SearchResult{
+				FilePath:   h.FilePath,
+				SymbolName: h.SymbolName,
+				SymbolKind: h.SymbolKind,
+				StartLine:  h.Line,
+				Source:     sourceRecency,
+			}}
+		}
+		index[key].inRecency = true
+		recencyIDs = append(recencyIDs, key)
+	}
+	return index, semIDs, kwIDs, sparseIDs, graphIDs, hotspotIDs, recencyIDs
 }
 
-// MergeRRF combines semantic, keyword, sparse, and graph results using Weighted
-// Reciprocal Rank Fusion. Backed by go-kit/rerank.WeightedRRF (Cormack-Clarke
-// 2009 with per-list weights, k=60). Key = FilePath + ":" + SymbolName for
-// dedup; results in multiple lists are attributed "hybrid". Returns at most
-// topK results.
+// MergeRRF combines semantic, keyword, sparse, graph, hotspot, and recency
+// results using Weighted Reciprocal Rank Fusion. Backed by
+// go-kit/rerank.WeightedRRF (Cormack-Clarke 2009 with per-list weights, k=60).
+// Key = FilePath + ":" + SymbolName for dedup; results in multiple lists are
+// attributed "hybrid". Returns at most topK results.
 //
 // weights are env-driven (RRF_WEIGHT_SEMANTIC / RRF_WEIGHT_KEYWORD /
-// RRF_WEIGHT_SPARSE / RRF_WEIGHT_GRAPH) and surfaced via Prometheus gauge
-// gocode_rrf_weights{retriever}.
+// RRF_WEIGHT_SPARSE / RRF_WEIGHT_GRAPH / RRF_WEIGHT_HOTSPOT / RRF_WEIGHT_RECENCY)
+// and surfaced via Prometheus gauge gocode_rrf_weights{retriever}.
 //
-// Dark-launch guarantee: when weights.Sparse == 0 OR sparse is empty, the fused
-// output is BYTE-IDENTICAL to the prior result. A 0-weight arm contributes
-// 1/(k+rank)*0 = 0 to every doc, so the existing ordering is preserved.
-// Same guarantee applies to the Graph arm when weights.Graph == 0.
-// Verified by TestMergeRRF_EmptySparseArmIdentical and
-// TestMergeRRF_EmptyGraphArmIdentical.
-func MergeRRF(semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit, graph []GraphHit, topK int, weights RRFWeights) []HybridResult {
-	if len(semantic) == 0 && len(keyword) == 0 && len(sparse) == 0 && len(graph) == 0 {
+// Dark-launch guarantee: when a weight is 0 OR its list is empty, that arm
+// contributes nothing to ranking. A 0-weight arm contributes 1/(k+rank)*0 = 0
+// to every doc, so the existing ordering is preserved. This is verified for
+// Sparse and Graph by existing tests and applies to Hotspot/Recency as well.
+func MergeRRF(
+	semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit,
+	graph, hotspot, recency []GraphHit, topK int, weights RRFWeights,
+) []HybridResult {
+	if len(semantic) == 0 && len(keyword) == 0 && len(sparse) == 0 &&
+		len(graph) == 0 && len(hotspot) == 0 && len(recency) == 0 {
 		return nil
 	}
 
-	index, semIDs, kwIDs, sparseIDs, graphIDs := buildRRFIndex(semantic, keyword, sparse, graph)
+	index, semIDs, kwIDs, sparseIDs, graphIDs, hotspotIDs, recencyIDs :=
+		buildRRFIndex(semantic, keyword, sparse, graph, hotspot, recency)
 
 	fused := rerank.WeightedRRF(rrfK,
-		[]float64{weights.Semantic, weights.Keyword, weights.Sparse, weights.Graph},
-		semIDs, kwIDs, sparseIDs, graphIDs)
+		[]float64{weights.Semantic, weights.Keyword, weights.Sparse, weights.Graph, weights.Hotspot, weights.Recency},
+		semIDs, kwIDs, sparseIDs, graphIDs, hotspotIDs, recencyIDs)
 
 	results := make([]HybridResult, 0, len(fused))
 	for _, f := range fused {
@@ -182,7 +242,7 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit,
 		}
 		results = append(results, HybridResult{
 			SearchResult: e.result,
-			Source:       attributeSource(e.inSemantic, e.inKeyword, e.inSparse, e.inGraph),
+			Source:       attributeSource(e.inSemantic, e.inKeyword, e.inSparse, e.inGraph, e.inHotspot, e.inRecency),
 			RRFScore:     f.Score,
 		})
 	}
@@ -203,7 +263,7 @@ func MergeRRF(semantic []SearchResult, keyword []KeywordHit, sparse []SparseHit,
 // attributeSource maps per-arm membership flags to a source label.
 // When a result appears in more than one retrieval arm it is "hybrid";
 // otherwise the label matches the single contributing arm.
-func attributeSource(inSem, inKw, inSparse, inGraph bool) string {
+func attributeSource(inSem, inKw, inSparse, inGraph, inHotspot, inRecency bool) string {
 	arms := 0
 	if inSem {
 		arms++
@@ -217,6 +277,12 @@ func attributeSource(inSem, inKw, inSparse, inGraph bool) string {
 	if inGraph {
 		arms++
 	}
+	if inHotspot {
+		arms++
+	}
+	if inRecency {
+		arms++
+	}
 	if arms > 1 {
 		return sourceHybrid
 	}
@@ -227,6 +293,10 @@ func attributeSource(inSem, inKw, inSparse, inGraph bool) string {
 		return sourceSparse
 	case inGraph:
 		return sourceGraph
+	case inHotspot:
+		return sourceHotspot
+	case inRecency:
+		return sourceRecency
 	default:
 		return sourceSemantic
 	}

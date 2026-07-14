@@ -4,7 +4,6 @@ One-line issue pointers for the backlog. Resolved items are marked as such.
 
 ## Open
 
-- #343 — FU-2.2: federate co-change tests are wall-clock-sensitive via `--since=365 days`
 - #344 — FU-3.1: make `ubiquityPct` configurable
 - #345 — FU-2.3: G² scale-invariance and multiple comparison correction over `maxCrossPairs`
 - #346 — FU-B.2: T2 AGE graph-confirm enrichment for federated co-change
@@ -26,6 +25,7 @@ One-line issue pointers for the backlog. Resolved items are marked as such.
 - BUG-FH-2 — resolved: `BatchPriorDefect` batches `git log` per root.
 - BUG-FH-3 — resolved: tool description now states "returns up to 5 distinct authors".
 - BUG-FH-2b — resolved: `BatchInitialCreationLines` batches `git log --diff-filter=A` per root.
+- FU-2.2 — resolved: pass asOf time.Time to CrossRepoCoChange / collectTouches (#343).
 - FU-2.1 — done: G² + support tier ranking.
 - FU-1.1 — done: #337.
 - Phase 3a.3 Wilson-LB + ubiquity filter — done.
