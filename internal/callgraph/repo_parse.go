@@ -77,9 +77,10 @@ func parseFileForCalls(file *ingest.File) parseResult {
 	}
 
 	opts := parser.ParseOpts{
-		Language:       file.Language,
-		IncludeBody:    true,
-		IncludeImports: true,
+		Language:        file.Language,
+		IncludeBody:     true,
+		IncludeImports:  true,
+		IncludeTypeRels: true,
 	}
 
 	pr, err := parser.ParseFile(file.Path, source, opts)
@@ -88,7 +89,7 @@ func parseFileForCalls(file *ingest.File) parseResult {
 	}
 
 	calls, _ := parser.ExtractCalls(file.Path, source, opts)
-	rels, _ := parser.ExtractRelationships(file.Path, source, opts)
+	rels := pr.TypeRels
 
 	return parseResult{
 		symbols: pr.Symbols,
