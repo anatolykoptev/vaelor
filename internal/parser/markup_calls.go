@@ -87,7 +87,7 @@ func scriptRegionCalls(path string, vs *preproc.VirtualSource) []CallSite {
 //
 // Call-site line numbers are remapped from virtual to original-file coordinates
 // via remapCallLines; padding lines are dropped. This mirrors the
-// collectRuneSymbols / appendRuneSymbols post-parse-classifier precedent (operate
+// collectRuneSymbols / parseSvelteWithRunes post-parse-classifier precedent (operate
 // on the original src via a VirtualSource, remap afterwards).
 func markupExprReparse(path string, vs *preproc.VirtualSource) []CallSite {
 	if vs == nil || len(vs.Code) == 0 {
