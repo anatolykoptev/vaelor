@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/impact"
@@ -119,12 +120,7 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 	if input.OxCodes != nil {
 		enrichTestedSetViaOxCodes(ctx, input.OxCodes, input.Root, changed, testedSet)
 	}
-	var untestedSymbols []string
-	for _, cs := range changed {
-		if !testedSet[cs.Symbol.Name] {
-			untestedSymbols = append(untestedSymbols, cs.Symbol.Name)
-		}
-	}
+	untestedSymbols := computeUntestedSymbols(changed, testedSet)
 
 	// Step 7: Source snippets (optional).
 	var snippets []Snippet
@@ -150,6 +146,35 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 	}, nil
 }
 
+// computeUntestedSymbols returns the names of changed PRODUCTION symbols that
+// have no detected test. Symbols defined in test files are excluded: a test
+// function or a test-only helper is not "untested production code", and
+// flagging it as such is noise that erodes trust in the review output.
+func computeUntestedSymbols(changed []ChangedSymbol, testedSet map[string]bool) []string {
+	var out []string
+	for _, cs := range changed {
+		if langutil.IsTestFile(cs.Symbol.File) {
+			continue
+		}
+		if !testedSet[cs.Symbol.Name] {
+			out = append(out, cs.Symbol.Name)
+		}
+	}
+	return out
+}
+
+// lowerFirstRune returns s with its first rune lower-cased. Used to match a
+// Go test name (which capitalizes the target's first letter regardless of the
+// target's own export status) back to an unexported target symbol.
+func lowerFirstRune(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToLower(r[0])
+	return string(r)
+}
+
 // buildTestedSet returns names of symbols that have at least one test.
 func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 	tested := make(map[string]bool)
@@ -157,11 +182,26 @@ func buildTestedSet(symbols []*parser.Symbol) map[string]bool {
 		name := s.Name
 		switch s.Language {
 		case "go":
-			for _, prefix := range []string{"Test_", "Test", "Benchmark"} {
+			// Only *_test.go symbols are test markers. A production symbol that
+			// merely starts with "Test"/"Example" (e.g. an ExampleConfig type)
+			// must not mark another symbol as tested.
+			if !langutil.IsTestFile(s.File) {
+				break
+			}
+			for _, prefix := range []string{"Test_", "Test", "Benchmark", "Fuzz", "Example"} {
 				if strings.HasPrefix(name, prefix) {
 					rest := strings.TrimPrefix(name, prefix)
 					if parts := strings.SplitN(rest, "_", 2); len(parts) > 0 && parts[0] != "" {
-						tested[parts[0]] = true
+						base := parts[0]
+						tested[base] = true
+						// Go capitalizes the first letter of the target in the test
+						// name even when the target is unexported (TestResolveFoo
+						// covers resolveFoo), so record the lower-first variant too.
+						// Accepted trade-off: a package with BOTH an exported Foo and
+						// an unexported foo would mark both tested from one test —
+						// a rare naming smell, and far less common than the
+						// case-mismatch false-positive this fixes.
+						tested[lowerFirstRune(base)] = true
 					}
 				}
 			}
