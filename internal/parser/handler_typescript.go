@@ -52,18 +52,35 @@ func (h *typescriptHandler) Parse(path string, src []byte, opts ParseOpts) (*Par
 	if err != nil {
 		return nil, err
 	}
+	h.finalizeSymbols(result, path, src, opts)
+	return result, nil
+}
+
+// ParseWithCalls shares ONE tree-sitter parse for symbols+calls (issue #400) then
+// applies the same TS/JS-family symbol post-processing as Parse. Because the shared
+// parse runs the identical grammar over the identical raw src as Parse does, the
+// symbols returned here equal Parse's and the calls equal ExtractCalls's.
+func (h *typescriptHandler) ParseWithCalls(path string, src []byte, opts ParseOpts) (*ParseResult, []CallSite, bool, error) {
+	result, calls, shared, err := h.parserBase.ParseWithCalls(path, src, opts)
+	if err != nil || !shared {
+		return result, calls, shared, err
+	}
+	h.finalizeSymbols(result, path, src, opts)
+	return result, calls, true, nil
+}
+
+// finalizeSymbols applies the TS/JS-family symbol post-processing shared by Parse
+// and ParseWithCalls: append Svelte 5 rune symbols for .svelte.ts/.svelte.js rune
+// modules, then correct every symbol's Language (the shared MapCapture and the rune
+// collector both hardcode "typescript") to agree with DetectLanguageFromPath —
+// override-first for backfill hash reproduction. The rune append runs first so
+// ordinary + rune symbols are relabeled uniformly. Kept in one place so the two
+// entry points can never diverge.
+func (h *typescriptHandler) finalizeSymbols(result *ParseResult, path string, src []byte, opts ParseOpts) {
 	if strings.HasSuffix(path, ".svelte.ts") || strings.HasSuffix(path, ".svelte.js") {
-		// Svelte 5 rune modules: append $state/$derived/etc. rune symbols. Their
-		// Language is stamped below together with the ordinary symbols, so runes and
-		// ordinary symbols in one file never diverge.
 		result.Symbols = append(result.Symbols, collectRuneSymbols(src, path)...)
 	}
-	// Correct every symbol's Language (the shared MapCapture and the rune collector
-	// both hardcode "typescript") to agree with DetectLanguageFromPath; override-
-	// first for backfill hash reproduction. Runs AFTER the rune append so ordinary +
-	// rune symbols stay uniform.
 	applyDetectedSymbolLanguage(result, path, opts)
-	return result, nil
 }
 
 // MapCapture converts a tree-sitter capture to a Symbol for TypeScript/JavaScript.

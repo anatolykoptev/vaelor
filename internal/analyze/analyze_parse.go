@@ -84,7 +84,12 @@ func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCa
 		return fileParseResult{file: file, err: fmt.Errorf("read %s: %w", file.Path, err)}
 	}
 
-	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
+	// Single parse for symbols+calls instead of ParseFile + ExtractCalls (issue #400).
+	// Call extraction ignores every ParseOpts field beyond Language (the mainstream
+	// CallsQuery and the svelte/astro Script/MarkupCalls all take `_ ParseOpts`), so
+	// folding the former ExtractCalls-only opts into this single call leaves the
+	// returned calls unchanged (asserted by TestExtractCallsOptsInvariant).
+	pr, calls, err := parser.ParseFileWithCalls(file.Path, source, parser.ParseOpts{
 		Language:       file.Language,
 		IncludeBody:    includeBody,
 		IncludeImports: true,
@@ -92,8 +97,6 @@ func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCa
 	if err != nil {
 		return fileParseResult{file: file, err: fmt.Errorf("parse %s: %w", file.Path, err)}
 	}
-
-	calls, _ := parser.ExtractCalls(file.Path, source, parser.ParseOpts{Language: file.Language})
 
 	if parseCache != nil {
 		parseCache.Put(file.Path, modTime, size, includeBody, false, pr, calls)
