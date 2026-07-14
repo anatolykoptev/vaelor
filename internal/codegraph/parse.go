@@ -164,15 +164,12 @@ func indexParseFile(root string, f *ingest.File) indexParseResult {
 		IncludeTypeRels: true,
 	}
 
-	pr, err := parser.ParseFile(f.Path, source, opts)
+	// Single parse for symbols+calls: ParseFileWithCalls shares one tree-sitter parse
+	// instead of ParseFile and ExtractCalls each parsing the same bytes (issue #400).
+	pr, calls, err := parser.ParseFileWithCalls(f.Path, source, opts)
 	if err != nil {
 		slog.Debug("codegraph: parse failed", slog.String("file", f.Path), slog.String("language", f.Language), slog.Any("error", err))
 		return indexParseResult{file: f, skipReason: "parse_error"}
-	}
-
-	calls, callErr := parser.ExtractCalls(f.Path, source, opts)
-	if callErr != nil {
-		slog.Debug("codegraph: extract calls failed", slog.String("file", f.Path), slog.Any("error", callErr))
 	}
 	rels := pr.TypeRels
 

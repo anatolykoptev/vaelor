@@ -97,3 +97,42 @@ func TestScriptCallSourceImpliesMarkupCallSource(t *testing.T) {
 		}
 	}
 }
+
+// ── #400 fail-safe: script/markupCallSource handlers must NOT share the tree ──
+
+// TestScriptOrMarkupCallSourceForcesFallback guards the load-bearing invariant
+// that ParseFileWithCalls's shared single-tree path depends on (parse_with_calls.go).
+// A handler whose calls come from the preprocessor two-region path
+// (scriptCallSource/markupCallSource) MUST report shared=false so
+// ParseFileWithCalls falls back to Parse+ExtractCalls. If such a handler set its
+// OWN embedded caps.SitterLanguage (shared=true), the shared path would run ONLY
+// the raw CallsQuery (parse_with_calls.go) and silently DROP its Script/Markup
+// template calls — exactly the silent call-graph corruption the single-tree change
+// must never introduce. Backstops a future third preprocessor handler (e.g. a Vue
+// template pass, issue #409) that borrows caps but forgets it must not opt in.
+func TestScriptOrMarkupCallSourceForcesFallback(t *testing.T) {
+	t.Parallel()
+	checked := 0
+	for ext, h := range registry {
+		_, hasScript := h.(scriptCallSource)
+		_, hasMarkup := h.(markupCallSource)
+		if !hasScript && !hasMarkup {
+			continue
+		}
+		cp, ok := h.(callParser)
+		if !ok {
+			t.Errorf("%s: handler %T does not implement callParser", ext, h)
+			continue
+		}
+		// A nil embedded caps.SitterLanguage returns shared=false before any parse,
+		// so src can be nil — we assert only the fallback routing, not parse output.
+		_, _, shared, _ := cp.ParseWithCalls("sample"+ext, nil, ParseOpts{})
+		if shared {
+			t.Errorf("%s: handler %T implements script/markupCallSource but ParseWithCalls reported shared=true — the shared single-tree path runs only the raw CallsQuery and would drop its template-region calls; it must fall back (nil embedded caps.SitterLanguage)", ext, h)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no script/markupCallSource handler found — expected svelte + astro; registry wiring changed?")
+	}
+}
