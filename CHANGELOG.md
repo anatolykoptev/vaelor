@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.0](https://github.com/anatolykoptev/go-code/compare/v1.28.1...v1.29.0) (2026-07-14)
+
+
+### Added
+
+* port github_code_search from go-search to go-code ([#377](https://github.com/anatolykoptev/go-code/issues/377)) ([b970624](https://github.com/anatolykoptev/go-code/commit/b970624b88d878ed8a775ef9dd63ab867a6ee938))
+
 ## [1.28.1](https://github.com/anatolykoptev/go-code/compare/v1.28.0...v1.28.1) (2026-07-14)
 
 
