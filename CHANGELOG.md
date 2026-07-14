@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.0](https://github.com/anatolykoptev/go-code/compare/v1.27.0...v1.28.0) (2026-07-14)
+
+
+### Added
+
+* **semantic_search:** add code_graph hint to indexing status ([#359](https://github.com/anatolykoptev/go-code/issues/359)) ([2d20399](https://github.com/anatolykoptev/go-code/commit/2d203997651f2548163489349b124f52a03259f9))
+
 ## [1.27.0](https://github.com/anatolykoptev/go-code/compare/v1.26.3...v1.27.0) (2026-07-14)
 
 
