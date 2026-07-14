@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.1](https://github.com/anatolykoptev/go-code/compare/v1.28.0...v1.28.1) (2026-07-14)
+
+
+### Fixed
+
+* **code_graph:** return building status instead of tool error ([#361](https://github.com/anatolykoptev/go-code/issues/361)) ([6de3bba](https://github.com/anatolykoptev/go-code/commit/6de3bba70a919694fe3815bb3d6765f6636d3d95))
+
 ## [1.28.0](https://github.com/anatolykoptev/go-code/compare/v1.27.0...v1.28.0) (2026-07-14)
 
 
