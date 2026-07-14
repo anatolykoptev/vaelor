@@ -20,10 +20,14 @@ type Config struct {
 	Port string
 
 	// LLM (CLIProxyAPI) config.
-	LLMURL               string
-	LLMAPIKey            string
-	LLMModel             string
-	LLMMaxTokens         int
+	LLMURL       string
+	LLMAPIKey    string
+	LLMModel     string
+	LLMMaxTokens int
+	// LLMPerAttemptTimeout caps each single model attempt in the go-kit LLM
+	// endpoint chain (llm.WithPerAttemptTimeout). Non-zero lets the chain fall
+	// back to a faster model when one endpoint is transiently slow, instead of
+	// one slow attempt consuming the whole tool deadline. Env: LLM_PER_ATTEMPT_TIMEOUT.
 	LLMPerAttemptTimeout time.Duration
 
 	// GitHub API token for cloning private repos and higher rate limits.
@@ -330,8 +334,17 @@ const (
 	defaultLLMURL       = "http://127.0.0.1:8317/v1"
 	defaultLLMModel     = "gemini-3.1-flash-lite-preview"
 	defaultLLMMaxTokens = 16384
-	defaultWorkspaceDir = "/tmp/go-code-workspace"
-	defaultEmbedModel   = "code-rank-embed"
+
+	// defaultLLMPerAttemptTimeout caps each model attempt in the go-kit fallback
+	// chain. 0 (the previous default, disabled) let a single slow endpoint (a
+	// ~41s cerebras spike was observed) consume the whole tool deadline, so
+	// code_compare returned an empty LLM recommendation instead of rotating to a
+	// faster model. 30s is generous for a working model (fleet models respond
+	// sub-second) while leaving rotation headroom inside the 90s code_compare and
+	// other per-tool budgets.
+	defaultLLMPerAttemptTimeout = 30 * time.Second
+	defaultWorkspaceDir         = "/tmp/go-code-workspace"
+	defaultEmbedModel           = "code-rank-embed"
 
 	// 16 MiB source map body cap.
 	defaultSourcemapMaxBodyBytes = 16 << 20
@@ -497,7 +510,7 @@ func loadConfig() (Config, error) {
 		LLMAPIKey:              env.Str("LLM_API_KEY", ""),
 		LLMModel:               env.Str("LLM_MODEL", defaultLLMModel),
 		LLMMaxTokens:           env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
-		LLMPerAttemptTimeout:   env.Duration("LLM_PER_ATTEMPT_TIMEOUT", 0),
+		LLMPerAttemptTimeout:   env.Duration("LLM_PER_ATTEMPT_TIMEOUT", defaultLLMPerAttemptTimeout),
 		GithubToken:            env.Str("GITHUB_TOKEN", ""),
 		GithubAppConfig:        loadGithubAppConfig(),
 		WorkspaceDir:           env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
