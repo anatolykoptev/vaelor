@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.3](https://github.com/anatolykoptev/go-code/compare/v1.31.2...v1.31.3) (2026-07-14)
+
+
+### Fixed
+
+* **llm:** default per-attempt timeout for chain rotation + review_delta 120s ([#391](https://github.com/anatolykoptev/go-code/issues/391)) ([#395](https://github.com/anatolykoptev/go-code/issues/395)) ([c65210c](https://github.com/anatolykoptev/go-code/commit/c65210c34b9f3a1d7b39df36ffdc15c756a85445))
+
 ## [1.31.2](https://github.com/anatolykoptev/go-code/compare/v1.31.1...v1.31.2) (2026-07-14)
 
 
