@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.27.0](https://github.com/anatolykoptev/go-code/compare/v1.26.3...v1.27.0) (2026-07-14)
+
+
+### Added
+
+* **embeddings:** enable graph, hotspot, and recency arms in semantic_search RRF ([8c228c9](https://github.com/anatolykoptev/go-code/commit/8c228c912862b8d7c9c614a174a3b8953f518a53))
+* **go-code:** enable graph, hotspot, and recency RRF arms in semantic_search ([ee30f88](https://github.com/anatolykoptev/go-code/commit/ee30f88fea203832b2139988bb4b7d80e13d1811))
+
+
+### Fixed
+
+* **federate:** pass asOf time.Time to CrossRepoCoChange to avoid wall-clock git log --since ([9325d79](https://github.com/anatolykoptev/go-code/commit/9325d79a7402b784b7332a8c4384b7fdef1c0521))
+* **semantic_search:** strip AGE agtype quotes from complexity values ([d0ba33d](https://github.com/anatolykoptev/go-code/commit/d0ba33d3f2a030a6f48ed63648c3d62ed7167c70))
+
 ## [1.26.3](https://github.com/anatolykoptev/go-code/compare/v1.26.2...v1.26.3) (2026-07-13)
 
 
