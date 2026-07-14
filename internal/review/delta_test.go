@@ -152,6 +152,74 @@ func TestBuildTestedSet_Kotlin_NoAnnotation(t *testing.T) {
 	}
 }
 
+// TestBuildTestedSet_Go_UnexportedTarget verifies that a Go test named after an
+// unexported symbol marks that unexported symbol (lower-first) as tested. Go
+// capitalizes the target's first letter in the test name (TestResolveHandler
+// covers resolveHandler), so a naive prefix-strip that only records the
+// capitalized form would miss the real target and flag it as untested.
+func TestBuildTestedSet_Go_UnexportedTarget(t *testing.T) {
+	t.Parallel()
+	syms := []*parser.Symbol{
+		{Name: "resolveHandler", Language: "go", File: "/repo/http_resolve.go", Kind: parser.KindFunction},
+		{Name: "TestResolveHandler_200", Language: "go", File: "/repo/http_resolve_test.go", Kind: parser.KindFunction},
+	}
+	tested := buildTestedSet(syms)
+	if !tested["resolveHandler"] {
+		t.Errorf("expected unexported target 'resolveHandler' to be marked tested; got %v", tested)
+	}
+}
+
+// TestBuildTestedSet_Go_ProductionTestPrefixIgnored verifies that a PRODUCTION
+// symbol (not in a *_test.go file) whose name starts with a test prefix does not
+// pollute the tested set.
+func TestBuildTestedSet_Go_ProductionTestPrefixIgnored(t *testing.T) {
+	t.Parallel()
+	syms := []*parser.Symbol{
+		// Production type named ExampleConfig — not a Go example function.
+		{Name: "ExampleConfig", Language: "go", File: "/repo/config.go", Kind: parser.KindStruct},
+	}
+	tested := buildTestedSet(syms)
+	if tested["Config"] {
+		t.Error("production 'ExampleConfig' in a non-test file must not mark 'Config' as tested")
+	}
+}
+
+// TestComputeUntestedSymbols verifies that the untested set (a) excludes symbols
+// defined in test files (a test function is not untested production code) and
+// (b) does not list a production symbol that has a matching test.
+func TestComputeUntestedSymbols(t *testing.T) {
+	t.Parallel()
+	changed := []ChangedSymbol{
+		{Symbol: &parser.Symbol{Name: "resolveHandler", File: "/repo/http_resolve.go", Language: "go"}},
+		{Symbol: &parser.Symbol{Name: "TestResolveHandler_200", File: "/repo/http_resolve_test.go", Language: "go"}},
+		{Symbol: &parser.Symbol{Name: "newTestFixture", File: "/repo/helpers_test.go", Language: "go"}},
+		{Symbol: &parser.Symbol{Name: "orphanFunc", File: "/repo/orphan.go", Language: "go"}},
+	}
+	testedSet := buildTestedSet([]*parser.Symbol{
+		{Name: "TestResolveHandler_200", Language: "go", File: "/repo/http_resolve_test.go", Kind: parser.KindFunction},
+	})
+
+	got := computeUntestedSymbols(changed, testedSet)
+
+	has := func(name string) bool {
+		for _, n := range got {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	if has("TestResolveHandler_200") || has("newTestFixture") {
+		t.Errorf("test-file symbols must be excluded from untested; got %v", got)
+	}
+	if has("resolveHandler") {
+		t.Errorf("'resolveHandler' has a matching test and must not be untested; got %v", got)
+	}
+	if !has("orphanFunc") {
+		t.Errorf("genuinely-untested production symbol 'orphanFunc' must be reported; got %v", got)
+	}
+}
+
 func TestDeltaReview(t *testing.T) {
 	t.Parallel()
 	dir := setupGitRepoWithSymbols(t)
