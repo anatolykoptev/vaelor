@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.30.0](https://github.com/anatolykoptev/go-code/compare/v1.29.0...v1.30.0) (2026-07-14)
+
+
+### Added
+
+* **compare:** wire ParseCache through BuildSnapshot/CompareInput ([d36a72c](https://github.com/anatolykoptev/go-code/commit/d36a72c41566f6967ca32475fa1ed549d9198915))
+
+
+### Fixed
+
+* **compare:** dedupe self-compare snapshots + ParseCache integration ([01891bf](https://github.com/anatolykoptev/go-code/commit/01891bfb489c24e5c201d94dd82f8b4ba429cf2d))
+
 ## [1.29.0](https://github.com/anatolykoptev/go-code/compare/v1.28.1...v1.29.0) (2026-07-14)
 
 
