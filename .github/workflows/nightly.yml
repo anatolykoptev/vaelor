@@ -31,6 +31,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history so compare.CollectChurn sees real per-file churn — the
+          # hotspot arm in TestSignalHitsLiveIntegration needs it (shallow
+          # depth-1 clone would yield empty churn and fail the assertion).
+          fetch-depth: 0
 
       - name: Reap stale CI postgres containers
         run: |
