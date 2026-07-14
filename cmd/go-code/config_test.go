@@ -69,6 +69,33 @@ func TestLoadConfig_NegativeWeightRejected(t *testing.T) {
 // Falsification: revert clampSparseBackfillDeadline to the bare multiplication
 // `time.Duration(secs) * time.Second` → zero input → 0s deadline stored →
 // cfg.SparseBackfillDeadline == 0 ≠ defaultDeadline, test goes RED.
+// TestLoadConfig_LLMPerAttemptTimeoutDefault verifies the per-attempt cap is
+// enabled by default (non-zero) so the go-kit model chain rotates past a slow
+// endpoint instead of a single slow attempt consuming the whole tool deadline
+// (the code_compare empty-recommendation failure mode).
+func TestLoadConfig_LLMPerAttemptTimeoutDefault(t *testing.T) {
+	// Force the unset path hermetically: env.Duration treats "" as unset and
+	// returns the default, so this holds even if the runner exports the var.
+	t.Setenv("LLM_PER_ATTEMPT_TIMEOUT", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.LLMPerAttemptTimeout != defaultLLMPerAttemptTimeout {
+		t.Errorf("LLMPerAttemptTimeout default: want %s, got %s", defaultLLMPerAttemptTimeout, cfg.LLMPerAttemptTimeout)
+	}
+
+	// Explicit override must pass through.
+	t.Setenv("LLM_PER_ATTEMPT_TIMEOUT", "45s")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.LLMPerAttemptTimeout != 45*time.Second {
+		t.Errorf("LLM_PER_ATTEMPT_TIMEOUT=45s: want 45s, got %s", cfg.LLMPerAttemptTimeout)
+	}
+}
+
 func TestLoadConfig_SparseBackfillDeadline_ZeroClamped(t *testing.T) {
 	const defaultDeadline = defaultSparseBackfillDeadlineS * time.Second
 
