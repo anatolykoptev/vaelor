@@ -63,6 +63,7 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semD
 			OxCodes:     deps.OxCodes,
 			EmbedClient: embedClient,
 			GraphStore:  graphStore,
+			ParseCache:  deps.ParseCache,
 			Opts: compare.SnapshotOpts{
 				Focus:    input.Focus,
 				Language: input.Language,
