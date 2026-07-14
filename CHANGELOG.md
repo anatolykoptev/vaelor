@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.1](https://github.com/anatolykoptev/go-code/compare/v1.30.0...v1.30.1) (2026-07-14)
+
+
+### Fixed
+
+* **go-code:** accept owner/repo form in github_code_search tool ([#381](https://github.com/anatolykoptev/go-code/issues/381)) ([4ae079a](https://github.com/anatolykoptev/go-code/commit/4ae079a821604a5e113ca84d1b26763474f7b1eb))
+
 ## [1.30.0](https://github.com/anatolykoptev/go-code/compare/v1.29.0...v1.30.0) (2026-07-14)
 
 
