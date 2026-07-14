@@ -16,7 +16,7 @@ func firstDestructurePattern(t *testing.T, code string) (*sitter.Node, []byte) {
 	if caps.SitterLanguage == nil {
 		t.Fatal("tsLang has no sitter language")
 	}
-	root, closeFn, err := parseTree(caps.SitterLanguage, src)
+	root, closeFn, err := parseTree(caps.SitterLanguage, src, nil)
 	if err != nil {
 		t.Fatalf("parse %q: %v", code, err)
 	}

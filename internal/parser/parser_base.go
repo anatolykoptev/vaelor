@@ -58,7 +58,7 @@ func (p *parserBase) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 		return fallbackParse(path, src, p.lang), nil
 	}
 
-	root, closeTree, err := parseTree(p.caps.SitterLanguage, src)
+	root, closeTree, err := parseTree(p.caps.SitterLanguage, src, opts.Parser)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -99,16 +99,17 @@ func mustCompileQuery(src []byte, lang *sitter.Language, name string) *sitter.Qu
 }
 
 // parseTree parses code with the given tree-sitter grammar and returns the
-// root node plus a cleanup func that closes the tree and parser. Factored out
-// of six call sites (parserBase.Parse, ExtractCalls, scriptRegionCalls,
-// markupExprReparse, ExtractRelationships, collectRuneSymbols) that each
-// repeated the same NewParser -> SetLanguage -> ParseCtx -> defer-close
-// sequence — pure plumbing consolidation, zero behavior change.
+// root node plus a cleanup func that closes the tree and (when parseTree
+// created the parser) the parser. Factored out of six call sites
+// (parserBase.Parse, ExtractCalls, scriptRegionCalls, markupExprReparse,
+// ExtractRelationships, collectRuneSymbols) that each repeated the same
+// NewParser -> SetLanguage -> ParseCtx -> defer-close sequence — pure plumbing
+// consolidation, zero behavior change.
 //
-// closeFn replicates the exact defer order every original call site used
-// (defer parser.Close() registered first, defer tree.Close() registered
-// second, so tree closes before parser under Go's LIFO defer semantics): call
-// it via defer exactly once, and only when err is nil.
+// If ps is non-nil, it is reused and the caller owns its lifecycle (closeFn
+// only closes the tree). If ps is nil, parseTree creates a parser and closeFn
+// closes it after the tree (tree before parser under Go's LIFO defer
+// semantics). Call closeFn via defer exactly once, and only when err is nil.
 //
 // lang must be non-nil. Four of the six call sites (parserBase.Parse,
 // scriptRegionCalls, markupExprReparse, collectRuneSymbols) guard directly on
@@ -118,19 +119,26 @@ func mustCompileQuery(src []byte, lang *sitter.Language, name string) *sitter.Qu
 // compiled from the same *sitter.Language at handler init() (mustCompileQuery),
 // so a non-nil query implies a non-nil SitterLanguage for every registered
 // handler today. This helper does not re-check lang itself.
-func parseTree(lang *sitter.Language, code []byte) (root *sitter.Node, closeFn func(), err error) {
-	ps := sitter.NewParser()
+func parseTree(lang *sitter.Language, code []byte, ps *sitter.Parser) (root *sitter.Node, closeFn func(), err error) {
+	ownParser := ps == nil
+	if ps == nil {
+		ps = sitter.NewParser()
+	}
 	ps.SetLanguage(lang)
 
 	tree, err := ps.ParseCtx(context.Background(), nil, code)
 	if err != nil {
-		ps.Close()
+		if ownParser {
+			ps.Close()
+		}
 		return nil, nil, err
 	}
 
 	return tree.RootNode(), func() {
 		tree.Close()
-		ps.Close()
+		if ownParser {
+			ps.Close()
+		}
 	}, nil
 }
 

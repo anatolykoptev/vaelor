@@ -19,7 +19,7 @@ func collectRuneSymbols(src []byte, path string) []*Symbol {
 	if caps.SitterLanguage == nil {
 		return nil
 	}
-	root, closeTree, err := parseTree(caps.SitterLanguage, src)
+	root, closeTree, err := parseTree(caps.SitterLanguage, src, nil)
 	if err != nil {
 		return nil
 	}
