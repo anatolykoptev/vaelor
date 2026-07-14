@@ -69,11 +69,11 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 
 	var repos []string
 	if input.Repo != "" {
-		owner, repo, ok := forge.ExtractOwnerRepo(input.Repo)
-		if !ok {
+		normalized, err := forge.NormalizeGitHubRepo(input.Repo)
+		if err != nil {
 			return errResult(fmt.Sprintf("invalid repo: %q", input.Repo)), nil
 		}
-		repos = []string{owner + "/" + repo}
+		repos = []string{normalized}
 	}
 
 	opts := forge.SearchCodeOptions{
