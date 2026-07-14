@@ -107,12 +107,13 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 		langs = []string{input.Language}
 	}
 
-	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+	ingestOpts := ingest.IngestOpts{
 		Root:         input.Root,
 		Focus:        input.Focus,
 		Languages:    langs,
 		MaxFileBytes: maxFileBytes,
-	})
+	}
+	ir, err := ingest.IngestRepo(ctx, ingestOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +123,7 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	// Content-based fallback: when focus matches no file paths,
 	// re-ingest all files and filter by symbol names, imports, and calls.
 	if len(ir.Files) == 0 && input.Focus != "" {
-		ir, err = ingest.ContentFallback(ctx, input.Root, langs, maxFileBytes, input.Focus)
+		ir, err = ingest.ContentFallback(ctx, ingestOpts, input.Focus)
 		if err != nil {
 			return nil, err
 		}
