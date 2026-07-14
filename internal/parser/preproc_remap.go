@@ -49,8 +49,8 @@ func RemapSymbolLines(r *ParseResult, vs *preproc.VirtualSource) {
 // virtual line. Returns 0 if the line is out of range or mapped to padding.
 //
 // This is the shared remap primitive: RemapSymbolLines (symbol path),
-// appendRuneSymbols (rune classifier), and markupExprReparse (markup call sites)
-// all map virtual→original line numbers through it.
+// remapAndAppendRunes (rune classifier), and markupExprReparse (markup call
+// sites) all map virtual→original line numbers through it.
 func virtualToOriginal(lineMap []uint32, virtualLine uint32) uint32 {
 	if virtualLine == 0 || int(virtualLine) > len(lineMap) {
 		return 0

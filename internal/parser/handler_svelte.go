@@ -75,17 +75,17 @@ func (h *svelteHandler) MapCapture(captureName string, node *sitter.Node, source
 	return tsLang.MapCapture(captureName, node, source)
 }
 
-// Parse extracts <script> blocks, delegates to the TypeScript parser, remaps
-// symbol line numbers back to the original .svelte file coordinates, appends
-// Svelte 5 rune symbols detected by the post-parse rune classifier, and populates
-// TemplateRefs from capitalised component tags in the markup.
+// Parse extracts <script> blocks and parses them ONCE with the TypeScript grammar
+// to yield both the ordinary symbols and the Svelte 5 rune symbols from a single
+// tree (parseSvelteWithRunes), remaps every symbol line number back to the
+// original .svelte file coordinates, and populates TemplateRefs from capitalised
+// component tags in the markup.
 func (h *svelteHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResult, error) {
 	vs, refs := preproc.ExtractSvelteWithRefs(src)
-	result, err := parseWithTSAndRemap(path, vs, "svelte", opts)
+	result, err := parseSvelteWithRunes(path, vs, "svelte", opts)
 	if err != nil {
 		return nil, err
 	}
-	appendRuneSymbols(result, vs, path)
 	if len(refs) > 0 {
 		result.TemplateRefs = refs
 	}
