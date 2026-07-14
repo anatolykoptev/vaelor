@@ -8,9 +8,15 @@ import (
 
 // Budget constants for LLM context size limits.
 const (
-	maxContextChars = 80_000
-	maxSnippetChars = 1_500
-	maxMatchedPairs = 40
+	// maxContextChars budgets ONLY the compare context (compareCtx). The LLM
+	// input is system prompt + this context: prompts.SystemPromptCodeCompare is
+	// ~11.6k chars (~2.9k tokens), and the fleet models cap at an 8,192-token
+	// window. 12k chars ≈ 3.4k tokens (worst-case dense code ~3.5 chars/tok),
+	// leaving room for the system prompt + the recommendation completion within
+	// 8,192 with margin. Do NOT raise without re-checking that headroom.
+	maxContextChars = 12_000
+	maxSnippetChars = 400
+	maxMatchedPairs = 20
 	maxGapSymbols   = 20
 )
 

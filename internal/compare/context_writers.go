@@ -54,6 +54,15 @@ func writePair(sb *strings.Builder, m *SymbolMatch) {
 	sb.WriteString(label)
 	sb.WriteString("\n\n")
 
+	// Exact matches are byte-identical in both repos; dumping both bodies is
+	// pure redundancy and the dominant source of context-budget bloat. Emit a
+	// compact note and skip the bodies. Non-exact matches keep (truncated)
+	// bodies so the diff summary has surrounding context.
+	if m.MatchType == MatchExact {
+		sb.WriteString("_Identical implementation in both repos._\n\n")
+		return
+	}
+
 	sb.WriteString("**Repo A** (`")
 	sb.WriteString(m.SymbolA.File)
 	sb.WriteString("`):\n```\n")
