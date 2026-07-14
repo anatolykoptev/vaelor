@@ -50,7 +50,8 @@ var version = "dev"
 var toolTimeouts = map[string]time.Duration{
 	"code_research":     90 * time.Second,
 	"repo_analyze":      90 * time.Second,
-	"code_compare":      95 * time.Second, // compareTimeout is 90s; leave headroom for XML marshal
+	"review_delta":      120 * time.Second, // #391: cold code-graph build on a large delta exceeds the 90s default
+	"code_compare":      95 * time.Second,  // compareTimeout is 90s; leave headroom for XML marshal
 	"call_trace":        60 * time.Second,
 	"code_health":       60 * time.Second,
 	"understand":        30 * time.Second, // Fix #3: dead embed server + AGE lookups complete well within 30s (Fix #2 caps embed at 5s)
