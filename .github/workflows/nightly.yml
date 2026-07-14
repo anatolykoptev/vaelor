@@ -41,7 +41,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Latest patched toolchain, not go.mod's pin — see preflight.yml.
+          go-version: stable
 
       - uses: docker/setup-buildx-action@v3
 

@@ -58,7 +58,12 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Fleet policy: CI runs the latest patched toolchain (go.mod is the
+          # minimum, not the pin). govulncheck below gates on stdlib CVEs that
+          # are fixed in patch releases — pinning go.mod's version fails the
+          # gate the day a stdlib CVE lands (seen live: GO-2026-4970/5856,
+          # fixed in go1.26.5 while go.mod pinned 1.26.4).
+          go-version: stable
 
       - uses: docker/setup-buildx-action@v3
 
@@ -75,8 +80,9 @@ jobs:
         id: pg
         run: |
           set -euo pipefail
-          # pg_isready/psql ship preinstalled on GitHub's ubuntu images; the
-          # guard keeps us honest if an image update ever drops them.
+          # Unlike the x64 ubuntu images, ubuntu-24.04-arm ships NO postgres
+          # client — this install is load-bearing on every run, not a rare
+          # safety net (runner-images Ubuntu2404-Arm64 readme: MySQL only).
           if ! command -v pg_isready >/dev/null; then
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           fi
