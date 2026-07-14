@@ -23,6 +23,10 @@ type GithubCodeSearchInput struct {
 	PerPage        int      `json:"per_page,omitempty" jsonschema_description:"Results per page (default: 10, max: 100)"`
 	Page           int      `json:"page,omitempty" jsonschema_description:"Page number for pagination (default: 1)"`
 	MaxResults     int      `json:"max_results,omitempty" jsonschema_description:"Maximum results to return after server-side filtering. Capped at 1000 (100 when min_stars is used). May override per_page for efficiency."`
+	// MaxFragmentChars limits each text-match fragment. 0 means no limit.
+	MaxFragmentChars int `json:"max_fragment_chars,omitempty" jsonschema_description:"Max characters per code fragment. 0 or omitted means no limit."`
+	// MaxTotalChars limits the total joined content per result. 0 means no limit.
+	MaxTotalChars int `json:"max_total_chars,omitempty" jsonschema_description:"Max total characters of joined fragments per result. 0 or omitted means no limit."`
 }
 
 // githubCodeSearchResult is a single search result.
@@ -77,15 +81,17 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 	}
 
 	opts := forge.SearchCodeOptions{
-		ExcludeRepos:   input.ExcludeRepos,
-		FileExtensions: input.FileExtensions,
-		Language:       input.Language,
-		Sort:           input.Sort,
-		Order:          input.Order,
-		MinStars:       input.MinStars,
-		MaxResults:     input.MaxResults,
-		PerPage:        input.PerPage,
-		Page:           input.Page,
+		ExcludeRepos:     input.ExcludeRepos,
+		FileExtensions:   input.FileExtensions,
+		Language:         input.Language,
+		Sort:             input.Sort,
+		Order:            input.Order,
+		MinStars:         input.MinStars,
+		MaxResults:       input.MaxResults,
+		PerPage:          input.PerPage,
+		Page:             input.Page,
+		MaxFragmentChars: input.MaxFragmentChars,
+		MaxTotalChars:    input.MaxTotalChars,
 	}
 
 	result, err := gh.SearchCode(ctx, input.Query, repos, opts)

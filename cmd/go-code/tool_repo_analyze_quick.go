@@ -39,6 +39,8 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 
 	var searchOpts forge.SearchCodeOptions
 	searchOpts.MaxResults = 10
+	searchOpts.MaxFragmentChars = 300
+	searchOpts.MaxTotalChars = 600
 	if input.Language != "" {
 		searchOpts.Language = input.Language
 	}
