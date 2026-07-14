@@ -90,6 +90,10 @@ const (
 	// semanticRerankCandidates is the minimum candidate pool for CE reranker.
 	// Ensures at least 20 candidates regardless of topK.
 	semanticRerankCandidates = 20
+	// semanticSearchGraphHint is shown in indexing status responses so the
+	// caller knows how to enable the graph/hotspot/recency RRF arms.
+	semanticSearchGraphHint = "To enable graph/hotspot/recency arms, run code_graph."
+	semanticSearchRetryHint = "Please retry in 30-60 seconds."
 )
 
 // registerSemanticSearch registers the semantic_search MCP tool.
@@ -201,15 +205,18 @@ func handleSemanticSearch(
 				invalidator.InvalidateIfModelChanged(ctx, repoKey) // purges atomically
 				if invalidator.IsIndexing(repoKey) {
 					done, total, _ := invalidator.IndexProgress(repoKey)
-					msg := "Repository is being re-indexed (embedding model changed). Please retry in 30-60 seconds."
+					msg := "Repository is being re-indexed (embedding model changed). " +
+						semanticSearchGraphHint + " " + semanticSearchRetryHint
 					if total > 0 {
-						msg = fmt.Sprintf("Re-indexing in progress (model changed): %d/%d symbols. Please retry in 30-60 seconds.", done, total)
+						msg = fmt.Sprintf("Re-indexing in progress (model changed): %d/%d symbols. %s %s",
+							done, total, semanticSearchGraphHint, semanticSearchRetryHint)
 					}
 					return textResult(buildStatusResponse(input, "indexing", msg)), nil
 				}
 				invalidator.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
 				return textResult(buildStatusResponse(input, "indexing",
-					"Embedding model changed — re-indexing started. Please retry in 30-60 seconds.")), nil
+					"Embedding model changed — re-indexing started. "+
+						semanticSearchGraphHint+" "+semanticSearchRetryHint)), nil
 			}
 		}
 		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
@@ -219,16 +226,18 @@ func handleSemanticSearch(
 	if deps.Pipeline != nil {
 		if deps.Pipeline.IsIndexing(repoKey) {
 			done, total, _ := deps.Pipeline.IndexProgress(repoKey)
-			msg := "Repository is being indexed in the background. Please retry in 30-60 seconds."
+			msg := "Repository is being indexed in the background. " +
+				semanticSearchGraphHint + " " + semanticSearchRetryHint
 			if total > 0 {
-				msg = fmt.Sprintf("Indexing in progress: %d/%d symbols embedded. Please retry in 30-60 seconds.", done, total)
+				msg = fmt.Sprintf("Indexing in progress: %d/%d symbols embedded. %s %s",
+					done, total, semanticSearchGraphHint, semanticSearchRetryHint)
 			}
 			return textResult(buildStatusResponse(input, "indexing", msg)), nil
 		}
 		deps.Pipeline.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
 		return textResult(buildStatusResponse(input, "indexing",
 			"Repository indexing started in the background. "+
-				"Please retry in 30-60 seconds.")), nil
+				semanticSearchGraphHint+" "+semanticSearchRetryHint)), nil
 	}
 
 	return textResult(buildStatusResponse(input, "not_indexed",
