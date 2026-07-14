@@ -75,7 +75,8 @@ func ParseLightweight(ctx context.Context, files []*File) ([]*parser.Symbol, map
 			IncludeBody:    false,
 			IncludeImports: true,
 		}
-		pr, err := parser.ParseFile(f.Path, source, opts)
+		// Single parse for symbols+calls instead of ParseFile + ExtractCalls (issue #400).
+		pr, calls, err := parser.ParseFileWithCalls(f.Path, source, opts)
 		if err != nil {
 			continue
 		}
@@ -83,7 +84,6 @@ func ParseLightweight(ctx context.Context, files []*File) ([]*parser.Symbol, map
 		if len(pr.Imports) > 0 {
 			imports[f.Path] = pr.Imports
 		}
-		calls, _ := parser.ExtractCalls(f.Path, source, opts)
 		allCalls = append(allCalls, calls...)
 	}
 

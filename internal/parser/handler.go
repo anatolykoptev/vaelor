@@ -9,6 +9,7 @@ package parser
 
 import (
 	"fmt"
+	"sort"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
@@ -95,4 +96,17 @@ func registerHandler(h LanguageHandler) {
 // Returns nil if the extension is not supported.
 func HandlerForExt(ext string) LanguageHandler {
 	return registry[ext]
+}
+
+// RegisteredExtensions returns every file extension with a registered handler,
+// sorted. Used by the parse-equivalence test to assert that every registered
+// language has a fixture proving ParseFileWithCalls matches ParseFile+ExtractCalls,
+// so a newly registered handler cannot ship without that coverage.
+func RegisteredExtensions() []string {
+	exts := make([]string, 0, len(registry))
+	for ext := range registry {
+		exts = append(exts, ext)
+	}
+	sort.Strings(exts)
+	return exts
 }
