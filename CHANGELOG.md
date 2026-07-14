@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.2](https://github.com/anatolykoptev/go-code/compare/v1.31.1...v1.31.2) (2026-07-14)
+
+
+### Fixed
+
+* **review:** correct untested-symbol false positives in review_delta ([#392](https://github.com/anatolykoptev/go-code/issues/392)) ([b414402](https://github.com/anatolykoptev/go-code/commit/b4144027c3a89cd26accbd522dea8a27410c2e73))
+
 ## [1.31.1](https://github.com/anatolykoptev/go-code/compare/v1.31.0...v1.31.1) (2026-07-14)
 
 
