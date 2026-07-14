@@ -284,7 +284,7 @@ func TestBuildCompareContext_ExactMatchesSkipBodyAndRespectIssue397Budget(t *tes
 }
 
 func TestBuildCompareContextBudget(t *testing.T) {
-	// Each symbol body is ~20K chars — well above maxSnippetChars (3000).
+	// Each symbol body is ~20K chars — well above maxSnippetChars (400).
 	largeBody := strings.Repeat("x", 20_000)
 
 	sym := func(name, file string) *parser.Symbol {
