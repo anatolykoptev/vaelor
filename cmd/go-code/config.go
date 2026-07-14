@@ -59,7 +59,7 @@ type Config struct {
 	LLMFallbackKeys []string
 
 	// LLMModelFallback is a CSV cross-provider model chain (e.g.
-	// "gemini-3.1-flash-lite-preview,cerebras-qwen-3-235b"). When non-empty,
+	// "cerebras-gpt-oss-120b,groq-llama-70b"). When non-empty,
 	// cliproxyapi routes each model id to its upstream provider, enabling
 	// cross-provider failover without rotating API keys.
 	// Env: LLM_MODEL_FALLBACK.
@@ -270,13 +270,16 @@ type Config struct {
 	// SOURCEMAP_MAX_BODY_BYTES env var (bytes).
 	SourcemapMaxBodyBytes int
 
-	// SourcemapRateLimit is the per-IP rate limit for POST /resolve in
-	// requests per second. 0 (default) disables the rate limit. The MCP
-	// resolve_frame tool is not affected. Env: SOURCEMAP_RATE_LIMIT.
+	// SourcemapRateLimit is the per-source-IP rate limit for POST /resolve in
+	// requests per second (keyed on X-Forwarded-For/RemoteAddr; with a single
+	// trusted caller it is effectively a per-source cap, not per-end-user).
+	// Default 30 (defense-in-depth for this network-exposed,
+	// bearer-auth-gated endpoint); set to 0 to disable.
+	// The MCP resolve_frame tool is not affected. Env: SOURCEMAP_RATE_LIMIT.
 	SourcemapRateLimit float64
 
 	// SourcemapRateBurst is the per-IP burst bucket for POST /resolve.
-	// Ignored when SourcemapRateLimit is 0. Default 10. Env: SOURCEMAP_RATE_BURST.
+	// Ignored when SourcemapRateLimit is 0. Default 60. Env: SOURCEMAP_RATE_BURST.
 	SourcemapRateBurst int
 
 	// Fleet runtime-image probing (fleet_versions tool and debug_investigate Phase 7).
@@ -331,8 +334,14 @@ type Config struct {
 }
 
 const (
-	defaultLLMURL       = "http://127.0.0.1:8317/v1"
-	defaultLLMModel     = "gemini-3.1-flash-lite-preview"
+	defaultLLMURL = "http://127.0.0.1:8317/v1"
+
+	// defaultLLMModel is ONLY the fresh-deploy fallback when LLM_MODEL is
+	// unset. Prod always sets LLM_MODEL (see fleet llm.env) so this default
+	// never fires there — it exists so a fresh deploy without the env still
+	// gets a working model instead of a dead 502 "unknown provider". Keep
+	// this pointed at a model id that is currently live in cliproxyapi.
+	defaultLLMModel     = "cerebras-gpt-oss-120b"
 	defaultLLMMaxTokens = 16384
 
 	// defaultLLMPerAttemptTimeout caps each model attempt in the go-kit fallback
@@ -349,10 +358,14 @@ const (
 	// 16 MiB source map body cap.
 	defaultSourcemapMaxBodyBytes = 16 << 20
 
-	// Default rate-limit for POST /resolve: disabled (0 rps).
-	// Per-IP token bucket; set SOURCEMAP_RATE_LIMIT to enable.
-	defaultSourcemapRateLimit = 0
-	defaultSourcemapRateBurst = 10
+	// Default rate-limit for POST /resolve: 30 rps/IP, burst 60. This is a
+	// generous defense-in-depth default for a network-exposed,
+	// bearer-auth-gated endpoint (issue #388) — 30 rps/IP never bothers
+	// legit low-volume error-report resolution but caps a runaway/abuse
+	// loop. Per-IP token bucket; override via SOURCEMAP_RATE_LIMIT /
+	// SOURCEMAP_RATE_BURST, or set SOURCEMAP_RATE_LIMIT=0 to disable.
+	defaultSourcemapRateLimit = 30
+	defaultSourcemapRateBurst = 60
 
 	// 512 KB per file.
 	defaultMaxFileBytesKB = 512
