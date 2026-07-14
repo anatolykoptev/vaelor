@@ -83,12 +83,11 @@ func parseFileForCalls(file *ingest.File) parseResult {
 		IncludeTypeRels: true,
 	}
 
-	pr, err := parser.ParseFile(file.Path, source, opts)
+	// Single parse for symbols+calls instead of ParseFile + ExtractCalls (issue #400).
+	pr, calls, err := parser.ParseFileWithCalls(file.Path, source, opts)
 	if err != nil {
 		return parseResult{}
 	}
-
-	calls, _ := parser.ExtractCalls(file.Path, source, opts)
 	rels := pr.TypeRels
 
 	return parseResult{

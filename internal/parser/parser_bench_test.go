@@ -71,3 +71,36 @@ func BenchmarkParseFile(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkParseFileWithCalls benchmarks the combined symbols+calls path per
+// language — the exact path issue #400 changes. On this branch it calls
+// parser.ParseFileWithCalls (ONE shared tree-sitter parse); on origin/main the
+// same-named benchmark calls parser.ParseFile + parser.ExtractCalls (the historical
+// TWO parses of identical bytes). benchstat old.txt new.txt over the two checkouts
+// therefore measures the double->single parse win directly. Opts mirror the heaviest
+// caller (codegraph indexParseFile): body + imports + type-rels all on, which is also
+// the shape ExtractCalls callers pair with ParseFile.
+func BenchmarkParseFileWithCalls(b *testing.B) {
+	opts := parser.ParseOpts{
+		IncludeBody:     true,
+		IncludeImports:  true,
+		IncludeTypeRels: true,
+	}
+
+	for _, fx := range benchFixtures {
+		source, err := os.ReadFile(fx.path)
+		if err != nil {
+			b.Fatalf("read %s: %v", fx.path, err)
+		}
+
+		b.Run(fx.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, _, err := parser.ParseFileWithCalls(fx.path, source, opts); err != nil {
+					b.Fatalf("ParseFileWithCalls(%s): %v", fx.path, err)
+				}
+			}
+		})
+	}
+}

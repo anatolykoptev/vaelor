@@ -65,3 +65,17 @@ func (h *tsxHandler) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 	applyDetectedSymbolLanguage(result, path, opts)
 	return result, nil
 }
+
+// ParseWithCalls shares ONE tree-sitter parse for symbols+calls (issue #400) then
+// applies the same Symbol.Language correction as Parse (mirroring the boundaries-HIGH
+// trap guarded there: only symbols flowing through THIS handler are relabeled). The
+// shared parse runs the identical TSX grammar over the identical raw src as Parse, so
+// symbols equal Parse's and calls equal ExtractCalls's.
+func (h *tsxHandler) ParseWithCalls(path string, src []byte, opts ParseOpts) (*ParseResult, []CallSite, bool, error) {
+	result, calls, shared, err := h.parserBase.ParseWithCalls(path, src, opts)
+	if err != nil || !shared {
+		return result, calls, shared, err
+	}
+	applyDetectedSymbolLanguage(result, path, opts)
+	return result, calls, true, nil
+}

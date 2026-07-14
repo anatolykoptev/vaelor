@@ -2,7 +2,6 @@ package explore
 
 import (
 	"context"
-	"log/slog"
 	"os"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -32,18 +31,14 @@ func parseAllFiles(ctx context.Context, files []*ingest.File) (*parseResults, er
 			IncludeImports: true,
 		}
 
-		pr, parseErr := parser.ParseFile(f.Path, source, opts)
+		// Single parse for symbols+calls instead of ParseFile + ExtractCalls (issue #400).
+		pr, calls, parseErr := parser.ParseFileWithCalls(f.Path, source, opts)
 		if parseErr != nil {
 			continue
 		}
 		result.symbols = append(result.symbols, pr.Symbols...)
 		if len(pr.Imports) > 0 {
 			result.imports[f.Path] = pr.Imports
-		}
-
-		calls, callErr := parser.ExtractCalls(f.Path, source, opts)
-		if callErr != nil {
-			slog.Debug("explore: extract calls failed", slog.String("file", f.Path), slog.Any("error", callErr))
 		}
 		result.calls = append(result.calls, calls...)
 	}
