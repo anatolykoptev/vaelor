@@ -1,13 +1,16 @@
 package parser
 
 import (
+	"fmt"
+
 	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
 // collectRuneSymbols parses src with the TypeScript grammar and returns KindRune
 // symbols at their raw (1-based) source line numbers — no coordinate remapping.
-// Suitable for .svelte.ts/.svelte.js files where the source is the whole file,
-// and for svelteHandler which remaps afterwards via appendRuneSymbols.
+// Used for .svelte.ts/.svelte.js files where the source is the whole file (see
+// typescriptHandler.Parse). The in-component .svelte path parses vs.Code only
+// ONCE (parseSvelteWithRunes) and does not go through this helper.
 func collectRuneSymbols(src []byte, path string) []*Symbol {
 	if len(src) == 0 {
 		return nil
@@ -27,18 +30,60 @@ func collectRuneSymbols(src []byte, path string) []*Symbol {
 	return syms
 }
 
-// appendRuneSymbols collects rune symbols from vs.Code (virtual coordinates),
-// remaps them to original-file coordinates using vs.LineMap, and appends them
-// to result.Symbols.
+// parseSvelteWithRunes parses vs.Code ONCE with the TypeScript grammar and, from
+// that single tree, extracts BOTH the ordinary tags-query symbols AND the Svelte
+// 5 rune symbols, then remaps every symbol from virtual to original .svelte
+// coordinates.
 //
-// Called from svelteHandler.Parse after parseWithTSAndRemap.
-func appendRuneSymbols(result *ParseResult, vs *preproc.VirtualSource, path string) {
+// It replaces the former two-parse Svelte path (parseWithTSAndRemap followed by
+// appendRuneSymbols), which parsed the identical bytes with the identical grammar
+// twice (issue #401). The tree walked here is byte-identical to either former
+// parse, so the emitted tags and rune symbols — and their remapped coordinates —
+// are unchanged; only the redundant second parse is gone.
+//
+// path is the ORIGINAL .svelte file path (propagated into Symbol.File); lang is
+// the preprocessor-language label ("svelte").
+func parseSvelteWithRunes(path string, vs *preproc.VirtualSource, lang string, opts ParseOpts) (*ParseResult, error) {
+	base := &tsLang.parserBase
 	if vs == nil || len(vs.Code) == 0 {
-		return
+		return &ParseResult{File: path, Language: lang, Symbols: []*Symbol{}, Imports: []string{}}, nil
 	}
-	syms := collectRuneSymbols(vs.Code, path)
+	if base.caps.SitterLanguage == nil {
+		// TypeScript grammar unwired (not expected in practice): fall back exactly
+		// as base.Parse would and remap. Runes need the AST, so none are emitted —
+		// this matches the former path, whose fallbackParse produced no rune nodes.
+		result := fallbackParse(path, vs.Code, base.lang)
+		RemapSymbolLines(result, vs)
+		return result, nil
+	}
 
-	// Remap virtual line numbers to original .svelte coordinates.
+	root, closeTree, err := parseTree(base.caps.SitterLanguage, vs.Code)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	defer closeTree()
+
+	// Ordinary tags-query symbols (+ optional type relationships) from the tree.
+	result := base.buildResult(root, vs.Code, path, opts)
+
+	// Rune symbols from the SAME tree, still in virtual coordinates.
+	var runeSyms []*Symbol
+	walkRuneNodes(root, vs.Code, &runeSyms, path)
+
+	// Remap the tags symbols in place (drops padding rows, stamps Language), then
+	// remap and append the rune symbols after them — preserving the historical
+	// [tags…]+[runes…] ordering and the rune remap semantics exactly.
+	RemapSymbolLines(result, vs)
+	remapAndAppendRunes(result, vs, runeSyms)
+	return result, nil
+}
+
+// remapAndAppendRunes remaps rune symbols (collected in virtual coordinates) to
+// original .svelte coordinates and appends them to result.Symbols. This is the
+// exact remap loop the former appendRuneSymbols used: a symbol whose StartLine
+// maps onto padding (origStart == 0) is dropped; an EndLine that maps to 0 keeps
+// StartLine as its EndLine; Language is stamped to vs.Lang.
+func remapAndAppendRunes(result *ParseResult, vs *preproc.VirtualSource, syms []*Symbol) {
 	for _, sym := range syms {
 		origStart := virtualToOriginal(vs.LineMap, sym.StartLine)
 		if origStart == 0 {

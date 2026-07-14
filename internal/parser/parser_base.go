@@ -64,6 +64,17 @@ func (p *parserBase) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 	}
 	defer closeTree()
 
+	return p.buildResult(root, src, path, opts), nil
+}
+
+// buildResult runs the TagsQuery (and, when requested, the RelationshipsQuery)
+// against an already-parsed tree root and returns the populated ParseResult.
+// Split out of Parse so ONE parsed tree can drive both the tags query and an
+// extra AST walk without re-parsing: the Svelte single-parse path
+// (parseSvelteWithRunes) calls this and then walks the SAME root for rune
+// symbols before closing the tree, eliminating the former double parse of the
+// .svelte <script> bytes (issue #401).
+func (p *parserBase) buildResult(root *sitter.Node, src []byte, path string, opts ParseOpts) *ParseResult {
 	result := &ParseResult{
 		File:     path,
 		Language: p.lang,
@@ -74,7 +85,7 @@ func (p *parserBase) Parse(path string, src []byte, opts ParseOpts) (*ParseResul
 	if opts.IncludeTypeRels && p.caps.RelationshipsQuery != nil {
 		result.TypeRels = runRelQuery(p.caps.RelationshipsQuery, root, src, path, p.lang)
 	}
-	return result, nil
+	return result
 }
 
 // mustCompileQuery compiles a tree-sitter query or panics with a descriptive message.
