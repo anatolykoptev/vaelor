@@ -32,9 +32,10 @@ type CompareInput struct {
 // compareTimeout is the hard deadline for the entire CompareRepos operation.
 // It must be slightly shorter than the MCP server per-tool timeout (set in
 // cmd/go-code/main.go:toolTimeouts) so the tool has headroom to marshal and
-// return the XML response. On large repos the full pipeline (snapshot,
-// matching, enrichment, and LLM analysis) can take well over 90s.
-const compareTimeout = 3 * time.Minute
+// return the XML response. The Cloudflare proxy in front of the MCP server
+// times out at ~100s, so both CompareRepos and the per-tool MCP deadline are
+// capped well below that.
+const compareTimeout = 90 * time.Second
 
 // annotateASTDiffs computes AST diffs for modified symbol matches.
 func annotateASTDiffs(matches []SymbolMatch) {
