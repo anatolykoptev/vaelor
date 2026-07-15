@@ -65,32 +65,43 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 	if _, err := tx.Exec(ctx, metaTableSQL); err != nil {
 		return fmt.Errorf("ensure meta table: %w", err)
 	}
-	// Best-effort: transfer ownership to the connected role so the role can
-	// TRUNCATE and ALTER on reindex. No-op when already the owner; logs a
-	// warning (not an error) when running as a non-owner after a restore.
-	pgutil.TransferOwnership(ctx, tx, "codegraph", "code_graph_meta")
 
 	// Ensure the file mtimes table exists for incremental indexing.
 	if _, err := tx.Exec(ctx, mtimeTableSQL); err != nil {
 		return fmt.Errorf("ensure mtimes table: %w", err)
 	}
-	pgutil.TransferOwnership(ctx, tx, "codegraph", "code_file_mtimes")
 
 	// Ensure the snapshot table exists for graph diffing.
 	if _, err := tx.Exec(ctx, snapshotTableSQL); err != nil {
 		return fmt.Errorf("ensure snapshot table: %w", err)
 	}
-	pgutil.TransferOwnership(ctx, tx, "codegraph", "code_graph_snapshots")
 
 	// Ensure dead code scores table exists for pre-computed reranker scores.
 	if _, err := tx.Exec(ctx, deadCodeScoresTableSQL); err != nil {
 		return fmt.Errorf("ensure dead_code_scores table: %w", err)
 	}
-	pgutil.TransferOwnership(ctx, tx, "codegraph", "code_dead_code_scores")
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit ensure graph: %w", err)
 	}
+
+	// Best-effort ownership transfer, run AFTER commit on the autocommit
+	// conn (NOT inside the tx above): each ALTER TABLE ... OWNER TO is its
+	// own independent statement, deliberately fail-soft (see
+	// pgutil.TransferOwnership) for the "restore where a superuser created
+	// the tables" / non-owner case (SQLSTATE 42501). Swallowing that error
+	// INSIDE a transaction still poisons it server-side (any error aborts
+	// the tx; the next statement fails with 25P02 "current transaction is
+	// aborted"), which would turn this best-effort step into a hard failure
+	// of the whole graph build on any host where the connected role doesn't
+	// own a pre-existing bookkeeping table. Running post-commit on conn
+	// keeps each transfer independent and preserves the original
+	// best-effort semantics. Ownership transfer is idempotent and does not
+	// need the advisory-lock serialization above.
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_meta")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_file_mtimes")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_snapshots")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_dead_code_scores")
 
 	// Seed the exists-cache so subsequent read-path preflight calls don't hit
 	// ag_catalog.ag_graph immediately after a build.
