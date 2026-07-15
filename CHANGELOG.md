@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.10](https://github.com/anatolykoptev/go-code/compare/v1.31.9...v1.31.10) (2026-07-15)
+
+
+### Fixed
+
+* **review:** use valid ox-codes scope "function_bodies" in review_delta ([#420](https://github.com/anatolykoptev/go-code/issues/420)) ([cb7ea2c](https://github.com/anatolykoptev/go-code/commit/cb7ea2cc32f185052f1eb8c78d9a0dcdeb34d094)), closes [#419](https://github.com/anatolykoptev/go-code/issues/419)
+
 ## [1.31.9](https://github.com/anatolykoptev/go-code/compare/v1.31.8...v1.31.9) (2026-07-15)
 
 
