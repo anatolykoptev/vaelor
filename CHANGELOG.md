@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.9](https://github.com/anatolykoptev/go-code/compare/v1.31.8...v1.31.9) (2026-07-15)
+
+
+### Fixed
+
+* serialize EnsureGraph provisioning to fix pg_type 23505 race ([#417](https://github.com/anatolykoptev/go-code/issues/417)) ([1fbf8a4](https://github.com/anatolykoptev/go-code/commit/1fbf8a48631ecfe117421fdbfb9e15dd71a04028))
+
 ## [1.31.8](https://github.com/anatolykoptev/go-code/compare/v1.31.7...v1.31.8) (2026-07-14)
 
 
