@@ -249,7 +249,7 @@ func enrichTestedSetViaOxCodes(ctx context.Context, oc *oxcodes.Client, root str
 		resp, err := oc.SearchScoped(ctx, oxcodes.ScopedSearchInput{
 			Root:       root,
 			Pattern:    cs.Symbol.Name,
-			Scope:      "function",
+			Scope:      "function_bodies",
 			Language:   cs.Symbol.Language,
 			MaxResults: 5,
 		})
