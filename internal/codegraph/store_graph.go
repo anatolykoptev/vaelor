@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/anatolykoptev/go-code/internal/pgutil"
@@ -25,41 +26,81 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, ageSetup); err != nil {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			slog.Warn("codegraph: ensure graph rollback", slog.Any("error", err))
+		}
+	}()
+
+	if _, err := tx.Exec(ctx, ageSetup); err != nil {
 		return fmt.Errorf("AGE setup: %w", err)
 	}
 
-	// create_graph raises SQLSTATE 42710 (duplicate_object) if the graph already exists.
-	_, err = conn.Exec(ctx, fmt.Sprintf(`SELECT ag_catalog.create_graph('%s')`, name))
-	if err != nil && !isDuplicateObjectError(err) {
-		return fmt.Errorf("create graph %q: %w", name, err)
+	// Serialize the provisioning sequence across sessions. PostgreSQL's
+	// CREATE TABLE IF NOT EXISTS is not concurrency-safe: two sessions can both
+	// see a missing table and collide on the pg_type unique index
+	// (pg_type_typname_nsp_index, SQLSTATE 23505).
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('codegraph.ensure_graph'))"); err != nil {
+		return fmt.Errorf("acquire ensure_graph lock: %w", err)
+	}
+
+	// create_graph raises SQLSTATE 42710 (duplicate_object) if the graph already
+	// exists. Inside a transaction that error aborts the transaction, so check
+	// existence first and only create when the graph is missing.
+	var graphExists bool
+	if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1)", name).Scan(&graphExists); err != nil {
+		return fmt.Errorf("check graph existence: %w", err)
+	}
+	if !graphExists {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`SELECT ag_catalog.create_graph('%s')`, name)); err != nil {
+			return fmt.Errorf("create graph %q: %w", name, err)
+		}
 	}
 
 	// Ensure the meta table exists in the default schema.
-	if _, err := conn.Exec(ctx, metaTableSQL); err != nil {
+	if _, err := tx.Exec(ctx, metaTableSQL); err != nil {
 		return fmt.Errorf("ensure meta table: %w", err)
 	}
-	// Best-effort: transfer ownership to the connected role so the role can
-	// TRUNCATE and ALTER on reindex. No-op when already the owner; logs a
-	// warning (not an error) when running as a non-owner after a restore.
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_meta")
 
 	// Ensure the file mtimes table exists for incremental indexing.
-	if _, err := conn.Exec(ctx, mtimeTableSQL); err != nil {
+	if _, err := tx.Exec(ctx, mtimeTableSQL); err != nil {
 		return fmt.Errorf("ensure mtimes table: %w", err)
 	}
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_file_mtimes")
 
 	// Ensure the snapshot table exists for graph diffing.
-	if _, err := conn.Exec(ctx, snapshotTableSQL); err != nil {
+	if _, err := tx.Exec(ctx, snapshotTableSQL); err != nil {
 		return fmt.Errorf("ensure snapshot table: %w", err)
 	}
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_snapshots")
 
 	// Ensure dead code scores table exists for pre-computed reranker scores.
-	if _, err := conn.Exec(ctx, deadCodeScoresTableSQL); err != nil {
+	if _, err := tx.Exec(ctx, deadCodeScoresTableSQL); err != nil {
 		return fmt.Errorf("ensure dead_code_scores table: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit ensure graph: %w", err)
+	}
+
+	// Best-effort ownership transfer, run AFTER commit on the autocommit
+	// conn (NOT inside the tx above): each ALTER TABLE ... OWNER TO is its
+	// own independent statement, deliberately fail-soft (see
+	// pgutil.TransferOwnership) for the "restore where a superuser created
+	// the tables" / non-owner case (SQLSTATE 42501). Swallowing that error
+	// INSIDE a transaction still poisons it server-side (any error aborts
+	// the tx; the next statement fails with 25P02 "current transaction is
+	// aborted"), which would turn this best-effort step into a hard failure
+	// of the whole graph build on any host where the connected role doesn't
+	// own a pre-existing bookkeeping table. Running post-commit on conn
+	// keeps each transfer independent and preserves the original
+	// best-effort semantics. Ownership transfer is idempotent and does not
+	// need the advisory-lock serialization above.
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_meta")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_file_mtimes")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_snapshots")
 	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_dead_code_scores")
 
 	// Seed the exists-cache so subsequent read-path preflight calls don't hit
