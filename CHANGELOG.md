@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.1](https://github.com/anatolykoptev/go-code/compare/v1.34.0...v1.34.1) (2026-07-16)
+
+
+### Fixed
+
+* **scip:** wire Cache into trySCIPResolution — skip re-indexing on cache hit ([#443](https://github.com/anatolykoptev/go-code/issues/443)) ([3b07816](https://github.com/anatolykoptev/go-code/commit/3b07816bca3c527d6229339c3c3a8f48fa01cf73))
+
 ## [1.34.0](https://github.com/anatolykoptev/go-code/compare/v1.33.1...v1.34.0) (2026-07-16)
 
 
