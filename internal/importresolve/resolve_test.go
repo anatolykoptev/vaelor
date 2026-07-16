@@ -1,6 +1,7 @@
 package importresolve_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -414,4 +415,315 @@ func TestResolve_WorkspaceAlias_NotInPkgDirs_FallsThrough(t *testing.T) {
 	if dir != "" {
 		t.Errorf("expected empty dir when wsDir not in pkgDirs, got %q", dir)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Workspace exports subpath rewrite tests (#422)
+// ---------------------------------------------------------------------------
+
+// TestResolve_WorkspaceAlias_ExportsWildcardSrcRewrite verifies that
+// "@guide/ui/components/HomeHero.astro" resolves when @guide/ui's package.json
+// declares {"exports": {"./*": "./src/*"}} and the file lives under src/.
+// This is the acme-guide @guide/ui layout — without the exports rewrite the
+// bare wsDir+subpath probe misses (file is at packages/ui/src/components/...,
+// not packages/ui/components/...) and the IMPORTS edge is dropped.
+// Falsification: revert resolveViaExports → returns ("", false).
+func TestResolve_WorkspaceAlias_ExportsWildcardSrcRewrite(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace:        map[string]string{"@guide/ui": "packages/ui"},
+		WorkspaceExports: map[string]map[string]string{"@guide/ui": {"*": "src/*"}},
+	}
+	r := mkResolverCfg(
+		[]string{"packages/ui/src/components"},
+		[]string{"packages/ui/src/components/HomeHero.astro"},
+		cfg,
+	)
+	dir, ok := r.Resolve("@guide/ui/components/HomeHero.astro", "packages/pages/src/entry/home.astro")
+	if !ok {
+		t.Fatal("expected ok=true for @guide/ui subpath via exports ./* → ./src/* rewrite")
+	}
+	if dir != "packages/ui/src/components" {
+		t.Errorf("dir = %q, want %q", dir, "packages/ui/src/components")
+	}
+}
+
+// TestResolve_WorkspaceAlias_ExportsMultiSegmentWildcard verifies that a
+// multi-segment wildcard key like "components/*" → "src/components/*" (the real
+// @guide/ui package.json shape) resolves "@guide/ui/components/HomeHero.astro"
+// to packages/ui/src/components. This is the actual production layout — the
+// bare "./*" idiom is a simplification; @guide/ui scopes wildcards per top-level
+// dir (components/*, styles/*).
+// Falsification: only support key=="*" (single-segment) → multi-segment miss.
+func TestResolve_WorkspaceAlias_ExportsMultiSegmentWildcard(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace: map[string]string{"@guide/ui": "packages/ui"},
+		WorkspaceExports: map[string]map[string]string{
+			"@guide/ui": {
+				"components/*": "src/components/*",
+				"styles/*":     "src/styles/*",
+				"ranking":      "src/ranking.ts",
+			},
+		},
+	}
+	r := mkResolverCfg(
+		[]string{"packages/ui/src/components", "packages/ui/src/styles"},
+		[]string{
+			"packages/ui/src/components/HomeHero.astro",
+			"packages/ui/src/components/PlaceCard.astro",
+			"packages/ui/src/styles/card.css",
+		},
+		cfg,
+	)
+	// components/* → src/components/HomeHero.astro
+	dir, ok := r.Resolve("@guide/ui/components/HomeHero.astro", "packages/pages/src/entry/home.astro")
+	if !ok {
+		t.Fatal("expected ok=true for multi-segment wildcard components/* → src/components/*")
+	}
+	if dir != "packages/ui/src/components" {
+		t.Errorf("dir = %q, want %q", dir, "packages/ui/src/components")
+	}
+	// styles/* → src/styles/card.css (non-astro extension exercises the explicit-ext probe)
+	dir2, ok2 := r.Resolve("@guide/ui/styles/card.css", "packages/pages/src/entry/home.astro")
+	if !ok2 {
+		t.Fatal("expected ok=true for multi-segment wildcard styles/* → src/styles/*")
+	}
+	if dir2 != "packages/ui/src/styles" {
+		t.Errorf("dir = %q, want %q", dir2, "packages/ui/src/styles")
+	}
+}
+
+// TestResolve_WorkspaceAlias_ExportsWildcardExtensionless verifies the wildcard
+// rewrite also covers extensionless subpath imports (e.g. "@guide/ui/ranking"
+// where the file is packages/ui/src/ranking.ts). The rewritten subpath is probed
+// with the standard extensionless-file strategy in resolveAbsSubpath.
+// Falsification: drop the wildcard branch → returns ("", false).
+func TestResolve_WorkspaceAlias_ExportsWildcardExtensionless(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace:        map[string]string{"@guide/ui": "packages/ui"},
+		WorkspaceExports: map[string]map[string]string{"@guide/ui": {"*": "src/*"}},
+	}
+	r := mkResolverCfg(
+		[]string{"packages/ui/src"},
+		[]string{"packages/ui/src/ranking.ts"},
+		cfg,
+	)
+	dir, ok := r.Resolve("@guide/ui/ranking", "packages/pages/src/entry/home.astro")
+	if !ok {
+		t.Fatal("expected ok=true for extensionless @guide/ui subpath via exports rewrite")
+	}
+	if dir != "packages/ui/src" {
+		t.Errorf("dir = %q, want %q", dir, "packages/ui/src")
+	}
+}
+
+// TestResolve_WorkspaceAlias_ExportsExactKey verifies that an exact (non-wildcard)
+// exports key is honored: {"./foo": "./bar.ts"} rewrites "@scope/pkg/foo" to
+// probe wsDir/bar.ts.
+// Falsification: only consult the "*" wildcard → exact-key miss returns false.
+func TestResolve_WorkspaceAlias_ExportsExactKey(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace:        map[string]string{"@scope/pkg": "packages/pkg"},
+		WorkspaceExports: map[string]map[string]string{"@scope/pkg": {"foo": "bar.ts"}},
+	}
+	r := mkResolverCfg(
+		[]string{"packages/pkg"},
+		[]string{"packages/pkg/bar.ts"},
+		cfg,
+	)
+	dir, ok := r.Resolve("@scope/pkg/foo", "apps/app/src/main.ts")
+	if !ok {
+		t.Fatal("expected ok=true for exact-key exports rewrite")
+	}
+	if dir != "packages/pkg" {
+		t.Errorf("dir = %q, want %q", dir, "packages/pkg")
+	}
+}
+
+// TestResolve_WorkspaceAlias_ExportsBareStringRoot verifies that a bare-string
+// "exports": "./index.ts" (the package main entry) is normalized to key "" and
+// resolves a bare "@scope/pkg" import to the index file's container dir.
+// Falsification: skip the "" key in parseExports → bare import misses.
+func TestResolve_WorkspaceAlias_ExportsBareStringRoot(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace:        map[string]string{"@scope/pkg": "packages/pkg"},
+		WorkspaceExports: map[string]map[string]string{"@scope/pkg": {"": "index.ts"}},
+	}
+	r := mkResolverCfg(
+		[]string{"packages/pkg"},
+		[]string{"packages/pkg/index.ts"},
+		cfg,
+	)
+	dir, ok := r.Resolve("@scope/pkg", "apps/app/src/main.ts")
+	if !ok {
+		t.Fatal("expected ok=true for bare @scope/pkg via exports \"\" → index.ts")
+	}
+	if dir != "packages/pkg" {
+		t.Errorf("dir = %q, want %q", dir, "packages/pkg")
+	}
+}
+
+// TestResolve_WorkspaceAlias_ExportsRewriteStillMisses verifies that when the
+// exports rewrite produces a path that does not exist in fileSet/pkgDirs, the
+// resolver returns ("", false) so an external vertex is created — no false
+// local. Guards against silently-dropped edges from a stale exports entry.
+// Falsification: return wsDir unconditionally on any exports match → false local.
+func TestResolve_WorkspaceAlias_ExportsRewriteStillMisses(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace:        map[string]string{"@scope/pkg": "packages/pkg"},
+		WorkspaceExports: map[string]map[string]string{"@scope/pkg": {"*": "src/*"}},
+	}
+	// No files under packages/pkg/src/ — the rewritten probe must miss.
+	r := mkResolverCfg(
+		[]string{"packages/pkg"},
+		nil,
+		cfg,
+	)
+	dir, ok := r.Resolve("@scope/pkg/components/Missing.astro", "apps/app/src/main.ts")
+	if ok {
+		t.Errorf("expected ok=false when exports-rewritten path does not exist, got dir=%q", dir)
+	}
+	if dir != "" {
+		t.Errorf("expected empty dir on miss, got %q", dir)
+	}
+}
+
+// TestResolve_WorkspaceAlias_NoExportsPreservesOldBehavior verifies that a
+// workspace package with no WorkspaceExports entry still resolves via the bare
+// wsDir+subpath probe (the pre-fix fast path). Guards against the exports
+// dispatch breaking packages that put files directly under the package root.
+// Falsification: make resolveViaExports mandatory → old-style packages miss.
+func TestResolve_WorkspaceAlias_NoExportsPreservesOldBehavior(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		Workspace: map[string]string{"@scope/pkg": "packages/pkg"},
+		// No WorkspaceExports — packages/pkg has files directly under it.
+	}
+	r := mkResolverCfg(
+		[]string{"packages/pkg/sub"},
+		[]string{"packages/pkg/sub/index.ts"},
+		cfg,
+	)
+	dir, ok := r.Resolve("@scope/pkg/sub", "apps/app/src/main.ts")
+	if !ok {
+		t.Fatal("expected ok=true for workspace subpath without exports (pre-fix path)")
+	}
+	if dir != "packages/pkg/sub" {
+		t.Errorf("dir = %q, want %q", dir, "packages/pkg/sub")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseExports / BuildConfig exports-parsing tests
+// ---------------------------------------------------------------------------
+
+// TestParseExports_WildcardMap verifies the {"./*":"./src/*"} idiom normalizes
+// to {"*":"src/*"} (leading "./" stripped on both sides, forward slashes).
+// Falsification: drop the leading-"./" strip → key stays "./*" and never matches.
+func TestParseExports_WildcardMap(t *testing.T) {
+	t.Parallel()
+	got := importresolve.ParseExports(json.RawMessage(`{"./*":"./src/*"}`))
+	want := map[string]string{"*": "src/*"}
+	if !mapsEqual(got, want) {
+		t.Errorf("ParseExports(./* → ./src/*) = %v, want %v", got, want)
+	}
+}
+
+// TestParseExports_ConditionObject verifies that a condition-object value
+// ({"import": ..., "require": ...}) is flattened by preferring "import".
+// Falsification: pick "require" first → wrong target for ESM-first packages.
+func TestParseExports_ConditionObject(t *testing.T) {
+	t.Parallel()
+	got := importresolve.ParseExports(json.RawMessage(`{"./foo":{"import":"./esm/foo.mjs","require":"./cjs/foo.cjs"}}`))
+	want := map[string]string{"foo": "esm/foo.mjs"}
+	if !mapsEqual(got, want) {
+		t.Errorf("ParseExports(condition obj) = %v, want %v (import preferred)", got, want)
+	}
+}
+
+// TestParseExports_ArrayValue verifies that an array value yields its first
+// string target (with fallback into nested condition objects).
+// Falsification: only accept direct string values → array form returns nil.
+func TestParseExports_ArrayValue(t *testing.T) {
+	t.Parallel()
+	got := importresolve.ParseExports(json.RawMessage(`{"./foo":["./a.ts",{"require":"./b.cjs"}]}`))
+	want := map[string]string{"foo": "a.ts"}
+	if !mapsEqual(got, want) {
+		t.Errorf("ParseExports(array) = %v, want %v (first string)", got, want)
+	}
+}
+
+// TestParseExports_BareString verifies the bare-string "exports": "./index.ts"
+// form normalizes to {"": "index.ts"} (root entry).
+// Falsification: only accept map form → bare string returns nil, root import misses.
+func TestParseExports_BareString(t *testing.T) {
+	t.Parallel()
+	got := importresolve.ParseExports(json.RawMessage(`"./index.ts"`))
+	want := map[string]string{"": "index.ts"}
+	if !mapsEqual(got, want) {
+		t.Errorf("ParseExports(bare string) = %v, want %v", got, want)
+	}
+}
+
+// TestParseExports_Empty verifies that empty/absent input returns nil (no
+// exports entry) so callers skip the exports dispatch entirely.
+func TestParseExports_Empty(t *testing.T) {
+	t.Parallel()
+	if got := importresolve.ParseExports(nil); got != nil {
+		t.Errorf("ParseExports(nil) = %v, want nil", got)
+	}
+	if got := importresolve.ParseExports(json.RawMessage(``)); got != nil {
+		t.Errorf("ParseExports(empty) = %v, want nil", got)
+	}
+}
+
+// TestBuildConfig_ReadsExports verifies that BuildConfig populates
+// Config.WorkspaceExports from a real package.json on disk. This is the
+// on-disk counterpart to TestBuildConfig_RealDisk — proves the walk reads
+// the exports field, not just the name.
+// Falsification: revert readPackageManifest to readPackageName → WorkspaceExports empty.
+func TestBuildConfig_ReadsExports(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	writeFile := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(tmp, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", full, err)
+		}
+	}
+	writeFile("packages/ui/package.json", `{"name":"@guide/ui","exports":{"./*":"./src/*"}}`)
+	writeFile("packages/ui/src/components/HomeHero.astro", "---\n---")
+
+	cfg := importresolve.BuildConfig(tmp)
+	exp, ok := cfg.WorkspaceExports["@guide/ui"]
+	if !ok {
+		t.Fatal("WorkspaceExports[@guide/ui] missing — BuildConfig did not read exports")
+	}
+	if got := exp["*"]; got != "src/*" {
+		t.Errorf("WorkspaceExports[@guide/ui][*] = %q, want %q", got, "src/*")
+	}
+}
+
+// mapsEqual is a small helper for comparing two map[string]string without
+// pulling in reflect.DeepEqual (which would also work but reads less clearly
+// in test failure output).
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
 }
