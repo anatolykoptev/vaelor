@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.33.1](https://github.com/anatolykoptev/go-code/compare/v1.33.0...v1.33.1) (2026-07-16)
+
+
+### Fixed
+
+* **call_trace:** rewrite TraceFromAGE with iterative BFS (AGE lacks list comprehension) ([#436](https://github.com/anatolykoptev/go-code/issues/436)) ([580da03](https://github.com/anatolykoptev/go-code/commit/580da03d3e1dce4c853a86a2f65e8cd1b4caa839))
+
 ## [1.33.0](https://github.com/anatolykoptev/go-code/compare/v1.32.3...v1.33.0) (2026-07-16)
 
 
