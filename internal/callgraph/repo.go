@@ -47,6 +47,12 @@ type TraceRepoInput struct {
 	// dropped. Set via the `field_access=true` MCP tool flag for legacy
 	// permissive behaviour.
 	IncludeFieldAccess bool
+
+	// Refresh forces a cache bypass — re-parses the repo and re-runs
+	// SCIP/go/types enrichment instead of returning the cached call graph.
+	// Use when the repo has changed (git checkout, new commit) and the
+	// in-memory cgCache is stale.
+	Refresh bool
 }
 
 type parseResult struct {
@@ -63,9 +69,11 @@ type parseResult struct {
 func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error) {
 	// Check cache first — parsing all repo files is expensive (15-60s on cold start).
 	cacheKey := cgCacheKey(input)
-	if cached, ok := cgCache.get(cacheKey); ok {
-		slog.Debug("callgraph: BuildFromRepo cache hit", slog.String("root", input.Root))
-		return cached, nil
+	if !input.Refresh {
+		if cached, ok := cgCache.get(cacheKey); ok {
+			slog.Debug("callgraph: BuildFromRepo cache hit", slog.String("root", input.Root))
+			return cached, nil
+		}
 	}
 
 	var langs []string
