@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.11](https://github.com/anatolykoptev/go-code/compare/v1.31.10...v1.31.11) (2026-07-16)
+
+
+### Fixed
+
+* **importresolve:** honor package.json exports map for workspace subpath imports ([#422](https://github.com/anatolykoptev/go-code/issues/422)) ([#424](https://github.com/anatolykoptev/go-code/issues/424)) ([0cff3a6](https://github.com/anatolykoptev/go-code/commit/0cff3a6ff83ca14387e0c85eaea9da3405964c7d))
+
 ## [1.31.10](https://github.com/anatolykoptev/go-code/compare/v1.31.9...v1.31.10) (2026-07-15)
 
 
