@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-kit/env"
@@ -351,7 +350,7 @@ func typedEnrichEnabled() bool {
 func buildAGECallGraph(ctx context.Context, root string, symbols []*parser.Symbol, calls []parser.CallSite, files []*ingest.File) *callgraph.CallGraph {
 	cg := callgraph.BuildCallGraph(symbols, calls)
 
-	if !typedEnrichEnabled() || !goanalysis.HasGoModule(root) {
+	if !typedEnrichEnabled() {
 		return cg
 	}
 
