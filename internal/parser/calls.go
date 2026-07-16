@@ -77,7 +77,7 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 		// template calls that duplicate MarkupCalls below.
 		calls = append(calls, sc.ScriptCalls(path, source, opts)...)
 	} else if caps := handler.Capabilities(); caps.CallsQuery != nil {
-		root, closeTree, err := parseTree(caps.SitterLanguage, source)
+		root, closeTree, err := parseTree(caps.SitterLanguage, source, opts.Parser)
 		if err != nil {
 			return nil, err
 		}
