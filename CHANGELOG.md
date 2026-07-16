@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.0](https://github.com/anatolykoptev/go-code/compare/v1.33.1...v1.34.0) (2026-07-16)
+
+
+### Added
+
+* **oxcodes:** custom taint rules, anti-patterns, rewrite rejections, cache metrics ([#438](https://github.com/anatolykoptev/go-code/issues/438)) ([bfc5104](https://github.com/anatolykoptev/go-code/commit/bfc510452298fcec3e8a47ba4b7079993fc6335d))
+
 ## [1.33.1](https://github.com/anatolykoptev/go-code/compare/v1.33.0...v1.33.1) (2026-07-16)
 
 
