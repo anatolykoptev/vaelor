@@ -9,11 +9,9 @@ import (
 
 // TestIngestRepoCache_HitOnSecondCall verifies that a second IngestRepo
 // call against the same repo with the same opts returns the cached result
-// without re-walking the filesystem. We detect a cache hit by checking
-// that the "ingest: starting repo walk" log line is NOT emitted on the
-// second call — but since we can't easily capture slog output, we instead
-// verify correctness: the second call returns the same *IngestResult
-// pointer (proving it came from the cache, not a fresh walk).
+// without re-walking the filesystem. The cache returns a shallow copy with
+// a fresh Files slice (to prevent aliasing), so we verify the Files content
+// matches rather than pointer identity.
 func TestIngestRepoCache_HitOnSecondCall(t *testing.T) {
 	ResetCache()
 	t.Cleanup(ResetCache)
@@ -38,9 +36,52 @@ func TestIngestRepoCache_HitOnSecondCall(t *testing.T) {
 		t.Fatalf("second IngestRepo: %v", err)
 	}
 
-	// Cache hit: same pointer (not a fresh allocation).
-	if r1 != r2 {
-		t.Error("expected same *IngestResult pointer on cache hit; got different pointers")
+	// Cache hit: same file content (fresh slice, same elements).
+	if len(r2.Files) != 1 {
+		t.Fatalf("expected 1 file on cache hit, got %d", len(r2.Files))
+	}
+	if r1.Files[0].RelPath != r2.Files[0].RelPath {
+		t.Errorf("expected same file on cache hit, got %q vs %q", r1.Files[0].RelPath, r2.Files[0].RelPath)
+	}
+}
+
+// TestIngestRepoCache_NoAliasOnMutation verifies that mutating the Files
+// slice of a cached result does not corrupt the cached entry for
+// subsequent callers. This is the aliasing bug that caused
+// TestRunEndToEndIncludeTests to fail in CI (AnalyzeForResearch truncates
+// ir.Files[:0] to filter test files, corrupting the shared cached slice).
+func TestIngestRepoCache_NoAliasOnMutation(t *testing.T) {
+	ResetCache()
+	t.Cleanup(ResetCache)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "util.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	opts := IngestOpts{Root: dir}
+
+	r1, err := IngestRepo(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("first IngestRepo: %v", err)
+	}
+	if len(r1.Files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(r1.Files))
+	}
+
+	// Mutate r1.Files (simulating AnalyzeForResearch's test-file filtering).
+	r1.Files = r1.Files[:0]
+
+	// Second call should get the full 2-file result, not the truncated slice.
+	r2, err := IngestRepo(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("second IngestRepo: %v", err)
+	}
+	if len(r2.Files) != 2 {
+		t.Errorf("expected 2 files after mutation (no aliasing), got %d — cache was corrupted by first caller's mutation", len(r2.Files))
 	}
 }
 
@@ -119,13 +160,13 @@ func TestIngestRepoCache_DifferentOptsDifferentEntries(t *testing.T) {
 		t.Errorf("expected 1 file with focus=pkg/, got %d", len(r2.Files))
 	}
 
-	// No focus again: should hit cache (same pointer as r1).
+	// No focus again: should hit cache (same file count as r1).
 	r3, err := IngestRepo(context.Background(), IngestOpts{Root: dir})
 	if err != nil {
 		t.Fatalf("IngestRepo no focus (cached): %v", err)
 	}
-	if r1 != r3 {
-		t.Error("expected cache hit for same opts (no focus); got different pointer")
+	if len(r3.Files) != len(r1.Files) {
+		t.Errorf("expected cache hit for same opts (no focus); got %d files vs %d", len(r3.Files), len(r1.Files))
 	}
 }
 
