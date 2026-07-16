@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.1](https://github.com/anatolykoptev/go-code/compare/v1.32.0...v1.32.1) (2026-07-16)
+
+
+### Fixed
+
+* **codegraph:** memory guard + chunked COPY to prevent OOM kernel panic ([#428](https://github.com/anatolykoptev/go-code/issues/428)) ([#429](https://github.com/anatolykoptev/go-code/issues/429)) ([9e188ad](https://github.com/anatolykoptev/go-code/commit/9e188ad3c947675279c58cdd9f5fd9a2accc1921))
+
 ## [1.32.0](https://github.com/anatolykoptev/go-code/compare/v1.31.11...v1.32.0) (2026-07-16)
 
 
