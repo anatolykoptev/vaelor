@@ -143,7 +143,7 @@ func runKeywordSearch(ctx context.Context, query, root string) []embeddings.File
 // More precise than full-file grep — avoids imports, comments, strings.
 // Returns nil when ox-codes unavailable (caller falls back to runKeywordSearch).
 func runScopedKeywordSearch(ctx context.Context, client *oxcodes.Client, query, root, language string) []embeddings.FileLineHit {
-	if client == nil {
+	if client == nil || language == "" {
 		return nil
 	}
 	kws := embeddings.ExtractQueryKeywords(query)

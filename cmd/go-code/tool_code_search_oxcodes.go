@@ -12,6 +12,10 @@ import (
 
 // handleScopedSearch routes to ox-codes /search/scoped.
 func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string, mappings []analyze.PathMapping) (*mcp.CallToolResult, error) {
+	if input.Language == "" {
+		return errResult("scope search requires language (e.g. go, python, typescript)"), nil
+	}
+
 	maxResults := clampMaxResults(input.MaxResults)
 	caseSensitive := true
 	if input.CaseSensitive != nil {
@@ -49,6 +53,10 @@ func handleScopedSearch(ctx context.Context, input CodeSearchInput, root string,
 
 // handleStructuralSearch routes to ox-codes /search/structural.
 func handleStructuralSearch(ctx context.Context, input CodeSearchInput, root string, client *oxcodes.Client, outputDir string, mappings []analyze.PathMapping) (*mcp.CallToolResult, error) {
+	if input.Language == "" {
+		return errResult("structural search requires language (e.g. go, python, typescript)"), nil
+	}
+
 	maxResults := clampMaxResults(input.MaxResults)
 
 	// Only request markdown when expand is active — otherwise body is empty.
