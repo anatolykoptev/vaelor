@@ -2,14 +2,10 @@ package analyze
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/goutil"
@@ -26,83 +22,33 @@ type fileParseResult struct {
 	err    error             // non-nil if parsing failed
 }
 
-// parseFilesParallel reads and parses all files concurrently using a fixed
-// worker pool capped at runtime.NumCPU(). This bounds both goroutine count
-// and memory usage regardless of the number of files.
-// parseCache may be nil to skip caching.
+// parseFilesParallel reads and parses all files concurrently via the shared
+// ingest.ParseFilesParallel, then adapts the results into fileParseResult.
+// parseCache may be nil to skip caching. See issue #469.
 func parseFilesParallel(ctx context.Context, files []*ingest.File, includeBody bool, parseCache *cache.ParseCache) []fileParseResult {
-	results := make([]fileParseResult, len(files))
-
-	workers := runtime.NumCPU()
-	if workers < 1 {
-		workers = 1
-	}
-
-	work := make(chan int, len(files))
-	for i := range files {
-		work <- i
-	}
-	close(work)
-
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range work {
-				if ctx.Err() != nil {
-					return
-				}
-				results[idx] = parseOneFile(files[idx], includeBody, parseCache)
-			}
-		}()
-	}
-
-	wg.Wait()
-	return results
-}
-
-// parseOneFile reads and parses a single file. Parse failures are non-fatal:
-// result is nil and the error is recorded in fileParseResult.err.
-// parseCache may be nil to skip caching.
-func parseOneFile(file *ingest.File, includeBody bool, parseCache *cache.ParseCache) fileParseResult {
-	var modTime, size int64
+	// Avoid the Go typed-nil pitfall: a nil *cache.ParseCache passed as
+	// ingest.FileParseCache is a non-nil interface, so parseOneFile would
+	// call .Get() on a nil pointer. Convert to a nil interface explicitly.
+	var fileCache ingest.FileParseCache
 	if parseCache != nil {
-		info, err := os.Stat(file.Path)
-		if err != nil {
-			return fileParseResult{file: file, err: fmt.Errorf("stat %s: %w", file.Path, err)}
-		}
-		modTime = info.ModTime().UnixNano()
-		size = info.Size()
-		if cachedResult, cachedCalls := parseCache.Get(file.Path, modTime, size, includeBody, false); cachedResult != nil {
-			return fileParseResult{file: file, result: cachedResult, calls: cachedCalls}
-		}
+		fileCache = parseCache
 	}
 
-	source, err := os.ReadFile(file.Path)
-	if err != nil {
-		return fileParseResult{file: file, err: fmt.Errorf("read %s: %w", file.Path, err)}
-	}
-
-	// Single parse for symbols+calls instead of ParseFile + ExtractCalls (issue #400).
-	// Call extraction ignores every ParseOpts field beyond Language (the mainstream
-	// CallsQuery and the svelte/astro Script/MarkupCalls all take `_ ParseOpts`), so
-	// folding the former ExtractCalls-only opts into this single call leaves the
-	// returned calls unchanged (asserted by TestExtractCallsOptsInvariant).
-	pr, calls, err := parser.ParseFileWithCalls(file.Path, source, parser.ParseOpts{
-		Language:       file.Language,
+	results := ingest.ParseFilesParallel(ctx, files, parser.ParseOpts{
 		IncludeBody:    includeBody,
 		IncludeImports: true,
-	})
-	if err != nil {
-		return fileParseResult{file: file, err: fmt.Errorf("parse %s: %w", file.Path, err)}
-	}
+	}, fileCache)
 
-	if parseCache != nil {
-		parseCache.Put(file.Path, modTime, size, includeBody, false, pr, calls)
+	out := make([]fileParseResult, len(results))
+	for i, r := range results {
+		out[i] = fileParseResult{
+			file:   r.File,
+			result: r.Result,
+			calls:  r.Calls,
+			err:    r.Err,
+		}
 	}
-
-	return fileParseResult{file: file, result: pr, calls: calls}
+	return out
 }
 
 // defaultSymbolSampleSize is the default cap for top-level symbol sampling.
