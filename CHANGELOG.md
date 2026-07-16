@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.37.0](https://github.com/anatolykoptev/go-code/compare/v1.36.0...v1.37.0) (2026-07-16)
+
+
+### Added
+
+* **scip:** run SCIP indexers for ALL detected languages, not just dominant ([#459](https://github.com/anatolykoptev/go-code/issues/459)) ([749f236](https://github.com/anatolykoptev/go-code/commit/749f2368c92e8a0fc3ade6282a9d827c72aa1bc5))
+
+
+### Changed
+
+* **codegraph:** unify IMPLEMENTS edge paths — single construction via buildRelationshipEdges ([#461](https://github.com/anatolykoptev/go-code/issues/461)) ([d708e33](https://github.com/anatolykoptev/go-code/commit/d708e33d3aaf644da3f3bbc051b4fec57e924af5))
+
 ## [1.36.0](https://github.com/anatolykoptev/go-code/compare/v1.35.2...v1.36.0) (2026-07-16)
 
 
