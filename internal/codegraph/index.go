@@ -148,6 +148,15 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	if len(hookRoutes) > 0 {
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
+
+	// Unify IMPLEMENTS edges: extract IsInterface edges from the call graph
+	// (SCIP trait impl extraction) into TypeRelationship and append to allRels,
+	// then remove them from cg.Edges so they don't also appear as CALLS.
+	// This ensures a single IMPLEMENTS edge construction path
+	// (buildRelationshipEdges) for both Go (extractGoImplements) and SCIP.
+	allRels = append(allRels, callEdgesToRels(cg)...)
+	cg.Edges = removeImplEdges(cg.Edges)
+
 	vertices, edges, prScores := buildGraph(buildGraphInput{
 		Root: root, Files: allFiles, Symbols: allSymbols,
 		CallGraph: cg, FileImports: fileImports, Rels: allRels, TplRefs: allTplRefs,

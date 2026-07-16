@@ -104,26 +104,22 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData, map[string]float6
 	vertices = append(vertices, symVerts...)
 	edges = append(edges, symEdges...)
 
-	// CALLS / IMPLEMENTS edges (Symbol→Symbol).
-	// Edges with IsInterface=true (from SCIP trait impl extraction or go/types
-	// interface dispatch) are stored as IMPLEMENTS, not CALLS — this lets
-	// code_graph queries like "who implements trait X?" find them.
+	// CALLS edges (Symbol→Symbol).
+	// IMPLEMENTS edges are handled exclusively by buildRelationshipEdges
+	// (via TypeRelationship), not here — IsInterface edges are extracted
+	// into allRels in index.go before buildGraph runs.
 	for _, ce := range in.CallGraph.Edges {
 		if ce.Caller == nil || ce.Callee == nil {
 			continue
 		}
 		callerRelFile := relPath(ce.Caller.File, in.Root)
 		calleeRelFile := relPath(ce.Callee.File, in.Root)
-		edgeLabel := "CALLS"
-		if ce.IsInterface {
-			edgeLabel = edgeLabelImplements
-		}
 		edges = append(edges, edgeData{
 			FromLabel: "Symbol",
 			FromKey:   ce.Caller.Name + compositeKeyDelim + callerRelFile,
 			ToLabel:   "Symbol",
 			ToKey:     ce.Callee.Name + compositeKeyDelim + calleeRelFile,
-			EdgeLabel: edgeLabel,
+			EdgeLabel: "CALLS",
 			Props: map[string]string{
 				"line": strconv.Itoa(int(ce.Line)),
 			},
