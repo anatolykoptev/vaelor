@@ -3,6 +3,7 @@ package scip
 import (
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,12 +42,21 @@ func (c *Cache) Put(key, indexPath string) error {
 
 const cacheKeyLen = 16 // hex chars of SHA256 for cache key
 
-// CacheKey computes a 16-hex-char key from the mtimes of source files in dir.
+// contentHashChunk is the maximum number of bytes read from each file for
+// the content-based cache key. 4KB is enough to detect changes in most
+// source files while keeping the walk fast (~10ms for 100 files).
+const contentHashChunk = 4096
+
+// CacheKey computes a 16-hex-char key from the CONTENT of source files in dir.
 // Hidden files and the .git directory are skipped for speed.
+//
+// Content-based (not mtime-based) so that git checkout cycles don't cause
+// false cache misses — switching branches back and forth changes mtimes
+// even when file content is byte-identical.
 func CacheKey(dir string) string {
 	type entry struct {
-		rel   string
-		mtime int64
+		rel    string
+		digest [sha256.Size]byte
 	}
 	var entries []entry
 
@@ -70,15 +80,12 @@ func CacheKey(dir string) string {
 				walk(full, depth+1)
 				continue
 			}
-			info, err := de.Info()
-			if err != nil {
-				continue
-			}
 			rel, err := filepath.Rel(dir, full)
 			if err != nil {
 				continue
 			}
-			entries = append(entries, entry{rel: rel, mtime: info.ModTime().UnixNano()})
+			digest := hashFileContent(full)
+			entries = append(entries, entry{rel: rel, digest: digest})
 		}
 	}
 	walk(dir, 0)
@@ -89,9 +96,29 @@ func CacheKey(dir string) string {
 
 	h := sha256.New()
 	for _, e := range entries {
-		fmt.Fprintf(h, "%s:%d\n", e.rel, e.mtime)
+		h.Write([]byte(e.rel))
+		h.Write([]byte{':'})
+		h.Write(e.digest[:])
+		h.Write([]byte{'\n'})
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))[:cacheKeyLen]
+}
+
+// hashFileContent returns a SHA256 digest of the first contentHashChunk bytes
+// of the file at path. Returns a zero digest on read error (the file is
+// effectively skipped — its rel path still contributes to the cache key).
+func hashFileContent(path string) [sha256.Size]byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return [sha256.Size]byte{}
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	_, _ = io.CopyN(h, f, contentHashChunk)
+	var digest [sha256.Size]byte
+	copy(digest[:], h.Sum(nil))
+	return digest
 }
 
 // entryPath returns the filesystem path for a cache entry.
