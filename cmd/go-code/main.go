@@ -52,7 +52,8 @@ var toolTimeouts = map[string]time.Duration{
 	"repo_analyze":      90 * time.Second,
 	"review_delta":      120 * time.Second, // #391: cold code-graph build on a large delta exceeds the 90s default
 	"code_compare":      95 * time.Second,  // compareTimeout is 90s; leave headroom for XML marshal
-	"call_trace":        60 * time.Second,
+	"code_graph":        120 * time.Second, // Cypher query + LLM narrative on large graphs can exceed 90s default
+	"call_trace":        90 * time.Second,  // cold cache parse (5min TTL) + LLM narrative; was 60s, not enough on cold start
 	"code_health":       60 * time.Second,
 	"understand":        30 * time.Second, // Fix #3: dead embed server + AGE lookups complete well within 30s (Fix #2 caps embed at 5s)
 	"debug_investigate": 5 * time.Minute,
