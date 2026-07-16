@@ -12,8 +12,9 @@ import (
 // a delta review. These are NOT delta-vs-base — they reflect the post-change state,
 // so reviewers can spot regressions at a glance.
 type xmlQualitySignals struct {
-	Freshness *xmlFreshnessSignal `xml:"freshness,omitempty"`
-	Dataflow  *xmlDataflowSignal  `xml:"dataflow,omitempty"`
+	Freshness    *xmlFreshnessSignal    `xml:"freshness,omitempty"`
+	Dataflow     *xmlDataflowSignal     `xml:"dataflow,omitempty"`
+	AntiPatterns *xmlAntiPatternSignals `xml:"antiPatterns,omitempty"`
 }
 
 type xmlFreshnessSignal struct {
@@ -61,7 +62,16 @@ func collectQualitySignals(ctx context.Context, root, language string, oxCodes *
 		dcancel()
 	}
 
-	if out.Freshness == nil && out.Dataflow == nil {
+	// Structural anti-patterns — requires ox-codes + language.
+	if oxCodes != nil && language != "" {
+		apCtx, apCancel := context.WithTimeout(ctx, antiPatternProbeTimeout)
+		if ap := collectAntiPatterns(apCtx, root, language, oxCodes); ap != nil {
+			out.AntiPatterns = ap
+		}
+		apCancel()
+	}
+
+	if out.Freshness == nil && out.Dataflow == nil && out.AntiPatterns == nil {
 		return nil
 	}
 	return out

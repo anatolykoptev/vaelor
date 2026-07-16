@@ -3,6 +3,7 @@ package oxcodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -117,8 +118,10 @@ type SearchMatch struct {
 type RewriteResponse struct {
 	Files        []RewriteFileResult `json:"files"`
 	TotalMatches int                 `json:"total_matches"`
+	TotalSkipped int                 `json:"total_skipped,omitempty"`
 	TotalFiles   int                 `json:"total_files"`
 	DurationMS   int64               `json:"duration_ms"`
+	Rejected     []RewriteRejection  `json:"rejected,omitempty"`
 }
 
 // RewriteFileResult holds the per-file rewrite result.
@@ -126,6 +129,42 @@ type RewriteFileResult struct {
 	File    string `json:"file"`
 	Matches int    `json:"matches"`
 	Diff    string `json:"diff"`
+}
+
+// RewriteRejection holds a file whose re-parse invariant failed and was
+// NOT persisted. The batch continues past these so valid files still land.
+type RewriteRejection struct {
+	File   string `json:"file"`
+	Reason string `json:"reason"`
+}
+
+// CacheStatsResponse mirrors ox-codes GET /cache/stats response.
+type CacheStatsResponse struct {
+	Scope    CacheStats `json:"scope"`
+	Dataflow CacheStats `json:"dataflow"`
+	Walks    WalkStats  `json:"walks"`
+}
+
+// CacheStats holds hit/miss counters for a cache.
+type CacheStats struct {
+	Hits       int `json:"hits"`
+	Misses     int `json:"misses"`
+	EntryCount int `json:"entry_count"`
+}
+
+// WalkStats holds walk-pool statistics.
+type WalkStats struct {
+	InFlight      int   `json:"in_flight"`
+	OldestStartMS int64 `json:"oldest_start_ms"`
+}
+
+// CacheStats calls GET /cache/stats.
+func (c *Client) CacheStats(ctx context.Context) (*CacheStatsResponse, error) {
+	var result CacheStatsResponse
+	if err := c.doGet(ctx, "/cache/stats", &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // Search calls POST /search.
@@ -163,6 +202,22 @@ func (c *Client) post(ctx context.Context, path string, body any) (*SearchRespon
 // doPost issues the JSON POST and decodes the response. Delegates to
 // httputil.Client to avoid duplicating http+json plumbing (mirrors
 // jaegerclient/promclient/dozorclient).
+func (c *Client) doGet(ctx context.Context, path string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("ox-codes GET %s: %w", path, err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("ox-codes GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("ox-codes GET %s: HTTP %d", path, resp.StatusCode)
+	}
+	return json.NewDecoder(resp.Body).Decode(result)
+}
+
 func (c *Client) doPost(ctx context.Context, path string, body any, result any) error {
 	hc := httputil.NewWithHTTPClient(c.baseURL, c.httpClient)
 	if err := hc.PostJSON(ctx, path, body, result); err != nil {
