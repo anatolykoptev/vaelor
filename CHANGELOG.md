@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.2](https://github.com/anatolykoptev/go-code/compare/v1.35.1...v1.35.2) (2026-07-16)
+
+
+### Fixed
+
+* **codegraph:** remove HasGoModule gate from buildAGECallGraph — enable SCIP for Rust ([#449](https://github.com/anatolykoptev/go-code/issues/449)) ([daeb2b0](https://github.com/anatolykoptev/go-code/commit/daeb2b014bca971e50e9ed3c63dcf57fb0b1da49))
+
 ## [1.35.1](https://github.com/anatolykoptev/go-code/compare/v1.35.0...v1.35.1) (2026-07-16)
 
 
