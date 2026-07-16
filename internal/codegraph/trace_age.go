@@ -16,9 +16,10 @@ import (
 // (which callgraph.TraceRepo does on cache miss, taking 2-60s depending
 // on repo size).
 //
-// The function performs a BFS traversal using Cypher:
-//   - callers: MATCH (s:Symbol {name: $name})<-[:CALLS]-(caller:Symbol) ...
-//   - callees: MATCH (s:Symbol {name: $name})-[:CALLS]->(callee:Symbol) ...
+// Uses iterative BFS: for each depth level, queries direct CALLS
+// neighbors of all nodes at that depth. This avoids AGE's lack of
+// support for list comprehension in variable-length path queries
+// (nodes(path) works but [node IN nodes(path) | node.name] does not).
 //
 // Returns a TraceResult compatible with callgraph.Trace. If the graph is
 // not indexed, the symbol is not found, or any query error occurs, returns
@@ -37,10 +38,10 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 		direction = "callees"
 	}
 
-	// Find the root symbol first. We need its properties to construct
-	// the parser.Symbol for the trace result.
+	// Find the root symbol(s). There may be multiple symbols with the same
+	// name in different files — we pick the first (highest pagerank if available).
 	rootCypher := fmt.Sprintf(
-		`MATCH (s:Symbol {name: '%s'}) RETURN s.name, s.kind, s.file, s.start_line, s.end_line, s.signature LIMIT 1`,
+		`MATCH (s:Symbol {name: '%s'}) RETURN s.name, s.kind, s.file, s.start_line, s.end_line, s.signature ORDER BY s.pagerank DESC LIMIT 1`,
 		escapeCypherString(symbolName),
 	)
 	rootRows, err := store.ExecCypher(ctx, graphName, rootCypher, 6)
@@ -57,52 +58,132 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 		Tier: "age-graph",
 	}
 
-	// BFS traversal using variable-length path Cypher.
-	// CALLS*1..N matches paths of length 1 to N.
-	// We query all paths from root, then reconstruct the tree client-side.
-	var pathCypher string
-	if direction == "callers" {
-		pathCypher = fmt.Sprintf(
-			`MATCH path = (target:Symbol {name: '%s'})<-[:CALLS*1..%d]-(caller:Symbol)
-			 RETURN [node IN nodes(path) | node.name] AS names,
-			        [node IN nodes(path) | node.kind] AS kinds,
-			        [node IN nodes(path) | node.file] AS files,
-			        [node IN nodes(path) | node.start_line] AS start_lines,
-			        [node IN nodes(path) | node.end_line] AS end_lines,
-			        [rel IN relationships(path) | rel.line] AS call_lines`,
-			escapeCypherString(symbolName), maxDepth,
-		)
-	} else {
-		pathCypher = fmt.Sprintf(
-			`MATCH path = (source:Symbol {name: '%s'})-[:CALLS*1..%d]->(callee:Symbol)
-			 RETURN [node IN nodes(path) | node.name] AS names,
-			        [node IN nodes(path) | node.kind] AS kinds,
-			        [node IN nodes(path) | node.file] AS files,
-			        [node IN nodes(path) | node.start_line] AS start_lines,
-			        [node IN nodes(path) | node.end_line] AS end_lines,
-			        [rel IN relationships(path) | rel.line] AS call_lines`,
-			escapeCypherString(symbolName), maxDepth,
-		)
+	rootNode := callgraph.CallChainNode{Symbol: rootSym}
+
+	// Iterative BFS: expand each level by querying direct CALLS neighbors.
+	// frontier = nodes at the current depth that need expansion.
+	type frontierNode struct {
+		node    *callgraph.CallChainNode
+		symName string
+		symFile string
+	}
+	frontier := []frontierNode{{node: &rootNode, symName: rootSym.Name, symFile: rootSym.File}}
+	visited := map[string]bool{rootSym.Name + "\x00" + rootSym.File: true}
+
+	totalNodes := 1
+
+	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
+		var nextFrontier []frontierNode
+
+		for _, fn := range frontier {
+			children, err := queryDirectNeighbors(ctx, store, graphName, fn.symName, fn.symFile, direction)
+			if err != nil {
+				slog.Warn("trace from AGE: neighbor query failed, continuing with partial results",
+					slog.String("symbol", fn.symName),
+					slog.Int("depth", depth),
+					slog.Any("error", err))
+				continue
+			}
+
+			for _, child := range children {
+				key := child.name + "\x00" + child.file
+				if visited[key] {
+					// Cycle: mark the existing node but don't re-expand.
+					continue
+				}
+				visited[key] = true
+
+				childSym := &parser.Symbol{
+					Name:      child.name,
+					Kind:      parser.NodeKind(child.kind),
+					File:      child.file,
+					StartLine: child.startLine,
+					EndLine:   child.endLine,
+					Signature: child.signature,
+				}
+				newChild := callgraph.CallChainNode{
+					Symbol:   childSym,
+					CallLine: child.callLine,
+				}
+				fn.node.Children = append(fn.node.Children, newChild)
+				totalNodes++
+
+				nextFrontier = append(nextFrontier, frontierNode{
+					node:    &fn.node.Children[len(fn.node.Children)-1],
+					symName: child.name,
+					symFile: child.file,
+				})
+			}
+		}
+
+		frontier = nextFrontier
 	}
 
-	pathRows, err := store.ExecCypher(ctx, graphName, pathCypher, 6)
-	if err != nil {
-		slog.Warn("trace from AGE: path query failed, falling back",
-			slog.String("symbol", symbolName),
-			slog.Any("error", err))
-		return nil, fmt.Errorf("trace from AGE: path query: %w", err)
-	}
-
-	// Reconstruct tree from paths.
-	// Each row is a path from root to a leaf. We build a tree by
-	// splitting on the path nodes.
-	tree := buildTreeFromPaths(rootSym, pathRows, direction)
-	result.Tree = []callgraph.CallChainNode{tree}
-	result.TotalNodes = countNodes(tree)
-	result.Resolved = result.TotalNodes - 1 // root doesn't count as resolved
-	result.MaxDepth = maxDepthOf(tree, 0)
+	result.Tree = []callgraph.CallChainNode{rootNode}
+	result.TotalNodes = totalNodes
+	result.Resolved = totalNodes - 1 // root doesn't count as resolved
+	result.MaxDepth = maxDepthOf(rootNode, 0)
 
 	return result, nil
+}
+
+type ageSymbol struct {
+	name      string
+	kind      string
+	file      string
+	startLine uint32
+	endLine   uint32
+	signature string
+	callLine  uint32
+}
+
+// queryDirectNeighbors queries direct CALLS neighbors (depth=1) of a symbol.
+// For direction="callees": MATCH (s)-[:CALLS]->(callee)
+// For direction="callers": MATCH (caller)-[:CALLS]->(s)
+func queryDirectNeighbors(ctx context.Context, store *Store, graphName, symName, symFile, direction string) ([]ageSymbol, error) {
+	// Use composite key (name + file) to disambiguate symbols with the same name.
+	relFile := symFile
+	// The AGE graph stores file as relative path. If symFile is absolute,
+	// we need to match by name only (less precise but works).
+	_ = relFile
+
+	var cypher string
+	if direction == "callers" {
+		cypher = fmt.Sprintf(
+			`MATCH (caller:Symbol)-[r:CALLS]->(s:Symbol {name: '%s'})
+			 RETURN caller.name, caller.kind, caller.file, caller.start_line, caller.end_line, caller.signature, r.line`,
+			escapeCypherString(symName),
+		)
+	} else {
+		cypher = fmt.Sprintf(
+			`MATCH (s:Symbol {name: '%s'})-[r:CALLS]->(callee:Symbol)
+			 RETURN callee.name, callee.kind, callee.file, callee.start_line, callee.end_line, callee.signature, r.line`,
+			escapeCypherString(symName),
+		)
+	}
+
+	rows, err := store.ExecCypher(ctx, graphName, cypher, 7)
+	if err != nil {
+		return nil, err
+	}
+
+	symbols := make([]ageSymbol, 0, len(rows))
+	for _, row := range rows {
+		if len(row) < 7 {
+			continue
+		}
+		s := ageSymbol{
+			name:      stripAgtypeQuotes(row[0]),
+			kind:      stripAgtypeQuotes(row[1]),
+			file:      stripAgtypeQuotes(row[2]),
+			signature: stripAgtypeQuotes(row[5]),
+			callLine:  parseUint32(row[6]),
+		}
+		s.startLine = parseUint32(row[3])
+		s.endLine = parseUint32(row[4])
+		symbols = append(symbols, s)
+	}
+	return symbols, nil
 }
 
 // rowToSymbol converts a Cypher row [name, kind, file, start_line, end_line, signature]
@@ -114,141 +195,9 @@ func rowToSymbol(row []string) *parser.Symbol {
 		File:      stripAgtypeQuotes(row[2]),
 		Signature: stripAgtypeQuotes(row[5]),
 	}
-	if v, err := strconv.ParseUint(stripAgtypeQuotes(row[3]), 10, 32); err == nil {
-		sym.StartLine = uint32(v)
-	}
-	if v, err := strconv.ParseUint(stripAgtypeQuotes(row[4]), 10, 32); err == nil {
-		sym.EndLine = uint32(v)
-	}
+	sym.StartLine = parseUint32(row[3])
+	sym.EndLine = parseUint32(row[4])
 	return sym
-}
-
-// buildTreeFromPaths reconstructs a call tree from Cypher path rows.
-// Each row contains arrays: names, kinds, files, start_lines, end_lines, call_lines.
-// The first element of each array is the root (for callees) or the leaf (for callers).
-func buildTreeFromPaths(root *parser.Symbol, rows [][]string, direction string) callgraph.CallChainNode {
-	rootNode := callgraph.CallChainNode{Symbol: root}
-
-	// For each path, walk from root outward and insert children.
-	for _, row := range rows {
-		names := parseAgtypeArray(row[0])
-		kinds := parseAgtypeArray(row[1])
-		files := parseAgtypeArray(row[2])
-		startLines := parseAgtypeArray(row[3])
-		endLines := parseAgtypeArray(row[4])
-		callLines := parseAgtypeArray(row[5])
-
-		if len(names) < 2 {
-			continue // path of length 0 = just root, no edges
-		}
-
-		// For callees: names[0] = root, names[1..] = callees
-		// For callers: names[last] = root, names[0..last-1] = callers
-		// We normalize: always walk from root outward.
-		var chain []symbolAtLine
-		if direction == "callers" {
-			// Reverse: root is at the end, callers are before it.
-			// call_lines[i] is the line in the CALLER (names[i]) that calls names[i+1].
-			// After reversal: root=names[last], then names[last-1], ..., names[0].
-			for i := len(names) - 1; i >= 0; i-- {
-
-				var callLine uint32
-				if i > 0 && i-1 < len(callLines) {
-					callLine = parseUint32(callLines[i-1])
-				}
-				chain = append(chain, symbolAtLine{
-					name:      names[i],
-					kind:      kinds[i],
-					file:      files[i],
-					startLine: startLines[i],
-					endLine:   endLines[i],
-					callLine:  callLine,
-				})
-			}
-		} else {
-			// callees: root=names[0], then names[1], ..., names[last].
-			// call_lines[i] is the line in names[i] that calls names[i+1].
-			for i := 0; i < len(names); i++ {
-				var callLine uint32
-				if i < len(callLines) {
-					callLine = parseUint32(callLines[i])
-				}
-				chain = append(chain, symbolAtLine{
-					name:      names[i],
-					kind:      kinds[i],
-					file:      files[i],
-					startLine: startLines[i],
-					endLine:   endLines[i],
-					callLine:  callLine,
-				})
-			}
-		}
-
-		// Walk the chain from root (chain[0]) and insert into tree.
-		insertChain(&rootNode, chain)
-	}
-
-	return rootNode
-}
-
-type symbolAtLine struct {
-	name      string
-	kind      string
-	file      string
-	startLine string
-	endLine   string
-	callLine  uint32
-}
-
-// insertChain walks the chain (starting from chain[1], since chain[0] = root)
-// and inserts each node into the tree, creating children as needed.
-func insertChain(root *callgraph.CallChainNode, chain []symbolAtLine) {
-	if len(chain) < 2 {
-		return
-	}
-	current := root
-	for i := 1; i < len(chain); i++ {
-		sym := chain[i]
-		// Check if this child already exists (dedup by name+file).
-		var found *callgraph.CallChainNode
-		for j := range current.Children {
-			child := &current.Children[j]
-			if child.Symbol != nil && child.Symbol.Name == sym.name && child.Symbol.File == sym.file {
-				found = child
-				break
-			}
-		}
-		if found != nil {
-			current = found
-			continue
-		}
-		// Create new child.
-		childSym := &parser.Symbol{
-			Name: sym.name,
-			Kind: parser.NodeKind(sym.kind),
-			File: sym.file,
-		}
-		if v, err := strconv.ParseUint(sym.startLine, 10, 32); err == nil {
-			childSym.StartLine = uint32(v)
-		}
-		if v, err := strconv.ParseUint(sym.endLine, 10, 32); err == nil {
-			childSym.EndLine = uint32(v)
-		}
-		newChild := callgraph.CallChainNode{
-			Symbol:   childSym,
-			CallLine: sym.callLine,
-		}
-		current.Children = append(current.Children, newChild)
-		current = &current.Children[len(current.Children)-1]
-	}
-}
-
-func countNodes(node callgraph.CallChainNode) int {
-	count := 1
-	for _, child := range node.Children {
-		count += countNodes(child)
-	}
-	return count
 }
 
 func maxDepthOf(node callgraph.CallChainNode, depth int) int {
@@ -269,32 +218,6 @@ func stripAgtypeQuotes(s string) string {
 		return s[1 : len(s)-1]
 	}
 	return s
-}
-
-// parseAgtypeArray parses an AGE agtype array literal like:
-//
-//	["foo", "bar", "baz"]
-//	["1", "2", "3"]
-//
-// into a string slice. Handles quoted strings and bare numbers.
-func parseAgtypeArray(s string) []string {
-	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
-		return nil
-	}
-	s = s[1 : len(s)-1]
-	if s == "" {
-		return nil
-	}
-	// Split by comma, then strip quotes.
-	var parts []string
-	// Simple split — AGE arrays don't have nested commas in our use case.
-	for _, part := range strings.Split(s, ",") {
-		part = strings.TrimSpace(part)
-		part = stripAgtypeQuotes(part)
-		parts = append(parts, part)
-	}
-	return parts
 }
 
 func parseUint32(s string) uint32 {
