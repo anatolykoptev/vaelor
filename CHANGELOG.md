@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.0](https://github.com/anatolykoptev/go-code/compare/v1.34.1...v1.35.0) (2026-07-16)
+
+
+### Added
+
+* **scip:** extract IMPLEMENTS edges from Rust SCIP index — trait impl discovery ([#445](https://github.com/anatolykoptev/go-code/issues/445)) ([b839988](https://github.com/anatolykoptev/go-code/commit/b8399887a384efda16140d7180545096678339e8))
+
 ## [1.34.1](https://github.com/anatolykoptev/go-code/compare/v1.34.0...v1.34.1) (2026-07-16)
 
 
