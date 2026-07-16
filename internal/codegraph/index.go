@@ -144,6 +144,12 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 
 	t2 := time.Now()
 	cg := buildAGECallGraph(ctx, root, allSymbols, allCalls, allFiles)
+	// Filter stdlib method calls (clone, unwrap, to_string, iter, …) that
+	// tree-sitter captures as unresolved "external" nodes. SCIP applies the
+	// same filter at conversion time (convert.go); this covers the
+	// tree-sitter-only path and any edges that survived enrichment unresolved.
+	// See issue #466.
+	cg.Edges = callgraph.FilterStdlibCalls(cg.Edges)
 	hookRoutes := extractHookRoutes(root, allFiles)
 	if len(hookRoutes) > 0 {
 		callgraph.InjectHookEdges(cg, hookRoutes)

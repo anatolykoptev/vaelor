@@ -19,7 +19,7 @@ func TestTraceRepo_Integration(t *testing.T) {
 
 func main() {
 	result := compute(42)
-	println(result)
+	logResult(result)
 }
 
 func compute(x int) int {
@@ -50,7 +50,7 @@ func transform(x int) int {
 		t.Errorf("totalNodes = %d, want >= 3 (main, compute, transform)", result.TotalNodes)
 	}
 	if result.Unresolved < 1 {
-		t.Errorf("unresolved = %d, want >= 1 (println)", result.Unresolved)
+		t.Errorf("unresolved = %d, want >= 1 (logResult)", result.Unresolved)
 	}
 }
 

@@ -165,7 +165,7 @@ func extractDocEdges(doc *sciplib.Document, defMap map[string]defInfo, funcRange
 		// with unresolved "external" nodes. Only filter when the callee
 		// is NOT in the definition map (i.e. truly external) — project
 		// methods with the same name as a stdlib method are kept.
-		if !inDef && isStdlibMethod(calleeName) {
+		if !inDef && IsStdlibMethod(calleeName) {
 			continue
 		}
 
