@@ -1,0 +1,22 @@
+#!/bin/bash
+# Pre-commit hook: gofmt drift check.
+# Matches the CI fmt-check target in Makefile.
+# Install: git config core.hooksPath .githooks
+set -e
+
+# Only check staged Go files
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.go$' || true)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+# Check gofmt drift on staged files
+drift=$(gofmt -l $staged)
+if [ -n "$drift" ]; then
+  echo "gofmt drift detected in staged files:" >&2
+  echo "$drift" >&2
+  echo "" >&2
+  echo "Fix with: gofmt -w $drift" >&2
+  echo "Or:       make fmt" >&2
+  exit 1
+fi
