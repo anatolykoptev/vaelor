@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
-	"runtime"
-	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
@@ -28,7 +25,7 @@ type indexParseResult struct {
 }
 
 // templateFileRef is a resolved Astro USES relationship ready for AGE insertion.
-// Resolution (tag name → file path) is performed in indexParseFile via
+// Resolution (tag name → file path) is performed in ingestAndParse via
 // callgraph.ResolveTemplateRefs; unresolved refs are dropped before storage.
 type templateFileRef struct {
 	relFile    string // Astro file that contains the tag usage
@@ -95,102 +92,82 @@ func ingestAndParse(ctx context.Context, root string) ([]*ingest.File, []*parser
 	return allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, parseSkipped, nil
 }
 
-// indexParseParallel parses all files concurrently and returns results.
+// indexParseParallel parses all files concurrently via the shared
+// ingest.ParseFilesParallel, then adapts the results into indexParseResult
+// (with template-ref resolution and read-error classification). See issue #469.
 func indexParseParallel(ctx context.Context, root string, files []*ingest.File) []indexParseResult {
-	results := make([]indexParseResult, len(files))
-
-	workers := runtime.NumCPU()
-	if workers < 1 {
-		workers = 1
-	}
-
-	work := make(chan int, len(files))
-	for i := range files {
-		work <- i
-	}
-	close(work)
-
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range work {
-				if ctx.Err() != nil {
-					return
-				}
-				results[idx] = indexParseFile(root, files[idx])
-			}
-		}()
-	}
-
-	wg.Wait()
-	return results
-}
-
-// indexParseFile reads and parses a single source file.
-// On os.ReadFile failure the error is classified by errno and returned as a
-// skipReason key (skipReasonRead*) so callers can distinguish race-induced
-// ENOENT from permission errors and other I/O failures.
-func indexParseFile(root string, f *ingest.File) indexParseResult {
-	source, err := os.ReadFile(f.Path)
-	if err != nil {
-		reason := classifyReadError(err)
-		switch reason {
-		case skipReasonReadMissing:
-			// ENOENT: file disappeared between WalkDir (T1) and ReadFile (T2).
-			// Classic signature of the WalkDir-vs-RemoveAll race. Emit Warn
-			// (not Debug) so ops can spot it without enabling verbose logging.
-			slog.Warn("codegraph: file vanished between walk and read — possible clone-swap race",
-				slog.String("file", f.Path),
-				slog.String("skip_reason", reason))
-		case skipReasonReadPerm:
-			slog.Warn("codegraph: file read permission denied",
-				slog.String("file", f.Path),
-				slog.String("skip_reason", reason))
-		default:
-			slog.Warn("codegraph: file read error",
-				slog.String("file", f.Path),
-				slog.String("skip_reason", reason),
-				slog.Any("error", err))
-		}
-		return indexParseResult{skipReason: reason}
-	}
-
-	opts := parser.ParseOpts{
-		Language:        f.Language,
+	results := ingest.ParseFilesParallel(ctx, files, parser.ParseOpts{
 		IncludeImports:  true,
 		IncludeBody:     true,
 		IncludeTypeRels: true,
-	}
+	}, nil)
 
-	// Single parse for symbols+calls: ParseFileWithCalls shares one tree-sitter parse
-	// instead of ParseFile and ExtractCalls each parsing the same bytes (issue #400).
-	pr, calls, err := parser.ParseFileWithCalls(f.Path, source, opts)
-	if err != nil {
-		slog.Debug("codegraph: parse failed", slog.String("file", f.Path), slog.String("language", f.Language), slog.Any("error", err))
-		return indexParseResult{file: f, skipReason: "parse_error"}
-	}
-	rels := pr.TypeRels
+	out := make([]indexParseResult, len(results))
+	for i, r := range results {
+		if r.Err != nil {
+			// Distinguish read errors (Raw is nil — file was not read) from
+			// parse errors (Raw is set — file was read but parsing failed).
+			// ingest.ParseFilesParallel sets Raw only after a successful read.
+			var reason string
+			if r.Raw == nil {
+				reason = classifyReadError(r.Err)
+				switch reason {
+				case skipReasonReadMissing:
+					slog.Warn("codegraph: file vanished between walk and read — possible clone-swap race",
+						slog.String("file", r.File.Path),
+						slog.String("skip_reason", reason))
+				case skipReasonReadPerm:
+					slog.Warn("codegraph: file read permission denied",
+						slog.String("file", r.File.Path),
+						slog.String("skip_reason", reason))
+				default:
+					slog.Warn("codegraph: file read error",
+						slog.String("file", r.File.Path),
+						slog.String("skip_reason", reason),
+						slog.Any("error", r.Err))
+				}
+				// Read error: file is nil (matches original indexParseFile contract).
+				out[i] = indexParseResult{skipReason: reason}
+			} else {
+				reason = "parse_error"
+				slog.Debug("codegraph: parse failed", slog.String("file", r.File.Path), slog.String("language", r.File.Language), slog.Any("error", r.Err))
+				// Parse error: file is set (matches original indexParseFile contract).
+				out[i] = indexParseResult{file: r.File, skipReason: reason}
+			}
+			continue
+		}
+		if r.Result == nil {
+			out[i] = indexParseResult{file: r.File}
+			continue
+		}
 
-	// Resolve template refs to file paths immediately; unresolved refs are dropped.
-	var tplRefs []templateFileRef
-	for _, u := range callgraph.ResolveTemplateRefs(source, pr.TemplateRefs, f.RelPath, root) {
-		tplRefs = append(tplRefs, templateFileRef{
-			relFile:    u.From,
-			resolvedTo: u.To,
-			line:       u.Line,
-		})
-	}
+		// Resolve template refs to file paths immediately; unresolved refs are dropped.
+		var tplRefs []templateFileRef
+		for _, u := range callgraph.ResolveTemplateRefs(r.Raw, r.Result.TemplateRefs, r.File.RelPath, root) {
+			tplRefs = append(tplRefs, templateFileRef{
+				relFile:    u.From,
+				resolvedTo: u.To,
+				line:       u.Line,
+			})
+		}
 
-	return indexParseResult{
-		file:         f,
-		symbols:      pr.Symbols,
-		calls:        calls,
-		imports:      pr.Imports,
-		rels:         rels,
-		templateRefs: tplRefs,
+		out[i] = indexParseResult{
+			file:         r.File,
+			symbols:      r.Result.Symbols,
+			calls:        r.Calls,
+			imports:      r.Result.Imports,
+			rels:         r.Result.TypeRels,
+			templateRefs: tplRefs,
+		}
 	}
+	return out
+}
+
+// indexParseFile parses a single file via the shared pipeline. Thin wrapper
+// around indexParseParallel for tests that exercise one file at a time.
+func indexParseFile(root string, f *ingest.File) indexParseResult {
+	results := indexParseParallel(context.Background(), root, []*ingest.File{f})
+	return results[0]
 }
 
 // classifyReadError maps an os.ReadFile error to a skipReason key.
