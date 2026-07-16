@@ -102,8 +102,26 @@ func effectiveMaxFiles(optsMaxFiles int) int {
 // that match the given options.
 //
 // It does NOT read file contents — content loading happens at the parse stage.
+//
+// Results are cached at the process level (5-min TTL + content-hash
+// invalidation) so that multiple tool calls against the same repo in one
+// session don't re-walk the filesystem. The cache key includes root + all
+// IngestOpts fields that affect the result (Focus, Languages, MaxFileBytes,
+// MaxFiles, FollowSymlinks, ExcludeTests). See issue #464.
 func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 	root := filepath.Clean(opts.Root)
+
+	// Check process-level cache before walking. The cache validates the
+	// content hash on every hit, so a git checkout during a session
+	// invalidates the entry immediately.
+	key := cacheKey(root, opts)
+	if cached := ingestCache.get(key, root); cached != nil {
+		slog.Debug("ingest: cache hit",
+			slog.String("root", root),
+			slog.Int("files", len(cached.Files)))
+		return cached, nil
+	}
+
 	slog.Info("ingest: starting repo walk",
 		slog.String("root", root),
 		slog.String("skip_dirs", strings.Join(IgnoredDirNames(), ",")),
@@ -154,8 +172,14 @@ func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	return result, err
+	// Store in process-level cache for reuse by subsequent tool calls.
+	ingestCache.put(key, result, root)
+
+	return result, nil
 }
 
 // handleDir decides whether a directory should be skipped entirely.
