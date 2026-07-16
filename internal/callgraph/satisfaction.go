@@ -1,0 +1,93 @@
+package callgraph
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/go-code/internal/parser"
+)
+
+// implementsLoadTimeout bounds the synchronous go/packages load used to compute
+// interface satisfaction.
+//
+// extractGoImplements routes through goanalysis.CachedLoadPackages, a small
+// bounded LRU+TTL cache keyed by repo root: if tryGoTypesResolution (the
+// package-private go/types CALLS enrichment in repo.go) already warmed this
+// root's load within the cache TTL, this call is served from that cached
+// result instead of paying its own NeedDeps load. On a cold cache it still
+// runs a fresh load bounded by implementsLoadTimeout — cold (NeedDeps) loads
+// can run minutes, so callers must not block indefinitely on it. On timeout
+// we emit ZERO IMPLEMENTS edges and the dependent find_duplicates filter
+// degrades to its signature heuristic — never worse than before this pass
+// existed.
+//
+// (The go/types CALLS resolution uses a 10s warm-path bound in repo.go before
+// falling back to a background warm; both share the SAME underlying cache now,
+// so whichever of the two runs first against a repo pays the load for the
+// other.)
+const implementsLoadTimeout = 30 * time.Second
+
+// ExtractGoImplements computes structural interface-satisfaction relationships
+// for a Go module via go/types and returns them as parser.TypeRelationship values
+// of kind RelImplements, ready to flow through buildRelationshipEdges (code_graph)
+// or be appended to cg.TypeRels (call_trace). One edge is produced per
+// (concrete type T, interface I) where T or *T implements I.
+//
+// Go-only and best-effort: returns nil (not an error) when the repo has no
+// go.mod, when go/packages fails or times out, or when no satisfaction exists.
+// Failures are non-fatal — they bump a counter and log, mirroring the
+// graceful-degradation contract of the rest of the pipeline. The returned
+// relationships' File field is the concrete type's ABSOLUTE declaration path,
+// so buildRelationshipEdges keys the IMPLEMENTS edge's subject endpoint onto
+// the same Symbol vertex (name + repo-relative file) that buildSymbolGraph
+// created.
+//
+// Called from EnrichWithTypedResolution (the shared composition seam) so both
+// BuildFromRepo (call_trace/impact_analysis) and buildAGECallGraph (code_graph)
+// get Go IMPLEMENTS edges. See issue #467.
+func ExtractGoImplements(ctx context.Context, root string) []parser.TypeRelationship {
+	if !goanalysis.HasGoModule(root) {
+		return nil
+	}
+
+	t0 := time.Now()
+	loadCtx, cancel := context.WithTimeout(ctx, implementsLoadTimeout)
+	defer cancel()
+
+	lr, err := goanalysis.CachedLoadPackages(loadCtx, root)
+	if err != nil {
+		// Cold cache, missing/unbuildable deps, or timeout: degrade silently to
+		// the heuristic. Warn (not Debug) so operators can see when the enrichment
+		// did not run for a repo they expected it to cover.
+		slog.Warn("callgraph: IMPLEMENTS go/types load failed (non-fatal, filter falls back to heuristic)",
+			slog.String("repo", root), slog.Any("error", err))
+		implementsLoadTotal.WithLabelValues("error").Inc()
+		return nil
+	}
+
+	sats := goanalysis.ComputeSatisfactions(lr.Packages)
+	rels := make([]parser.TypeRelationship, 0, len(sats))
+	for _, s := range sats {
+		// A self-edge (type whose interface name resolves to itself) is impossible
+		// here because ComputeSatisfactions only pairs non-interface types with
+		// interfaces. Skip empty endpoints defensively.
+		if s.Type == "" || s.Interface == "" || s.TypeFile == "" {
+			continue
+		}
+		rels = append(rels, parser.TypeRelationship{
+			Subject: s.Type,
+			Target:  s.Interface,
+			Kind:    parser.RelImplements,
+			File:    s.TypeFile,
+		})
+	}
+
+	implementsLoadTotal.WithLabelValues("ok").Inc()
+	implementsEdgesTotal.WithLabelValues(implementsRepoKey(root)).Add(float64(len(rels)))
+	slog.Info("callgraph: IMPLEMENTS go/types satisfaction done",
+		slog.String("repo", root), slog.Int("edges", len(rels)),
+		slog.Duration("elapsed", time.Since(t0)))
+	return rels
+}

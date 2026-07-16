@@ -2,10 +2,8 @@ package codegraph
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"log/slog"
 	"math"
 	"math/rand/v2"
@@ -14,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anatolykoptev/go-code/internal/strutil"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -35,11 +34,7 @@ func GraphNameFor(repoPath string) string {
 // graphName produces a stable graph name from a repo path using FNV-32a.
 // Format: code_<8-char-hex>, e.g. "code_a3f2b1c0".
 func graphName(repoPath string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(repoPath))
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], h.Sum32())
-	return fmt.Sprintf("code_%08x", buf)
+	return strutil.RepoKey(repoPath)
 }
 
 // escapeCypher escapes a string for safe use in a single-quoted Cypher literal.
