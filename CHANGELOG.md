@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.32.2](https://github.com/anatolykoptev/go-code/compare/v1.32.1...v1.32.2) (2026-07-16)
+
+
+### Fixed
+
+* **codegraph:** prune stale dead-code scores when a function stops being an orphan ([#295](https://github.com/anatolykoptev/go-code/issues/295)) ([8d8c88b](https://github.com/anatolykoptev/go-code/commit/8d8c88b44120f0e0e791365faddcc1e69752a58d))
+* **compare:** reuse tree-sitter parser per worker in BuildSnapshot ([#384](https://github.com/anatolykoptev/go-code/issues/384)) ([cc9d35d](https://github.com/anatolykoptev/go-code/commit/cc9d35dafa5eb5c45d50b912a535e3a2393895a2))
+
 ## [1.32.1](https://github.com/anatolykoptev/go-code/compare/v1.32.0...v1.32.1) (2026-07-16)
 
 
