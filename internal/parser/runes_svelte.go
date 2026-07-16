@@ -57,7 +57,7 @@ func parseSvelteWithRunes(path string, vs *preproc.VirtualSource, lang string, o
 		return result, nil
 	}
 
-	root, closeTree, err := parseTree(base.caps.SitterLanguage, vs.Code)
+	root, closeTree, err := parseTree(base.caps.SitterLanguage, vs.Code, nil)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}

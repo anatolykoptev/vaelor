@@ -48,7 +48,7 @@ func (p *parserBase) ParseWithCalls(path string, src []byte, opts ParseOpts) (*P
 		return nil, nil, false, nil
 	}
 
-	root, closeTree, err := parseTree(p.caps.SitterLanguage, src)
+	root, closeTree, err := parseTree(p.caps.SitterLanguage, src, opts.Parser)
 	if err != nil {
 		return nil, nil, true, fmt.Errorf("parse %s: %w", path, err)
 	}
