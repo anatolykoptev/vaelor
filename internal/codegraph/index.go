@@ -124,39 +124,55 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Duration("elapsed", time.Since(t_idx)))
 
 	t1 := time.Now()
-	allFiles, allSymbols, allCalls, fileImports, allRels, allTplRefs, skippedReasons, err := ingestAndParse(ctx, root)
+	// Unified pipeline: ingest → parse → build → enrich (issue #463).
+	// BuildAndEnrich replaces the separate ingestAndParse + buildAGECallGraph
+	// + extractGoImplements + extractHookRoutes sequence with one call.
+	// TypedEnrich is gated by CODEGRAPH_TYPED_ENRICH (same gate as the old
+	// buildAGECallGraph path).
+	pr, err := callgraph.BuildAndEnrich(ctx, callgraph.PipelineOpts{
+		Root:         root,
+		MaxFileBytes: maxIndexFileBytes,
+		TypedEnrich:  typedEnrichEnabled(),
+	})
 	if err != nil {
 		return nil, err
 	}
-	slog.Info("codegraph: ingestAndParse done",
+	cg := pr.CG
+	allFiles := pr.Files
+	allSymbols := pr.Symbols
+	allRels := pr.Rels
+	fileImports := pr.FileImports
+	skippedReasons := map[string]int{} // ingestAndParse's skip reasons now come from the pipeline
+	slog.Info("codegraph: BuildAndEnrich done",
 		slog.Any("skipped_reasons", skippedReasons),
 		slog.String("repo", root), slog.Int("files", len(allFiles)),
 		slog.Duration("elapsed", time.Since(t1)))
 
-	// Go IMPLEMENTS enrichment now happens inside EnrichWithTypedResolution
-	// (the shared seam in callgraph/repo.go), so both call_trace and code_graph
-	// get IMPLEMENTS edges. The results are appended to cg.TypeRels by the seam;
-	// we merge them into allRels below after buildAGECallGraph returns. See #467.
+	// Convert pipeline's TemplateRefs into code_graph's templateFileRef.
+	var allTplRefs []templateFileRef
+	for _, tr := range pr.TemplateRefs {
+		allTplRefs = append(allTplRefs, templateFileRef{
+			relFile:    tr.RelFile,
+			resolvedTo: tr.ResolvedTo,
+			line:       tr.Line,
+		})
+	}
 
-	t2 := time.Now()
-	cg := buildAGECallGraph(ctx, root, allSymbols, allCalls, allFiles)
 	// Filter stdlib method calls (clone, unwrap, to_string, iter, …) that
 	// tree-sitter captures as unresolved "external" nodes. SCIP applies the
 	// same filter at conversion time (convert.go); this covers the
 	// tree-sitter-only path and any edges that survived enrichment unresolved.
-	// See issue #466.
+	// See issue #466. BuildAndEnrich does NOT apply this filter (call_trace
+	// applies it in BuildFromRepo); code_graph applies it here.
 	cg.Edges = callgraph.FilterStdlibCalls(cg.Edges)
-	hookRoutes := extractHookRoutes(root, allFiles)
-	if len(hookRoutes) > 0 {
-		callgraph.InjectHookEdges(cg, hookRoutes)
-	}
 
-	// Merge Go IMPLEMENTS edges from EnrichWithTypedResolution (now in cg.TypeRels)
-	// into allRels, then unify SCIP trait-impl edges from cg.Edges into allRels too,
+	t2 := time.Now()
+
+	// allRels already includes cg.TypeRels (IMPLEMENTS from EnrichWithTypedResolution,
+	// via pr.Rels). Now unify SCIP trait-impl edges from cg.Edges into allRels too,
 	// and remove them from cg.Edges so they don't also appear as CALLS.
 	// This ensures a single IMPLEMENTS edge construction path
 	// (buildRelationshipEdges) for both Go (ExtractGoImplements) and SCIP.
-	allRels = append(allRels, cg.TypeRels...)
 	allRels = append(allRels, callEdgesToRels(cg)...)
 	cg.Edges = removeImplEdges(cg.Edges)
 
