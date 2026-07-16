@@ -727,3 +727,161 @@ func mapsEqual(a, b map[string]string) bool {
 	}
 	return true
 }
+
+// ---------------------------------------------------------------------------
+// Virtual module stopgap tests (#423)
+// ---------------------------------------------------------------------------
+
+// TestResolve_VirtualModule_ResolvesToDefiningPackage verifies that a
+// "virtual:guide/content" import resolves to the defining package's dir when
+// cfg.VirtualModules maps it and that dir is in pkgDirs. This is the approach-2
+// stopgap — the edge is package-to-package, not to the specific re-exported file.
+// Falsification: revert the virtual: dispatch → returns ("", false).
+func TestResolve_VirtualModule_ResolvesToDefiningPackage(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		VirtualModules: map[string]string{
+			"virtual:guide/content": "packages/pages/src",
+			"virtual:guide/layout":  "packages/pages/src",
+			"virtual:guide/i18n":    "packages/pages/src",
+		},
+	}
+	r := mkResolverCfg(
+		[]string{"packages/pages/src", "packages/pages/src/entry"},
+		[]string{"packages/pages/src/entry/home.astro"},
+		cfg,
+	)
+	dir, ok := r.Resolve("virtual:guide/content", "packages/pages/src/entry/home.astro")
+	if !ok {
+		t.Fatal("expected ok=true for virtual:guide/content via VirtualModules stopgap")
+	}
+	if dir != "packages/pages/src" {
+		t.Errorf("dir = %q, want %q (defining package dir)", dir, "packages/pages/src")
+	}
+}
+
+// TestResolve_VirtualModule_ZeroConfig verifies that virtual: imports with zero
+// Config fall through to external (ok=false). Guards the analyze path.
+// Falsification: return true for virtual: unconditionally → analyze false positives.
+func TestResolve_VirtualModule_ZeroConfig(t *testing.T) {
+	t.Parallel()
+	r := mkResolver([]string{"packages/pages/src"}, nil)
+	dir, ok := r.Resolve("virtual:guide/content", "packages/pages/src/entry/home.astro")
+	if ok {
+		t.Errorf("expected ok=false with zero Config for virtual:, got dir=%q", dir)
+	}
+	if dir != "" {
+		t.Errorf("expected empty dir with zero Config, got %q", dir)
+	}
+}
+
+// TestResolve_VirtualModule_NotInPkgDirs_FallsThrough verifies that when the
+// defining dir is NOT in pkgDirs (e.g. the package was removed but the virtual
+// id still appears in a consumer), the resolver returns ("", false) so an
+// external vertex is created — no silently-dropped edge.
+// Falsification: return dir unconditionally → false local, dropped edge.
+func TestResolve_VirtualModule_NotInPkgDirs_FallsThrough(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		VirtualModules: map[string]string{"virtual:guide/content": "packages/removed/src"},
+	}
+	// packages/removed/src is NOT in pkgDirs.
+	r := mkResolverCfg([]string{"packages/pages/src"}, nil, cfg)
+	dir, ok := r.Resolve("virtual:guide/content", "packages/pages/src/entry/home.astro")
+	if ok {
+		t.Errorf("expected ok=false when defining dir not in pkgDirs, got dir=%q", dir)
+	}
+	if dir != "" {
+		t.Errorf("expected empty dir when defining dir not in pkgDirs, got %q", dir)
+	}
+}
+
+// TestResolve_VirtualModule_UnknownId verifies that a virtual: import not in
+// the VirtualModules map returns ("", false) — falls through to external.
+func TestResolve_VirtualModule_UnknownId(t *testing.T) {
+	t.Parallel()
+	cfg := importresolve.Config{
+		VirtualModules: map[string]string{"virtual:guide/content": "packages/pages/src"},
+	}
+	r := mkResolverCfg([]string{"packages/pages/src"}, nil, cfg)
+	dir, ok := r.Resolve("virtual:unknown/thing", "packages/pages/src/entry/home.astro")
+	if ok {
+		t.Errorf("expected ok=false for unknown virtual id, got dir=%q", dir)
+	}
+	if dir != "" {
+		t.Errorf("expected empty dir for unknown virtual id, got %q", dir)
+	}
+}
+
+// TestBuildConfig_ScansVirtualModules verifies that BuildConfig populates
+// Config.VirtualModules by scanning TS/JS source files for virtual: id string
+// literals. Proves the walk reads file contents and extracts the ids.
+// Falsification: revert scanVirtualModules → VirtualModules empty.
+func TestBuildConfig_ScansVirtualModules(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	writeFile := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(tmp, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", full, err)
+		}
+	}
+	// The defining file — a Vite plugin with virtual module ids in const declarations.
+	writeFile("packages/pages/src/integration.ts", `
+const VIRTUAL_CONTENT = 'virtual:guide/content';
+const VIRTUAL_LAYOUT = 'virtual:guide/layout';
+const VIRTUAL_I18N = "virtual:guide/i18n";
+`)
+	// A consumer .astro file — should NOT be scanned (not a .ts/.js file).
+	writeFile("packages/pages/src/entry/home.astro", `---
+import { content } from 'virtual:guide/content';
+---`)
+
+	cfg := importresolve.BuildConfig(tmp)
+	if got, ok := cfg.VirtualModules["virtual:guide/content"]; !ok || got != "packages/pages/src" {
+		t.Errorf("VirtualModules[virtual:guide/content] = %q (ok=%v), want %q", got, ok, "packages/pages/src")
+	}
+	if got, ok := cfg.VirtualModules["virtual:guide/layout"]; !ok || got != "packages/pages/src" {
+		t.Errorf("VirtualModules[virtual:guide/layout] = %q (ok=%v), want %q", got, ok, "packages/pages/src")
+	}
+	if got, ok := cfg.VirtualModules["virtual:guide/i18n"]; !ok || got != "packages/pages/src" {
+		t.Errorf("VirtualModules[virtual:guide/i18n] = %q (ok=%v), want %q", got, ok, "packages/pages/src")
+	}
+}
+
+// TestBuildConfig_VirtualModules_NoAstroConsumers verifies that .astro consumer
+// files do NOT contribute to VirtualModules — only TS/JS definers are scanned.
+// Without this guard, a consumer .astro in a different package would register
+// the wrong defining dir.
+// Falsification: scan .astro files → consumer's dir wins over definer's dir.
+func TestBuildConfig_VirtualModules_NoAstroConsumers(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	writeFile := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(tmp, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", full, err)
+		}
+	}
+	// Definer in packages/pages/src.
+	writeFile("packages/pages/src/integration.ts", `const V = 'virtual:guide/content';`)
+	// Consumer in a DIFFERENT package (apps/piter/src/entry).
+	writeFile("apps/piter/src/entry/home.astro", `import { content } from 'virtual:guide/content';`)
+
+	cfg := importresolve.BuildConfig(tmp)
+	got, ok := cfg.VirtualModules["virtual:guide/content"]
+	if !ok {
+		t.Fatal("VirtualModules[virtual:guide/content] missing — definer .ts not scanned")
+	}
+	if got != "packages/pages/src" {
+		t.Errorf("VirtualModules[virtual:guide/content] = %q, want %q (definer dir, not consumer dir)", got, "packages/pages/src")
+	}
+}

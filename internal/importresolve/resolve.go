@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -48,6 +49,17 @@ type Config struct {
 	// honor subpath redirects like {"./*":"./src/*"} that move source under src/.
 	// nil/empty for packages with no "exports" field — preserves pre-fix behavior.
 	WorkspaceExports map[string]map[string]string
+
+	// VirtualModules maps a project-local Vite virtual module id (e.g.
+	// "virtual:guide/content") to the repo-relative directory of the package
+	// that defines it (the package containing the Vite plugin's resolveId/load
+	// code). This is the approach-2 stopgap from #423: it does NOT resolve to
+	// the specific re-exported target file (that requires parsing the Vite
+	// plugin's load() body and each app's astro.config — approach 1, deferred),
+	// but it preserves the package-to-package IMPORTS edge so dep_graph /
+	// dead_code / impact_analysis do not show the importing package as
+	// orphaned. nil/empty when no virtual modules are found in the repo.
+	VirtualModules map[string]string
 }
 
 // Resolver resolves import paths to the repo-relative container directory of the
@@ -101,6 +113,7 @@ func BuildConfig(root string) Config {
 	var libDirs []string
 	workspace := make(map[string]string)
 	workspaceExports := make(map[string]map[string]string)
+	virtualModules := make(map[string]string)
 
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -136,10 +149,16 @@ func BuildConfig(root string) Config {
 				workspaceExports[name] = exp
 			}
 		}
+
+		// Scan TS/JS source files (not .astro/.svelte/.vue — those are consumers)
+		// for project-local virtual module definitions. See scanVirtualModules.
+		if isVirtualScanTarget(base) {
+			scanVirtualModules(path, rel, virtualModules)
+		}
 		return nil
 	})
 
-	return Config{LibDirs: libDirs, Workspace: workspace, WorkspaceExports: workspaceExports}
+	return Config{LibDirs: libDirs, Workspace: workspace, WorkspaceExports: workspaceExports, VirtualModules: virtualModules}
 }
 
 // readPackageManifest reads the "name" and "exports" fields from a package.json
@@ -285,16 +304,81 @@ func normalizeExportsTarget(t string) (string, bool) {
 	return filepath.ToSlash(t), true
 }
 
+// virtualModuleRe matches project-local Vite virtual module identifiers inside
+// string literals: "virtual:guide/content", 'virtual:guide/layout', etc.
+// It captures the full id (without quotes). The pattern requires at least one
+// slash after the prefix to distinguish virtual module ids from the bare
+// "virtual:" namespace (which is rare and has no resolvable target).
+var virtualModuleRe = regexp.MustCompile(`["'` + "`" + `](virtual:[a-zA-Z][\w-]*(?:/[\w./-]+)+)["'` + "`" + `]`)
+
+// virtualScanExts are the file extensions scanned for virtual module definitions.
+// .astro/.svelte/.vue are excluded — they are consumers (importers), not definers.
+// .d.ts is included — type declaration files like virtual.d.ts also carry the ids
+// and live in the defining package, so they contribute the correct package dir.
+var virtualScanExts = map[string]bool{
+	".ts":   true,
+	".tsx":  true,
+	".js":   true,
+	".jsx":  true,
+	".mjs":  true,
+	".cjs":  true,
+	".d.ts": false, // handled by compound-ext check below
+}
+
+// isVirtualScanTarget reports whether a file should be scanned for virtual module
+// definitions, based on its extension. Only TS/JS-family source files are scanned
+// (not .astro/.svelte/.vue — those are consumers). Compound extensions like .d.ts
+// are handled explicitly.
+func isVirtualScanTarget(name string) bool {
+	ext := filepath.Ext(name)
+	if ext == ".ts" && strings.HasSuffix(name, ".d.ts") {
+		return true // .d.ts — type declarations, in the defining package
+	}
+	return virtualScanExts[ext]
+}
+
+// virtualScanMaxBytes bounds the amount of each file read during the virtual
+// module scan. Virtual module ids are declared near the top of the file (in
+// const blocks), so 16KB is ample for any real-world Vite plugin.
+const virtualScanMaxBytes = 16 * 1024
+
+// scanVirtualModules reads the first virtualScanMaxBytes of absPath, finds all
+// virtual module id string literals, and records each in out mapped to the
+// repo-relative directory of the file (filepath.Dir(rel)). If the same virtual
+// id is already in out (from a prior file), it is NOT overwritten — the first
+// file wins. This is a stopgap: it does not distinguish the definer (resolveId/
+// load code) from a type declaration file, but both live in the same package,
+// so the recorded dir is correct for the package-to-package edge.
+func scanVirtualModules(absPath, rel string, out map[string]string) {
+	data, err := os.ReadFile(absPath) //nolint:gosec // path comes from the repo walk
+	if err != nil {
+		return
+	}
+	if len(data) > virtualScanMaxBytes {
+		data = data[:virtualScanMaxBytes]
+	}
+	dir := filepath.Dir(rel)
+	for _, m := range virtualModuleRe.FindAllSubmatch(data, -1) {
+		id := string(m[1])
+		if _, exists := out[id]; !exists {
+			out[id] = dir
+		}
+	}
+}
+
 // Resolve maps an import string to the repo-relative container directory of the
 // package it refers to. Returns ("", false) for external (unresolvable) imports.
 //
 // Dispatch order:
 //  1. "$lib/…" or "$lib" — SvelteKit alias (requires non-empty cfg.LibDirs).
 //  2. "@scope/pkg…"      — workspace scoped package (requires cfg.Workspace entry).
-//  3. "./x" / "../x"     — relative import, resolved against importingDir.
+//  3. "virtual:…"        — project-local Vite virtual module (requires
+//     cfg.VirtualModules entry). Stopgap (#423): resolves to the defining
+//     package dir, not the specific re-exported target file.
+//  4. "./x" / "../x"     — relative import, resolved against importingDir.
 //     importingDir should be filepath.Dir(relFile) for file-level callers, or the
 //     package directory for package-level callers.
-//  4. everything else    — Go-style absolute import, longest-suffix-matched.
+//  5. everything else    — Go-style absolute import, longest-suffix-matched.
 //
 // Aliased imports that have no matching config entry fall through to external.
 func (r *Resolver) Resolve(imp, importingDir string) (string, bool) {
@@ -309,6 +393,14 @@ func (r *Resolver) Resolve(imp, importingDir string) (string, bool) {
 	// Workspace @scope/pkg alias.
 	if strings.HasPrefix(imp, "@") {
 		if dir, ok := r.resolveWorkspaceAlias(imp); ok {
+			return dir, true
+		}
+		return "", false
+	}
+
+	// Project-local Vite virtual module (stopgap — #423).
+	if strings.HasPrefix(imp, "virtual:") {
+		if dir, ok := r.resolveVirtualModule(imp); ok {
 			return dir, true
 		}
 		return "", false
@@ -479,6 +571,31 @@ func (r *Resolver) resolveViaExports(wsDir, pkgName, subpath string) (string, bo
 		if dir, ok := r.resolveAbsSubpath(wsDir, rewritten); ok {
 			return dir, true
 		}
+	}
+	return "", false
+}
+
+// resolveVirtualModule resolves a "virtual:foo/bar" import to the repo-relative
+// directory of the package that defines it, using cfg.VirtualModules. This is
+// the approach-2 stopgap from #423: it returns the defining package dir (found
+// by scanning TS/JS source for the virtual id string literal), NOT the specific
+// re-exported target file. The edge is package-to-package, sufficient for
+// dep_graph / dead_code to not show the importer as orphaned.
+//
+// The defining dir is only returned when it is a known pkgDir — the same guard
+// as resolveWorkspaceAlias's package-root branch. Without this, a stale
+// VirtualModules entry for a removed package would cause a silently-dropped
+// IMPORTS edge (callers treat isLocal=true as "vertex exists").
+func (r *Resolver) resolveVirtualModule(imp string) (string, bool) {
+	if len(r.cfg.VirtualModules) == 0 {
+		return "", false
+	}
+	dir, ok := r.cfg.VirtualModules[imp]
+	if !ok {
+		return "", false
+	}
+	if _, known := r.pkgDirs[dir]; known {
+		return dir, true
 	}
 	return "", false
 }
