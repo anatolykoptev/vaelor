@@ -40,6 +40,14 @@ type Config struct {
 	// repo-relative directory (e.g. "packages/mesh-core"). Subpath imports like
 	// "@oxpulse/mesh-core/foo" are resolved by joining the mapped dir with "foo".
 	Workspace map[string]string
+
+	// WorkspaceExports maps a scoped package name to its package.json "exports"
+	// map, normalized so that both keys and values have any leading "./" stripped
+	// and use forward slashes (e.g. "./*" → "src/*"). Wildcard "*" is preserved.
+	// Used by resolveWorkspaceAlias when the bare wsDir+subpath probe misses, to
+	// honor subpath redirects like {"./*":"./src/*"} that move source under src/.
+	// nil/empty for packages with no "exports" field — preserves pre-fix behavior.
+	WorkspaceExports map[string]map[string]string
 }
 
 // Resolver resolves import paths to the repo-relative container directory of the
@@ -92,6 +100,7 @@ func New(pkgDirs, fileSet map[string]struct{}, cfg Config) *Resolver {
 func BuildConfig(root string) Config {
 	var libDirs []string
 	workspace := make(map[string]string)
+	workspaceExports := make(map[string]map[string]string)
 
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -118,32 +127,162 @@ func BuildConfig(root string) Config {
 		case "svelte.config.js", "svelte.config.ts":
 			libDirs = append(libDirs, filepath.Dir(rel))
 		case "package.json":
-			name, ok := readPackageName(path)
+			name, exp, ok := readPackageManifest(path)
 			if !ok || name == "" {
 				return nil
 			}
 			workspace[name] = filepath.Dir(rel)
+			if len(exp) > 0 {
+				workspaceExports[name] = exp
+			}
 		}
 		return nil
 	})
 
-	return Config{LibDirs: libDirs, Workspace: workspace}
+	return Config{LibDirs: libDirs, Workspace: workspace, WorkspaceExports: workspaceExports}
 }
 
-// readPackageName reads just the "name" field from a package.json at absPath.
-// Returns ("", false) on any read or parse error.
-func readPackageName(absPath string) (string, bool) {
+// readPackageManifest reads the "name" and "exports" fields from a package.json
+// at absPath. Returns (name, normalizedExports, ok). ok is false on any read or
+// parse error. exports is nil when the field is absent or unparseable; non-nil
+// (possibly empty) only when "exports" is present.
+//
+// The returned exports map is normalized: both keys and values have any leading
+// "./" stripped and use forward slashes (e.g. "./*" → "src/*", "./foo" → "foo").
+// The wildcard "*" is preserved. Multi-form values are flattened to their string
+// targets: a string value is taken as-is; an array value yields its first string
+// entry (or first string found inside a condition object); a condition object
+// ({"import": ..., "require": ...}) is flattened by preferring "import", then
+// "default", then the first string-valued condition. This is a static-analysis
+// approximation of Node's resolution algorithm — sufficient for the fleet's
+// packages, none of which use conditional-only or array-form-only exports.
+func readPackageManifest(absPath string) (string, map[string]string, bool) {
 	data, err := os.ReadFile(absPath) //nolint:gosec // path comes from the indexed file set
 	if err != nil {
+		return "", nil, false
+	}
+	// Decode into raw json.RawMessage so we can inspect "exports" shape without
+	// committing to one struct. "name" is always a string.
+	var raw struct {
+		Name    string          `json:"name"`
+		Exports json.RawMessage `json:"exports"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", nil, false
+	}
+	exp := ParseExports(raw.Exports)
+	return raw.Name, exp, true
+}
+
+// ParseExports normalizes a package.json "exports" json.RawMessage into a
+// map[string]string (normalized key → normalized target). Returns nil for empty
+// or unparseable input. See readPackageManifest for the normalization rules.
+//
+// Supported shapes:
+//   - string:        "exports": "./index.ts"           → {"": "index.ts"}
+//   - map:           "exports": {"./foo": "./bar.ts"}  → {"foo": "bar.ts"}
+//   - map wildcard:  "exports": {"./*": "./src/*"}     → {"*": "src/*"}
+//   - array value:   "exports": {"./foo": ["./a.ts"]}  → {"foo": "a.ts"}
+//   - cond object:   "exports": {"./foo": {"import": "./a.mjs"}} → {"foo": "a.mjs"}
+func ParseExports(raw json.RawMessage) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	// Bare-string form: "exports": "./index.ts" — the package's main entry.
+	// Normalize to key "" (empty subpath) → target.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if t, ok := normalizeExportsTarget(s); ok {
+			return map[string]string{"": t}
+		}
+		return nil
+	}
+
+	// Map form: keys are subpaths (with optional "./" prefix and "*" wildcard),
+	// values are string / array / condition-object.
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		key := normalizeExportsKey(k)
+		target, ok := firstExportsTarget(v)
+		if !ok {
+			continue
+		}
+		t, ok := normalizeExportsTarget(target)
+		if !ok {
+			continue
+		}
+		out[key] = t
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// firstExportsTarget extracts the first usable string target from an exports
+// value of any shape (string, array, condition object). For condition objects
+// it prefers "import" > "default" > first-string. Returns ("", false) when no
+// string target can be extracted.
+func firstExportsTarget(v json.RawMessage) (string, bool) {
+	// Direct string.
+	var s string
+	if err := json.Unmarshal(v, &s); err == nil {
+		return s, true
+	}
+	// Array — first string element (or first string inside a nested condition).
+	var arr []json.RawMessage
+	if err := json.Unmarshal(v, &arr); err == nil {
+		for _, el := range arr {
+			if t, ok := firstExportsTarget(el); ok {
+				return t, true
+			}
+		}
 		return "", false
 	}
-	var pkg struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(data, &pkg); err != nil {
+	// Condition object — prefer "import", then "default", then first string.
+	var cond map[string]json.RawMessage
+	if err := json.Unmarshal(v, &cond); err == nil {
+		for _, pref := range []string{"import", "default"} {
+			if el, ok := cond[pref]; ok {
+				if t, ok := firstExportsTarget(el); ok {
+					return t, true
+				}
+			}
+		}
+		for _, el := range cond {
+			if t, ok := firstExportsTarget(el); ok {
+				return t, true
+			}
+		}
 		return "", false
 	}
-	return pkg.Name, true
+	return "", false
+}
+
+// normalizeExportsKey strips a leading "./" and converts to forward slashes.
+// The wildcard "*" is preserved. The bare "." key (package root) normalizes to "".
+// e.g. "./foo" → "foo", "./*" → "*", "." → "".
+func normalizeExportsKey(k string) string {
+	k = strings.TrimPrefix(k, "./")
+	if k == "." {
+		return ""
+	}
+	return filepath.ToSlash(k)
+}
+
+// normalizeExportsTarget strips a leading "./" and converts to forward slashes.
+// The wildcard "*" is preserved. Returns ("", false) for empty targets.
+func normalizeExportsTarget(t string) (string, bool) {
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return "", false
+	}
+	t = strings.TrimPrefix(t, "./")
+	return filepath.ToSlash(t), true
 }
 
 // Resolve maps an import string to the repo-relative container directory of the
@@ -225,6 +364,14 @@ func (r *Resolver) resolveLibAlias(imp string) (string, bool) {
 // scoped name including "@scope/"). A subpath is appended to the workspace dir
 // and resolved via resolveAbsSubpath.
 //
+// When the bare wsDir+subpath probe misses, the package's "exports" map (from
+// cfg.WorkspaceExports) is consulted: the subpath is matched against the exports
+// keys (exact, then "./*" wildcard), rewritten to the mapped target, and
+// resolveAbsSubpath is retried with the rewritten subpath. This honors subpath
+// redirects like {"./*":"./src/*"} that move source under src/ — the common
+// Astro/Vite monorepo layout where package.json lives at the package root but
+// source files live under src/.
+//
 // For a package-root import (no subpath), the mapped wsDir is only returned as
 // local when it is a known pkgDir or when resolveAbsSubpath finds an actual file
 // under it. If wsDir is not in pkgDirs and has no indexed files, this returns
@@ -253,11 +400,87 @@ func (r *Resolver) resolveWorkspaceAlias(imp string) (string, bool) {
 			return wsDir, true
 		}
 		// Fall through: try resolveAbsSubpath with empty subpath to probe for
-		// index files. If none found, return ("", false) → external vertex.
-		return r.resolveAbsSubpath(wsDir, "")
+		// index files. If none found, consult exports for the "" (root) key,
+		// then return ("", false) → external vertex.
+		if dir, ok := r.resolveAbsSubpath(wsDir, ""); ok {
+			return dir, true
+		}
+		return r.resolveViaExports(wsDir, pkgName, "")
 	}
 
-	return r.resolveAbsSubpath(wsDir, rest)
+	// Subpath import: try the bare wsDir+subpath probe first (preserves the
+	// pre-fix fast path for packages whose files live directly under wsDir).
+	if dir, ok := r.resolveAbsSubpath(wsDir, rest); ok {
+		return dir, true
+	}
+	// Miss — consult the package's exports map for a subpath rewrite.
+	return r.resolveViaExports(wsDir, pkgName, rest)
+}
+
+// resolveViaExports consults cfg.WorkspaceExports[pkgName] to rewrite the
+// subpath via the package's "exports" map, then re-probes with resolveAbsSubpath.
+// Returns ("", false) when the package has no exports, no key matches, or the
+// rewritten probe still misses. Callers fall through to external in that case.
+//
+// Matching: exact key match first (e.g. "foo" → "bar.ts"), then wildcard keys.
+// A wildcard key contains a single "*" (the only form Node allows); the rest of
+// the key is a literal prefix/suffix that the subpath must match. The captured
+// substring (everything between the prefix and suffix) is substituted for "*" in
+// the target. This covers both the {"./*":"./src/*"} idiom (key "*" → "src/*")
+// and the {".//components/*":"./src/components/*"} idiom (key "components/*" →
+// "src/components/*") used by @guide/ui. Multi-wildcard keys are not supported
+// (Node forbids them).
+func (r *Resolver) resolveViaExports(wsDir, pkgName, subpath string) (string, bool) {
+	exp := r.cfg.WorkspaceExports[pkgName]
+	if len(exp) == 0 {
+		return "", false
+	}
+	// Exact key match.
+	if target, ok := exp[subpath]; ok {
+		if dir, ok := r.resolveAbsSubpath(wsDir, target); ok {
+			return dir, true
+		}
+	}
+	// Wildcard keys. Iterate looking for a key containing "*" that the subpath
+	// matches. Map iteration order is non-deterministic, but wildcard keys in a
+	// single package.json are mutually non-overlapping in practice (Node
+	// resolution requires this); if two could match, the more specific one
+	// (longer literal prefix) wins.
+	var bestKey, bestTarget string
+	for key, target := range exp {
+		star := strings.IndexByte(key, '*')
+		if star < 0 {
+			continue // exact key, already tried above
+		}
+		prefix, suffix := key[:star], key[star+1:]
+		if !strings.HasPrefix(subpath, prefix) || !strings.HasSuffix(subpath, suffix) {
+			continue
+		}
+		if len(subpath) < len(prefix)+len(suffix) {
+			continue // subpath is shorter than prefix+suffix — nothing captured
+		}
+		// Prefer the longest literal prefix (most specific match). Guard the
+		// bestKey=="" case first to avoid slicing an empty key on the wildcard.
+		bestStar := strings.IndexByte(bestKey, '*')
+		bestPrefixLen := 0
+		if bestStar >= 0 {
+			bestPrefixLen = len(bestKey[:bestStar])
+		}
+		if bestKey == "" || len(prefix) > bestPrefixLen {
+			bestKey = key
+			bestTarget = target
+		}
+	}
+	if bestKey != "" {
+		star := strings.IndexByte(bestKey, '*')
+		prefix, suffix := bestKey[:star], bestKey[star+1:]
+		captured := subpath[len(prefix) : len(subpath)-len(suffix)]
+		rewritten := strings.ReplaceAll(bestTarget, "*", captured)
+		if dir, ok := r.resolveAbsSubpath(wsDir, rewritten); ok {
+			return dir, true
+		}
+	}
+	return "", false
 }
 
 // resolveAbsSubpath probes for "baseDir/subpath" using the same four-step
