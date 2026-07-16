@@ -29,12 +29,19 @@ type xmlRewriteResponse struct {
 }
 
 type xmlRewriteSummary struct {
-	Pattern      string           `xml:"pattern,attr"`
-	Replacement  string           `xml:"replacement,attr"`
-	TotalMatches int              `xml:"matches,attr"`
-	TotalFiles   int              `xml:"files,attr"`
-	DurationMS   int64            `xml:"duration_ms,attr"`
-	Files        []xmlRewriteFile `xml:"file"`
+	Pattern      string             `xml:"pattern,attr"`
+	Replacement  string             `xml:"replacement,attr"`
+	TotalMatches int                `xml:"matches,attr"`
+	TotalSkipped int                `xml:"skipped,attr,omitempty"`
+	TotalFiles   int                `xml:"files,attr"`
+	DurationMS   int64              `xml:"duration_ms,attr"`
+	Files        []xmlRewriteFile   `xml:"file"`
+	Rejected     []xmlRewriteReject `xml:"rejected,omitempty"`
+}
+
+type xmlRewriteReject struct {
+	File   string `xml:"file,attr"`
+	Reason string `xml:",chardata"`
 }
 
 type xmlRewriteFile struct {
@@ -114,14 +121,21 @@ func formatRewriteXML(input RewriteInput, result *oxcodes.RewriteResponse) xmlRe
 			files[i].Diff = &xmlCDATA{Inner: wrapCDATA(f.Diff)}
 		}
 	}
+	rejected := make([]xmlRewriteReject, len(result.Rejected))
+	for i, r := range result.Rejected {
+		rejected[i] = xmlRewriteReject{File: r.File, Reason: r.Reason}
+	}
+
 	return xmlRewriteResponse{
 		Rewrite: xmlRewriteSummary{
 			Pattern:      input.Pattern,
 			Replacement:  input.Rewrite,
 			TotalMatches: result.TotalMatches,
+			TotalSkipped: result.TotalSkipped,
 			TotalFiles:   result.TotalFiles,
 			DurationMS:   result.DurationMS,
 			Files:        files,
+			Rejected:     rejected,
 		},
 	}
 }
