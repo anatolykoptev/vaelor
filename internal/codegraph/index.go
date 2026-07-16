@@ -133,14 +133,10 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		slog.String("repo", root), slog.Int("files", len(allFiles)),
 		slog.Duration("elapsed", time.Since(t1)))
 
-	// Go-only IMPLEMENTS enrichment: tree-sitter cannot see structural interface
-	// satisfaction (no `implements` keyword), so allRels from ingestAndParse carries
-	// only embedding (INHERITS) edges for Go. Compute (type→interface) satisfaction
-	// via go/types and append it as RelImplements relationships, which flow through
-	// the same buildRelationshipEdges path as the tree-sitter rels. Non-fatal and
-	// bounded: on go.mod-absent / load-failure / timeout this returns nil and the
-	// find_duplicates filter degrades to its signature heuristic.
-	allRels = append(allRels, extractGoImplements(ctx, root)...)
+	// Go IMPLEMENTS enrichment now happens inside EnrichWithTypedResolution
+	// (the shared seam in callgraph/repo.go), so both call_trace and code_graph
+	// get IMPLEMENTS edges. The results are appended to cg.TypeRels by the seam;
+	// we merge them into allRels below after buildAGECallGraph returns. See #467.
 
 	t2 := time.Now()
 	cg := buildAGECallGraph(ctx, root, allSymbols, allCalls, allFiles)
@@ -155,11 +151,12 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		callgraph.InjectHookEdges(cg, hookRoutes)
 	}
 
-	// Unify IMPLEMENTS edges: extract IsInterface edges from the call graph
-	// (SCIP trait impl extraction) into TypeRelationship and append to allRels,
-	// then remove them from cg.Edges so they don't also appear as CALLS.
+	// Merge Go IMPLEMENTS edges from EnrichWithTypedResolution (now in cg.TypeRels)
+	// into allRels, then unify SCIP trait-impl edges from cg.Edges into allRels too,
+	// and remove them from cg.Edges so they don't also appear as CALLS.
 	// This ensures a single IMPLEMENTS edge construction path
-	// (buildRelationshipEdges) for both Go (extractGoImplements) and SCIP.
+	// (buildRelationshipEdges) for both Go (ExtractGoImplements) and SCIP.
+	allRels = append(allRels, cg.TypeRels...)
 	allRels = append(allRels, callEdgesToRels(cg)...)
 	cg.Edges = removeImplEdges(cg.Edges)
 
@@ -344,12 +341,12 @@ func typedEnrichEnabled() bool {
 // see TestAGEGraphMissesHomonymousPkgVarMethodCall) gets the same typed fix on
 // the indexing path that call_trace/impact_analysis already have.
 //
-// Bounded and non-fatal, mirroring extractGoImplements's degrade contract
-// (satisfaction.go:44-47): EnrichWithTypedResolution itself bounds the
+// Bounded and non-fatal, mirroring ExtractGoImplements's degrade contract
+// (callgraph/satisfaction.go): EnrichWithTypedResolution itself bounds the
 // go/types attempt to a 10s warm-path and degrades to the untyped graph
 // unchanged on any failure (no go.mod, cold GOCACHE, load timeout, load
 // error) — this wrapper adds no additional timeout, only the gate and the
-// landed/degraded counter. IMPLEMENTS (extractGoImplements) and CALLS (here)
+// landed/degraded counter. IMPLEMENTS (ExtractGoImplements) and CALLS (here)
 // resolve against the SAME root within goanalysis.CachedLoadPackages' TTL
 // window, so whichever runs first pays the go/packages load for the other
 // (satisfaction.go:15-28).
