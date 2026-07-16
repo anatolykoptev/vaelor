@@ -67,7 +67,7 @@ type ScopedSearchInput struct {
 type StructuralSearchInput struct {
 	Root        string `json:"root"`
 	Pattern     string `json:"pattern"`
-	Language    string `json:"language"`
+	Language    string `json:"language,omitempty"` // omit when empty; server rejects "" anyway
 	MaxResults  int    `json:"max_results"`
 	ExcludeGlob string `json:"exclude_glob,omitempty"`
 	Expand      string `json:"expand,omitempty"`
@@ -80,7 +80,7 @@ type RewriteInput struct {
 	Root        string `json:"root"`
 	Pattern     string `json:"pattern"`
 	Rewrite     string `json:"rewrite"`
-	Language    string `json:"language"`
+	Language    string `json:"language,omitempty"` // omit when empty; server rejects "" anyway
 	MaxResults  int    `json:"max_results"`
 	FileGlob    string `json:"file_glob,omitempty"`
 	ExcludeGlob string `json:"exclude_glob,omitempty"`
