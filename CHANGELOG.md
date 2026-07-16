@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.36.0](https://github.com/anatolykoptev/go-code/compare/v1.35.2...v1.36.0) (2026-07-16)
+
+
+### Added
+
+* **call_trace:** add refresh parameter to bypass in-memory cache ([#457](https://github.com/anatolykoptev/go-code/issues/457)) ([bc916a4](https://github.com/anatolykoptev/go-code/commit/bc916a47430ff31c83ecc2b2423eb19915467909))
+* **scip:** filter stdlib method calls from SCIP edges to reduce call_trace noise ([#456](https://github.com/anatolykoptev/go-code/issues/456)) ([99feb08](https://github.com/anatolykoptev/go-code/commit/99feb0839e52e922129cbc67cbec797feaca0c85))
+
+
+### Fixed
+
+* **scip:** use content hash instead of mtimes for CacheKey — no false misses on git checkout ([#458](https://github.com/anatolykoptev/go-code/issues/458)) ([5417846](https://github.com/anatolykoptev/go-code/commit/54178469dd2302a6444d0771a541eff9001f1a03))
+
 ## [1.35.2](https://github.com/anatolykoptev/go-code/compare/v1.35.1...v1.35.2) (2026-07-16)
 
 
