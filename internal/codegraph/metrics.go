@@ -71,6 +71,34 @@ func recordRerankBatch(outcome string) {
 	deadCodeRerankBatchTotal.WithLabelValues(outcome).Inc()
 }
 
+// deadCodeScoresPrunedTotal counts code_dead_code_scores rows pruned because
+// their function is no longer a current orphan in the live AGE graph (gained
+// an incoming CALLS edge, or was removed outright). Without this prune,
+// upsertDeadCodeScores is insert/update-only, so the table only ever grows
+// and code_health over-counts dead functions monotonically. Unlabeled to
+// avoid per-repo cardinality.
+var deadCodeScoresPrunedTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_dead_code_scores_pruned_total",
+		Help: "Total code_dead_code_scores rows pruned because their function is no longer a current orphan (or was removed).",
+	},
+)
+
+// deadCodeScorePruneAbortedTotal counts pruneStaleDeadCodeScores runs that
+// aborted FAIL CLOSED because an orphan vertex returned by the graph could not
+// be parsed (name or file empty) — the keep-set it would have produced cannot
+// be trusted, so no DELETE runs that round rather than risking a live orphan's
+// stored row being dropped. Should stay at 0 in steady state; a sustained
+// non-zero rate means orphan vertices are missing name/file properties and the
+// prune step is silently no-op'ing every run (never crashes — Non-fatal
+// contract — but is worth alerting on).
+var deadCodeScorePruneAbortedTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_dead_code_prune_aborted_total",
+		Help: "Count of dead_code prune runs aborted fail-closed because an orphan vertex could not be parsed (keep-set untrusted).",
+	},
+)
+
 // semanticDupCollapsedTotal counts duplicate file:symbol pairs that were
 // collapsed before reaching the caller. Two labels:
 //
