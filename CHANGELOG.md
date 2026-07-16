@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.37.2](https://github.com/anatolykoptev/go-code/compare/v1.37.1...v1.37.2) (2026-07-16)
+
+
+### Changed
+
+* **callgraph:** unified ingest→parse→build→enrich pipeline ([#463](https://github.com/anatolykoptev/go-code/issues/463)) ([#475](https://github.com/anatolykoptev/go-code/issues/475)) ([#478](https://github.com/anatolykoptev/go-code/issues/478)) ([2844f0f](https://github.com/anatolykoptev/go-code/commit/2844f0fe37104eb4007cc1fdcb63f2b0b541abcc))
+
 ## [1.37.1](https://github.com/anatolykoptev/go-code/compare/v1.37.0...v1.37.1) (2026-07-16)
 
 
