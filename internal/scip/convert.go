@@ -36,6 +36,16 @@ func ConvertToEdges(idx *Index) []goanalysis.TypedEdge {
 	for _, doc := range idx.Documents {
 		edges = append(edges, extractDocEdges(doc, defMap, funcRanges)...)
 	}
+
+	// Extract IMPLEMENTS edges from trait references (Rust trait dispatch).
+	// rust-analyzer does not populate Relationship.IsImplementation
+	// (https://github.com/sourcegraph/scip-rust/issues/16), so we use a
+	// proximity heuristic: for each reference to a Trait-kind symbol, find
+	// the nearest struct/type definition in the same file and emit an
+	// implements edge with IsInterface=true.
+	implEdges := extractImplEdges(idx.Documents, symTables, defMap)
+	edges = append(edges, implEdges...)
+
 	return edges
 }
 
@@ -205,4 +215,157 @@ func isFuncOcc(occ *sciplib.Occurrence, symLookup map[string]*sciplib.SymbolInfo
 		return isFuncKind(si.Kind)
 	}
 	return isFuncSymbol(occ.Symbol)
+}
+
+// maxImplProximityLines is the maximum line distance between a trait reference
+// and a struct/type definition in the same file for them to be considered an
+// implements relationship. Rust impl blocks are typically near the struct def,
+// but in separate impl files the struct may be defined earlier in the same file.
+const maxImplProximityLines = 200
+
+// extractImplEdges finds trait→struct implementation relationships by scanning
+// for references to Trait-kind symbols and matching them to the nearest
+// struct/type definition in the same file. This is needed because rust-analyzer's
+// SCIP output does not populate Relationship.IsImplementation.
+func extractImplEdges(docs []*sciplib.Document, symTables []map[string]*sciplib.SymbolInformation, defMap map[string]defInfo) []goanalysis.TypedEdge {
+	// Collect trait symbols (Kind == Trait).
+	traits := make(map[string]defInfo)
+	for i, doc := range docs {
+		for _, sym := range doc.Symbols {
+			if sym.Kind != sciplib.SymbolInformation_Trait {
+				continue
+			}
+			name := sym.DisplayName
+			if name == "" {
+				name = parseSymbolName(sym.Symbol)
+			}
+			line := uint32(0)
+			for _, occ := range doc.Occurrences {
+				if occ.Symbol == sym.Symbol && isDefinition(occ) && len(occ.Range) > 0 {
+					line = uint32(occ.Range[0]) + scipLineOffset
+					break
+				}
+			}
+			traits[sym.Symbol] = defInfo{
+				Name: name,
+				File: doc.RelativePath,
+				Line: line,
+				Pkg:  pkgFromSymbol(sym.Symbol),
+			}
+		}
+		_ = i // symTables index unused here
+	}
+	if len(traits) == 0 {
+		return nil
+	}
+
+	// Collect struct/type/class definitions per file with line numbers.
+	type typeDef struct {
+		Sym  string
+		Name string
+		Line uint32
+	}
+	typeDefsByFile := make(map[string][]typeDef)
+	for i, doc := range docs {
+		for _, sym := range doc.Symbols {
+			if sym.Kind != sciplib.SymbolInformation_Struct &&
+				sym.Kind != sciplib.SymbolInformation_Class &&
+				sym.Kind != sciplib.SymbolInformation_Type {
+				continue
+			}
+			if sciplib.IsLocalSymbol(sym.Symbol) {
+				continue
+			}
+			name := sym.DisplayName
+			if name == "" {
+				name = parseSymbolName(sym.Symbol)
+			}
+			for _, occ := range doc.Occurrences {
+				if occ.Symbol == sym.Symbol && isDefinition(occ) && len(occ.Range) > 0 {
+					td := typeDef{
+						Sym:  sym.Symbol,
+						Name: name,
+						Line: uint32(occ.Range[0]) + scipLineOffset,
+					}
+					typeDefsByFile[doc.RelativePath] = append(typeDefsByFile[doc.RelativePath], td)
+					break
+				}
+			}
+		}
+		_ = i
+	}
+	// Sort each file's type defs by line for efficient lookup.
+	for file := range typeDefsByFile {
+		sort.Slice(typeDefsByFile[file], func(i, j int) bool {
+			return typeDefsByFile[file][i].Line < typeDefsByFile[file][j].Line
+		})
+	}
+
+	// For each reference to a trait symbol, find the nearest struct/type def
+	// in the same file (within maxImplProximityLines) and emit an IMPLEMENTS edge.
+	type implKey struct {
+		traitSym string
+		implSym  string
+		file     string
+	}
+	seen := make(map[implKey]bool)
+	var edges []goanalysis.TypedEdge
+
+	for _, doc := range docs {
+		typeDefs := typeDefsByFile[doc.RelativePath]
+		if len(typeDefs) == 0 {
+			continue
+		}
+
+		for _, occ := range doc.Occurrences {
+			if isDefinition(occ) {
+				continue
+			}
+			traitInfo, isTrait := traits[occ.Symbol]
+			if !isTrait {
+				continue
+			}
+			if len(occ.Range) == 0 {
+				continue
+			}
+			traitLine := uint32(occ.Range[0]) + scipLineOffset
+
+			// Find the nearest type def at or before the trait reference line.
+			bestIdx := -1
+			bestDist := uint32(maxImplProximityLines + 1)
+			for i, td := range typeDefs {
+				if td.Line <= traitLine {
+					dist := traitLine - td.Line
+					if dist < bestDist {
+						bestDist = dist
+						bestIdx = i
+					}
+				}
+			}
+			if bestIdx < 0 || bestDist > maxImplProximityLines {
+				continue
+			}
+
+			implDef := typeDefs[bestIdx]
+			key := implKey{traitSym: occ.Symbol, implSym: implDef.Sym, file: doc.RelativePath}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			edges = append(edges, goanalysis.TypedEdge{
+				CallerName:   implDef.Name,
+				CallerFile:   doc.RelativePath,
+				CallerLine:   implDef.Line,
+				CalleeName:   traitInfo.Name,
+				CalleeFile:   traitInfo.File,
+				CalleePkg:    traitInfo.Pkg,
+				Line:         traitLine,
+				IsInterface:  true,
+				ReceiverType: implDef.Name,
+			})
+		}
+	}
+
+	return edges
 }
