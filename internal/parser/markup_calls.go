@@ -61,7 +61,7 @@ func scriptRegionCalls(path string, vs *preproc.VirtualSource) []CallSite {
 		return nil
 	}
 
-	root, closeTree, err := parseTree(caps.SitterLanguage, vs.Code)
+	root, closeTree, err := parseTree(caps.SitterLanguage, vs.Code, nil)
 	if err != nil {
 		return nil
 	}
@@ -98,7 +98,7 @@ func markupExprReparse(path string, vs *preproc.VirtualSource) []CallSite {
 		return nil
 	}
 
-	root, closeTree, err := parseTree(lang, vs.Code)
+	root, closeTree, err := parseTree(lang, vs.Code, nil)
 	if err != nil {
 		return nil
 	}

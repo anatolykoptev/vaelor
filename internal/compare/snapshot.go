@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	xxhash "github.com/cespare/xxhash/v2"
+	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
 	"github.com/anatolykoptev/go-code/internal/goutil"
@@ -117,11 +118,13 @@ func parseSnapshotFiles(ctx context.Context, files []*ingest.File, parseCache *c
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ps := sitter.NewParser()
+			defer ps.Close()
 			for idx := range work {
 				if ctx.Err() != nil {
 					return
 				}
-				results[idx] = parseSnapshotFile(files[idx], parseCache)
+				results[idx] = parseSnapshotFile(files[idx], parseCache, ps)
 			}
 		}()
 	}
@@ -137,7 +140,7 @@ const (
 
 // parseSnapshotFile reads and parses a single file. Failures are non-fatal:
 // the result field remains nil and lines is zero.
-func parseSnapshotFile(file *ingest.File, parseCache *cache.ParseCache) snapshotParseResult {
+func parseSnapshotFile(file *ingest.File, parseCache *cache.ParseCache, ps *sitter.Parser) snapshotParseResult {
 	modTime := file.ModTime.UnixNano()
 
 	if parseCache != nil {
@@ -153,6 +156,7 @@ func parseSnapshotFile(file *ingest.File, parseCache *cache.ParseCache) snapshot
 
 	pr, err := parser.ParseFile(file.Path, source, parser.ParseOpts{
 		Language:        file.Language,
+		Parser:          ps,
 		IncludeBody:     snapshotIncludeBody,
 		IncludeImports:  true,
 		IncludeTypeRels: snapshotIncludeTypeRels,

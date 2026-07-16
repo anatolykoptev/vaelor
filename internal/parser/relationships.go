@@ -45,7 +45,7 @@ func ExtractRelationships(path string, source []byte, opts ParseOpts) ([]TypeRel
 		return nil, nil
 	}
 
-	root, closeTree, err := parseTree(caps.SitterLanguage, source)
+	root, closeTree, err := parseTree(caps.SitterLanguage, source, opts.Parser)
 	if err != nil {
 		return nil, err
 	}
