@@ -166,6 +166,10 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 			defer buildingRepos.Delete(repoKey)
 			bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer bgCancel()
+			// Memory watchdog: polls /proc/pressure/memory every 10s and cancels
+			// the build context if the host enters memory pressure during the
+			// build (second line of defense after the pre-build gate in IndexRepo).
+			go codegraph.MemGuardWatchdog(bgCtx, bgCancel)
 			if bgMeta, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
 				recordCodeGraphBuildFailure(err)
 				slog.Warn("code_graph: background index failed",

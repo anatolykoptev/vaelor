@@ -77,6 +77,19 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	gname := repoKey
 	t0 := time.Now()
 
+	// Memory guard: refuse to build if the host is under memory pressure.
+	// Prevents OOM-kill cascade on resource-constrained boxes (issue #428).
+	// On non-Linux or when /proc is unavailable, this is a no-op.
+	if memSt := CheckMemoryPressure(); !memSt.Sufficient {
+		buildStatus := "memguard_refused"
+		recordGraphBuild(repoKey, buildStatus)
+		slog.Warn("codegraph: IndexRepo refused by memory guard",
+			slog.String("repo", root), slog.String("reason", memSt.Reason),
+			slog.Uint64("available_bytes", memSt.AvailableBytes),
+			slog.Float64("psi_avg10", memSt.PSIAvg10))
+		return nil, fmt.Errorf("graph build skipped: %s", memSt.Reason)
+	}
+
 	// Deferred outcome recorder: bumps graphBuildTotal{repo, status} exactly once
 	// per return path.  The variable is set to "error" by default and overridden to
 	// "skip" (cache-fresh) or "ok" (successful build+persist) at the appropriate
