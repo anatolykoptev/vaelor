@@ -80,6 +80,7 @@ type CallTraceInput struct {
 	Compact   bool   `json:"compact,omitempty" jsonschema_description:"When true, return only the call tree without LLM narrative (faster, fewer tokens)"`
 
 	FieldAccess bool `json:"field_access,omitempty" jsonschema_description:"When true, include heuristic argument-reference call sites (struct field accesses, identifier args) as callees even when they don't resolve to a known function — legacy permissive behaviour. Default false: only true call expressions and resolved function references are reported."`
+	Refresh     bool `json:"refresh,omitempty" jsonschema_description:"When true, bypass the in-memory call graph cache and force a full re-parse with SCIP/go/types enrichment. Use after git checkout or new commits when the cache is stale. Slower but fresh."`
 }
 
 type callTraceOutput struct {
@@ -158,7 +159,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	// Falls back to BuildFromRepo (tree-sitter parse) if the graph is absent,
 	// the symbol is not found, or the AGE query fails for any reason.
 	var result *callgraph.TraceResult
-	if store != nil {
+	if store != nil && !input.Refresh {
 		graphName := codegraph.GraphNameFor(root)
 		if ageResult, ageErr := codegraph.TraceFromAGE(ctx, store, graphName, input.Symbol, direction, depth); ageErr == nil && ageResult != nil && ageResult.Root != nil {
 			slog.Debug("call_trace: using AGE graph (fast path)",
@@ -178,6 +179,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 			Focus:              input.Focus,
 			Language:           input.Language,
 			IncludeFieldAccess: input.FieldAccess,
+			Refresh:            input.Refresh,
 			Opts: callgraph.TraceOpts{
 				Direction: direction,
 				MaxDepth:  depth,
