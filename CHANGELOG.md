@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.1](https://github.com/anatolykoptev/go-code/compare/v1.35.0...v1.35.1) (2026-07-16)
+
+
+### Fixed
+
+* **codegraph:** emit IMPLEMENTS edge label for IsInterface call edges ([#447](https://github.com/anatolykoptev/go-code/issues/447)) ([1ab0d54](https://github.com/anatolykoptev/go-code/commit/1ab0d5439471261e5dae0d3288d985d67369b567))
+
 ## [1.35.0](https://github.com/anatolykoptev/go-code/compare/v1.34.1...v1.35.0) (2026-07-16)
 
 
