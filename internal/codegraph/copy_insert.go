@@ -16,6 +16,14 @@ type labelInfo struct {
 	SeqName string
 }
 
+// copyChunkSize is the maximum number of rows per single COPY FROM STDIN call.
+// Each COPY is a single transaction in postgres — the entire buffer is
+// materialised in postgres memory before commit. Chunking bounds the peak
+// postgres working set so a 10K-vertex repo doesn't load 10K rows into WAL
+// buffers at once. 1000 rows x ~200 bytes/row ~ 200KB per COPY — well under
+// the 2GB postgres cgroup even with concurrent AGE overhead.
+const copyChunkSize = 1000
+
 // BulkCopyInsert inserts all vertices and edges directly into AGE's internal
 // PostgreSQL tables using text-format COPY FROM STDIN — bypassing the Cypher
 // parser and executor entirely.
@@ -88,24 +96,31 @@ func (s *Store) BulkCopyInsert(ctx context.Context, gname string, vertices []ver
 		}
 	}
 
-	// COPY vertices — one COPY FROM STDIN per label.
+	// COPY vertices — chunked per label to bound postgres memory.
+	// Each chunk is a separate COPY (transaction), so postgres commits and
+	// releases WAL buffers between chunks instead of accumulating the full
+	// label in one transaction.
 	totalVertices := 0
 	pgConn := conn.Conn().PgConn()
 	for label, group := range vertexGroups {
-		var buf bytes.Buffer
-		for _, row := range group {
-			props, err := agtypeJSON(row.v.Props)
-			if err != nil {
-				return fmt.Errorf("json props vertex %s: %w", label, err)
-			}
-			// copyEscape doubles backslashes so COPY text-format decoding
-			// yields the original JSON bytes to agtype_in.
-			props = copyEscape(props)
-			fmt.Fprintf(&buf, "%d\t%s\n", row.id, props)
-		}
 		sql := fmt.Sprintf(`COPY "%s"."%s" (id, properties) FROM STDIN (FORMAT text)`, gname, label)
-		if _, err := pgConn.CopyFrom(ctx, &buf, sql); err != nil {
-			return fmt.Errorf("copy vertices label=%s: %w", label, err)
+		for i := 0; i < len(group); i += copyChunkSize {
+			end := i + copyChunkSize
+			if end > len(group) {
+				end = len(group)
+			}
+			var buf bytes.Buffer
+			for _, row := range group[i:end] {
+				props, err := agtypeJSON(row.v.Props)
+				if err != nil {
+					return fmt.Errorf("json props vertex %s: %w", label, err)
+				}
+				props = copyEscape(props)
+				fmt.Fprintf(&buf, "%d\t%s\n", row.id, props)
+			}
+			if _, err := pgConn.CopyFrom(ctx, &buf, sql); err != nil {
+				return fmt.Errorf("copy vertices label=%s chunk [%d:%d]: %w", label, i, end, err)
+			}
 		}
 		totalVertices += len(group)
 	}
@@ -131,10 +146,15 @@ func (s *Store) BulkCopyInsert(ctx context.Context, gname string, vertices []ver
 			continue
 		}
 
-		var buf bytes.Buffer
 		seq := uint64(0)
 		skipped := 0
 
+		// First pass: resolve endpoint IDs and build resolved edge list.
+		type resolvedEdge struct {
+			edgeID, fromID, toID uint64
+			props                string
+		}
+		var resolved []resolvedEdge
 		for _, e := range group {
 			fromID, ok1 := vertexIndex[e.FromLabel][e.FromKey]
 			toID, ok2 := vertexIndex[e.ToLabel][e.ToKey]
@@ -150,20 +170,31 @@ func (s *Store) BulkCopyInsert(ctx context.Context, gname string, vertices []ver
 					props = copyEscape(j)
 				}
 			}
-			fmt.Fprintf(&buf, "%d\t%d\t%d\t%s\n", edgeID, fromID, toID, props)
+			resolved = append(resolved, resolvedEdge{edgeID, fromID, toID, props})
 		}
 
 		if skipped > 0 {
 			slog.Debug("codegraph copy: dangling edges skipped",
 				slog.String("label", edgeLabel), slog.Int("count", skipped))
 		}
-		if seq == 0 {
+		if len(resolved) == 0 {
 			continue
 		}
 
+		// Chunked COPY — each chunk is a separate transaction.
 		sql := fmt.Sprintf(`COPY "%s"."%s" (id, start_id, end_id, properties) FROM STDIN (FORMAT text)`, gname, edgeLabel)
-		if _, err := pgConn.CopyFrom(ctx, &buf, sql); err != nil {
-			return fmt.Errorf("copy edges label=%s: %w", edgeLabel, err)
+		for i := 0; i < len(resolved); i += copyChunkSize {
+			end := i + copyChunkSize
+			if end > len(resolved) {
+				end = len(resolved)
+			}
+			var buf bytes.Buffer
+			for _, re := range resolved[i:end] {
+				fmt.Fprintf(&buf, "%d\t%d\t%d\t%s\n", re.edgeID, re.fromID, re.toID, re.props)
+			}
+			if _, err := pgConn.CopyFrom(ctx, &buf, sql); err != nil {
+				return fmt.Errorf("copy edges label=%s chunk [%d:%d]: %w", edgeLabel, i, end, err)
+			}
 		}
 		labelSeqs[edgeLabel] = seq
 		totalEdges += int(seq)
