@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -114,7 +116,7 @@ func normalizeCallTraceDirection(direction string) string {
 }
 
 // registerCallTrace registers the call_trace MCP tool.
-func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
+func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps, store *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -126,11 +128,11 @@ func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *S
 			"Type-aware for Go repos: resolves interface calls to concrete implementations via go/types. " +
 			"Suggests semantically similar symbols when the target is not found.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CallTraceInput) (*mcp.CallToolResult, error) {
-		return handleCallTrace(ctx, input, deps, sem, outputDir)
+		return handleCallTrace(ctx, input, deps, sem, outputDir, store)
 	})
 }
 
-func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, sem *SemanticDeps, outputDir string) (*mcp.CallToolResult, error) {
+func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Deps, sem *SemanticDeps, outputDir string, store *codegraph.Store) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
@@ -151,21 +153,41 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 
 	direction := normalizeCallTraceDirection(input.Direction)
 
-	result, err := callgraph.TraceRepo(ctx, callgraph.TraceRepoInput{
-		Root:               root,
-		Symbol:             input.Symbol,
-		Focus:              input.Focus,
-		Language:           input.Language,
-		IncludeFieldAccess: input.FieldAccess,
-		Opts: callgraph.TraceOpts{
-			Direction: direction,
-			MaxDepth:  depth,
-			CrossRefs: deps.Refs,
-			Repo:      root,
-		},
-	})
-	if err != nil {
-		return errResult(fmt.Sprintf("trace: %s", err)), nil
+	// Fast path: try AGE graph first (avoids 2-60s repo reparse on cache miss).
+	// The AGE graph already contains CALLS edges from the last IndexRepo build.
+	// Falls back to BuildFromRepo (tree-sitter parse) if the graph is absent,
+	// the symbol is not found, or the AGE query fails for any reason.
+	var result *callgraph.TraceResult
+	if store != nil {
+		graphName := codegraph.GraphNameFor(root)
+		if ageResult, ageErr := codegraph.TraceFromAGE(ctx, store, graphName, input.Symbol, direction, depth); ageErr == nil && ageResult != nil && ageResult.Root != nil {
+			slog.Debug("call_trace: using AGE graph (fast path)",
+				slog.String("symbol", input.Symbol),
+				slog.String("direction", direction),
+				slog.Int("nodes", ageResult.TotalNodes))
+			result = ageResult
+		}
+	}
+
+	// Fallback: full repo parse via tree-sitter (slower but more accurate —
+	// includes go/types interface resolution, SCIP, cross-language refs).
+	if result == nil || result.Root == nil {
+		result, err = callgraph.TraceRepo(ctx, callgraph.TraceRepoInput{
+			Root:               root,
+			Symbol:             input.Symbol,
+			Focus:              input.Focus,
+			Language:           input.Language,
+			IncludeFieldAccess: input.FieldAccess,
+			Opts: callgraph.TraceOpts{
+				Direction: direction,
+				MaxDepth:  depth,
+				CrossRefs: deps.Refs,
+				Repo:      root,
+			},
+		})
+		if err != nil {
+			return errResult(fmt.Sprintf("trace: %s", err)), nil
+		}
 	}
 
 	if result.Root == nil {
