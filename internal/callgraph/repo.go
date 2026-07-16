@@ -188,6 +188,16 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 			cg.Tier = "enhanced"
 			cg.Backend = BackendGoTypes
 		}
+
+		// Go IMPLEMENTS enrichment: tree-sitter cannot see structural interface
+		// satisfaction (no `implements` keyword), so cg.TypeRels from parsing
+		// carries only embedding (INHERITS) edges for Go. Compute (type→interface)
+		// satisfaction via go/types and append it as RelImplements relationships.
+		// Both call_trace (via BuildFromRepo) and code_graph (via
+		// buildAGECallGraph) call this seam, so both get IMPLEMENTS edges now.
+		// Non-fatal and bounded: on go.mod-absent / load-failure / timeout this
+		// returns nil. See issue #467.
+		cg.TypeRels = append(cg.TypeRels, ExtractGoImplements(ctx, root)...)
 	}
 
 	// Attempt SCIP resolution for non-Go languages (or when go/types failed).
@@ -207,7 +217,7 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 // graph. On failure, bumps gocode_callgraph_gotypes_fallback_total{reason}
 // so the degradation rate is visible without requiring operators to grep
 // logs. Routes through goanalysis.CachedLoadPackages so a load already
-// warmed by extractGoImplements (IMPLEMENTS, codegraph/satisfaction.go)
+// warmed by ExtractGoImplements (IMPLEMENTS, callgraph/satisfaction.go)
 // against the same root within the cache TTL is reused here instead of
 // re-run.
 func tryGoTypesResolution(ctx context.Context, root string, tsSymbols []*parser.Symbol) *CallGraph {

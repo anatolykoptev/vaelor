@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -93,9 +94,9 @@ func TestImplementsEdgeKeysMatchSymbolGraph(t *testing.T) {
 
 	// Real index path: go/types satisfaction → TypeRelationship with an ABSOLUTE
 	// FileSet TypeFile (not a synthetic literal).
-	rels := extractGoImplements(context.Background(), root)
+	rels := callgraph.ExtractGoImplements(context.Background(), root)
 	if len(rels) == 0 {
-		t.Fatal("extractGoImplements produced no IMPLEMENTS relationships (go/types load failed or found no satisfaction)")
+		t.Fatal("callgraph.ExtractGoImplements produced no IMPLEMENTS relationships (go/types load failed or found no satisfaction)")
 	}
 	// Sanity: every subject's File must be an ABSOLUTE path (proves we are
 	// exercising the go/types-abs → relPath transform, not a pre-relativized one).
