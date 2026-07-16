@@ -115,6 +115,13 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	// degrade contract; it is the single shared seam for typed enrichment.
 	cg = EnrichWithTypedResolution(ctx, input.Root, cg, allSymbols, ir.Files)
 
+	// Filter stdlib method calls (clone, unwrap, to_string, iter, …) that
+	// tree-sitter captures as unresolved "external" nodes. SCIP applies the
+	// same filter at conversion time (convert.go); this covers the
+	// tree-sitter-only path and any edges that survived enrichment unresolved.
+	// See issue #466.
+	cg.Edges = FilterStdlibCalls(cg.Edges)
+
 	// The seam bounds its go/types attempt to a 10s warm-path (fast when
 	// GOCACHE is already warm). If that didn't land — Backend still isn't
 	// BackendGoTypes — kick off a background goroutine that warms GOCACHE
