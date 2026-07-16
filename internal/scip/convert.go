@@ -160,6 +160,15 @@ func extractDocEdges(doc *sciplib.Document, defMap map[string]defInfo, funcRange
 			calleePkg = callee.Pkg
 		}
 
+		// Filter stdlib method calls (clone, unwrap, poll, etc.) that
+		// never resolve to project nodes and only pollute call traces
+		// with unresolved "external" nodes. Only filter when the callee
+		// is NOT in the definition map (i.e. truly external) — project
+		// methods with the same name as a stdlib method are kept.
+		if !inDef && isStdlibMethod(calleeName) {
+			continue
+		}
+
 		edges = append(edges, goanalysis.TypedEdge{
 			CallerName: caller.Name,
 			CallerFile: doc.RelativePath,
