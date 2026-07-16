@@ -30,6 +30,7 @@ func parseFilesParallel(ctx context.Context, files []*ingest.File) []parseResult
 			symbols: r.Result.Symbols,
 			calls:   r.Calls,
 			rels:    r.Result.TypeRels,
+			imports: r.Result.Imports,
 			src:     r.Raw,
 			fileRel: r.File.RelPath,
 			tplRefs: r.Result.TemplateRefs,
