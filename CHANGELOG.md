@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.33.0](https://github.com/anatolykoptev/go-code/compare/v1.32.3...v1.33.0) (2026-07-16)
+
+
+### Added
+
+* **call_trace:** fast path from AGE graph — avoid 2-60s repo reparse ([#434](https://github.com/anatolykoptev/go-code/issues/434)) ([e842112](https://github.com/anatolykoptev/go-code/commit/e842112f09098808ce4c5e23ca12987ad831ea34))
+
 ## [1.32.3](https://github.com/anatolykoptev/go-code/compare/v1.32.2...v1.32.3) (2026-07-16)
 
 
