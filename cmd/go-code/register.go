@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+
+	"github.com/prometheus/client_golang/prometheus"
 	"log/slog"
 	"os"
 	"time"
@@ -343,6 +345,11 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerDesignSearch(server, cfg, designDeps)
 	registerDebugInvestigate(server, cfg, deps)
 	registerFleetVersions(server, cfg, deps)
+
+	// Register ox-codes cache stats Prometheus collector (if ox-codes is configured).
+	if deps.OxCodes != nil {
+		prometheus.MustRegister(newOxCodesCollector(deps.OxCodes))
+	}
 	registerResolveFrame(server, cfg)
 	registerFileHealth(server, cfg, deps)
 	registerSuggestReviewers(server, cfg, deps)
