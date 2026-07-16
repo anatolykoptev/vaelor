@@ -302,7 +302,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	registerCodeCompare(server, cfg, deps, &semDeps, graphStore)
 	registerDepGraph(server, cfg, deps)
 	registerSymbolSearch(server, cfg, deps, &semDeps)
-	registerCallTrace(server, cfg, deps, &semDeps)
+	registerCallTrace(server, cfg, deps, &semDeps, graphStore)
 	registerImpact(server, cfg, deps, &semDeps)
 	registerDeadCode(server, cfg, deps, graphStore)
 	registerExplore(server, cfg, deps)
