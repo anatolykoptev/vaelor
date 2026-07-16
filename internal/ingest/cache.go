@@ -102,6 +102,12 @@ func cacheKey(root string, opts IngestOpts) string {
 
 // get returns a cached entry if it exists and is still valid (TTL not
 // expired AND content hash unchanged). Returns nil on miss.
+//
+// The returned *IngestResult has a FRESH Files slice (shallow copy of the
+// slice header + element pointers) so callers that mutate ir.Files (e.g.
+// AnalyzeForResearch's test-file filtering via ir.Files[:0] truncation)
+// don't corrupt the cached entry for subsequent callers. The []*File
+// elements themselves are shared (read-only), which is safe.
 func (c *ingestRepoCache) get(key string, root string) *IngestResult {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -127,10 +133,19 @@ func (c *ingestRepoCache) get(key string, root string) *IngestResult {
 	// Move to back of LRU (most recently used).
 	c.touch(key)
 
-	return e.result
+	// Return a shallow copy with a fresh Files slice so callers can
+	// truncate/append without corrupting the cached entry.
+	result := *e.result
+	result.Files = make([]*File, len(e.result.Files))
+	copy(result.Files, e.result.Files)
+	return &result
 }
 
 // put stores a new entry, evicting the least-recently-used if at capacity.
+//
+// The stored entry is a defensive copy (fresh Files slice) so the caller
+// can mutate the returned *IngestResult without corrupting the cache.
+// get() also copies on return, giving each caller its own slice.
 func (c *ingestRepoCache) put(key string, result *IngestResult, root string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -139,8 +154,15 @@ func (c *ingestRepoCache) put(key string, result *IngestResult, root string) {
 	// re-walking (until TTL expires).
 	hash := repoContentHash(root)
 
+	// Defensive copy: store an independent Files slice so the caller
+	// (who gets the same *IngestResult pointer from IngestRepo) can
+	// truncate/append without corrupting the cached entry.
+	stored := *result
+	stored.Files = make([]*File, len(result.Files))
+	copy(stored.Files, result.Files)
+
 	c.entries[key] = &ingestCacheEntry{
-		result:      result,
+		result:      &stored,
 		contentHash: hash,
 		validatedAt: time.Now(),
 		opts:        optsKey(IngestOpts{Root: root}), // opts baked into key
