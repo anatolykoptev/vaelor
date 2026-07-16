@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	sitter "github.com/smacker/go-tree-sitter"
+
 	"github.com/anatolykoptev/go-code/internal/parser/preproc"
 )
 
@@ -129,6 +131,11 @@ type ParseResult struct {
 type ParseOpts struct {
 	// Language overrides auto-detection.
 	Language string
+
+	// Parser is an optional tree-sitter parser to reuse. When non-nil, Parse
+	// will use it instead of creating a new parser. The caller retains
+	// ownership and must not use it concurrently.
+	Parser *sitter.Parser
 
 	// IncludeBody includes the full source text of each symbol.
 	IncludeBody bool
