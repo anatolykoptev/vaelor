@@ -433,8 +433,11 @@ var stdlibMethodNames = map[string]bool{
 	"tell":                     true,
 }
 
-// isStdlibMethod reports whether name is a known standard-library method
-// or builtin that should be filtered from SCIP call edges.
-func isStdlibMethod(name string) bool {
+// IsStdlibMethod reports whether name is a known standard-library method
+// or builtin that should be filtered from call edges. Shared between the
+// SCIP conversion path (internal/scip/convert.go) and the tree-sitter path
+// (internal/callgraph.FilterStdlibCalls) so both pipelines apply the same
+// stdlib noise filter — see issue #466.
+func IsStdlibMethod(name string) bool {
 	return stdlibMethodNames[name]
 }
