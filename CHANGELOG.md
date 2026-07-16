@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.0](https://github.com/anatolykoptev/go-code/compare/v1.31.11...v1.32.0) (2026-07-16)
+
+
+### Added
+
+* **importresolve:** stopgap virtual:* module resolution to defining package ([#423](https://github.com/anatolykoptev/go-code/issues/423)) ([#425](https://github.com/anatolykoptev/go-code/issues/425)) ([f24aff8](https://github.com/anatolykoptev/go-code/commit/f24aff86c6f543434617e179a9bae5975a92e864))
+
 ## [1.31.11](https://github.com/anatolykoptev/go-code/compare/v1.31.10...v1.31.11) (2026-07-16)
 
 
