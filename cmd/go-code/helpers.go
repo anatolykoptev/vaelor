@@ -222,12 +222,22 @@ func jsonMarshalResult(v any) *mcp.CallToolResult {
 // generateNarrative produces an LLM narrative from structured data.
 // Returns empty string on any error (non-fatal, including ErrLLMUnavailable from NoOp).
 // client must be non-nil; pass llm.NoOp{} when LLM is not configured.
+// narrativeTimeout caps the LLM narrative generation in generateNarrative.
+// Matches the codegraph package's narrativeTimeout — narrative is best-effort
+// and must not eat the tool's remaining timeout budget.
+const helpersNarrativeTimeout = 15 * time.Second
+
 func generateNarrative(ctx context.Context, client llm.Completer, systemPrompt string, data any, promptPrefix string) string {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return ""
 	}
-	narrative, err := client.Complete(ctx, systemPrompt, promptPrefix+string(dataJSON))
+	// Detach from the tool's context: narrative is best-effort. A slow LLM
+	// must not consume the remaining tool timeout budget — the caller's
+	// primary data is already assembled; narrative is enrichment.
+	narrCtx, cancel := context.WithTimeout(context.Background(), helpersNarrativeTimeout)
+	defer cancel()
+	narrative, err := client.Complete(narrCtx, systemPrompt, promptPrefix+string(dataJSON))
 	if err != nil {
 		return ""
 	}

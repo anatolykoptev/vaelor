@@ -62,10 +62,11 @@ type codeGraphStatusXML struct {
 
 // CodeGraphInput is the input schema for the code_graph tool.
 type CodeGraphInput struct {
-	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
-	Query    string `json:"query" jsonschema_description:"Natural language question about the code graph (e.g. 'who calls ParseFile?', 'what depends on package store?', 'find dead code')"`
-	Language string `json:"language,omitempty" jsonschema_description:"Limit graph to files of this language (e.g. go, python)"`
-	Refresh  bool   `json:"refresh,omitempty" jsonschema_description:"Force re-indexing of the graph even if cached"`
+	Repo      string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
+	Query     string `json:"query" jsonschema_description:"Natural language question about the code graph (e.g. 'who calls ParseFile?', 'what depends on package store?', 'find dead code')"`
+	Language  string `json:"language,omitempty" jsonschema_description:"Limit graph to files of this language (e.g. go, python)"`
+	Refresh   bool   `json:"refresh,omitempty" jsonschema_description:"Force re-indexing of the graph even if cached"`
+	Narrative *bool  `json:"narrative,omitempty" jsonschema_description:"Set to false to skip LLM narrative generation and return only raw graph rows + Cypher (faster, fewer tokens). Default: true"`
 }
 
 // registerCodeGraph registers the code_graph MCP tool.
@@ -188,7 +189,12 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	}
 	recordCodeGraphAge(codegraph.GraphNameFor(root), meta.BuiltAt)
 
-	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta)
+	narrativeEnabled := true
+	if input.Narrative != nil {
+		narrativeEnabled = *input.Narrative
+	}
+
+	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta, narrativeEnabled)
 	if err != nil {
 		return errResult(fmt.Sprintf("query graph: %s", err)), nil
 	}

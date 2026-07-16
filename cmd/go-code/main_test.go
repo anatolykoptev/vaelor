@@ -89,3 +89,40 @@ func TestToolTimeoutsSemanticSearch(t *testing.T) {
 		t.Errorf("toolTimeouts[\"semantic_search\"] = %v, want %v", d, want)
 	}
 }
+
+// TestToolTimeoutsCodeGraph asserts that code_graph has an explicit timeout
+// in the ToolTimeouts map (2026-07-16 fix).
+//
+// Rationale: code_graph was absent from ToolTimeouts, silently inheriting the
+// 90s harness default. On piter-now (1695 vertices) a Cypher query + LLM
+// narrative took 1m30s — exactly hitting the 90s ceiling, causing the MCP
+// client to drop the connection with Failed to connect even though the tool
+// had completed successfully server-side. 120s gives headroom for the Cypher
+// execution + LLM narrative generation on larger graphs.
+//
+// Anti-tautology: references the package-level toolTimeouts var. Fails if the
+// entry is removed or changed below 120s.
+func TestToolTimeoutsCodeGraph(t *testing.T) {
+	d, ok := toolTimeouts["code_graph"]
+	if !ok {
+		t.Fatal("toolTimeouts[\"code_graph\"] is missing — code_graph has no explicit deadline; " +
+			"see 2026-07-16: Cypher + narrative on 1695-vertex graph hit 90s default, MCP client dropped connection")
+	}
+	const min = 120 * time.Second
+	if d < min {
+		t.Errorf("toolTimeouts[\"code_graph\"] = %v, want >= %v", d, min)
+	}
+}
+
+// TestToolTimeoutsCallTrace asserts that call_trace has at least 90s timeout
+// (2026-07-16 fix: was 60s, not enough on cold cache parse + LLM narrative).
+func TestToolTimeoutsCallTrace(t *testing.T) {
+	d, ok := toolTimeouts["call_trace"]
+	if !ok {
+		t.Fatal("toolTimeouts[\"call_trace\"] is missing — call_trace has no explicit deadline")
+	}
+	const min = 90 * time.Second
+	if d < min {
+		t.Errorf("toolTimeouts[\"call_trace\"] = %v, want >= %v (cold cache parse + narrative)", d, min)
+	}
+}

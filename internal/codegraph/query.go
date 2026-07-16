@@ -41,7 +41,7 @@ type QueryResult struct {
 //  3. Freeform path: GenerateCypher + ExecCypher
 //  4. On freeform exec error: GenerateCypherWithRetry + retry ExecCypher
 //  5. LLM narrative (non-fatal, skipped when results are empty)
-func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query string, meta *GraphMeta) (*QueryResult, error) {
+func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query string, meta *GraphMeta, narrativeEnabled bool) (*QueryResult, error) {
 	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query)
 	if err != nil {
 		return nil, err
@@ -80,15 +80,21 @@ func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, grap
 		if preScored := store.LoadDeadCodeScores(ctx, meta.RepoKey, rows); preScored != nil {
 			rows = preScored
 			result.Results = rows
-			addNarrative(ctx, llmClient, result, rows, query, cypher)
+			if narrativeEnabled {
+				addNarrative(ctx, llmClient, result, rows, query, cypher)
+			}
 		} else {
 			// Fallback: live reranking (used on first query before build completes).
 			rows = RerankDeadCode(ctx, rows)
 			result.Results = rows
-			addNarrative(ctx, llmClient, result, rows, query, cypher)
+			if narrativeEnabled {
+				addNarrative(ctx, llmClient, result, rows, query, cypher)
+			}
 		}
 	default:
-		addNarrative(ctx, llmClient, result, rows, query, cypher)
+		if narrativeEnabled {
+			addNarrative(ctx, llmClient, result, rows, query, cypher)
+		}
 	}
 	return result, nil
 }

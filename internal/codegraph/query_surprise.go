@@ -7,10 +7,17 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
 )
+
+// narrativeTimeout caps the LLM narrative generation. Narrative is best-effort
+// enrichment — the graph query results are already available. A slow LLM
+// (cold model, rate limit, network) must not eat the tool's entire timeout
+// budget. 15s is generous for a short summary of ≤50 rows.
+const narrativeTimeout = 15 * time.Second
 
 // PostProcessSurprises scores raw cross-package edge rows and returns top-N
 // with a narrative summary. Input cols: fromName, fromFile, fromCommunity,
@@ -145,7 +152,12 @@ func addNarrative(ctx context.Context, llmClient llm.Completer, result *QueryRes
 		return
 	}
 	prompt := fmt.Sprintf("Question: %s\nCypher: %s\nResults:\n%s", query, cypher, string(rawJSON))
-	narrative, err := llmClient.Complete(ctx, prompts.SystemPromptGraphNarrative, prompt)
+	// Detach from the tool's context: narrative is best-effort and must not
+	// consume the remaining tool timeout budget. A slow LLM response is
+	// preferable to losing the graph query results entirely.
+	narrCtx, cancel := context.WithTimeout(context.Background(), narrativeTimeout)
+	defer cancel()
+	narrative, err := llmClient.Complete(narrCtx, prompts.SystemPromptGraphNarrative, prompt)
 	if err == nil {
 		result.Narrative = narrative + truncationNote
 	} else {

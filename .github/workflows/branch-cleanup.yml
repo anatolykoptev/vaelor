@@ -1,0 +1,91 @@
+name: branch-cleanup
+
+# Daily cleanup of merged branches and stale release-please PRs.
+# Prevents the 114-stale-branch accumulation seen on 2026-07-16.
+# Safe: only deletes branches whose associated PR was merged, and
+# only closes release-please PRs when a newer one exists.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'  # daily 06:17 UTC (off-peak, avoids round-minute GH load)
+  workflow_dispatch:
+
+permissions:
+  contents: write   # delete branches
+  pull-requests: write  # close stale release-please PRs
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // --- 1. Delete merged branches ---
+            // List all branches, find ones whose commit has a merged PR, delete them.
+            // Skips: main, release-please--* (managed by release-please-action).
+            let deleted = 0;
+            let kept = 0;
+            const branches = await github.rest.repos.listBranches({
+              owner, repo, per_page: 100
+            });
+            for (const b of branches.data) {
+              if (b.name === 'main' || b.name.startsWith('release-please--')) {
+                kept++;
+                continue;
+              }
+              // Check if this branch's commit is associated with a merged PR.
+              try {
+                const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner, repo, commit_sha: b.commit.sha
+                });
+                const merged = prs.find(pr => pr.merged_at !== null);
+                if (merged) {
+                  await github.rest.git.deleteRef({
+                    owner, repo, ref: `heads/${b.name}`
+                  });
+                  core.info(`Deleted merged branch: ${b.name} (PR #${merged.number})`);
+                  deleted++;
+                } else {
+                  kept++;
+                }
+              } catch (e) {
+                if (e.status === 404) {
+                  // No PR associated — orphaned branch, skip (don't auto-delete without PR).
+                  kept++;
+                } else {
+                  core.warning(`Could not check branch ${b.name}: ${e.message}`);
+                  kept++;
+                }
+              }
+            }
+            core.info(`Branch cleanup: deleted=${deleted}, kept=${kept}`);
+
+            // --- 2. Close stale release-please PRs ---
+            // If more than one release-please PR is open, close all but the newest.
+            // release-please opens a new PR on each main push; old ones become stale.
+            const prs = await github.rest.pulls.list({
+              owner, repo, state: 'open', per_page: 100
+            });
+            const rpPRs = prs.data.filter(pr =>
+              pr.head.ref.startsWith('release-please--') ||
+              pr.title.startsWith('chore(main): release ')
+            );
+            if (rpPRs.length > 1) {
+              // Sort by created_at ascending (oldest first).
+              rpPRs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+              // Close all but the newest.
+              for (const pr of rpPRs.slice(0, -1)) {
+                await github.rest.pulls.update({
+                  owner, repo, pull_number: pr.number, state: 'closed'
+                });
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: pr.number,
+                  body: 'Closed by branch-cleanup: a newer release-please PR exists.'
+                });
+                core.info(`Closed stale release-please PR #${pr.number}`);
+              }
+            }
