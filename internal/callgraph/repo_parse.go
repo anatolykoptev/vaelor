@@ -3,44 +3,39 @@ package callgraph
 import (
 	"context"
 	"os"
-	"runtime"
-	"sync"
 
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-code/internal/routes"
 )
 
+// parseFilesParallel reads and parses all files concurrently via the shared
+// ingest.ParseFilesParallel, then adapts the results into parseResult (which
+// carries the raw source bytes needed for template-ref resolution and
+// buildUsesIndex). See issue #469.
 func parseFilesParallel(ctx context.Context, files []*ingest.File) []parseResult {
-	results := make([]parseResult, len(files))
+	results := ingest.ParseFilesParallel(ctx, files, parser.ParseOpts{
+		IncludeBody:     true,
+		IncludeImports:  true,
+		IncludeTypeRels: true,
+	}, nil)
 
-	workers := runtime.NumCPU()
-	if workers < 1 {
-		workers = 1
+	out := make([]parseResult, len(results))
+	for i, r := range results {
+		if r.Err != nil || r.Result == nil {
+			out[i] = parseResult{}
+			continue
+		}
+		out[i] = parseResult{
+			symbols: r.Result.Symbols,
+			calls:   r.Calls,
+			rels:    r.Result.TypeRels,
+			src:     r.Raw,
+			fileRel: r.File.RelPath,
+			tplRefs: r.Result.TemplateRefs,
+		}
 	}
-
-	work := make(chan int, len(files))
-	for i := range files {
-		work <- i
-	}
-	close(work)
-
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range work {
-				if ctx.Err() != nil {
-					return
-				}
-				results[idx] = parseFileForCalls(files[idx])
-			}
-		}()
-	}
-
-	wg.Wait()
-	return results
+	return out
 }
 
 // extractHookRoutes collects WordPress hook routes from PHP files.
@@ -68,34 +63,4 @@ func extractHookRoutes(files []*ingest.File) []HookRoute {
 		}
 	}
 	return out
-}
-
-func parseFileForCalls(file *ingest.File) parseResult {
-	source, err := os.ReadFile(file.Path)
-	if err != nil {
-		return parseResult{}
-	}
-
-	opts := parser.ParseOpts{
-		Language:        file.Language,
-		IncludeBody:     true,
-		IncludeImports:  true,
-		IncludeTypeRels: true,
-	}
-
-	// Single parse for symbols+calls instead of ParseFile + ExtractCalls (issue #400).
-	pr, calls, err := parser.ParseFileWithCalls(file.Path, source, opts)
-	if err != nil {
-		return parseResult{}
-	}
-	rels := pr.TypeRels
-
-	return parseResult{
-		symbols: pr.Symbols,
-		calls:   calls,
-		rels:    rels,
-		src:     source,
-		fileRel: file.RelPath,
-		tplRefs: pr.TemplateRefs,
-	}
 }
