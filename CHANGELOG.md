@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.37.1](https://github.com/anatolykoptev/go-code/compare/v1.37.0...v1.37.1) (2026-07-16)
+
+
+### Fixed
+
+* **callgraph:** apply stdlib filter to tree-sitter path, not just SCIP ([#466](https://github.com/anatolykoptev/go-code/issues/466)) ([#470](https://github.com/anatolykoptev/go-code/issues/470)) ([72984c1](https://github.com/anatolykoptev/go-code/commit/72984c183e02c3c0147dd9b9b084d11d0803284d))
+* **ingest:** defensive copy in IngestRepo cache to prevent aliasing ([#477](https://github.com/anatolykoptev/go-code/issues/477)) ([9e3378f](https://github.com/anatolykoptev/go-code/commit/9e3378faff0887ec6955d0971a8c441624689aab))
+
+
+### Performance
+
+* **ingest:** process-level IngestRepo cache to eliminate redundant walks ([#464](https://github.com/anatolykoptev/go-code/issues/464)) ([#474](https://github.com/anatolykoptev/go-code/issues/474)) ([1256d34](https://github.com/anatolykoptev/go-code/commit/1256d34ab2ee9b6e443b3955aa7ac247924528c2))
+* **scip:** parallelize multi-language SCIP indexing ([#465](https://github.com/anatolykoptev/go-code/issues/465)) ([#471](https://github.com/anatolykoptev/go-code/issues/471)) ([03cad27](https://github.com/anatolykoptev/go-code/commit/03cad27d5bb472b3c17cb90a279e9565bd0a6c53))
+
+
+### Changed
+
+* **callgraph:** move extractGoImplements into EnrichWithTypedResolution ([#467](https://github.com/anatolykoptev/go-code/issues/467)) ([#472](https://github.com/anatolykoptev/go-code/issues/472)) ([896f4b7](https://github.com/anatolykoptev/go-code/commit/896f4b7817db3d2903aa255e9028c5cde06bd715))
+* **ingest:** unify parseFilesParallel into shared ingest.ParseFilesParallel ([#469](https://github.com/anatolykoptev/go-code/issues/469)) ([#473](https://github.com/anatolykoptev/go-code/issues/473)) ([0f06050](https://github.com/anatolykoptev/go-code/commit/0f060506f86b7870ae23974d8daa1f624e3f1344))
+
 ## [1.37.0](https://github.com/anatolykoptev/go-code/compare/v1.36.0...v1.37.0) (2026-07-16)
 
 
