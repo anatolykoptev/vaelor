@@ -2,7 +2,6 @@ package callgraph
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -59,13 +58,18 @@ type parseResult struct {
 	symbols []*parser.Symbol
 	calls   []parser.CallSite
 	rels    []parser.TypeRelationship
-	src     []byte // raw file bytes, needed for template-ref resolution
-	fileRel string // file path relative to repo root
+	imports []string // import paths declared in the file
+	src     []byte   // raw file bytes, needed for template-ref resolution
+	fileRel string   // file path relative to repo root
 	tplRefs []preproc.TemplateRef
 }
 
 // BuildFromRepo ingests a repo, parses files, and returns the call graph
 // without tracing a specific symbol.
+//
+// Delegates to BuildAndEnrich (the unified pipeline, issue #463) and caches
+// the result. The background go/types warm-up is kept here because it is
+// call_trace-specific (it targets the cgCache entry, not the pipeline result).
 func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error) {
 	// Check cache first — parsing all repo files is expensive (15-60s on cold start).
 	cacheKey := cgCacheKey(input)
@@ -76,44 +80,18 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 		}
 	}
 
-	var langs []string
-	if input.Language != "" {
-		langs = []string{input.Language}
-	}
-
-	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
-		Root:         input.Root,
-		Focus:        input.Focus,
-		Languages:    langs,
-		MaxFileBytes: maxFileBytes,
+	result, err := BuildAndEnrich(ctx, PipelineOpts{
+		Root:               input.Root,
+		Focus:              input.Focus,
+		Language:           input.Language,
+		IncludeFieldAccess: input.IncludeFieldAccess,
+		MaxFileBytes:       maxFileBytes,
+		TypedEnrich:        true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ingest: %w", err)
+		return nil, err
 	}
-
-	results := parseFilesParallel(ctx, ir.Files)
-
-	var allSymbols []*parser.Symbol
-	var allCalls []parser.CallSite
-	var allRels []parser.TypeRelationship
-	for _, r := range results {
-		allSymbols = append(allSymbols, r.symbols...)
-		allCalls = append(allCalls, r.calls...)
-		allRels = append(allRels, r.rels...)
-	}
-
-	cg := BuildCallGraphWithOpts(allSymbols, allCalls, BuildOpts{
-		IncludeFieldAccess: input.IncludeFieldAccess,
-	})
-	cg.TypeRels = allRels
-	cg.Tier = "basic"
-	cg.Backend = BackendTreeSitter
-
-	// Attempt go/types resolution for Go modules, falling back to SCIP for
-	// non-Go languages (or when go/types made no progress) — both purely
-	// additive. See EnrichWithTypedResolution for the composition order and
-	// degrade contract; it is the single shared seam for typed enrichment.
-	cg = EnrichWithTypedResolution(ctx, input.Root, cg, allSymbols, ir.Files)
+	cg := result.CG
 
 	// Filter stdlib method calls (clone, unwrap, to_string, iter, …) that
 	// tree-sitter captures as unresolved "external" nodes. SCIP applies the
@@ -129,17 +107,8 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	// impact_analysis against this root will complete in <10s instead of
 	// 3+ minutes).
 	if goanalysis.HasGoModule(input.Root) && cg.Backend != BackendGoTypes {
-		go warmGoTypesCache(input.Root, allSymbols, cgCacheKey(input))
+		go warmGoTypesCache(input.Root, result.Symbols, cgCacheKey(input))
 	}
-
-	// Inject WordPress hook edges for PHP files.
-	hookRoutes := extractHookRoutes(ir.Files)
-	if len(hookRoutes) > 0 {
-		InjectHookEdges(cg, hookRoutes)
-	}
-
-	// Populate UsesIndex from Astro template component references.
-	cg.UsesIndex = buildUsesIndex(results, input.Root)
 
 	// Cache the result for subsequent calls within the same session.
 	cgCache.set(cacheKey, cg)
