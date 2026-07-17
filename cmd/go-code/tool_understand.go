@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compound"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -26,6 +27,10 @@ type UnderstandInput struct {
 	IncludeCallers bool   `json:"include_callers,omitempty" jsonschema_description:"Include who calls this symbol (default: false)"`
 	FieldAccess    bool   `json:"field_access,omitempty" jsonschema_description:"When true, include heuristic argument-reference call sites (struct field accesses, identifier args) as callees even when they don't resolve to a known function — legacy permissive behaviour. Default false: only true call expressions and resolved function references are reported."`
 }
+
+// understandBuildFromRepo is the production seam for callgraph.BuildFromRepo;
+// handler-level tests can override it to avoid heavy parsing.
+var understandBuildFromRepo = callgraph.BuildFromRepo
 
 func registerUnderstand(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps, graphStore *codegraph.Store) {
 	mcpserver.AddTool(server, &mcp.Tool{
@@ -57,7 +62,20 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 
 	t0 := time.Now()
 
-	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
+	// Remote repos only: avoid a synchronous full repo parse when the AGE call
+	// graph is not yet built. Start a background build and return a building
+	// status; the caller can retry once the graph is fresh. Local repos keep
+	// their pre-#490 inline BuildFromRepo behavior (no gate).
+	isRemote := ingest.IsRemote(input.Repo)
+	if graphStore != nil && isRemote {
+		if fresh, status := ensureAgeGraphOrStatus(ctx, "understand", graphStore, root, codegraph.GraphNameFor(root), isRemote, codegraph.IndexConfig{}, func(status, message string) *mcp.CallToolResult {
+			return buildUnderstandStatusResponse(input, status, message)
+		}); !fresh {
+			return status, nil
+		}
+	}
+
+	cg, err := understandBuildFromRepo(ctx, callgraph.TraceRepoInput{
 		Root:               root,
 		Language:           input.Language,
 		IncludeFieldAccess: input.FieldAccess,
@@ -158,6 +176,31 @@ func filterByFocus(symbols []*parser.Symbol, focus string) []*parser.Symbol {
 		}
 	}
 	return sub
+}
+
+// understandStatusResponse is the JSON short-circuit envelope returned when the
+// AGE graph is not yet fresh. It preserves the tool's JSON response format and
+// carries a retry hint.
+type understandStatusResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Repo    string `json:"repo"`
+	Symbol  string `json:"symbol"`
+}
+
+// buildUnderstandStatusResponse builds a JSON status response for understand.
+func buildUnderstandStatusResponse(input UnderstandInput, status, message string) *mcp.CallToolResult {
+	resp := understandStatusResponse{
+		Status:  status,
+		Message: message,
+		Repo:    input.Repo,
+		Symbol:  input.Symbol,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err))
+	}
+	return textResult(string(data))
 }
 
 // understandAmbiguousResult returns a JSON response listing ambiguous symbol matches.
