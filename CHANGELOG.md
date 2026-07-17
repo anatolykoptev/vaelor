@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.6](https://github.com/anatolykoptev/go-code/compare/v1.38.5...v1.38.6) (2026-07-17)
+
+
+### Fixed
+
+* async lazy-build for understand/call_trace cold-start ([#490](https://github.com/anatolykoptev/go-code/issues/490)) ([#501](https://github.com/anatolykoptev/go-code/issues/501)) ([3907d43](https://github.com/anatolykoptev/go-code/commit/3907d43fe7f8a8b4d2c1cee042fcae8a748a2845))
+
 ## [1.38.5](https://github.com/anatolykoptev/go-code/compare/v1.38.4...v1.38.5) (2026-07-17)
 
 
