@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -70,6 +71,16 @@ func ensureAgeGraphOrStatus(
 		indexRepo := ageGraphIndexRepo
 		memGuard := ageGraphMemGuardWatchdog
 		go func() {
+			// Recover panics from the background AGE build so a single repo does not
+			// crash the entire MCP process. The failure is recorded as a build error
+			// and logged for observability.
+			defer func() {
+				if r := recover(); r != nil {
+					recordCodeGraphBuildFailure(fmt.Errorf("panic in background AGE index: %v", r))
+					slog.Error("age graph: background index panic",
+						slog.String("tool", tool), slog.String("repo", bgRoot), slog.Any("panic", r))
+				}
+			}()
 			defer buildingRepos.Delete(repoKey)
 			bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer bgCancel()

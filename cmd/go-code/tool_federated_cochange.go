@@ -71,7 +71,7 @@ type federatedCoChangeCacheEntry struct {
 var (
 	federatedCoChangeCache sync.Map // key string → *federatedCoChangeCacheEntry
 	// fedInFlight deduplicates concurrent background workers for the same key.
-	// Mirrors buildingRepos in tool_code_graph.go.
+	// Mirrors buildingRepos in age_graph_gate.go.
 	fedInFlight sync.Map // key string → struct{}
 
 	// fedBgComputeHook is called once per background worker launch (after the
@@ -90,7 +90,7 @@ func federatedCoChangeCacheKey(repos string, windowHours, minPairs int, minLift 
 
 // handleFederatedCoChangeCore is the testable core of the federated_cochange tool.
 //
-// Resilience pattern (mirrors tool_code_graph.go buildingRepos + semantic_search IndexRepoAsync):
+// Resilience pattern (mirrors age_graph_gate.go buildingRepos + semantic_search IndexRepoAsync):
 //  1. Deadline-race: compute with a federatedCoChangeInlineBudget child context.
 //     Full result within budget → return status:"ready".
 //  2. Guaranteed partial: within the budget, collect touches only for repos whose

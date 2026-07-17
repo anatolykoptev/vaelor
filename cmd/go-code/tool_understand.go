@@ -28,6 +28,10 @@ type UnderstandInput struct {
 	FieldAccess    bool   `json:"field_access,omitempty" jsonschema_description:"When true, include heuristic argument-reference call sites (struct field accesses, identifier args) as callees even when they don't resolve to a known function — legacy permissive behaviour. Default false: only true call expressions and resolved function references are reported."`
 }
 
+// understandBuildFromRepo is the production seam for callgraph.BuildFromRepo;
+// handler-level tests can override it to avoid heavy parsing.
+var understandBuildFromRepo = callgraph.BuildFromRepo
+
 func registerUnderstand(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps, graphStore *codegraph.Store) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name: "understand",
@@ -58,21 +62,20 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 
 	t0 := time.Now()
 
-	// Avoid a synchronous full repo parse when the AGE call graph is not yet
-	// built. Start a background build and return a building status; the caller
-	// can retry once the graph is fresh. understand currently consumes the call
-	// graph indirectly through callgraph.BuildFromRepo, not AGE reads — that
-	// optimization is left as a follow-up.
-	if graphStore != nil {
-		fresh, status := ensureAgeGraphOrStatus(ctx, "understand", graphStore, root, codegraph.GraphNameFor(root), ingest.IsRemote(input.Repo), codegraph.IndexConfig{}, func(status, message string) *mcp.CallToolResult {
+	// Remote repos only: avoid a synchronous full repo parse when the AGE call
+	// graph is not yet built. Start a background build and return a building
+	// status; the caller can retry once the graph is fresh. Local repos keep
+	// their pre-#490 inline BuildFromRepo behavior (no gate).
+	isRemote := ingest.IsRemote(input.Repo)
+	if graphStore != nil && isRemote {
+		if fresh, status := ensureAgeGraphOrStatus(ctx, "understand", graphStore, root, codegraph.GraphNameFor(root), isRemote, codegraph.IndexConfig{}, func(status, message string) *mcp.CallToolResult {
 			return buildUnderstandStatusResponse(input, status, message)
-		})
-		if !fresh {
+		}); !fresh {
 			return status, nil
 		}
 	}
 
-	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
+	cg, err := understandBuildFromRepo(ctx, callgraph.TraceRepoInput{
 		Root:               root,
 		Language:           input.Language,
 		IncludeFieldAccess: input.FieldAccess,
