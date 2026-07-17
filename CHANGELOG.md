@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.2](https://github.com/anatolykoptev/go-code/compare/v1.38.1...v1.38.2) (2026-07-17)
+
+
+### Documentation
+
+* reconcile CLAUDE.md + README with source (tools 25→37, +Vue, LLM_MODEL default) ([#485](https://github.com/anatolykoptev/go-code/issues/485)) ([84e04fc](https://github.com/anatolykoptev/go-code/commit/84e04fccc05e6c5cff29a07a13f28885bf98bbba))
+
 ## [1.38.1](https://github.com/anatolykoptev/go-code/compare/v1.38.0...v1.38.1) (2026-07-17)
 
 
