@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -274,22 +275,37 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	return xmlMarshalResult(resp, "call_trace", outputDir), nil
 }
 
-// countProductionCallers walks a call tree and returns the number of nodes
-// whose CallerKind is "production". When skipRoot is true, the root node
-// (depth 0, the queried symbol) is excluded so the count reflects true callers.
+// countProductionCallers returns the number of distinct DIRECT callers whose
+// CallerKind is "production". When skipRoot is true, the root node (depth 0,
+// the queried symbol) is excluded; only its immediate children (depth 1) are
+// considered. Duplicate direct callers reached via multiple branches, cycles,
+// or multiple call sites are counted once using symbol identity.
 func countProductionCallers(nodes []callgraph.CallChainNode, skipRoot bool) int {
-	var count int
-	var walk func([]callgraph.CallChainNode, int)
-	walk = func(ns []callgraph.CallChainNode, depth int) {
-		for _, n := range ns {
-			if !(skipRoot && depth == 0) && n.CallerKind == "production" {
-				count++
+	seen := make(map[string]struct{})
+	for _, root := range nodes {
+		candidates := root.Children
+		if !skipRoot {
+			candidates = append([]callgraph.CallChainNode{root}, candidates...)
+		}
+		for _, n := range candidates {
+			if n.CallerKind != "production" {
+				continue
 			}
-			walk(n.Children, depth+1)
+			key := productionCallerKey(n)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
 		}
 	}
-	walk(nodes, 0)
-	return count
+	return len(seen)
+}
+
+func productionCallerKey(n callgraph.CallChainNode) string {
+	if n.Symbol == nil {
+		return "\x00\x00\x00\x00"
+	}
+	return n.Symbol.Name + "\x00" + n.Symbol.File + "\x00" + strconv.Itoa(int(n.Symbol.StartLine)) + "\x00" + n.Symbol.Receiver
 }
 
 func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps, compact bool) callTraceOutput {

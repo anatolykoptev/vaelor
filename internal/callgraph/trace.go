@@ -44,9 +44,9 @@ type CallChainNode struct {
 	CallLine    uint32            `json:"callLine,omitempty"`
 	Cycle       bool              `json:"cycle,omitempty"`
 	Speculative []SpeculativeCall `json:"speculative,omitempty"` // candidates for unresolved calls
-	Kind        string            `json:"-"`                     // internal: empty = normal; CrossLanguageFetchKind for synthetic nodes
+	Kind        string            `json:"kind,omitempty"`        // internal: empty = normal; CrossLanguageFetchKind for synthetic nodes
 	Depth       int               `json:"depth,omitempty"`       // only set on synthetic cross-language nodes
-	CallerKind  string            `json:"kind,omitempty"`        // production | test | example | benchmark
+	CallerKind  string            `json:"caller_kind,omitempty"` // production | test | example | benchmark
 }
 
 // TraceResult holds the complete call chain traversal output.
@@ -140,8 +140,9 @@ func traceNode(
 		if target == nil {
 			result.Unresolved++
 			node.Children = append(node.Children, CallChainNode{
-				Symbol:   &parser.Symbol{Name: e.CalleeName, Kind: "external"},
-				CallLine: e.Line,
+				Symbol:     &parser.Symbol{Name: e.CalleeName, Kind: "external"},
+				CallLine:   e.Line,
+				CallerKind: langutil.CallerKind(e.CalleeName, ""),
 			})
 			continue
 		}
