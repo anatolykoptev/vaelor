@@ -41,7 +41,7 @@ func TestPhase3_ResolvesViaCodeTags_WithoutCallgraph(t *testing.T) {
 			"/api/turn-credentials",
 			"GET",
 			"/src/server/src/turn_credentials.rs",
-			"acme_chat::turn_credentials",
+			"acme_web::turn_credentials",
 			float64(142),
 		),
 	}

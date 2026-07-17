@@ -7,7 +7,7 @@ import (
 
 // TestRustMatcher_AxumRoutes verifies that the axum builder pattern
 // .route("/path", method(handler)) is matched correctly.
-// acme-edge (acme-edge, axum 0.8) uses this pattern exclusively;
+// acme-edge (axum 0.8) uses this pattern exclusively;
 // the old Actix-only matcher produced Route=0 for that repo.
 func TestRustMatcher_AxumRoutes(t *testing.T) {
 	t.Parallel()
@@ -231,12 +231,12 @@ func TestRustMatcher_LineCapture_AxumOnly(t *testing.T) {
 	}
 }
 
-// TestRustMatcher_PartnerEdgeRoutes feeds all three real acme-edge routes in a
+// TestRustMatcher_AcmeEdgeRoutes feeds all three real acme-edge routes in a
 // single Router builder source and asserts that exactly three routes are extracted
 // with the correct method, path, Side, Framework, and a non-zero Line.
 // This directly guards the FU-CG.5 fix: before that fix, axum routes produced Line=0
 // and the graph indexer silently dropped them.
-func TestRustMatcher_PartnerEdgeRoutes(t *testing.T) {
+func TestRustMatcher_AcmeEdgeRoutes(t *testing.T) {
 	t.Parallel()
 
 	source := `    let app = Router::new()

@@ -8,7 +8,7 @@ import "regexp"
 //   - Actix-web: builder pattern (.route("/path", web::get()))
 //   - Axum: builder pattern (.route("/path", get(handler)), .route("/path", any(handler)))
 //
-// acme-edge (acme-edge) uses axum 0.8 exclusively; adding the axum
+// acme-edge uses axum 0.8 exclusively; adding the axum
 // matcher resolves the Route=0 gap observed in its AGE graph (FU-CG.5).
 type RustMatcher struct{}
 

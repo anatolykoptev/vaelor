@@ -30,7 +30,7 @@ var defaultRegistry = map[string]string{
 	"prom/pushgateway":                 "prometheus/pushgateway",
 	"quay.io/prometheus/node-exporter": "prometheus/node_exporter",
 	"qdrant/qdrant":                    "qdrant/qdrant",
-	"minio/minio":                    "minio/minio",
+	"minio/minio":                      "minio/minio",
 	"dperson/torproxy":                 "dperson/torproxy",
 	"registry":                         "distribution/distribution",
 	"pgvector/pgvector":                "pgvector/pgvector",

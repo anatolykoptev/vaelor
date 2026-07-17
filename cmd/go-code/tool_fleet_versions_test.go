@@ -573,8 +573,8 @@ func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
 
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
-			"krolik": {{Container: "svcimage", Image: "minio/minio", Tag: "latest", State: "running"}},
-			"piter":  {{Container: "svcimage", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
+			"krolik": {{Container: "minio", Image: "minio/minio", Tag: "latest", State: "running"}},
+			"piter":  {{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
 		},
 	}
 
@@ -690,7 +690,7 @@ func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 
 	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
 		images: []fleet.RuntimeImage{
-			{Container: "svcimage", Image: "minio/minio", Tag: "26.5.3", State: "running"},
+			{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"},
 		},
 	}, nil))
 
@@ -740,7 +740,7 @@ func TestFleetVersions_UpstreamDisableFlag(t *testing.T) {
 
 	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
 		images: []fleet.RuntimeImage{
-			{Container: "svcimage", Image: "minio/minio", Tag: "26.5.3", State: "running"},
+			{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"},
 		},
 	}, nil))
 
