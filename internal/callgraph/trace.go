@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -43,8 +44,9 @@ type CallChainNode struct {
 	CallLine    uint32            `json:"callLine,omitempty"`
 	Cycle       bool              `json:"cycle,omitempty"`
 	Speculative []SpeculativeCall `json:"speculative,omitempty"` // candidates for unresolved calls
-	Kind        string            `json:"kind,omitempty"`        // empty = normal; CrossLanguageFetchKind for synthetic nodes
+	Kind        string            `json:"-"`                     // internal: empty = normal; CrossLanguageFetchKind for synthetic nodes
 	Depth       int               `json:"depth,omitempty"`       // only set on synthetic cross-language nodes
+	CallerKind  string            `json:"kind,omitempty"`        // production | test | example | benchmark
 }
 
 // TraceResult holds the complete call chain traversal output.
@@ -116,7 +118,7 @@ func traceNode(
 		result.MaxDepth = depth
 	}
 
-	node := CallChainNode{Symbol: sym}
+	node := CallChainNode{Symbol: sym, CallerKind: langutil.CallerKind(sym.Name, sym.File)}
 	if depth >= maxDepth {
 		return node
 	}
@@ -148,9 +150,10 @@ func traceNode(
 
 		if visited[target] {
 			node.Children = append(node.Children, CallChainNode{
-				Symbol:   target,
-				CallLine: e.Line,
-				Cycle:    true,
+				Symbol:     target,
+				CallLine:   e.Line,
+				Cycle:      true,
+				CallerKind: langutil.CallerKind(target.Name, target.File),
 			})
 			continue
 		}

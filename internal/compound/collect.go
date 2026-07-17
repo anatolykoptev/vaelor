@@ -2,6 +2,7 @@ package compound
 
 import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -58,6 +59,7 @@ func collectCallers(cg *callgraph.CallGraph, sym *parser.Symbol, max int) []Call
 			File:     edge.Caller.File,
 			Line:     edge.Line,
 			Receiver: edge.Caller.Receiver,
+			Kind:     langutil.CallerKind(edge.Caller.Name, edge.Caller.File),
 		})
 	}
 	return out
