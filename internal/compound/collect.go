@@ -54,12 +54,18 @@ func collectCallers(cg *callgraph.CallGraph, sym *parser.Symbol, max int) []Call
 			continue
 		}
 		seen[key] = struct{}{}
+		var kind string
+		if edge.Caller.File == "" || edge.Caller.Kind == "external" {
+			kind = langutil.CallerKindUnresolved
+		} else {
+			kind = langutil.CallerKind(edge.Caller.Name, edge.Caller.File)
+		}
 		out = append(out, CallRef{
 			Name:       edge.Caller.Name,
 			File:       edge.Caller.File,
 			Line:       edge.Line,
 			Receiver:   edge.Caller.Receiver,
-			CallerKind: langutil.CallerKind(edge.Caller.Name, edge.Caller.File),
+			CallerKind: kind,
 		})
 	}
 	return out

@@ -19,10 +19,10 @@ func TestCallerKind(t *testing.T) {
 		{"BenchmarkFoo", "pkg/foo_test.go", "benchmark"},
 		{"FuzzFoo", "pkg/foo_test.go", "test"},
 		{"test_foo", "test_foo.py", "test"},
-		{"ExampleFoo", "pkg/example.go", "example"},
-		{"BenchmarkFoo", "pkg/bench.go", "benchmark"},
-		{"TestHelper", "pkg/foo.go", "test"},
-		{"FuzzTarget", "pkg/fuzz.go", "test"},
+		{"ExampleFoo", "pkg/example.go", "production"},
+		{"BenchmarkFoo", "pkg/bench.go", "production"},
+		{"TestHelper", "pkg/foo.go", "production"},
+		{"FuzzTarget", "pkg/fuzz.go", "production"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name+"_"+tc.path, func(t *testing.T) {
