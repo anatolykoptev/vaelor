@@ -74,7 +74,7 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	// Check cache first — parsing all repo files is expensive (15-60s on cold start).
 	cacheKey := cgCacheKey(input)
 	if !input.Refresh {
-		if cached, ok := cgCache.get(cacheKey); ok {
+		if cached, ok := cgCache.get(cacheKey, input.Root); ok {
 			slog.Debug("callgraph: BuildFromRepo cache hit", slog.String("root", input.Root))
 			return cached, nil
 		}
@@ -111,7 +111,7 @@ func BuildFromRepo(ctx context.Context, input TraceRepoInput) (*CallGraph, error
 	}
 
 	// Cache the result for subsequent calls within the same session.
-	cgCache.set(cacheKey, cg)
+	cgCache.set(cacheKey, cg, input.Root)
 	slog.Debug("callgraph: BuildFromRepo cached", slog.String("root", input.Root),
 		slog.String("tier", cg.Tier))
 	return cg, nil
@@ -283,11 +283,11 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 	}
 
 	// Upgrade existing cache entry to enhanced tier.
-	if cached, ok := cgCache.get(cacheKey); ok {
+	if cached, ok := cgCache.get(cacheKey, root); ok {
 		enhanced := MergeCallGraphs(cached, typedCG)
 		enhanced.Tier = "enhanced"
 		enhanced.Backend = BackendGoTypes
-		cgCache.set(cacheKey, enhanced)
+		cgCache.set(cacheKey, enhanced, root)
 	}
 	slog.Info("go/types: GOCACHE warmed, cache upgraded to enhanced", "root", root)
 }

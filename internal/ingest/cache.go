@@ -163,7 +163,7 @@ func (c *ingestRepoCache) get(key string, root string) *IngestResult {
 	}
 
 	// Validate content hash before trusting a cross-process L2 entry.
-	currentHash := repoContentHash(root)
+	currentHash := RepoContentHash(root)
 	if currentHash != entry.contentHash {
 		// Stale L2 entry; delete it to avoid serving it again.
 		_ = c.l2.Del(context.Background(), key)
@@ -193,7 +193,7 @@ func (c *ingestRepoCache) getL1Locked(key string, root string) *IngestResult {
 	// Content-hash check: re-walk to compute the current hash and compare.
 	// This is the same walk scipCache does; it's ~10ms for 100 files and
 	// avoids serving stale results after a git checkout.
-	currentHash := repoContentHash(root)
+	currentHash := RepoContentHash(root)
 	if currentHash != e.contentHash {
 		c.deleteEntryLocked(key)
 		return nil
@@ -215,7 +215,7 @@ func (c *ingestRepoCache) getL1Locked(key string, root string) *IngestResult {
 func (c *ingestRepoCache) put(key string, result *IngestResult, root string) {
 	// Compute content hash outside the lock so concurrent callers aren't
 	// blocked on the filesystem walk.
-	hash := repoContentHash(root)
+	hash := RepoContentHash(root)
 
 	// Defensive copy: store an independent Files slice so the caller
 	// (who gets the same *IngestResult pointer from IngestRepo) can
@@ -298,12 +298,12 @@ func ResetCache() {
 	ingestCache.order = nil
 }
 
-// repoContentHash computes a content-based hash of a repository's source
+// RepoContentHash computes a content-based hash of a repository's source
 // files, mirroring scip.CacheKey's approach: walk the tree, hash the first
 // 4KB of each non-hidden, non-.git file, and fold (relpath, digest) pairs
 // into a single SHA256. Content-based (not mtime) so git checkout cycles
 // don't cause false invalidation.
-func repoContentHash(root string) string {
+func RepoContentHash(root string) string {
 	type entry struct {
 		rel    string
 		digest [sha256.Size]byte

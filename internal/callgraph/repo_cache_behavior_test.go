@@ -23,7 +23,7 @@ func TestRepoCache_Behavior(t *testing.T) {
 		})
 		c.mu.Unlock()
 
-		_, ok := c.get("root")
+		_, ok := c.get("root", "")
 		if ok {
 			t.Fatal("expected TTL miss: entry inserted past TTL must not be returned")
 		}
@@ -40,8 +40,8 @@ func TestRepoCache_Behavior(t *testing.T) {
 		c := &callGraphCache{
 			lru: cache.NewLRU[string, cgCacheEntry](10),
 		}
-		c.set("root", &CallGraph{})
-		_, ok := c.get("root")
+		c.set("root", &CallGraph{}, "")
+		_, ok := c.get("root", "")
 		if !ok {
 			t.Fatal("expected cache hit within TTL")
 		}
@@ -54,7 +54,7 @@ func TestRepoCache_Behavior(t *testing.T) {
 		}
 		for i := range maxSize + 2 {
 			input := TraceRepoInput{Root: "/repo" + string(rune('A'+i))}
-			c.set(cgCacheKey(input), &CallGraph{})
+			c.set(cgCacheKey(input), &CallGraph{}, input.Root)
 		}
 		c.mu.Lock()
 		n := c.lru.Len()
