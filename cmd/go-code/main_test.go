@@ -94,7 +94,7 @@ func TestToolTimeoutsSemanticSearch(t *testing.T) {
 // in the ToolTimeouts map (2026-07-16 fix).
 //
 // Rationale: code_graph was absent from ToolTimeouts, silently inheriting the
-// 90s harness default. On piter-now (1695 vertices) a Cypher query + LLM
+// 90s harness default. On acme-guide (1695 vertices) a Cypher query + LLM
 // narrative took 1m30s — exactly hitting the 90s ceiling, causing the MCP
 // client to drop the connection with Failed to connect even though the tool
 // had completed successfully server-side. 120s gives headroom for the Cypher

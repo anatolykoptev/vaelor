@@ -1,9 +1,0 @@
-# Seed golden records for vaelor (large Go + Telegram).
-# Replace `expected_top_3` with real symbol paths after first harness run.
-{"query": "circuit breaker for LLM API calls", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["CircuitBreaker"], "notes": "seed: LLM resilience layer"}
-{"query": "multi-turn subagent orchestration", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["Subagent"], "notes": "seed: subagent dispatch"}
-{"query": "render PDF from chat transcript", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["GeneratePDF"], "notes": "seed: vaelor generate_pdf tool"}
-{"query": "optimize an image file via cwebp", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["OptimizeFile"], "notes": "seed: fileopt wrapper"}
-{"query": "Telegram bot message handler", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["HandleMessage"], "notes": "seed: TG bot entry"}
-{"query": "store conversation memory in MemDB", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["StoreMemory"], "notes": "seed: cross-service integration"}
-{"query": "tool call dispatch with function name and arguments", "repo": "/path/to/repos/src/vaelor", "expected_top_3": ["ToolCall"], "notes": "seed: dispatch loop"}

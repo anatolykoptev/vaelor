@@ -8,10 +8,10 @@
 
 Latency is bimodal, not a smooth p50/p95 distribution:
 
-- **Cold (first query per repo)**: returns `<status>indexing</status>` with a 30–60s retry hint. The async indexer kicks off in the background. Measured completion time for piter-now: ~90s (query at 03:19:35 → `background index complete indexed=0 skipped=1256 total=1265`).
+- **Cold (first query per repo)**: returns `<status>indexing</status>` with a 30–60s retry hint. The async indexer kicks off in the background. Measured completion time for acme-guide: ~90s (query at 03:19:35 → `background index complete indexed=0 skipped=1256 total=1265`).
 - **Warm (subsequent queries)**: <1s, top-k results returned directly.
 
-Example warm call (piter-now, query "publish article", top_k=3): 3 Python-scripted Directus helpers returned at distance 0.59–0.62.
+Example warm call (acme-guide, query "publish article", top_k=3): 3 Python-scripted Directus helpers returned at distance 0.59–0.62.
 
 ## Implication
 

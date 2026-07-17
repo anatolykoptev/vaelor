@@ -26,7 +26,7 @@ func TestFilterByFocus_SuffixMatch(t *testing.T) {
 	// This test documents the critical bug: if focus were passed to ingest as a path
 	// prefix, the file would be excluded before this filter runs, yielding 0 results.
 	syms := []*parser.Symbol{
-		makeTestSym("toggle", "/host/src/piter-now/frontend/src/components/ThemeToggle.svelte"),
+		makeTestSym("toggle", "/host/src/acme-guide/frontend/src/components/ThemeToggle.svelte"),
 		makeTestSym("other", "/host/src/other/util.ts"),
 	}
 	got := filterByFocus(syms, "ThemeToggle.svelte")
@@ -40,7 +40,7 @@ func TestFilterByFocus_SuffixMatch(t *testing.T) {
 
 func TestFilterByFocus_SubstringMatch(t *testing.T) {
 	syms := []*parser.Symbol{
-		makeTestSym("filter", "/host/src/piter-now/frontend/src/components/Filters.svelte"),
+		makeTestSym("filter", "/host/src/acme-guide/frontend/src/components/Filters.svelte"),
 		makeTestSym("other", "/host/src/other/util.ts"),
 	}
 	got := filterByFocus(syms, "components/Filters")

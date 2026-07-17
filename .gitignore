@@ -30,3 +30,8 @@ Thumbs.db
 # GoReleaser dist
 dist/
 docs/architecture/
+
+# Private eval golden datasets (reference operator-local repo checkouts; not shipped)
+eval/golden/oxpulse-chat.jsonl
+eval/golden/piter-now.jsonl
+eval/golden/vaelor.jsonl

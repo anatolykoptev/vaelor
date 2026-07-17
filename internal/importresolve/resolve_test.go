@@ -424,7 +424,7 @@ func TestResolve_WorkspaceAlias_NotInPkgDirs_FallsThrough(t *testing.T) {
 // TestResolve_WorkspaceAlias_ExportsWildcardSrcRewrite verifies that
 // "@guide/ui/components/HomeHero.astro" resolves when @guide/ui's package.json
 // declares {"exports": {"./*": "./src/*"}} and the file lives under src/.
-// This is the piter-now @guide/ui layout — without the exports rewrite the
+// This is the acme-guide @guide/ui layout — without the exports rewrite the
 // bare wsDir+subpath probe misses (file is at packages/ui/src/components/...,
 // not packages/ui/components/...) and the IMPORTS edge is dropped.
 // Falsification: revert resolveViaExports → returns ("", false).
