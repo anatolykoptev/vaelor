@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.39.1](https://github.com/anatolykoptev/go-code/compare/v1.39.0...v1.39.1) (2026-07-17)
+
+
+### Fixed
+
+* caller_kind accuracy — IsTestFile gate + unresolved bucket ([#507](https://github.com/anatolykoptev/go-code/issues/507)) ([#510](https://github.com/anatolykoptev/go-code/issues/510)) ([406fe91](https://github.com/anatolykoptev/go-code/commit/406fe91b890fb2aec936b91835462a43daf1babb))
+
 ## [1.39.0](https://github.com/anatolykoptev/go-code/compare/v1.38.7...v1.39.0) (2026-07-17)
 
 
