@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.1](https://github.com/anatolykoptev/go-code/compare/v1.38.0...v1.38.1) (2026-07-17)
+
+
+### Documentation
+
+* rewrite README for launch (capability-led, source-verified claims) ([#482](https://github.com/anatolykoptev/go-code/issues/482)) ([f47d66b](https://github.com/anatolykoptev/go-code/commit/f47d66b5dedcb022a8decdc3f8c84a5f089fd2da))
+
 ## [1.38.0](https://github.com/anatolykoptev/go-code/compare/v1.37.2...v1.38.0) (2026-07-17)
 
 
