@@ -183,7 +183,7 @@ func TestEnrich_ParallelExecution(t *testing.T) {
 	client.baseURL = srv.URL
 
 	diffs := []fleet.ImageDiff{
-		makeTagDrift("redis", "7.0", "7.2"),                // mapped → redis/redis (slow)
+		makeTagDrift("redis", "7.0", "7.2"),              // mapped → redis/redis (slow)
 		makeTagDrift("minio/minio", "26.4.25", "26.5.3"), // mapped → minio/minio (fast)
 	}
 

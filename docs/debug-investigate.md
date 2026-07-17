@@ -235,25 +235,25 @@ with one of these statuses:
 
 ### Reproduction scenario — Issue #123
 
-The motivating bug: **cache-eviction outage on acme-edge nodes, 2026-05-20**.
+The motivating bug: **cache-eviction regression on the analytics workers, 2026-05-20**.
 
-Pinned in compose (host-a cache-service + 4 partner edges):
-`minio/minio:26.4.25`. Running on host-b via auto-update:
-`minio/minio:26.5.3`. The `tls13handshake` + standard TLS handshake
-interaction bug existed in 26.4.25 only. Source-level config schemas were
-bit-identical across hosts.
+Pinned in compose (host-a + 4 worker replicas):
+`redis:7.2.4`. Running on host-b via auto-update:
+`redis:7.4.0`. A `maxmemory-policy` default change interacted badly with the
+workers' cache-warm assumption; the bug existed on 7.4.0 only. Source-level
+config schemas were bit-identical across hosts.
 
 With Phase 7 wired, the same investigation surfaces:
 
 ```text
 Phase 7 (fleet versions):
   target: ssh://host-b
-  - TagDrift: minio/minio pinned 26.4.25 -> running 26.5.3
+  - TagDrift: redis pinned 7.2.4 -> running 7.4.0
 ```
 
 This row reaches the LLM prompt under `runtime_drift` and biases the model
-to prioritise upstream-changelog inspection of `minio/minio` 26.4.25 ->
-26.5.3 over further source-level template asymmetry hypotheses.
+to prioritise upstream-changelog inspection of `redis` 7.2.4 -> 7.4.0 over
+further source-level template asymmetry hypotheses.
 
 The 40-minute investigation that initially needed `docker inspect` on each
 host manually becomes a single MCP call.
