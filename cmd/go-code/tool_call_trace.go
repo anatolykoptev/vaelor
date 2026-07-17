@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
@@ -21,28 +22,30 @@ type xmlTraceResponse struct {
 }
 
 type xmlTrace struct {
-	Symbol        string         `xml:"symbol,attr"`
-	Direction     string         `xml:"direction,attr"`
-	TotalNodes    int            `xml:"totalNodes,attr"`
-	MaxDepth      int            `xml:"maxDepth,attr"`
-	Resolved      int            `xml:"resolved,attr"`
-	Unresolved    int            `xml:"unresolved,attr"`
-	ResolvedRatio float64        `xml:"resolvedRatio,attr"`
-	Tier          string         `xml:"tier,attr,omitempty"`
-	Nodes         []xmlTraceNode `xml:"node"`
-	Narrative     *xmlCDATA      `xml:"narrative,omitempty"`
+	Symbol                string         `xml:"symbol,attr"`
+	Direction             string         `xml:"direction,attr"`
+	TotalNodes            int            `xml:"totalNodes,attr"`
+	MaxDepth              int            `xml:"maxDepth,attr"`
+	Resolved              int            `xml:"resolved,attr"`
+	Unresolved            int            `xml:"unresolved,attr"`
+	ResolvedRatio         float64        `xml:"resolvedRatio,attr"`
+	Tier                  string         `xml:"tier,attr,omitempty"`
+	ProductionCallerCount int            `xml:"production_caller_count,attr,omitempty"`
+	Nodes                 []xmlTraceNode `xml:"node"`
+	Narrative             *xmlCDATA      `xml:"narrative,omitempty"`
 }
 
 type xmlTraceNode struct {
-	Kind      string         `xml:"kind,attr"`
-	Name      string         `xml:"name,attr"`
-	File      string         `xml:"file,attr"`
-	Line      uint32         `xml:"line,attr"`
-	End       uint32         `xml:"end,attr,omitempty"`
-	CallLine  uint32         `xml:"callLine,attr,omitempty"`
-	Cycle     bool           `xml:"cycle,attr,omitempty"`
-	Signature *xmlCDATA      `xml:"signature,omitempty"`
-	Children  []xmlTraceNode `xml:"node,omitempty"`
+	Kind       string         `xml:"kind,attr,omitempty"`
+	CallerKind string         `xml:"caller_kind,attr,omitempty"`
+	Name       string         `xml:"name,attr"`
+	File       string         `xml:"file,attr"`
+	Line       uint32         `xml:"line,attr"`
+	End        uint32         `xml:"end,attr,omitempty"`
+	CallLine   uint32         `xml:"callLine,attr,omitempty"`
+	Cycle      bool           `xml:"cycle,attr,omitempty"`
+	Signature  *xmlCDATA      `xml:"signature,omitempty"`
+	Children   []xmlTraceNode `xml:"node,omitempty"`
 }
 
 func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
@@ -62,6 +65,7 @@ func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
 				xn.Signature = &xmlCDATA{Inner: wrapCDATA(n.Symbol.Signature)}
 			}
 		}
+		xn.CallerKind = n.CallerKind
 		if len(n.Children) > 0 {
 			xn.Children = convertTraceNodes(n.Children)
 		}
@@ -114,12 +118,13 @@ type CallTraceInput struct {
 }
 
 type callTraceOutput struct {
-	Symbol    string                    `json:"symbol"`
-	Direction string                    `json:"direction"`
-	CallTree  []callgraph.CallChainNode `json:"call_tree"`
-	Stats     traceStats                `json:"stats"`
-	Tier      string                    `json:"tier,omitempty"`
-	Narrative string                    `json:"narrative,omitempty"`
+	Symbol                string                    `json:"symbol"`
+	Direction             string                    `json:"direction"`
+	CallTree              []callgraph.CallChainNode `json:"call_tree"`
+	Stats                 traceStats                `json:"stats"`
+	Tier                  string                    `json:"tier,omitempty"`
+	Narrative             string                    `json:"narrative,omitempty"`
+	ProductionCallerCount int                       `json:"production_caller_count,omitempty"`
 }
 
 type traceStats struct {
@@ -251,15 +256,16 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 
 	resp := xmlTraceResponse{
 		Trace: xmlTrace{
-			Symbol:        output.Symbol,
-			Direction:     output.Direction,
-			TotalNodes:    output.Stats.TotalNodes,
-			MaxDepth:      output.Stats.MaxDepth,
-			Resolved:      output.Stats.Resolved,
-			Unresolved:    output.Stats.Unresolved,
-			ResolvedRatio: output.Stats.ResolvedRatio,
-			Tier:          output.Tier,
-			Nodes:         convertTraceNodes(output.CallTree),
+			Symbol:                output.Symbol,
+			Direction:             output.Direction,
+			TotalNodes:            output.Stats.TotalNodes,
+			MaxDepth:              output.Stats.MaxDepth,
+			Resolved:              output.Stats.Resolved,
+			Unresolved:            output.Stats.Unresolved,
+			ResolvedRatio:         output.Stats.ResolvedRatio,
+			Tier:                  output.Tier,
+			ProductionCallerCount: output.ProductionCallerCount,
+			Nodes:                 convertTraceNodes(output.CallTree),
 		},
 	}
 	if output.Narrative != "" {
@@ -267,6 +273,39 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	}
 
 	return xmlMarshalResult(resp, "call_trace", outputDir), nil
+}
+
+// countProductionCallers returns the number of distinct DIRECT callers whose
+// CallerKind is "production". When skipRoot is true, the root node (depth 0,
+// the queried symbol) is excluded; only its immediate children (depth 1) are
+// considered. Duplicate direct callers reached via multiple branches, cycles,
+// or multiple call sites are counted once using symbol identity.
+func countProductionCallers(nodes []callgraph.CallChainNode, skipRoot bool) int {
+	seen := make(map[string]struct{})
+	for _, root := range nodes {
+		candidates := root.Children
+		if !skipRoot {
+			candidates = append([]callgraph.CallChainNode{root}, candidates...)
+		}
+		for _, n := range candidates {
+			if n.CallerKind != "production" {
+				continue
+			}
+			key := productionCallerKey(n)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
+func productionCallerKey(n callgraph.CallChainNode) string {
+	if n.Symbol == nil {
+		return "\x00\x00\x00\x00"
+	}
+	return n.Symbol.Name + "\x00" + n.Symbol.File + "\x00" + strconv.Itoa(int(n.Symbol.StartLine)) + "\x00" + n.Symbol.Receiver
 }
 
 func buildCallTraceOutput(ctx context.Context, symbol, direction string, result *callgraph.TraceResult, deps analyze.Deps, compact bool) callTraceOutput {
@@ -288,6 +327,10 @@ func buildCallTraceOutput(ctx context.Context, symbol, direction string, result 
 			ResolvedRatio: ratio,
 		},
 		Tier: result.Tier,
+	}
+
+	if direction == "callers" {
+		output.ProductionCallerCount = countProductionCallers(result.Tree, true)
 	}
 
 	// LLM narrative (optional, non-fatal). Skipped in compact mode.

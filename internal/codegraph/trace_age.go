@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -58,7 +59,7 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 		Tier: "age-graph",
 	}
 
-	rootNode := callgraph.CallChainNode{Symbol: rootSym}
+	rootNode := callgraph.CallChainNode{Symbol: rootSym, CallerKind: langutil.CallerKind(rootSym.Name, rootSym.File)}
 
 	// Iterative BFS: expand each level by querying direct CALLS neighbors.
 	// frontier = nodes at the current depth that need expansion.
@@ -102,8 +103,9 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 					Signature: child.signature,
 				}
 				newChild := callgraph.CallChainNode{
-					Symbol:   childSym,
-					CallLine: child.callLine,
+					Symbol:     childSym,
+					CallLine:   child.callLine,
+					CallerKind: langutil.CallerKind(child.name, child.file),
 				}
 				fn.node.Children = append(fn.node.Children, newChild)
 				totalNodes++
