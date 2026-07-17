@@ -103,6 +103,8 @@ type UnderstandResult struct {
 	// e.g. "Top 2% (6th of 4040 symbols by structural centrality)"
 	// Only present when the graph has pagerank data for this symbol.
 	StructuralRank string `json:"structural_rank,omitempty"`
+	// ProductionCallerCount is the number of callers whose Kind is "production".
+	ProductionCallerCount int `json:"production_caller_count,omitempty"`
 }
 
 // SymbolInfo is a summary of a symbol for compound tool output.
@@ -119,10 +121,11 @@ type SymbolInfo struct {
 
 // CallRef is a reference to a called/calling function.
 type CallRef struct {
-	Name     string `json:"name"`
-	File     string `json:"file"`
-	Line     uint32 `json:"line"`
-	Receiver string `json:"receiver,omitempty"`
+	Name       string `json:"name"`
+	File       string `json:"file"`
+	Line       uint32 `json:"line"`
+	Receiver   string `json:"receiver,omitempty"`
+	CallerKind string `json:"caller_kind,omitempty"` // production | test | example | benchmark
 }
 
 // MatchRef is a lightweight symbol descriptor used in disambiguation responses.
@@ -174,6 +177,11 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 
 	if opts.IncludeCallers {
 		result.Callers = collectCallers(cg, sym, maxCallers)
+		for _, c := range result.Callers {
+			if c.CallerKind == "production" {
+				result.ProductionCallerCount++
+			}
+		}
 	}
 
 	if opts.OxCodes != nil {
