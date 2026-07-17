@@ -17,11 +17,13 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/websearch"
@@ -105,6 +107,12 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 		Prefix:        "gc:",
 		JitterPercent: 0.1,
 	})
+
+	// Wire optional Redis L2 for the two process-level object caches.
+	// When RedisURL is empty these are no-ops and behavior is byte-identical
+	// to the L1-only implementation.
+	ingest.SetL2(cfg.RedisURL)
+	callgraph.SetL2(cfg.RedisURL)
 
 	// WithEndpoints owns per-endpoint retry; WithFallbackKeys keys same-model retries.
 	// When chain is configured, use it (cross-provider failure-domain via cliproxyapi
