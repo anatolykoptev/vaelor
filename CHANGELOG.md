@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.39.0](https://github.com/anatolykoptev/go-code/compare/v1.38.7...v1.39.0) (2026-07-17)
+
+
+### Added
+
+* annotate understand/call_trace callers with production/test kind ([#491](https://github.com/anatolykoptev/go-code/issues/491)) ([#508](https://github.com/anatolykoptev/go-code/issues/508)) ([e5bf97d](https://github.com/anatolykoptev/go-code/commit/e5bf97d87d00a8ece72558964a84a0008bba50f5))
+
 ## [1.38.7](https://github.com/anatolykoptev/go-code/compare/v1.38.6...v1.38.7) (2026-07-17)
 
 
