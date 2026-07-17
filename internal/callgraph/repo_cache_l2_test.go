@@ -196,6 +196,72 @@ func TestCallGraphCache_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestCallGraphCache_L2PointerIdentity verifies that gob-decoding a CallGraph
+// restores pointer identity between Edges and the Symbols slice. gob inlines
+// each pointee separately, so without a re-link step the endpoints decoded
+// from Edges are distinct allocations from those in Symbols, breaking every
+// consumer that keys maps by *parser.Symbol identity (trace, deadcode, etc.).
+func TestCallGraphCache_L2PointerIdentity(t *testing.T) {
+	main := &parser.Symbol{
+		Name: "main", Kind: parser.KindFunction, Language: "go",
+		File: "/repo/main.go", StartLine: 1, EndLine: 10,
+	}
+	util := &parser.Symbol{
+		Name: "util", Kind: parser.KindFunction, Language: "go",
+		File: "/repo/main.go", StartLine: 12, EndLine: 15,
+	}
+	cg := &CallGraph{
+		Symbols: []*parser.Symbol{main, util},
+		Edges: []CallEdge{
+			{Caller: main, Callee: util, CalleeName: "util", Line: 5},
+		},
+	}
+
+	data, err := encodeCGEntry(cg, time.Now())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	decoded, err := decodeCGEntry(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	got := decoded.CG
+	if len(got.Symbols) != 2 {
+		t.Fatalf("expected 2 symbols, got %d", len(got.Symbols))
+	}
+	if len(got.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(got.Edges))
+	}
+
+	mainIdx, utilIdx := -1, -1
+	for i, s := range got.Symbols {
+		if s.Name == "main" && s.StartLine == 1 {
+			mainIdx = i
+		}
+		if s.Name == "util" && s.StartLine == 12 {
+			utilIdx = i
+		}
+	}
+	if mainIdx == -1 || utilIdx == -1 {
+		t.Fatalf("could not locate decoded symbols: main=%d util=%d", mainIdx, utilIdx)
+	}
+
+	if got.Edges[0].Caller != got.Symbols[mainIdx] {
+		t.Errorf("Caller pointer identity lost: %p != %p", got.Edges[0].Caller, got.Symbols[mainIdx])
+	}
+	if got.Edges[0].Callee != got.Symbols[utilIdx] {
+		t.Errorf("Callee pointer identity lost: %p != %p", got.Edges[0].Callee, got.Symbols[utilIdx])
+	}
+
+	// Consumers build adjacency keyed by *parser.Symbol identity; the decoded
+	// graph must produce a non-empty callee list for the caller symbol.
+	adj := buildCalleeIndex(got.Edges)
+	if len(adj[got.Symbols[mainIdx]]) == 0 {
+		t.Errorf("buildCalleeIndex empty for caller symbol after L2 decode")
+	}
+}
+
 // parserSymbol returns a minimal parser.Symbol for test construction.
 func parserSymbol(name string) *parser.Symbol {
 	return &parser.Symbol{Name: name, Kind: "function", Language: "go", File: "/repo/main.go", StartLine: 1, EndLine: 2}

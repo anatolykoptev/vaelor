@@ -11,6 +11,7 @@ import (
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
 const (
@@ -139,5 +140,64 @@ func decodeCGEntry(data []byte) (*wireCGEntry, error) {
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&w); err != nil {
 		return nil, err
 	}
+	relinkCallGraphSymbols(w.CG)
 	return &w, nil
+}
+
+// symbolKey is the stable identifier BuildCallGraphWithOpts uses indirectly
+// to locate a symbol (name, file, and line range). We use it after gob decode
+// to collapse separate Caller/Callee pointer copies back into the canonical
+// *parser.Symbol values from the decoded Symbols slice.
+type symbolKey struct {
+	Language  string
+	File      string
+	StartLine uint32
+	EndLine   uint32
+	Name      string
+	Kind      parser.NodeKind
+	Receiver  string
+}
+
+func makeSymbolKey(s *parser.Symbol) symbolKey {
+	return symbolKey{
+		Language:  s.Language,
+		File:      s.File,
+		StartLine: s.StartLine,
+		EndLine:   s.EndLine,
+		Name:      s.Name,
+		Kind:      s.Kind,
+		Receiver:  s.Receiver,
+	}
+}
+
+// relinkCallGraphSymbols rewrites every Edge.Caller and Edge.Callee to point
+// at the matching *parser.Symbol from cg.Symbols. gob decodes each pointer
+// separately, so without this step map[ *parser.Symbol ] consumers see the
+// cached graph as childless / everything-dead.
+func relinkCallGraphSymbols(cg *CallGraph) {
+	if cg == nil || len(cg.Symbols) == 0 {
+		return
+	}
+
+	idx := make(map[symbolKey]*parser.Symbol, len(cg.Symbols))
+	for _, sym := range cg.Symbols {
+		k := makeSymbolKey(sym)
+		if _, ok := idx[k]; !ok {
+			idx[k] = sym
+		}
+	}
+
+	for i := range cg.Edges {
+		e := &cg.Edges[i]
+		if e.Caller != nil {
+			if sym, ok := idx[makeSymbolKey(e.Caller)]; ok {
+				e.Caller = sym
+			}
+		}
+		if e.Callee != nil {
+			if sym, ok := idx[makeSymbolKey(e.Callee)]; ok {
+				e.Callee = sym
+			}
+		}
+	}
 }
