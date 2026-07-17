@@ -9,6 +9,7 @@ import (
 
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/learnings"
 	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-code/internal/parser"
@@ -125,7 +126,7 @@ type CallRef struct {
 	File       string `json:"file"`
 	Line       uint32 `json:"line"`
 	Receiver   string `json:"receiver,omitempty"`
-	CallerKind string `json:"caller_kind,omitempty"` // production | test | example | benchmark
+	CallerKind string `json:"caller_kind,omitempty"` // production | test | example | benchmark | unresolved
 }
 
 // MatchRef is a lightweight symbol descriptor used in disambiguation responses.
@@ -178,7 +179,7 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 	if opts.IncludeCallers {
 		result.Callers = collectCallers(cg, sym, maxCallers)
 		for _, c := range result.Callers {
-			if c.CallerKind == "production" {
+			if c.CallerKind == langutil.CallerKindProduction {
 				result.ProductionCallerCount++
 			}
 		}

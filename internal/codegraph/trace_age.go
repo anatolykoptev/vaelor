@@ -59,7 +59,7 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 		Tier: "age-graph",
 	}
 
-	rootNode := callgraph.CallChainNode{Symbol: rootSym, CallerKind: langutil.CallerKind(rootSym.Name, rootSym.File)}
+	rootNode := callgraph.CallChainNode{Symbol: rootSym, CallerKind: ageCallerKind(rootSym.Name, rootSym.File, rootSym.Kind)}
 
 	// Iterative BFS: expand each level by querying direct CALLS neighbors.
 	// frontier = nodes at the current depth that need expansion.
@@ -105,7 +105,7 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 				newChild := callgraph.CallChainNode{
 					Symbol:     childSym,
 					CallLine:   child.callLine,
-					CallerKind: langutil.CallerKind(child.name, child.file),
+					CallerKind: ageCallerKind(child.name, child.file, childSym.Kind),
 				}
 				fn.node.Children = append(fn.node.Children, newChild)
 				totalNodes++
@@ -200,6 +200,16 @@ func rowToSymbol(row []string) *parser.Symbol {
 	sym.StartLine = parseUint32(row[3])
 	sym.EndLine = parseUint32(row[4])
 	return sym
+}
+
+// ageCallerKind returns the caller kind for an AGE graph neighbor. Nodes with
+// no source file or an explicit external kind are bucketed as unresolved so
+// they do not inflate production_caller_count.
+func ageCallerKind(name, file string, kind parser.NodeKind) string {
+	if file == "" || kind == "external" {
+		return langutil.CallerKindUnresolved
+	}
+	return langutil.CallerKind(name, file)
 }
 
 func maxDepthOf(node callgraph.CallChainNode, depth int) int {

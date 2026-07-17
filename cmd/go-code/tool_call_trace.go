@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -288,7 +289,7 @@ func countProductionCallers(nodes []callgraph.CallChainNode, skipRoot bool) int 
 			candidates = append([]callgraph.CallChainNode{root}, candidates...)
 		}
 		for _, n := range candidates {
-			if n.CallerKind != "production" {
+			if n.CallerKind != langutil.CallerKindProduction {
 				continue
 			}
 			key := productionCallerKey(n)

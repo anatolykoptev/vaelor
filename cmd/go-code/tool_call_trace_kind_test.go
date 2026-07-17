@@ -9,6 +9,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compound"
+	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -175,7 +176,7 @@ func transitiveProductionCount(nodes []callgraph.CallChainNode, skipRoot bool) i
 	var walk func([]callgraph.CallChainNode, int)
 	walk = func(ns []callgraph.CallChainNode, depth int) {
 		for _, n := range ns {
-			if !(skipRoot && depth == 0) && n.CallerKind == "production" {
+			if !(skipRoot && depth == 0) && n.CallerKind == langutil.CallerKindProduction {
 				count++
 			}
 			walk(n.Children, depth+1)
@@ -183,4 +184,71 @@ func transitiveProductionCount(nodes []callgraph.CallChainNode, skipRoot bool) i
 	}
 	walk(nodes, 0)
 	return count
+}
+
+func TestCallTrace_UnresolvedExternalNotProduction(t *testing.T) {
+	origTraceFromAGE := callTraceTraceFromAGE
+	defer func() { callTraceTraceFromAGE = origTraceFromAGE }()
+
+	target := &parser.Symbol{Name: "NewRouter", Kind: parser.KindFunction, File: "/repo/router.go", StartLine: 10, EndLine: 40}
+	resolvedProd := &parser.Symbol{Name: "ServeHTTP", Kind: parser.KindFunction, File: "/repo/handler.go", StartLine: 20, EndLine: 60}
+
+	result := &callgraph.TraceResult{
+		Root:       target,
+		TotalNodes: 3,
+		MaxDepth:   1,
+		Resolved:   1,
+		Unresolved: 1,
+		Tier:       "enhanced",
+		Tree: []callgraph.CallChainNode{{
+			Symbol:     target,
+			CallerKind: langutil.CallerKindProduction,
+			Children: []callgraph.CallChainNode{
+				{Symbol: resolvedProd, CallerKind: langutil.CallerKindProduction, CallLine: 25},
+				{Symbol: &parser.Symbol{Name: "NewRouter", Kind: "external"}, CallerKind: langutil.CallerKindUnresolved, CallLine: 0},
+			},
+		}},
+	}
+
+	callTraceTraceFromAGE = func(context.Context, *codegraph.Store, string, string, string, int) (*callgraph.TraceResult, error) {
+		return result, nil
+	}
+
+	root := t.TempDir()
+	input := CallTraceInput{Repo: root, Symbol: "NewRouter", Direction: "callers", Depth: 2, Compact: true}
+	res, err := handleCallTrace(context.Background(), input, analyze.Deps{}, nil, "", &codegraph.Store{})
+	if err != nil {
+		t.Fatalf("handleCallTrace: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error response: %s", textContentOf(t, res))
+	}
+
+	text := textContentOf(t, res)
+	var parsed xmlTraceResponse
+	if err := xml.Unmarshal([]byte(text), &parsed); err != nil {
+		t.Fatalf("parse xml: %v\n%s", err, text)
+	}
+
+	if parsed.Trace.ProductionCallerCount != 1 {
+		t.Errorf("production_caller_count = %d, want 1 (unresolved external must not count)", parsed.Trace.ProductionCallerCount)
+	}
+
+	rootNode := parsed.Trace.Nodes[0]
+	if len(rootNode.Children) != 2 {
+		t.Fatalf("expected 2 caller nodes, got %d", len(rootNode.Children))
+	}
+
+	var unresolvedNode *xmlTraceNode
+	for i := range rootNode.Children {
+		if rootNode.Children[i].Kind == "external" {
+			unresolvedNode = &rootNode.Children[i]
+		}
+	}
+	if unresolvedNode == nil {
+		t.Fatalf("expected unresolved external child in XML tree")
+	}
+	if unresolvedNode.CallerKind != langutil.CallerKindUnresolved {
+		t.Errorf("unresolved caller kind = %q, want %q", unresolvedNode.CallerKind, langutil.CallerKindUnresolved)
+	}
 }
