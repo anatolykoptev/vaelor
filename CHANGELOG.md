@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.4](https://github.com/anatolykoptev/go-code/compare/v1.38.3...v1.38.4) (2026-07-17)
+
+
+### Documentation
+
+* re-record hero demo on a production symbol + fix the Try-it command ([#489](https://github.com/anatolykoptev/go-code/issues/489)) ([1477fc8](https://github.com/anatolykoptev/go-code/commit/1477fc8d317e8ee788ef267ce93957e674031456))
+
 ## [1.38.3](https://github.com/anatolykoptev/go-code/compare/v1.38.2...v1.38.3) (2026-07-17)
 
 
