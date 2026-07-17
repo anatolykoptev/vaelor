@@ -3,13 +3,14 @@ package designmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
-	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
-
-	"github.com/anatolykoptev/go-code/internal/pgutil"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -50,30 +51,49 @@ type SearchResult struct {
 
 // Store manages design embeddings in PostgreSQL with pgvector (1024-dim).
 type Store struct {
-	pool    *pgxpool.Pool
-	once    sync.Once
-	initErr error
+	pool        *pgxpool.Pool
+	schema      schemaQuerier
+	schemaGroup singleflight.Group
+	schemaDone  atomic.Bool
 }
 
-func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool, schema: pool} }
 
 // EnsureSchema creates the pgvector extension and design_embeddings table if
 // needed. After creating the table it attempts to transfer ownership to
 // CURRENT_USER (best-effort: warns instead of failing if the role is not the
 // table owner — e.g. after a superuser pg_restore left design_embeddings
 // owned by the restoring role).
+//
+// It uses a success-only latch: a transient failure is retried on the next call,
+// and concurrent callers are deduplicated by singleflight. On a warm database the
+// fast-path catalog checks emit zero CREATE/ALTER DDL.
 func (s *Store) EnsureSchema(ctx context.Context) error {
-	s.once.Do(func() {
-		_, s.initErr = s.pool.Exec(ctx, schemaSQL)
-		if s.initErr != nil {
-			return
+	if s.schemaDone.Load() {
+		setSchemaReady(1)
+		return nil
+	}
+	_, err, shared := s.schemaGroup.Do("schema", func() (any, error) {
+		if s.schemaDone.Load() {
+			return nil, nil
 		}
-		// Best-effort ownership transfer so the connected role can
-		// INSERT/TRUNCATE design_embeddings without needing explicit grants
-		// from an admin.
-		pgutil.TransferOwnership(ctx, s.pool, "designmd", "public.design_embeddings")
+		start := time.Now()
+		err := s.runEnsureSchema(ctx)
+		if err != nil {
+			slog.Error("designmd: schema init failed", slog.Any("error", err))
+			setSchemaReady(0)
+			recordSchemaInit(schemaOutcome(err), time.Since(start))
+			return nil, err
+		}
+		s.schemaDone.Store(true)
+		setSchemaReady(1)
+		recordSchemaInit("ok", time.Since(start))
+		return nil, nil
 	})
-	return s.initErr
+	if shared {
+		return err
+	}
+	return err
 }
 
 // Upsert stores design section embeddings.
