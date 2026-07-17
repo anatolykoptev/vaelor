@@ -5,22 +5,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
-	"sync"
-	"time"
 
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/ingest"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-// buildingRepos tracks repos currently being indexed to prevent concurrent builds.
-var buildingRepos sync.Map
-
-const (
-	codeGraphBuildingStatus  = "building"
-	codeGraphBuildingMessage = "graph is being built — retry in 2-3 minutes"
 )
 
 type xmlGraphResponse struct {
@@ -123,14 +113,14 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	defer cleanup()
 
 	isRemote := ingest.IsRemote(input.Repo)
+	repoKey := codegraph.GraphNameFor(root)
 
 	if input.Refresh {
-		key := codegraph.GraphNameFor(root)
 		// Snapshot current graph before forced refresh for future diffing.
-		codegraph.SnapshotBeforeRebuild(ctx, store, key, key)
-		if dropErr := store.DropGraph(ctx, key, key); dropErr != nil {
+		codegraph.SnapshotBeforeRebuild(ctx, store, repoKey, repoKey)
+		if dropErr := store.DropGraph(ctx, repoKey, repoKey); dropErr != nil {
 			slog.Warn("code_graph: drop graph failed (continuing with re-index)",
-				slog.String("key", key),
+				slog.String("key", repoKey),
 				slog.Any("error", dropErr))
 		}
 	}
@@ -139,12 +129,6 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	// If not, launch a background goroutine to build it and return immediately
 	// so the MCP client is not held for the duration of the first-time build,
 	// which can take several minutes for large repos.
-	fresh, cacheErr := codegraph.CacheStatus(ctx, store, root)
-	if cacheErr != nil {
-		slog.Warn("code_graph: cache status check failed, proceeding with sync build",
-			slog.Any("error", cacheErr))
-	}
-
 	indexCfg := codegraph.IndexConfig{
 		TTLLocal:            cfg.GraphTTLLocal,
 		TTLRemote:           cfg.GraphTTLRemote,
@@ -154,33 +138,11 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 		FlowsDFSDepth:       cfg.FlowsDFSDepth,
 	}
 
+	fresh, status := ensureAgeGraphOrStatus(ctx, "code_graph", store, root, repoKey, isRemote, indexCfg, func(status, message string) *mcp.CallToolResult {
+		return textResult(buildCodeGraphStatusResponse(input, status, message))
+	})
 	if !fresh {
-		// Not cached: build in background and tell the client to retry.
-		// Use sync.Map to prevent two concurrent goroutines building the same graph
-		// (AGE is not concurrency-safe for writes to the same graph).
-		repoKey := codegraph.GraphNameFor(root)
-		if _, alreadyBuilding := buildingRepos.LoadOrStore(repoKey, true); alreadyBuilding {
-			return textResult(buildCodeGraphStatusResponse(input, codeGraphBuildingStatus, codeGraphBuildingMessage)), nil
-		}
-		bgRoot := root
-		go func() {
-			defer buildingRepos.Delete(repoKey)
-			bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Minute)
-			defer bgCancel()
-			// Memory watchdog: polls /proc/pressure/memory every 10s and cancels
-			// the build context if the host enters memory pressure during the
-			// build (second line of defense after the pre-build gate in IndexRepo).
-			go codegraph.MemGuardWatchdog(bgCtx, bgCancel)
-			if bgMeta, err := codegraph.IndexRepo(bgCtx, store, bgRoot, isRemote, indexCfg); err != nil {
-				recordCodeGraphBuildFailure(err)
-				slog.Warn("code_graph: background index failed",
-					slog.String("repo", bgRoot), slog.Any("error", err))
-			} else {
-				recordCodeGraphAge(repoKey, bgMeta.BuiltAt)
-				slog.Info("code_graph: background index complete", slog.String("repo", bgRoot))
-			}
-		}()
-		return textResult(buildCodeGraphStatusResponse(input, codeGraphBuildingStatus, codeGraphBuildingMessage)), nil
+		return status, nil
 	}
 
 	meta, err := codegraph.IndexRepo(ctx, store, root, isRemote, indexCfg)

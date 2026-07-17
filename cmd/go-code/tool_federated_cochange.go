@@ -194,6 +194,9 @@ func handleFederatedCoChangeCoreWithBudget(
 	// Step 3: build guaranteed partial from warm-cache repos only.
 	partial := buildPartialResult(ctx, repos, args, window, minPairs, t0)
 
+	// Count the short-circuit status response for observability.
+	recordToolColdReturn("federated_cochange", partial.Status)
+
 	// Step 4: kick background job (dedup via fedInFlight).
 	kickFedBackground(cacheKey, repos, asOf, args, window, minPairs)
 

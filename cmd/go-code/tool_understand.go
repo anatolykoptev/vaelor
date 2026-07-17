@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/compound"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	"github.com/anatolykoptev/go-code/internal/parser"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
@@ -56,6 +57,20 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	defer cleanup()
 
 	t0 := time.Now()
+
+	// Avoid a synchronous full repo parse when the AGE call graph is not yet
+	// built. Start a background build and return a building status; the caller
+	// can retry once the graph is fresh. understand currently consumes the call
+	// graph indirectly through callgraph.BuildFromRepo, not AGE reads — that
+	// optimization is left as a follow-up.
+	if graphStore != nil {
+		fresh, status := ensureAgeGraphOrStatus(ctx, "understand", graphStore, root, codegraph.GraphNameFor(root), ingest.IsRemote(input.Repo), codegraph.IndexConfig{}, func(status, message string) *mcp.CallToolResult {
+			return buildUnderstandStatusResponse(input, status, message)
+		})
+		if !fresh {
+			return status, nil
+		}
+	}
 
 	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
 		Root:               root,
@@ -158,6 +173,31 @@ func filterByFocus(symbols []*parser.Symbol, focus string) []*parser.Symbol {
 		}
 	}
 	return sub
+}
+
+// understandStatusResponse is the JSON short-circuit envelope returned when the
+// AGE graph is not yet fresh. It preserves the tool's JSON response format and
+// carries a retry hint.
+type understandStatusResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Repo    string `json:"repo"`
+	Symbol  string `json:"symbol"`
+}
+
+// buildUnderstandStatusResponse builds a JSON status response for understand.
+func buildUnderstandStatusResponse(input UnderstandInput, status, message string) *mcp.CallToolResult {
+	resp := understandStatusResponse{
+		Status:  status,
+		Message: message,
+		Repo:    input.Repo,
+		Symbol:  input.Symbol,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err))
+	}
+	return textResult(string(data))
 }
 
 // understandAmbiguousResult returns a JSON response listing ambiguous symbol matches.

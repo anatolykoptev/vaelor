@@ -9,6 +9,7 @@ import (
 	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-code/internal/callgraph"
 	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -67,6 +68,35 @@ func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
 		result[i] = xn
 	}
 	return result
+}
+
+// callTraceTraceFromAGE is the test seam for codegraph.TraceFromAGE. It is a
+// package-level variable so handler-level tests can simulate an AGE miss
+// without requiring a live AGE graph.
+var callTraceTraceFromAGE = codegraph.TraceFromAGE
+
+// callTraceStatusXML is the building-status short-circuit response for call_trace.
+// It mirrors the normal <response><trace.../> shape with status/message attrs.
+type callTraceStatusXML struct {
+	XMLName xml.Name             `xml:"response"`
+	Trace   callTraceStatusTrace `xml:"trace"`
+}
+
+type callTraceStatusTrace struct {
+	Symbol  string `xml:"symbol,attr"`
+	Status  string `xml:"status,attr"`
+	Message string `xml:"message,attr"`
+}
+
+// buildCallTraceStatusResponse builds an XML status response for call_trace.
+func buildCallTraceStatusResponse(input CallTraceInput, status, message string) *mcp.CallToolResult {
+	return textResult(xmlMarshalFragment(callTraceStatusXML{
+		Trace: callTraceStatusTrace{
+			Symbol:  input.Symbol,
+			Status:  status,
+			Message: message,
+		},
+	}))
 }
 
 // CallTraceInput is the input schema for the call_trace tool.
@@ -161,12 +191,24 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	var result *callgraph.TraceResult
 	if store != nil && !input.Refresh {
 		graphName := codegraph.GraphNameFor(root)
-		if ageResult, ageErr := codegraph.TraceFromAGE(ctx, store, graphName, input.Symbol, direction, depth); ageErr == nil && ageResult != nil && ageResult.Root != nil {
+		if ageResult, ageErr := callTraceTraceFromAGE(ctx, store, graphName, input.Symbol, direction, depth); ageErr == nil && ageResult != nil && ageResult.Root != nil {
 			slog.Debug("call_trace: using AGE graph (fast path)",
 				slog.String("symbol", input.Symbol),
 				slog.String("direction", direction),
 				slog.Int("nodes", ageResult.TotalNodes))
 			result = ageResult
+		}
+	}
+
+	// Fallback: if the AGE graph is not fresh, start a background build and
+	// return a building status instead of blocking on the full tree-sitter parse.
+	// Explicit refresh bypasses this gate and forces the synchronous reparse.
+	if (result == nil || result.Root == nil) && store != nil && !input.Refresh {
+		fresh, status := ensureAgeGraphOrStatus(ctx, "call_trace", store, root, codegraph.GraphNameFor(root), ingest.IsRemote(input.Repo), codegraph.IndexConfig{}, func(status, message string) *mcp.CallToolResult {
+			return buildCallTraceStatusResponse(input, status, message)
+		})
+		if !fresh {
+			return status, nil
 		}
 	}
 

@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -99,5 +104,56 @@ func TestFilterByFocus_IngestLayeringRegression(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "toggle" {
 		t.Errorf("want [toggle], got %v", got)
+	}
+}
+
+// TestUnderstand_ColdGraph_ReturnsBuildingStatus verifies that understand returns
+// a JSON building-status response (and does not synchronously parse the repo)
+// when the AGE graph is not yet fresh.
+func TestUnderstand_ColdGraph_ReturnsBuildingStatus(t *testing.T) {
+	origCacheStatus := ageGraphCacheStatus
+	origIndexRepo := ageGraphIndexRepo
+	defer func() {
+		ageGraphCacheStatus = origCacheStatus
+		ageGraphIndexRepo = origIndexRepo
+	}()
+
+	ageGraphCacheStatus = func(context.Context, *codegraph.Store, string) (bool, error) { return false, nil }
+	ageGraphIndexRepo = func(context.Context, *codegraph.Store, string, bool, codegraph.IndexConfig) (*codegraph.GraphMeta, error) {
+		return nil, nil
+	}
+
+	root := t.TempDir()
+	input := UnderstandInput{Repo: root, Symbol: "Foo"}
+	deps := analyze.Deps{}
+	graphStore := &codegraph.Store{}
+
+	res, err := handleUnderstand(context.Background(), input, deps, nil, graphStore)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if res.IsError {
+		t.Fatalf("expected non-error status response, got error: %s", textContentOf(t, res))
+	}
+
+	text := textContentOf(t, res)
+	var status understandStatusResponse
+	if err := json.Unmarshal([]byte(text), &status); err != nil {
+		t.Fatalf("expected JSON status, got %q: %v", text, err)
+	}
+	if status.Status != "building" {
+		t.Errorf("expected status 'building', got %q", status.Status)
+	}
+	if !strings.Contains(status.Message, "retry") {
+		t.Errorf("expected retry hint in message, got %q", status.Message)
+	}
+	if status.Repo != root {
+		t.Errorf("expected repo %q, got %q", root, status.Repo)
+	}
+	if status.Symbol != "Foo" {
+		t.Errorf("expected symbol %q, got %q", "Foo", status.Symbol)
 	}
 }
