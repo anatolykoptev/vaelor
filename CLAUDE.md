@@ -176,4 +176,4 @@ make deploy  # docker compose build --no-cache + up -d
 
 ## Contributing
 
-See `docs/contributing.md` for: adding a new tool, adding a new language, CGO details.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for: adding a new tool, adding a new language, CGO details.
