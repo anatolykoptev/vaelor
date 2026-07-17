@@ -144,6 +144,8 @@ func (s *Store) runEnsureSchema(ctx context.Context) error {
 			if !exists {
 				queue = append(queue, schemaAction{sql: stmt, desc: "create index " + p.name, needsIdxTimeout: true})
 			}
+		default:
+			return fmt.Errorf("unknown schema statement kind: %q", p.kind)
 		}
 	}
 

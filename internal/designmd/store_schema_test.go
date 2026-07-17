@@ -323,6 +323,26 @@ func TestEnsureSchema_LockTimeout_FastFail(t *testing.T) {
 	}
 }
 
+// TestEnsureSchema_StatementTimeout_ForIndexBuild asserts that statement_timeout
+// is raised to 120s before a CREATE INDEX on the cold path.
+func TestEnsureSchema_StatementTimeout_ForIndexBuild(t *testing.T) {
+	db := newFakeDB()
+	db.ext = true
+	db.tables["design_embeddings"] = true
+	db.owners["design_embeddings"] = "app"
+
+	s := storeForTest(db)
+	if err := s.EnsureSchema(context.Background()); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	if !db.hasExec("SET LOCAL statement_timeout = '120s'") {
+		t.Fatal("expected SET LOCAL statement_timeout = '120s' before index build")
+	}
+	if !db.hasExec("CREATE INDEX IF NOT EXISTS idx_design_emb_hnsw") {
+		t.Fatal("expected hnsw index build")
+	}
+}
+
 func TestEnsureSchema_LogsFailure(t *testing.T) {
 	db := newFakeDB()
 	db.ext = false

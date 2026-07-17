@@ -73,7 +73,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		setSchemaReady(1)
 		return nil
 	}
-	_, err, shared := s.schemaGroup.Do("schema", func() (any, error) {
+	_, err, _ := s.schemaGroup.Do("schema", func() (any, error) {
 		if s.schemaDone.Load() {
 			return nil, nil
 		}
@@ -90,9 +90,6 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		recordSchemaInit("ok", time.Since(start))
 		return nil, nil
 	})
-	if shared {
-		return err
-	}
 	return err
 }
 
