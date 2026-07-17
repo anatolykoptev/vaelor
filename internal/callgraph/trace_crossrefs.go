@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -63,15 +62,12 @@ func injectCrossLangNodes(ctx context.Context, result *TraceResult, opts TraceOp
 		}
 
 		for _, ref := range refs {
+			sym := &parser.Symbol{Name: ref.Name, File: ref.File, Kind: parser.KindFunction}
 			synth := CallChainNode{
-				Symbol: &parser.Symbol{
-					Name: ref.Name,
-					File: ref.File,
-					Kind: parser.KindFunction,
-				},
+				Symbol:     sym,
 				Kind:       CrossLanguageFetchKind,
 				Depth:      cur.depth + 1,
-				CallerKind: langutil.CallerKind(ref.Name, ref.File),
+				CallerKind: nodeCallerKind(sym),
 			}
 			cur.node.Children = append(cur.node.Children, synth)
 			result.TotalNodes++

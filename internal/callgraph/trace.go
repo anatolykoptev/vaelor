@@ -46,7 +46,7 @@ type CallChainNode struct {
 	Speculative []SpeculativeCall `json:"speculative,omitempty"` // candidates for unresolved calls
 	Kind        string            `json:"kind,omitempty"`        // internal: empty = normal; CrossLanguageFetchKind for synthetic nodes
 	Depth       int               `json:"depth,omitempty"`       // only set on synthetic cross-language nodes
-	CallerKind  string            `json:"caller_kind,omitempty"` // production | test | example | benchmark
+	CallerKind  string            `json:"caller_kind,omitempty"` // production | test | example | benchmark | unresolved
 }
 
 // TraceResult holds the complete call chain traversal output.
@@ -118,7 +118,7 @@ func traceNode(
 		result.MaxDepth = depth
 	}
 
-	node := CallChainNode{Symbol: sym, CallerKind: langutil.CallerKind(sym.Name, sym.File)}
+	node := CallChainNode{Symbol: sym, CallerKind: nodeCallerKind(sym)}
 	if depth >= maxDepth {
 		return node
 	}
@@ -142,7 +142,7 @@ func traceNode(
 			node.Children = append(node.Children, CallChainNode{
 				Symbol:     &parser.Symbol{Name: e.CalleeName, Kind: "external"},
 				CallLine:   e.Line,
-				CallerKind: langutil.CallerKind(e.CalleeName, ""),
+				CallerKind: langutil.CallerKindUnresolved,
 			})
 			continue
 		}
@@ -154,7 +154,7 @@ func traceNode(
 				Symbol:     target,
 				CallLine:   e.Line,
 				Cycle:      true,
-				CallerKind: langutil.CallerKind(target.Name, target.File),
+				CallerKind: nodeCallerKind(target),
 			})
 			continue
 		}
@@ -165,6 +165,16 @@ func traceNode(
 	}
 
 	return node
+}
+
+// nodeCallerKind returns the caller kind for a resolved symbol, or
+// "unresolved" when the symbol is nil, has no source file, or is explicitly
+// marked as external.
+func nodeCallerKind(sym *parser.Symbol) string {
+	if sym == nil || sym.File == "" || sym.Kind == "external" {
+		return langutil.CallerKindUnresolved
+	}
+	return langutil.CallerKind(sym.Name, sym.File)
 }
 
 func findSymbol(symbols []*parser.Symbol, name string) *parser.Symbol {

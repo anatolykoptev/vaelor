@@ -2,28 +2,34 @@ package langutil
 
 import "strings"
 
+// Canonical caller-kind values used by understand, call_trace, and related tools.
+const (
+	CallerKindProduction = "production"
+	CallerKindTest       = "test"
+	CallerKindExample    = "example"
+	CallerKindBenchmark  = "benchmark"
+	CallerKindUnresolved = "unresolved"
+)
+
 // CallerKind classifies a symbol as production/test/example/benchmark from its
 // name and file path. It is used by understand and call_trace to annotate
 // callers so blast-radius answers can distinguish production call sites from
 // tests.
 //
-// Rules (Go primary, extended to common per-language conventions):
-//   - name starts with "Example" -> "example"
-//   - name starts with "Benchmark" -> "benchmark"
-//   - name starts with "Test", "Fuzz", or "test_" -> "test"
-//   - the file is a recognised test file -> "test"
-//   - otherwise -> "production"
+// The file is the gate: any caller in a non-test file is production, regardless
+// of its name. Only callers inside a recognised test file are sub-classified by
+// name (Example -> example, Benchmark -> benchmark, everything else -> test).
+// This is intentionally multi-language: IsTestFile covers Go _test.go, Python
+// test_/_test.py, JS/TS .test./.spec., test dirs, etc.
 func CallerKind(name, relPath string) string {
-	switch {
-	case strings.HasPrefix(name, "Example"):
-		return "example"
-	case strings.HasPrefix(name, "Benchmark"):
-		return "benchmark"
-	case strings.HasPrefix(name, "Test") || strings.HasPrefix(name, "Fuzz") || strings.HasPrefix(name, "test_"):
-		return "test"
-	case IsTestFile(relPath):
-		return "test"
-	default:
-		return "production"
+	if !IsTestFile(relPath) {
+		return CallerKindProduction
 	}
+	if strings.HasPrefix(name, "Example") {
+		return CallerKindExample
+	}
+	if strings.HasPrefix(name, "Benchmark") {
+		return CallerKindBenchmark
+	}
+	return CallerKindTest
 }
