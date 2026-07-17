@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 
-	"github.com/anatolykoptev/go-code/internal/pgutil"
 	"github.com/anatolykoptev/go-kit/sparse"
 	pgvector "github.com/pgvector/pgvector-go"
 )
@@ -121,31 +121,45 @@ type SearchResult struct {
 
 // Store manages vector embeddings in PostgreSQL with pgvector.
 type Store struct {
-	pool    *pgxpool.Pool
-	once    sync.Once
-	initErr error
+	pool        *pgxpool.Pool
+	schema      schemaQuerier
+	schemaGroup singleflight.Group
+	schemaDone  atomic.Bool
 }
 
 // NewStore creates a Store backed by the given connection pool.
-func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool, schema: pool} }
 
 // EnsureSchema creates the pgvector extension and embeddings table if needed.
 // After creating tables it attempts to transfer ownership to CURRENT_USER
 // (best-effort: warns instead of failing if the role is not the table owner).
+//
+// It uses a success-only latch: a transient failure is retried on the next call,
+// and concurrent callers are deduplicated by singleflight. On a warm database the
+// fast-path catalog checks emit zero CREATE/ALTER DDL.
 func (s *Store) EnsureSchema(ctx context.Context) error {
-	s.once.Do(func() {
-		_, s.initErr = s.pool.Exec(ctx, schemaSQL)
-		if s.initErr != nil {
-			slog.Error("embeddings: schema init failed", slog.Any("error", s.initErr))
-			return
+	if s.schemaDone.Load() {
+		setSchemaReady(1)
+		return nil
+	}
+	_, err, _ := s.schemaGroup.Do("schema", func() (any, error) {
+		if s.schemaDone.Load() {
+			return nil, nil
 		}
-		// Best-effort ownership transfer so the connected role can TRUNCATE
-		// code_embeddings on reindex without needing explicit grants from an admin.
-		for _, tbl := range []string{"public.code_embeddings", "public.code_repo_state"} {
-			pgutil.TransferOwnership(ctx, s.pool, "embeddings", tbl)
+		start := time.Now()
+		err := s.runEnsureSchema(ctx)
+		if err != nil {
+			slog.Error("embeddings: schema init failed", slog.Any("error", err))
+			setSchemaReady(0)
+			recordSchemaInit(schemaOutcome(err), time.Since(start))
+			return nil, err
 		}
+		s.schemaDone.Store(true)
+		setSchemaReady(1)
+		recordSchemaInit("ok", time.Since(start))
+		return nil, nil
 	})
-	return s.initErr
+	return err
 }
 
 // Upsert stores embeddings for symbols using multi-row INSERT with ON CONFLICT.
