@@ -1,8 +1,10 @@
-<!-- HERO DEMO: asciinema/GIF of understand or call_trace on golang/go — to record before launch -->
-
 # go-code
 
 **Give your coding agent a memory of the codebase it can't get from grep.**
+
+<p align="center">
+  <img src="docs/hero-demo.gif" width="760" alt="go-code understand: for one symbol it returns the signature, complexity, callees, and every caller resolved across files in a single call — the call graph a text search can't give an agent.">
+</p>
 
 go-code is the open-source engine behind [Krolik](https://krolik.tools): a self-hosted [MCP](https://modelcontextprotocol.io/) server that parses, graphs, and watches a codebase so an AI agent doesn't have to re-discover it every session. Tree-sitter AST parsing across 16 languages feeds a call graph with type-aware Go resolution (`go/types`), a persistent Apache AGE knowledge graph, and hybrid semantic search. `review_pr` remembers what broke last time a symbol was reviewed. `debug_investigate` correlates a Prometheus alert and a Jaeger trace back to the function that caused it.
 
