@@ -3,7 +3,7 @@
 **Give your coding agent a memory of the codebase it can't get from grep.**
 
 <p align="center">
-  <img src="docs/hero-demo.gif" width="760" alt="go-code understand: for one symbol it returns the signature, complexity, callees, and every caller resolved across files in a single call — the call graph a text search can't give an agent.">
+  <img src="docs/hero-demo.gif" width="820" alt="go-code understand on ParseFile: before an agent edits a core function it sees the blast radius — the production callers across three packages, the top-1% structural centrality, and the tests that cover it.">
 </p>
 
 go-code is the open-source engine behind [Krolik](https://krolik.tools): a self-hosted [MCP](https://modelcontextprotocol.io/) server that parses, graphs, and watches a codebase so an AI agent doesn't have to re-discover it every session. Tree-sitter AST parsing across 16 languages feeds a call graph with type-aware Go resolution (`go/types`), a persistent Apache AGE knowledge graph, and hybrid semantic search. `review_pr` remembers what broke last time a symbol was reviewed. `debug_investigate` correlates a Prometheus alert and a Jaeger trace back to the function that caused it.
@@ -51,21 +51,21 @@ claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
 
 ### Try it
 
-No local clone needed for the first call: `understand` and `call_trace` accept a remote GitHub repo directly and fetch it on demand.
+No local clone needed: `understand` and `call_trace` take a GitHub repo directly and fetch it on the first call. That first call indexes the repo, so give it a few seconds; after that it's cached. Start with a small repo:
 
 ```json
 {
   "tool": "call_trace",
   "arguments": {
-    "repo": "golang/go",
-    "symbol": "ListenAndServe",
+    "repo": "gorilla/mux",
+    "symbol": "ServeHTTP",
     "direction": "callees",
-    "depth": 3
+    "depth": 2
   }
 }
 ```
 
-Returns the callee chain from `net/http.ListenAndServe` with cycle detection, no Docker volume mount and no `DATABASE_URL` required.
+Walks `Router.ServeHTTP` through the routing path with cycle detection — no Docker volume mount and no `DATABASE_URL` required.
 
 No `LLM_API_KEY` yet? Most tools still run: they skip only the narrative and ranking layer. See [LLM dependency](#llm-dependency) for exactly what degrades and what doesn't.
 
