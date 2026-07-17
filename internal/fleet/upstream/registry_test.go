@@ -6,9 +6,9 @@ import (
 
 func TestResolve_ExactMatch(t *testing.T) {
 	t.Parallel()
-	s, ok := Resolve("teddysun/xray")
-	if !ok || s != "XTLS/Xray-core" {
-		t.Errorf("got (%q,%v), want (XTLS/Xray-core,true)", s, ok)
+	s, ok := Resolve("minio/minio")
+	if !ok || s != "minio/minio" {
+		t.Errorf("got (%q,%v), want (minio/minio,true)", s, ok)
 	}
 }
 

@@ -82,7 +82,7 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 		// container), resolve it against the indexed-repo registry: a checkout
 		// whose basename matches under LocalRepoDirs (e.g. /host/src/<name>).
 		// This is the path every subagent + the go-code cheatsheet exercises
-		// with bare repo names like "oxpulse-chat".
+		// with bare repo names like "acme-web".
 		if local := bareNameCheckoutFor(repo, deps.LocalRepoDirs); local != "" {
 			src = workspace.LocalSource{Path: local, Mappings: deps.PathMappings}
 			outcome = resolveOutcomeBareRoot

@@ -7,7 +7,7 @@ func TestOperationToFuncName_GRPCStyle(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"/api.Service/Method", "Method"},
 		{"/grpc.health.v1.Health/Check", "Check"},
-		{"/oxpulse.chat.v1.ChatService/SendMessage", "SendMessage"},
+		{"/acme.web.v1.ChatService/SendMessage", "SendMessage"},
 	}
 	for _, c := range cases {
 		if got := OperationToFuncName(c.in); got != c.want {

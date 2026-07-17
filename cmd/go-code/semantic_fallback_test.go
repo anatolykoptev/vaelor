@@ -55,7 +55,7 @@ func (s *searchByNameSpy) SearchBySymbolName(
 func TestSemanticSuggestEmbedServerIndependence(t *testing.T) {
 	spy := &searchByNameSpy{
 		results: []embeddings.SearchResult{
-			{SymbolName: "render_xray", FilePath: "infra/render_xray.go", SymbolKind: "func", StartLine: 10, Distance: 0.3},
+			{SymbolName: "render_widget", FilePath: "infra/render_widget.go", SymbolKind: "func", StartLine: 10, Distance: 0.3},
 			{SymbolName: "render_caddy", FilePath: "infra/render_caddy.go", SymbolKind: "func", StartLine: 20, Distance: 0.4},
 		},
 	}
@@ -75,8 +75,8 @@ func TestSemanticSuggestEmbedServerIndependence(t *testing.T) {
 	if !strings.Contains(result, "<semantic_suggestions>") {
 		t.Errorf("result missing <semantic_suggestions> wrapper: %s", result)
 	}
-	if !strings.Contains(result, "render_xray") {
-		t.Errorf("result missing fake symbol 'render_xray': %s", result)
+	if !strings.Contains(result, "render_widget") {
+		t.Errorf("result missing fake symbol 'render_widget': %s", result)
 	}
 	if !strings.Contains(result, "render_caddy") {
 		t.Errorf("result missing fake symbol 'render_caddy': %s", result)

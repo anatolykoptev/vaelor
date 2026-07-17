@@ -426,11 +426,11 @@ func TestBuildGraphSvelteKitLibAliasResolvesToContainer(t *testing.T) {
 
 // TestBuildGraphWorkspaceAliasResolvesToContainer verifies the end-to-end path:
 // buildGraph reads a workspace package.json from in.Files (via BuildConfig), so
-// that "@oxpulse/mesh-core" imports resolve to "packages/mesh-core" instead of
+// that "@acme/mesh-core" imports resolve to "packages/mesh-core" instead of
 // becoming orphan external nodes.
 //
 // Falsification (red-on-revert): remove the aliasCfg/BuildConfig wiring in
-// buildGraph → edge ToKey stays "@oxpulse/mesh-core" and an external vertex is
+// buildGraph → edge ToKey stays "@acme/mesh-core" and an external vertex is
 // created instead of pointing at the local container.
 func TestBuildGraphWorkspaceAliasResolvesToContainer(t *testing.T) {
 	t.Parallel()
@@ -441,7 +441,7 @@ func TestBuildGraphWorkspaceAliasResolvesToContainer(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(pkgJSON), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	const pkgContent = `{"name":"@oxpulse/mesh-core","version":"0.1.0"}`
+	const pkgContent = `{"name":"@acme/mesh-core","version":"0.1.0"}`
 	if err := os.WriteFile(pkgJSON, []byte(pkgContent), 0o644); err != nil {
 		t.Fatalf("write package.json: %v", err)
 	}
@@ -457,12 +457,12 @@ func TestBuildGraphWorkspaceAliasResolvesToContainer(t *testing.T) {
 	}
 	cg := &callgraph.CallGraph{}
 	fileImports := map[string][]string{
-		"web/src/lib/app.ts": {"@oxpulse/mesh-core", "react"},
+		"web/src/lib/app.ts": {"@acme/mesh-core", "react"},
 	}
 
 	vertices, edges, _ := buildGraph(buildGraphInput{Root: root, Files: files, CallGraph: cg, FileImports: fileImports})
 
-	// The IMPORTS edge for "@oxpulse/mesh-core" must target "packages/mesh-core".
+	// The IMPORTS edge for "@acme/mesh-core" must target "packages/mesh-core".
 	var meshEdgeToKey string
 	for _, e := range edges {
 		if e.EdgeLabel == "IMPORTS" && e.FromKey == "web/src/lib/app.ts" && e.ToKey != "react" {
@@ -470,13 +470,13 @@ func TestBuildGraphWorkspaceAliasResolvesToContainer(t *testing.T) {
 		}
 	}
 	if meshEdgeToKey != "packages/mesh-core" {
-		t.Errorf("@oxpulse/mesh-core IMPORTS ToKey = %q, want %q", meshEdgeToKey, "packages/mesh-core")
+		t.Errorf("@acme/mesh-core IMPORTS ToKey = %q, want %q", meshEdgeToKey, "packages/mesh-core")
 	}
 
-	// No external Package vertex for "@oxpulse/mesh-core".
+	// No external Package vertex for "@acme/mesh-core".
 	for _, v := range vertices {
-		if v.Label == "Package" && v.Props["path"] == "@oxpulse/mesh-core" {
-			t.Error("external vertex created for @oxpulse/mesh-core — should have resolved to local container")
+		if v.Label == "Package" && v.Props["path"] == "@acme/mesh-core" {
+			t.Error("external vertex created for @acme/mesh-core — should have resolved to local container")
 		}
 	}
 

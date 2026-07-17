@@ -29,11 +29,11 @@ export async function registerPartner(data: unknown) {
 	writeFile(t, rootEdge, "CHANGELOG.md", "# changes")
 	writeFile(t, rootChat, "src/other.ts", "console.log(\"hi\")")
 
-	roots := map[string]string{"oxpulse-chat": rootChat, "oxpulse-partner-edge": rootEdge}
+	roots := map[string]string{"acme-web": rootChat, "acme-edge": rootEdge}
 	// NOISE pair has the HIGHER temporal Score — proves verification re-ranks above raw score.
 	cands := []federate.CrossPair{
-		{RepoA: "oxpulse-partner-edge", FileA: "CHANGELOG.md", RepoB: "oxpulse-chat", FileB: "src/other.ts", Score: 0.9, CoChanges: 9},
-		{RepoA: "oxpulse-partner-edge", FileA: "api/register.go", RepoB: "oxpulse-chat", FileB: "src/register.ts", Score: 0.4, CoChanges: 4},
+		{RepoA: "acme-edge", FileA: "CHANGELOG.md", RepoB: "acme-web", FileB: "src/other.ts", Score: 0.9, CoChanges: 9},
+		{RepoA: "acme-edge", FileA: "api/register.go", RepoB: "acme-web", FileB: "src/register.ts", Score: 0.4, CoChanges: 4},
 	}
 
 	out := VerifyPairs(context.Background(), cands, roots, NewRouteVerifier())

@@ -9,7 +9,7 @@ import (
 // different repos that reference the same high-signal token (a SCREAMING_SNAKE
 // env-var/const, or a structured string-literal protocol field like
 // "peer_joined"). Fully offline — extractSignificantSymbols is a byte-scan, no
-// CGO, no DB. Catches the oxpulse WebSocket/protocol-constant coupling that has
+// CGO, no DB. Catches cross-repo WebSocket/protocol-constant coupling that has
 // no HTTP route (T0 cannot see it). A per-instance cache dedupes token
 // extraction for a file appearing in multiple candidate pairs.
 type symbolVerifier struct {

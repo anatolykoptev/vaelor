@@ -26,7 +26,7 @@ func TestRunAlertsPhase_HappyPath(t *testing.T) {
 		"data": {
 			"alerts": [
 				{
-					"labels": {"alertname":"WireWriteMissing","service":"oxpulse-sfu","severity":"critical"},
+					"labels": {"alertname":"WireWriteMissing","service":"acme-sfu","severity":"critical"},
 					"annotations": {"summary":"wire_written stuck","description":"ratio < 0.9","runbook_url":"https://runbooks/wire"},
 					"state": "firing",
 					"activeAt": "2026-05-08T10:00:00Z",
@@ -46,7 +46,7 @@ func TestRunAlertsPhase_HappyPath(t *testing.T) {
 
 	prom := promclient.NewClient(srv.URL, 5*time.Second)
 	diags := &investigate.Diagnostics{}
-	spikes, violations := runAlertsPhase(context.Background(), prom, "oxpulse-sfu", diags)
+	spikes, violations := runAlertsPhase(context.Background(), prom, "acme-sfu", diags)
 
 	if len(violations) != 1 {
 		t.Fatalf("expected 1 violation, got %d", len(violations))

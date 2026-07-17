@@ -11,7 +11,7 @@ Built on [`github.com/go-sourcemap/sourcemap`](https://github.com/go-sourcemap/s
 ## Configuration
 
 ```
-SOURCEMAP_ALLOWED_HOSTS=oxpulse.chat,piter.now
+SOURCEMAP_ALLOWED_HOSTS=app.example.com,piter.now
 ```
 
 `SOURCEMAP_ALLOWED_HOSTS` is a comma-separated list of hostnames that `resolve_frame` and `POST /resolve` are permitted to fetch source maps from. When the env var is empty (default), both the MCP tool and the HTTP endpoint are **disabled** — tool registration is skipped and the route returns 503. This is intentional: fetching arbitrary URLs is a security risk.
@@ -19,7 +19,7 @@ SOURCEMAP_ALLOWED_HOSTS=oxpulse.chat,piter.now
 To enable, set the env var in `compose/search.yml`:
 
 ```yaml
-- SOURCEMAP_ALLOWED_HOSTS=${SOURCEMAP_ALLOWED_HOSTS:-oxpulse.chat,piter.now}
+- SOURCEMAP_ALLOWED_HOSTS=${SOURCEMAP_ALLOWED_HOSTS:-app.example.com,piter.now}
 ```
 
 > **Note:** A separate krolik-server PR is needed to add this env var to `compose/search.yml`. It is not included in the go-code Phase α PR.
@@ -30,7 +30,7 @@ To enable, set the env var in `compose/search.yml`:
 
 ```json
 {
-  "url":    "https://oxpulse.chat/_app/immutable/chunks/chunk-abc.js",
+  "url":    "https://app.example.com/_app/immutable/chunks/chunk-abc.js",
   "line":   42,
   "column": 193
 }
@@ -45,7 +45,7 @@ To enable, set the env var in `compose/search.yml`:
 ### Example call
 
 ```
-resolve_frame url="https://oxpulse.chat/_app/immutable/chunks/chunk-abc.js" line=1 column=9
+resolve_frame url="https://app.example.com/_app/immutable/chunks/chunk-abc.js" line=1 column=9
 ```
 
 ### Response
@@ -68,7 +68,7 @@ On error (host not allowed, map not found, mapping absent), returns a plain-text
 POST /resolve
 Content-Type: application/json
 
-{"url":"https://oxpulse.chat/_app/immutable/chunks/chunk-abc.js","line":42,"column":193}
+{"url":"https://app.example.com/_app/immutable/chunks/chunk-abc.js","line":42,"column":193}
 ```
 
 ### Response codes
@@ -86,7 +86,7 @@ Content-Type: application/json
 ```bash
 curl -sS -X POST http://localhost:8897/resolve \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://oxpulse.chat/_app/immutable/chunks/chunk-abc.js","line":1,"column":9}'
+  -d '{"url":"https://app.example.com/_app/immutable/chunks/chunk-abc.js","line":1,"column":9}'
 ```
 
 Expected (when map is available):

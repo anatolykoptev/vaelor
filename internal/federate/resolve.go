@@ -16,7 +16,7 @@ import (
 
 // RepoRef identifies one repo in a federated set.
 type RepoRef struct {
-	Slug string // basename of the repo dir (e.g. "oxpulse-chat"); not unique across a result set if the same basename exists under two localDirs
+	Slug string // basename of the repo dir (e.g. "acme-web"); not unique across a result set if the same basename exists under two localDirs
 	Root string // absolute local path
 }
 

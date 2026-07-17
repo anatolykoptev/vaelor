@@ -251,8 +251,8 @@ func TestInvestigationCacheKey_DifferentRepoProducesDifferentKey(t *testing.T) {
 	top := []investigate.Hypothesis{
 		{Subject: "HandleRequest", AnomalyScore: 0.9, FusedScore: 0.8},
 	}
-	inputA := DebugInvestigateInput{Service: "svc", StartUnix: 1000, EndUnix: 2000, Repo: "anatolykoptev/oxpulse-sfu"}
-	inputB := DebugInvestigateInput{Service: "svc", StartUnix: 1000, EndUnix: 2000, Repo: "anatolykoptev/oxpulse-partner-edge"}
+	inputA := DebugInvestigateInput{Service: "svc", StartUnix: 1000, EndUnix: 2000, Repo: "anatolykoptev/acme-sfu"}
+	inputB := DebugInvestigateInput{Service: "svc", StartUnix: 1000, EndUnix: 2000, Repo: "anatolykoptev/acme-edge"}
 	kA := investigationCacheKey(inputA, top)
 	kB := investigationCacheKey(inputB, top)
 	if kA == kB {

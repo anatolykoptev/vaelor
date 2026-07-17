@@ -573,8 +573,8 @@ func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
 
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
-			"krolik": {{Container: "xray", Image: "teddysun/xray", Tag: "latest", State: "running"}},
-			"piter":  {{Container: "xray", Image: "teddysun/xray", Tag: "26.5.3", State: "running"}},
+			"krolik": {{Container: "minio", Image: "minio/minio", Tag: "latest", State: "running"}},
+			"piter":  {{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
 		},
 	}
 
@@ -592,10 +592,10 @@ func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
 	}))
 
 	if len(out.SiblingDrifts) != 1 {
-		t.Fatalf("SiblingDrifts len=%d; want 1 (teddysun/xray drift)", len(out.SiblingDrifts))
+		t.Fatalf("SiblingDrifts len=%d; want 1 (minio/minio drift)", len(out.SiblingDrifts))
 	}
-	if out.SiblingDrifts[0].Image != "teddysun/xray" {
-		t.Errorf("SiblingDrifts[0].Image=%q; want teddysun/xray", out.SiblingDrifts[0].Image)
+	if out.SiblingDrifts[0].Image != "minio/minio" {
+		t.Errorf("SiblingDrifts[0].Image=%q; want minio/minio", out.SiblingDrifts[0].Image)
 	}
 	if len(out.SiblingDrifts[0].Variants) != 2 {
 		t.Errorf("SiblingDrifts[0].Variants len=%d; want 2", len(out.SiblingDrifts[0].Variants))
@@ -643,12 +643,12 @@ func TestFleetVersions_MultiHost_SoftFailPerTarget(t *testing.T) {
 // Upstream changelog enrichment integration test
 // ---------------------------------------------------------------------------
 
-// TestFleetVersions_UpstreamChangelog_EndToEnd: Dockerfile pins teddysun/xray:26.4.25,
-// fake docker returns teddysun/xray:26.5.3 → TagDrift → changelog enriched with fake GH.
+// TestFleetVersions_UpstreamChangelog_EndToEnd: Dockerfile pins minio/minio:26.4.25,
+// fake docker returns minio/minio:26.5.3 → TagDrift → changelog enriched with fake GH.
 func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 	// Fake GitHub Compare API server.
 	ghSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := `{"status":"ahead","html_url":"https://github.com/XTLS/Xray-core/compare/v26.4.25...v26.5.3","commits":[{"sha":"abc001","commit":{"message":"feat: new feature\nsome body","author":{"name":"Dev","date":"2025-05-01T12:00:00Z"}}}]}`
+		resp := `{"status":"ahead","html_url":"https://github.com/minio/minio/compare/v26.4.25...v26.5.3","commits":[{"sha":"abc001","commit":{"message":"feat: new feature\nsome body","author":{"name":"Dev","date":"2025-05-01T12:00:00Z"}}}]}`
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(resp))
 	}))
@@ -678,7 +678,7 @@ func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 	// We can confirm this by checking the JSON output.
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM teddysun/xray:26.4.25\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM minio/minio:26.4.25\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -690,7 +690,7 @@ func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 
 	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
 		images: []fleet.RuntimeImage{
-			{Container: "xray", Image: "teddysun/xray", Tag: "26.5.3", State: "running"},
+			{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"},
 		},
 	}, nil))
 
@@ -710,7 +710,7 @@ func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 		}
 	}
 	if tagDriftDiff == nil {
-		t.Fatal("expected DiffTagDrift row for teddysun/xray version mismatch")
+		t.Fatal("expected DiffTagDrift row for minio/minio version mismatch")
 	}
 	if tagDriftDiff.Changelog == nil {
 		t.Error("expected Changelog to be non-nil for TagDrift with valid GithubToken")
@@ -718,8 +718,8 @@ func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 		if !tagDriftDiff.Changelog.Resolved {
 			t.Errorf("Changelog.Resolved=false; Reason=%q", tagDriftDiff.Changelog.Reason)
 		}
-		if tagDriftDiff.Changelog.Repo != "XTLS/Xray-core" {
-			t.Errorf("Changelog.Repo=%q; want XTLS/Xray-core", tagDriftDiff.Changelog.Repo)
+		if tagDriftDiff.Changelog.Repo != "minio/minio" {
+			t.Errorf("Changelog.Repo=%q; want minio/minio", tagDriftDiff.Changelog.Repo)
 		}
 		if len(tagDriftDiff.Changelog.Commits) != 1 {
 			t.Errorf("Changelog.Commits len=%d; want 1", len(tagDriftDiff.Changelog.Commits))
@@ -730,7 +730,7 @@ func TestFleetVersions_UpstreamChangelog_EndToEnd(t *testing.T) {
 // TestFleetVersions_UpstreamDisableFlag: FleetUpstreamDisable=true → no changelog enrichment.
 func TestFleetVersions_UpstreamDisableFlag(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM teddysun/xray:26.4.25\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM minio/minio:26.4.25\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -740,7 +740,7 @@ func TestFleetVersions_UpstreamDisableFlag(t *testing.T) {
 
 	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{
 		images: []fleet.RuntimeImage{
-			{Container: "xray", Image: "teddysun/xray", Tag: "26.5.3", State: "running"},
+			{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"},
 		},
 	}, nil))
 

@@ -33,8 +33,8 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	for _, d := range []string{chat, edge} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -61,7 +61,7 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 	res, err := handleFederatedCoChangeCore(context.Background(), FederatedCoChangeArgs{
-		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 	}, deps)
 	if err != nil || res.IsError {
 		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
@@ -74,7 +74,7 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 	if len(out.Pairs) == 0 {
 		t.Fatalf("expected cross-repo pairs, body=%s", body)
 	}
-	if !strings.Contains(body, "oxpulse-chat") || !strings.Contains(body, "oxpulse-partner-edge") {
+	if !strings.Contains(body, "acme-web") || !strings.Contains(body, "acme-edge") {
 		t.Fatalf("pair must name both repos, body=%s", body)
 	}
 	// Pairs are now VerifiedPair (stage-2 output). The synthetic git fixtures have no real
@@ -87,8 +87,8 @@ func TestFederatedCoChange_FindsCrossRepoPair(t *testing.T) {
 
 func TestFederatedCoChange_SymbolVerifiesProtocolToken(t *testing.T) {
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	for _, d := range []string{chat, edge} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -124,7 +124,7 @@ match m { "peer_joined" => fanout(), _ => {} } // rev %d`, i)
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 	res, err := handleFederatedCoChangeCore(context.Background(), FederatedCoChangeArgs{
-		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 	}, deps)
 	if err != nil || res.IsError {
 		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
@@ -156,8 +156,8 @@ func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	for _, d := range []string{chat, edge} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -179,7 +179,7 @@ func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 	res, err := handleFederatedCoChangeCore(context.Background(), FederatedCoChangeArgs{
-		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 	}, deps)
 	if err != nil || res.IsError {
 		t.Fatalf("unexpected: err=%v isErr=%v", err, res.IsError)
@@ -201,8 +201,8 @@ func TestFederatedCoChange_EmptyResultIsArrayNotNull(t *testing.T) {
 func makeCoChangeTempRepos(t *testing.T) (parent, chatDir, edgeDir string) {
 	t.Helper()
 	parent = t.TempDir()
-	chatDir = filepath.Join(parent, "oxpulse-chat")
-	edgeDir = filepath.Join(parent, "oxpulse-partner-edge")
+	chatDir = filepath.Join(parent, "acme-web")
+	edgeDir = filepath.Join(parent, "acme-edge")
 	for _, d := range []string{chatDir, edgeDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -243,7 +243,7 @@ func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 	// Use a 1ns budget — guaranteed to expire before any git log completes.
 	res, err := handleFederatedCoChangeCoreWithBudget(context.Background(), FederatedCoChangeArgs{
-		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 	}, deps, time.Nanosecond)
 
 	if err != nil {
@@ -286,7 +286,7 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 
 	// Warm the cache with a full-budget call.
 	_, _ = handleFederatedCoChangeCoreWithBudget(context.Background(), FederatedCoChangeArgs{
-		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 	}, deps, 60*time.Second)
 
 	// Both repos must be warm for the status assertion below to be valid.
@@ -305,7 +305,7 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 
 	// Now call with tiny budget — touches are warm so we should get a partial/ready result.
 	res, err := handleFederatedCoChangeCoreWithBudget(context.Background(), FederatedCoChangeArgs{
-		Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+		Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 	}, deps, time.Nanosecond)
 
 	if err != nil || res.IsError {
@@ -340,12 +340,12 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
-	args := FederatedCoChangeArgs{Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2}
+	args := FederatedCoChangeArgs{Repos: "acme-*", WindowHours: 24, MinPairs: 2}
 
 	// Pre-populate the result cache as if a background job has completed.
 	cacheKey := federatedCoChangeCacheKey(args.Repos, federatedCoChangeDefaultWindowHours, federatedCoChangeDefaultMinPairs, 0, deps.LocalRepoDirs)
 	fakePairs := []coupling.VerifiedPair{
-		{CrossPair: federate.CrossPair{RepoA: "oxpulse-chat", FileA: "rooms.rs", RepoB: "oxpulse-partner-edge", FileB: "install.sh", CoChanges: 2}},
+		{CrossPair: federate.CrossPair{RepoA: "acme-web", FileA: "rooms.rs", RepoB: "acme-edge", FileB: "install.sh", CoChanges: 2}},
 	}
 	federatedCoChangeCache.Store(cacheKey, &federatedCoChangeCacheEntry{
 		result: &FederatedCoChangeResult{Pairs: fakePairs},
@@ -368,8 +368,8 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 	if len(out.Pairs) == 0 {
 		t.Fatalf("expected cached pairs in response; body=%s", body)
 	}
-	if out.Pairs[0].RepoA != "oxpulse-chat" {
-		t.Fatalf("expected cached pair repoA=oxpulse-chat, got %q; body=%s", out.Pairs[0].RepoA, body)
+	if out.Pairs[0].RepoA != "acme-web" {
+		t.Fatalf("expected cached pair repoA=acme-web, got %q; body=%s", out.Pairs[0].RepoA, body)
 	}
 	// retry_after_seconds must be 0 (omitted) on ready response.
 	if out.RetryAfterSeconds != 0 {
@@ -407,7 +407,7 @@ func TestFederatedCoChange_DeduplicatesConcurrentCalls(t *testing.T) {
 	t.Cleanup(func() { fedBgComputeHook = nil })
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
-	args := FederatedCoChangeArgs{Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2}
+	args := FederatedCoChangeArgs{Repos: "acme-*", WindowHours: 24, MinPairs: 2}
 	budget := time.Nanosecond // force deadline on every call — all go to background path
 
 	const concurrency = 10
@@ -453,7 +453,7 @@ func TestFederatedCoChange_BackCompatPairsAlwaysArray(t *testing.T) {
 
 			deps := analyze.Deps{LocalRepoDirs: []string{parent}}
 			res, err := handleFederatedCoChangeCoreWithBudget(context.Background(), FederatedCoChangeArgs{
-				Repos: "oxpulse-*", WindowHours: 24, MinPairs: 2,
+				Repos: "acme-*", WindowHours: 24, MinPairs: 2,
 			}, deps, tc.budget)
 			if err != nil {
 				t.Fatalf("unexpected Go error: %v", err)

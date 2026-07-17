@@ -41,7 +41,7 @@ func TestPhase3_ResolvesViaCodeTags_WithoutCallgraph(t *testing.T) {
 			"/api/turn-credentials",
 			"GET",
 			"/src/server/src/turn_credentials.rs",
-			"oxpulse_chat::turn_credentials",
+			"acme_web::turn_credentials",
 			float64(142),
 		),
 	}
@@ -49,7 +49,7 @@ func TestPhase3_ResolvesViaCodeTags_WithoutCallgraph(t *testing.T) {
 	res := &investigate.InvestigationResult{}
 	deps := analyze.Deps{} // no callgraph, no repo resolution
 	// Empty repo — Phase 3 uses code.* path, no callgraph needed.
-	input := DebugInvestigateInput{Service: "oxpulse-chat", Repo: ""}
+	input := DebugInvestigateInput{Service: "acme-web", Repo: ""}
 
 	runSymbolsPhase(nil, deps, input, traces, 0.5, res) //nolint:staticcheck // context unused in test path
 
@@ -520,7 +520,7 @@ func TestJoinSymbol(t *testing.T) {
 		{"main", "", "main"},
 		{"", "Handler", "Handler"},
 		{"main", "(*githubWebhookHandler).ServeHTTP", "main.(*githubWebhookHandler).ServeHTTP"},
-		{"oxpulse_sfu::client_ws", "", "oxpulse_sfu::client_ws"}, // Rust: no dot appended
+		{"acme_sfu::client_ws", "", "acme_sfu::client_ws"}, // Rust: no dot appended
 	}
 	for _, tc := range cases {
 		got := joinSymbol(tc.ns, tc.fn)

@@ -7,7 +7,7 @@ import (
 
 // TestRustMatcher_AxumRoutes verifies that the axum builder pattern
 // .route("/path", method(handler)) is matched correctly.
-// partner-edge (oxpulse-partner-edge, axum 0.8) uses this pattern exclusively;
+// acme-edge (axum 0.8) uses this pattern exclusively;
 // the old Actix-only matcher produced Route=0 for that repo.
 func TestRustMatcher_AxumRoutes(t *testing.T) {
 	t.Parallel()
@@ -201,11 +201,11 @@ async fn macro_handler() {}
 
 // TestRustMatcher_LineCapture_AxumOnly verifies that axum routes have Line != 0
 // when no Actix/Rocket routes are present.
-// This is the partner-edge scenario: axum-only codebase, was producing Route=0.
+// This is the acme-edge scenario: axum-only codebase, was producing Route=0.
 func TestRustMatcher_LineCapture_AxumOnly(t *testing.T) {
 	t.Parallel()
 
-	// Mirrors partner-edge crates/sfu/src/relay/handler.rs (lines 30-31):
+	// Mirrors acme-edge crates/sfu/src/relay/handler.rs (lines 30-31):
 	source := `    let app = Router::new()
         .route("/relay/connect", post(relay_connect))
         .with_state((secret, signing_public_key, task_tx, seen_jtis));`
@@ -218,7 +218,7 @@ func TestRustMatcher_LineCapture_AxumOnly(t *testing.T) {
 	}
 
 	if routes[0].Line == 0 {
-		t.Errorf("axum route Line = 0, want non-zero (partner-edge had Route=0 before fix)")
+		t.Errorf("axum route Line = 0, want non-zero (acme-edge had Route=0 before fix)")
 	}
 	if routes[0].Path != "/relay/connect" {
 		t.Errorf("Path = %q, want /relay/connect", routes[0].Path)
@@ -231,12 +231,12 @@ func TestRustMatcher_LineCapture_AxumOnly(t *testing.T) {
 	}
 }
 
-// TestRustMatcher_PartnerEdgeRoutes feeds all three real partner-edge routes in a
+// TestRustMatcher_AcmeEdgeRoutes feeds all three real acme-edge routes in a
 // single Router builder source and asserts that exactly three routes are extracted
 // with the correct method, path, Side, Framework, and a non-zero Line.
 // This directly guards the FU-CG.5 fix: before that fix, axum routes produced Line=0
 // and the graph indexer silently dropped them.
-func TestRustMatcher_PartnerEdgeRoutes(t *testing.T) {
+func TestRustMatcher_AcmeEdgeRoutes(t *testing.T) {
 	t.Parallel()
 
 	source := `    let app = Router::new()
@@ -248,7 +248,7 @@ func TestRustMatcher_PartnerEdgeRoutes(t *testing.T) {
 	routes := matcher.Match([]byte(source))
 
 	if len(routes) != 3 {
-		t.Fatalf("got %d routes, want 3 (all three real partner-edge routes)", len(routes))
+		t.Fatalf("got %d routes, want 3 (all three real acme-edge routes)", len(routes))
 	}
 
 	type want struct {
@@ -286,7 +286,7 @@ func TestRustMatcher_PartnerEdgeRoutes(t *testing.T) {
 }
 
 // TestRustMatcher_AxumMultiLineMetrics verifies the multi-line closure form of
-// an axum route — the real partner-edge /metrics endpoint splits across lines:
+// an axum route — the real acme-edge /metrics endpoint splits across lines:
 //
 //	.route(
 //	    "/metrics",

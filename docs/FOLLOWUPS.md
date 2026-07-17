@@ -13,7 +13,7 @@ One-line issue pointers for the backlog. Resolved items are marked as such.
 - #350 — FU-C.2: refine generic-infra suffix list precision
 - #351 — FU-C.3: per-symbol strength weighting
 - #352 — FU-CG.7: verify route handler resolution for Go client, C#, Java, Python, Ruby
-- #353 — Ops: reindex AGE graphs for oxpulse-chat/partner-edge/admin/sfu-kit after route-edge fixes
+- #353 — Ops: reindex AGE graphs for acme-web/acme-edge/admin/sfu-kit after route-edge fixes
 - #354 — Add skip-list for non-buildable repos in eager warm
 - #355 — BUG-SR-1: `suggest_reviewers` returns co-change=0 for paths with obvious coupling
 

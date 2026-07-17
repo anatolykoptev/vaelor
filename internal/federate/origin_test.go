@@ -18,17 +18,17 @@ func setOrigin(t *testing.T, dir, url string) {
 func TestResolveRepos_DedupsByOrigin(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	chatDev := filepath.Join(parent, "oxpulse-chat-dev")
-	admin := filepath.Join(parent, "oxpulse-admin")
+	chat := filepath.Join(parent, "acme-web")
+	chatDev := filepath.Join(parent, "acme-web-dev")
+	admin := filepath.Join(parent, "acme-admin")
 	gitInit(t, chat)
 	gitInit(t, chatDev)
 	gitInit(t, admin)
-	setOrigin(t, chat, "git@github.com:anatolykoptev/oxpulse-chat.git")
-	setOrigin(t, chatDev, "git@github.com:anatolykoptev/oxpulse-chat.git")
-	setOrigin(t, admin, "git@github.com:anatolykoptev/oxpulse-admin.git")
+	setOrigin(t, chat, "git@github.com:anatolykoptev/acme-web.git")
+	setOrigin(t, chatDev, "git@github.com:anatolykoptev/acme-web.git")
+	setOrigin(t, admin, "git@github.com:anatolykoptev/acme-admin.git")
 
-	got, err := ResolveRepos(context.Background(), "oxpulse-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "acme-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,10 +39,10 @@ func TestResolveRepos_DedupsByOrigin(t *testing.T) {
 	for _, r := range got {
 		slugs[r.Slug] = true
 	}
-	if !slugs["oxpulse-chat"] || !slugs["oxpulse-admin"] {
+	if !slugs["acme-web"] || !slugs["acme-admin"] {
 		t.Fatalf("expected chat+admin, got %v", got)
 	}
-	if slugs["oxpulse-chat-dev"] {
+	if slugs["acme-web-dev"] {
 		t.Fatalf("chat-dev (duplicate origin) must be dropped, got %v", got)
 	}
 }
@@ -65,9 +65,9 @@ func TestResolveRepos_NoOriginKeptDistinct(t *testing.T) {
 func TestRepoIdentity(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ in, want string }{
-		{"git@github.com:anatolykoptev/oxpulse-chat.git", "anatolykoptev/oxpulse-chat"},
-		{"https://github.com/anatolykoptev/oxpulse-chat.git", "anatolykoptev/oxpulse-chat"},
-		{"https://github.com/anatolykoptev/oxpulse-chat", "anatolykoptev/oxpulse-chat"},
+		{"git@github.com:anatolykoptev/acme-web.git", "anatolykoptev/acme-web"},
+		{"https://github.com/anatolykoptev/acme-web.git", "anatolykoptev/acme-web"},
+		{"https://github.com/anatolykoptev/acme-web", "anatolykoptev/acme-web"},
 		{"git@self-hosted.example:team/svc.git", "git@self-hosted.example:team/svc.git"}, // unknown host → raw fallback
 		{"", ""},
 	}
@@ -87,8 +87,8 @@ func TestResolveRepos_DedupsAcrossSSHAndHTTPS(t *testing.T) {
 	b := filepath.Join(parent, "svc-https")
 	gitInit(t, a)
 	gitInit(t, b)
-	setOrigin(t, a, "git@github.com:anatolykoptev/oxpulse-chat.git")
-	setOrigin(t, b, "https://github.com/anatolykoptev/oxpulse-chat.git")
+	setOrigin(t, a, "git@github.com:anatolykoptev/acme-web.git")
+	setOrigin(t, b, "https://github.com/anatolykoptev/acme-web.git")
 
 	got, err := ResolveRepos(context.Background(), "all", []string{parent})
 	if err != nil {
@@ -104,21 +104,21 @@ func TestResolveRepos_DedupsAcrossSSHAndHTTPS(t *testing.T) {
 func TestResolveRepos_DedupKeepsLexicallyFirstCheckout(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	chatDev := filepath.Join(parent, "oxpulse-chat-dev")
+	chat := filepath.Join(parent, "acme-web")
+	chatDev := filepath.Join(parent, "acme-web-dev")
 	gitInit(t, chat)
 	gitInit(t, chatDev)
-	setOrigin(t, chat, "git@github.com:anatolykoptev/oxpulse-chat.git")
-	setOrigin(t, chatDev, "git@github.com:anatolykoptev/oxpulse-chat.git")
+	setOrigin(t, chat, "git@github.com:anatolykoptev/acme-web.git")
+	setOrigin(t, chatDev, "git@github.com:anatolykoptev/acme-web.git")
 
-	got, err := ResolveRepos(context.Background(), "oxpulse-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "acme-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("expected 1 after collapse, got %d: %v", len(got), got)
 	}
-	if got[0].Slug != "oxpulse-chat" {
-		t.Fatalf("lexically-first checkout must win: want oxpulse-chat, got %q", got[0].Slug)
+	if got[0].Slug != "acme-web" {
+		t.Fatalf("lexically-first checkout must win: want acme-web, got %q", got[0].Slug)
 	}
 }

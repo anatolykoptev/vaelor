@@ -117,7 +117,7 @@ For every cross-file pair in reported groups (re-queried against the live AGE gr
 
 ### Note on union-find and same-file group members
 
-`CollectDupGroups` runs union-find over the **filtered** pair set. A group of 3 can contain two symbols from the same file if they are each independently cross-file-similar to a third symbol (e.g. `A(f1)↔C(f2)` and `B(f1)↔C(f2)` produces group `{A,B,C}` where A,B share f1). The same-file pair `A↔B` was never in the filtered input — it is a transitive union-find artifact. This is expected; the filter invariant is about the **input pair set**, not about all pairwise cross-products of group members. Observed in `code_87ce8eca` group [6] (`parseClientHelloHeader` and `parseClientHello`, both in `vless_ja3.go`, merged via `probe_ech.go:parseClientHelloOffsets`). The test documents and skips transitive same-file pairs for the AGE re-check.
+`CollectDupGroups` runs union-find over the **filtered** pair set. A group of 3 can contain two symbols from the same file if they are each independently cross-file-similar to a third symbol (e.g. `A(f1)↔C(f2)` and `B(f1)↔C(f2)` produces group `{A,B,C}` where A,B share f1). The same-file pair `A↔B` was never in the filtered input — it is a transitive union-find artifact. This is expected; the filter invariant is about the **input pair set**, not about all pairwise cross-products of group members. Observed in `code_87ce8eca` group [6] (`parseRequestHeader` and `parseRequest`, both in `parse_config.go`, merged via `render_widget.go:parseRequestOffsets`). The test documents and skips transitive same-file pairs for the AGE re-check.
 
 ### Top-10 precision sample — `code_bb3c1bea` (human assessment)
 

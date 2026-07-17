@@ -255,19 +255,19 @@ func TestResolve_LibAlias_ZeroConfig(t *testing.T) {
 // @scope/pkg workspace alias tests
 // ---------------------------------------------------------------------------
 
-// TestResolve_WorkspaceAlias_PkgRoot verifies that "@oxpulse/mesh-core" with
-// Workspace={"@oxpulse/mesh-core":"packages/mesh-core"} and that dir in pkgDirs
+// TestResolve_WorkspaceAlias_PkgRoot verifies that "@acme/mesh-core" with
+// Workspace={"@acme/mesh-core":"packages/mesh-core"} and that dir in pkgDirs
 // resolves to "packages/mesh-core".
 // Falsification: remove workspace dispatch → returns ("", false).
 func TestResolve_WorkspaceAlias_PkgRoot(t *testing.T) {
 	t.Parallel()
-	cfg := importresolve.Config{Workspace: map[string]string{"@oxpulse/mesh-core": "packages/mesh-core"}}
+	cfg := importresolve.Config{Workspace: map[string]string{"@acme/mesh-core": "packages/mesh-core"}}
 	r := mkResolverCfg(
 		[]string{"packages/mesh-core"},
 		nil,
 		cfg,
 	)
-	dir, ok := r.Resolve("@oxpulse/mesh-core", "web/src/lib/app.ts")
+	dir, ok := r.Resolve("@acme/mesh-core", "web/src/lib/app.ts")
 	if !ok {
 		t.Fatal("expected ok=true for workspace package root import")
 	}
@@ -276,18 +276,18 @@ func TestResolve_WorkspaceAlias_PkgRoot(t *testing.T) {
 	}
 }
 
-// TestResolve_WorkspaceAlias_Subpath verifies that "@oxpulse/mesh-core/sub"
+// TestResolve_WorkspaceAlias_Subpath verifies that "@acme/mesh-core/sub"
 // resolves to "packages/mesh-core/sub" when that path is in fileSet or pkgDirs.
 // Falsification: drop subpath support → returns ("", false) or the wrong dir.
 func TestResolve_WorkspaceAlias_Subpath(t *testing.T) {
 	t.Parallel()
-	cfg := importresolve.Config{Workspace: map[string]string{"@oxpulse/mesh-core": "packages/mesh-core"}}
+	cfg := importresolve.Config{Workspace: map[string]string{"@acme/mesh-core": "packages/mesh-core"}}
 	r := mkResolverCfg(
 		[]string{"packages/mesh-core", "packages/mesh-core/sub"},
 		[]string{"packages/mesh-core/sub/index.ts"},
 		cfg,
 	)
-	dir, ok := r.Resolve("@oxpulse/mesh-core/sub", "web/src/lib/app.ts")
+	dir, ok := r.Resolve("@acme/mesh-core/sub", "web/src/lib/app.ts")
 	if !ok {
 		t.Fatal("expected ok=true for workspace subpath import")
 	}
@@ -302,7 +302,7 @@ func TestResolve_WorkspaceAlias_Subpath(t *testing.T) {
 func TestResolve_WorkspaceAlias_ZeroConfig(t *testing.T) {
 	t.Parallel()
 	r := mkResolver([]string{"packages/mesh-core"}, nil)
-	dir, ok := r.Resolve("@oxpulse/mesh-core", "web/src/lib/app.ts")
+	dir, ok := r.Resolve("@acme/mesh-core", "web/src/lib/app.ts")
 	if ok {
 		t.Errorf("expected ok=false with zero Config for @scope/pkg, got dir=%q", dir)
 	}
@@ -330,7 +330,7 @@ func TestBuildConfig_RealDisk(t *testing.T) {
 
 	// Fixture layout:
 	//   web/svelte.config.js               → LibDirs must contain "web"
-	//   packages/mesh-core/package.json    → Workspace["@oxpulse/mesh-core"] = "packages/mesh-core"
+	//   packages/mesh-core/package.json    → Workspace["@acme/mesh-core"] = "packages/mesh-core"
 	//   packages/mesh-core/index.ts        → a real source file (non-config)
 	//   node_modules/junk/package.json     → must be IGNORED (node_modules exclusion)
 	tmp := t.TempDir()
@@ -347,7 +347,7 @@ func TestBuildConfig_RealDisk(t *testing.T) {
 	}
 
 	writeFile("web/svelte.config.js", "export default {};")
-	writeFile("packages/mesh-core/package.json", `{"name":"@oxpulse/mesh-core","version":"1.0.0"}`)
+	writeFile("packages/mesh-core/package.json", `{"name":"@acme/mesh-core","version":"1.0.0"}`)
 	writeFile("packages/mesh-core/index.ts", "export {};")
 	writeFile("node_modules/junk/package.json", `{"name":"junk","version":"0.0.1"}`)
 
@@ -365,9 +365,9 @@ func TestBuildConfig_RealDisk(t *testing.T) {
 		t.Errorf("LibDirs = %v, want to contain %q", cfg.LibDirs, "web")
 	}
 
-	// Workspace must map "@oxpulse/mesh-core" → "packages/mesh-core".
-	if got, ok := cfg.Workspace["@oxpulse/mesh-core"]; !ok || got != "packages/mesh-core" {
-		t.Errorf("Workspace[@oxpulse/mesh-core] = %q (ok=%v), want %q", got, ok, "packages/mesh-core")
+	// Workspace must map "@acme/mesh-core" → "packages/mesh-core".
+	if got, ok := cfg.Workspace["@acme/mesh-core"]; !ok || got != "packages/mesh-core" {
+		t.Errorf("Workspace[@acme/mesh-core] = %q (ok=%v), want %q", got, ok, "packages/mesh-core")
 	}
 
 	// node_modules entry must be absent — path-segment exclusion.

@@ -720,7 +720,7 @@ These fixes were discovered and shipped while debugging code_graph performance:
 
 **Goal**: Industry-first Go OTel HTTP middleware with function-level handler attribution. Closes the metrics→trace→file:line loop in `debug_investigate` Tier-1 symbol resolution.
 
-**Status**: Shipped 2026-05-09. Empirically validated on go-code + dozor + oxpulse-chat (Rust) + partner-edge-sfu (Rust).
+**Status**: Shipped 2026-05-09. Empirically validated on go-code + dozor + acme-web (Rust) + web-api-sfu (Rust).
 
 ### 21.1 OTel handler attribution (`anatolykoptev/go-kit#49,#50,#51,#52,#53,#6`)
 - [x] `RegisterRoute(method, pattern, fn)` registry — startup-time `runtime.FuncForPC` capture
@@ -744,13 +744,13 @@ These fixes were discovered and shipped while debugging code_graph performance:
 - [x] Path mapping: `/build/...` → host repo root via `repo` arg
 - [x] Polling instruction 30s → 5s (perceived latency 6× faster)
 - [x] LLM HTTP timeout 10s → 30s (catches cliproxyapi long-tail)
-- [x] Service→repo dir mapping (e.g. `partner-edge-sfu` → `oxpulse-partner-edge`)
+- [x] Service→repo dir mapping (e.g. `web-api-sfu` → `acme-edge`)
 
 **Empirical validation**:
 - go-code `POST /webhook/github` → `code.function=(*githubWebhookHandler).ServeHTTP, code.filepath=/build/cmd/go-code/webhook_github.go:25`
 - dozor `GET /health` → `code.function=runGateway.healthHandler.func5, code.lineno=162`
-- oxpulse-chat (Rust): 4 routes resolved (`ws_call`, `http_request`, `metrics_handler`, `spa_fallback`)
-- partner-edge-sfu (Rust): `oxpulse_sfu::client_ws::handler:185` + body excerpts
+- acme-web (Rust): 4 routes resolved (`ws_call`, `http_request`, `metrics_handler`, `spa_fallback`)
+- web-api-sfu (Rust): `acme_sfu::client_ws::handler:185` + body excerpts
 
 **State of the art comparison** (research-confirmed):
 DataDog APM, Beyla, OTel auto-instrumentation, Honeycomb, Pixie, Coroot, OTel-go-contrib all stop at HTTP route templates. `tilegroxy` is the only public Go project emitting `code.*` on HTTP server spans, and they hardcode strings — not runtime reflection. Krolik is the first Go middleware doing function-level attribution at runtime.

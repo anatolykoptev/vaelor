@@ -8,7 +8,7 @@ import "regexp"
 //   - Actix-web: builder pattern (.route("/path", web::get()))
 //   - Axum: builder pattern (.route("/path", get(handler)), .route("/path", any(handler)))
 //
-// partner-edge (oxpulse-partner-edge) uses axum 0.8 exclusively; adding the axum
+// acme-edge uses axum 0.8 exclusively; adding the axum
 // matcher resolves the Route=0 gap observed in its AGE graph (FU-CG.5).
 type RustMatcher struct{}
 
@@ -41,7 +41,7 @@ var (
 	// Captures: 1=path, 2=method-fn, 3=optional-ident (may be a keyword for closures).
 	//
 	// Known unsupported axum forms (acceptable gaps for a regex extractor — none
-	// used by partner-edge; revisit if a target repo needs them):
+	// used by acme-edge; revisit if a target repo needs them):
 	//   - method-chaining: .route("/p", get(h).post(h2)) captures only the first method
 	//   - .nest("/prefix", router) — nested sub-router routes
 	//   - .route_service("/p", svc) — tower Service routes

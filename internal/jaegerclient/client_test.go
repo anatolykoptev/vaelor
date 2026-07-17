@@ -25,7 +25,7 @@ func TestListServices_ParsesResponse(t *testing.T) {
 			t.Errorf("expected /api/services, got %q", r.URL.Path)
 		}
 		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"data":["go-code","oxpulse-chat","memdb-go"],"total":3}`))
+		_, _ = w.Write([]byte(`{"data":["go-code","acme-web","memdb-go"],"total":3}`))
 	}))
 	defer srv.Close()
 

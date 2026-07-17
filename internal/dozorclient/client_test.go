@@ -28,7 +28,7 @@ func makeServer(t *testing.T, status int, body any, checkFn func(r *http.Request
 func TestGetLogs_HappyPath(t *testing.T) {
 	t.Parallel()
 	want := dozorclient.LogsResponse{
-		Service:     "oxpulse-chat",
+		Service:     "acme-web",
 		ContainerID: "abc123",
 		Lines: []dozorclient.LogLine{
 			{Ts: "2026-05-08T10:00:00Z", Level: "ERROR", Msg: "connection refused", Raw: `{"level":"ERROR","msg":"connection refused"}`},
@@ -39,7 +39,7 @@ func TestGetLogs_HappyPath(t *testing.T) {
 	defer srv.Close()
 
 	c := dozorclient.NewClient(srv.URL, "", 5*time.Second)
-	got, err := c.GetLogs(context.Background(), "oxpulse-chat", time.Time{}, time.Time{}, "", 0)
+	got, err := c.GetLogs(context.Background(), "acme-web", time.Time{}, time.Time{}, "", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -37,9 +37,9 @@ type Config struct {
 	// maps to "<libDir>/src/lib".
 	LibDirs []string
 
-	// Workspace maps a scoped package name (e.g. "@oxpulse/mesh-core") to its
+	// Workspace maps a scoped package name (e.g. "@acme/mesh-core") to its
 	// repo-relative directory (e.g. "packages/mesh-core"). Subpath imports like
-	// "@oxpulse/mesh-core/foo" are resolved by joining the mapped dir with "foo".
+	// "@acme/mesh-core/foo" are resolved by joining the mapped dir with "foo".
 	Workspace map[string]string
 
 	// WorkspaceExports maps a scoped package name to its package.json "exports"

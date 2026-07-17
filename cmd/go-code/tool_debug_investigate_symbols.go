@@ -406,7 +406,7 @@ func isRanked(hyps []investigate.Hypothesis) bool {
 //   - Only fn     → fn
 //   - Both        → ns + "." + fn  (Go dotted form, e.g. "main.(*T).Method")
 //
-// For Rust spans where ns = "oxpulse_sfu::client_ws" and fn is empty, the
+// For Rust spans where ns = "acme_sfu::client_ws" and fn is empty, the
 // dot is not appended so the Rust module path is preserved unchanged.
 func joinSymbol(ns, fn string) string {
 	switch {

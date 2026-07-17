@@ -140,11 +140,11 @@ func TestEnrich_DeduplicatesCompareCalls(t *testing.T) {
 	client := New(WithHTTPClient(srv.Client()), WithTimeout(5*time.Second))
 	client.baseURL = srv.URL
 
-	// 3 identical TagDrift rows for teddysun/xray.
+	// 3 identical TagDrift rows for minio/minio.
 	diffs := []fleet.ImageDiff{
-		makeTagDrift("teddysun/xray", "26.4.25", "26.5.3"),
-		makeTagDrift("teddysun/xray", "26.4.25", "26.5.3"),
-		makeTagDrift("teddysun/xray", "26.4.25", "26.5.3"),
+		makeTagDrift("minio/minio", "26.4.25", "26.5.3"),
+		makeTagDrift("minio/minio", "26.4.25", "26.5.3"),
+		makeTagDrift("minio/minio", "26.4.25", "26.5.3"),
 	}
 
 	result := Enrich(context.Background(), client, diffs, 30)
@@ -152,7 +152,7 @@ func TestEnrich_DeduplicatesCompareCalls(t *testing.T) {
 	// All should be enriched.
 	for i, d := range result {
 		if d.Changelog == nil {
-			t.Errorf("result[%d]: expected non-nil Changelog for teddysun/xray TagDrift", i)
+			t.Errorf("result[%d]: expected non-nil Changelog for minio/minio TagDrift", i)
 		}
 	}
 
@@ -183,8 +183,8 @@ func TestEnrich_ParallelExecution(t *testing.T) {
 	client.baseURL = srv.URL
 
 	diffs := []fleet.ImageDiff{
-		makeTagDrift("redis", "7.0", "7.2"),                // mapped → redis/redis (slow)
-		makeTagDrift("teddysun/xray", "26.4.25", "26.5.3"), // mapped → XTLS/Xray-core (fast)
+		makeTagDrift("redis", "7.0", "7.2"),              // mapped → redis/redis (slow)
+		makeTagDrift("minio/minio", "26.4.25", "26.5.3"), // mapped → minio/minio (fast)
 	}
 
 	start := time.Now()

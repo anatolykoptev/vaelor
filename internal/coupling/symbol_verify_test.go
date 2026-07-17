@@ -20,8 +20,8 @@ socket.on("peer_joined", () => {});`)
 
 	v := NewSymbolVerifier()
 	ev, err := v.Verify(context.Background(),
-		FilePair{Repo: "partner-edge", Root: rust, Rel: "fanout.rs"},
-		FilePair{Repo: "oxpulse-chat", Root: svelte, Rel: "Call.svelte"})
+		FilePair{Repo: "acme-edge", Root: rust, Rel: "fanout.rs"},
+		FilePair{Repo: "acme-web", Root: svelte, Rel: "Call.svelte"})
 	if err != nil {
 		t.Fatal(err)
 	}

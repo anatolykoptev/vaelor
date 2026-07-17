@@ -24,21 +24,21 @@ func initGitRepo(t *testing.T, dir string) {
 
 // TestResolveRoot_BareName_ResolvesAgainstLocalRepoDirs is the RED test for the
 // bare-repo-name resolution bug: a caller-supplied bare basename like
-// "oxpulse-chat" (no slash, no scheme — not a forge slug) must resolve to the
+// "acme-web" (no slash, no scheme — not a forge slug) must resolve to the
 // matching checkout under deps.LocalRepoDirs (e.g. /host/src), NOT fail with a
-// CWD-relative "stat oxpulse-chat: no such file or directory".
+// CWD-relative "stat acme-web: no such file or directory".
 //
 // This is the exact symptom the operator hit: every subagent prompt + the
 // go-code cheatsheet calls go-code with bare repo names; before this fix they
 // all 404'd the resolver and silently degraded to Grep/Read.
 func TestResolveRoot_BareName_ResolvesAgainstLocalRepoDirs(t *testing.T) {
 	srcRoot := t.TempDir() // stands in for /host/src
-	repoDir := filepath.Join(srcRoot, "oxpulse-chat")
+	repoDir := filepath.Join(srcRoot, "acme-web")
 	initGitRepo(t, repoDir)
 
 	deps := analyze.Deps{LocalRepoDirs: []string{srcRoot}}
 
-	root, cleanup, err := resolveRoot(context.Background(), "oxpulse-chat", "", deps)
+	root, cleanup, err := resolveRoot(context.Background(), "acme-web", "", deps)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("bare name should resolve against LocalRepoDirs, got error: %v", err)
@@ -69,7 +69,7 @@ func TestResolveRoot_BareName_UnknownReturnsClearError(t *testing.T) {
 // indexed-repo registry. Guards against the fallback changing the no-registry path.
 func TestResolveRoot_BareName_NoLocalRepoDirs(t *testing.T) {
 	deps := analyze.Deps{} // no LocalRepoDirs
-	_, cleanup, err := resolveRoot(context.Background(), "oxpulse-chat", "", deps)
+	_, cleanup, err := resolveRoot(context.Background(), "acme-web", "", deps)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("bare name with no LocalRepoDirs must error (CWD-relative stat), got nil")
@@ -96,7 +96,7 @@ func TestResolveRoot_AbsolutePath_StillWorks(t *testing.T) {
 // not be allowed to resolve outside the configured registry dirs).
 func TestBareNameCheckoutFor(t *testing.T) {
 	srcRoot := t.TempDir()
-	repoDir := filepath.Join(srcRoot, "oxpulse-chat")
+	repoDir := filepath.Join(srcRoot, "acme-web")
 	initGitRepo(t, repoDir)
 	// A plain directory (no .git) must NOT match — only real checkouts.
 	if err := os.MkdirAll(filepath.Join(srcRoot, "not-a-checkout"), 0o755); err != nil {
@@ -109,7 +109,7 @@ func TestBareNameCheckoutFor(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"match", "oxpulse-chat", repoDir},
+		{"match", "acme-web", repoDir},
 		{"no-git-dir", "not-a-checkout", ""},
 		{"missing", "nope", ""},
 		{"empty", "", ""},
@@ -117,7 +117,7 @@ func TestBareNameCheckoutFor(t *testing.T) {
 		{"backslash-escape", `..\etc`, ""},
 		{"dot", ".", ""},
 		{"dotdot", "..", ""},
-		{"nested-slash", "sub/oxpulse-chat", ""},
+		{"nested-slash", "sub/acme-web", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -128,7 +128,7 @@ func TestBareNameCheckoutFor(t *testing.T) {
 	}
 
 	// No dirs configured → never matches.
-	if got := bareNameCheckoutFor("oxpulse-chat", nil); got != "" {
+	if got := bareNameCheckoutFor("acme-web", nil); got != "" {
 		t.Fatalf("no dirs: want \"\", got %q", got)
 	}
 }

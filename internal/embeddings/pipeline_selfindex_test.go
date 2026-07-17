@@ -485,7 +485,7 @@ func sumCounter(t *testing.T, name string) float64 {
 // gocode_repo_state_advanced_with_zero_embeddings_total counter.
 //
 // This is the false-positive regression guard for investigation 2026-06-12 (ITEM 1):
-// repos like /host/src/wiki and /host/src/oxpulse-business are 100% .md files and
+// repos like /host/src/wiki and /host/src/acme-notes are 100% .md files and
 // legitimately produce 0 embeddings. The counter must NOT fire for them.
 //
 // RED guarantee: revert either the rootHasEmbeddableFiles gate in checkSameSHAFastPath

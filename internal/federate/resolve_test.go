@@ -21,8 +21,8 @@ func gitInit(t *testing.T, dir string) {
 func TestResolveRepos_All(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	gitInit(t, filepath.Join(parent, "oxpulse-chat"))
-	gitInit(t, filepath.Join(parent, "oxpulse-admin"))
+	gitInit(t, filepath.Join(parent, "acme-web"))
+	gitInit(t, filepath.Join(parent, "acme-admin"))
 	gitInit(t, filepath.Join(parent, "go-code"))
 
 	got, err := ResolveRepos(context.Background(), "all", []string{parent})
@@ -37,20 +37,20 @@ func TestResolveRepos_All(t *testing.T) {
 func TestResolveRepos_Glob(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	gitInit(t, filepath.Join(parent, "oxpulse-chat"))
-	gitInit(t, filepath.Join(parent, "oxpulse-admin"))
+	gitInit(t, filepath.Join(parent, "acme-web"))
+	gitInit(t, filepath.Join(parent, "acme-admin"))
 	gitInit(t, filepath.Join(parent, "go-code"))
 
-	got, err := ResolveRepos(context.Background(), "oxpulse-*", []string{parent})
+	got, err := ResolveRepos(context.Background(), "acme-*", []string{parent})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("oxpulse-* → 2 repos, got %d: %v", len(got), got)
+		t.Fatalf("acme-* → 2 repos, got %d: %v", len(got), got)
 	}
 	for _, r := range got {
 		if filepath.Base(r.Root) == "go-code" {
-			t.Fatalf("go-code must not match oxpulse-*: %v", got)
+			t.Fatalf("go-code must not match acme-*: %v", got)
 		}
 	}
 }
@@ -58,7 +58,7 @@ func TestResolveRepos_Glob(t *testing.T) {
 func TestResolveRepos_SinglePath(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	root := filepath.Join(parent, "oxpulse-chat")
+	root := filepath.Join(parent, "acme-web")
 	gitInit(t, root)
 
 	got, err := ResolveRepos(context.Background(), root, []string{parent})
@@ -73,7 +73,7 @@ func TestResolveRepos_SinglePath(t *testing.T) {
 func TestResolveRepos_PlainName(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	gitInit(t, filepath.Join(parent, "oxpulse-chat"))
+	gitInit(t, filepath.Join(parent, "acme-web"))
 	gitInit(t, filepath.Join(parent, "go-code"))
 
 	got, err := ResolveRepos(context.Background(), "go-code", []string{parent})

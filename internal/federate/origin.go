@@ -10,7 +10,7 @@ import (
 
 // dedupeByOrigin collapses repos that share a git origin identity, keeping the
 // first occurrence (roots arrive in lexical order from repofind.Discover, so
-// "oxpulse-chat" wins over "oxpulse-chat-dev"). Repos with no origin remote
+// "acme-web" wins over "acme-web-dev"). Repos with no origin remote
 // are kept as-is — each is treated as distinct. Order is preserved.
 func dedupeByOrigin(ctx context.Context, roots []string) []string {
 	seen := make(map[string]bool, len(roots))

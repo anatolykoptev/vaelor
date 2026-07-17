@@ -601,13 +601,13 @@ func TestLabels_NoDoubleEscapeInRenderedXML(t *testing.T) {
 	diags := &investigate.Diagnostics{}
 
 	metricNames := []string{"ws_handshake_failed_total"}
-	spikes := computeFailureSpikes(context.Background(), prom, "oxpulse-chat", metricNames, start, end, diags)
+	spikes := computeFailureSpikes(context.Background(), prom, "acme-web", metricNames, start, end, diags)
 	if len(spikes) == 0 {
 		t.Fatal("no spikes produced; deterministic fixture should always produce a critical spike")
 	}
 
 	res := &investigate.InvestigationResult{
-		Service:      "oxpulse-chat",
+		Service:      "acme-web",
 		MetricSpikes: spikes,
 	}
 	out := formatInvestigationResult(res)

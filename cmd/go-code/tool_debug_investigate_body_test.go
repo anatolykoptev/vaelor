@@ -449,15 +449,15 @@ func TestRunBodyExtractionPhaseWithMappings_BuildPath_ReadsHostFile(t *testing.T
 // ────────────────────────────────────────────────────────────────────
 
 // TestBuildBodyPathCandidates_RepoArgDerivedDir verifies that when the repo
-// arg last segment differs from the service name (e.g. service="partner-edge-sfu",
-// repo="anatolykoptev/oxpulse-partner-edge"), the repo-dir is also tried as
+// arg last segment differs from the service name (e.g. service="web-api-sfu",
+// repo="anatolykoptev/acme-edge"), the repo-dir is also tried as
 // a candidate path under /host/src/<repoDir>/<rel>.
 func TestBuildBodyPathCandidates_RepoArgDerivedDir(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
 	// file is relative, service name differs from repo dir
-	got := buildBodyPathCandidates("src/sfu/main.rs", "partner-edge-sfu", mappings, "anatolykoptev/oxpulse-partner-edge")
+	got := buildBodyPathCandidates("src/sfu/main.rs", "web-api-sfu", mappings, "anatolykoptev/acme-edge")
 
-	want := "/host/src/oxpulse-partner-edge/src/sfu/main.rs"
+	want := "/host/src/acme-edge/src/sfu/main.rs"
 	found := false
 	for _, p := range got {
 		if p == want {
@@ -471,12 +471,12 @@ func TestBuildBodyPathCandidates_RepoArgDerivedDir(t *testing.T) {
 }
 
 // TestRunBodyExtractionPhase_RepoArgDerivedDir_FindsFile verifies end-to-end:
-// service="partner-edge-sfu", repo="anatolykoptev/oxpulse-partner-edge",
-// file exists under /host/src/oxpulse-partner-edge/ — body extractor finds it.
+// service="web-api-sfu", repo="anatolykoptev/acme-edge",
+// file exists under /host/src/acme-edge/ — body extractor finds it.
 func TestRunBodyExtractionPhase_RepoArgDerivedDir_FindsFile(t *testing.T) {
-	// Create temp dir simulating /tmp/test-host/src/oxpulse-partner-edge/some/file.rs
+	// Create temp dir simulating /tmp/test-host/src/acme-edge/some/file.rs
 	base := t.TempDir()
-	repoDir := filepath.Join(base, "src", "oxpulse-partner-edge", "some")
+	repoDir := filepath.Join(base, "src", "acme-edge", "some")
 	if err := os.MkdirAll(repoDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestRunBodyExtractionPhase_RepoArgDerivedDir_FindsFile(t *testing.T) {
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, "partner-edge-sfu", "anatolykoptev/oxpulse-partner-edge", mappings, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "web-api-sfu", "anatolykoptev/acme-edge", mappings, &diags)
 
 	if result[0].BodySource == "" {
 		t.Errorf("expected BodySource populated via repo-dir derived path, got empty; warnings: %v", diags.Warnings)

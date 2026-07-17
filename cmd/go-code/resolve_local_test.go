@@ -33,12 +33,12 @@ func TestLocalCheckoutFor(t *testing.T) {
 	ctx := context.Background()
 	base := t.TempDir()
 
-	peDir := filepath.Join(base, "oxpulse-partner-edge")
-	gitInitWithOrigin(t, peDir, "git@github.com:anatolykoptev/oxpulse-partner-edge.git")
+	peDir := filepath.Join(base, "acme-edge")
+	gitInitWithOrigin(t, peDir, "git@github.com:anatolykoptev/acme-edge.git")
 	dirs := []string{base}
 
 	t.Run("matching slug returns local path", func(t *testing.T) {
-		if got := localCheckoutFor(ctx, "anatolykoptev/oxpulse-partner-edge", dirs); got != peDir {
+		if got := localCheckoutFor(ctx, "anatolykoptev/acme-edge", dirs); got != peDir {
 			t.Fatalf("want %q, got %q", peDir, got)
 		}
 	})
@@ -50,13 +50,13 @@ func TestLocalCheckoutFor(t *testing.T) {
 	})
 
 	t.Run("same name different owner returns empty (collision guard)", func(t *testing.T) {
-		if got := localCheckoutFor(ctx, "someoneelse/oxpulse-partner-edge", dirs); got != "" {
+		if got := localCheckoutFor(ctx, "someoneelse/acme-edge", dirs); got != "" {
 			t.Fatalf("want empty (remote slug mismatch), got %q", got)
 		}
 	})
 
 	t.Run("empty dirs returns empty", func(t *testing.T) {
-		if got := localCheckoutFor(ctx, "anatolykoptev/oxpulse-partner-edge", nil); got != "" {
+		if got := localCheckoutFor(ctx, "anatolykoptev/acme-edge", nil); got != "" {
 			t.Fatalf("want empty, got %q", got)
 		}
 	})

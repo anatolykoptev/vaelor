@@ -39,7 +39,7 @@ const (
 
 // FederatedCoChangeArgs is the input schema for the federated_cochange tool.
 type FederatedCoChangeArgs struct {
-	Repos       string  `json:"repos"                    jsonschema_description:"Repo pattern: 'all', a glob like 'oxpulse-*', or a single repo name/absolute path"`
+	Repos       string  `json:"repos"                    jsonschema_description:"Repo pattern: 'all', a glob like 'acme-*', or a single repo name/absolute path"`
 	WindowHours int     `json:"window_hours,omitempty"   jsonschema_description:"Co-change time window in hours (default 24)"`
 	MinPairs    int     `json:"min_pairs,omitempty"      jsonschema_description:"Minimum co-occurrences to report a pair (default 2)"`
 	MinLift     float64 `json:"min_lift,omitempty"       jsonschema_description:"Optional raw-lift pre-filter floor (default 0 = no filter). Ranking is by Wilson lower bound on directional confidence — not affected by min_lift. Raise min_pairs for higher-confidence pairs."`
@@ -118,7 +118,7 @@ func handleFederatedCoChangeCoreWithBudget(
 	budget time.Duration,
 ) (*mcp.CallToolResult, error) {
 	if args.Repos == "" {
-		return errResult("repos is required (e.g. 'all', 'oxpulse-*', or a repo name)"), nil
+		return errResult("repos is required (e.g. 'all', 'acme-*', or a repo name)"), nil
 	}
 
 	window := args.WindowHours
@@ -345,7 +345,7 @@ func marshalFedResult(out *FederatedCoChangeResult, t0 time.Time) (*mcp.CallTool
 func registerFederatedCoChange(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	mcpserver.AddTool(server, &mcp.Tool{
 		Name:        "federated_cochange",
-		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. Ranked by Wilson lower bound on directional confidence (support-aware, continuous, never saturates): a thin coincidence (co=2, n=2) ranks well below a well-supported coupling (co=8, n=10) because Wilson penalizes small sample sizes — more evidence always wins. Ubiquitous stop-word files (CHANGELOGs, lockfiles, generated files touched in >85% of windows) are filtered out as noise before scoring. g2/significance are informational (un-capped Dunning log-likelihood); confidence_level derives from the Wilson score. min_lift is an optional raw effect-size pre-filter (not emitted in results). repos='all' | 'oxpulse-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another. Returns status:'partial' or 'building' with retry_after_seconds when result is not yet ready; re-call with the same args to get the complete 'ready' result.",
+		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. Ranked by Wilson lower bound on directional confidence (support-aware, continuous, never saturates): a thin coincidence (co=2, n=2) ranks well below a well-supported coupling (co=8, n=10) because Wilson penalizes small sample sizes — more evidence always wins. Ubiquitous stop-word files (CHANGELOGs, lockfiles, generated files touched in >85% of windows) are filtered out as noise before scoring. g2/significance are informational (un-capped Dunning log-likelihood); confidence_level derives from the Wilson score. min_lift is an optional raw effect-size pre-filter (not emitted in results). repos='all' | 'acme-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another. Returns status:'partial' or 'building' with retry_after_seconds when result is not yet ready; re-call with the same args to get the complete 'ready' result.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FederatedCoChangeArgs) (*mcp.CallToolResult, error) {
 		return handleFederatedCoChangeCore(ctx, args, deps)
 	})

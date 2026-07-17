@@ -38,6 +38,6 @@ func benignDesignArgs() (string, []brandHit, map[string]designmd.BrandMeta, []an
 func benignSemResults() []embeddings.SearchResult {
 	return []embeddings.SearchResult{
 		{SymbolName: "renderCaddy", SymbolKind: "function", StartLine: 42, FilePath: "internal/render/caddy.go", Distance: 0.1234},
-		{SymbolName: "renderXray", SymbolKind: "function", StartLine: 88, FilePath: "internal/render/xray.go", Distance: 0.25},
+		{SymbolName: "renderWidget", SymbolKind: "function", StartLine: 88, FilePath: "internal/render/widget.go", Distance: 0.25},
 	}
 }

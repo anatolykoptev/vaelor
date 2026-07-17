@@ -17,7 +17,7 @@ package pinned
 // describes why).
 type PinnedImage struct {
 	// Image is the registry+repository, without tag or digest.
-	// Example: "teddysun/xray", "ghcr.io/anatolykoptev/go-code", "redis".
+	// Example: "minio/minio", "ghcr.io/anatolykoptev/go-code", "redis".
 	Image string
 
 	// Tag is the resolved image tag. Empty when pinned by digest only,

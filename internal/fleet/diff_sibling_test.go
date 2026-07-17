@@ -38,16 +38,16 @@ func TestSiblingDiff_NoDriftReturnsNil(t *testing.T) {
 func TestSiblingDiff_TagDrift(t *testing.T) {
 	t.Parallel()
 	r1 := mockReport("ssh://krolik", []ImageDiff{
-		{Image: "teddysun/xray", Runtime: &RuntimeImage{Image: "teddysun/xray", Tag: "latest"}, Status: DiffMatch},
+		{Image: "minio/minio", Runtime: &RuntimeImage{Image: "minio/minio", Tag: "latest"}, Status: DiffMatch},
 	})
 	r2 := mockReport("ssh://piter", []ImageDiff{
-		{Image: "teddysun/xray", Runtime: &RuntimeImage{Image: "teddysun/xray", Tag: "26.5.3"}, Status: DiffMatch},
+		{Image: "minio/minio", Runtime: &RuntimeImage{Image: "minio/minio", Tag: "26.5.3"}, Status: DiffMatch},
 	})
 	got := SiblingDiff([]TargetReportLike{r1, r2})
 	if len(got) != 1 {
 		t.Fatalf("got %d rows; want 1", len(got))
 	}
-	if got[0].Image != "teddysun/xray" || len(got[0].Variants) != 2 {
+	if got[0].Image != "minio/minio" || len(got[0].Variants) != 2 {
 		t.Errorf("unexpected: %+v", got[0])
 	}
 }

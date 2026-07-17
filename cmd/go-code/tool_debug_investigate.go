@@ -84,7 +84,7 @@ func (k HintKind) IsValid() bool {
 
 // DebugInvestigateInput is the user-facing tool input.
 type DebugInvestigateInput struct {
-	Service   string   `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'oxpulse-chat')."`
+	Service   string   `json:"service" jsonschema_description:"Service name as known to Jaeger (e.g. 'go-code', 'acme-web')."`
 	StartUnix int64    `json:"start_unix" jsonschema_description:"Investigation window start, unix seconds. If 0, defaults to now-15m."`
 	EndUnix   int64    `json:"end_unix" jsonschema_description:"Investigation window end, unix seconds. If 0, defaults to now."`
 	Hint      string   `json:"hint,omitempty" jsonschema_description:"Optional free-text hint about the suspected behaviour."`

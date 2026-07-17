@@ -191,7 +191,7 @@ func TestOriginURL(t *testing.T) {
 	if got := OriginURL(context.Background(), dir); got != "" {
 		t.Fatalf("no-origin → \"\", got %q", got)
 	}
-	want := "git@github.com:anatolykoptev/oxpulse-chat.git"
+	want := "git@github.com:anatolykoptev/acme-web.git"
 	if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", want).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}

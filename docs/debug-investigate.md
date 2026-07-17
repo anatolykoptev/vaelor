@@ -15,7 +15,7 @@ JAEGER_URL=http://jaeger:16686
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `service` | string | Required. Service name as seen by Jaeger (`go-code`, `oxpulse-chat`, ...). |
+| `service` | string | Required. Service name as seen by Jaeger (`go-code`, `acme-web`, ...). |
 | `start_unix` | int64 | Window start, unix seconds. `0` → now-15m. |
 | `end_unix` | int64 | Window end, unix seconds. `0` → now. |
 | `hint` | string | Optional free-text hint about the suspected behaviour. |
@@ -88,11 +88,11 @@ Empty or omitted `hint_kind` = auto-detect — the full pipeline runs (default).
     </hypothesis>
     ...
     <metric_spikes>
-      <spike kind="error"     metric="signaling_call_outcome_total" labels="{service=&quot;oxpulse-chat&quot;}" ratio="4.70" score="0.800"/>
-      <spike kind="invariant" metric="WireWriteMissing"             labels="{service=&quot;oxpulse-sfu&quot;,severity=&quot;critical&quot;}" ratio="0.00" score="1.000"/>
+      <spike kind="error"     metric="signaling_call_outcome_total" labels="{service=&quot;acme-web&quot;}" ratio="4.70" score="0.800"/>
+      <spike kind="invariant" metric="WireWriteMissing"             labels="{service=&quot;acme-sfu&quot;,severity=&quot;critical&quot;}" ratio="0.00" score="1.000"/>
     </metric_spikes>
     <alert_violations>
-      <alert_violation alertname="WireWriteMissing" severity="critical" service="oxpulse-sfu" active_at="2026-05-08T10:00:00Z">wire_written stayed at 0 while forward_decisions advanced</alert_violation>
+      <alert_violation alertname="WireWriteMissing" severity="critical" service="acme-sfu" active_at="2026-05-08T10:00:00Z">wire_written stayed at 0 while forward_decisions advanced</alert_violation>
     </alert_violations>
     <diagnostics>{"metrics_queried":4,"traces_fetched":20,"spans_analyzed":143,"symbols_touched":3,"alerts_queried":1}</diagnostics>
   </investigation>
@@ -135,10 +135,10 @@ When Prometheus `/api/v1/alerts` returns firing alerts for the investigated serv
 # Example: wire_written should equal forward_decisions{action="forwarded"}
 - alert: WireWriteMissing
   expr: |
-    sum(rate(wire_written_total{service="oxpulse-sfu"}[5m])) /
-    sum(rate(forward_decisions_total{service="oxpulse-sfu",action="forwarded"}[5m])) < 0.9
+    sum(rate(wire_written_total{service="acme-sfu"}[5m])) /
+    sum(rate(forward_decisions_total{service="acme-sfu",action="forwarded"}[5m])) < 0.9
   labels:
-    service: oxpulse-sfu
+    service: acme-sfu
     severity: critical
   annotations:
     summary: wire_written stayed below 90% of forward_decisions
@@ -148,7 +148,7 @@ When Prometheus `/api/v1/alerts` returns firing alerts for the investigated serv
 When `hint_kind` is set, the `<investigation>` element includes it as an attribute:
 
 ```xml
-<investigation service="oxpulse-chat" hint_kind="latency_spike" started_at="..." finished_at="...">
+<investigation service="acme-web" hint_kind="latency_spike" started_at="..." finished_at="...">
 ```
 
 ## Reference architecture
@@ -235,25 +235,25 @@ with one of these statuses:
 
 ### Reproduction scenario — Issue #123
 
-The motivating bug: **xray-tunnel outage on partner-edge nodes, 2026-05-20**.
+The motivating bug: **cache-eviction regression on the analytics workers, 2026-05-20**.
 
-Pinned in compose (krolik xray-reality + 4 partner edges):
-`teddysun/xray:26.4.25`. Running on piter via auto-update:
-`teddysun/xray:26.5.3`. The `mlkem768x25519plus` + Reality TLS handshake
-interaction bug existed in 26.4.25 only. Source-level config schemas were
-bit-identical across hosts.
+Pinned in compose (krolik + 4 worker replicas):
+`redis:7.2.4`. Running on piter via auto-update:
+`redis:7.4.0`. A `maxmemory-policy` default change interacted badly with the
+workers' cache-warm assumption; the bug existed on 7.4.0 only. Source-level
+config schemas were bit-identical across hosts.
 
 With Phase 7 wired, the same investigation surfaces:
 
 ```text
 Phase 7 (fleet versions):
   target: ssh://piter
-  - TagDrift: teddysun/xray pinned 26.4.25 -> running 26.5.3
+  - TagDrift: redis pinned 7.2.4 -> running 7.4.0
 ```
 
 This row reaches the LLM prompt under `runtime_drift` and biases the model
-to prioritise upstream-changelog inspection of `teddysun/xray` 26.4.25 ->
-26.5.3 over further source-level template asymmetry hypotheses.
+to prioritise upstream-changelog inspection of `redis` 7.2.4 -> 7.4.0 over
+further source-level template asymmetry hypotheses.
 
 The 40-minute investigation that initially needed `docker inspect` on each
 host manually becomes a single MCP call.

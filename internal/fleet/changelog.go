@@ -7,7 +7,7 @@ package fleet
 // Populated by internal/fleet/upstream.Enrich for DiffTagDrift rows.
 // Attached to ImageDiff.Changelog (nil for non-TagDrift rows).
 type Changelog struct {
-	Repo      string            `json:"repo"`                // "XTLS/Xray-core"
+	Repo      string            `json:"repo"`                // "minio/minio"
 	Base      string            `json:"base"`                // "26.4.25" (actually-resolved tag)
 	Head      string            `json:"head"`                // "26.5.3"
 	Status    string            `json:"status"`              // "ahead" / "behind" / "diverged" / "identical" / "unresolved"

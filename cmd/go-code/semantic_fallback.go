@@ -82,7 +82,7 @@ var _ pipelineInvalidator = (*embeddings.Pipeline)(nil)
 // trigram index) — independent of the embed-server / jina worker availability.
 //
 // Why pg_trgm and not embedding: callers here typo on symbol names ("render_coturn"
-// missing → suggest "render_xray", "render_caddy"). Substring/typo similarity is
+// missing → suggest "render_widget", "render_caddy"). Substring/typo similarity is
 // the correct primitive; semantic embedding is overkill and was the source of
 // 5-90s queue-overflow hangs on a saturated jina worker (incident 2026-05-27).
 //

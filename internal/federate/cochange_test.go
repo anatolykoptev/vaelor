@@ -48,8 +48,8 @@ func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -72,8 +72,8 @@ func TestCrossRepoCoChange_PairsAcrossRepos(t *testing.T) {
 	commitAt(t, chat, "bg.go", "2026-05-29T10:00:00", "background")
 
 	repos := []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}
 	// minLift=0 → no floor; pairs returned if co ≥ minPairs.
 	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0) // 24h window, min 2
@@ -95,8 +95,8 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -106,8 +106,8 @@ func TestCrossRepoCoChange_NoCrossRepoSignalWhenDisjoint(t *testing.T) {
 	commitAt(t, edge, "b.sh", "2026-05-01T10:00:00", "y")
 
 	pairs := CrossRepoCoChange(context.Background(), []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}, testAsOf, 24, 2, 0)
 	if len(pairs) != 0 {
 		t.Fatalf("disjoint timelines → no pairs, got %v", pairs)
@@ -120,8 +120,8 @@ func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -140,8 +140,8 @@ func TestCrossRepoCoChange_WindowWidthDiscriminates(t *testing.T) {
 	commitAt(t, edge, "bg.sh", "2026-05-15T10:00:00+00:00", "background")
 
 	repos := []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}
 	// Under a 24h window they co-occur (same bucket).
 	// minLift=0 → no floor; minPairs=1 → single co-occurrence returned.
@@ -196,8 +196,8 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -223,8 +223,8 @@ func TestCrossRepoCoChange_RanksGenuineAboveNoiseAndCoincidence(t *testing.T) {
 	}
 
 	repos := []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}
 	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
@@ -302,8 +302,8 @@ func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -336,8 +336,8 @@ func TestCrossRepoCoChange_G2RanksBySignificance(t *testing.T) {
 	}
 
 	repos := []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}
 	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
@@ -405,8 +405,8 @@ func TestCrossRepoCoChange_IDFDemotesUbiquitousFile(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -441,8 +441,8 @@ func TestCrossRepoCoChange_IDFDemotesUbiquitousFile(t *testing.T) {
 	}
 
 	repos := []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}
 	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {
@@ -498,8 +498,8 @@ func TestCrossRepoCoChange_SupportTierBeatsRawG2(t *testing.T) {
 		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
 	}
 	parent := t.TempDir()
-	chat := filepath.Join(parent, "oxpulse-chat")
-	edge := filepath.Join(parent, "oxpulse-partner-edge")
+	chat := filepath.Join(parent, "acme-web")
+	edge := filepath.Join(parent, "acme-edge")
 	gitInit(t, chat)
 	gitInit(t, edge)
 	configIdent(t, chat)
@@ -534,8 +534,8 @@ func TestCrossRepoCoChange_SupportTierBeatsRawG2(t *testing.T) {
 	commitAt(t, chat, "bg.md", weeks[14], "bg")
 
 	repos := []RepoRef{
-		{Slug: "oxpulse-chat", Root: chat},
-		{Slug: "oxpulse-partner-edge", Root: edge},
+		{Slug: "acme-web", Root: chat},
+		{Slug: "acme-edge", Root: edge},
 	}
 	pairs := CrossRepoCoChange(context.Background(), repos, testAsOf, 24, 2, 0)
 	if len(pairs) == 0 {

@@ -16,7 +16,7 @@ import (
 //     gocode_autoindex_duration_seconds, etc.
 //   - path  — the absolute host filesystem path or remote git URL that the
 //     repo key was derived from. For local repos this is the on-disk root
-//     (e.g. "/host/src/oxpulse-chat"); for remote clones it is the upstream
+//     (e.g. "/host/src/acme-web"); for remote clones it is the upstream
 //     URL passed to the embedder.
 //
 // Cardinality: one series per registered repo (~60 on current fleet) — well

@@ -132,10 +132,10 @@ func runBodyExtractionPhase(hyps []investigate.Hypothesis, topN int, diags *inve
 // the container need the container-internal path (e.g. /host/src/... from the
 // /host mount). If mappings is empty, paths are used as-is.
 //
-// repo is the VCS repo identifier (e.g. "owner/oxpulse-partner-edge"). Its
+// repo is the VCS repo identifier (e.g. "owner/acme-edge"). Its
 // last path segment is used as a fallback on-disk directory when the service
-// name differs from the repo directory name (e.g. service="partner-edge-sfu",
-// repo dir="oxpulse-partner-edge"). Pass "" when service == repo dir.
+// name differs from the repo directory name (e.g. service="web-api-sfu",
+// repo dir="acme-edge"). Pass "" when service == repo dir.
 //
 // File read errors append a warning to diags.Warnings when diags is non-nil,
 // giving operators a clear signal on /host mount mis-config or PATH_MAPPINGS
@@ -199,7 +199,7 @@ func lastPathSegment(p string) string {
 //  5. /host/src/<repoDir>/<rel> when repo arg's last segment differs from service
 //
 // Dedup-protected via filepath.Clean.
-// repo is the VCS repo arg (e.g. "owner/oxpulse-partner-edge"); its last path
+// repo is the VCS repo arg (e.g. "owner/acme-edge"); its last path
 // segment is used as the on-disk directory when service name ≠ repo dir name.
 func buildBodyPathCandidates(file string, service string, mappings []analyze.PathMapping, repo string) []string {
 	seen := make(map[string]struct{})
@@ -230,7 +230,7 @@ func buildBodyPathCandidates(file string, service string, mappings []analyze.Pat
 					add(filepath.Join("/host", "src", service, file))
 				}
 				// repo-dir fallback: when service name ≠ on-disk repo dir
-				// (e.g. service="partner-edge-sfu", repo dir="oxpulse-partner-edge"),
+				// (e.g. service="web-api-sfu", repo dir="acme-edge"),
 				// also try the repo dir derived from the repo arg last segment.
 				if repoDir := lastPathSegment(repo); repoDir != "" && repoDir != service {
 					add(filepath.Join("/host", "src", repoDir, file))
