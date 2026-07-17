@@ -78,8 +78,11 @@ func TestCallTrace_CallerKindsAndProductionCount(t *testing.T) {
 		t.Fatalf("expected 1 root node, got %d", len(parsed.Trace.Nodes))
 	}
 	rootNode := parsed.Trace.Nodes[0]
+	if rootNode.Kind != "function" {
+		t.Errorf("root symbol kind = %q, want function", rootNode.Kind)
+	}
 	if rootNode.CallerKind != "production" {
-		t.Errorf("root kind = %q, want production", rootNode.CallerKind)
+		t.Errorf("root caller kind = %q, want production", rootNode.CallerKind)
 	}
 	if len(rootNode.Children) != 5 {
 		t.Fatalf("expected 5 caller nodes, got %d", len(rootNode.Children))
@@ -90,11 +93,11 @@ func TestCallTrace_CallerKindsAndProductionCount(t *testing.T) {
 			t.Errorf("unexpected caller %q", child.Name)
 			continue
 		}
-		if child.CallerKind != want {
-			t.Errorf("caller %q kind = %q, want %q", child.Name, child.CallerKind, want)
+		if child.Kind != "function" {
+			t.Errorf("caller %q symbol kind = %q, want function", child.Name, child.Kind)
 		}
-		if child.SymbolKind != "function" {
-			t.Errorf("caller %q symbol_kind = %q, want function", child.Name, child.SymbolKind)
+		if child.CallerKind != want {
+			t.Errorf("caller %q caller kind = %q, want %q", child.Name, child.CallerKind, want)
 		}
 	}
 }

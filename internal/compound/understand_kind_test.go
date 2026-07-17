@@ -52,10 +52,10 @@ func TestUnderstand_CallerKinds(t *testing.T) {
 			t.Errorf("unexpected caller %q", c.Name)
 			continue
 		}
-		if c.Kind != want {
-			t.Errorf("caller %q kind = %q, want %q", c.Name, c.Kind, want)
+		if c.CallerKind != want {
+			t.Errorf("caller %q caller kind = %q, want %q", c.Name, c.CallerKind, want)
 		}
-		if c.Kind == "production" {
+		if c.CallerKind == "production" {
 			gotProduction++
 		}
 	}

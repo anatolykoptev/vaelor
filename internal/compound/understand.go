@@ -121,11 +121,11 @@ type SymbolInfo struct {
 
 // CallRef is a reference to a called/calling function.
 type CallRef struct {
-	Name     string `json:"name"`
-	File     string `json:"file"`
-	Line     uint32 `json:"line"`
-	Receiver string `json:"receiver,omitempty"`
-	Kind     string `json:"kind,omitempty"` // production | test | example | benchmark
+	Name       string `json:"name"`
+	File       string `json:"file"`
+	Line       uint32 `json:"line"`
+	Receiver   string `json:"receiver,omitempty"`
+	CallerKind string `json:"caller_kind,omitempty"` // production | test | example | benchmark
 }
 
 // MatchRef is a lightweight symbol descriptor used in disambiguation responses.
@@ -178,7 +178,7 @@ func Understand(ctx context.Context, sym *parser.Symbol, cg *callgraph.CallGraph
 	if opts.IncludeCallers {
 		result.Callers = collectCallers(cg, sym, maxCallers)
 		for _, c := range result.Callers {
-			if c.Kind == "production" {
+			if c.CallerKind == "production" {
 				result.ProductionCallerCount++
 			}
 		}

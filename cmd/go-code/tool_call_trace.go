@@ -35,8 +35,8 @@ type xmlTrace struct {
 }
 
 type xmlTraceNode struct {
-	SymbolKind string         `xml:"symbol_kind,attr,omitempty"`
-	CallerKind string         `xml:"kind,attr,omitempty"`
+	Kind       string         `xml:"kind,attr,omitempty"`
+	CallerKind string         `xml:"caller_kind,attr,omitempty"`
 	Name       string         `xml:"name,attr"`
 	File       string         `xml:"file,attr"`
 	Line       uint32         `xml:"line,attr"`
@@ -55,7 +55,7 @@ func convertTraceNodes(nodes []callgraph.CallChainNode) []xmlTraceNode {
 			Cycle:    n.Cycle,
 		}
 		if n.Symbol != nil {
-			xn.SymbolKind = string(n.Symbol.Kind)
+			xn.Kind = string(n.Symbol.Kind)
 			xn.Name = n.Symbol.Name
 			xn.File = n.Symbol.File
 			xn.Line = n.Symbol.StartLine

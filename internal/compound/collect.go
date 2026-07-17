@@ -55,11 +55,11 @@ func collectCallers(cg *callgraph.CallGraph, sym *parser.Symbol, max int) []Call
 		}
 		seen[key] = struct{}{}
 		out = append(out, CallRef{
-			Name:     edge.Caller.Name,
-			File:     edge.Caller.File,
-			Line:     edge.Line,
-			Receiver: edge.Caller.Receiver,
-			Kind:     langutil.CallerKind(edge.Caller.Name, edge.Caller.File),
+			Name:       edge.Caller.Name,
+			File:       edge.Caller.File,
+			Line:       edge.Line,
+			Receiver:   edge.Caller.Receiver,
+			CallerKind: langutil.CallerKind(edge.Caller.Name, edge.Caller.File),
 		})
 	}
 	return out

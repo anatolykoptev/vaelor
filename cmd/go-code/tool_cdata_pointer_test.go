@@ -63,10 +63,10 @@ func TestCallTrace_NarrativePresentWhenSet(t *testing.T) {
 // signature (e.g. unresolved call site) does not emit an empty <signature>.
 func TestCallTrace_EmptyNodeSignatureOmitted(t *testing.T) {
 	node := xmlTraceNode{
-		SymbolKind: "function",
-		Name:       "bar",
-		File:       "bar.go",
-		Line:       10,
+		Kind: "function",
+		Name: "bar",
+		File: "bar.go",
+		Line: 10,
 		// Signature intentionally nil
 	}
 	out := marshal(t, node)
@@ -77,11 +77,11 @@ func TestCallTrace_EmptyNodeSignatureOmitted(t *testing.T) {
 // when Signature is non-nil.
 func TestCallTrace_SignaturePresentWhenSet(t *testing.T) {
 	node := xmlTraceNode{
-		SymbolKind: "function",
-		Name:       "bar",
-		File:       "bar.go",
-		Line:       10,
-		Signature:  &xmlCDATA{Inner: wrapCDATA("func bar(x int) error")},
+		Kind:      "function",
+		Name:      "bar",
+		File:      "bar.go",
+		Line:      10,
+		Signature: &xmlCDATA{Inner: wrapCDATA("func bar(x int) error")},
 	}
 	out := marshal(t, node)
 	if !strings.Contains(out, "func bar(x int) error") {
