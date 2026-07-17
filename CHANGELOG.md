@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.38.5](https://github.com/anatolykoptev/go-code/compare/v1.38.4...v1.38.5) (2026-07-17)
+
+
+### Fixed
+
+* retry-safe, lock-safe embeddings & designmd schema init ([#495](https://github.com/anatolykoptev/go-code/issues/495), [#496](https://github.com/anatolykoptev/go-code/issues/496)) ([#499](https://github.com/anatolykoptev/go-code/issues/499)) ([0b47569](https://github.com/anatolykoptev/go-code/commit/0b475693a3c4b2e5349b0db3a7cf83d74ec054c8))
+
+
+### Performance
+
+* optional go-kit/cache Redis L2 for ingestRepoCache and cgCache ([#493](https://github.com/anatolykoptev/go-code/issues/493), [#494](https://github.com/anatolykoptev/go-code/issues/494)) ([#498](https://github.com/anatolykoptev/go-code/issues/498)) ([5616866](https://github.com/anatolykoptev/go-code/commit/56168663d99f03e8732c3cc172ed32db46072b74))
+
 ## [1.38.4](https://github.com/anatolykoptev/go-code/compare/v1.38.3...v1.38.4) (2026-07-17)
 
 
