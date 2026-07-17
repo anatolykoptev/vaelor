@@ -3,6 +3,8 @@ package callgraph
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -82,13 +84,13 @@ func TestCallGraphCache_L1HitDoesNotTouchL2(t *testing.T) {
 	fake := installFakeCGL2(t)
 
 	cg := &CallGraph{Tier: "basic", Backend: BackendTreeSitter}
-	cgCache.set("repo", cg)
+	cgCache.set("repo", cg, "")
 	if fake.sets != 1 {
 		t.Fatalf("set should write to L2 exactly once, got sets=%d", fake.sets)
 	}
 
 	getsBefore := fake.gets
-	got, ok := cgCache.get("repo")
+	got, ok := cgCache.get("repo", "")
 	if !ok {
 		t.Fatalf("expected L1 hit")
 	}
@@ -113,17 +115,17 @@ func TestCallGraphCache_L2HitRepopulatesL1(t *testing.T) {
 		},
 		UsesIndex: map[string][]string{"foo.astro": {"bar.astro"}},
 	}
-	at := time.Now()
 	key := "repo::go:::fa=false"
-	data, err := encodeCGEntry(cg, at)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	if err := fake.Set(context.Background(), key, data, cgCacheTTL); err != nil {
-		t.Fatalf("seed fake L2: %v", err)
+	cgCache.set(key, cg, "")
+	if fake.sets != 1 {
+		t.Fatalf("set should write to L2 exactly once, got sets=%d", fake.sets)
 	}
 
-	got, ok := cgCache.get(key)
+	// Clear L1 to force an L2 hit.
+	InvalidateBuildCache()
+
+	getsBefore := fake.gets
+	got, ok := cgCache.get(key, "")
 	if !ok {
 		t.Fatalf("expected L2 hit")
 	}
@@ -135,8 +137,8 @@ func TestCallGraphCache_L2HitRepopulatesL1(t *testing.T) {
 	}
 
 	// L1 should now be repopulated: a second get should not query L2.
-	getsBefore := fake.gets
-	_, ok = cgCache.get(key)
+	getsBefore = fake.gets
+	_, ok = cgCache.get(key, "")
 	if !ok {
 		t.Fatalf("expected L1 hit after repopulation")
 	}
@@ -164,7 +166,8 @@ func TestCallGraphCache_RoundTrip(t *testing.T) {
 	}
 	at := time.Unix(1234567890, 0).UTC()
 
-	data, err := encodeCGEntry(cg, at)
+	contentHash := "expected-hash"
+	data, err := encodeCGEntry(cg, at, contentHash)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -174,6 +177,9 @@ func TestCallGraphCache_RoundTrip(t *testing.T) {
 	}
 	if !decoded.At.Equal(at) {
 		t.Errorf("timestamp mismatch: %v vs %v", decoded.At, at)
+	}
+	if decoded.ContentHash != contentHash {
+		t.Errorf("content hash mismatch: %q vs %q", decoded.ContentHash, contentHash)
 	}
 	got := decoded.CG
 	if got.Tier != cg.Tier || got.Backend != cg.Backend {
@@ -217,7 +223,7 @@ func TestCallGraphCache_L2PointerIdentity(t *testing.T) {
 		},
 	}
 
-	data, err := encodeCGEntry(cg, time.Now())
+	data, err := encodeCGEntry(cg, time.Now(), "")
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -259,6 +265,40 @@ func TestCallGraphCache_L2PointerIdentity(t *testing.T) {
 	adj := buildCalleeIndex(got.Edges)
 	if len(adj[got.Symbols[mainIdx]]) == 0 {
 		t.Errorf("buildCalleeIndex empty for caller symbol after L2 decode")
+	}
+}
+
+// TestCallGraphCache_L2SkipsStaleEntry verifies that an L2 entry whose
+// content hash no longer matches is rejected and removed from L2.
+func TestCallGraphCache_L2SkipsStaleEntry(t *testing.T) {
+	fake := installFakeCGL2(t)
+
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(mainPath, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cg := &CallGraph{Tier: "basic", Backend: BackendTreeSitter}
+	key := "repo::go:::fa=false"
+	cgCache.set(key, cg, dir)
+	if fake.sets != 1 {
+		t.Fatalf("set should write to L2 exactly once, got sets=%d", fake.sets)
+	}
+
+	// Clear L1 and mutate the repo so the cached content hash is stale.
+	InvalidateBuildCache()
+
+	if err := os.WriteFile(filepath.Join(dir, "util.go"), []byte("package main\nfunc util() {}\n"), 0o644); err != nil {
+		t.Fatalf("write util.go: %v", err)
+	}
+
+	got, ok := cgCache.get(key, dir)
+	if ok {
+		t.Fatalf("expected stale L2 entry to be rejected, got cg=%+v", got)
+	}
+	if fake.dels != 1 {
+		t.Fatalf("expected stale L2 entry to be deleted, got dels=%d", fake.dels)
 	}
 }
 

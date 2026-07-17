@@ -11,6 +11,7 @@ import (
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
 	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/go-code/internal/ingest"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -32,8 +33,9 @@ type cgCacheEntry struct {
 
 // wireCGEntry is the gob-friendly on-wire format for an L2 entry.
 type wireCGEntry struct {
-	CG *CallGraph
-	At time.Time
+	CG          *CallGraph
+	At          time.Time
+	ContentHash string
 }
 
 // callGraphCache is a small TTL+LRU cache for BuildFromRepo results.
@@ -61,7 +63,7 @@ func SetL2(redisURL string) {
 	cgCache.l2 = l2
 }
 
-func (c *callGraphCache) get(key string) (*CallGraph, bool) {
+func (c *callGraphCache) get(key, root string) (*CallGraph, bool) {
 	c.mu.Lock()
 	e, ok := c.lru.Get(key)
 	if ok {
@@ -87,6 +89,13 @@ func (c *callGraphCache) get(key string) (*CallGraph, bool) {
 		return nil, false
 	}
 
+	// Validate content hash before trusting a cross-process L2 entry.
+	if ingest.RepoContentHash(root) != entry.ContentHash {
+		// Stale L2 entry; delete it to avoid serving it again.
+		_ = c.l2.Del(context.Background(), key)
+		return nil, false
+	}
+
 	c.mu.Lock()
 	c.lru.Set(key, cgCacheEntry{cg: entry.CG, at: entry.At})
 	cg := entry.CG
@@ -94,7 +103,8 @@ func (c *callGraphCache) get(key string) (*CallGraph, bool) {
 	return cg, true
 }
 
-func (c *callGraphCache) set(key string, cg *CallGraph) {
+func (c *callGraphCache) set(key string, cg *CallGraph, root string) {
+	hash := ingest.RepoContentHash(root)
 	at := time.Now()
 
 	c.mu.Lock()
@@ -103,7 +113,7 @@ func (c *callGraphCache) set(key string, cg *CallGraph) {
 	c.mu.Unlock()
 
 	if l2 != nil {
-		if data, err := encodeCGEntry(cg, at); err == nil {
+		if data, err := encodeCGEntry(cg, at, hash); err == nil {
 			_ = l2.Set(context.Background(), key, data, cgCacheTTL)
 		}
 	}
@@ -124,10 +134,10 @@ func InvalidateBuildCache() {
 	cgCache.lru = cache.NewLRU[string, cgCacheEntry](cgCacheMaxSize)
 }
 
-// encodeCGEntry serializes a CallGraph and timestamp to []byte using gob.
-func encodeCGEntry(cg *CallGraph, at time.Time) ([]byte, error) {
+// encodeCGEntry serializes a CallGraph, timestamp and content hash to []byte using gob.
+func encodeCGEntry(cg *CallGraph, at time.Time, contentHash string) ([]byte, error) {
 	var buf bytes.Buffer
-	w := wireCGEntry{CG: cg, At: at}
+	w := wireCGEntry{CG: cg, At: at, ContentHash: contentHash}
 	if err := gob.NewEncoder(&buf).Encode(w); err != nil {
 		return nil, err
 	}
