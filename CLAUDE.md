@@ -1,7 +1,7 @@
 # go-code — Code Intelligence MCP Server
 
 **Module**: `github.com/anatolykoptev/go-code` | **Port**: 8897 | **MCP**: `http://127.0.0.1:8897/mcp`
-**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro, Kotlin, Swift, HTML (16 total)
+**Languages**: Go, Python, TypeScript/JavaScript, Rust, Java, C, C++, Ruby, C#, PHP, Svelte, Astro, Vue, Kotlin, Swift, HTML (16 total)
 
 ## Package Overview
 
@@ -48,25 +48,37 @@
 | `dep_graph` | Dependency graph as Mermaid/DOT/JSON. `cross_language=true` adds Route edges |
 | `symbol_search` | Find functions/types/consts by name pattern or wildcard across a repo |
 | `call_trace` | BFS/DFS call chain from a function; forward (callees) or reverse (callers) with LLM narrative |
-| `code_graph` | Query persistent Apache AGE graph (`gocode` DB). 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL. Requires `DATABASE_URL` |
-| `repo_search` | Discover repos across forges. Parallel web search (go-search) + GitHub/GitLab API, LLM-ranked |
-| `code_search` | Grep-like search with regex, path filter (`file_glob`), context lines |
+| `impact_analysis` | Blast radius of changing a function |
 | `dead_code` | Find unused exported functions/types |
 | `explore` | Quick overview: stats, README, deps, health |
 | `code_health` | Quality grade (A-F), 14 sub-scores incl. CVE/vulnerability checking via OSV.dev |
-| `impact_analysis` | Blast radius of changing a function |
+| `code_graph` | Query persistent Apache AGE graph (`gocode` DB). 14 Cypher templates + LLM freeform fallback. Lazy indexing with TTL. Requires `DATABASE_URL` |
+| `remember_graph_insights` | Maintenance/internal: persist structural graph findings (surprises, dead_code) to the learnings store so future `understand` calls surface them. Human-invoked only |
+| `repo_search` | Discover repos across forges. Parallel web search (go-search) + GitHub/GitLab API, LLM-ranked |
+| `github_code_search` | Search code on GitHub via the Code Search API; returns file paths with matching fragments |
+| `code_search` | Grep-like search with regex, path filter (`file_glob`), context lines |
+| `wp_plugin_search` | Search the WordPress.org plugin directory |
 | `semantic_search` | Vector similarity search via pgvector + hybrid RRF + graph expansion |
+| `sparse_backfill` | Maintenance/internal: populate `sparse_embedding` for existing `code_embeddings` rows where NULL. Operator-initiated |
+| `orphan_sweep` | Maintenance/internal: delete `code_embeddings` rows whose `repo_key` has no matching `code_repo_state` row. Operator-initiated |
+| `list_flows` | List precomputed named execution flows for a repo, ordered by priority (highest-PageRank chains first) |
+| `find_duplicates` | Find pairs of symbols in one repo that are semantically near-identical |
+| `code_research` | Deep repo research — AST traversal + LLM narrative + test linkage |
+| `site_analyze` | Web site tech analysis (stack, SEO/OG tags) |
+| `site_crawl` | BFS web crawler |
 | `understand` | Deep-dive symbol analysis. Aggregates: symbol info + callees + callers + complexity. Type-aware for Go |
 | `prepare_change` | Pre-change risk assessment. Aggregates: impact_analysis + dead_code check |
-| `site_analyze` | Web site tech analysis |
-| `site_crawl` | BFS web crawler |
-| `review_pr` | Review a pull request: differential impact analysis on all changes. `dry_run=false` + `event` posts to GitHub and persists learnings. |
 | `review_delta` | Analyze changes between two git refs and compute differential impact |
-| `code_research` | Deep repo research — AST traversal + LLM narrative + test linkage |
-| `rewrite` | Automated refactor suggestions / code rewrite |
-| `dataflow` | Taint / dead-value data-flow analysis (sub-modes: dead, taint) |
+| `review_pr` | Review a pull request: differential impact analysis on all changes. `dry_run=false` + `event` posts to GitHub and persists learnings. |
+| `rewrite` | Structural search-and-replace using AST patterns with `$WILDCARDS` |
+| `dataflow_analyze` | Unified code quality + security analysis: dead stores/unused vars (data-flow), dead functions (callgraph), SQL/command injection (taint tracking). Requires ox-codes backend |
 | `design_search` | Semantic search across design docs (requires `DESIGN_EMBED_URL`) |
-| `wp_plugin_search` | Search the WordPress.org plugin directory |
+| `debug_investigate` | Correlate Prometheus metrics + Jaeger failed traces + code symbols to suggest the likely buggy file:function for a service+window. Long-running (5min budget) |
+| `fleet_versions` | Compare pinned image versions in a repo (Dockerfile, docker-compose*.yml) against images running on one or more hosts |
+| `resolve_frame` | Resolve a minified JS stack frame (url, line, column) to its original source location via the companion `.map` file |
+| `get_file_health` | Report a 1-10 health score per file using `prior_defect` + `churn_risk` biomarkers; optional paths default to top-20 hotspots |
+| `suggest_reviewers` | Rank candidate reviewers for PR file paths using direct authorship, co-change coupling, and recency |
+| `federated_cochange` | Find files in different repos that change together (cross-repo co-change), ranked by Wilson lower bound on directional confidence |
 
 ## Environment Variables
 
@@ -77,7 +89,7 @@
 | `LLM_API_KEY` | required | |
 | `LLM_API_KEY_FALLBACK` | optional | Comma-separated API keys, same-model key rotation on 429/5xx. Disabled when `LLM_MODEL_FALLBACK` is set. |
 | `LLM_MODEL_FALLBACK` | optional | CSV cross-provider model chain (e.g. `gemini-3.1-flash-lite-preview,cerebras-qwen-3-235b`). When set, overrides key-rotation; cliproxyapi routes each model id to its upstream provider. |
-| `LLM_MODEL` | `gemini-3.1-flash-lite-preview` | |
+| `LLM_MODEL` | `cerebras-gpt-oss-120b` | Fresh-deploy fallback only; prod always overrides via `LLM_MODEL` (fleet llm.env) |
 | `GITHUB_TOKEN` | optional | Higher rate limits + private repos |
 | `GITHUB_SEARCH_REPOS` | optional | Default repos for quick-mode code search |
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp clone location |

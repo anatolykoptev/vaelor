@@ -171,7 +171,7 @@ Reaching a remote host uses the system `ssh` binary directly; go-code doesn't ma
 | `MCP_PORT` | `8897` | HTTP server port |
 | `LLM_API_BASE` | `http://127.0.0.1:8317/v1` | OpenAI-compatible LLM endpoint |
 | `LLM_API_KEY` | *(optional)* | See [LLM dependency](#llm-dependency) below |
-| `LLM_MODEL` | `gemini-3.1-flash-lite-preview` | Model name |
+| `LLM_MODEL` | `cerebras-gpt-oss-120b` | Model name (fresh-deploy fallback; override per deployment) |
 | `GITHUB_TOKEN` | *(optional)* | Higher API rate limits, private repos |
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp directory for cloned repos |
 | `MAX_FILE_KB` | `512` | Max file size to parse (KB) |
