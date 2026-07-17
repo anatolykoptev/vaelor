@@ -46,8 +46,10 @@ For each new query you want to add:
 3. **Append a JSONL line** to the appropriate `<repo>.jsonl`. Include `notes`
    when the query is non-obvious or when you skipped a near-miss.
 
-Target corpus size: 100-200 records total across the 5 repos. Skewing toward
-the bigger repos (vaelor, MemDB) is fine — they cover more retrieval patterns.
+Target corpus size: 60-80 records total across the shipped repos (go-code,
+MemDB). Skewing toward the bigger repo (MemDB) is fine — it covers more
+retrieval patterns. (Additional local-only targets can be added as
+`eval/golden/<repo>.jsonl`; the harness globs the directory.)
 
 ## Coverage targets
 
@@ -55,9 +57,6 @@ the bigger repos (vaelor, MemDB) is fine — they cover more retrieval patterns.
 |----------------|---------|--------------------------------------------------------------------|
 | `go-code`      | 30-40   | Self-test; many small files exercise exact-symbol matching.        |
 | `MemDB`        | 30-40   | Go + pgvector, dense per-symbol descriptions.                      |
-| `vaelor`       | 30-40   | Largest Go corpus, exercises scale-drift.                          |
-| `acme-web` | 20-30   | Rust path; tests cross-language tree-sitter parsing.               |
-| `acme-guide`    | 15-25   | Polyglot (Astro + WP); tests language-mixed retrieval.             |
 
 ## Reproducibility
 
