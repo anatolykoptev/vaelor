@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.7](https://github.com/anatolykoptev/go-code/compare/v1.38.6...v1.38.7) (2026-07-17)
+
+
+### Fixed
+
+* content-hash staleness guard for cgCache L2 ([#497](https://github.com/anatolykoptev/go-code/issues/497)) ([#504](https://github.com/anatolykoptev/go-code/issues/504)) ([218f7eb](https://github.com/anatolykoptev/go-code/commit/218f7eb34a6ced73f5469f529a3c47ffa343a51c))
+
 ## [1.38.6](https://github.com/anatolykoptev/go-code/compare/v1.38.5...v1.38.6) (2026-07-17)
 
 
