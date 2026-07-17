@@ -211,12 +211,12 @@ func handleSemanticSearch(
 						msg = fmt.Sprintf("Re-indexing in progress (model changed): %d/%d symbols. %s %s",
 							done, total, semanticSearchGraphHint, semanticSearchRetryHint)
 					}
-					return textResult(buildStatusResponse(input, "indexing", msg)), nil
+					return semanticSearchIndexingResponse(input, msg), nil
 				}
 				invalidator.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
-				return textResult(buildStatusResponse(input, "indexing",
+				return semanticSearchIndexingResponse(input,
 					"Embedding model changed — re-indexing started. "+
-						semanticSearchGraphHint+" "+semanticSearchRetryHint)), nil
+						semanticSearchGraphHint+" "+semanticSearchRetryHint), nil
 			}
 		}
 		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
@@ -232,12 +232,12 @@ func handleSemanticSearch(
 				msg = fmt.Sprintf("Indexing in progress: %d/%d symbols embedded. %s %s",
 					done, total, semanticSearchGraphHint, semanticSearchRetryHint)
 			}
-			return textResult(buildStatusResponse(input, "indexing", msg)), nil
+			return semanticSearchIndexingResponse(input, msg), nil
 		}
 		deps.Pipeline.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
-		return textResult(buildStatusResponse(input, "indexing",
+		return semanticSearchIndexingResponse(input,
 			"Repository indexing started in the background. "+
-				semanticSearchGraphHint+" "+semanticSearchRetryHint)), nil
+				semanticSearchGraphHint+" "+semanticSearchRetryHint), nil
 	}
 
 	return textResult(buildStatusResponse(input, "not_indexed",
@@ -542,6 +542,14 @@ func formatSemanticResults(input SemanticSearchInput, results []embeddings.Searc
 		resp.Results.Results = append(resp.Results.Results, res)
 	}
 	return xmlMarshalFragment(resp)
+}
+
+// semanticSearchIndexingResponse returns an "indexing" status result and bumps
+// gocode_tool_cold_return_total{tool="semantic_search",status="indexing"} so
+// cold-start rates are comparable across tools.
+func semanticSearchIndexingResponse(input SemanticSearchInput, message string) *mcp.CallToolResult {
+	recordToolColdReturn("semantic_search", "indexing")
+	return textResult(buildStatusResponse(input, "indexing", message))
 }
 
 func buildStatusResponse(input SemanticSearchInput, status, message string) string {

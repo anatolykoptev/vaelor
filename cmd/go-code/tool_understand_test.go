@@ -1,8 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/go-code/internal/codegraph"
 	"github.com/anatolykoptev/go-code/internal/parser"
 )
 
@@ -99,5 +107,130 @@ func TestFilterByFocus_IngestLayeringRegression(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "toggle" {
 		t.Errorf("want [toggle], got %v", got)
+	}
+}
+
+// TestUnderstand_ColdGraph_ReturnsBuildingStatus verifies that understand returns
+// a JSON building-status response (and does not synchronously parse the repo)
+// when the AGE graph is not yet fresh and the source is remote.
+func TestUnderstand_ColdGraph_ReturnsBuildingStatus(t *testing.T) {
+	origCacheStatus := ageGraphCacheStatus
+	origIndexRepo := ageGraphIndexRepo
+	origMemGuard := ageGraphMemGuardWatchdog
+	defer func() {
+		ageGraphCacheStatus = origCacheStatus
+		ageGraphIndexRepo = origIndexRepo
+		ageGraphMemGuardWatchdog = origMemGuard
+	}()
+
+	ageGraphCacheStatus = func(context.Context, *codegraph.Store, string) (bool, error) { return false, nil }
+	ageGraphIndexRepo = func(context.Context, *codegraph.Store, string, bool, codegraph.IndexConfig) (*codegraph.GraphMeta, error) {
+		return nil, nil
+	}
+	ageGraphMemGuardWatchdog = func(context.Context, context.CancelFunc) {}
+
+	// Create a local checkout that resolveRoot will match for a remote slug.
+	checkouts := t.TempDir()
+	repoName := "testrepo"
+	repoDir := filepath.Join(checkouts, repoName)
+	if err := exec.Command("git", "init", repoDir).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := exec.Command("git", "-C", repoDir, "remote", "add", "origin", "https://github.com/acme/"+repoName+".git").Run(); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	input := UnderstandInput{Repo: "acme/testrepo", Symbol: "Foo"}
+	deps := analyze.Deps{LocalRepoDirs: []string{checkouts}}
+	graphStore := &codegraph.Store{}
+
+	res, err := handleUnderstand(context.Background(), input, deps, nil, graphStore)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if res.IsError {
+		t.Fatalf("expected non-error status response, got error: %s", textContentOf(t, res))
+	}
+
+	text := textContentOf(t, res)
+	var status understandStatusResponse
+	if err := json.Unmarshal([]byte(text), &status); err != nil {
+		t.Fatalf("expected JSON status, got %q: %v", text, err)
+	}
+	if status.Status != "building" {
+		t.Errorf("expected status 'building', got %q", status.Status)
+	}
+	if !strings.Contains(status.Message, "retry") {
+		t.Errorf("expected retry hint in message, got %q", status.Message)
+	}
+	if status.Repo != input.Repo {
+		t.Errorf("expected repo %q, got %q", input.Repo, status.Repo)
+	}
+	if status.Symbol != "Foo" {
+		t.Errorf("expected symbol %q, got %q", "Foo", status.Symbol)
+	}
+}
+
+// TestUnderstand_ColdLocalGraph_DoesNotGate verifies that a local cold source
+// does NOT short-circuit to "building" — it proceeds to the real build path.
+func TestUnderstand_ColdLocalGraph_DoesNotGate(t *testing.T) {
+	origCacheStatus := ageGraphCacheStatus
+	origBuildFromRepo := understandBuildFromRepo
+	defer func() {
+		ageGraphCacheStatus = origCacheStatus
+		understandBuildFromRepo = origBuildFromRepo
+	}()
+
+	ageGraphCacheStatus = func(context.Context, *codegraph.Store, string) (bool, error) { return false, nil }
+	understandBuildFromRepo = func(_ context.Context, input callgraph.TraceRepoInput) (*callgraph.CallGraph, error) {
+		cg := &callgraph.CallGraph{
+			Symbols: []*parser.Symbol{makeTestSym("Foo", filepath.Join(input.Root, "foo.go"))},
+			Tier:    "basic",
+		}
+		return cg, nil
+	}
+
+	root := t.TempDir()
+	input := UnderstandInput{Repo: root, Symbol: "Foo"}
+	deps := analyze.Deps{}
+	// graphStore is nil for the local path: the AGE gate must be skipped entirely,
+	// and a nil store must not be dereferenced on the BuildFromRepo path.
+	var graphStore *codegraph.Store
+
+	res, err := handleUnderstand(context.Background(), input, deps, nil, graphStore)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if res.IsError {
+		t.Fatalf("expected success, got error: %s", textContentOf(t, res))
+	}
+
+	text := textContentOf(t, res)
+	// The success response must NOT be the building-status short-circuit.
+	if strings.Contains(text, `"status":"building"`) {
+		t.Fatalf("local cold source was gated: got building status response: %s", text)
+	}
+
+	var status understandStatusResponse
+	if err := json.Unmarshal([]byte(text), &status); err == nil && status.Status == "building" {
+		t.Fatalf("local cold source was gated: status=%q", status.Status)
+	}
+
+	var result struct {
+		Symbol struct {
+			Name string `json:"name"`
+		} `json:"symbol"`
+	}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("expected JSON result, got %q: %v", text, err)
+	}
+	if result.Symbol.Name != "Foo" {
+		t.Errorf("expected symbol Foo, got %q", result.Symbol.Name)
 	}
 }
