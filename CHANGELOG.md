@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.3](https://github.com/anatolykoptev/go-code/compare/v1.38.2...v1.38.3) (2026-07-17)
+
+
+### Documentation
+
+* add hero demo GIF to README ([#487](https://github.com/anatolykoptev/go-code/issues/487)) ([c120bd1](https://github.com/anatolykoptev/go-code/commit/c120bd1063aa3c1c1f0c1759396f2a0999a003a9))
+
 ## [1.38.2](https://github.com/anatolykoptev/go-code/compare/v1.38.1...v1.38.2) (2026-07-17)
 
 
