@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.41.3](https://github.com/anatolykoptev/vaelor/compare/v1.41.2...v1.41.3) (2026-07-18)
+
+
+### Fixed
+
+* **release:** goreleaser main path cmd/go-code -&gt; cmd/vaelor ([5b4124f](https://github.com/anatolykoptev/vaelor/commit/5b4124f16148255ca997bfedcf69a7a381410326))
+
 ## [1.41.2](https://github.com/anatolykoptev/vaelor/compare/v1.41.1...v1.41.2) (2026-07-18)
 
 
