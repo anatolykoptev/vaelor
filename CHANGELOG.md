@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.41.1](https://github.com/anatolykoptev/vaelor/compare/v1.41.0...v1.41.1) (2026-07-18)
+
+
+### Changed
+
+* rename service identity go-code -&gt; vaelor (cmd dir, serviceName, Dockerfile/Makefile) ([133f4ff](https://github.com/anatolykoptev/vaelor/commit/133f4ff8bb4294db98189c381aaeaacc1ef577a8))
+
 ## [1.41.0](https://github.com/anatolykoptev/vaelor/compare/v1.40.0...v1.41.0) (2026-07-18)
 
 
