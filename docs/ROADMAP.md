@@ -1,4 +1,4 @@
-# go-code Implementation Roadmap
+# Vaelor Implementation Roadmap
 
 ## v1.0: Foundation — Parse & Analyze (MVP) ✅
 
@@ -160,9 +160,9 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ## v1.7: go-search Migration ✅
 
-**Goal**: Remove code tools from go-search, point to go-code.
+**Goal**: Remove code tools from go-search, point to Vaelor.
 
-**Status**: Complete (2026-02-28). All code tools migrated to go-code, removed from go-search.
+**Status**: Complete (2026-02-28). All code tools migrated to Vaelor, removed from go-search.
 
 ### New infrastructure ✅
 - [x] `internal/retry` — generic exponential backoff with jitter
@@ -185,7 +185,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 - [x] Update go-search CLAUDE.md, tool count, metrics
 - [x] Deploy both services, verify health
 
-**Deliverable**: Clean separation. go-search = web search. go-code = code intelligence. ✅
+**Deliverable**: Clean separation. go-search = web search. Vaelor = code intelligence. ✅
 
 ---
 
@@ -564,7 +564,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 ## v1.19: Diff-Aware Review
 
-**Goal**: Git-integrated change analysis — detect changed symbols, compute differential impact, generate review context with risk guidance. Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) blast-radius approach but built on go-code's superior backend (AGE graph, type-aware analysis, ox-codes search).
+**Goal**: Git-integrated change analysis — detect changed symbols, compute differential impact, generate review context with risk guidance. Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) blast-radius approach but built on Vaelor's superior backend (AGE graph, type-aware analysis, ox-codes search).
 
 **Status**: Planned.
 
@@ -601,7 +601,7 @@ Single tool (`repo_analyze`) that works better than the current one.
   - `<source_snippets>` — optional context around changed symbols (3 lines before, 1 after)
 - [ ] Token-aware truncation: configurable max output size, prioritize high-risk items
 - [ ] Integration with existing `impact.Analyze()` and `codegraph` TESTED_BY queries
-- [ ] Unit tests + integration test on go-code's own repo
+- [ ] Unit tests + integration test on Vaelor's own repo
 
 **Where**: `internal/review/delta.go`, `cmd/go-code/tool_review_delta.go`.
 
@@ -613,7 +613,7 @@ Single tool (`repo_analyze`) that works better than the current one.
 
 **Where**: `cmd/go-code/tool_review_pr.go`.
 
-**Ref**: [code-review-graph](https://github.com/tirth8205/code-review-graph) — SQLite graph + BFS blast radius + review context (avg 6.8x token reduction); go-code advantage: AGE graph (Cypher queries, PageRank), type-aware Go analysis, hidden caller detection via ox-codes, 3-tier degradation.
+**Ref**: [code-review-graph](https://github.com/tirth8205/code-review-graph) — SQLite graph + BFS blast radius + review context (avg 6.8x token reduction); Vaelor advantage: AGE graph (Cypher queries, PageRank), type-aware Go analysis, hidden caller detection via ox-codes, 3-tier degradation.
 
 **Deliverable**: `review_delta` + `review_pr` tools — diff-aware impact analysis with risk guidance. 20 MCP tools total.
 
@@ -694,7 +694,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 ### 20.3 Wire in IndexRepo
 - [ ] Replace insertBatches/insertEdgeBatches with BulkCopyInsert
 - [ ] Keep UNWIND fallback for resilience
-- [ ] Benchmark: small-repo (9 files) + memdb (950 files)
+- [ ] Benchmark: a small repo (9 files) + memdb (950 files)
 
 **Deliverable**: code_graph first-build <15s for memdb. Zero Cypher writes. Full Cypher readability preserved.
 
@@ -720,7 +720,7 @@ These fixes were discovered and shipped while debugging code_graph performance:
 
 **Goal**: Industry-first Go OTel HTTP middleware with function-level handler attribution. Closes the metrics→trace→file:line loop in `debug_investigate` Tier-1 symbol resolution.
 
-**Status**: Shipped 2026-05-09. Empirically validated on go-code + dozor + acme-web (Rust) + web-api-sfu (Rust).
+**Status**: Shipped 2026-05-09. Empirically validated on Vaelor + dozor + acme-web (Rust) + web-api-sfu (Rust).
 
 ### 21.1 OTel handler attribution (`anatolykoptev/go-kit#49,#50,#51,#52,#53,#6`)
 - [x] `RegisterRoute(method, pattern, fn)` registry — startup-time `runtime.FuncForPC` capture
@@ -732,7 +732,7 @@ These fixes were discovered and shipped while debugging code_graph performance:
 - [x] `tracing/slogh` package — slog handler injecting `trace_id`+`span_id` into records (port from tilegroxy)
 - [x] `theme.css` canonical token export, `FontPreload.astro` helper, `maskIconColor` prop, `--aw-color-primary` legacy leak removed (kit-side fixes from review)
 
-### 21.2 debug_investigate Tier-1 wiring (`anatolykoptev/go-code#87,#88,#89,#90,#91,#92,#93,#94,#95,#96,#97,#98,#99`)
+### 21.2 debug_investigate Tier-1 wiring (`anatolykoptev/vaelor#87,#88,#89,#90,#91,#92,#93,#94,#95,#96,#97,#98,#99`)
 - [x] B4 downstream callees walk (top-1 hypothesis, depth 2, 0.3/depth scoring)
 - [x] B5 body extraction topN 3 → 5
 - [x] OTel self-instrumentation (Setup + httpmw + mcpmw)
@@ -747,7 +747,7 @@ These fixes were discovered and shipped while debugging code_graph performance:
 - [x] Service→repo dir mapping (e.g. `web-api-sfu` → `acme-edge`)
 
 **Empirical validation**:
-- go-code `POST /webhook/github` → `code.function=(*githubWebhookHandler).ServeHTTP, code.filepath=/build/cmd/go-code/webhook_github.go:25`
+- Vaelor `POST /webhook/github` → `code.function=(*githubWebhookHandler).ServeHTTP, code.filepath=/build/cmd/go-code/webhook_github.go:25`
 - dozor `GET /health` → `code.function=runGateway.healthHandler.func5, code.lineno=162`
 - acme-web (Rust): 4 routes resolved (`ws_call`, `http_request`, `metrics_handler`, `spa_fallback`)
 - web-api-sfu (Rust): `acme_sfu::client_ws::handler:185` + body excerpts

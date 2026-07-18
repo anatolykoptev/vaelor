@@ -10,7 +10,7 @@
 Terminal-based AI pair-programming tool that connects LLMs to a local Git repo.
 Open-source competitor to Claude Code / Cursor / Cline. Supports 100+ languages, 20+ LLMs.
 
-## RepoMap Architecture (most relevant to go-code)
+## RepoMap Architecture (most relevant to Vaelor)
 
 The core innovation is **RepoMap** — a concise, ranked overview of the codebase sent to the LLM with each request.
 
@@ -67,7 +67,7 @@ The core innovation is **RepoMap** — a concise, ranked overview of the codebas
 - Current file contents
 - Behavioral nudges: `lazy_prompt`, `overeager_prompt` per model
 
-## What We Should Adopt (go-code)
+## What We Should Adopt (Vaelor)
 
 | Pattern | Our Phase | What to do |
 |---------|-----------|------------|

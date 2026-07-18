@@ -223,7 +223,7 @@ Strategy pattern for edit formats (6 coders):
 - `func` — OpenAI function calling (`write_file`)
 - `diff-fenced` — variant with filename inside fence
 
-**Key insight for go-code**: Our Phase 6.5 PageRank uses file-level import edges only. Aider builds identifier-level reference edges (much denser graph). Upgrading to identifier-level edges in Phase 7.5 would significantly improve ranking quality.
+**Key insight for Vaelor**: Our Phase 6.5 PageRank uses file-level import edges only. Aider builds identifier-level reference edges (much denser graph). Upgrading to identifier-level edges in Phase 7.5 would significantly improve ranking quality.
 
 ### Continue.dev — Hybrid BM25 + Embeddings
 - **Repo**: [continuedev/continue](https://github.com/continuedev/continue) | ~25K stars | TypeScript
@@ -253,7 +253,7 @@ Strategy pattern for edit formats (6 coders):
 - **Repo**: [cline/cline](https://github.com/cline/cline) | ~40K stars | TypeScript
 - **System prompt**: 59K chars, 12K tokens, XML-formatted tool descriptions
 - **Context strategy**: no static pre-selection; LLM explores via `list_files`, `search_files`, `list_code_definition_names`
-- **Key insight**: for batch analysis (like go-code), pre-ranking is better; for interactive agents, exploration tools are better
+- **Key insight**: for batch analysis (like Vaelor), pre-ranking is better; for interactive agents, exploration tools are better
 
 ## Code Quality & Hotspot Analysis
 
@@ -371,7 +371,7 @@ Full landscape analysis: 15+ competing MCP servers for code intelligence.
 
 **Anti-patterns to avoid:**
 1. 683 files / 80 packages for a code analysis tool — overengineered
-2. 76+ tools (CodeCompass: agents don't use 80% of tools) — go-code's 8 is closer to optimal
+2. 76+ tools (CodeCompass: agents don't use 80% of tools) — Vaelor's 8 is closer to optimal
 3. Telemetry as a tier requirement — premature for our use case
 4. Separate `breaking`, `coupling`, `cycles`, `responsibilities` packages — many of these are simple graph queries, not separate packages
 
@@ -397,7 +397,7 @@ Full landscape analysis: 15+ competing MCP servers for code intelligence.
 
 ## Comparative Feature Matrix
 
-| Feature | go-code | Serena | kit | Axon | CodeMCP |
+| Feature | Vaelor | Serena | kit | Axon | CodeMCP |
 |---------|---------|--------|-----|------|---------|
 | **Language** | Go | Python | Python | Python | Go |
 | **Parsing** | tree-sitter | LSP | tree-sitter | tree-sitter | SCIP + tree-sitter |
@@ -438,7 +438,7 @@ No existing tool combines ALL of:
 - Repo discovery (`repo_search`)
 - MCP server interface (10 tools)
 
-This is the gap `go-code` fills.
+This is the gap `Vaelor` fills.
 
 ### Identified Gaps (prioritized)
 

@@ -1,6 +1,6 @@
 # debug_investigate MCP tool
 
-Correlate **Prometheus metrics**, **Jaeger failed traces**, and **go-code symbol intelligence** to suggest the likely buggy `file:function` for a given service+window.
+Correlate **Prometheus metrics**, **Jaeger failed traces**, and **Vaelor symbol intelligence** to suggest the likely buggy `file:function` for a given service+window.
 
 ## Configuration
 
@@ -20,7 +20,7 @@ JAEGER_URL=http://jaeger:16686
 | `end_unix` | int64 | Window end, unix seconds. `0` → now. |
 | `hint` | string | Optional free-text hint about the suspected behaviour. |
 | `hint_kind` | string | Optional structured hint kind (see "Hint kinds" below). Empty = auto-detect. |
-| `repo` | string | Repo path for symbol lookup. Defaults to the go-code repo when omitted. |
+| `repo` | string | Repo path for symbol lookup. Defaults to the Vaelor repo when omitted. |
 | `host` | string | Optional probe target for Phase 7 runtime-drift analysis. `local://` or empty = local docker socket; `ssh://[user@]host[:port]` = remote via system ssh (requires `GOCODE_FLEET_SSH_ENABLE=true`). |
 
 ## Lifecycle
@@ -237,8 +237,8 @@ with one of these statuses:
 
 The motivating bug: **cache-eviction regression on the analytics workers, 2026-05-20**.
 
-Pinned in compose (host-a + 4 worker replicas):
-`redis:7.2.4`. Running on host-b via auto-update:
+Pinned in compose (primary + 4 worker replicas):
+`redis:7.2.4`. Running on a secondary host via auto-update:
 `redis:7.4.0`. A `maxmemory-policy` default change interacted badly with the
 workers' cache-warm assumption; the bug existed on 7.4.0 only. Source-level
 config schemas were bit-identical across hosts.
@@ -247,7 +247,7 @@ With Phase 7 wired, the same investigation surfaces:
 
 ```text
 Phase 7 (fleet versions):
-  target: ssh://host-b
+  target: ssh://your-host
   - TagDrift: redis pinned 7.2.4 -> running 7.4.0
 ```
 
@@ -264,6 +264,6 @@ The ssh probe runs only an allowlisted command (`docker ps --no-trunc
 --format={{json .}}`). The driver is disabled by default
 (`GOCODE_FLEET_SSH_ENABLE=true` required). All host configuration —
 ProxyJump, identity, port, known_hosts — lives in `~/.ssh/config` and is
-used as-is; go-code does not override `StrictHostKeyChecking` or weaken any
+used as-is; Vaelor does not override `StrictHostKeyChecking` or weaken any
 SSH option. `stderr` from ssh is captured but never surfaced into tool
 output to avoid leaking host fingerprints or key paths into LLM prompts.

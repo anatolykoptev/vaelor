@@ -36,10 +36,10 @@ No static pre-selection. LLM explores via:
 - `list_code_definition_names` — symbol overview
 
 ### Key Insight
-For batch analysis (like go-code), **pre-ranking is better**.
+For batch analysis (like Vaelor), **pre-ranking is better**.
 For interactive agents, **exploration tools are better**.
 
-## go-code — Three-Layer Search + Graph Intelligence
+## Vaelor — Three-Layer Search + Graph Intelligence
 
 - **Layer 1 (Recall)**: Vector embeddings (jina-code-v2) find semantically similar symbols
 - **Layer 2 (Precision)**: pg_trgm trigram similarity finds functions by name abbreviations
@@ -61,4 +61,4 @@ For interactive agents, **exploration tools are better**.
 | Continue | BM25 + embeddings + RRF | Hybrid retrieval |
 | Cursor | Merkle + AST chunks + vectors | Incremental indexing |
 | Cline | LLM-driven exploration | No pre-ranking |
-| go-code | Vector + pg_trgm + CE reranker (3 layers) | AGE cross-language graph, dead code CE scores, code_health cache, background builds |
+| Vaelor | Vector + pg_trgm + CE reranker (3 layers) | AGE cross-language graph, dead code CE scores, code_health cache, background builds |

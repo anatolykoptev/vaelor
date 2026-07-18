@@ -22,7 +22,7 @@ To enable, set the env var in `compose/search.yml`:
 - SOURCEMAP_ALLOWED_HOSTS=${SOURCEMAP_ALLOWED_HOSTS:-app.example.com,example.org}
 ```
 
-> **Note:** A separate deploy-config PR is needed to add this env var to `compose/search.yml`. It is not included in the go-code Phase α PR.
+> **Note:** A separate deploy-config PR is needed to add this env var to `compose/search.yml`. It is not included in the Vaelor Phase α PR.
 
 ## MCP tool
 

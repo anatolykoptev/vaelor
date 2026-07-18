@@ -14,7 +14,7 @@ Code analysis MCP with blast radius confidence scores, dead code detection, and 
 - **Git change coupling**: files frequently changed together → implicit dependencies
 - **12-phase pipeline**: structured analysis stages
 
-## What's Relevant for go-code
+## What's Relevant for Vaelor
 
 | Pattern | Our Phase |
 |---------|-----------|

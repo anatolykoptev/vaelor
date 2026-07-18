@@ -3,7 +3,7 @@
 - **Status:** Accepted (Phases 0a-3 shipped; Phase 4 deferred/operator-gated)
 - **Date:** 2026-07-01
 - **Arc:** `plans/go-code/2026-06-30-frontend-parse-parity-react-svelte-astro.md`
-  (canonical plan store; PRs #267-#271, this Phase-5 PR)
+  (the canonical plan store; PRs #267-#271, this Phase-5 PR)
 
 ## Context
 
@@ -100,7 +100,7 @@ A native `.svelte` grammar (binding present via the pinned
 nested-brace expression parity. It is explicitly DEFERRED, not adopted,
 because:
 
-- go-code parses arbitrary, adversarial third-party repositories through a
+- Vaelor parses arbitrary, adversarial third-party repositories through a
   shared MCP server used by 48 agents. A C-level segfault in a roughly
   20-month-stale, single-maintainer grammar is uncatchable by Go's
   `recover()` and would kill parsing for every concurrent caller, not just
@@ -108,7 +108,7 @@ because:
 - Byte-scan (the sigil-aware `{expr}`/block-header scanner,
   `internal/parser/preproc/svelte_exprs.go`, reparsed via decision 1's
   `markupExprReparse`) already reaches 6 of 7 capability-matrix rows and
-  *effective* control-flow parity: go-code models no control-flow-STRUCTURE
+  *effective* control-flow parity: Vaelor models no control-flow-STRUCTURE
   edges at all (neither for React nor Svelte), so "control-flow parity" is
   really the refs/calls INSIDE a `.map`/`{#each}`/`{#if}` body surfacing as
   ordinary edges — which byte-scan already delivers

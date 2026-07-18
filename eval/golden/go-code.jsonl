@@ -20,68 +20,68 @@
 # These queries are included so the A/B harness can confirm sparse does NOT
 # REGRESS natural-language descriptive queries (the anti-gaming mix).
 #
-{"query": "merge ranked lists with reciprocal rank fusion", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "NL: dense-favored, sparse must not regress"}
-{"query": "fuse rank scores with min-max normalization", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/ranking/fusion.go:FusionRank"], "notes": "NL: dense-favored"}
-{"query": "embed code symbols and store vectors in pgvector", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline.go:Pipeline"], "notes": "NL: dense-favored, pipeline entry"}
-{"query": "background autoindex of repositories", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/autoindex.go:AutoIndex"], "notes": "NL: dense-favored"}
-{"query": "PageRank annotation on semantic search results", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/go-code/tool_semantic_search.go:annotateWithPageRank"], "notes": "NL: dense-favored"}
-{"query": "extract query keywords for hybrid search", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store_keyword.go:ExtractQueryKeywords"], "notes": "NL: dense-favored"}
-{"query": "register all MCP tools at startup", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/go-code/register.go:registerTools"], "notes": "NL: dense-favored"}
-{"query": "compute nDCG score for retrieval evaluation", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/metrics.go:NDCG10"], "notes": "NL: dense-favored"}
-{"query": "paired student t-test for significance", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/ttest.go:pairedTTest"], "notes": "NL: dense-favored"}
-{"query": "write JSON evaluation report to file", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/output.go:writeReport"], "notes": "NL: dense-favored"}
-{"query": "load labeled golden query set from JSONL files", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/golden.go:LoadGolden"], "notes": "NL: dense-favored"}
-{"query": "delete all embeddings for a repository", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store.go:DeleteRepo"], "notes": "NL: dense-favored; SPLADE 'delete'='rm' synonym"}
-{"query": "nearest enclosing symbol for a file line hit", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store_keyword.go:matchOneHit"], "notes": "NL: dense-favored; synonym 'nearest enclosing'"}
-{"query": "publish RRF weight metrics to prometheus", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf_metrics.go:PublishRRFWeights"], "notes": "NL: dense-favored; synonym 'publish'='emit'"}
+{"query": "merge ranked lists with reciprocal rank fusion", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "NL: dense-favored, sparse must not regress"}
+{"query": "fuse rank scores with min-max normalization", "repo": "/path/to/repo", "expected_top_3": ["internal/ranking/fusion.go:FusionRank"], "notes": "NL: dense-favored"}
+{"query": "embed code symbols and store vectors in pgvector", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline.go:Pipeline"], "notes": "NL: dense-favored, pipeline entry"}
+{"query": "background autoindex of repositories", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/autoindex.go:AutoIndex"], "notes": "NL: dense-favored"}
+{"query": "PageRank annotation on semantic search results", "repo": "/path/to/repo", "expected_top_3": ["cmd/go-code/tool_semantic_search.go:annotateWithPageRank"], "notes": "NL: dense-favored"}
+{"query": "extract query keywords for hybrid search", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store_keyword.go:ExtractQueryKeywords"], "notes": "NL: dense-favored"}
+{"query": "register all MCP tools at startup", "repo": "/path/to/repo", "expected_top_3": ["cmd/go-code/register.go:registerTools"], "notes": "NL: dense-favored"}
+{"query": "compute nDCG score for retrieval evaluation", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/metrics.go:NDCG10"], "notes": "NL: dense-favored"}
+{"query": "paired student t-test for significance", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/ttest.go:pairedTTest"], "notes": "NL: dense-favored"}
+{"query": "write JSON evaluation report to file", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/output.go:writeReport"], "notes": "NL: dense-favored"}
+{"query": "load labeled golden query set from JSONL files", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/golden.go:LoadGolden"], "notes": "NL: dense-favored"}
+{"query": "delete all embeddings for a repository", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store.go:DeleteRepo"], "notes": "NL: dense-favored; SPLADE 'delete'='rm' synonym"}
+{"query": "nearest enclosing symbol for a file line hit", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store_keyword.go:matchOneHit"], "notes": "NL: dense-favored; synonym 'nearest enclosing'"}
+{"query": "publish RRF weight metrics to prometheus", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf_metrics.go:PublishRRFWeights"], "notes": "NL: dense-favored; synonym 'publish'='emit'"}
 #
 # ── SECTION 2: Abbreviation queries (SPLADE target — dense blurs exact names) ──
 # Dense models tend to blur: cfg ≈ config ≈ configuration.
 # SPLADE term expansion should boost exact-identifier precision.
 #
-{"query": "cfg", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/go-code/config.go:Config", "cmd/go-code/config.go:RRFWeights", "cmd/go-code/config.go:SparseConfig"], "notes": "abbrev: cfg → Config; dense may diffuse to unrelated config structs"}
-{"query": "init pipeline", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline.go:NewPipeline"], "notes": "abbrev: init → New; sparse handles term expansion"}
-{"query": "auth", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/go-code/auth.go:authenticateRequest", "cmd/go-code/auth.go:BearerToken"], "notes": "abbrev: auth → authenticate; dense may diffuse"}
-{"query": "rrf merge", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "abbrev+identifier: rrf is an acronym, tests SPLADE acronym expansion"}
-{"query": "ndcg metric", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/metrics.go:NDCG10"], "notes": "abbrev: ndcg is domain acronym; dense may partially embed it"}
-{"query": "mrr score", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/metrics.go:MRR"], "notes": "abbrev: mrr = mean reciprocal rank; SPLADE may expand via training"}
-{"query": "pgvec search", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store.go:Search"], "notes": "abbrev: pgvec = pgvector; dense may handle, sparse should match 'search'"}
-{"query": "autoindex dirs", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/autoindex.go:AutoIndex"], "notes": "abbrev: dirs = directories; SPLADE term-match on 'autoindex'"}
-{"query": "sparse vec format", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector"], "notes": "abbrev: vec = vector; tests SPLADE identifier matching"}
-{"query": "embed batch size cap", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline.go:WithSparseMaxBatch"], "notes": "abbrev+concept: cap = maximum; SPLADE 'batch' match"}
+{"query": "cfg", "repo": "/path/to/repo", "expected_top_3": ["cmd/go-code/config.go:Config", "cmd/go-code/config.go:RRFWeights", "cmd/go-code/config.go:SparseConfig"], "notes": "abbrev: cfg → Config; dense may diffuse to unrelated config structs"}
+{"query": "init pipeline", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline.go:NewPipeline"], "notes": "abbrev: init → New; sparse handles term expansion"}
+{"query": "auth", "repo": "/path/to/repo", "expected_top_3": ["cmd/go-code/auth.go:authenticateRequest", "cmd/go-code/auth.go:BearerToken"], "notes": "abbrev: auth → authenticate; dense may diffuse"}
+{"query": "rrf merge", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "abbrev+identifier: rrf is an acronym, tests SPLADE acronym expansion"}
+{"query": "ndcg metric", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/metrics.go:NDCG10"], "notes": "abbrev: ndcg is domain acronym; dense may partially embed it"}
+{"query": "mrr score", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/metrics.go:MRR"], "notes": "abbrev: mrr = mean reciprocal rank; SPLADE may expand via training"}
+{"query": "pgvec search", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store.go:Search"], "notes": "abbrev: pgvec = pgvector; dense may handle, sparse should match 'search'"}
+{"query": "autoindex dirs", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/autoindex.go:AutoIndex"], "notes": "abbrev: dirs = directories; SPLADE term-match on 'autoindex'"}
+{"query": "sparse vec format", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector"], "notes": "abbrev: vec = vector; tests SPLADE identifier matching"}
+{"query": "embed batch size cap", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline.go:WithSparseMaxBatch"], "notes": "abbrev+concept: cap = maximum; SPLADE 'batch' match"}
 #
 # ── SECTION 3: Synonym queries (SPLADE target — grep misses, dense blurs) ──
 # Synonym queries: the query uses a different word than the symbol name.
 # Dense embeddings sometimes bridge synonyms but blur exact terms.
 # SPLADE learned expansion should handle common code synonyms.
 #
-{"query": "remove repo vectors", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store.go:DeleteRepo"], "notes": "synonym: remove=delete; SPLADE expansion target"}
-{"query": "erase embeddings for a repo", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store.go:DeleteRepo"], "notes": "synonym: erase=delete; dense should bridge but SPLADE should reinforce"}
-{"query": "reciprocal rank fusion merge", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "synonym+exact: RRF spelled out; both arms should agree"}
-{"query": "combine sparse and dense search results", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "synonym: combine=merge; dense-favored but SPLADE 'sparse dense' expansion"}
-{"query": "incremental repo sync update", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline_incremental.go:IncrementalSync"], "notes": "synonym: update=sync; SPLADE 'incremental' exact match"}
-{"query": "upsert symbol embeddings to database", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store.go:Upsert"], "notes": "synonym: upsert=insert-or-update; SPLADE may expand"}
-{"query": "sparse vector dot product similarity", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store_sparse.go:SearchSparse"], "notes": "synonym: dot product = inner product = <#> operator; SPLADE 'sparse' match"}
-{"query": "sanitize and serialize sparse embedding for postgres", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector"], "notes": "synonym: serialize=format; SPLADE 'sparse embedding' exact match"}
-{"query": "populate null sparse column for existing symbols", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/backfill.go:BackfillSparse"], "notes": "synonym: populate=backfill; SPLADE 'sparse' + 'null' expansion"}
-{"query": "resume interrupted backfill job", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/backfill.go:BackfillSparse"], "notes": "synonym: resume=idempotent IS NULL cursor; SPLADE 'backfill' match"}
-{"query": "go-no-go gate for weight flip", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/abgate.go:EvaluateGate"], "notes": "synonym: go-no-go=PASS/FAIL; SPLADE 'gate' exact match"}
-{"query": "significance verdict for A/B test", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/abgate.go:EvaluateGate"], "notes": "synonym: verdict=result; NL query; both arms should agree"}
-{"query": "emit sparse embed failure counter", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector", "internal/embeddings/store_sparse.go:SearchSparse"], "notes": "synonym: emit=increment; SPLADE 'sparse' + 'failure' + 'counter' expansion"}
+{"query": "remove repo vectors", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store.go:DeleteRepo"], "notes": "synonym: remove=delete; SPLADE expansion target"}
+{"query": "erase embeddings for a repo", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store.go:DeleteRepo"], "notes": "synonym: erase=delete; dense should bridge but SPLADE should reinforce"}
+{"query": "reciprocal rank fusion merge", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "synonym+exact: RRF spelled out; both arms should agree"}
+{"query": "combine sparse and dense search results", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "synonym: combine=merge; dense-favored but SPLADE 'sparse dense' expansion"}
+{"query": "incremental repo sync update", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline_incremental.go:IncrementalSync"], "notes": "synonym: update=sync; SPLADE 'incremental' exact match"}
+{"query": "upsert symbol embeddings to database", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store.go:Upsert"], "notes": "synonym: upsert=insert-or-update; SPLADE may expand"}
+{"query": "sparse vector dot product similarity", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store_sparse.go:SearchSparse"], "notes": "synonym: dot product = inner product = <#> operator; SPLADE 'sparse' match"}
+{"query": "sanitize and serialize sparse embedding for postgres", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector"], "notes": "synonym: serialize=format; SPLADE 'sparse embedding' exact match"}
+{"query": "populate null sparse column for existing symbols", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/backfill.go:BackfillSparse"], "notes": "synonym: populate=backfill; SPLADE 'sparse' + 'null' expansion"}
+{"query": "resume interrupted backfill job", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/backfill.go:BackfillSparse"], "notes": "synonym: resume=idempotent IS NULL cursor; SPLADE 'backfill' match"}
+{"query": "go-no-go gate for weight flip", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/abgate.go:EvaluateGate"], "notes": "synonym: go-no-go=PASS/FAIL; SPLADE 'gate' exact match"}
+{"query": "significance verdict for A/B test", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/abgate.go:EvaluateGate"], "notes": "synonym: verdict=result; NL query; both arms should agree"}
+{"query": "emit sparse embed failure counter", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector", "internal/embeddings/store_sparse.go:SearchSparse"], "notes": "synonym: emit=increment; SPLADE 'sparse' + 'failure' + 'counter' expansion"}
 #
 # ── SECTION 4: Exact-identifier-under-paraphrase (SPLADE target) ──
 # The query describes the concept; the symbol name IS the identifier.
 # SPLADE should rank the exact-name symbol above generic paraphrases.
 #
-{"query": "MergeRRF", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "exact-identifier: verbatim; both arms should agree; checks no regression"}
-{"query": "BackfillSparse", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/backfill.go:BackfillSparse"], "notes": "exact-identifier: SPLADE should weight 'BackfillSparse' highly"}
-{"query": "EvaluateGate", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/abgate.go:EvaluateGate"], "notes": "exact-identifier: new P6 symbol; SPLADE exact match"}
-{"query": "IncrementalSync", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline_incremental.go:IncrementalSync"], "notes": "exact-identifier: camelCase; SPLADE subword tokenization target"}
-{"query": "SanitizeAndFormatSparseVector", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector"], "notes": "exact-identifier: long compound; SPLADE subword decomposition test"}
-{"query": "SearchSparse", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store_sparse.go:SearchSparse"], "notes": "exact-identifier: short compound; SPLADE exact match"}
-{"query": "PublishRRFWeights", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/rrf_metrics.go:PublishRRFWeights"], "notes": "exact-identifier: acronym+camelCase; SPLADE should decompose RRF+Weights"}
-{"query": "WithSparseEmbedder", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline.go:WithSparseEmbedder"], "notes": "exact-identifier: functional-option naming pattern"}
-{"query": "matchOneHit", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/store_keyword.go:matchOneHit"], "notes": "exact-identifier: lowercase; SPLADE subword 'match'+'one'+'hit'"}
-{"query": "NDCG10", "repo": "/home/user/src/go-code", "expected_top_3": ["cmd/eval/metrics.go:NDCG10"], "notes": "exact-identifier: uppercase acronym+number; SPLADE tokenization test"}
-{"query": "runSparseWrites", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/pipeline.go:runSparseWrites"], "notes": "exact-identifier: private func; SPLADE 'sparse'+'writes' subword"}
-{"query": "fetchNullSparseRows", "repo": "/home/user/src/go-code", "expected_top_3": ["internal/embeddings/backfill.go:fetchNullSparseRows"], "notes": "exact-identifier: private func; SPLADE 'null'+'sparse'+'rows' multi-term"}
+{"query": "MergeRRF", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf.go:MergeRRF"], "notes": "exact-identifier: verbatim; both arms should agree; checks no regression"}
+{"query": "BackfillSparse", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/backfill.go:BackfillSparse"], "notes": "exact-identifier: SPLADE should weight 'BackfillSparse' highly"}
+{"query": "EvaluateGate", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/abgate.go:EvaluateGate"], "notes": "exact-identifier: new P6 symbol; SPLADE exact match"}
+{"query": "IncrementalSync", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline_incremental.go:IncrementalSync"], "notes": "exact-identifier: camelCase; SPLADE subword tokenization target"}
+{"query": "SanitizeAndFormatSparseVector", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline_sparse.go:SanitizeAndFormatSparseVector"], "notes": "exact-identifier: long compound; SPLADE subword decomposition test"}
+{"query": "SearchSparse", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store_sparse.go:SearchSparse"], "notes": "exact-identifier: short compound; SPLADE exact match"}
+{"query": "PublishRRFWeights", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/rrf_metrics.go:PublishRRFWeights"], "notes": "exact-identifier: acronym+camelCase; SPLADE should decompose RRF+Weights"}
+{"query": "WithSparseEmbedder", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline.go:WithSparseEmbedder"], "notes": "exact-identifier: functional-option naming pattern"}
+{"query": "matchOneHit", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/store_keyword.go:matchOneHit"], "notes": "exact-identifier: lowercase; SPLADE subword 'match'+'one'+'hit'"}
+{"query": "NDCG10", "repo": "/path/to/repo", "expected_top_3": ["cmd/eval/metrics.go:NDCG10"], "notes": "exact-identifier: uppercase acronym+number; SPLADE tokenization test"}
+{"query": "runSparseWrites", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/pipeline.go:runSparseWrites"], "notes": "exact-identifier: private func; SPLADE 'sparse'+'writes' subword"}
+{"query": "fetchNullSparseRows", "repo": "/path/to/repo", "expected_top_3": ["internal/embeddings/backfill.go:fetchNullSparseRows"], "notes": "exact-identifier: private func; SPLADE 'null'+'sparse'+'rows' multi-term"}

@@ -142,11 +142,11 @@ For every cross-file pair in reported groups (re-queried against the live AGE gr
 
 ## 4. Limitations (known at ship time)
 
-### (a) go-code self-dogfood deferred
+### (a) Vaelor self-dogfood deferred
 
-go-code itself (`github.com/anatolykoptev/go-code`) is not currently indexed in `code_embeddings`. The embed backend (`embed.krolik.tools`) was saturated and timing-out during this feature's development, and the `code_embeddings` table was wiped. Indexing go-code is the highest-value validation because reinvention of helpers (e.g. multiple `pgError` extractors, multiple `retry` patterns) is the exact target class.
+Vaelor itself (`github.com/anatolykoptev/vaelor`) is not currently indexed in `code_embeddings`. The embed backend (`embed.krolik.tools`) was saturated and timing-out during this feature's development, and the `code_embeddings` table was wiped. Indexing Vaelor is the highest-value validation because reinvention of helpers (e.g. multiple `pgError` extractors, multiple `retry` patterns) is the exact target class.
 
-**Operator action after embed-server recovers:** run `find_duplicates repo=go-code` to complete the dogfood validation. No code changes needed.
+**Operator action after embed-server recovers:** run `find_duplicates repo=vaelor` to complete the dogfood validation. No code changes needed.
 
 ### (b) Scalability — RESOLVED in Phase 5
 
@@ -200,10 +200,10 @@ Documented in §3 above. Not a bug — the filter operates on pairs; union-find 
 - `calls_edge` filter demonstrably works: 12 pairs dropped on `code_f40acc09`.
 
 **Remaining caveat (operator step, not a blocking concern):**
-The go-code dogfood run is DEFERRED. Once `embed.krolik.tools` recovers and go-code is re-indexed, run `find_duplicates repo=go-code` to confirm the tool finds the known reinvented helpers (multiple retry patterns, multiple pgError extractors, etc.).
+The Vaelor dogfood run is DEFERRED. Once `embed.krolik.tools` recovers and Vaelor is re-indexed, run `find_duplicates repo=vaelor` to confirm the tool finds the known reinvented helpers (multiple retry patterns, multiple pgError extractors, etc.).
 
 **What would change the recommendation to SHELVE:**
-- If the go-code dogfood run shows > 50% false positives in the `related` tier AND the `very-close` tier also degrades.
+- If the Vaelor dogfood run shows > 50% false positives in the `related` tier AND the `very-close` tier also degrades.
 
 **Future work:**
 1. Post-processing: after union-find, remove group members that are same-file as another member AND have no cross-file pair in the filtered set (cleans up transitive same-file artifacts).

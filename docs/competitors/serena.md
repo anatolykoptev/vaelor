@@ -22,9 +22,9 @@ Symbol-level MCP tools backed by real language servers (gopls, pyright, rust-ana
 This is the LSP approach vs our tree-sitter approach. LSP gives precise type-aware results
 but requires running language servers for each language.
 
-## Trade-offs vs go-code
+## Trade-offs vs Vaelor
 
-| Aspect | Serena | go-code |
+| Aspect | Serena | Vaelor |
 |--------|--------|---------|
 | Precision | High (LSP) | Medium (tree-sitter) |
 | Setup | Heavy (need gopls, pyright etc.) | Zero (tree-sitter bundled) |

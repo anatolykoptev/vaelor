@@ -47,7 +47,7 @@ Updated 2026-02-28. See individual files for deep dives on major competitors.
 
 ## Comparative Feature Matrix
 
-| Feature | go-code | Serena | kit | Axon | CodeMCP |
+| Feature | Vaelor | Serena | kit | Axon | CodeMCP |
 |---------|---------|--------|-----|------|---------|
 | **Language** | Go | Python | Python | Python | Go |
 | **Parsing** | tree-sitter | LSP | tree-sitter | tree-sitter | SCIP + tree-sitter |

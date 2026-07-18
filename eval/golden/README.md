@@ -1,4 +1,4 @@
-# Golden dataset for go-code retrieval evaluation
+# Golden dataset for Vaelor retrieval evaluation
 
 Each `<repo>.jsonl` file is a per-repo collection of labeled queries used by
 `cmd/eval` to measure semantic_search retrieval quality (nDCG@10, Recall@10/@20,
