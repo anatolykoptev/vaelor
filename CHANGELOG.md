@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.41.5](https://github.com/anatolykoptev/vaelor/compare/v1.41.4...v1.41.5) (2026-07-18)
+
+
+### Documentation
+
+* drop FOLLOWUPS.md index — GitHub issues are the sole followup ledger ([#527](https://github.com/anatolykoptev/vaelor/issues/527)) ([5a617ea](https://github.com/anatolykoptev/vaelor/commit/5a617ea52d870538ffeddd99469c9f0d5f553403))
+
 ## [1.41.4](https://github.com/anatolykoptev/vaelor/compare/v1.41.3...v1.41.4) (2026-07-18)
 
 
