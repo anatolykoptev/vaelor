@@ -1,12 +1,12 @@
-# go-code
+# Vaelor
 
 **Give your coding agent a memory of the codebase it can't get from grep.**
 
 <p align="center">
-  <img src="docs/hero-demo.gif" width="820" alt="go-code understand on ParseFile: before an agent edits a core function it sees the blast radius — the production callers across three packages, the top-1% structural centrality, and the tests that cover it.">
+  <img src="docs/hero-demo.gif" width="820" alt="Vaelor understand on ParseFile: before an agent edits a core function it sees the blast radius — the production callers across three packages, the top-1% structural centrality, and the tests that cover it.">
 </p>
 
-go-code is the open-source engine behind [Krolik](https://krolik.tools): a self-hosted [MCP](https://modelcontextprotocol.io/) server that parses, graphs, and watches a codebase so an AI agent doesn't have to re-discover it every session. Tree-sitter AST parsing across 16 languages feeds a call graph with type-aware Go resolution (`go/types`), a persistent Apache AGE knowledge graph, and hybrid semantic search. `review_pr` remembers what broke last time a symbol was reviewed. `debug_investigate` correlates a Prometheus alert and a Jaeger trace back to the function that caused it.
+Vaelor is the open-source engine behind [Krolik](https://krolik.tools): a self-hosted [MCP](https://modelcontextprotocol.io/) server that parses, graphs, and watches a codebase so an AI agent doesn't have to re-discover it every session. Tree-sitter AST parsing across 16 languages feeds a call graph with type-aware Go resolution (`go/types`), a persistent Apache AGE knowledge graph, and hybrid semantic search. `review_pr` remembers what broke last time a symbol was reviewed. `debug_investigate` correlates a Prometheus alert and a Jaeger trace back to the function that caused it.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Go](https://img.shields.io/badge/go-1.24%2B-00ADD8.svg)](go.mod)
 
@@ -16,11 +16,11 @@ go-code is the open-source engine behind [Krolik](https://krolik.tools): a self-
 
 Every code-search tool finds the function. Fewer tell an agent what else breaks when it changes, and fewer still remember your last review or your last production incident.
 
-| | Org-wide code search | Session-scoped agent tools | Hosted PR-review bots | go-code |
+| | Org-wide code search | Session-scoped agent tools | Hosted PR-review bots | Vaelor |
 |---|---|---|---|---|
 | What it's for | full-text and symbol search across an indexed org, surfaced to agents as context | navigation and editing inside one agent session | automated review comments on a PR, as a hosted service | search, call graph, blast radius, and live incidents behind one MCP endpoint you run yourself |
 
-go-code's Apache AGE graph carries PageRank, community, and surprise scores computed from your actual call graph, and those scores feed `understand`, `prepare_change`, and `review_pr` directly. `review_pr` also persists a verdict per symbol from the real GitHub review outcome, and `understand` surfaces it automatically the next time anyone touches that symbol, so a "this broke in review" fact travels with the code instead of living in someone's memory. `debug_investigate` goes further: it fuses a live Prometheus alert and a Jaeger trace with the same call graph into a ranked `file:function` hypothesis, so an incident resolves to code, not just a dashboard alert. An agent's sense of which change is risky comes from the shape of your actual codebase, recomputed on every graph update.
+Vaelor's Apache AGE graph carries PageRank, community, and surprise scores computed from your actual call graph, and those scores feed `understand`, `prepare_change`, and `review_pr` directly. `review_pr` also persists a verdict per symbol from the real GitHub review outcome, and `understand` surfaces it automatically the next time anyone touches that symbol, so a "this broke in review" fact travels with the code instead of living in someone's memory. `debug_investigate` goes further: it fuses a live Prometheus alert and a Jaeger trace with the same call graph into a ranked `file:function` hypothesis, so an incident resolves to code, not just a dashboard alert. An agent's sense of which change is risky comes from the shape of your actual codebase, recomputed on every graph update.
 
 ## Quick Start
 
@@ -130,7 +130,7 @@ The stable, documented set. The server exposes a few more; `tools/list` on a run
 | `remember_graph_insights` | Persist a learning so it surfaces in future `understand` calls |
 | `wp_plugin_search` | Search the WordPress.org plugin directory |
 
-> **Optional sidecars.** `dead_code` and `code_health` sharpen from AST-only heuristics to confidence-scored results when [ox-codes](https://github.com/anatolykoptev/ox-codes) (Rust) is running alongside. `semantic_search` needs an embedding endpoint; [ox-embed-server](https://github.com/anatolykoptev/ox-embed-server) (ONNX embeddings, cross-encoder rerank, SPLADE) is the reference one. Neither is required to run go-code, and every tool without them still returns a real result, just a coarser one.
+> **Optional sidecars.** `dead_code` and `code_health` sharpen from AST-only heuristics to confidence-scored results when [ox-codes](https://github.com/anatolykoptev/ox-codes) (Rust) is running alongside. `semantic_search` needs an embedding endpoint; [ox-embed-server](https://github.com/anatolykoptev/ox-embed-server) (ONNX embeddings, cross-encoder rerank, SPLADE) is the reference one. Neither is required to run Vaelor, and every tool without them still returns a real result, just a coarser one.
 
 ## Learnings loop
 
@@ -149,14 +149,14 @@ Two graph representations cooperate through `internal/graphx` without either pac
 
 ## Runtime version awareness
 
-When a production bug lives at the deployed-binary level rather than in source (pinned tag drift, sibling-host divergence, a silent auto-update), go-code can probe running containers and diff them against what the indexed repo pins.
+When a production bug lives at the deployed-binary level rather than in source (pinned tag drift, sibling-host divergence, a silent auto-update), Vaelor can probe running containers and diff them against what the indexed repo pins.
 
 - `fleet_versions`: the explicit tool. Pass `host` (defaults to the local Docker socket) and an optional `service` filter. Returns a per-target diff: `Match` / `TagDrift` / `DigestDrift` / `OnlySource` / `OnlyRuntime` / `Unresolved`.
 - `debug_investigate` Phase 7: runs automatically when an investigation starts with `host` set. Drift enters the LLM prompt priority-capped at the top 20 non-`Match` diffs, sorted `TagDrift` > `DigestDrift` > `Unresolved` > `OnlyRuntime` > `OnlySource`.
 
 ### SSH probe
 
-Reaching a remote host uses the system `ssh` binary directly; go-code doesn't maintain its own SSH stack, so `~/.ssh/config` (ProxyJump, agent, identities, port, known_hosts) is the single source of truth. The driver is off by default: enable with `GOCODE_FLEET_SSH_ENABLE=true`. Commands on the remote host are limited to an internal allowlist, exactly `docker ps --no-trunc --format={{json .}}`, with filter values regex-validated before any exec call.
+Reaching a remote host uses the system `ssh` binary directly; Vaelor doesn't maintain its own SSH stack, so `~/.ssh/config` (ProxyJump, agent, identities, port, known_hosts) is the single source of truth. The driver is off by default: enable with `GOCODE_FLEET_SSH_ENABLE=true`. Commands on the remote host are limited to an internal allowlist, exactly `docker ps --no-trunc --format={{json .}}`, with filter values regex-validated before any exec call.
 
 | Env | Default | Purpose |
 |---|---|---|
@@ -258,4 +258,4 @@ For security vulnerabilities, see [SECURITY.md](SECURITY.md). Please don't open 
 
 ---
 
-If go-code saves your agent from re-discovering the same fact about your codebase twice, a star helps the next person find it before they build a fifth MCP code-search server from scratch.
+If Vaelor saves your agent from re-discovering the same fact about your codebase twice, a star helps the next person find it before they build a fifth MCP code-search server from scratch.

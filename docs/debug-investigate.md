@@ -1,6 +1,6 @@
 # debug_investigate MCP tool
 
-Correlate **Prometheus metrics**, **Jaeger failed traces**, and **go-code symbol intelligence** to suggest the likely buggy `file:function` for a given service+window.
+Correlate **Prometheus metrics**, **Jaeger failed traces**, and **Vaelor symbol intelligence** to suggest the likely buggy `file:function` for a given service+window.
 
 ## Configuration
 
@@ -20,7 +20,7 @@ JAEGER_URL=http://jaeger:16686
 | `end_unix` | int64 | Window end, unix seconds. `0` → now. |
 | `hint` | string | Optional free-text hint about the suspected behaviour. |
 | `hint_kind` | string | Optional structured hint kind (see "Hint kinds" below). Empty = auto-detect. |
-| `repo` | string | Repo path for symbol lookup. Defaults to the go-code repo when omitted. |
+| `repo` | string | Repo path for symbol lookup. Defaults to the Vaelor repo when omitted. |
 | `host` | string | Optional probe target for Phase 7 runtime-drift analysis. `local://` or empty = local docker socket; `ssh://[user@]host[:port]` = remote via system ssh (requires `GOCODE_FLEET_SSH_ENABLE=true`). |
 
 ## Lifecycle
@@ -264,6 +264,6 @@ The ssh probe runs only an allowlisted command (`docker ps --no-trunc
 --format={{json .}}`). The driver is disabled by default
 (`GOCODE_FLEET_SSH_ENABLE=true` required). All host configuration —
 ProxyJump, identity, port, known_hosts — lives in `~/.ssh/config` and is
-used as-is; go-code does not override `StrictHostKeyChecking` or weaken any
+used as-is; Vaelor does not override `StrictHostKeyChecking` or weaken any
 SSH option. `stderr` from ssh is captured but never surfaced into tool
 output to avoid leaking host fingerprints or key paths into LLM prompts.

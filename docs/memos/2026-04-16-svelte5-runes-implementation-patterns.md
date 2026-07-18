@@ -41,7 +41,7 @@ Note: `$state.snapshot` and `$state.eager` appear in compiler source but as util
 
 ## 3. Decisions for Our Implementation
 
-**Destructuring of `$props()`** — emit ONE `KindRune / RuneKind="props"` symbol at the `$props()` call location. The compiler assigns `kind='prop'` or `kind='bindable_prop'` per destructured identifier, but for go-code purposes the call-site symbol is sufficient. Destructured names remain `KindVariable`.
+**Destructuring of `$props()`** — emit ONE `KindRune / RuneKind="props"` symbol at the `$props()` call location. The compiler assigns `kind='prop'` or `kind='bindable_prop'` per destructured identifier, but for Vaelor purposes the call-site symbol is sufficient. Destructured names remain `KindVariable`.
 
 **`.svelte.ts` / `.svelte.js` support** — implement now, trivially: check `strings.HasSuffix(filename, ".svelte.ts") || strings.HasSuffix(filename, ".svelte.js")` and run the same rune post-pass (no script-block extraction needed — these files are pure TypeScript).
 

@@ -1,4 +1,4 @@
-# go-code Milestones
+# Vaelor Milestones
 
 Performance and capability milestones tracked empirically on a dedicated ARM server.
 

@@ -1,7 +1,7 @@
-# go-code retrieval-quality evaluation harness
+# Vaelor retrieval-quality evaluation harness
 
 Offline harness that replays a labeled golden dataset against a running
-go-code MCP server and reports retrieval-quality metrics with optional
+Vaelor MCP server and reports retrieval-quality metrics with optional
 A/B significance testing.
 
 ## What it measures
@@ -26,19 +26,19 @@ also reports two-tailed p-values in the JSON `delta` block.
 CGO_ENABLED=1 GOWORK=off go build -o /tmp/go-code-eval ./cmd/eval/
 ```
 
-The binary is self-contained — no runtime deps besides a reachable go-code
+The binary is self-contained — no runtime deps besides a reachable Vaelor
 MCP server with the REST bridge enabled (default in `cmd/go-code/main.go`).
 
 ## End-to-end run
 
 ```
-# 1. Capture baseline against production go-code BEFORE touching streams 1-3.
+# 1. Capture baseline against production Vaelor BEFORE touching streams 1-3.
 /tmp/go-code-eval \
   --golden-dir eval/golden \
   --target-url http://127.0.0.1:8897 \
   --output     /tmp/eval-baseline.json
 
-# 2. Land the candidate change (e.g. weighted RRF), restart go-code,
+# 2. Land the candidate change (e.g. weighted RRF), restart Vaelor,
 #    then re-run the harness against the same target.
 /tmp/go-code-eval \
   --golden-dir eval/golden \
@@ -119,20 +119,20 @@ Use the harness to decide whether to flip `RRF_WEIGHT_SPARSE` from 0.
 1. **P5 backfill complete**: `sparse_embedding` column must be populated
    for the target repos (check `gocode_sparse_backfill_remaining` gauge in
    Prometheus — should be 0 or near 0).
-2. **`SPARSE_EMBED_URL` set** on the go-code server: enables sparse embed
+2. **`SPARSE_EMBED_URL` set** on the Vaelor server: enables sparse embed
    and retrieval. Without it the sparse arm is a no-op.
 
 ### Procedure
 
 ```bash
 # Step 1: baseline run — RRF_WEIGHT_SPARSE=0 (sparse arm inert)
-# Set RRF_WEIGHT_SPARSE=0 in go-code environment, restart, then:
+# Set RRF_WEIGHT_SPARSE=0 in Vaelor environment, restart, then:
 /tmp/go-code-eval \
   --golden-dir eval/golden \
   --target-url http://127.0.0.1:8897 \
   --output /tmp/eval-baseline.json
 
-# Step 2: candidate run — set RRF_WEIGHT_SPARSE=0.3, restart go-code, then:
+# Step 2: candidate run — set RRF_WEIGHT_SPARSE=0.3, restart Vaelor, then:
 /tmp/go-code-eval \
   --golden-dir eval/golden \
   --target-url http://127.0.0.1:8897 \

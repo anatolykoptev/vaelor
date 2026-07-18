@@ -1,5 +1,7 @@
 # Changelog
 
+**2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Entries below this note predate the rename and refer to the project under its former name; historical entries are left intact.
+
 ## [1.39.2](https://github.com/anatolykoptev/go-code/compare/v1.39.1...v1.39.2) (2026-07-18)
 
 

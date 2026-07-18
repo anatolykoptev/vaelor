@@ -2,8 +2,8 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in go-code, please report it
-**privately** by opening a [GitHub Security Advisory](https://github.com/anatolykoptev/go-code/security/advisories/new).
+If you discover a security vulnerability in Vaelor, please report it
+**privately** by opening a [GitHub Security Advisory](https://github.com/anatolykoptev/vaelor/security/advisories/new).
 
 Do **not** open a public issue for security problems.
 

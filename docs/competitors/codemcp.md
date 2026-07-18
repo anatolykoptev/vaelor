@@ -105,13 +105,13 @@ audit, auth, breaking, complexity, compression, coupling, cycles, daemon, deadco
 ## Anti-Patterns to Avoid
 
 1. **683 files / 80 packages** — overengineered for a code analysis tool
-2. **76+ tools** — CodeCompass research: agents don't use 80% of tools. go-code's 8 is optimal.
+2. **76+ tools** — CodeCompass research: agents don't use 80% of tools. Vaelor's 8 is optimal.
 3. **Telemetry as tier requirement** — premature for most use cases
 4. **Separate packages for simple queries** — `breaking`, `coupling`, `cycles`, `responsibilities` are just graph queries, not packages
 
 ## Comparative Position
 
-| Feature | go-code | CodeMCP |
+| Feature | Vaelor | CodeMCP |
 |---------|---------|---------|
 | Parsing | tree-sitter (9 langs) | SCIP + tree-sitter |
 | Graph DB | Apache AGE (persistent) | In-memory |

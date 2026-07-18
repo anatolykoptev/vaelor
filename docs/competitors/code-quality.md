@@ -21,7 +21,7 @@ Product of percentile ranks, not sum.
 ### Churn Scoring
 `sum(1.0 + (additions + deletions) / 100.0)` per commit — larger changes weighted more.
 
-**Status in go-code**: Planned for Phase 9.1 (complexity metrics + hotspot detection).
+**Status in Vaelor**: Planned for Phase 9.1 (complexity metrics + hotspot detection).
 
 ## boyter/scc — Code Counting
 
@@ -54,12 +54,12 @@ BM25 on commit messages **outperforms** BM25 on source code for bug localization
 | [MLSA (arxiv 1808.01213)](https://arxiv.org/abs/1808.01213) | Build monolingual call graphs independently, stitch at FFI boundaries. |
 | [CHARON (EuroSP 2025)](https://scnps.co/papers/eurosp25_polyglot_sast.pdf) | Polyglot Property Graphs with bidirectional cross-language edges for SAST. |
 
-## CE Cross-Encoder Dead Code Detection (go-code approach)
+## CE Cross-Encoder Dead Code Detection (Vaelor approach)
 
 **Problem with AST-only approaches**: Cyclomatic complexity detects complex functions but not unused ones.
 Static "zero callers" detection has high false positive rate (entrypoints, test utilities, generated code).
 
-**go-code approach (2026-04-24)**:
+**Vaelor approach (2026-04-24)**:
 1. Cypher query finds orphan functions (no CALLS edges in AGE graph)
 2. CASE WHEN pre-filter scores by signal: penalizes `main`/`Test*`/`evaluation/` paths, boosts `src/` + high complexity
 3. CE reranker (gte-multi-rerank) scores each candidate as (query, function_signature+file) pair

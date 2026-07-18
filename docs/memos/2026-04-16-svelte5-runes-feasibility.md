@@ -137,7 +137,7 @@ separate conversations.
 
 ### Concrete next step if/when adoption becomes justified
 
-Trigger: the first user-facing issue that reads "go-code can't tell me which
+Trigger: the first user-facing issue that reads "Vaelor can't tell me which
 Svelte components use `$state`" or similar. At that point, implement option
 **2.5** — a detector in `handler_svelte.go` that runs after
 `parseWithTSAndRemap` and rewrites matching `call_expression` symbols:

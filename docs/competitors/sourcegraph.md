@@ -17,14 +17,14 @@
 - **Params**: k1=1.2, b=0.75, language-specific stopwords
 - **Result**: +20% across all search quality metrics
 - **Code tokenization**: `getUserById` → `[get, user, by, id, getUserById]` (both original and camelCase split)
-- **Status in go-code**: Adopted in Phase 6.3 (BM25F) and 6.4 (query understanding with camelCase splitting)
+- **Status in Vaelor**: Adopted in Phase 6.3 (BM25F) and 6.4 (query understanding with camelCase splitting)
 
 ## PageRank for Code
 
 - **Blog**: [ranking-in-a-week](https://sourcegraph.com/blog/ranking-in-a-week)
 - **Approach**: SCIP-based reference graph (file A references symbol in file B → edge A→B), PageRank via Apache Spark
 - **Interpretation**: high PageRank = high code reuse = architecturally important
-- **Status in go-code**: Adopted in Phase 6.5 (file-level import graph). Phase 7.5 planned for identifier-level upgrade.
+- **Status in Vaelor**: Adopted in Phase 6.5 (file-level import graph). Phase 7.5 planned for identifier-level upgrade.
 
 ## doctree — Tree-sitter Indexer in Go (archived)
 
@@ -43,4 +43,4 @@ type Language interface {
 var queries []byte
 ```
 
-- **Adopted in go-code**: Language interface design, parallel indexing with WaitGroup, modtime caching.
+- **Adopted in Vaelor**: Language interface design, parallel indexing with WaitGroup, modtime caching.

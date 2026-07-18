@@ -27,7 +27,7 @@
 
 ## Context
 
-go-code today is a purely *static* analyzer: tree-sitter AST
+Vaelor today is a purely *static* analyzer: tree-sitter AST
 (`internal/parser`), manifest parsing (`internal/freshness/discover.go`),
 persistent Apache AGE graph (`internal/codegraph`). It **never runs a target
 repository's own build/test/install commands**. The one place it shells out
@@ -44,13 +44,13 @@ repo-authored scripts (modulo a pre-existing latent surface: cgo compiles
 repo-authored C with that same inherited env present, out of scope here) — but
 it is **not a precedent for hygienic env handling**, only for "invoke a fixed
 trusted compiler, arbitrary secrets or not." Phase 1 must not repeat this
-pattern: the verifier's env must be *provably* empty of go-code's secrets, not
+pattern: the verifier's env must be *provably* empty of Vaelor's secrets, not
 merely additively configured. `npm` lifecycle hooks (`postinstall`), Cargo
 `build.rs`, `Makefile` targets and `docker build` all execute **arbitrary
 repo-authored code** — a qualitatively different threat class from "invoke a
 fixed trusted compiler".
 
-This produces a persistent gap between what go-code *statically claims* and what
+This produces a persistent gap between what Vaelor *statically claims* and what
 it has *verified by running*. Concretely:
 
 - `code_health` grades an A–F score across 14 sub-scores
@@ -66,7 +66,7 @@ it has *verified by running*. Concretely:
 The decision drivers: (1) close the claim-vs-verified gap starting with the
 cheapest, safest slice (detection); (2) do **zero** new security surface for the
 detection slice; (3) make the execution slice **opt-in, off by default, and
-physically unable to leak go-code's own secrets** (`DATABASE_URL`,
+physically unable to leak Vaelor's own secrets** (`DATABASE_URL`,
 `GITHUB_TOKEN`, `LLM_API_KEY`, Redis creds all live in the main process env);
 (4) respect the host as a hard constraint — a 4-core ARM Neoverse-N1 / 24 GiB
 box that must never run heavy parallel builds (`~/AGENTS.md`).
@@ -94,7 +94,7 @@ state**, not a failure.
 
 ### O3 — Phase 0 + Phase 1 in-process execution
 
-Detect, then execute the detected commands **inside the go-code process** (or a
+Detect, then execute the detected commands **inside the Vaelor process** (or a
 child process sharing its env). Rejected outright: any repo-authored build step
 would run with `DATABASE_URL`/`GITHUB_TOKEN`/`LLM_API_KEY`/Redis creds in its
 environment and could exfiltrate all of them in one `postinstall`. This is a
@@ -105,7 +105,7 @@ non-starter regardless of timeout/output caps — caps limit *blast size*, not
 
 **Chosen.** Detect statically (Phase 0), then execute detected commands only via
 a separate execution path that owns its own Docker access, runs each command in
-a locked-down ephemeral container, and is handed **nothing** from go-code's
+a locked-down ephemeral container, and is handed **nothing** from Vaelor's
 secret env. Gated off by default. Details below.
 
 ## Decisions
@@ -222,7 +222,7 @@ Design commitments, each mirroring an existing hardened pattern:
   `GOCODE_FLEET_SSH_ENABLE`, `ssh/driver.go:35`). Unset/`false` → the tool
   returns "verification disabled" and, crucially, `code_health` output is
   **byte-identical** to today (decision 6).
-- **Never exec inside the go-code process.** The go-code process holds
+- **Never exec inside the Vaelor process.** The Vaelor process holds
   `DATABASE_URL`, `GITHUB_TOKEN`, `LLM_API_KEY`, Redis creds. A repo-authored
   build step must never observe that env (rejected option O3). Execution is
   delegated to a **separate execution path that owns its own Docker socket
@@ -243,34 +243,34 @@ Design commitments, each mirroring an existing hardened pattern:
   Commands are passed as **argv slices only** — never `sh -c` / shell-string
   composition (`driver.go:7-8`).
 
-### 4. go-code ↔ sidecar boundary: a **separate service over the network**, not in-process
+### 4. Vaelor ↔ sidecar boundary: a **separate service over the network**, not in-process
 
 Two shapes were considered:
 
-- **(a) in-process package** that shells `docker run` from within go-code, and
-- **(b) a separate minimal-privilege HTTP service** go-code talks to over the
+- **(a) in-process package** that shells `docker run` from within Vaelor, and
+- **(b) a separate minimal-privilege HTTP service** Vaelor talks to over the
   network.
 
 **Chosen: (b), a separate service.** Justification grounded in the existing
-architecture: go-code *already* treats privileged/heavy capabilities as separate
+architecture: Vaelor *already* treats privileged/heavy capabilities as separate
 services reached over the network — the embedding server (`EMBED_URL`), the
 Postgres/AGE store (`DATABASE_URL`), go-search (`GO_SEARCH_URL`). Adding a
 "verifier" service is the same seam, and it is the seam that actually delivers
 the security property: **only the verifier service has the Docker socket
-mounted; the go-code container does not.** With (a), go-code's own container
+mounted; the Vaelor container does not.** With (a), Vaelor's own container
 would need `/var/run/docker.sock`, and Docker-socket access is
-root-equivalent on the host — that would make a go-code RCE a host compromise.
-With (b), a go-code compromise cannot start containers at all; it can only send
-a verify *request* to a narrow API. The verifier holds **no** go-code secrets;
+root-equivalent on the host — that would make a Vaelor RCE a host compromise.
+With (b), a Vaelor compromise cannot start containers at all; it can only send
+a verify *request* to a narrow API. The verifier holds **no** Vaelor secrets;
 its env is empty of `DATABASE_URL`/`GITHUB_TOKEN`/`LLM_API_KEY`. Interface:
-go-code POSTs `{argv, workDir, image, limits}` for one command; the verifier
+Vaelor POSTs `{argv, workDir, image, limits}` for one command; the verifier
 returns `{exitCode, cappedStdout, cappedStderr, durationMs, killedReason}`.
 Gated behind a new `GOCODE_VERIFY_URL` (empty ⇒ Phase 1 unavailable even if the
 flag is on — belt-and-braces). **Payload revised in the Phase 1 Design
 Resolution below (item 4, 2026-07-06 re-review fix):** the request carries
 `{repoURL, gitSHA, argv, workDir, image, limits}` — a repo reference, not a
 filesystem path — so the verifier clones the tree itself instead of trusting a
-path go-code hands it. The response shape is unchanged.
+path Vaelor hands it. The response shape is unchanged.
 
 ### 5. Concurrency & resource budget: per-repo dedup + global semaphore of 1 + preflight gate
 
@@ -290,7 +290,7 @@ Three layers, all required (host is 4-core / 24 GiB, no heavy parallel builds �
    *before* the container is started. `REFUSE` returns a "host under pressure,
    retry later" response rather than starting the build. The preflight check
    runs in the verifier service (it is the component that knows host pressure),
-   not in go-code.
+   not in Vaelor.
 
 The slow-job response shape reuses `code_health`'s async convention exactly:
 `<status>computing</status>` + "retry in 60s", background goroutine via a
@@ -357,11 +357,11 @@ global-semaphore-of-1 rule under concurrent health calls). It reports
 ## Alternatives considered and rejected
 
 - **In-process / same-env execution (O3)** — rejected (decision 3/4): exposes
-  all go-code secrets to arbitrary repo-authored build scripts; output caps
+  all Vaelor secrets to arbitrary repo-authored build scripts; output caps
   don't mitigate secret access.
-- **In-process `docker run` shell-out from go-code (decision 4a)** — rejected:
-  requires mounting the Docker socket into the go-code container, making a
-  go-code RCE a host compromise. The separate-service seam (4b) is the property
+- **In-process `docker run` shell-out from Vaelor (decision 4a)** — rejected:
+  requires mounting the Docker socket into the Vaelor container, making a
+  Vaelor RCE a host compromise. The separate-service seam (4b) is the property
   that isolates socket access.
 - **Reuse `internal/fleet/docker` for execution** — rejected: that driver is
   read-only listing; running arbitrary containers is a materially larger
@@ -396,7 +396,7 @@ These are **explicitly not resolved** in this ADR and are handed to the
    compromise — a dedicated host, a VM boundary, seccomp/AppArmor profiles on
    the verifier itself? Open.
 4. **Secret / env leakage paths.** Confirm the verifier's env is provably empty
-   of go-code secrets; confirm no secret rides in via build args, mounted
+   of Vaelor secrets; confirm no secret rides in via build args, mounted
    files, or the request payload; confirm capped stderr cannot smuggle secrets
    back into the LLM prompt. Open.
 5. **Malicious repo path / symlink-to-host-path abuse.** A caller-supplied
@@ -424,7 +424,7 @@ Security/Cost/Reliability lenses. **Phase 0: PASS, ship independently now.**
 **Phase 1 as specced: not yet buildable.** Full point-by-point findings live in
 the review transcript; summary below.
 
-**Core finding:** decisions 3-4 correctly harden *secret* isolation (go-code's
+**Core finding:** decisions 3-4 correctly harden *secret* isolation (Vaelor's
 process never touches `docker.sock`) but the ADR under-specifies the boundary
 that actually matters for Phase 1's purpose — running **actively-adversarial,
 repo-authored code** (`npm postinstall`/`build.rs`/`Makefile` targets) on a
@@ -442,7 +442,7 @@ lands directly on the fleet's shared kernel.
 2. **Verifier HTTP API must be authenticated and bound to loopback/private
    network only.** The ADR's decision 4 never specifies this — an
    unauthenticated `GOCODE_VERIFY_URL` reachable from the shared host's network
-   is strictly *worse* than mounting the socket into go-code itself, because it
+   is strictly *worse* than mounting the socket into Vaelor itself, because it
    becomes "docker-run-as-a-service" for every co-located process.
 3. **Provably secret-free verifier env** — an explicit allowlist at process
    launch, not `append(os.Environ(), …)` inheritance (see the `loader.go`
@@ -608,9 +608,9 @@ Mechanism, three layers:
    validates with a **constant-time** comparison (`crypto/subtle.
    ConstantTimeCompare` over fixed-length SHA-256 digests of the presented and
    expected tokens, so length is not a side channel) and returns `401` with no
-   body detail on mismatch. go-code reads the same value and sends it on every
+   body detail on mismatch. Vaelor reads the same value and sends it on every
    POST via `http.NewRequestWithContext` (per the repo convention). The token is
-   a go-code↔verifier shared secret and is **not** on the verifier's env
+   a Vaelor↔verifier shared secret and is **not** on the verifier's env
    deny-list (item 3) — it is the one credential the verifier legitimately owns.
 2. **Network binding — revised after re-review (2026-07-06): a dedicated,
    two-peer network, not the shared project network.** The first draft of this
@@ -622,7 +622,7 @@ Mechanism, three layers:
    every one of those ~25 co-located containers** — exactly the "co-located
    compromised container" adversary this ADR names, with the bearer token as
    the *only* remaining barrier instead of defense-in-depth. **Revised
-   decision:** go-code and the verifier are attached to their own **dedicated
+   decision:** Vaelor and the verifier are attached to their own **dedicated
    compose network with `internal: true` and no other service attached** —
    e.g. a `gocode-verify` network in `~/deploy/krolik-server/compose/*.yml`
    listing only these two services. `internal: true` additionally blocks the
@@ -630,7 +630,7 @@ Mechanism, three layers:
    docs — internal networks have no default gateway), which is a free
    corollary of decision 6's "install is out of scope, most job containers get
    `--network=none` anyway" but is set at the *verifier's own* network too,
-   not just the job sandbox's. **This network carries only the go-code↔verifier
+   not just the job sandbox's. **This network carries only the Vaelor↔verifier
    API traffic — the verifier's per-job clone step needs its own egress and is
    deliberately kept on a separate `gocode-verify-egress` network instead,
    attached only to the ephemeral clone container, never to the verifier's own
@@ -640,7 +640,7 @@ Mechanism, three layers:
    independent layers, matching the original "auth AND isolation" intent
    rather than collapsing to auth-only.
 3. **Belt-and-braces.** Empty `GOCODE_VERIFY_URL` ⇒ Phase 1 unavailable even
-   with the enable flag on (already in decision 4). Empty token on the go-code
+   with the enable flag on (already in decision 4). Empty token on the Vaelor
    side ⇒ it never sends a request.
 
 **Why not mTLS (justified against the topology, as revised).** The threat mTLS
@@ -650,7 +650,7 @@ on-wire attacker — is not present here: both peers are containers on the
 host-published verifier port** and no third container able to reach it at all.
 The realistic remaining adversary is *one of these two peers itself* being
 compromised, and against that neither mTLS nor a bearer token adds anything
-(a compromised go-code already holds the token). mTLS would add
+(a compromised Vaelor already holds the token). mTLS would add
 cert-issuance/rotation operational cost for no additional protection on this
 seam. This is a **two-way door**: if verify is ever exposed beyond this
 two-peer network, or moved cross-host, mTLS is a clean additive upgrade (add a
@@ -681,7 +681,7 @@ Three guarantees:
    LLM_API_KEY, LLM_API_KEY_FALLBACK
    ```
 
-   This is the exact go-code secret set enumerated in CLAUDE.md's env table.
+   This is the exact Vaelor secret set enumerated in CLAUDE.md's env table.
    Fail-loud (refuse to boot), not fail-silent, is the point: a careless
    `docker-compose` edit that leaks a secret into the verifier makes the
    verifier **crash on deploy**, which is loud and caught immediately, rather
@@ -707,11 +707,11 @@ Three guarantees:
    Even if guarantee 1/2 were bypassed, the container still would not inherit the
    verifier's env.
 
-**Request payload carries no secret — confirmed.** The go-code→verifier request
+**Request payload carries no secret — confirmed.** The Vaelor→verifier request
 is `{repoURL, gitSHA, argv, workDir, image, limits}` (decision 4, as revised
 below to a repo reference rather than a path). None of these is
 secret-shaped: `repoURL`/`gitSHA` identify a public or already-authenticated
-clone target the same way go-code's own `internal/ingest` clone does today,
+clone target the same way Vaelor's own `internal/ingest` clone does today,
 `argv` is a detected command slice (item 5 forbids caller-supplied argv),
 `workDir` is a repo-relative path, `image` is a pinned digest, `limits` are
 integers. The verifier **rejects** any request whose JSON
@@ -742,19 +742,19 @@ cannot be weakened by env.
 ### 4. Symlink / path containment
 
 **Decision — revised after re-review (2026-07-06): the verifier clones the
-repo itself, into a directory only it ever writes to. go-code never hands the
+repo itself, into a directory only it ever writes to. Vaelor never hands the
 verifier a filesystem path at all, which removes the shared-write surface the
 original design's symlink/containment check was trying to defend, rather than
 just checking it more carefully.**
 
-**Why the first draft was insufficient.** The original decision had go-code
+**Why the first draft was insufficient.** The original decision had Vaelor
 clone into `WORKSPACE_DIR` and pass that path to the verifier, which
 re-validated it (`EvalSymlinks` + per-component `Lstat` + `filepath.Rel`
 containment) before `docker run -v`. Re-review identified this as a
 **time-of-check-to-time-of-use (TOCTOU) gap**: the check validates a path
 string/inode at check-time, but the actual mount happens later, by the Docker
 daemon, at use-time. Between the two, anything with write access to that path
-(and the ADR's own named adversary is *go-code itself*, compromised) could swap
+(and the ADR's own named adversary is *Vaelor itself*, compromised) could swap
 the target — e.g. replace the directory with a symlink to `/` or
 `/var/run/docker.sock` after the verifier's check but before the `docker run`
 call resolves `-v` again internally. A string-level check cannot close a race
@@ -763,13 +763,13 @@ against the very party the check exists to distrust. Deferring the actual fix
 have" was backwards: it is the fix for the *primary* threat, not a polish.
 
 **Revised decision: eliminate the shared mutable path instead of racing to
-validate it.** go-code's request to the verifier carries `{repoURL, gitSHA,
+validate it.** Vaelor's request to the verifier carries `{repoURL, gitSHA,
 argv, workDir, image, limits}` — a **repo reference**, never a filesystem path.
 The verifier performs its **own** clone (the same shallow/partial-clone
 technique `internal/ingest.CloneRepo` already uses, `--filter=blob:none`) into
 a fresh, per-job directory created immediately before the job and destroyed
 immediately after, under a directory tree **only the verifier process ever
-writes to** — go-code has no write access to it and no other job or process
+writes to** — Vaelor has no write access to it and no other job or process
 shares it. Consequences:
 
 - **No TOCTOU window exists**, because there is no second writer: the verifier
@@ -779,14 +779,14 @@ shares it. Consequences:
   malicious *repo* (a repo whose own working tree contains a symlink to
   `/etc`), not as the primary defense — that job now falls to "we cloned it,
   nobody else touched it."
-- **go-code's own clone (in `WORKSPACE_DIR`, used by every other tool) is
+- **Vaelor's own clone (in `WORKSPACE_DIR`, used by every other tool) is
   completely uninvolved in verify** — decision 4's original "refuse
   `PATH_MAPPINGS`/local-checkout inputs" still holds (the verifier never
   accepts anything but a `repoURL`+`gitSHA` it resolves itself), and now
-  additionally go-code's *own* clone of the same repo (which it needed anyway,
+  additionally Vaelor's *own* clone of the same repo (which it needed anyway,
   to run `envdetect.Detect` and produce the candidate `argv`) is never handed
   across the trust boundary either — only the reference is.
-- **Cost:** one redundant clone per verify job (go-code's for detection,
+- **Cost:** one redundant clone per verify job (Vaelor's for detection,
   the verifier's own for execution). Both use the same `--filter=blob:none`
   partial-clone technique, so the marginal cost is bounded and is the price of
   removing the shared-write surface entirely rather than policing it.
@@ -812,7 +812,7 @@ invocation in the verifier's process.** The verifier's own process never
 executes `git`; it only ever asks Docker to run containers, which is already
 its full job. Sequence:
 
-1. go-code resolves the repo to a concrete `gitSHA` (it already has the clone
+1. Vaelor resolves the repo to a concrete `gitSHA` (it already has the clone
    and the ref for `envdetect`/`explore`) and sends `{repoURL, gitSHA, argv,
    workDir, image, limits}` — no path.
 2. The verifier launches a **clone job**: `docker run --runtime=runsc
@@ -850,7 +850,7 @@ its full job. Sequence:
    `--rm`'d) clone container into its own per-job private directory
    (`<verifier-private-root>/<job-id>/`, a UUID-per-job dir under a root only
    the verifier's *runner* logic touches) — **not** a bind-mount shared with
-   go-code, and not the network-attached clone container itself. Once the
+   Vaelor, and not the network-attached clone container itself. Once the
    copy completes, the verifier `docker rm`s the clone container (step 2's
    note on why `--rm` isn't used at launch). A short-lived shared-tmpfs
    volume between the clone job and the runner step is an equally valid
@@ -918,7 +918,7 @@ because v1's own scope cut (no install) makes an empty-pass *more* likely, not
 less. **Binding contract:** `buildable: verified` means "the detected command
 exited 0 inside the sandbox," full stop — it is a necessary-not-sufficient
 signal and **must never be used to upgrade the confidence of any other
-go-code signal** (`dead_code`'s confidence levels, `code_health`'s other
+Vaelor signal** (`dead_code`'s confidence levels, `code_health`'s other
 sub-scores, etc.), which remain independently computed on their own evidence.
 `code_health`'s `buildable` sub-score itself is reported plainly as
 `verified`/`unverified`/`failed` with no derived "this makes the repo
@@ -1017,7 +1017,7 @@ capacity 8. Behavior on arrival:
   accepted) + retry hint.
 - **Queue full** (8 distinct repos already waiting behind the running job):
   **fast-fail** with a **distinct** status the caller can tell apart from
-  "computing" — the verifier returns HTTP `429` and go-code surfaces:
+  "computing" — the verifier returns HTTP `429` and Vaelor surfaces:
 
   ```
   <status>queue_full</status>
@@ -1047,7 +1047,7 @@ Redis-backed (unnecessary for v1).
 post two re-review rounds).** Round 1 (2026-07-06) graded 4 of 6 items
 CLOSED-WITH-CAVEAT (1, 3, 5, 6) and 2 STILL-OPEN (2, 4), overall **HARDEN**.
 Round 1's fixes (item 2 → dedicated `internal: true` two-peer network; item 4
-→ verifier clones its own tree instead of trusting a go-code-supplied path;
+→ verifier clones its own tree instead of trusting a Vaelor-supplied path;
 item 3 → names `Decoder.DisallowUnknownFields()`; item 6 → 6 GiB preflight
 threshold; item 5 → `verified` never upgrades other signals) closed items 1/3/5/6
 and closed items 2/4's *original* findings — but a **narrow round-2 re-review
