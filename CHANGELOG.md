@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.40.0](https://github.com/anatolykoptev/go-code/compare/v1.39.2...v1.40.0) (2026-07-18)
+
+
+### Added
+
+* dual-read VAELOR_/GO_CODE_ env vars (rebrand) [no-deploy] ([8cd3b86](https://github.com/anatolykoptev/go-code/commit/8cd3b860e86a5b0b27b7db337a38bad41ee98847))
+
 ## [1.39.2](https://github.com/anatolykoptev/go-code/compare/v1.39.1...v1.39.2) (2026-07-18)
 
 
