@@ -662,25 +662,25 @@ func parseNonNegFloat(key string, def float64) (float64, error) {
 	return v, nil
 }
 
-// loadGithubAppConfig reads GO_CODE_GITHUB_APP_ID, GO_CODE_GITHUB_APP_INSTALLATION_ID,
-// and GO_CODE_GITHUB_APP_KEY_PATH from the environment. Returns a zero-value
-// AppConfig (App auth disabled) when:
+// loadGithubAppConfig reads the GitHub App auth env vars (VAELOR_ prefix with
+// GO_CODE_ fallback via getenvRebrand): GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID,
+// and GITHUB_APP_KEY_PATH. Returns a zero-value AppConfig (App auth disabled) when:
 //   - any required env var is missing or empty
 //   - the key file does not exist or cannot be read
 //
 // A warning is logged so operators know App auth is inactive.
 func loadGithubAppConfig() forge.AppConfig {
-	appID, err := strconv.ParseInt(os.Getenv("GO_CODE_GITHUB_APP_ID"), 10, 64)
+	appID, err := strconv.ParseInt(getenvRebrand("GITHUB_APP_ID"), 10, 64)
 	if err != nil || appID == 0 {
 		return forge.AppConfig{}
 	}
-	installID, err := strconv.ParseInt(os.Getenv("GO_CODE_GITHUB_APP_INSTALLATION_ID"), 10, 64)
+	installID, err := strconv.ParseInt(getenvRebrand("GITHUB_APP_INSTALLATION_ID"), 10, 64)
 	if err != nil || installID == 0 {
-		slog.Warn("GO_CODE_GITHUB_APP_ID set but GO_CODE_GITHUB_APP_INSTALLATION_ID missing; App auth disabled")
+		slog.Warn("GITHUB_APP_ID set but GITHUB_APP_INSTALLATION_ID missing; App auth disabled")
 		return forge.AppConfig{}
 	}
 
-	keyPath := os.Getenv("GO_CODE_GITHUB_APP_KEY_PATH")
+	keyPath := getenvRebrand("GITHUB_APP_KEY_PATH")
 	if keyPath == "" {
 		keyPath = "/run/secrets/go-code-app-key"
 	}
