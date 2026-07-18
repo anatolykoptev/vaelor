@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.42.0](https://github.com/anatolykoptev/go-code/compare/v1.41.5...v1.42.0) (2026-07-18)
+
+
+### Added
+
+* **mcp:** adopt NewServer + KeepAlive + SchemaCache + DisableLocalhostProtection ([#529](https://github.com/anatolykoptev/go-code/issues/529)) ([a1b963c](https://github.com/anatolykoptev/go-code/commit/a1b963c71e0d9ea2ee97f71b7c19e531b24a1de4))
+
 ## [1.41.5](https://github.com/anatolykoptev/vaelor/compare/v1.41.4...v1.41.5) (2026-07-18)
 
 
