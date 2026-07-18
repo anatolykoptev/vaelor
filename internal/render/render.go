@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // Mode controls how source code is rendered for LLM context.

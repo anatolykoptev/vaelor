@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 )
 
 // initGitRepo creates a minimal git checkout at dir so that the bare-name

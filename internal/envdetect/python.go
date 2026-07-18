@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
 )
 
 const (

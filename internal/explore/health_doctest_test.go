@@ -3,7 +3,7 @@ package explore
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestCollectSymbolMetrics_JSDocPath verifies that a JS-language symbol with a

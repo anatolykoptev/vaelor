@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
 )
 
 // stubStore is a minimal learningsStore stub for tests.

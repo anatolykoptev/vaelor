@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestConvertToCallGraph(t *testing.T) {

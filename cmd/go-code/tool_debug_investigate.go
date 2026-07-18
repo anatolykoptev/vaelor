@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/dozorclient"
-	"github.com/anatolykoptev/go-code/internal/gitutil"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/jaegerclient"
-	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/dozorclient"
+	"github.com/anatolykoptev/vaelor/internal/gitutil"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/jaegerclient"
+	"github.com/anatolykoptev/vaelor/internal/promclient"
 
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"

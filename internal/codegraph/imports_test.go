@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestBuildGraphCreatesImportsEdges verifies that buildGraph generates IMPORTS
@@ -214,7 +214,7 @@ func TestBuildGraphDeduplicatesExternalPackages(t *testing.T) {
 func TestBuildGraphFullImportPathMapsToLocalContainer(t *testing.T) {
 	t.Parallel()
 
-	const localImport = "github.com/anatolykoptev/go-code/internal/fleet/docker"
+	const localImport = "github.com/anatolykoptev/vaelor/internal/fleet/docker"
 	root := "/repo"
 	files := []*ingest.File{
 		{Path: "/repo/internal/fleet/fleet.go", RelPath: "internal/fleet/fleet.go", Language: "go", Size: 100},

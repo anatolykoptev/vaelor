@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
 )
 
 // CommandSource records how a command was derived, so callers can weight

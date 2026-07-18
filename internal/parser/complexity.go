@@ -3,7 +3,7 @@ package parser
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/clean"
+	"github.com/anatolykoptev/vaelor/internal/clean"
 )
 
 // stripStringLiterals blanks out content inside string literals so that

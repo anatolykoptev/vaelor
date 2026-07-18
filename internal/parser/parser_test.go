@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestParseGoFile_NoLocalVars(t *testing.T) {

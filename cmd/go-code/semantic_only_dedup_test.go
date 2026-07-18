@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // TestSemanticOnlyResult_DedupDropsDuplicate is the primary Bug A regression test.

@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 )
 
 // helper: build a PinnedImage with minimal fields.

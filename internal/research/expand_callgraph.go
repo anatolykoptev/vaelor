@@ -1,7 +1,7 @@
 package research
 
 import (
-	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
 )
 
 // expandFromCallGraph performs BFS over call edges starting from seed files.

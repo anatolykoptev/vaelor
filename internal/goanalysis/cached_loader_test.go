@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 )
 
 // TestCachedLoadPackages_SecondCallWithinTTLIsCacheHit is the P1 fitness

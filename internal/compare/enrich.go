@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // qualityTimeout limits how long enrichment checks (quality, freshness, dataflow) can run.

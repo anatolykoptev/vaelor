@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // bm25SearchSpy implements bm25Searcher and records calls for assertions.

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/routes"
+	"github.com/anatolykoptev/vaelor/internal/routes"
 )
 
 // RouteDiff summarises the difference between two sets of HTTP routes.

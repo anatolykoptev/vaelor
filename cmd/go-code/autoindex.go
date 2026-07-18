@@ -4,7 +4,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/anatolykoptev/go-code/internal/workspace"
+	"github.com/anatolykoptev/vaelor/internal/workspace"
 )
 
 // autoIndexDirs returns the (optionally translated) directories to scan for

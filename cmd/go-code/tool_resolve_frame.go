@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/sourcemap"
 	"github.com/anatolykoptev/go-kit/ratelimit"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/sourcemap"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

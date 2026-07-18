@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/codesearch"
-	"github.com/anatolykoptev/go-code/internal/goutil"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/codesearch"
+	"github.com/anatolykoptev/vaelor/internal/goutil"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // ResearchData is the raw analysis output consumed by the research package.

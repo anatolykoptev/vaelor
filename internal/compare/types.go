@@ -1,7 +1,7 @@
 package compare
 
 import (
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // MatchType describes how two symbols were matched.

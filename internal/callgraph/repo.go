@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 const maxFileBytes = 512 * 1024

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/importresolve"
+	"github.com/anatolykoptev/vaelor/internal/importresolve"
 )
 
 // mkResolver builds a Resolver with zero Config (no aliases).
@@ -157,7 +157,7 @@ func TestResolve_SameBaseDistinctPath(t *testing.T) {
 		nil,
 	)
 	// Full module import for the local package.
-	dir, ok := r.Resolve("github.com/anatolykoptev/go-code/internal/fleet/docker", "internal/fleet/fleet.go")
+	dir, ok := r.Resolve("github.com/anatolykoptev/vaelor/internal/fleet/docker", "internal/fleet/fleet.go")
 	if !ok {
 		t.Fatal("expected ok=true for local fleet/docker import")
 	}

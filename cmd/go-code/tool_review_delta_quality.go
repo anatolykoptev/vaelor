@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // xmlQualitySignals captures current-HEAD quality indicators reported alongside

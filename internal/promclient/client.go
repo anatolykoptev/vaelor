@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/httputil"
+	"github.com/anatolykoptev/vaelor/internal/httputil"
 )
 
 // Client is a minimal HTTP client for the Prometheus query API.

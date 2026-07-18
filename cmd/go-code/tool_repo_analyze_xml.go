@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // formatAnalysisXML formats a RepoAnalysisResult as structured XML (schema v2.0).

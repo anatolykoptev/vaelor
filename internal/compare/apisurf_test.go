@@ -3,7 +3,7 @@ package compare
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestIsExportedSymbol_Swift verifies that Swift symbols follow the default

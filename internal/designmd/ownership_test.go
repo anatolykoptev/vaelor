@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/anatolykoptev/go-code/internal/pgutil/pgtest"
+	"github.com/anatolykoptev/vaelor/internal/pgutil/pgtest"
 )
 
 // TestEnsureSchema_TransfersOwnershipAfterRestore reproduces the prod

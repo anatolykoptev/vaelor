@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
 )
 
 func TestParseTarget(t *testing.T) {

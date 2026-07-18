@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 )
 
 // Generic-instantiation caller resolution — go-code's own callgraph resolver

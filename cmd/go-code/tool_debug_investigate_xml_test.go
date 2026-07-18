@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // benignInvestigationFixture exercises most branches of the formatter with

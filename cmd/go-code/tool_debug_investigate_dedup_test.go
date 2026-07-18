@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
 )
 
 // TestDedupByRepoSymbol_SameSymbol verifies that duplicate (Repo, Symbol) pairs

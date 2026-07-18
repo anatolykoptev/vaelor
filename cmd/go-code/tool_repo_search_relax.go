@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/websearch"
+	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/websearch"
 )
 
 // webSearchQueries generates multiple search variations for better coverage.

@@ -11,12 +11,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/learnings"
-	"github.com/anatolykoptev/go-code/internal/policy"
-	"github.com/anatolykoptev/go-code/internal/review"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/policy"
+	"github.com/anatolykoptev/vaelor/internal/review"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

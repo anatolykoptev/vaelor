@@ -8,9 +8,9 @@ package main
 // test, so any structural divergence surfaces as a tree diff.
 
 import (
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/research"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/research"
 )
 
 // ---- semantic_search ----

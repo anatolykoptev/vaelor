@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
 )
 
 // TestBuildGraphDeps_NoStore verifies that buildGraphDeps returns graphx.Noop{}

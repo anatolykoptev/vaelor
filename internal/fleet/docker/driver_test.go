@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/fleet/docker"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet/docker"
 )
 
 // fakeDockerServer runs a minimal fake docker API over the provided server-side net.Conn.

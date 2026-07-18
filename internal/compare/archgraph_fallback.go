@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
 )
 
 const fallbackArchTimeout = 10 * time.Second

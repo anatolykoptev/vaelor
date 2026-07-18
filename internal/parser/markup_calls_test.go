@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestAstroMarkupExprCalls is the Phase-1 Astro capability gate: template-body

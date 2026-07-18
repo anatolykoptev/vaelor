@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/forge"
 )
 
 // TestResolverCloneURL_GitLabSubgroup verifies the end-to-end resolver pipeline

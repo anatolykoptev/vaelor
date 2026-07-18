@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 // findRepoRoot walks upward from the current working directory until it finds

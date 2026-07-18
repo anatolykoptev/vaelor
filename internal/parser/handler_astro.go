@@ -3,7 +3,7 @@ package parser
 import (
 	sitter "github.com/smacker/go-tree-sitter"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // astroHandler parses .astro files by extracting the leading --- frontmatter

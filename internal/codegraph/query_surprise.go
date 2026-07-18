@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/prompts"
 )
 
 // narrativeTimeout caps the LLM narrative generation. Narrative is best-effort

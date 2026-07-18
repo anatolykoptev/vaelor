@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

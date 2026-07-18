@@ -3,8 +3,8 @@ package deadcode
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // rustWellKnownMethods are Rust trait method names that are called implicitly

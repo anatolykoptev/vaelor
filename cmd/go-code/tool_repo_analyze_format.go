@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // ---- JSON envelope types ----

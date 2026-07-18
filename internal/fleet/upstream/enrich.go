@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
 )
 
 // enrichCacheKey is the dedup key for Compare calls.

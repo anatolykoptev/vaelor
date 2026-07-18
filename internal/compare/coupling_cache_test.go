@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/cache"
 )
 
 // TestCouplingCache_Behavior asserts TTL-expiry and capacity-eviction semantics

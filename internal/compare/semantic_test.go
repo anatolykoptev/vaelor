@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestCosineSimilarity(t *testing.T) {

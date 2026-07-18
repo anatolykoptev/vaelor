@@ -8,8 +8,8 @@ package research
 import (
 	"context"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // EmbedClient is the minimal interface the research package needs from an

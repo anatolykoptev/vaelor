@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/investigate"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // TestDebugInvestigate_NoLLM_RunsAndSetsMarker verifies that debug_investigate

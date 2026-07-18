@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
 	"net"
 	"strings"
 	"time"

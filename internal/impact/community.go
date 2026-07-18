@@ -2,9 +2,9 @@
 package impact
 
 import (
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/ranking"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/ranking"
 )
 
 // buildCommunityMap runs Louvain on the call graph and returns symbol → community ID.

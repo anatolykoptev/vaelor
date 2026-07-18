@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // RemapSymbolLines rewrites StartLine/EndLine on every Symbol in r from

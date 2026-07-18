@@ -4,9 +4,9 @@ package main
 import (
 	"context"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/impact"
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/impact"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // runImpactPhase enriches the top-k hypotheses with blast radius data.

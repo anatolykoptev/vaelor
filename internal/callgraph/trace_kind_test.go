@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestTrace_CallerKinds(t *testing.T) {

@@ -3,7 +3,7 @@ package codegraph
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestExtractTestedByEdges_Go(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 )
 
 // makeTestModule creates a temp dir with a valid go.mod and main.go.

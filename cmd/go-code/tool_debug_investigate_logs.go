@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/dozorclient"
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/dozorclient"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // runLogsPhase queries the dozor sidecar for recent log lines (server applies

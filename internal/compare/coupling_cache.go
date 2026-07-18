@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/cache"
 )
 
 const (

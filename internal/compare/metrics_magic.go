@@ -3,8 +3,8 @@ package compare
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/clean"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/clean"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // countMagicNumbers counts hardcoded numeric literals in a function body.

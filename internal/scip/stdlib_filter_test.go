@@ -3,7 +3,7 @@ package scip
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 	sciplib "github.com/sourcegraph/scip/bindings/go/scip"
 )
 

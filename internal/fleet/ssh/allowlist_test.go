@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	flssh "github.com/anatolykoptev/go-code/internal/fleet/ssh"
+	flssh "github.com/anatolykoptev/vaelor/internal/fleet/ssh"
 )
 
 func TestValidate(t *testing.T) {

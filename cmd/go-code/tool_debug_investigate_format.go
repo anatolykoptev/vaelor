@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // ---- XML types ----

@@ -3,7 +3,7 @@ package render
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // buildLineOps converts replacements into per-line skip/replace/insert instructions.

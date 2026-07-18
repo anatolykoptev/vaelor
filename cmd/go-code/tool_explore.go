@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/envdetect"
-	"github.com/anatolykoptev/go-code/internal/explore"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/envdetect"
+	"github.com/anatolykoptev/vaelor/internal/explore"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

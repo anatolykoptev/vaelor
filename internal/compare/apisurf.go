@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"unicode/utf8"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // APISymbol represents a single exported symbol in a repository's public API surface.

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/ranking"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/ranking"
 )
 
 // fusionSignalNames lists the 5 signals used by runFusionRank.

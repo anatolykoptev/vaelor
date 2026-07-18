@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/designmd"
 	"github.com/anatolykoptev/go-kit/embed"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/designmd"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

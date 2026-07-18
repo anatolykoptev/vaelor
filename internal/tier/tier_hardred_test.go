@@ -5,7 +5,7 @@ import (
 	"encoding/xml"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/tier"
+	"github.com/anatolykoptev/vaelor/internal/tier"
 )
 
 // Hard red tests — boundary conditions, invariants, edge cases.

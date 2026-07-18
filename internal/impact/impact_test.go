@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestAnalyze_DirectCallers builds A->B->C and verifies that analyzing C

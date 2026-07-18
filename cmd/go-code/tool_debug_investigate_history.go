@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/codesearch"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/codesearch"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
 )
 
 // riskLevelFromScore maps a 0..1 anomaly score to a learnings risk level.

@@ -5,7 +5,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 //go:embed queries/markup_refs.scm

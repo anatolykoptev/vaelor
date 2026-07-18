@@ -1,6 +1,6 @@
 package research
 
-import "github.com/anatolykoptev/go-code/internal/parser"
+import "github.com/anatolykoptev/vaelor/internal/parser"
 
 func makeSymbols(names ...string) []*parser.Symbol {
 	out := make([]*parser.Symbol, len(names))

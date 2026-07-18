@@ -3,7 +3,7 @@ package compare
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // hasErrorHandling checks whether a function body contains reliable error handling patterns.

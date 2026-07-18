@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/polyglot"
-	"github.com/anatolykoptev/go-code/internal/routes"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/polyglot"
+	"github.com/anatolykoptev/vaelor/internal/routes"
 )
 
 // symbolSpan captures the line-span of a function or method symbol, used by

@@ -5,7 +5,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 // findRepoRootTB is findRepoRoot (snapshot_test.go) generalized over

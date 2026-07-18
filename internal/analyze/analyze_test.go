@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/goutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/goutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // writeFile creates parent directories and writes a file, failing the test on error.

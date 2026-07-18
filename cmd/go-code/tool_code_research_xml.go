@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/research"
+	"github.com/anatolykoptev/vaelor/internal/research"
 )
 
 // code_research response types migrated from hand-rolled fmt.Fprintf onto

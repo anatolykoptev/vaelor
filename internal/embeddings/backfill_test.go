@@ -12,8 +12,8 @@ import (
 	"github.com/anatolykoptev/go-kit/sparse"
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/strutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // backfillCounterValue reads the current value of sparseBackfillTotal for outcome.

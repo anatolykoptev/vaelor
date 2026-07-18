@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 )
 
 func TestReverseToHost_MapsPath(t *testing.T) {

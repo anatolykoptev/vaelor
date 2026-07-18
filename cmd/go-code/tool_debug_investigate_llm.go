@@ -12,10 +12,10 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/promclient"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/promclient"
 )
 
 // llmSkipReasonNoKey is the LLMSkippedReason set when LLM_API_KEY is not configured.

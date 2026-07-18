@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
 )
 
 // linkTestFiles attaches matching *_test.go siblings (and equivalents for

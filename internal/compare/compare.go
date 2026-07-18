@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // CompareInput is the input for CompareRepos.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/mcpmeta"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

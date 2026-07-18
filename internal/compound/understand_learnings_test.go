@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/compound"
-	"github.com/anatolykoptev/go-code/internal/learnings"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/compound"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // fakeLearnings implements compound.LearningsLookup for tests.

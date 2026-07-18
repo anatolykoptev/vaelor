@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // TestFindHiddenCallers_EmptyLanguage_SkipsScopedSearch asserts that FindHiddenCallers
