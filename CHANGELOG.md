@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.39.2](https://github.com/anatolykoptev/go-code/compare/v1.39.1...v1.39.2) (2026-07-18)
+
+
+### Changed
+
+* rename Go module github.com/anatolykoptev/go-code -&gt; vaelor (Phase 1) ([#512](https://github.com/anatolykoptev/go-code/issues/512)) ([b49089f](https://github.com/anatolykoptev/go-code/commit/b49089fb9d9d1749932175f5a3294da92728a945))
+
 ## [1.39.1](https://github.com/anatolykoptev/go-code/compare/v1.39.0...v1.39.1) (2026-07-17)
 
 
