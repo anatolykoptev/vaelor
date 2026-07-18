@@ -4,12 +4,12 @@ import (
 	"encoding/xml"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/explore"
-	"github.com/anatolykoptev/go-code/internal/freshness"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/semhealth"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/explore"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/semhealth"
 )
 
 // xmlHealthResponse is the top-level XML envelope for code_health output.

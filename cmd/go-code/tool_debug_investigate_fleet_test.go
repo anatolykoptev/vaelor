@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // ---------------------------------------------------------------------------

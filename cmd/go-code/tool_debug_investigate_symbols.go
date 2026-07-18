@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/compound"
-	"github.com/anatolykoptev/go-code/internal/deadcode"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/jaegerclient"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/compound"
+	"github.com/anatolykoptev/vaelor/internal/deadcode"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/jaegerclient"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // isLibraryPath reports whether p refers to a dependency or toolchain path

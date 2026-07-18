@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
 )
 
 // insightTemplates lists template IDs whose outputs are structural insights

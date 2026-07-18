@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/httputil"
+	"github.com/anatolykoptev/vaelor/internal/httputil"
 )
 
 const httpTimeout = 15 * time.Second

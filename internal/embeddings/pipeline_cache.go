@@ -11,9 +11,9 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/strutil"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // Per-file cache scope: when fileCache is nil the pipeline falls back to the

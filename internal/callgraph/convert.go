@@ -3,8 +3,8 @@ package callgraph
 import (
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // ConvertToCallGraph converts typed edges to the existing CallGraph format by

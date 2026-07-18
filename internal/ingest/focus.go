@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // ContentFilter returns file paths where ANY keyword from focus matches

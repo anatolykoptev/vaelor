@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/jaegerclient"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/jaegerclient"
 )
 
 // runTracesPhase executes Phase 1 (Jaeger ListServices) and Phase 2 (FindTraces).

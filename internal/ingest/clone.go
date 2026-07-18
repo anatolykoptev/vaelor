@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/slugparse"
+	"github.com/anatolykoptev/vaelor/internal/slugparse"
 )
 
 // dirPerm is the permission mode for created workspace directories.

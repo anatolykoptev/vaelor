@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // ---------- γ.B.1 dead-code filter ----------

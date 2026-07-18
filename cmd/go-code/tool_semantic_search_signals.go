@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // buildHybridCandidates unions the candidate symbols produced by semantic,

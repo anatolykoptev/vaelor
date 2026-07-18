@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
 )
 
 // FreshnessStats holds dependency freshness and vulnerability data.

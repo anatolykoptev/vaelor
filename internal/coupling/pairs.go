@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/anatolykoptev/go-code/internal/federate"
+	"github.com/anatolykoptev/vaelor/internal/federate"
 )
 
 // VerifiedPair augments a temporal CrossPair with semantic evidence.

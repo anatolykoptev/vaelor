@@ -3,7 +3,7 @@ package polyglot
 import (
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 func makeFile(relPath, lang string) *ingest.File {

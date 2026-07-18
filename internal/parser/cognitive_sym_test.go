@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestCognitiveComplexityPopulated verifies that Symbol.CognitiveComplexity is

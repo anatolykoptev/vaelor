@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 // TestParseOneFileReturnsCallsOnCacheHit is a regression test for the

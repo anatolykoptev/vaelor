@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/anatolykoptev/go-code/internal/mcpmeta"
-	"github.com/anatolykoptev/go-code/internal/policy"
-	"github.com/anatolykoptev/go-code/internal/review"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
+	"github.com/anatolykoptev/vaelor/internal/policy"
+	"github.com/anatolykoptev/vaelor/internal/review"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

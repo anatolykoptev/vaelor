@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

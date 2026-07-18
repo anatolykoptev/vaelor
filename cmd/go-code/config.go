@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/forge"
 	"github.com/anatolykoptev/go-kit/env"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/forge"
 )
 
 // Config holds all runtime configuration for go-code.

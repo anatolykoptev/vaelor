@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/promclient"
 )
 
 func makeAlertsServer(t *testing.T, body string) *httptest.Server {

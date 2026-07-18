@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
 )
 
 // graphRowColsExt is the number of columns returned by the extended graph arm

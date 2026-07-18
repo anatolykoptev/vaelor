@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/strutil"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 	"github.com/jackc/pgx/v5"
 )
 

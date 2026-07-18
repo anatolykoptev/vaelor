@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/gitutil"
-	"github.com/anatolykoptev/go-code/internal/slugparse"
+	"github.com/anatolykoptev/vaelor/internal/gitutil"
+	"github.com/anatolykoptev/vaelor/internal/slugparse"
 )
 
 // dedupeByOrigin collapses repos that share a git origin identity, keeping the

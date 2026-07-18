@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/goutil"
+	"github.com/anatolykoptev/vaelor/internal/goutil"
 )
 
 // importGraph maps a package path to the set of packages it imports.

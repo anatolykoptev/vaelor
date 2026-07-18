@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
 )
 
 const (

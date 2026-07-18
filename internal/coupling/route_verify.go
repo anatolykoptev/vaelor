@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/routes"
+	"github.com/anatolykoptev/vaelor/internal/routes"
 )
 
 // genericPaths are well-known endpoints that many unrelated services expose;

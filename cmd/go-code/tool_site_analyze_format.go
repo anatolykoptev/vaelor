@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/webanalyze"
+	"github.com/anatolykoptev/vaelor/internal/webanalyze"
 )
 
 // buildSiteHead builds the shared <site> head (technologies through extras)

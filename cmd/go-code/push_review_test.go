@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/forge"
 )
 
 // TestHandlePushReview_GitLabSlug_FailsClosedBeforeResolvingRoot proves

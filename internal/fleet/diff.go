@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 )
 
 // DiffStatus enumerates the possible diff outcomes for one image.

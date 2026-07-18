@@ -11,7 +11,7 @@ import (
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 	"github.com/anatolykoptev/go-kit/llm"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // ---------- γ.E.1: cache key tests ----------

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // Similarity tier thresholds (similarity = 1 − cosine distance).

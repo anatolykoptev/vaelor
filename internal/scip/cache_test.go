@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	gocodescip "github.com/anatolykoptev/go-code/internal/scip"
+	gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 )
 
 func TestCacheKey_StableAndNonEmpty(t *testing.T) {

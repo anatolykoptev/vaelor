@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/xml"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 // ---- XML types ----

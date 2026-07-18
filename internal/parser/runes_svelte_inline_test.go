@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestRuneVariants verifies dotted variants ($state.raw, $derived.by, etc.) are classified.

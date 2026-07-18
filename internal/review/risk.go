@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/impact"
+	"github.com/anatolykoptev/vaelor/internal/impact"
 )
 
 const (

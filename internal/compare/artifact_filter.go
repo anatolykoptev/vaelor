@@ -1,6 +1,6 @@
 package compare
 
-import "github.com/anatolykoptev/go-code/internal/artifactfilter"
+import "github.com/anatolykoptev/vaelor/internal/artifactfilter"
 
 // IsCompiledArtifact returns true when filePath looks like a build output
 // that should be excluded from coupling and other source-level analyses.

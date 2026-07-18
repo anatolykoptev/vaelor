@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/forge"
 )
 
 // resolvePostForge resolves the Forge implementation that should receive a

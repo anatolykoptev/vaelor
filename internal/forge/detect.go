@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/slugparse"
+	"github.com/anatolykoptev/vaelor/internal/slugparse"
 )
 
 // DetectForge infers the ForgeKind from a repository identifier.

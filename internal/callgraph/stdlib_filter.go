@@ -1,6 +1,6 @@
 package callgraph
 
-import gocodescip "github.com/anatolykoptev/go-code/internal/scip"
+import gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 
 // FilterStdlibCalls removes unresolved call edges whose callee name is a
 // known standard-library method/builtin (clone, unwrap, to_string, iter,

@@ -3,7 +3,7 @@ package parser
 import (
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // collectRuneSymbols parses src with the TypeScript grammar and returns KindRune

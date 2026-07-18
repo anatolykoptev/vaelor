@@ -3,7 +3,7 @@ package polyglot
 import (
 	"sort"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 // minLangFiles is the minimum number of source files a language must have

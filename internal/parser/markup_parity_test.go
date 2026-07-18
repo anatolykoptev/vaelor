@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // Capability-matrix equivalence harness (frontend-parse-parity Phase 3,

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/artifactfilter"
 	"github.com/anatolykoptev/go-kit/score"
+	"github.com/anatolykoptev/vaelor/internal/artifactfilter"
 )
 
 // crossCoChangeGitTimeout bounds each per-repo git log.

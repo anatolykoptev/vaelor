@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/sourcemap"
 	"github.com/anatolykoptev/go-kit/ratelimit"
+	"github.com/anatolykoptev/vaelor/internal/sourcemap"
 )
 
 // resolveRequest is the JSON body for POST /resolve.

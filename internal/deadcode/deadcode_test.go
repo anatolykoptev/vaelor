@@ -3,8 +3,8 @@ package deadcode
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestAnalyzeFiltersDead creates 3 symbols (helper, used, main) with 1 edge

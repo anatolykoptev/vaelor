@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
 )
 
 // checkCache returns existing fresh meta, nil+nil when rebuild is needed, or

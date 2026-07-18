@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

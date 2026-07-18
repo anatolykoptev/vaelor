@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/designmd"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/designmd"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // Shared benign fixtures for the increment-2 XML formatter equivalence goldens.

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // bodySearchMaxResults caps the number of matches fetched per ox-codes query

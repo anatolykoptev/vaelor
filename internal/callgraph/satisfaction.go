@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // implementsLoadTimeout bounds the synchronous go/packages load used to compute

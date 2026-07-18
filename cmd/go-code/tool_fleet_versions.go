@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/fleet/docker"
-	"github.com/anatolykoptev/go-code/internal/fleet/ssh"
-	"github.com/anatolykoptev/go-code/internal/fleet/upstream"
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet/docker"
+	"github.com/anatolykoptev/vaelor/internal/fleet/ssh"
+	"github.com/anatolykoptev/vaelor/internal/fleet/upstream"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

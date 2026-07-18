@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/dozorclient"
+	"github.com/anatolykoptev/vaelor/internal/dozorclient"
 )
 
 func makeServer(t *testing.T, status int, body any, checkFn func(r *http.Request)) *httptest.Server {

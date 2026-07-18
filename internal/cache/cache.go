@@ -12,7 +12,7 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // Default cache sizes.

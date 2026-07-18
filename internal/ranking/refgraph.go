@@ -1,6 +1,6 @@
 package ranking
 
-import "github.com/anatolykoptev/go-code/internal/parser"
+import "github.com/anatolykoptev/vaelor/internal/parser"
 
 // RefGraphInput provides data for building the file-level reference graph.
 type RefGraphInput struct {

@@ -3,7 +3,7 @@ package deadcode
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // pythonDunderMethods are Python magic methods called implicitly by the runtime.

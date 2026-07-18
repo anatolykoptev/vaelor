@@ -1,5 +1,5 @@
 // Package scip provides utilities for reading and processing SCIP code intelligence indexes.
-// Import alias: gocodescip "github.com/anatolykoptev/go-code/internal/scip"
+// Import alias: gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 package scip
 
 import (

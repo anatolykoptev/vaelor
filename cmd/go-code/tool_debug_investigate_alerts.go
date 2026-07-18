@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/promclient"
 )
 
 // runAlertsPhase queries Prometheus /api/v1/alerts, filters firing alerts

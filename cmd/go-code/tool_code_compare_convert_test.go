@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 // TestConvertArchMetrics_Approximate verifies that convertArchMetrics omits

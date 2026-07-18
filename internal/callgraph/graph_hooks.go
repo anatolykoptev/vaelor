@@ -3,7 +3,7 @@ package callgraph
 import (
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // HookRoute is a minimal representation of a WordPress hook route used by

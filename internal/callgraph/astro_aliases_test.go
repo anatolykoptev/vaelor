@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // writeTSConfig writes a minimal tsconfig.json into dir with the given content.

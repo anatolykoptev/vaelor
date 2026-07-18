@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
 )
 
 // Sentinel errors. Callers use errors.Is to distinguish error classes.

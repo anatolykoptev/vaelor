@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/anatolykoptev/go-code/internal/pgutil"
+	"github.com/anatolykoptev/vaelor/internal/pgutil"
 )
 
 //go:embed schema.sql

@@ -3,9 +3,9 @@ package codegraph
 import (
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/importresolve"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/strutil"
+	"github.com/anatolykoptev/vaelor/internal/importresolve"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // buildImportsGraph creates IMPORTS edges and external Package vertices from

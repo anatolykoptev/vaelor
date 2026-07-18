@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-kit/rerank"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // TestDedupByFileSymbol_CollapsesIdenticalKey verifies that two SearchResults

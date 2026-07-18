@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
 )
 
 // TestImpactAnalysis_AstroComponent builds a CallGraph with a UsesIndex

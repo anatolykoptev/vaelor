@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/freshness"
-	"github.com/anatolykoptev/go-code/internal/semhealth"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/semhealth"
 )
 
 // healthSnapshotResult bundles the snapshot and resolved focus flags.

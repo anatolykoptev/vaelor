@@ -2,7 +2,7 @@
 // team rules against a review.DeltaResult.
 package policy
 
-import "github.com/anatolykoptev/go-code/internal/review"
+import "github.com/anatolykoptev/vaelor/internal/review"
 
 // Policy is the parsed team policy.
 type Policy struct {

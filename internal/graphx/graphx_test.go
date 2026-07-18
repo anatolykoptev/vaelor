@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
 )
 
 // Compile-time interface satisfaction checks (mirrored from graphx.go for

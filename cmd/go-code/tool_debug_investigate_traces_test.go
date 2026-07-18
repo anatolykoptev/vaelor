@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/jaegerclient"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/jaegerclient"
 )
 
 // newTagAwareJaegerFake builds an httptest server that differentiates between

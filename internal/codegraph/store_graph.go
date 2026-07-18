@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/anatolykoptev/go-code/internal/pgutil"
+	"github.com/anatolykoptev/vaelor/internal/pgutil"
 )
 
 // EnsureGraph creates the AGE graph if it does not exist and ensures the

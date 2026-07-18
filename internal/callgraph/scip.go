@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/polyglot"
-	gocodescip "github.com/anatolykoptev/go-code/internal/scip"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/polyglot"
+	gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 )
 
 const maxSCIPSourceFiles = 2000

@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
 )
 
 // TestE2E_ReviewPersistToStore_UnderstandReads verifies the composition

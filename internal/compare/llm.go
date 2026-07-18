@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/prompts"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/prompts"
 )
 
 // runLLMAnalysis sends the comparison context to the LLM and parses its response.

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 )
 
 func loadTestPkgs(t *testing.T, dir string) []*goanalysis.TypedEdge {
