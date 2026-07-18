@@ -375,10 +375,10 @@ func TestRunBodyExtractionPhase_OTELLineOnly_ReadsHandlerBody(t *testing.T) {
 // candidate when /host mount is in mappings.
 func TestBuildBodyPathCandidates_BuildPrefix_StripsAndPrependsHostService(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/host", Internal: "/host"}}
-	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings, "")
+	got := buildBodyPathCandidates("/build/cmd/vaelor/webhook_github.go", "vaelor", mappings, "")
 
-	// Must contain the /host/src/go-code/... candidate.
-	want := "/host/src/go-code/cmd/go-code/webhook_github.go"
+	// Must contain the /host/src/vaelor/... candidate.
+	want := "/host/src/vaelor/cmd/vaelor/webhook_github.go"
 	found := false
 	for _, p := range got {
 		if p == want {
@@ -395,9 +395,9 @@ func TestBuildBodyPathCandidates_BuildPrefix_StripsAndPrependsHostService(t *tes
 // /build/<rel> also generates <mapping.Internal>/src/<service>/<rel>.
 func TestBuildBodyPathCandidates_BuildPrefix_MappingInternal(t *testing.T) {
 	mappings := []analyze.PathMapping{{External: "/repos", Internal: "/mnt/repos"}}
-	got := buildBodyPathCandidates("/build/cmd/go-code/webhook_github.go", "go-code", mappings, "")
+	got := buildBodyPathCandidates("/build/cmd/vaelor/webhook_github.go", "vaelor", mappings, "")
 
-	want := "/mnt/repos/src/go-code/cmd/go-code/webhook_github.go"
+	want := "/mnt/repos/src/vaelor/cmd/vaelor/webhook_github.go"
 	found := false
 	for _, p := range got {
 		if p == want {
@@ -416,9 +416,9 @@ func TestBuildBodyPathCandidates_BuildPrefix_MappingInternal(t *testing.T) {
 func TestRunBodyExtractionPhaseWithMappings_BuildPath_ReadsHostFile(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create file at <tmpdir>/src/go-code/cmd/go-code/webhook_github.go
-	rel := "cmd/go-code/webhook_github.go"
-	fullPath := filepath.Join(dir, "src", "go-code", rel)
+	// Create file at <tmpdir>/src/vaelor/cmd/vaelor/webhook_github.go
+	rel := "cmd/vaelor/webhook_github.go"
+	fullPath := filepath.Join(dir, "src", "vaelor", rel)
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestRunBodyExtractionPhaseWithMappings_BuildPath_ReadsHostFile(t *testing.T
 	}
 
 	var diags investigate.Diagnostics
-	result := runBodyExtractionPhaseWithMappings(hyps, 1, "go-code", "", mappings, &diags)
+	result := runBodyExtractionPhaseWithMappings(hyps, 1, "vaelor", "", mappings, &diags)
 
 	if result[0].BodySource == "" {
 		t.Errorf("expected BodySource populated, got empty; warnings: %v", diags.Warnings)

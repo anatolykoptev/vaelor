@@ -65,7 +65,7 @@ var toolTimeouts = map[string]time.Duration{
 }
 
 const (
-	serviceName = "go-code"
+	serviceName = "vaelor"
 	toolCount   = 16
 
 	defaultPort = "8897"

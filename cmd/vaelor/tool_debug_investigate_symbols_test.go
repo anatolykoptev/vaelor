@@ -452,7 +452,7 @@ func TestBuildOpsMap_ParsesCodeFunction(t *testing.T) {
 	traces := []jaegerclient.Trace{
 		buildTraceWithFunction(
 			"webhook",
-			"/build/cmd/go-code/webhook_github.go",
+			"/build/cmd/vaelor/webhook_github.go",
 			"main",
 			"(*githubWebhookHandler).ServeHTTP",
 			float64(25),
@@ -536,7 +536,7 @@ func TestPhase3_SubjectContainsFunction(t *testing.T) {
 	traces := []jaegerclient.Trace{
 		buildTraceWithFunction(
 			"webhook",
-			"/build/cmd/go-code/webhook_github.go",
+			"/build/cmd/vaelor/webhook_github.go",
 			"main",
 			"(*githubWebhookHandler).ServeHTTP",
 			float64(25),
