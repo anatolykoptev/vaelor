@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.41.2](https://github.com/anatolykoptev/vaelor/compare/v1.41.1...v1.41.2) (2026-07-18)
+
+
+### Fixed
+
+* **pgutil:** alertable metric for frozen index marker ([#520](https://github.com/anatolykoptev/vaelor/issues/520)) ([9bc4935](https://github.com/anatolykoptev/vaelor/commit/9bc49350ffcaf28b41be9264d13181618a6f1b64))
+
 ## [1.41.1](https://github.com/anatolykoptev/vaelor/compare/v1.41.0...v1.41.1) (2026-07-18)
 
 
