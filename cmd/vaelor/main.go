@@ -136,10 +136,13 @@ func main() {
 	reg := kitmetrics.NewPrometheusRegistry("gocode")
 	startPrometheusScrape(ctx, slog.Default())
 
-	server := mcp.NewServer(&mcp.Implementation{
+	server := mcpserver.NewServer(&mcp.Implementation{
 		Name:    serviceName,
 		Version: version,
-	}, nil)
+	}, mcpserver.Config{
+		KeepAlive:   30 * time.Second,
+		SchemaCache: mcp.NewSchemaCache(),
+	})
 
 	deps := registerTools(server, cfg, reg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
@@ -229,19 +232,22 @@ func main() {
 	runtimeTimeouts["sparse_backfill"] = cfg.SparseBackfillDeadline
 
 	if err := mcpserver.Run(server, mcpserver.Config{
-		Name:                   serviceName,
-		Version:                version,
-		Port:                   cfg.Port,
-		Context:                ctx,
-		SessionTimeout:         10 * time.Minute,
-		Logger:                 slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
-		MCPLogger:              slog.Default(),
-		MCPReceivingMiddleware: []mcp.Middleware{tracemcpmw.Middleware(serviceName), hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
-		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
-		RESTBridge:             true,
-		Routes:                 combinedRoutes,
-		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"},
-		ToolTimeouts:           runtimeTimeouts,
+		Name:                       serviceName,
+		Version:                    version,
+		Port:                       cfg.Port,
+		Context:                    ctx,
+		KeepAlive:                  30 * time.Second,
+		SchemaCache:                mcp.NewSchemaCache(),
+		DisableLocalhostProtection: true,
+		SessionTimeout:             10 * time.Minute,
+		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
+		MCPLogger:                  slog.Default(),
+		MCPReceivingMiddleware:     []mcp.Middleware{tracemcpmw.Middleware(serviceName), hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
+		Middleware:                 []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
+		RESTBridge:                 true,
+		Routes:                     combinedRoutes,
+		LogSkipPaths:               []string{"/health", "/health/live", "/health/ready", "/metrics"},
+		ToolTimeouts:               runtimeTimeouts,
 		// Return tool results as a single application/json body instead of the go-sdk
 		// default text/event-stream framing. The SSE path puts the entire JSON result
 		// on ONE `data:` line; large results exceed the SSE single-line buffer on the
