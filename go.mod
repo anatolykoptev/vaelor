@@ -6,11 +6,11 @@ toolchain go1.26.4
 
 require (
 	github.com/anatolykoptev/go-kit v0.85.0
-	github.com/anatolykoptev/go-mcpserver v0.15.0
+	github.com/anatolykoptev/go-mcpserver v0.16.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
@@ -33,7 +33,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

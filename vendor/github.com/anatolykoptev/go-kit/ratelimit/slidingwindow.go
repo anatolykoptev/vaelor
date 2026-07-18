@@ -2,7 +2,7 @@ package ratelimit
 
 // SlidingWindow is a Redis-backed sliding-window counter rate limiter.
 //
-// Algorithm (ported from acme-admin internal/admin/rate_limit_redis.go):
+// Algorithm (ported from oxpulse-admin internal/admin/rate_limit_redis.go):
 // Each window is divided into 1-minute buckets. On Allow, the current bucket
 // is incremented and all buckets in the window are summed via GET. If the sum
 // exceeds Limit the call is denied.
