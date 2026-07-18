@@ -88,7 +88,7 @@ originally pinned the JS/TS-family invariant; Phase 5's
 EVERY registered handler (ranging the live `registry` map, `handler.go:73`,
 never a hand-maintained list) so a future multi-language handler cannot
 reintroduce the class silently. `TestJSTSFamily_SymbolLanguageAgreesWithDetector`
-was later removed (parity follow-ups cleanup, `docs/FOLLOWUPS.md`) as fully
+was later removed (parity follow-ups cleanup) as fully
 subsumed by the registry-wide test — `TestRegistryWideSymbolLanguageAgreesWithDetector`
 is now the sole guard for this invariant.
 
@@ -141,7 +141,7 @@ decision 3's discipline) rather than running alongside it.
   the 48-agent / 5-council fleet blast radius was never a breaking-change
   risk.
 - Two deferred consolidations (byte-walker retrofit, shared `parseTree`
-  helper) are recorded in `docs/FOLLOWUPS.md` as separate, right-sized
+  helper) are tracked as separate, right-sized
   follow-ups rather than folded into this arc.
 
 ## Alternatives considered and rejected

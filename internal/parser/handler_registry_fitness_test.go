@@ -15,8 +15,7 @@ import "testing"
 // invariant only for the two handlers Phase 0b, PR #268, happened to fix —
 // tsxLang (.tsx/.jsx) and tsLang (.ts/.js/.mjs/.cjs/.cts/.mts), both routed
 // through the shared applyDetectedSymbolLanguage helper; deleted in the
-// parity follow-ups cleanup as fully subsumed by this test, see
-// docs/FOLLOWUPS.md). A council LOW finding on the PR #268 review noted the
+// parity follow-ups cleanup as fully subsumed by this test). A council LOW finding on the PR #268 review noted the
 // opt-in-by-convention risk: a FUTURE handler that serves more than one
 // canonical language through one shared grammar (the exact shape that
 // produced the Phase 0b mislabel) could reintroduce the class without any
