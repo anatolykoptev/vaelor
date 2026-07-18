@@ -6,7 +6,7 @@ before:
 
 builds:
   - id: go-code
-    main: ./cmd/go-code
+    main: ./cmd/vaelor
     binary: go-code
     env:
       # CGO_ENABLED=1 required for tree-sitter C grammar bindings.
