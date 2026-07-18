@@ -111,7 +111,7 @@ func TestNoBareDataTableDML(t *testing.T) {
 // embeddings.NewStore(agePool)) and the test goes red.
 func TestPoolRoutingInvariant(t *testing.T) {
 	root := repoRoot(t)
-	src, err := os.ReadFile(filepath.Join(root, "cmd", "go-code", "register.go"))
+	src, err := os.ReadFile(filepath.Join(root, "cmd", "vaelor", "register.go"))
 	if err != nil {
 		t.Fatalf("read register.go: %v", err)
 	}

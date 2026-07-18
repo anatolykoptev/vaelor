@@ -17,7 +17,7 @@ RUN go mod download
 # Copy source and build with version from git tag.
 COPY . .
 RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
-    CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o go-code ./cmd/go-code
+    CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o vaelor ./cmd/vaelor
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM golang:1.26.3-alpine
@@ -58,8 +58,8 @@ RUN npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python && \
     chmod +x /usr/local/bin/scip-java
 
 WORKDIR /app
-COPY --from=builder /build/go-code .
+COPY --from=builder /build/vaelor .
 
 EXPOSE 8897
 
-CMD ["./go-code"]
+CMD ["./vaelor"]

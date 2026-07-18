@@ -1,11 +1,11 @@
-BINARY  = bin/go-code
-SERVICE = go-code
+BINARY  = bin/vaelor
+SERVICE = vaelor
 COMPOSE = cd $(HOME)/deploy/example-server && docker compose
 
 .PHONY: build lint fmt-check test test-short govulncheck preflight run deploy clean vendor
 
 build:
-	GOWORK=off CGO_ENABLED=1 go build -mod=readonly -o $(BINARY) ./cmd/go-code
+	GOWORK=off CGO_ENABLED=1 go build -mod=readonly -o $(BINARY) ./cmd/vaelor
 
 fmt-check:
 	@out=$$(GOWORK=off gofmt -l cmd internal eval); \
