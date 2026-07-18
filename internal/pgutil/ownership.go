@@ -7,6 +7,24 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+// ownershipTransferFailedTotal counts failed ALTER TABLE … OWNER TO CURRENT_USER
+// attempts, by table. A nonzero value means the connected role does not own its
+// own tables (e.g. after a superuser-run migration or a restore) — the advisory
+// ownership transfer cannot run, so metadata updates such as the index staleness
+// marker in code_graph_meta silently freeze until ownership is normalized. Alert
+// on any increase so the freeze is never silent (issue #520).
+//
+//	gocode_table_ownership_transfer_failed_total{table="code_graph_meta"} 3
+var ownershipTransferFailedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_table_ownership_transfer_failed_total",
+		Help: "Failed ALTER TABLE OWNER TO CURRENT_USER attempts by table; nonzero means the app role does not own its tables and metadata updates (e.g. the index staleness marker) will freeze.",
+	},
+	[]string{"table"},
 )
 
 // Execer is the minimal pgx surface TransferOwnership needs.
@@ -23,7 +41,9 @@ type Execer interface {
 // SQLSTATE 42501 (insufficient_privilege) and we log a warning instead of
 // returning an error. All other errors are also logged as warnings and
 // swallowed — ownership transfer is advisory; callers must rely on explicit
-// DML grants as the hard guarantee.
+// DML grants as the hard guarantee. Every failure bumps
+// gocode_table_ownership_transfer_failed_total so a persistent ownership
+// mismatch (which silently freezes the index marker) is alertable.
 //
 // logPrefix is prepended to log messages (e.g. "codegraph", "embeddings") so
 // log lines stay attributable to the calling subsystem.
@@ -37,6 +57,7 @@ func TransferOwnership(ctx context.Context, ex Execer, logPrefix, table string) 
 	// CURRENT_USER is a SQL keyword — do NOT replace with a bind parameter.
 	sql := fmt.Sprintf(`ALTER TABLE %s OWNER TO CURRENT_USER`, table) //nolint:gosec // table is always a package-level constant
 	if _, err := ex.Exec(ctx, sql); err != nil {
+		ownershipTransferFailedTotal.WithLabelValues(table).Inc()
 		if isInsufficientPrivilege(err) {
 			slog.Warn(logPrefix+": cannot transfer table ownership (not current owner); "+
 				"ensure explicit DML grants are in place",
