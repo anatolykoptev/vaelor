@@ -694,7 +694,7 @@ v1.0 (Foundation) ✅ ──→ v1.1–v1.4 (Structure) ✅ ──→ v1.5 (Comp
 ### 20.3 Wire in IndexRepo
 - [ ] Replace insertBatches/insertEdgeBatches with BulkCopyInsert
 - [ ] Keep UNWIND fallback for resilience
-- [ ] Benchmark: piter-server (9 files) + memdb (950 files)
+- [ ] Benchmark: a small repo (9 files) + memdb (950 files)
 
 **Deliverable**: code_graph first-build <15s for memdb. Zero Cypher writes. Full Cypher readability preserved.
 

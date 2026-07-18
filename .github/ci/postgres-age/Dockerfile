@@ -1,4 +1,4 @@
-# CI twin of the prod postgres image (krolik-server/postgres-age/Dockerfile):
+# CI twin of the prod postgres image (deploy-config/postgres-age/Dockerfile):
 # PostgreSQL 17 + pgvector (from the base image) + Apache AGE built from
 # source + hypopg. No initdb/ layer — the workflows create the extensions and
 # the app bootstraps its own schema (EnsureSchema / EnsureGraph).

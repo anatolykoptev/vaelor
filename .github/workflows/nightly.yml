@@ -9,7 +9,7 @@ name: nightly
 # Runs on GitHub-hosted `ubuntu-24.04-arm` (free for public repos, arm64
 # parity with prod) with the same vendored postgres+age image as
 # preflight.yml — see that file for the image/readiness/random-port
-# rationale. Moved off the krolik self-hosted runner 2026-07-14.
+# rationale. Moved off the host-a self-hosted runner 2026-07-14.
 
 on:
   schedule:

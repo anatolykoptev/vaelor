@@ -77,7 +77,7 @@ func TestCollect_EmptyDir(t *testing.T) {
 
 // TestCollect_SkipsUnreadableSubdir — walk must not abort when one subdir
 // cannot be entered (permission denied). Real-world repro: data/youtube/
-// in /home/krolik/deploy/krolik-server produced 0 pinned because filepath.Walk
+// in /home/user/deploy/deploy-config produced 0 pinned because filepath.Walk
 // returned the perm-denied error and aborted before reaching siblings.
 func TestCollect_SkipsUnreadableSubdir(t *testing.T) {
 	t.Parallel()

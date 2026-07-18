@@ -13,7 +13,7 @@
 //
 // Environment variables:
 //
-//	SMOKE_REPO   path to a krolik-server checkout (default: ~/deploy/krolik-server)
+//	SMOKE_REPO   path to a deploy-config checkout (default: ~/deploy/deploy-config)
 //	SMOKE_HOST   target URL: "local://" for local docker.sock, "ssh://user@host"
 //	             for a remote host via the SSH driver (default: local://)
 //
@@ -40,12 +40,12 @@ import (
 //
 //	GOWORK=off go test -tags=smoke -run TestSmoke -v -count=1 //     -repo=/path -host=local:// ./internal/fleet/
 //
-// Reads SMOKE_REPO env (default krolik-server) and SMOKE_HOST env (default local://).
+// Reads SMOKE_REPO env (default deploy-config) and SMOKE_HOST env (default local://).
 func TestSmoke(t *testing.T) {
 	t.Parallel()
 	repo := os.Getenv("SMOKE_REPO")
 	if repo == "" {
-		repo = "/home/krolik/deploy/krolik-server"
+		repo = "/home/user/deploy/deploy-config"
 	}
 	hostArg := os.Getenv("SMOKE_HOST")
 	if hostArg == "" {

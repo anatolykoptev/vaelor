@@ -16,7 +16,7 @@ metrics (callers in `understand`, edges in `code_graph`/`dep_graph`,
 blast-radius in `impact_analysis`) under-report Astro components — typically
 to zero callers, even when the component is rendered on every page.
 
-Concrete example (piter.now Astro frontend):
+Concrete example (example.org Astro frontend):
 
 ```astro
 ---
@@ -183,7 +183,7 @@ inner symbol disambiguation needed.
 
 ### 4.5 Performance
 
-Astro files in piter.now: 50–500 LOC, p99 ~2 KB. The scanner is one byte
+Astro files in example.org: 50–500 LOC, p99 ~2 KB. The scanner is one byte
 walk with one branch per `<` — comparable cost to the existing script-tag
 locator (already in `ExtractAstro`). Estimate: <0.5 ms per file on warm
 cache, dominated by the existing tree-sitter parse (~5–20 ms). Total

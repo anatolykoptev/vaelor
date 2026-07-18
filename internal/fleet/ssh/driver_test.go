@@ -39,7 +39,7 @@ func twoContainersJSON() []byte {
 func TestDriver_DisabledByDefault(t *testing.T) {
 	t.Parallel()
 	d := flssh.New()
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err == nil {
 		t.Fatal("want error from disabled driver, got nil")
 	}
@@ -52,7 +52,7 @@ func TestDriver_BasicList(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{stdout: twoContainersJSON()}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestDriver_ComposeLabelPopulatesService(t *testing.T) {
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"com.docker.compose.service=web,com.docker.compose.project=myapp","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestDriver_CreatedAtParse(t *testing.T) {
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":"2024-08-12 14:00:00 +0000 UTC"}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestDriver_CreatedAtZeroString(t *testing.T) {
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestDriver_DigestPin(t *testing.T) {
 	line := `{"ID":"abc","Names":"db","Image":"postgres:16@sha256:abc","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestDriver_FilterServiceExactMatch(t *testing.T) {
 	line3 := `{"ID":"c","Names":"db","Image":"postgres","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line1 + line2 + line3)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{Service: "web"})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{Service: "web"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestDriver_FilterServiceMatchesLabel(t *testing.T) {
 	line2 := `{"ID":"b","Names":"app_db_1","Image":"postgres","State":"running","Labels":"com.docker.compose.service=db","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{stdout: []byte(line1 + line2)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{Service: "api"})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{Service: "api"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestDriver_FilterInvalid_NoExec(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{Service: "web;rm"})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{Service: "web;rm"})
 	if err == nil {
 		t.Fatal("want error for invalid filter, got nil")
 	}
@@ -211,7 +211,7 @@ func TestDriver_NonSSHScheme(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "local", Host: "krolik"}, fleet.Filter{})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "local", Host: "host-a"}, fleet.Filter{})
 	if err == nil {
 		t.Fatal("want error for non-ssh scheme, got nil")
 	}
@@ -224,7 +224,7 @@ func TestDriver_PortFlagPassed(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik", Port: 2222}, fleet.Filter{})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a", Port: 2222}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -254,12 +254,12 @@ func TestDriver_UserFlagInHostArg(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "hully", User: "ubuntu"}, fleet.Filter{})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-c", User: "ubuntu"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if fake.gotHost != "ubuntu@hully" {
-		t.Errorf("host arg: want %q, got %q", "ubuntu@hully", fake.gotHost)
+	if fake.gotHost != "ubuntu@host-c" {
+		t.Errorf("host arg: want %q, got %q", "ubuntu@host-c", fake.gotHost)
 	}
 }
 
@@ -267,7 +267,7 @@ func TestDriver_EmptyStdout(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestDriver_SingleBlankLine(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{stdout: []byte("\n")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestDriver_StdoutOver1MiB(t *testing.T) {
 	bigOutput := make([]byte, 1024*1024+1)
 	fake := &fakeExecer{stdout: bigOutput}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err == nil {
 		t.Fatal("want error for stdout > 1 MiB, got nil")
 	}
@@ -307,7 +307,7 @@ func TestDriver_ExecErrorPropagates(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExecer{err: errors.New("connection refused")}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	_, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err == nil {
 		t.Fatal("want error from exec, got nil")
 	}
@@ -322,10 +322,10 @@ func TestDriver_StderrDiscarded(t *testing.T) {
 	line := `{"ID":"abc","Names":"web","Image":"nginx","State":"running","Labels":"","CreatedAt":""}` + "\n"
 	fake := &fakeExecer{
 		stdout: []byte(line),
-		stderr: []byte("Warning: Permanently added 'krolik' key fingerprint leak"),
+		stderr: []byte("Warning: Permanently added 'host-a' key fingerprint leak"),
 	}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestDriver_StderrDiscarded(t *testing.T) {
 	// None of the image fields should contain stderr content
 	img := imgs[0]
 	for _, field := range []string{img.Container, img.Image, img.Tag, img.Digest, img.Service, img.State} {
-		if strings.Contains(field, "fingerprint") || strings.Contains(field, "krolik") {
+		if strings.Contains(field, "fingerprint") || strings.Contains(field, "host-a") {
 			t.Errorf("field %q contains leaked stderr content", field)
 		}
 	}
@@ -349,7 +349,7 @@ func TestDriver_ParseErrorPerLine_BestEffort(t *testing.T) {
 	garbageLine := "not json at all\n"
 	fake := &fakeExecer{stdout: []byte(validLine + garbageLine)}
 	d := flssh.New(flssh.WithEnabled(true), flssh.WithExecer(fake))
-	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "krolik"}, fleet.Filter{})
+	imgs, err := d.List(context.Background(), fleet.Target{Scheme: "ssh", Host: "host-a"}, fleet.Filter{})
 	if err != nil {
 		t.Fatalf("unexpected error (best-effort: garbage lines are skipped): %v", err)
 	}

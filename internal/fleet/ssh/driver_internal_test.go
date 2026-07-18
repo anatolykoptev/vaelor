@@ -13,7 +13,7 @@ import (
 // produces the classic shape: [(-p N)? -- host remote-cmd...].
 func TestBuildSSHArgv_NoFFlag(t *testing.T) {
 	t.Parallel()
-	host := "krolik"
+	host := "host-a"
 	args := []string{"docker", "ps", "--no-trunc", "--format={{json .}}"}
 	got := buildSSHArgv(host, args, "")
 
@@ -45,7 +45,7 @@ func TestBuildSSHArgv_NoFFlag(t *testing.T) {
 // and no -F is inserted when homeDst is empty.
 func TestBuildSSHArgv_NoFFlag_WithPort(t *testing.T) {
 	t.Parallel()
-	host := "krolik"
+	host := "host-a"
 	args := []string{"-p", "1987", "docker", "ps", "--no-trunc", "--format={{json .}}"}
 	got := buildSSHArgv(host, args, "")
 
@@ -61,7 +61,7 @@ func TestBuildSSHArgv_NoFFlag_WithPort(t *testing.T) {
 // prepends -F <homeDst>/.ssh/config BEFORE any -p and -- flags.
 func TestBuildSSHArgv_FFlag(t *testing.T) {
 	t.Parallel()
-	host := "krolik"
+	host := "host-a"
 	args := []string{"docker", "ps", "--no-trunc", "--format={{json .}}"}
 	homeDst := "/tmp/fleet-ssh-home"
 	got := buildSSHArgv(host, args, homeDst)
@@ -98,7 +98,7 @@ func TestBuildSSHArgv_FFlag(t *testing.T) {
 // are provided, argv shape is: -F <cfg> -p N -- host remote-cmd...
 func TestBuildSSHArgv_FFlag_WithPort(t *testing.T) {
 	t.Parallel()
-	host := "krolik"
+	host := "host-a"
 	args := []string{"-p", "1987", "docker", "ps", "--no-trunc", "--format={{json .}}"}
 	homeDst := "/tmp/fleet-ssh-home"
 	got := buildSSHArgv(host, args, homeDst)

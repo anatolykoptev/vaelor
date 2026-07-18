@@ -16,42 +16,42 @@ func TestValidate(t *testing.T) {
 	}{
 		{
 			name:    "valid basic",
-			args:    []string{"krolik", "docker", "ps", "--no-trunc", "--format={{json .}}"},
+			args:    []string{"host-a", "docker", "ps", "--no-trunc", "--format={{json .}}"},
 			wantErr: false,
 		},
 		{
 			name:    "valid user@host",
-			args:    []string{"ubuntu@hully", "docker", "ps", "--no-trunc", "--format={{json .}}"},
+			args:    []string{"ubuntu@host-c", "docker", "ps", "--no-trunc", "--format={{json .}}"},
 			wantErr: false,
 		},
 		{
 			name:    "valid with -p flag",
-			args:    []string{"-p", "2222", "krolik", "docker", "ps", "--no-trunc", "--format={{json .}}"},
+			args:    []string{"-p", "2222", "host-a", "docker", "ps", "--no-trunc", "--format={{json .}}"},
 			wantErr: false,
 		},
 		{
 			name:    "docker inspect not allowed",
-			args:    []string{"krolik", "docker", "inspect", "abc"},
+			args:    []string{"host-a", "docker", "inspect", "abc"},
 			wantErr: true,
 		},
 		{
 			name:    "rm -rf not allowed",
-			args:    []string{"krolik", "rm", "-rf", "/"},
+			args:    []string{"host-a", "rm", "-rf", "/"},
 			wantErr: true,
 		},
 		{
 			name:    "semicolon in host",
-			args:    []string{"krolik;rm", "docker", "ps", "--no-trunc", "--format={{json .}}"},
+			args:    []string{"host-a;rm", "docker", "ps", "--no-trunc", "--format={{json .}}"},
 			wantErr: true,
 		},
 		{
 			name:    "semicolon in format flag",
-			args:    []string{"krolik", "docker", "ps", "--no-trunc", "--format={{json .}};rm"},
+			args:    []string{"host-a", "docker", "ps", "--no-trunc", "--format={{json .}};rm"},
 			wantErr: true,
 		},
 		{
 			name:    "command substitution in format",
-			args:    []string{"krolik", "docker", "ps", "--format=$(whoami)"},
+			args:    []string{"host-a", "docker", "ps", "--format=$(whoami)"},
 			wantErr: true,
 		},
 		{
@@ -61,7 +61,7 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name:    "only host - too short",
-			args:    []string{"krolik"},
+			args:    []string{"host-a"},
 			wantErr: true,
 		},
 		// Leading-dash host must be rejected — would be interpreted as ssh flag.

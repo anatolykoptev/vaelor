@@ -220,7 +220,7 @@ func main() { _ = add(1, 2) }
 // site that goes through the var instead of the function's own name. This is
 // the exact live-repro shape at internal/callgraph/eager_warm.go:31
 // (`var recordEagerWarmFn = recordEagerWarm`), which false-dead-flagged
-// recordEagerWarm despite 6 real callers (krolik-server go-code
+// recordEagerWarm despite 6 real callers (deploy-config go-code
 // repo-review-council 2026-07-01.md HIGH finding).
 //
 // This is "fixture (b)" at the goanalysis.Resolve layer — the resolver-level

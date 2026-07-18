@@ -22,7 +22,7 @@
   sensitivity of this feature.**
 - **Date:** 2026-07-02 (review appended 2026-07-04; three resolution/re-review
   rounds appended 2026-07-06)
-- **Arc:** TBD (krolik-canonical plan store — plan not yet cut; this ADR is the
+- **Arc:** TBD (the canonical plan store — plan not yet cut; this ADR is the
   design input to that plan and to the security-cost review that gates Phase 1)
 
 ## Context
@@ -486,9 +486,9 @@ left to implementation time. **The verdict is not changed here** — this is the
 input to a follow-up security-cost re-review.
 
 **Deployment ground truth used throughout.** The deploy target is the
-krolik-server box: an Oracle Cloud **`VM.Standard.A1.Flex`** free-tier shape —
-Ampere Altra (ARM Neoverse-N1), **4 OCPU / 24 GiB**, running the single
-`~/deploy/krolik-server/` docker-compose stack alongside postgres, redis, and
+a small ARM cloud VM —
+**4 vCPU / 24 GiB**, running the single
+`~/deploy/deploy-config/` docker-compose stack alongside postgres, redis, and
 15+ MCP services. It is a **virtual machine, not bare metal**. This single fact
 (a VM, on ARM, with no nested virtualization — see item 1) drives the runtime
 choice.
@@ -513,7 +513,7 @@ isn't available on your shape, use BM for Firecracker"
 practitioner confirms "Oracle's Ampere A1 instances do not support nested
 virtualization or KVM" (dev.to, *How I Secured an Autonomous AI Agent on
 Oracle's Free Tier*). Firecracker therefore **cannot run on
-`VM.Standard.A1.Flex`** at all. It becomes the target only if verify is ever
+that ARM VM** at all. It becomes the target only if verify is ever
 moved to a dedicated `BM.Standard.A1.160` bare-metal host — recorded as the v2
 "target architecture" the review already named, gated on that hardware move.
 
@@ -615,7 +615,7 @@ Mechanism, three layers:
 2. **Network binding — revised after re-review (2026-07-06): a dedicated,
    two-peer network, not the shared project network.** The first draft of this
    decision bound the verifier to "the compose internal network" without
-   specifying *which* — on krolik's actual compose stack that is the single
+   specifying *which* — on the actual compose stack that is the single
    project-wide network shared by postgres, redis, and 15+ other MCP services
    (`~/AGENTS.md` ports table), so "no published host port" stopped an
    off-host attacker but left the verifier reachable **by service alias from
@@ -624,7 +624,7 @@ Mechanism, three layers:
    the *only* remaining barrier instead of defense-in-depth. **Revised
    decision:** Vaelor and the verifier are attached to their own **dedicated
    compose network with `internal: true` and no other service attached** —
-   e.g. a `gocode-verify` network in `~/deploy/krolik-server/compose/*.yml`
+   e.g. a `gocode-verify` network in `~/deploy/deploy-config/compose/*.yml`
    listing only these two services. `internal: true` additionally blocks the
    network from routing to the outside world at all (Docker Compose networking
    docs — internal networks have no default gateway), which is a free
@@ -658,7 +658,7 @@ client cert check alongside the bearer check) and should be adopted then.
 Recorded as a reversible decision, not a permanent one.
 
 **Deferred to implementation time:** token length/generation (recommend ≥32
-bytes from a CSPRNG, provisioned via `~/deploy/krolik-server/.env`); exact
+bytes from a CSPRNG, provisioned via `~/deploy/deploy-config/.env`); exact
 compose service alias and port (next free per `~/AGENTS.md`: `8910+`).
 
 ### 3. Provably secret-free verifier env

@@ -873,8 +873,8 @@ func TestBuildConfig_VirtualModules_NoAstroConsumers(t *testing.T) {
 	}
 	// Definer in packages/pages/src.
 	writeFile("packages/pages/src/integration.ts", `const V = 'virtual:guide/content';`)
-	// Consumer in a DIFFERENT package (apps/piter/src/entry).
-	writeFile("apps/piter/src/entry/home.astro", `import { content } from 'virtual:guide/content';`)
+	// Consumer in a DIFFERENT package (apps/host-b/src/entry).
+	writeFile("apps/host-b/src/entry/home.astro", `import { content } from 'virtual:guide/content';`)
 
 	cfg := importresolve.BuildConfig(tmp)
 	got, ok := cfg.VirtualModules["virtual:guide/content"]

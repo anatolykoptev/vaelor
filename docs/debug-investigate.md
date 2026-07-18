@@ -237,8 +237,8 @@ with one of these statuses:
 
 The motivating bug: **cache-eviction regression on the analytics workers, 2026-05-20**.
 
-Pinned in compose (krolik + 4 worker replicas):
-`redis:7.2.4`. Running on piter via auto-update:
+Pinned in compose (primary + 4 worker replicas):
+`redis:7.2.4`. Running on a secondary host via auto-update:
 `redis:7.4.0`. A `maxmemory-policy` default change interacted badly with the
 workers' cache-warm assumption; the bug existed on 7.4.0 only. Source-level
 config schemas were bit-identical across hosts.
@@ -247,7 +247,7 @@ With Phase 7 wired, the same investigation surfaces:
 
 ```text
 Phase 7 (fleet versions):
-  target: ssh://piter
+  target: ssh://your-host
   - TagDrift: redis pinned 7.2.4 -> running 7.4.0
 ```
 

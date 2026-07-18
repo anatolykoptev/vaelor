@@ -2,7 +2,7 @@ name: preflight
 
 # Pre-merge build/test gate. Runs on GitHub-hosted `ubuntu-24.04-arm` — free
 # unlimited minutes for public repos, and arm64 matches the ARM prod boxes
-# this code deploys to. Moved off the krolik self-hosted runner 2026-07-14:
+# this code deploys to. Moved off the host-a self-hosted runner 2026-07-14:
 # a public repo's CI on a prod box is a fork-PR exposure by construction,
 # and CI contended with prod services for the box's 4 cores. GitHub-hosted
 # runners sandbox every job in a throwaway VM, so the old same-repo fork
@@ -18,7 +18,7 @@ name: preflight
 #
 # The job builds the SAME image shape prod runs — PostgreSQL 17 + pgvector +
 # Apache AGE, vendored at .github/ci/postgres-age/Dockerfile (mirror of
-# krolik-server/postgres-age/Dockerfile) — through a buildx GHA cache, so the
+# deploy-config/postgres-age/Dockerfile) — through a buildx GHA cache, so the
 # AGE source compile only happens on a cache miss (~5 min cold, seconds warm).
 # It is started with the same `-c shared_preload_libraries=age,pg_stat_statements`
 # flag prod uses — AGE requires server-side preload for its operators/types,

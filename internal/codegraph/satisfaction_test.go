@@ -154,7 +154,7 @@ func keysOf(m map[string]struct{}) []string {
 }
 
 // TestAGEGraphMissesHomonymousPkgVarMethodCall is the P0/P2a regression fixture
-// (a) for BUG A (krolik-server go-code repo-review-council report, reviews/
+// (a) for BUG A (deploy-config go-code repo-review-council report, reviews/
 // repo-council/2026-07-01.md, HIGH finding): "Dead-code + code-health emit false
 // 'dead' verdicts for functions reachable only via package-level var dispatch."
 //
@@ -315,7 +315,7 @@ func callsEdgeSummary(edges []edgeData) []string {
 }
 
 // TestAGEGraphMissesVarFuncBindingCallee is the P3 regression fixture (b) for
-// BUG A (krolik-server go-code repo-review-council report, reviews/repo-council/
+// BUG A (deploy-config go-code repo-review-council report, reviews/repo-council/
 // 2026-07-01.md, HIGH finding): "dead_code (focus=internal/callgraph)
 // tier=enhanced flags recordEagerWarm as high-confidence dead... though invoked
 // 6x via `var recordEagerWarmFn = recordEagerWarm`" — the exact real shape at

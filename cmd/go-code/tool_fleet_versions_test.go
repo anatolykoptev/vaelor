@@ -248,7 +248,7 @@ func TestFleetVersions_SSHDisabled(t *testing.T) {
 	}
 	t.Cleanup(func() { buildFleetRegistry = orig })
 
-	result := callHandler(t, cfg, FleetVersionsInput{Host: "ssh://krolik"})
+	result := callHandler(t, cfg, FleetVersionsInput{Host: "ssh://host-a"})
 	if result.IsError {
 		t.Fatal("expected soft-fail (TargetReport.Error), not tool-level error")
 	}
@@ -279,7 +279,7 @@ func TestFleetVersions_SSHEnabled_FakeProbe(t *testing.T) {
 			},
 		},
 	))
-	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{Host: "ssh://krolik"}))
+	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{Host: "ssh://host-a"}))
 
 	if len(out.Targets) != 1 {
 		t.Fatalf("Targets len=%d; want 1", len(out.Targets))
@@ -310,7 +310,7 @@ func TestFleetVersions_InvalidServiceFilter(t *testing.T) {
 func TestFleetVersions_InvalidHostScheme(t *testing.T) {
 	injectRegistry(t, buildTestFleetRegistry(&fakeDockerProbe{}, nil))
 
-	result := callHandler(t, defaultFleetCfg(), FleetVersionsInput{Host: "http://krolik"})
+	result := callHandler(t, defaultFleetCfg(), FleetVersionsInput{Host: "http://host-a"})
 	if !result.IsError {
 		t.Error("expected IsError=true for unsupported scheme")
 	}
@@ -496,11 +496,11 @@ func TestFleetVersions_HostsWinsOverHost(t *testing.T) {
 		&fakeSSHProbe{},
 	))
 	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{
-		Host:  "ssh://krolik",
+		Host:  "ssh://host-a",
 		Hosts: []string{"local://"},
 	}))
 
-	// Hosts wins: should probe "local://" not "ssh://krolik"
+	// Hosts wins: should probe "local://" not "ssh://host-a"
 	if len(out.Targets) != 1 {
 		t.Fatalf("Targets len=%d; want 1", len(out.Targets))
 	}
@@ -534,8 +534,8 @@ func TestFleetVersions_MultiHost_TwoTargets(t *testing.T) {
 
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
-			"krolik": {{Container: "app", Image: "myapp", Tag: "v1", State: "running"}},
-			"piter":  {{Container: "app", Image: "myapp", Tag: "v2", State: "running"}},
+			"host-a": {{Container: "app", Image: "myapp", Tag: "v1", State: "running"}},
+			"host-b":  {{Container: "app", Image: "myapp", Tag: "v2", State: "running"}},
 		},
 	}
 
@@ -549,7 +549,7 @@ func TestFleetVersions_MultiHost_TwoTargets(t *testing.T) {
 	t.Cleanup(func() { buildFleetRegistry = orig })
 
 	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{
-		Hosts: []string{"ssh://krolik", "ssh://piter"},
+		Hosts: []string{"ssh://host-a", "ssh://host-b"},
 	}))
 
 	if len(out.Targets) != 2 {
@@ -560,7 +560,7 @@ func TestFleetVersions_MultiHost_TwoTargets(t *testing.T) {
 	for _, tr := range out.Targets {
 		targetSet[tr.Target] = true
 	}
-	if !targetSet["ssh://krolik"] || !targetSet["ssh://piter"] {
+	if !targetSet["ssh://host-a"] || !targetSet["ssh://host-b"] {
 		t.Errorf("expected both targets; got %v", targetSet)
 	}
 }
@@ -573,8 +573,8 @@ func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
 
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
-			"krolik": {{Container: "minio", Image: "minio/minio", Tag: "latest", State: "running"}},
-			"piter":  {{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
+			"host-a": {{Container: "minio", Image: "minio/minio", Tag: "latest", State: "running"}},
+			"host-b":  {{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
 		},
 	}
 
@@ -588,7 +588,7 @@ func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
 	t.Cleanup(func() { buildFleetRegistry = orig })
 
 	out := parseOutput(t, callHandler(t, cfg, FleetVersionsInput{
-		Hosts: []string{"ssh://krolik", "ssh://piter"},
+		Hosts: []string{"ssh://host-a", "ssh://host-b"},
 	}))
 
 	if len(out.SiblingDrifts) != 1 {
@@ -610,8 +610,8 @@ func TestFleetVersions_MultiHost_SoftFailPerTarget(t *testing.T) {
 
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
-			"krolik": {{Container: "web", Image: "nginx", Tag: "1.27", State: "running"}},
-			// piter is not in the map → returns nil/nil → success but empty
+			"host-a": {{Container: "web", Image: "nginx", Tag: "1.27", State: "running"}},
+			// host-b is not in the map → returns nil/nil → success but empty
 		},
 	}
 
@@ -625,7 +625,7 @@ func TestFleetVersions_MultiHost_SoftFailPerTarget(t *testing.T) {
 	t.Cleanup(func() { buildFleetRegistry = orig })
 
 	result := callHandler(t, cfg, FleetVersionsInput{
-		Hosts: []string{"ssh://krolik", "ssh://piter"},
+		Hosts: []string{"ssh://host-a", "ssh://host-b"},
 	})
 
 	// Must NOT be a tool-level error.

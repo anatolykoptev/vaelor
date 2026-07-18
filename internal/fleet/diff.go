@@ -303,7 +303,7 @@ type SiblingDriftRow struct {
 // SiblingVariant is one row inside a SiblingDriftRow — a single host's view
 // of the image.
 type SiblingVariant struct {
-	Target    string `json:"target"` // the TargetReport.Target string (e.g. "ssh://piter")
+	Target    string `json:"target"` // the TargetReport.Target string (e.g. "ssh://host-b")
 	Tag       string `json:"tag"`
 	Digest    string `json:"digest,omitempty"`
 	Container string `json:"container,omitempty"` // container name on that target

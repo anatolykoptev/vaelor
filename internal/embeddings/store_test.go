@@ -16,7 +16,7 @@ import (
 // plain `go test ./internal/embeddings/...` with only the prod DATABASE_URL in
 // the environment produces SKIP lines for DB tests and never touches the prod DB.
 //
-// Hard guard: if the DSN database name is "gocode" (the prod DB name on krolik),
+// Hard guard: if the DSN database name is "gocode" (the prod DB name on host-a),
 // the test fails immediately — the EnsureSchema / DeleteRepo / Upsert calls in
 // these tests run DDL that previously caused ownership of public.code_embeddings
 // and public.code_repo_state to flip from gocode_app → memos (PR #251 incident),

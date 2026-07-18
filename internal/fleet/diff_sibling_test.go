@@ -37,10 +37,10 @@ func TestSiblingDiff_NoDriftReturnsNil(t *testing.T) {
 // TestSiblingDiff_TagDrift: same image, different tags across two hosts → one drift row.
 func TestSiblingDiff_TagDrift(t *testing.T) {
 	t.Parallel()
-	r1 := mockReport("ssh://krolik", []ImageDiff{
+	r1 := mockReport("ssh://host-a", []ImageDiff{
 		{Image: "minio/minio", Runtime: &RuntimeImage{Image: "minio/minio", Tag: "latest"}, Status: DiffMatch},
 	})
-	r2 := mockReport("ssh://piter", []ImageDiff{
+	r2 := mockReport("ssh://host-b", []ImageDiff{
 		{Image: "minio/minio", Runtime: &RuntimeImage{Image: "minio/minio", Tag: "26.5.3"}, Status: DiffMatch},
 	})
 	got := SiblingDiff([]TargetReportLike{r1, r2})

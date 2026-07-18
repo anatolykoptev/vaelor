@@ -34,29 +34,29 @@ func TestParseTarget(t *testing.T) {
 			want:  fleet.Target{Scheme: "docker", Raw: "docker://"},
 		},
 		{
-			input: "ssh://krolik",
-			want:  fleet.Target{Scheme: "ssh", Host: "krolik", Raw: "ssh://krolik"},
+			input: "ssh://host-a",
+			want:  fleet.Target{Scheme: "ssh", Host: "host-a", Raw: "ssh://host-a"},
 		},
 		{
-			input: "ssh://ubuntu@hully",
-			want:  fleet.Target{Scheme: "ssh", User: "ubuntu", Host: "hully", Raw: "ssh://ubuntu@hully"},
+			input: "ssh://ubuntu@host-c",
+			want:  fleet.Target{Scheme: "ssh", User: "ubuntu", Host: "host-c", Raw: "ssh://ubuntu@host-c"},
 		},
 		{
-			input: "ssh://krolik:2222",
-			want:  fleet.Target{Scheme: "ssh", Host: "krolik", Port: 2222, Raw: "ssh://krolik:2222"},
+			input: "ssh://host-a:2222",
+			want:  fleet.Target{Scheme: "ssh", Host: "host-a", Port: 2222, Raw: "ssh://host-a:2222"},
 		},
 		{
-			input: "ssh://ubuntu@hully:2222",
-			want:  fleet.Target{Scheme: "ssh", User: "ubuntu", Host: "hully", Port: 2222, Raw: "ssh://ubuntu@hully:2222"},
+			input: "ssh://ubuntu@host-c:2222",
+			want:  fleet.Target{Scheme: "ssh", User: "ubuntu", Host: "host-c", Port: 2222, Raw: "ssh://ubuntu@host-c:2222"},
 		},
 		// error cases
 		{input: "ssh://", wantErr: true},
-		{input: "ssh://krolik:0", wantErr: true},
-		{input: "ssh://krolik:99999", wantErr: true},
-		{input: "ssh://krolik:abc", wantErr: true},
-		{input: "http://krolik", wantErr: true},
+		{input: "ssh://host-a:0", wantErr: true},
+		{input: "ssh://host-a:99999", wantErr: true},
+		{input: "ssh://host-a:abc", wantErr: true},
+		{input: "http://host-a", wantErr: true},
 		{input: "local://something", wantErr: true},
-		{input: "docker://krolik", wantErr: true},
+		{input: "docker://host-a", wantErr: true},
 	}
 
 	for _, tt := range tests {

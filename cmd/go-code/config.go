@@ -314,7 +314,7 @@ type Config struct {
 	// When non-empty (together with FleetSSHHomeDst), the ssh driver copies
 	// ~/.ssh files from this path to a writable directory before exec, so
 	// that the OpenSSH client's strict-mode ownership check passes.
-	// Typical value in the krolik container: /root/.ssh (the bind-mounted host ~/.ssh).
+	// Typical value in the host-a container: /root/.ssh (the bind-mounted host ~/.ssh).
 	// Env: GOCODE_FLEET_SSH_HOME_SRC (default "" — no shadow-copy)
 	FleetSSHHomeSrc string
 

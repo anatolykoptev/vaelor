@@ -3,7 +3,7 @@
 - **Status:** Accepted (Phases 0a-3 shipped; Phase 4 deferred/operator-gated)
 - **Date:** 2026-07-01
 - **Arc:** `plans/go-code/2026-06-30-frontend-parse-parity-react-svelte-astro.md`
-  (krolik-canonical plan store; PRs #267-#271, this Phase-5 PR)
+  (the canonical plan store; PRs #267-#271, this Phase-5 PR)
 
 ## Context
 

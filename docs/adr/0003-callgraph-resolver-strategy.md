@@ -76,7 +76,7 @@ Both non-fatal failures are metrics: `gocode_callgraph_gotypes_fallback_total{re
 - Fitness functions are in place:
   - `internal/goanalysis/cached_loader_ctx_budget_test.go` proves cache reuse and per-caller deadline isolation.
   - `internal/goanalysis/resolver_hardred_test.go` (var-func-binding and method-value aliases) and `internal/codegraph/satisfaction_test.go` (AGE-graph typed enrichment) are permanent regression guards.
-  - The `gocode_agegraph_typed_enrich_total{result="applied"}` / `degraded` SLO alert is the live operational guard. It lives in `deploy/krolik-server/config/prometheus/` and will be added in a separate deploy-config PR.
+  - The `gocode_agegraph_typed_enrich_total{result="applied"}` / `degraded` SLO alert is the live operational guard. It lives in `deploy/deploy-config/config/prometheus/` and will be added in a separate deploy-config PR.
 
 ## Alternatives considered and rejected
 

@@ -26,7 +26,7 @@ import (
 //
 // Run:
 //
-//	DUP_TEST_DSN=... DUP_TEST_REPO_KEY=code_72f78056 DUP_TEST_ROOT=/home/krolik/src/go-code \
+//	DUP_TEST_DSN=... DUP_TEST_REPO_KEY=code_72f78056 DUP_TEST_ROOT=/home/user/src/go-code \
 //	  GOWORK=off CGO_ENABLED=1 go test -tags=integration -run TestDupFPClasses -v \
 //	  ./internal/semhealth/...
 func TestDupFPClasses(t *testing.T) {

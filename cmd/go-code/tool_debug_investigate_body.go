@@ -223,7 +223,7 @@ func buildBodyPathCandidates(file string, service string, mappings []analyze.Pat
 				add(filepath.Join("/host", file))
 				// Service-aware: /host/src/<service>/<rel> covers our
 				// convention where each service repo lives under
-				// /home/krolik/src/<service-name>/. Rust file!() emits
+				// /home/user/src/<service-name>/. Rust file!() emits
 				// CARGO_MANIFEST_DIR-relative; we need to anchor it to
 				// the actual on-disk repo path inside the /host mount.
 				if service != "" {

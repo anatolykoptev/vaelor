@@ -12,7 +12,7 @@ import (
 )
 
 // Memory thresholds for graph build gating.
-// Tuned for the krolik production box: 4-core ARM, 24GB RAM, ~15 containers.
+// Tuned for the host-a production box: 4-core ARM, 24GB RAM, ~15 containers.
 // The build itself uses ~200MB Go-heap + postgres working set for AGE inserts.
 // With 3GB floor we leave headroom for other containers and the OS page cache.
 const (

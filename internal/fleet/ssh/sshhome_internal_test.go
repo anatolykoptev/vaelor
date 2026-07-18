@@ -174,7 +174,7 @@ func TestRewriteSSHConfigPaths_TildeAndHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(sshDir, "config")
-	content := `Host krolik
+	content := `Host host-a
   HostName 127.0.0.1
   IdentityFile ~/.ssh/id_ed25519
   UserKnownHostsFile $HOME/.ssh/known_hosts

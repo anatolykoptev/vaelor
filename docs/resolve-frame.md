@@ -11,7 +11,7 @@ Built on [`github.com/go-sourcemap/sourcemap`](https://github.com/go-sourcemap/s
 ## Configuration
 
 ```
-SOURCEMAP_ALLOWED_HOSTS=app.example.com,piter.now
+SOURCEMAP_ALLOWED_HOSTS=app.example.com,example.org
 ```
 
 `SOURCEMAP_ALLOWED_HOSTS` is a comma-separated list of hostnames that `resolve_frame` and `POST /resolve` are permitted to fetch source maps from. When the env var is empty (default), both the MCP tool and the HTTP endpoint are **disabled** — tool registration is skipped and the route returns 503. This is intentional: fetching arbitrary URLs is a security risk.
@@ -19,10 +19,10 @@ SOURCEMAP_ALLOWED_HOSTS=app.example.com,piter.now
 To enable, set the env var in `compose/search.yml`:
 
 ```yaml
-- SOURCEMAP_ALLOWED_HOSTS=${SOURCEMAP_ALLOWED_HOSTS:-app.example.com,piter.now}
+- SOURCEMAP_ALLOWED_HOSTS=${SOURCEMAP_ALLOWED_HOSTS:-app.example.com,example.org}
 ```
 
-> **Note:** A separate krolik-server PR is needed to add this env var to `compose/search.yml`. It is not included in the Vaelor Phase α PR.
+> **Note:** A separate deploy-config PR is needed to add this env var to `compose/search.yml`. It is not included in the Vaelor Phase α PR.
 
 ## MCP tool
 
