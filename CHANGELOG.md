@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.41.4](https://github.com/anatolykoptev/vaelor/compare/v1.41.3...v1.41.4) (2026-07-18)
+
+
+### Dependencies
+
+* bump go-stt to v0.3.0 ([#525](https://github.com/anatolykoptev/vaelor/issues/525)) ([20f23e2](https://github.com/anatolykoptev/vaelor/commit/20f23e2bc8c3e019cf6388440314d352d2833db7))
+
 ## [1.41.3](https://github.com/anatolykoptev/vaelor/compare/v1.41.2...v1.41.3) (2026-07-18)
 
 
