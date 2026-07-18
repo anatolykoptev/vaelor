@@ -3,8 +3,8 @@ package explore
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestComputeHealth_GoldenInvariant pins the exact output of computeHealth for

@@ -11,7 +11,7 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // fakeL2 is an in-memory implementation of kitcache.L2 for tests.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/envdetect"
+	"github.com/anatolykoptev/vaelor/internal/envdetect"
 )
 
 func writeFile(t *testing.T, path, content string) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/review"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/review"
 )
 
 // handlePushReview runs a delta review on before..after and posts a commit

@@ -4,10 +4,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/deadcode"
-	"github.com/anatolykoptev/go-code/internal/graphx"
-	"github.com/anatolykoptev/go-code/internal/impact"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/deadcode"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/impact"
 )
 
 const (

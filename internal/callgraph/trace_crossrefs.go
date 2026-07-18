@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // injectCrossLangNodes performs a single post-trace pass over all nodes.

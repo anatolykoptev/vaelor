@@ -5,9 +5,9 @@ import (
 	"encoding/xml"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

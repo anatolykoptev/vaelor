@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestCallTrace_NoLLM_NarrativeEmpty verifies that buildCallTraceOutput returns

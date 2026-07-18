@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 )
 
 // makeTagDrift builds a TagDrift ImageDiff with the given pinned/runtime tags.

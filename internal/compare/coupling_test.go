@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 func TestCollectCoupling(t *testing.T) {

@@ -3,7 +3,7 @@ package compare
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/routes"
+	"github.com/anatolykoptev/vaelor/internal/routes"
 )
 
 func TestComputeRouteDiff(t *testing.T) {

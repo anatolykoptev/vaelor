@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 const (

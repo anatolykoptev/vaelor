@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	gocodescip "github.com/anatolykoptev/go-code/internal/scip"
+	gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 )
 
 // TestCacheKey_StableAcrossMtimeChange verifies that changing file mtimes

@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/graphx"
-	"github.com/anatolykoptev/go-code/internal/mcpmeta"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/sparse"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

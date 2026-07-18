@@ -4,8 +4,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // httpHandlerPatterns identify HTTP handler functions by signature.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
 )
 
 // Call depth probing limits.

@@ -3,8 +3,8 @@ package review
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/impact"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/impact"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestGenerateRiskGuidance(t *testing.T) {

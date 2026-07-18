@@ -5,13 +5,13 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/graphx"
-	"github.com/anatolykoptev/go-code/internal/learnings"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
-	"github.com/anatolykoptev/go-code/internal/websearch"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/websearch"
 )
 
 // defaultMaxFileBytes is the default maximum file size for parsing (512 KB).

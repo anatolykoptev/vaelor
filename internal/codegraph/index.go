@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-kit/env"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

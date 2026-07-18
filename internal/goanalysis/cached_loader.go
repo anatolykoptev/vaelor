@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/cache"
 	"golang.org/x/sync/singleflight"
 )
 

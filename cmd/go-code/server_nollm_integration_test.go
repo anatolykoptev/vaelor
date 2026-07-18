@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // noLLMDeps returns Deps with LLMHasKey=false — simulates LLM_API_KEY="".

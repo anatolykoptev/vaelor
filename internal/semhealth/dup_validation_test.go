@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

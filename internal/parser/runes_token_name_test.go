@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestRuneTokenNameNormalization is a table-driven test for the runeTokenName

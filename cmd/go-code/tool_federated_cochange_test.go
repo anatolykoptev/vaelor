@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/coupling"
-	"github.com/anatolykoptev/go-code/internal/federate"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/coupling"
+	"github.com/anatolykoptev/vaelor/internal/federate"
 )
 
 func TestFederatedCoChange_RequiresRepos(t *testing.T) {

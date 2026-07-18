@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TraceFromAGE builds a call trace by querying CALLS edges directly from

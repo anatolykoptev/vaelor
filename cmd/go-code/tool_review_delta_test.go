@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/review"
+	"github.com/anatolykoptev/vaelor/internal/review"
 )
 
 // buildLargeImpacted returns n synthetic impacted symbols with varied

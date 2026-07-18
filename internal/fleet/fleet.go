@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 )
 
 // Ensure pinned is used (imported for ImageDiff.Pinned field type).

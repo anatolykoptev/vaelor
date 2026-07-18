@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/httputil"
+	"github.com/anatolykoptev/vaelor/internal/httputil"
 )
 
 const defaultTimeout = 30 * time.Second

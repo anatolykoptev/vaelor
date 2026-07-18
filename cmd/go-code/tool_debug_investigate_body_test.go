@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 // ---------- extractBodySource ----------

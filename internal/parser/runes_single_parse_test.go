@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestSvelteRunesSingleParsePath is the byte-identical regression guard for the

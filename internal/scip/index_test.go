@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	gocodescip "github.com/anatolykoptev/go-code/internal/scip"
+	gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 )
 
 func TestReadIndex_EmptyFile(t *testing.T) {

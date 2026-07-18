@@ -3,7 +3,7 @@ package codegraph
 import (
 	"strconv"
 
-	"github.com/anatolykoptev/go-code/internal/ranking"
+	"github.com/anatolykoptev/vaelor/internal/ranking"
 )
 
 // edgeWeights defines semantic importance for codegraph edge types used in

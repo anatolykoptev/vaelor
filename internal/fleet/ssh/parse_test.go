@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	flssh "github.com/anatolykoptev/go-code/internal/fleet/ssh"
+	flssh "github.com/anatolykoptev/vaelor/internal/fleet/ssh"
 )
 
 func TestParseDockerPSLine(t *testing.T) {

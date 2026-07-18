@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // File represents a single source file ready for parsing.

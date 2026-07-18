@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/prompts"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/prompts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

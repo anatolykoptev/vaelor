@@ -3,7 +3,7 @@ package tier_test
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/tier"
+	"github.com/anatolykoptev/vaelor/internal/tier"
 )
 
 func TestDetectBasic(t *testing.T) {

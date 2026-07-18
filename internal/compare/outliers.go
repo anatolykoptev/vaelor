@@ -3,7 +3,7 @@ package compare
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // OutlierFunc identifies a single function that holds a maximum metric value.

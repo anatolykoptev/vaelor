@@ -8,8 +8,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/anatolykoptev/go-code/internal/lextoken"
-	"github.com/anatolykoptev/go-code/internal/ranking"
+	"github.com/anatolykoptev/vaelor/internal/lextoken"
+	"github.com/anatolykoptev/vaelor/internal/ranking"
 )
 
 // BM25F arm metrics. Pre-touched at 0 so /metrics always exposes all label

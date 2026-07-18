@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/gitutil"
+	"github.com/anatolykoptev/vaelor/internal/gitutil"
 )
 
 // Discover returns the absolute paths of every immediate subdirectory of

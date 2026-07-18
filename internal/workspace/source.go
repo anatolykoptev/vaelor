@@ -10,9 +10,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 // Source resolves a repo identifier to a usable on-disk path, applying

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/anatolykoptev/go-code/internal/compare"
+import "github.com/anatolykoptev/vaelor/internal/compare"
 
 func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 	resp := xmlCompareResponse{

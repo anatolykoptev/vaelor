@@ -11,11 +11,11 @@ import (
 	xxhash "github.com/cespare/xxhash/v2"
 	sitter "github.com/smacker/go-tree-sitter"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/goutil"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/polyglot"
+	"github.com/anatolykoptev/vaelor/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/goutil"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/polyglot"
 )
 
 // maxFileBytes is the default maximum file size ingested per file (512 KB).

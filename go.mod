@@ -1,4 +1,4 @@
-module github.com/anatolykoptev/go-code
+module github.com/anatolykoptev/vaelor
 
 go 1.26.0
 

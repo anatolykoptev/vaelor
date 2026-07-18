@@ -4,7 +4,7 @@
 package polyglot
 
 import (
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 // RepoStructure describes the detected language layout of a repository.

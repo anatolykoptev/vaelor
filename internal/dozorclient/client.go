@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/httputil"
+	"github.com/anatolykoptev/vaelor/internal/httputil"
 )
 
 // LogLine is a single parsed log entry from the dozor /api/logs response.

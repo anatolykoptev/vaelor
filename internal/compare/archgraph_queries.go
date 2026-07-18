@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
 )
 
 func queryPackageCount(ctx context.Context, store *codegraph.Store, graph string) int {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // RenderMap produces an Aider-style compact text map from the pruned file set.

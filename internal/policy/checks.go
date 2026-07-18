@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/review"
+	"github.com/anatolykoptev/vaelor/internal/review"
 )
 
 func (p *Policy) match(path string) bool {

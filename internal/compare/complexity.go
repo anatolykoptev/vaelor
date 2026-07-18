@@ -1,7 +1,7 @@
 package compare
 
 import (
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // cyclomaticComplexity delegates to parser.Complexity, which is the single

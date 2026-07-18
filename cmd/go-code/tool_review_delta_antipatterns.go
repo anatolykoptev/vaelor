@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // xmlAntiPatternSignals holds structural anti-pattern findings from ast-grep.

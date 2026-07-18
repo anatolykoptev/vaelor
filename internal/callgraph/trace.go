@@ -3,9 +3,9 @@ package callgraph
 import (
 	"context"
 
-	"github.com/anatolykoptev/go-code/internal/graphx"
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 const (

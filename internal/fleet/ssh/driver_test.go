@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	flssh "github.com/anatolykoptev/go-code/internal/fleet/ssh"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	flssh "github.com/anatolykoptev/vaelor/internal/fleet/ssh"
 )
 
 // fakeExecer is a testing seam for Driver.

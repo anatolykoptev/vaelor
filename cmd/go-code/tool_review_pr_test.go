@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/forge"
-	"github.com/anatolykoptev/go-code/internal/learnings"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/policy"
-	"github.com/anatolykoptev/go-code/internal/review"
+	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/policy"
+	"github.com/anatolykoptev/vaelor/internal/review"
 )
 
 // spyPersister implements learningsPersister and records every Upsert call.

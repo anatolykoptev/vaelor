@@ -13,7 +13,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // NodeKind represents the kind of a code symbol extracted from the AST.

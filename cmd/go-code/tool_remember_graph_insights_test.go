@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/learnings"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/learnings"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

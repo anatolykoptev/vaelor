@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
 )
 
 // lowSignalKinds is the set of symbol kinds whose semantic similarity is not

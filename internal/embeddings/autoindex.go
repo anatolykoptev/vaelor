@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/anatolykoptev/go-code/internal/repofind"
+	"github.com/anatolykoptev/vaelor/internal/repofind"
 )
 
 // RepoKeyFunc generates a graph key from a repo root path.

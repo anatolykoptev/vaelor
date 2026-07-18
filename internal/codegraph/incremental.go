@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 // computeChangedFiles compares current file mtimes with stored ones.

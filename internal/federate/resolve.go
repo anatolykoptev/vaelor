@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/gitutil"
-	"github.com/anatolykoptev/go-code/internal/repofind"
+	"github.com/anatolykoptev/vaelor/internal/gitutil"
+	"github.com/anatolykoptev/vaelor/internal/repofind"
 )
 
 // RepoRef identifies one repo in a federated set.

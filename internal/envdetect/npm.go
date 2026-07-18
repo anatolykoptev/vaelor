@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
 )
 
 // npm/yarn/pnpm binary names, selected by lockfile presence in the manifest's

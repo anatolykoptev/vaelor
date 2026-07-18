@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 )
 
 // TestApplyExtras_QualityStatsRendered asserts that QualityStats set on

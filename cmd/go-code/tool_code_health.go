@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/explore"
-	"github.com/anatolykoptev/go-code/internal/freshness"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/explore"
+	"github.com/anatolykoptev/vaelor/internal/freshness"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

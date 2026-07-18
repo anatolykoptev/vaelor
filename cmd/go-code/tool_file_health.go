@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/biomarkers"
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/mcpmeta"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/biomarkers"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

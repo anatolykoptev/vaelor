@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/graphx"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // Blast radius classification thresholds.

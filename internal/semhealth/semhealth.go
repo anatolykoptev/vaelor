@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // SimilarPairFinder abstracts the pgvector self-join query so Analyze can be

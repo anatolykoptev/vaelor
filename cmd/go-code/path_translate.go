@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 // reversePathMapping converts a container-internal path back to its host-side

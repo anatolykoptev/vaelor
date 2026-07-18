@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/goanalysis"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 )
 
 // loadSats loads a temp module from src and returns its computed satisfactions.

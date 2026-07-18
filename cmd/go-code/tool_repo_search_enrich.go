@@ -8,8 +8,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/forge"
 )
 
 // forgeAPIRepoHits calls SearchRepos on all configured forges and aggregates hits.

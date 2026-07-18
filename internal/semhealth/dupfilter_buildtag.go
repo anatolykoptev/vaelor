@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // maxConstraintHeaderBytes bounds how far into a file we scan for the build

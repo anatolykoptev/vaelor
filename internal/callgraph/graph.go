@@ -4,9 +4,9 @@ package callgraph
 import (
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 
-	"github.com/anatolykoptev/go-code/internal/strutil"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // CallEdge is a resolved (or unresolved) call from one function to another.

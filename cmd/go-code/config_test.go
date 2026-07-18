@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 )
 
 // TestLoadConfig_InvalidFusionMode rejects ANALYZE_RANK_FUSION_MODE values

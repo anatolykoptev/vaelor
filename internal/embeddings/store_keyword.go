@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/lextoken"
+	"github.com/anatolykoptev/vaelor/internal/lextoken"
 )
 
 // FileLineHit is a file path + line number from keyword search.

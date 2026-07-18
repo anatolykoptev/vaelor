@@ -3,7 +3,7 @@ package callgraph
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // TestResolveTemplateRefs_SvelteScriptImport mirrors the Astro relative-import

@@ -30,10 +30,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/fleet/docker"
-	"github.com/anatolykoptev/go-code/internal/fleet/ssh"
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet/docker"
+	"github.com/anatolykoptev/vaelor/internal/fleet/ssh"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 )
 
 // Run with:

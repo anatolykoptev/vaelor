@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/anatolykoptev/go-code/internal/ranking"
+	"github.com/anatolykoptev/vaelor/internal/ranking"
 )
 
 // FusionMode selects the multi-signal combination strategy used by

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/httputil"
+	"github.com/anatolykoptev/vaelor/internal/httputil"
 )
 
 // httpTimeout is a generous ceiling: a cold ast-grep structural search on a

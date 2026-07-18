@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/graphx"
 )
 
 // highSurpriseThreshold is the minimum surprise score that triggers a

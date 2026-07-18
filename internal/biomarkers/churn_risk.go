@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 // batchCreationCacheKey is the context value used by ScoreFile callers to

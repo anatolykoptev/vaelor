@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/codesearch"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/codesearch"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

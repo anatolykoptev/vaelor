@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // ExtractTestedByEdges creates TESTED_BY edges mapping test functions to tested symbols.

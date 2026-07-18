@@ -3,7 +3,7 @@ package fleet_test
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
 )
 
 func TestParseImageRef(t *testing.T) {

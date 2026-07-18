@@ -3,8 +3,8 @@ package compare
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/langutil"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // isTestFile reports whether a file path looks like a test file.

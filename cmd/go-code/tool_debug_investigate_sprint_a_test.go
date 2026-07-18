@@ -16,9 +16,9 @@ import (
 
 	"github.com/anatolykoptev/go-kit/llm"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/promclient"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/promclient"
 )
 
 // ---- Sprint A.1: parallel Prom queries ----

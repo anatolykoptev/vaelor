@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 type securityResult struct {

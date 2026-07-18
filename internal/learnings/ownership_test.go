@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/pgutil/pgtest"
+	"github.com/anatolykoptev/vaelor/internal/pgutil/pgtest"
 )
 
 // TestNew_TransfersOwnershipAfterRestore reproduces the prod failure class

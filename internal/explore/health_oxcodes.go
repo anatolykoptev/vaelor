@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // oxCodesHealthMaxResults caps how many search hits each health probe collects.

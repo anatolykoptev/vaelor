@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // FileParseResult holds the outcome of parsing a single file: the raw bytes,

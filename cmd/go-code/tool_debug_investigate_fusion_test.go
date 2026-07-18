@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 func TestRunFusionRank_MergesSignals(t *testing.T) {

@@ -8,11 +8,11 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
-	"github.com/anatolykoptev/go-code/internal/polyglot"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/polyglot"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

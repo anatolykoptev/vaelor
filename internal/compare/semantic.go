@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
 	"github.com/anatolykoptev/go-kit/embed"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // semanticMatchThreshold is the minimum cosine similarity for a semantic match.

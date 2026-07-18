@@ -3,7 +3,7 @@ package deadcode
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // cppSpecialMethods are C++ methods called implicitly by the compiler/runtime.

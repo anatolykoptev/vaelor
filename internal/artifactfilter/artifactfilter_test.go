@@ -3,7 +3,7 @@ package artifactfilter_test
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/artifactfilter"
+	"github.com/anatolykoptev/vaelor/internal/artifactfilter"
 )
 
 func TestIsCompiledArtifact_ServiceWorkers(t *testing.T) {

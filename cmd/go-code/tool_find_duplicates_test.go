@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/semhealth"
+	"github.com/anatolykoptev/vaelor/internal/semhealth"
 )
 
 // TestFormatTriage_TierOrdering verifies that exact groups come before very-close,

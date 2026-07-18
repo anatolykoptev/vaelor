@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/compound"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/compound"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

@@ -1,7 +1,7 @@
 package callgraph
 
 import (
-	"github.com/anatolykoptev/go-code/internal/strutil"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

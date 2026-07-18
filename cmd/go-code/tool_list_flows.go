@@ -9,8 +9,8 @@ import (
 	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
 )
 
 // ListFlowsInput is the input schema for the list_flows MCP tool.

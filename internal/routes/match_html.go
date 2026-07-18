@@ -3,7 +3,7 @@ package routes
 import (
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser/preproc"
+	"github.com/anatolykoptev/vaelor/internal/parser/preproc"
 )
 
 // HTMLMatcher extracts htmx HTTP routes from HTML/Go-template files.

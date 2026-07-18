@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // collectQualityStats runs ox-codes dataflow (quality + security) over the

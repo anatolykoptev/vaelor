@@ -3,7 +3,7 @@ package polyglot
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
 )
 
 func TestDetectedLanguages_MultiLang(t *testing.T) {

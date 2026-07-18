@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/lextoken"
+	"github.com/anatolykoptev/vaelor/internal/lextoken"
 )
 
 // ---------------------------------------------------------------------------

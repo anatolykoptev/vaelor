@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/sourcemap"
 	"github.com/anatolykoptev/go-kit/ratelimit"
+	"github.com/anatolykoptev/vaelor/internal/sourcemap"
 )
 
 const resolveTestMap = `{"version":3,"sources":["src/app.svelte"],"names":["onMount"],"mappings":"AAAA,SAASA,SAAS","file":"app.js"}`

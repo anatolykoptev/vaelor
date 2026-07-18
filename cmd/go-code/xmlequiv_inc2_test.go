@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // Increment-2 XML formatter migration: structural-equivalence proofs (migrated

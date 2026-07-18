@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 )
 
 // TestRepoSearch_NoLLM_ReturnsExplicitError verifies that repo_search returns

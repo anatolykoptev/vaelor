@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // HotspotFile is a file identified as a maintenance risk (high churn x high complexity).

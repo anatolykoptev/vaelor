@@ -3,7 +3,7 @@ package ranking
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestBuildRefGraph_CallEdges(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/webanalyze"
+	"github.com/anatolykoptev/vaelor/internal/webanalyze"
 )
 
 func strptr(s string) *string { return &s }

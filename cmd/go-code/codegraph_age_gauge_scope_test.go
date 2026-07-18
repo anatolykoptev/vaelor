@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

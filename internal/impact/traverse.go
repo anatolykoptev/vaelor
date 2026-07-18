@@ -3,8 +3,8 @@ package impact
 import (
 	"path/filepath"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // findTarget returns the first function/method with the given name.

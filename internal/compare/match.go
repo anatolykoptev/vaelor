@@ -1,7 +1,7 @@
 package compare
 
 import (
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // fuzzyThreshold is the minimum name similarity score to accept a fuzzy match.

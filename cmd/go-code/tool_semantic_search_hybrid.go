@@ -8,9 +8,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/anatolykoptev/go-code/internal/codesearch"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/codesearch"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // Keyword-arm observability (BM25F P4).

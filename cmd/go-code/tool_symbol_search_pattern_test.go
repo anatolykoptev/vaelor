@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/oxcodes"
+	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 )
 
 // TestConvertStructuralToSymbols_KeepsExpandedSkipsRest asserts the conversion

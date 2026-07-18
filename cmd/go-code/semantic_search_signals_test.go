@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/codegraph"
-	"github.com/anatolykoptev/go-code/internal/compare"
-	"github.com/anatolykoptev/go-code/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/compare"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

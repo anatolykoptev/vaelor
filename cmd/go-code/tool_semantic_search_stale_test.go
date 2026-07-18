@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/embeddings"
 	"github.com/anatolykoptev/go-kit/embed"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 )
 
 // --- test doubles ---

@@ -12,8 +12,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anatolykoptev/go-code/internal/callgraph"
-	"github.com/anatolykoptev/go-code/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
 )
 
 const (

@@ -9,7 +9,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // TestParseHTMLFile_templateDefine verifies that a single {{define "X"}} block

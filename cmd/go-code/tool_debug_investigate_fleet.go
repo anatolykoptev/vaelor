@@ -11,11 +11,11 @@ import (
 
 	"time"
 
-	"github.com/anatolykoptev/go-code/internal/analyze"
-	"github.com/anatolykoptev/go-code/internal/fleet"
-	"github.com/anatolykoptev/go-code/internal/fleet/upstream"
-	"github.com/anatolykoptev/go-code/internal/investigate"
-	"github.com/anatolykoptev/go-code/internal/polyglot/pinned"
+	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/fleet"
+	"github.com/anatolykoptev/vaelor/internal/fleet/upstream"
+	"github.com/anatolykoptev/vaelor/internal/investigate"
+	"github.com/anatolykoptev/vaelor/internal/polyglot/pinned"
 )
 
 // summaryStatusPriorityOf returns the sort priority for status s using the

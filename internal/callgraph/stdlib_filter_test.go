@@ -3,7 +3,7 @@ package callgraph
 import (
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 func TestFilterStdlibCalls_RemovesUnresolvedStdlib(t *testing.T) {

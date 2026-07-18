@@ -7,11 +7,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anatolykoptev/go-code/internal/cache"
-	"github.com/anatolykoptev/go-code/internal/goutil"
-	"github.com/anatolykoptev/go-code/internal/ingest"
-	"github.com/anatolykoptev/go-code/internal/parser"
-	"github.com/anatolykoptev/go-code/internal/polyglot"
+	"github.com/anatolykoptev/vaelor/internal/cache"
+	"github.com/anatolykoptev/vaelor/internal/goutil"
+	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/polyglot"
 )
 
 // fileParseResult holds the outcome of parsing a single file.

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/anatolykoptev/go-code/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
 // fixtureForExt maps every registered file extension to a representative fixture
