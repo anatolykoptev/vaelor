@@ -535,7 +535,7 @@ func TestFleetVersions_MultiHost_TwoTargets(t *testing.T) {
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
 			"host-a": {{Container: "app", Image: "myapp", Tag: "v1", State: "running"}},
-			"host-b":  {{Container: "app", Image: "myapp", Tag: "v2", State: "running"}},
+			"host-b": {{Container: "app", Image: "myapp", Tag: "v2", State: "running"}},
 		},
 	}
 
@@ -574,7 +574,7 @@ func TestFleetVersions_MultiHost_SiblingDriftDetected(t *testing.T) {
 	fakeSSH := &fakeSSHProbeForHost{
 		perHost: map[string][]fleet.RuntimeImage{
 			"host-a": {{Container: "minio", Image: "minio/minio", Tag: "latest", State: "running"}},
-			"host-b":  {{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
+			"host-b": {{Container: "minio", Image: "minio/minio", Tag: "26.5.3", State: "running"}},
 		},
 	}
 
