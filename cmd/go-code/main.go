@@ -72,10 +72,6 @@ const (
 
 	// workspaceDirPerm is the permission mode for the workspace directory.
 	workspaceDirPerm = 0o750
-
-	// autoIndexTranslateEnv is the environment variable name that enables
-	// PATH_MAPPINGS translation for AUTO_INDEX_DIRS. Default off.
-	autoIndexTranslateEnv = "GO_CODE_AUTOINDEX_TRANSLATE"
 )
 
 func main() {

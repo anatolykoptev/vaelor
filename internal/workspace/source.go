@@ -158,8 +158,8 @@ func RewritePath(path string, mappings []analyze.PathMapping) string {
 //
 // Use this to translate AUTO_INDEX_DIRS (host-side paths from operator config)
 // to container-internal paths before passing them to AutoIndex or EagerWarmRepos.
-// Controlled by GO_CODE_AUTOINDEX_TRANSLATE=true; callers are responsible for
-// checking that env flag before invoking this function.
+// Controlled by AUTOINDEX_TRANSLATE=true (VAELOR_ prefix with GO_CODE_ fallback);
+// callers are responsible for checking that env flag before invoking this function.
 func TranslateDirs(dirs []string, mappings []analyze.PathMapping) []string {
 	if len(mappings) == 0 {
 		return append([]string(nil), dirs...)
