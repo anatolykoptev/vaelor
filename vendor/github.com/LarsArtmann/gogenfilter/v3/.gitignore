@@ -1,0 +1,83 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with 'go test -c'
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+node_modules/
+
+# Go workspace file
+go.work
+
+# Build directories
+/bin/
+/dist/
+/build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+# Lighthouse CI results
+.lighthouseci/
+
+# Website build output
+/website/dist/
+/website/.astro/
+/website/.vercel/
+/website/.netlify/
+
+# Build artifacts
+/gogenfilter
+/md-go-validator-bin
+/go-output/
+/md-go-validator/
+
+# Test coverage
+/coverage
+
+# Sensitive files
+*.db
+
+# Copy/paste detection
+/report/
+/reports/
+
+# Dedup tool artifacts
+.auto-deduplicate/
+.auto-deduplicate.lock
+
+# Templ generated files
+*_templ.go
+
+# Build artifacts
+/v3
+# Copy/paste detection report
+/report/jscpd-report.json
+# Nix build output
+/result

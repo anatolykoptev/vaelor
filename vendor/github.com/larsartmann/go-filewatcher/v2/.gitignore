@@ -1,0 +1,20 @@
+# File watcher library - built\n*.test\ncoverage.out
+# Test coverage
+/coverage
+# Dependencies
+node_modules/
+# Build artifacts
+/go-filewatcher
+filter-generated
+*.test
+# Crush
+.crush/
+Copy/paste detection report
+/report/jscpd-report.json
+# Nix
+.direnv/
+.envrc.local
+# Nix build output
+/result
+# Build artifacts
+/v2
