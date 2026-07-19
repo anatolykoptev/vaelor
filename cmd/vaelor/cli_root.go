@@ -42,6 +42,7 @@ func newRootCmd(cfg Config) *cobra.Command {
 
 	cli.RegisterSubcommand(root, newStatusSubcommand(cfg))
 	cli.RegisterSubcommand(root, newInitSubcommand(cfg))
+	cli.RegisterSubcommand(root, newSearchSubcommand(cfg))
 
 	return root
 }
