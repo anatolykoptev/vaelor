@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.43.0](https://github.com/anatolykoptev/vaelor/compare/v1.42.3...v1.43.0) (2026-07-19)
+
+
+### Added
+
+* **go-kit/cli:** add generic cobra scaffold + MCP config-snippet printer ([#537](https://github.com/anatolykoptev/vaelor/issues/537)) ([190bdfb](https://github.com/anatolykoptev/vaelor/commit/190bdfb83c64c66959afbe81b48102050f418670))
+
 ## [1.42.3](https://github.com/anatolykoptev/vaelor/compare/v1.42.2...v1.42.3) (2026-07-19)
 
 
