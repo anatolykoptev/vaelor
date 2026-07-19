@@ -10,7 +10,6 @@ import (
 
 	"github.com/anatolykoptev/go-kit/cli"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
-	"github.com/anatolykoptev/vaelor/internal/slugparse"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
@@ -45,11 +44,7 @@ func runWipe(cfg Config, args []string, dryRun, confirm bool) {
 		fmt.Fprintln(os.Stderr, "usage: vaelor wipe <owner/repo> [--dry-run] [--confirm]")
 		os.Exit(2)
 	}
-	repoKey, err := slugparse.Parse(args[0])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "wipe: invalid repo slug: %v\n", err)
-		os.Exit(2)
-	}
+	repoKey := args[0]
 
 	fmt.Printf("repo_key: %s\n", repoKey)
 	fmt.Println("tables: code_embeddings, code_repo_state")
