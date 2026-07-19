@@ -16,7 +16,7 @@ github.com/anatolykoptev/go-kit/tracing/httpmw
 github.com/anatolykoptev/go-kit/tracing/mcpmw
 github.com/anatolykoptev/go-kit/tracing/slogh
 github.com/anatolykoptev/go-kit/watcher
-# github.com/anatolykoptev/go-mcpserver v0.16.0
+# github.com/anatolykoptev/go-mcpserver v0.17.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
 # github.com/LarsArtmann/gogenfilter/v3 v3.0.3-0.20260527072437-63f00cf54986
