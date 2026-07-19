@@ -2,6 +2,14 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.46.2](https://github.com/anatolykoptev/vaelor/compare/v1.46.1...v1.46.2) (2026-07-19)
+
+
+### Fixed
+
+* re-vendor to sync modules.txt with go.mod (restore go-kit/cli + watcher) ([affa7c1](https://github.com/anatolykoptev/vaelor/commit/affa7c1b9535edf024b7f287acb55ca9741c677f))
+* remove accidental backup dirs from vendor ([2e4dab2](https://github.com/anatolykoptev/vaelor/commit/2e4dab2b75047fd73f2e81df95c47de9d7d0f671))
+
 ## [1.46.1](https://github.com/anatolykoptev/vaelor/compare/v1.46.0...v1.46.1) (2026-07-19)
 
 
