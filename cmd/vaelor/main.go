@@ -31,6 +31,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/designmd"
+	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
@@ -150,15 +151,10 @@ func runMCPServe(cfg Config) {
 	reg := kitmetrics.NewPrometheusRegistry("gocode")
 	startPrometheusScrape(ctx, slog.Default())
 
-	server := mcpserver.NewServer(&mcp.Implementation{
-		Name:    serviceName,
-		Version: version,
-	}, mcpserver.Config{
-		SchemaCache: mcp.NewSchemaCache(),
-	})
-
-	deps, pipeline := registerTools(server, cfg, reg)
-	slog.Info("tools registered", slog.Int("count", toolCount))
+	var (
+		deps     analyze.Deps
+		pipeline *embeddings.Pipeline
+	)
 
 	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a
 	// background goroutine so it does not block MCP serve. Eliminates the
@@ -176,16 +172,6 @@ func runMCPServe(cfg Config) {
 	}
 	if len(cfg.AutoIndexDirs) > 0 && eager {
 		go callgraph.EagerWarmRepos(ctx, autoIndexDirs(cfg))
-	}
-
-	// Opt-in file watcher (ADR-9): starts a background goroutine that watches
-	// discovered repos for save events and calls Pipeline.IndexFile per
-	// debounced event (ADR-4). Default off — one-way door (security_cost).
-	// Graceful degradation (ADR-16): watcher failure does NOT crash the MCP
-	// server. Reuses the signal.NotifyContext ctx for cancellation so
-	// SIGINT/SIGTERM triggers graceful watcher shutdown.
-	if cfg.WatchEnabled {
-		go startFileWatcher(ctx, cfg, pipeline, reg)
 	}
 
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares
@@ -254,7 +240,10 @@ func runMCPServe(cfg Config) {
 	}
 	runtimeTimeouts["sparse_backfill"] = cfg.SparseBackfillDeadline
 
-	if err := mcpserver.Run(server, mcpserver.Config{
+	if err := mcpserver.Serve(&mcp.Implementation{
+		Name:    serviceName,
+		Version: version,
+	}, mcpserver.Config{
 		Name:                       serviceName,
 		Version:                    version,
 		Port:                       cfg.Port,
@@ -281,6 +270,18 @@ func runMCPServe(cfg Config) {
 		// upstream, fixing the h2 stream-reset that originally motivated JSON.
 		JSONResponse:          false,
 		ToolKeepaliveInterval: 10 * time.Second,
+	}, func(s *mcp.Server) {
+		deps, pipeline = registerTools(s, cfg, reg)
+		slog.Info("tools registered", slog.Int("count", toolCount))
+		// Opt-in file watcher (ADR-9): starts a background goroutine that watches
+		// discovered repos for save events and calls Pipeline.IndexFile per
+		// debounced event (ADR-4). Default off — one-way door (security_cost).
+		// Graceful degradation (ADR-16): watcher failure does NOT crash the MCP
+		// server. Reuses the signal.NotifyContext ctx for cancellation so
+		// SIGINT/SIGTERM triggers graceful watcher shutdown.
+		if cfg.WatchEnabled {
+			go startFileWatcher(ctx, cfg, pipeline, reg)
+		}
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}

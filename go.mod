@@ -2,11 +2,9 @@ module github.com/anatolykoptev/vaelor
 
 go 1.26.0
 
-toolchain go1.26.4
-
 require (
 	github.com/anatolykoptev/go-kit v0.85.0
-	github.com/anatolykoptev/go-mcpserver v0.17.0
+	github.com/anatolykoptev/go-mcpserver v0.18.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible
 	github.com/jackc/pgx/v5 v5.9.2
