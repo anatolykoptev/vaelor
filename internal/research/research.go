@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"sort"
+	"time"
 
 	"github.com/anatolykoptev/go-kit/rerank"
 
@@ -56,6 +58,7 @@ type Deps struct {
 //  4. Token-budget pruning with distance decay
 //  5. Aider-style compact map rendering
 func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
+	t0 := time.Now()
 	if input.Root == "" {
 		return nil, fmt.Errorf("root is required")
 	}
@@ -70,10 +73,15 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}
 
 	// --- Step 1: parse repo + build BM25F scores ---
+	t_analyze := time.Now()
 	data, err := analyze.AnalyzeForResearch(ctx, input.Root, input.Query, input.Language, input.FileGlob, input.IncludeTests, input.IncludeBody, deps.AnalyzeDeps)
 	if err != nil {
 		return nil, fmt.Errorf("analyze: %w", err)
 	}
+	slog.Info("research.run: analyze done",
+		slog.String("root", input.Root),
+		slog.Int("files", len(data.Files)),
+		slog.Duration("elapsed", time.Since(t_analyze)))
 
 	// --- Step 2: collect seed scores from fused ranking ---
 	seedScores := make(map[string]float64, len(data.FusedScores))
@@ -85,6 +93,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	mode := "keyword-only"
 
 	// --- Step 3: semantic search (optional) + RRF fusion ---
+	t_sem := time.Now()
 	var semanticHits []embeddings.SearchResult
 	if deps.EmbedClient != nil && deps.EmbedStore != nil && deps.RepoKey != "" {
 		hits, semMode := runSemanticSeeds(ctx, input, deps)
@@ -103,9 +112,15 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 			seedScores = fuseScores(seedScores, semFileScores)
 		}
 	}
+	slog.Info("research.run: semantic search done",
+		slog.String("root", input.Root),
+		slog.String("mode", mode),
+		slog.Int("semantic_hits", len(semanticHits)),
+		slog.Duration("elapsed", time.Since(t_sem)))
 
 	// --- Step 3.5: pg_trgm symbol name augmentation ---
 	// Finds symbols missed by vector search due to abbreviated names (init->initializes etc.)
+	t_trgm := time.Now()
 	if deps.SymbolSearcher != nil && deps.RepoKey != "" {
 		kws := embeddings.ExtractQueryKeywords(input.Query)
 		if nameHits, err := deps.SymbolSearcher.SearchBySymbolName(ctx, deps.RepoKey, kws, input.Language, 20); err == nil && len(nameHits) > 0 {
@@ -141,6 +156,10 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 			}
 		}
 	}
+	slog.Info("research.run: trgm + pagerank boost done",
+		slog.String("root", input.Root),
+		slog.Int("seed_scores", len(seedScores)),
+		slog.Duration("elapsed", time.Since(t_trgm)))
 
 	// --- Step 4: build seed set ---
 	seedFiles := make(map[string]bool)
@@ -151,6 +170,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 	}
 
 	// --- Step 5: DAG expansion ---
+	t_expand := time.Now()
 	expanded := expandFromSeeds(seedFiles, data.FileImports, input.ExpandHops)
 
 	// --- Step 5b: call-graph BFS expansion (optional) ---
@@ -163,8 +183,14 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 			expanded = mergeExpandResults(expanded, cgExpanded)
 		}
 	}
+	slog.Info("research.run: DAG + callgraph expansion done",
+		slog.String("root", input.Root),
+		slog.Int("seeds", len(seedFiles)),
+		slog.Int("expanded", len(expanded)),
+		slog.Duration("elapsed", time.Since(t_expand)))
 
 	// --- Step 6: filter symbols per file by query terms ---
+	t_filter := time.Now()
 	filteredSymbols := make(map[string][]*parser.Symbol, len(expanded))
 	for _, ex := range expanded {
 		syms := data.FileSymbols[ex.relPath]
@@ -192,8 +218,14 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 			}
 		}
 	}
+	slog.Info("research.run: filter + prune done",
+		slog.String("root", input.Root),
+		slog.Int("kept", len(kept)),
+		slog.Int("pruned", pruned),
+		slog.Duration("elapsed", time.Since(t_filter)))
 
 	// --- Step 8: render map ---
+	t_render := time.Now()
 	codeMap := RenderMap(kept, input.IncludeBody, input.Root)
 	estimatedTokens := estimateMapTokens(codeMap)
 
@@ -237,6 +269,19 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 		}
 		seeds = rerankedSeeds
 	}
+	slog.Info("research.run: render + rerank done",
+		slog.String("root", input.Root),
+		slog.Int("seeds", len(seeds)),
+		slog.Int("estimated_tokens", estimatedTokens),
+		slog.Duration("elapsed", time.Since(t_render)))
+
+	slog.Info("research.run: complete",
+		slog.String("root", input.Root),
+		slog.String("mode", mode),
+		slog.Int("seeds", len(seeds)),
+		slog.Int("kept", len(kept)),
+		slog.Int("pruned", pruned),
+		slog.Duration("total", time.Since(t0)))
 
 	return &Result{
 		Seeds:           seeds,
