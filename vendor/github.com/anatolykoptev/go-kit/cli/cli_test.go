@@ -14,7 +14,7 @@ func TestNewRootHasCommonFlags(t *testing.T) {
 	root := NewRoot(RootConfig{Use: "myapp", Version: "1.2.3"})
 
 	// The --config flag is added explicitly and is available immediately.
-	if got := root.Flags().Lookup("config"); got == nil {
+	if got := root.PersistentFlags().Lookup("config"); got == nil {
 		t.Fatal("root command missing --config flag")
 	}
 
@@ -86,9 +86,10 @@ func TestPrintMCPConfig(t *testing.T) {
 	}
 	out := buf.String()
 
-	for _, want := range []string{"claude mcp add", "myserver", "https://example.com/mcp", "sse"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("PrintMCPConfig output = %q, missing %q", out, want)
-		}
+	// Claude Code requires flags before the server name, so --transport must
+	// precede both the name and the url.
+	want := "claude mcp add --transport sse myserver https://example.com/mcp\n"
+	if out != want {
+		t.Fatalf("PrintMCPConfig output = %q, want %q", out, want)
 	}
 }

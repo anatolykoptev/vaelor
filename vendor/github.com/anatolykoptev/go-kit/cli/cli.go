@@ -38,7 +38,7 @@ func NewRoot(cfg RootConfig) *cobra.Command {
 	if name == "" {
 		name = "config"
 	}
-	root.Flags().String(name, "", "path to config file")
+	root.PersistentFlags().String(name, "", "path to config file")
 	return root
 }
 
@@ -66,5 +66,5 @@ func RegisterSubcommand(root *cobra.Command, sub SubcommandConfig) *cobra.Comman
 // PrintMCPConfig prints a 'claude mcp add' config snippet for the given server
 // name, url and transport to stdout.
 func PrintMCPConfig(name, url, transport string) {
-	fmt.Fprintf(os.Stdout, "claude mcp add %s --transport %s %s\n", name, transport, url)
+	fmt.Fprintf(os.Stdout, "claude mcp add --transport %s %s %s\n", transport, name, url)
 }
