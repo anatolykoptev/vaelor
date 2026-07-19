@@ -1,0 +1,39 @@
+# Composite test-pg image: pgvector + Apache AGE 1.7.0-rc0 + hypopg.
+#
+# Prebuilt twin of .github/ci/postgres-age/Dockerfile — published to GHCR as
+# ghcr.io/anatolykoptev/vaelor-test-pg:pg17-age1.7.0 so the preflight workflow
+# can pull it instead of building from source on every run (~5 min cold build
+# eliminated; pull is ~10s). Mirrors the memdb-test-pg pattern.
+#
+# Build and push manually (or via .github/workflows/docker-publish-test-pg.yml):
+#
+#   docker buildx build --platform linux/arm64,linux/amd64 \
+#     -t ghcr.io/anatolykoptev/vaelor-test-pg:pg17-age1.7.0 \
+#     -t ghcr.io/anatolykoptev/vaelor-test-pg:latest \
+#     -f Dockerfile.test-pg --push .
+#
+# Keep AGE_VERSION in lockstep with prod (deploy-config/postgres-age/Dockerfile)
+# and CI (.github/ci/postgres-age/Dockerfile): a drift here means CI tests a
+# graph engine prod does not run.
+
+FROM pgvector/pgvector:pg17
+
+ARG AGE_VERSION=1.7.0-rc0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    postgresql-server-dev-17 \
+    bison \
+    flex \
+    git \
+    ca-certificates \
+    postgresql-17-hypopg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Apache AGE 1.7.0-rc0 — latest release for PostgreSQL 17
+RUN git clone --branch "PG17/v${AGE_VERSION}" --depth 1 --single-branch \
+    https://github.com/apache/age.git /tmp/age \
+    && cd /tmp/age \
+    && make PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config \
+    && make install PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config \
+    && rm -rf /tmp/age
