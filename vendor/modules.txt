@@ -14,7 +14,7 @@ github.com/anatolykoptev/go-kit/tracing
 github.com/anatolykoptev/go-kit/tracing/httpmw
 github.com/anatolykoptev/go-kit/tracing/mcpmw
 github.com/anatolykoptev/go-kit/tracing/slogh
-# github.com/anatolykoptev/go-mcpserver v0.16.0
+# github.com/anatolykoptev/go-mcpserver v0.17.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
 # github.com/beorn7/perks v1.0.1

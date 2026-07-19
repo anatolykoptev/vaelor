@@ -140,7 +140,6 @@ func main() {
 		Name:    serviceName,
 		Version: version,
 	}, mcpserver.Config{
-		KeepAlive:   30 * time.Second,
 		SchemaCache: mcp.NewSchemaCache(),
 	})
 
@@ -236,7 +235,6 @@ func main() {
 		Version:                    version,
 		Port:                       cfg.Port,
 		Context:                    ctx,
-		KeepAlive:                  30 * time.Second,
 		SchemaCache:                mcp.NewSchemaCache(),
 		DisableLocalhostProtection: true,
 		SessionTimeout:             10 * time.Minute,
@@ -248,15 +246,17 @@ func main() {
 		Routes:                     combinedRoutes,
 		LogSkipPaths:               []string{"/health", "/health/live", "/health/ready", "/metrics"},
 		ToolTimeouts:               runtimeTimeouts,
-		// Return tool results as a single application/json body instead of the go-sdk
-		// default text/event-stream framing. The SSE path puts the entire JSON result
-		// on ONE `data:` line; large results exceed the SSE single-line buffer on the
-		// WAN MCP client and the connection is severed after the 54-byte event prefix
-		// (POST /mcp status=200 bytes=54 in the access log) -> "transport dropped;
-		// response lost". go-code tools are unary request/response (no mid-call progress
-		// notifications), so SSE buys nothing. Clients send Accept: application/json,
-		// text/event-stream, so the json response type is negotiated.
-		JSONResponse: true,
+		// SSE (text/event-stream) mode. Long tool calls (code_research, debug_investigate,
+		// code_graph, etc.) emit no bytes until they finish; in stateless mode the
+		// server can't send ping requests, so a client/proxy idle-timeout would
+		// abandon the call while the server keeps working. Instead,
+		// ToolKeepaliveInterval emits a progress notification on the request
+		// stream every 10s to keep it warm. (The old KeepAlive:30s ping was
+		// inert in stateless mode — rejected, then closed the session at 30s and
+		// truncated the response; removed.) Caddy forces HTTP/1.1 to the
+		// upstream, fixing the h2 stream-reset that originally motivated JSON.
+		JSONResponse:          false,
+		ToolKeepaliveInterval: 10 * time.Second,
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
