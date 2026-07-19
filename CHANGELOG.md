@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.48.0](https://github.com/anatolykoptev/vaelor/compare/v1.47.0...v1.48.0) (2026-07-19)
+
+
+### Added
+
+* **research:** add phase-timer logging to code_research pipeline ([#558](https://github.com/anatolykoptev/vaelor/issues/558)) ([7f3521c](https://github.com/anatolykoptev/vaelor/commit/7f3521c29ea89d9504565f6ad769e3559dadaf3d))
+
 ## [1.47.0](https://github.com/anatolykoptev/vaelor/compare/v1.46.4...v1.47.0) (2026-07-19)
 
 
