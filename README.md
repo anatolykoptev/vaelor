@@ -3,7 +3,7 @@
 **Give your coding agent a memory of the codebase it can't get from grep.**
 
 <p align="center">
-  <img src="docs/hero-demo.gif" width="820" alt="Vaelor understand on ParseFile: before an agent edits a core function it sees the blast radius — the production callers across three packages, the top-1% structural centrality, and the tests that cover it.">
+  <img src="docs/hero-demo.gif" width="820" alt="Vaelor impact on ParseFile: before an agent edits a hot function it sees the real blast radius — HIGH risk, 133 symbols across five packages, the transitive callers, the string references the call graph misses, and the four tests that guard it. Known before the edit, not after CI.">
 </p>
 
 Vaelor is the open-source engine behind [Krolik](https://krolik.tools): a self-hosted [MCP](https://modelcontextprotocol.io/) server that parses, graphs, and watches a codebase so an AI agent doesn't have to re-discover it every session. Tree-sitter AST parsing across 16 languages feeds a call graph with type-aware Go resolution (`go/types`), a persistent Apache AGE knowledge graph, and hybrid semantic search. `review_pr` remembers what broke last time a symbol was reviewed. `debug_investigate` correlates a Prometheus alert and a Jaeger trace back to the function that caused it.
