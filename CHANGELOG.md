@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.47.0](https://github.com/anatolykoptev/vaelor/compare/v1.46.4...v1.47.0) (2026-07-19)
+
+
+### Added
+
+* **ci:** prebuilt vaelor-test-pg GHCR image + switch preflight to pull ([#556](https://github.com/anatolykoptev/vaelor/issues/556)) ([345ecd8](https://github.com/anatolykoptev/vaelor/commit/345ecd8b2e2611cecf30a7ba2fafde6f6b3a91d2))
+
 ## [1.46.4](https://github.com/anatolykoptev/vaelor/compare/v1.46.3...v1.46.4) (2026-07-19)
 
 
