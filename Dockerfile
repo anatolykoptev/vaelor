@@ -17,7 +17,7 @@ RUN go mod download
 # Copy source and build with version from git tag.
 COPY . .
 RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
-    CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o vaelor ./cmd/vaelor
+    CGO_ENABLED=1 go build -mod=vendor -ldflags="-s -w -X main.version=${VERSION}" -o vaelor ./cmd/vaelor
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM golang:1.26.3-alpine
