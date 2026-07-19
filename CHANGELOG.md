@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.45.1](https://github.com/anatolykoptev/vaelor/compare/v1.45.0...v1.45.1) (2026-07-19)
+
+
+### Changed
+
+* **embeddings:** extract Store.WipeRepo + add wipe CLI subcommand ([#543](https://github.com/anatolykoptev/vaelor/issues/543)) ([6f5c593](https://github.com/anatolykoptev/vaelor/commit/6f5c59333d4a125bf7b4baa0d73842a2c0f70705))
+
 ## [1.45.0](https://github.com/anatolykoptev/vaelor/compare/v1.44.0...v1.45.0) (2026-07-19)
 
 
