@@ -158,7 +158,7 @@ func runMCPServe(cfg Config) {
 		SchemaCache: mcp.NewSchemaCache(),
 	})
 
-	deps := registerTools(server, cfg, reg)
+	deps, pipeline := registerTools(server, cfg, reg)
 	slog.Info("tools registered", slog.Int("count", toolCount))
 
 	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a
@@ -177,6 +177,16 @@ func runMCPServe(cfg Config) {
 	}
 	if len(cfg.AutoIndexDirs) > 0 && eager {
 		go callgraph.EagerWarmRepos(ctx, autoIndexDirs(cfg))
+	}
+
+	// Opt-in file watcher (ADR-9): starts a background goroutine that watches
+	// discovered repos for save events and calls Pipeline.IndexFile per
+	// debounced event (ADR-4). Default off — one-way door (security_cost).
+	// Graceful degradation (ADR-16): watcher failure does NOT crash the MCP
+	// server. Reuses the signal.NotifyContext ctx for cancellation so
+	// SIGINT/SIGTERM triggers graceful watcher shutdown.
+	if cfg.WatchEnabled {
+		go startFileWatcher(ctx, cfg, pipeline, reg)
 	}
 
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares

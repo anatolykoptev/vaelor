@@ -89,8 +89,9 @@ func llmCooldownDuration() time.Duration {
 
 // registerTools registers all MCP tool handlers on the server.
 // Each tool has its own file: tool_<name>.go
-// Returns the analyze.Deps for use by other components (e.g., webhook handler).
-func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) analyze.Deps {
+// Returns the analyze.Deps for use by other components (e.g., webhook handler)
+// and the embeddings Pipeline (nil when EMBED_URL is unset) for the file watcher.
+func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) (analyze.Deps, *embeddings.Pipeline) {
 	parseCacheSize := env.Int("PARSE_CACHE_SIZE", cache.DefaultParseCacheSize)
 	llmCacheSize := env.Int("LLM_CACHE_SIZE", cache.DefaultLLMCacheSize)
 	llmCacheTTLMin := env.Int("LLM_CACHE_TTL_MIN", defaultLLMCacheTTL)
@@ -350,7 +351,7 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 	startCodeGraphAgeGaugeWarm(graphStore, autoIndexDirs(cfg))
 	startZeroEmbeddingsCounterWarm(semDeps.Store)
 
-	return deps
+	return deps, semDeps.Pipeline
 }
 
 // startCodeGraphAgeGaugeWarm launches the boot + periodic-ticker goroutine
