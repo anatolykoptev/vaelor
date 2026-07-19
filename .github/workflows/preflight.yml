@@ -62,6 +62,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+          logout: false
       - name: Pull prebuilt postgres+age image
         run: docker pull ghcr.io/anatolykoptev/vaelor-test-pg:pg17-age1.7.0
 
