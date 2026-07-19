@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.44.0](https://github.com/anatolykoptev/vaelor/compare/v1.43.0...v1.44.0) (2026-07-19)
+
+
+### Added
+
+* **go-kit/watcher:** add thin go-filewatcher/v2 adapter with debounce + ignore-dir ([#538](https://github.com/anatolykoptev/vaelor/issues/538)) ([8f2ab6c](https://github.com/anatolykoptev/vaelor/commit/8f2ab6cfb3040561ada4063562c681e5455acc09))
+
 ## [1.43.0](https://github.com/anatolykoptev/vaelor/compare/v1.42.3...v1.43.0) (2026-07-19)
 
 
