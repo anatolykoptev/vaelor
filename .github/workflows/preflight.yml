@@ -16,11 +16,12 @@ name: preflight
 # #251 flipped table ownership on the prod DB — see internal/embeddings/
 # store_test.go). Every DB-gated test t.Skip's cleanly when its var is unset.
 #
-# The job builds the SAME image shape prod runs — PostgreSQL 17 + pgvector +
-# Apache AGE, vendored at .github/ci/postgres-age/Dockerfile (mirror of
-# deploy-config/postgres-age/Dockerfile) — through a buildx GHA cache, so the
-# AGE source compile only happens on a cache miss (~5 min cold, seconds warm).
-# It is started with the same `-c shared_preload_libraries=age,pg_stat_statements`
+# The job uses a PREBUILT composite image — ghcr.io/anatolykoptev/vaelor-test-pg
+# (PostgreSQL 17 + pgvector + Apache AGE 1.7.0-rc0 + hypopg) — published
+# via .github/workflows/docker-publish-test-pg.yml (manual trigger). This
+# eliminates the ~5 min cold AGE source compile that the previous buildx-
+# from-.github/ci/postgres-age/Dockerfile step incurred on cache misses.
+# The image is started with the same `-c shared_preload_libraries=age,pg_stat_statements`
 # flag prod uses — AGE requires server-side preload for its operators/types,
 # verified by codegraph.CheckAGEPreloaded at prod startup.
 #
@@ -44,14 +45,14 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   preflight:
     runs-on: ubuntu-24.04-arm
-    # Gate is ~2m of tests; headroom covers a cold buildx cache (AGE compile)
-    # plus a cold Go module cache without letting a real hang run for
-    # GitHub's 6h default.
-    timeout-minutes: 25
+    # Gate is ~2m of tests; headroom covers a cold Go module cache and a
+    # slow image pull without letting a real hang run for GitHub's 6h default.
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v5
@@ -65,16 +66,8 @@ jobs:
           # fixed in go1.26.5 while go.mod pinned 1.26.4).
           go-version: stable
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build postgres+age image (GHA-cached)
-        uses: docker/build-push-action@v6
-        with:
-          context: .github/ci/postgres-age
-          tags: ci-postgres-age:17
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull prebuilt postgres+age image
+        run: docker pull ghcr.io/anatolykoptev/vaelor-test-pg:pg17-age1.7.0
 
       - name: Start ephemeral postgres+age
         id: pg
@@ -95,7 +88,7 @@ jobs:
             -e POSTGRES_DB=gocode_test \
             --shm-size=512mb \
             -p 127.0.0.1::5432 \
-            ci-postgres-age:17 \
+            ghcr.io/anatolykoptev/vaelor-test-pg:pg17-age1.7.0 \
             postgres -c shared_preload_libraries=age,pg_stat_statements
 
           port=$(docker inspect -f '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "$name")
