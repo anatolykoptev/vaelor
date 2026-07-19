@@ -3,6 +3,8 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/codesearch"
 	"github.com/anatolykoptev/vaelor/internal/goutil"
@@ -44,11 +46,13 @@ type ResearchData struct {
 // It is analogous to AnalyzeRepo but returns structured data instead of a
 // rendered result, so the research package can apply its own ranking/pruning.
 func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob string, includeTests, includeBody bool, deps Deps) (*ResearchData, error) {
+	t0 := time.Now()
 	var langs []string
 	if language != "" {
 		langs = []string{language}
 	}
 
+	t_ingest := time.Now()
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
 		Languages:    langs,
@@ -57,6 +61,10 @@ func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob str
 	if err != nil {
 		return nil, fmt.Errorf("ingest: %w", err)
 	}
+	slog.Info("research.analyze: ingest done",
+		slog.String("root", root),
+		slog.Int("files", len(ir.Files)),
+		slog.Duration("elapsed", time.Since(t_ingest)))
 
 	if !includeTests {
 		filtered := ir.Files[:0]
@@ -79,9 +87,15 @@ func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob str
 		ir.Files = filtered
 	}
 
+	t_parse := time.Now()
 	parseResults := parseFilesParallel(ctx, ir.Files, includeBody, deps.ParseCache)
+	slog.Info("research.analyze: parse done",
+		slog.String("root", root),
+		slog.Int("files", len(ir.Files)),
+		slog.Duration("elapsed", time.Since(t_parse)))
 
 	// Package-level import graph (local packages only).
+	t_graph := time.Now()
 	pkgGraph := buildImportGraph(root, parseResults, false)
 
 	// Map package dir → file relPaths.
@@ -101,16 +115,26 @@ func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob str
 			}
 		}
 	}
+	slog.Info("research.analyze: import graph done",
+		slog.String("root", root),
+		slog.Int("packages", len(pkgFiles)),
+		slog.Duration("elapsed", time.Since(t_graph)))
 
 	// File → symbols map.
+	t_syms := time.Now()
 	fileSymbols := make(map[string][]*parser.Symbol, len(parseResults))
 	for _, pr := range parseResults {
 		if pr.result != nil {
 			fileSymbols[pr.file.RelPath] = pr.result.Symbols
 		}
 	}
+	slog.Info("research.analyze: symbol map done",
+		slog.String("root", root),
+		slog.Int("files_with_symbols", len(fileSymbols)),
+		slog.Duration("elapsed", time.Since(t_syms)))
 
 	// Fused scores (BM25F + Personalized PageRank + exact-match).
+	t_rank := time.Now()
 	queryTerms := extractQueryTerms(query)
 	_, fusedScores := prioritizeFilesWithScores(root, ir.Files, parseResults, queryTerms)
 
@@ -119,6 +143,14 @@ func AnalyzeForResearch(ctx context.Context, root, query, language, fileGlob str
 		repoKey := deps.RepoKeyFunc(root)
 		fusedScores = BoostBySymbolNames(ctx, fusedScores, deps.SymbolBooster, repoKey, query, language)
 	}
+	slog.Info("research.analyze: ranking done",
+		slog.String("root", root),
+		slog.Int("scored_files", len(fusedScores)),
+		slog.Duration("elapsed", time.Since(t_rank)))
+
+	slog.Info("research.analyze: complete",
+		slog.String("root", root),
+		slog.Duration("total", time.Since(t0)))
 
 	return &ResearchData{
 		Root:        root,
