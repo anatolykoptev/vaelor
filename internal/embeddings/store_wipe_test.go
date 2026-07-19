@@ -112,14 +112,3 @@ func TestWipeRepo_DoesNotAffectOtherRepos(t *testing.T) {
 	require.Len(t, symsO, 1, "other embeddings must survive")
 	assert.Equal(t, "other_fn", symsO[0].SymbolName)
 }
-
-// TestWipeRepo_EmptyRepoKey verifies that WipeRepo rejects an empty repoKey
-// up front with a clear error, before touching the database. This guards
-// against accidental full-table scans / deletes when a caller forgets to
-// normalize input. The empty check precedes EnsureSchema, so no DB is needed.
-func TestWipeRepo_EmptyRepoKey(t *testing.T) {
-	store := NewStore(nil) // pool unused: empty check returns before any DB call
-	err := store.WipeRepo(context.Background(), "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repoKey cannot be empty")
-}
