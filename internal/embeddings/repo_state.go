@@ -179,15 +179,11 @@ func (s *Store) InvalidateRepoIfModelChanged(ctx context.Context, repoKey, activ
 		return false, nil
 	}
 	// Model mismatch → purge all embeddings for this repo and reset state.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM public.code_embeddings WHERE repo_key = $1`, repoKey); err != nil {
-		return false, err
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM public.code_repo_state WHERE repo_key = $1`, repoKey); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
+	// Roll back the read-only probe transaction before delegating to WipeRepo,
+	// which opens its own write transaction (nested transactions are not used
+	// here to keep the dual-table DELETE seam single-owner).
+	_ = tx.Rollback(ctx)
+	if err := s.WipeRepo(ctx, repoKey); err != nil {
 		return false, err
 	}
 	return true, nil
