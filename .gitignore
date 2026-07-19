@@ -1,6 +1,6 @@
 # Compiled binary
 bin/
-/go-code
+/vaelor
 
 # Environment files with real secrets
 *.env
