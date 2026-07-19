@@ -2,6 +2,18 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.45.0](https://github.com/anatolykoptev/vaelor/compare/v1.44.0...v1.45.0) (2026-07-19)
+
+
+### Added
+
+* **vaelor/cli:** add cobra root + status/init subcommands, migrate index-designs ([#540](https://github.com/anatolykoptev/vaelor/issues/540)) ([7c03f36](https://github.com/anatolykoptev/vaelor/commit/7c03f3614b55432d83ff70082c6d5f0573c5f1f2))
+
+
+### Changed
+
+* **vaelor/cli:** extract newSemanticDeps + add search subcommand ([#541](https://github.com/anatolykoptev/vaelor/issues/541)) ([20a0fa1](https://github.com/anatolykoptev/vaelor/commit/20a0fa1ba64820de4d42ec6dd7827f8b7a872f29))
+
 ## [1.44.0](https://github.com/anatolykoptev/vaelor/compare/v1.43.0...v1.44.0) (2026-07-19)
 
 
