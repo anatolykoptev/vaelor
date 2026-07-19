@@ -239,56 +239,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) ana
 
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
 	// Created early so tools can use semantic fallback.
-	var semDeps SemanticDeps
-	if cfg.EmbedURL != "" && dataPool != nil {
-		ec, err := newCodeEmbedder(cfg)
-		if err != nil {
-			slog.Warn("embed: code client disabled", slog.Any("error", err))
-		} else {
-			es := embeddings.NewStore(dataPool)
-			var pipelineOpts []embeddings.PipelineOpt
-			if cfg.EmbedPipelineCache {
-				pipelineOpts = append(pipelineOpts, embeddings.WithFileCache(embeddings.NewPipelineCache()))
-			}
-			// INDEX_BUDGET bounds the background index goroutine so a hung embed
-			// server cannot keep a goroutine alive indefinitely (Fix 3).
-			pipelineOpts = append(pipelineOpts, embeddings.WithIndexBudget(cfg.IndexBudget))
-			// Sparse embed (P2+P4): optional SPLADE gate. When SPARSE_EMBED_URL is
-			// empty the sparseClient is nil — Pipeline stays dense-only AND the P4
-			// sparse retrieval arm in handleSemanticHits is skipped entirely
-			// (byte-identical to pre-P4 behavior). Token auto-resolved from
-			// EMBED_TOKEN env by go-kit/sparse v2 NewHTTPSparseEmbedder.
-			var sparseClient sparse.SparseEmbedder
-			if sc := newSparseEmbedder(cfg); sc != nil {
-				sparseClient = sc
-				pipelineOpts = append(pipelineOpts, embeddings.WithSparseEmbedder(sc))
-				pipelineOpts = append(pipelineOpts, embeddings.WithSparseMaxBatch(cfg.SparseEmbedMaxArray))
-				slog.Info("sparse embed: enabled (P4 dark-launch: rrf_weight_sparse=0.0 until A/B)",
-					slog.String("url", cfg.SparseEmbedURL),
-					slog.String("model", cfg.SparseEmbedModel),
-					slog.Int("max_array", cfg.SparseEmbedMaxArray),
-					slog.Float64("rrf_weight_sparse", rrfWeights.Sparse))
-			}
-			// QueryClient wraps ec with the model-correct retrieval prefix.
-			// For code-rank-embed: prepends the required query prefix on EmbedQuery.
-			// For all other models: returns ec unwrapped (zero overhead, no allocation).
-			// Document embedding (Pipeline.Embed) always uses ec directly — never QueryClient.
-			qc := embeddings.NewQueryClient(ec, cfg.EmbedModel)
-			semDeps = SemanticDeps{
-				Client:       ec,
-				QueryClient:  qc,
-				Store:        es,
-				Pipeline:     embeddings.NewPipeline(ec, es, cfg.EmbedModel, pipelineOpts...),
-				AnalyzeDeps:  deps,
-				Expander:     embeddings.NewExpander(agePool),
-				GraphStore:   graphStore,
-				OxCodes:      buildOxCodesClient(cfg),
-				RRFWeights:   rrfWeights,
-				SparseClient: sparseClient,
-				KeywordArm:   cfg.KeywordArm,
-			}
-		}
-	}
+	// Extracted to newSemanticDeps (semantic_deps.go) so both the MCP serve
+	// path and the CLI search subcommand share a single wiring site.
+	semDeps := newSemanticDeps(cfg, deps, dataPool, agePool, graphStore, rrfWeights)
 
 	// Wire pg_trgm symbol boosting for repo_analyze when embeddings are available.
 	if semDeps.Store != nil {

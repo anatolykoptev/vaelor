@@ -109,13 +109,22 @@ func TestNoBareDataTableDML(t *testing.T) {
 // data path ONLY if data stores are wired to dataPool and AGE stores to agePool. This
 // test asserts that wiring stays correct. Falsification: change any wiring below (e.g.
 // embeddings.NewStore(agePool)) and the test goes red.
+//
+// The semantic deps wiring (embeddings.NewStore, embeddings.NewExpander) was extracted
+// from register.go into semantic_deps.go (ADR-7). Both files are scanned so the guard
+// covers the current wiring site.
 func TestPoolRoutingInvariant(t *testing.T) {
 	root := repoRoot(t)
-	src, err := os.ReadFile(filepath.Join(root, "cmd", "vaelor", "register.go"))
-	if err != nil {
-		t.Fatalf("read register.go: %v", err)
+
+	// Concatenate register.go + semantic_deps.go — the two files that wire pools.
+	var text string
+	for _, name := range []string{"register.go", "semantic_deps.go"} {
+		src, err := os.ReadFile(filepath.Join(root, "cmd", "vaelor", name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text += string(src) + "\n"
 	}
-	text := string(src)
 
 	mustContain := map[string]string{
 		"codegraph.NewStore(agePool)":     "AGE graph store must use agePool",
