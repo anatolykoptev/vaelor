@@ -1,4 +1,4 @@
-# Multi-stage build for go-code.
+# Multi-stage build for vaelor.
 # CGO_ENABLED=1 is required for tree-sitter grammar bindings (C libraries).
 # The runtime image includes git for repository cloning operations.
 

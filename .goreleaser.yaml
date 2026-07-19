@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: go-code
+  - id: vaelor
     main: ./cmd/vaelor
-    binary: go-code
+    binary: vaelor
     env:
       # CGO_ENABLED=1 required for tree-sitter C grammar bindings.
       - CGO_ENABLED=1

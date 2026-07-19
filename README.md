@@ -27,11 +27,11 @@ Vaelor's Apache AGE graph carries PageRank, community, and surprise scores compu
 ### Docker (recommended)
 
 ```bash
-docker build -t go-code .
+docker build -t vaelor .
 docker run -p 8897:8897 \
   -e LLM_API_BASE=http://host.docker.internal:8317/v1 \
   -e LLM_API_KEY=your-key \
-  go-code
+  vaelor
 ```
 
 ### From source
@@ -39,14 +39,14 @@ docker run -p 8897:8897 \
 Requires Go 1.24+ and a C compiler (CGO for tree-sitter grammars).
 
 ```bash
-make build    # → bin/go-code
-./bin/go-code
+make build    # → bin/vaelor
+./bin/vaelor
 ```
 
 ### Register as an MCP server
 
 ```bash
-claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp
+claude mcp add -s user -t http vaelor http://127.0.0.1:8897/mcp
 ```
 
 ### Try it
@@ -201,7 +201,7 @@ Set `LLM_API_BASE` + `LLM_API_KEY` + `LLM_MODEL` to run every tool at full capab
 ## Architecture
 
 ```
-cmd/go-code/     : MCP server, tool handlers (one file per tool)
+cmd/vaelor/     : MCP server, tool handlers (one file per tool)
 internal/
   parser/        : tree-sitter AST parsing, 16 language handlers
   ingest/        : repo cloning, file walking, gitignore filtering
@@ -235,7 +235,7 @@ internal/
 ## Transport
 
 - **HTTP** (default): streamable HTTP on `MCP_PORT`
-- **Stdio**: `./go-code --stdio` for pipe/SSH access
+- **Stdio**: `./vaelor --stdio` for pipe/SSH access
 
 ## Build
 

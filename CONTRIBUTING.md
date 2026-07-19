@@ -2,7 +2,7 @@
 
 ## Adding a New Tool
 
-1. Create `cmd/go-code/tool_<name>.go` with input type and `register<Name>` function
+1. Create `cmd/vaelor/tool_<name>.go` with input type and `register<Name>` function
 2. Add `register<Name>(server, cfg)` call to `registerTools()` in `register.go`
 3. Increment `toolCount` constant in `main.go`
 4. Implement backing logic in the appropriate `internal/` package
