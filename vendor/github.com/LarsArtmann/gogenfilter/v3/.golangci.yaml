@@ -1,0 +1,167 @@
+version: "2"
+run:
+  timeout: 5m
+  go: 1.26.3
+  build-tags:
+    - goexperiment.arenas
+    - goexperiment.goroutineleakprofile
+    - goexperiment.jsonv2
+    - goexperiment.runtimesecret
+    - goexperiment.simd
+  allow-parallel-runners: true
+  allow-serial-runners: true
+  issues-exit-code: 1
+  tests: true
+output:
+  formats: {}
+linters:
+  enable:
+    - arangolint
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - cyclop
+    - decorder
+    - depguard
+    - dogsled
+    - dupl
+    - dupword
+    - durationcheck
+    - embeddedstructfieldcheck
+    - err113
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - exhaustruct
+    - exptostd
+    - fatcontext
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecknoglobals
+    - gochecknoinits
+    - gochecksumtype
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godoclint
+    - godot
+    - godox
+    - goheader
+    - gomoddirectives
+    - gomodguard_v2
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - govet
+    - grouper
+    - iface
+    - importas
+    - inamedparam
+    - ineffassign
+    - interfacebloat
+    - intrange
+    - iotamixing
+    - ireturn
+    - loggercheck
+    - maintidx
+    - makezero
+    - mirror
+    - misspell
+    - mnd
+    - modernize
+    - musttag
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - nlreturn
+    - noctx
+    - noinlineerr
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - recvcheck
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - testableexamples
+    - testifylint
+    - testpackage
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unqueryvet
+    - unused
+    - usestdlibvars
+    - usetesting
+    - varnamelen
+    - wastedassign
+    - whitespace
+    - wrapcheck
+    - wsl_v5
+    - zerologlint
+  settings:
+    depguard:
+      rules:
+        main:
+          allow:
+            - $gostd
+            - github.com/bmatcuk/doublestar/v4
+            - github.com/go-faster/yaml
+            - github.com/LarsArtmann/gogenfilter
+            - github.com/onsi/ginkgo/v2
+            - github.com/onsi/gomega
+    exhaustruct:
+      exclude:
+        - .*/fstest\.MapFile
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    ireturn:
+      allow:
+        - error
+        - empty
+        - anon
+        - stdlib
+        - generic
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - cyclop
+          - funlen
+          - gocognit
+          - revive
+          - testpackage
+formatters:
+  enable:
+    - gci
+    - goimports
+    - gofumpt
+    - golines
+issues: {}
