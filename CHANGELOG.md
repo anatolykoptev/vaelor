@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.42.2](https://github.com/anatolykoptev/go-code/compare/v1.42.1...v1.42.2) (2026-07-19)
+
+
+### Documentation
+
+* README hero-demo.gif shows real impact output [no-deploy] ([#535](https://github.com/anatolykoptev/go-code/issues/535)) ([e2ef083](https://github.com/anatolykoptev/go-code/commit/e2ef083779b430bcfb437eb6d418996d29946f8e))
+
 ## [1.42.1](https://github.com/anatolykoptev/go-code/compare/v1.42.0...v1.42.1) (2026-07-19)
 
 
