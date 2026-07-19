@@ -10,11 +10,8 @@ RUN apk add --no-cache gcc musl-dev git
 
 WORKDIR /build
 
-# Download dependencies first for layer caching.
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy source and build with version from git tag.
+# Copy vendored dependencies + source together (vendor-only go-kit packages
+# require -mod=vendor; go mod download would rewrite go.mod and break vendor sync).
 COPY . .
 RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
     CGO_ENABLED=1 go build -mod=vendor -ldflags="-s -w -X main.version=${VERSION}" -o vaelor ./cmd/vaelor
