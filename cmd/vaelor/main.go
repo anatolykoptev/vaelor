@@ -91,12 +91,26 @@ func main() {
 		WeightSeed:     cfg.AnalyzeRankWeightSeed,
 	})
 
-	// Handle CLI subcommands before starting MCP server.
+	// Strangler-fig fallback (ADR-3): keep the raw os.Args index-designs path
+	// for one release so existing scripts keep working. The cobra subcommand
+	// (registered in newRootCmd) is the primary path; this intercept runs first
+	// and returns. Both call the same runIndexDesigns(cfg, dir).
 	if len(os.Args) >= 3 && os.Args[1] == "index-designs" {
 		runIndexDesigns(cfg, os.Args[2])
 		return
 	}
 
+	root := newRootCmd(cfg)
+	if err := root.Execute(); err != nil {
+		slog.Error("cli failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+}
+
+// runMCPServe starts the MCP server — byte-identical to the legacy main() body.
+// Extracted so the cobra root command's default path (no subcommand) can call
+// it without duplicating the startup sequence (ADR-3 strangler-fig).
+func runMCPServe(cfg Config) {
 	if err := os.MkdirAll(cfg.WorkspaceDir, workspaceDirPerm); err != nil {
 		slog.Error("failed to create workspace dir", slog.Any("error", err))
 		os.Exit(1)
