@@ -5,7 +5,7 @@ COMPOSE = cd $(HOME)/deploy/example-server && docker compose
 .PHONY: build lint fmt-check test test-short govulncheck preflight run deploy clean vendor
 
 build:
-	GOWORK=off CGO_ENABLED=1 go build -mod=readonly -o $(BINARY) ./cmd/vaelor
+	GOWORK=off CGO_ENABLED=1 go build -mod=vendor -o $(BINARY) ./cmd/vaelor
 
 fmt-check:
 	@out=$$(GOWORK=off gofmt -l cmd internal eval); \
@@ -19,7 +19,7 @@ lint: fmt-check
 	GOWORK=off golangci-lint run ./...
 
 test:
-	GOWORK=off go test -mod=readonly -timeout 20m ./...
+	GOWORK=off go test -mod=vendor -timeout 20m ./...
 
 # test-short — the fast merge-gate variant. Skips heavy integration tests
 # (real-repo git / co-change / snapshot analysis in cmd/go-code and
@@ -27,7 +27,7 @@ test:
 # run IN FULL every night via `make test` (.github/workflows/nightly.yml) —
 # a cadence split, NOT skip-to-green. Cuts the gate from ~26m to ~2m.
 test-short:
-	GOWORK=off go test -mod=readonly -short -timeout 20m ./...
+	GOWORK=off go test -mod=vendor -short -timeout 20m ./...
 
 # govulncheck — dependency + toolchain vulnerability scan (plan ADR 7,
 # plans/go-code/2026-06-30-frontend-parse-parity-react-svelte-astro.md Phase
@@ -73,9 +73,9 @@ govulncheck:
 # on first use (EnsureSchema / EnsureGraph).
 preflight: fmt-check
 	@echo "==> go vet ./..."
-	GOWORK=off go vet -mod=readonly ./...
+	GOWORK=off go vet -mod=vendor ./...
 	@echo "==> go build ./..."
-	GOWORK=off CGO_ENABLED=1 go build -mod=readonly ./...
+	GOWORK=off CGO_ENABLED=1 go build -mod=vendor ./...
 	@echo "==> go test -short ./... (heavy integration tests run nightly)"
 	$(MAKE) test-short
 	$(MAKE) govulncheck
