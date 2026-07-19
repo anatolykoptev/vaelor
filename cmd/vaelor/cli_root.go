@@ -42,7 +42,10 @@ func newRootCmd(cfg Config) *cobra.Command {
 
 	cli.RegisterSubcommand(root, newStatusSubcommand(cfg))
 	cli.RegisterSubcommand(root, newInitSubcommand(cfg))
-	cli.RegisterSubcommand(root, newSearchSubcommand(cfg))
+
+	wipeCmd := cli.RegisterSubcommand(root, newWipeSubcommand(cfg))
+	wipeCmd.Flags().Bool("dry-run", false, "print what would be deleted without executing any DELETE")
+	wipeCmd.Flags().Bool("confirm", false, "non-interactive confirmation (skips the y/n prompt)")
 
 	return root
 }
