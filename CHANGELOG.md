@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.46.4](https://github.com/anatolykoptev/vaelor/compare/v1.46.3...v1.46.4) (2026-07-19)
+
+
+### Fixed
+
+* **dockerignore:** include vendor/ in Docker build context for -mod=vendor ([ffcb553](https://github.com/anatolykoptev/vaelor/commit/ffcb553f436fc70d372734f71970b7bb7cc4318a))
+
 ## [1.46.3](https://github.com/anatolykoptev/vaelor/compare/v1.46.2...v1.46.3) (2026-07-19)
 
 
