@@ -331,6 +331,16 @@ type Config struct {
 	// Set GOCODE_FLEET_UPSTREAM_DISABLE=true to skip all enrichment.
 	// Env: GOCODE_FLEET_UPSTREAM_DISABLE
 	FleetUpstreamDisable bool
+
+	// WatchEnabled gates the opt-in file watcher (ADR-9). Default false —
+	// one-way door, default off (security_cost). Set WATCH_ENABLED=true to
+	// enable live re-indexing on file save events. Env: WATCH_ENABLED.
+	WatchEnabled bool
+
+	// WatchDebounceMS is the per-path debounce window in milliseconds for the
+	// file watcher. Rapid bursts of saves to the same file are coalesced into
+	// one IndexFile call (ADR-11). Default 500. Env: WATCH_DEBOUNCE_MS.
+	WatchDebounceMS int
 }
 
 const (
@@ -469,6 +479,10 @@ const (
 	// Sub-batching by this value prevents 400 "input too large" errors.
 	// Override via SPARSE_EMBED_MAX_ARRAY if the server cap is raised.
 	defaultSparseEmbedMaxArray = 32
+
+	// defaultWatchDebounceMS: 500ms per-path debounce for the file watcher
+	// (ADR-11). Rapid saves to the same file coalesce into one IndexFile call.
+	defaultWatchDebounceMS = 500
 )
 
 // loadConfig reads environment variables and returns a Config with defaults applied.
@@ -595,6 +609,10 @@ func loadConfig() (Config, error) {
 		FleetSSHHomeSrc:      env.Str("GOCODE_FLEET_SSH_HOME_SRC", ""),
 		FleetSSHHomeDst:      env.Str("GOCODE_FLEET_SSH_HOME_DST", ""),
 		FleetUpstreamDisable: env.Bool("GOCODE_FLEET_UPSTREAM_DISABLE", false),
+
+		// File watcher — opt-in, default off (ADR-9 one-way door).
+		WatchEnabled:    env.Bool("WATCH_ENABLED", false),
+		WatchDebounceMS: env.Int("WATCH_DEBOUNCE_MS", defaultWatchDebounceMS),
 	}, nil
 }
 
