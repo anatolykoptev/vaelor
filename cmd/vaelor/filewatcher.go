@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anatolykoptev/go-kit/env"
 	kitmetrics "github.com/anatolykoptev/go-kit/metrics"
 	"github.com/anatolykoptev/go-kit/watcher"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
@@ -47,6 +46,7 @@ type repoEntry struct {
 func startFileWatcher(ctx context.Context, cfg Config, pipeline *embeddings.Pipeline, reg *kitmetrics.Registry) {
 	if pipeline == nil {
 		slog.Warn("file watcher: pipeline is nil — watcher disabled")
+		reg.Gauge("watcher_healthy").Set(0)
 		return
 	}
 
@@ -63,7 +63,7 @@ func startFileWatcher(ctx context.Context, cfg Config, pipeline *embeddings.Pipe
 		slog.Int("count", len(repoRoots)),
 		slog.String("repos", strings.Join(repoRoots, ", ")))
 
-	debounce := time.Duration(env.Int("WATCH_DEBOUNCE_MS", int(defaultWatchDebounce/time.Millisecond))) * time.Millisecond
+	debounce := time.Duration(cfg.WatchDebounceMS) * time.Millisecond
 	if debounce <= 0 {
 		debounce = defaultWatchDebounce
 	}
@@ -130,11 +130,21 @@ func startFileWatcher(ctx context.Context, cfg Config, pipeline *embeddings.Pipe
 
 	// Single-worker goroutine: serializes IndexFile calls (Concurrency=1, ADR-6).
 	go func() {
-		for ev := range ch {
-			processWatchEvent(ctx, ev, repoMap, pipeline, reg)
+		defer func() {
+			slog.Info("file watcher: worker stopped")
+			reg.Gauge("watcher_healthy").Set(0)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-ch:
+				if !ok {
+					return
+				}
+				processWatchEvent(ctx, ev, repoMap, pipeline, reg)
+			}
 		}
-		slog.Info("file watcher: worker stopped")
-		reg.Gauge("watcher_healthy").Set(0)
 	}()
 }
 
@@ -144,9 +154,14 @@ func processWatchEvent(ctx context.Context, ev watcher.Event, repoMap map[string
 	// Determine which repo the path belongs to (prefix match on repo root).
 	var root, repoKey, relPath string
 	for r, info := range repoMap {
-		if ev.Path == r || strings.HasPrefix(ev.Path, r+string(os.PathSeparator)) {
+		if ev.Path == r {
+			root, repoKey = info.root, info.key
+			relPath = ""
+		} else if strings.HasPrefix(ev.Path, r+string(os.PathSeparator)) {
 			root, repoKey = info.root, info.key
 			relPath = strings.TrimPrefix(ev.Path, root+string(os.PathSeparator))
+		}
+		if root != "" {
 			break
 		}
 	}
