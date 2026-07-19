@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.46.3](https://github.com/anatolykoptev/vaelor/compare/v1.46.2...v1.46.3) (2026-07-19)
+
+
+### Fixed
+
+* **dockerfile:** remove go mod download step (incompatible with -mod=vendor) ([c4c4200](https://github.com/anatolykoptev/vaelor/commit/c4c420080bf6071d61117195bb6b9491125dfc29))
+
 ## [1.46.2](https://github.com/anatolykoptev/vaelor/compare/v1.46.1...v1.46.2) (2026-07-19)
 
 
