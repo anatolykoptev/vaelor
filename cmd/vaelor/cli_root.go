@@ -11,14 +11,14 @@ import (
 // newRootCmd wires the go-kit/cli generic cobra scaffold as the vaelor root
 // command (ADR-3 strangler-fig). The default path — no subcommand — calls
 // runMCPServe, which is the byte-identical legacy main() MCP serve body.
-// Subcommands index-designs (migrated from raw os.Args), status, and init are
-// registered here; each reuses existing domain seams instead of duplicating
-// logic.
+// Subcommands index-designs (migrated from raw os.Args), status, init, search,
+// and wipe are registered here; each reuses existing domain seams instead of
+// duplicating logic.
 func newRootCmd(cfg Config) *cobra.Command {
 	root := cli.NewRoot(cli.RootConfig{
 		Use:     "vaelor",
 		Short:   "Code intelligence MCP server & CLI",
-		Long:    "vaelor runs as an MCP server by default. Subcommands provide standalone CLI tools (index-designs, status, init).",
+		Long:    "vaelor runs as an MCP server by default. Subcommands provide standalone CLI tools (index-designs, status, init, search, wipe).",
 		Version: version,
 		Run: func(cmd *cobra.Command, args []string) {
 			runMCPServe(cfg)
@@ -42,6 +42,7 @@ func newRootCmd(cfg Config) *cobra.Command {
 
 	cli.RegisterSubcommand(root, newStatusSubcommand(cfg))
 	cli.RegisterSubcommand(root, newInitSubcommand(cfg))
+	cli.RegisterSubcommand(root, newSearchSubcommand(cfg))
 
 	wipeCmd := cli.RegisterSubcommand(root, newWipeSubcommand(cfg))
 	wipeCmd.Flags().Bool("dry-run", false, "print what would be deleted without executing any DELETE")

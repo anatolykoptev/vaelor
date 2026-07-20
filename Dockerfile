@@ -10,11 +10,16 @@ RUN apk add --no-cache gcc musl-dev git
 
 WORKDIR /build
 
+# VERSION is passed as a build arg from CI (dozor passes the git tag).
+# Falls back to "dev" when not set (local builds without --build-arg).
+# The .dockerignore excludes .git/ so `git describe` cannot run inside
+# the container; the build arg is the only reliable source.
+ARG VERSION=dev
+
 # Copy vendored dependencies + source together (vendor-only go-kit packages
 # require -mod=vendor; go mod download would rewrite go.mod and break vendor sync).
 COPY . .
-RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "dev") && \
-    CGO_ENABLED=1 go build -mod=vendor -ldflags="-s -w -X main.version=${VERSION}" -o vaelor ./cmd/vaelor
+RUN CGO_ENABLED=1 go build -mod=vendor -ldflags="-s -w -X main.version=${VERSION}" -o vaelor ./cmd/vaelor
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM golang:1.26.3-alpine
