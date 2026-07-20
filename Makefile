@@ -2,10 +2,16 @@ BINARY  = bin/vaelor
 SERVICE = vaelor
 COMPOSE = cd $(HOME)/deploy/example-server && docker compose
 
+# VERSION is embedded via -ldflags into the binary. Falls back to "dev" when
+# .git is absent (e.g. Docker build with .git in .dockerignore) or no tags
+# are reachable. The Dockerfile passes VERSION as a build arg from CI.
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
+LDFLAGS  = -s -w -X main.version=$(VERSION)
+
 .PHONY: build lint fmt-check test test-short govulncheck preflight run deploy clean vendor
 
 build:
-	GOWORK=off CGO_ENABLED=1 go build -mod=vendor -o $(BINARY) ./cmd/vaelor
+	GOWORK=off CGO_ENABLED=1 go build -mod=vendor -ldflags="$(LDFLAGS)" -o $(BINARY) ./cmd/vaelor
 
 fmt-check:
 	@out=$$(GOWORK=off gofmt -l cmd internal eval); \
@@ -75,7 +81,7 @@ preflight: fmt-check
 	@echo "==> go vet ./..."
 	GOWORK=off go vet -mod=vendor ./...
 	@echo "==> go build ./..."
-	GOWORK=off CGO_ENABLED=1 go build -mod=vendor ./...
+	GOWORK=off CGO_ENABLED=1 go build -mod=vendor -ldflags="$(LDFLAGS)" ./...
 	@echo "==> go test -short ./... (heavy integration tests run nightly)"
 	$(MAKE) test-short
 	$(MAKE) govulncheck
