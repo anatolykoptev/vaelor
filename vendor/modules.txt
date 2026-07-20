@@ -1,5 +1,8 @@
-# github.com/anatolykoptev/go-kit v0.85.0
-## explicit; go 1.26
+# github.com/LarsArtmann/gogenfilter/v3 v3.0.3-0.20260527072437-63f00cf54986
+## explicit; go 1.26.3
+github.com/LarsArtmann/gogenfilter/v3
+# github.com/anatolykoptev/go-kit v0.97.3
+## explicit; go 1.26.3
 github.com/anatolykoptev/go-kit/cache
 github.com/anatolykoptev/go-kit/cli
 github.com/anatolykoptev/go-kit/embed
@@ -19,9 +22,6 @@ github.com/anatolykoptev/go-kit/watcher
 # github.com/anatolykoptev/go-mcpserver v0.17.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
-# github.com/LarsArtmann/gogenfilter/v3 v3.0.3-0.20260527072437-63f00cf54986
-## explicit; go 1.26
-github.com/LarsArtmann/gogenfilter/v3
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile
@@ -44,18 +44,18 @@ github.com/dgryski/go-rendezvous
 ## explicit; go 1.13
 github.com/felixge/httpsnoop
 # github.com/fsnotify/fsnotify v1.10.1
-## explicit; go 1.18
+## explicit; go 1.23
 github.com/fsnotify/fsnotify
 github.com/fsnotify/fsnotify/internal
 # github.com/go-faster/errors v0.7.1
-## explicit; go 1.22
+## explicit; go 1.20
 github.com/go-faster/errors
 # github.com/go-faster/jx v1.2.0
-## explicit; go 1.22
+## explicit; go 1.18
 github.com/go-faster/jx
 github.com/go-faster/jx/internal/byteseq
 # github.com/go-faster/yaml v0.4.6
-## explicit; go 1.22
+## explicit; go 1.18
 github.com/go-faster/yaml
 # github.com/go-logr/logr v1.4.3
 ## explicit; go 1.18
@@ -111,7 +111,7 @@ github.com/jackc/puddle/v2/internal/genstack
 ## explicit; go 1.11
 github.com/kylelemons/godebug/diff
 # github.com/larsartmann/go-filewatcher/v2 v2.2.0
-## explicit; go 1.26
+## explicit; go 1.26.3
 github.com/larsartmann/go-filewatcher/v2
 # github.com/modelcontextprotocol/go-sdk v1.6.1
 ## explicit; go 1.25.0
@@ -176,7 +176,7 @@ github.com/redis/go-redis/v9/internal/util
 github.com/redis/go-redis/v9/maintnotifications
 github.com/redis/go-redis/v9/push
 # github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
-## explicit; go 1.14
+## explicit; go 1.13
 github.com/sabhiram/go-gitignore
 # github.com/segmentio/asm v1.2.1
 ## explicit; go 1.18
@@ -314,10 +314,10 @@ go.uber.org/multierr
 # go.yaml.in/yaml/v2 v2.4.2
 ## explicit; go 1.15
 go.yaml.in/yaml/v2
-# golang.org/x/mod v0.35.0
+# golang.org/x/mod v0.37.0
 ## explicit; go 1.25.0
 golang.org/x/mod/semver
-# golang.org/x/net v0.55.0
+# golang.org/x/net v0.57.0
 ## explicit; go 1.25.0
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
@@ -331,18 +331,18 @@ golang.org/x/net/trace
 ## explicit; go 1.25.0
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
-# golang.org/x/sync v0.20.0
+# golang.org/x/sync v0.22.0
 ## explicit; go 1.25.0
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
 golang.org/x/sync/singleflight
-# golang.org/x/sys v0.45.0
+# golang.org/x/sys v0.47.0
 ## explicit; go 1.25.0
 golang.org/x/sys/cpu
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# golang.org/x/text v0.37.0
+# golang.org/x/text v0.40.0
 ## explicit; go 1.25.0
 golang.org/x/text/cases
 golang.org/x/text/internal
@@ -357,7 +357,10 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
-# golang.org/x/tools v0.44.0
+# golang.org/x/time v0.15.0
+## explicit; go 1.25.0
+golang.org/x/time/rate
+# golang.org/x/tools v0.47.0
 ## explicit; go 1.25.0
 golang.org/x/tools/go/ast/edge
 golang.org/x/tools/go/ast/inspector
@@ -378,9 +381,6 @@ golang.org/x/tools/internal/stdlib
 golang.org/x/tools/internal/typeparams
 golang.org/x/tools/internal/typesinternal
 golang.org/x/tools/internal/versions
-# golang.org/x/time v0.15.0
-## explicit; go 1.22
-golang.org/x/time/rate
 # google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/api/httpbody
