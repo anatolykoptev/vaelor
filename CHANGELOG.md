@@ -2,6 +2,14 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.48.1](https://github.com/anatolykoptev/vaelor/compare/v1.48.0...v1.48.1) (2026-07-20)
+
+
+### Fixed
+
+* **cli:** restore search subcommand + fix version embedding ([#560](https://github.com/anatolykoptev/vaelor/issues/560)) ([cb9eadb](https://github.com/anatolykoptev/vaelor/commit/cb9eadbd5620d73704e400191da32caa0d60eebe))
+* **deps:** bump go-kit to v0.97.3, re-vendor to restore cli/watcher ([#562](https://github.com/anatolykoptev/vaelor/issues/562)) [no-deploy] ([ab2c17a](https://github.com/anatolykoptev/vaelor/commit/ab2c17a5edb5da3e9b6dda397fd5305b1c2fcb1d))
+
 ## [1.48.0](https://github.com/anatolykoptev/vaelor/compare/v1.47.0...v1.48.0) (2026-07-19)
 
 
