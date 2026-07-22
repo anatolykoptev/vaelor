@@ -18,7 +18,7 @@ import (
 
 // SemanticSearchInput is the input schema for the semantic_search tool.
 type SemanticSearchInput struct {
-	Repo        string  `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path to search in"`
+	Repo        string  `json:"repo,omitempty" jsonschema_description:"GitHub repo (owner/repo) or local path to search in. Required in practice — omitting it returns a short error naming recently-indexed repos."`
 	Query       string  `json:"query" jsonschema_description:"Natural language description of what you're looking for (e.g. 'function that validates JWT tokens', 'error handling for database connections')"`
 	Language    string  `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript)"`
 	TopK        int     `json:"top_k,omitempty" jsonschema_description:"Number of results (default 10, max 50)"`

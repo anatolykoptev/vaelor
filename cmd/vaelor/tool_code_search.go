@@ -17,7 +17,7 @@ import (
 
 // CodeSearchInput is the input schema for the code_search tool.
 type CodeSearchInput struct {
-	Repo          string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
+	Repo          string `json:"repo,omitempty" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path. Optional when path is an absolute path under a known root (repo is inferred); otherwise required."`
 	Pattern       string `json:"pattern,omitempty" jsonschema_description:"Search pattern (literal string or regex). Use pattern or query."`
 	Query         string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
 	IsRegex       bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
