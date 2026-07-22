@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.49.0](https://github.com/anatolykoptev/vaelor/compare/v1.48.1...v1.49.0) (2026-07-22)
+
+
+### Added
+
+* **mcp-ux:** tolerant arg normalization, repo inference, did-you-mean ([#574](https://github.com/anatolykoptev/vaelor/issues/574)) ([f013286](https://github.com/anatolykoptev/vaelor/commit/f013286b1532abeb3355e339b30bd5cca87d1cb3))
+
 ## [1.48.1](https://github.com/anatolykoptev/vaelor/compare/v1.48.0...v1.48.1) (2026-07-20)
 
 
