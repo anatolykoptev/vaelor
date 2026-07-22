@@ -70,10 +70,23 @@ func Middleware(reg *Registry) mcp.Middleware {
 					return result, err
 				}
 				note := nres.Note(accepted)
+				hintNote := ""
 				for _, p := range nres.Stripped {
 					if hint := StrippedHint(params.Name, p); hint != "" {
 						note += " — " + hint
+						hintNote += " — " + hint
 					}
+				}
+				// On error results, append only the actionable hints (not
+				// the informational "ignored unknown params" note) so the
+				// agent learns what to fix (#581). On success results,
+				// append the full note + hints.
+				cr, ok := result.(*mcp.CallToolResult)
+				if ok && cr != nil && cr.IsError {
+					if hintNote != "" {
+						return appendNote(result, "note"+hintNote), nil
+					}
+					return result, err
 				}
 				return appendNote(result, note), nil
 			}
@@ -119,16 +132,14 @@ func joinOr(items []string) string {
 
 // appendNote adds a one-line note as an extra TextContent block on a
 // CallToolResult. Non-CallToolResult results are returned unchanged. The note
-// is appended only to non-error results so tool-error messages stay clean.
+// is appended to both success and error results — the caller decides what
+// content is appropriate for each case (#581: hints go on error results too).
 func appendNote(result mcp.Result, note string) mcp.Result {
 	if note == "" {
 		return result
 	}
 	cr, ok := result.(*mcp.CallToolResult)
 	if !ok || cr == nil {
-		return result
-	}
-	if cr.IsError {
 		return result
 	}
 	// Defensive copy so we never mutate a result owned by another layer.

@@ -291,7 +291,7 @@ func TestAnnotateASTDiffs(t *testing.T) {
 		},
 	}
 
-	annotateASTDiffs(matches)
+	annotateASTDiffs(context.Background(), matches)
 
 	if matches[0].Diff == nil {
 		t.Error("expected Diff on modified match")

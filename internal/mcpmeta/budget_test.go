@@ -216,3 +216,122 @@ func TestPartialFooter_EmptyUsesDefault(t *testing.T) {
 		t.Fatalf("empty description must use default, got %q", got)
 	}
 }
+
+// TestShapeWithHint_FitsBudget_MarksAsShaped proves #582: when text fits
+// within the override budget, ShapeWithHint appends a budget-applied marker
+// so IsShaped returns true and the addTool wrapper skips re-shaping with the
+// default budget. Without this, the wrapper would re-shape with the smaller
+// default budget and replace the tool-specific hint with a generic one.
+func TestShapeWithHint_FitsBudget_MarksAsShaped(t *testing.T) {
+	text := "short response that fits within the override budget"
+	overrideBudget := 1000 // larger than text, larger than DefaultBudget
+
+	got := ShapeWithHint(text, overrideBudget, "pass offset=20 for the next page")
+
+	if !IsShaped(got) {
+		t.Fatal("ShapeWithHint must mark text as shaped even when it fits within budget")
+	}
+
+	// The marker must be strippable so it's not visible to the agent.
+	stripped := StripBudgetMarker(got)
+	if stripped != text {
+		t.Errorf("after stripping marker, text must equal original, got %q", stripped)
+	}
+}
+
+// TestShapeWithHint_ExceedsBudget_TruncatesWithHint verifies that when text
+// exceeds the override budget, ShapeWithHint truncates and appends the
+// tool-specific hint (same behavior as Shape).
+func TestShapeWithHint_ExceedsBudget_TruncatesWithHint(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		sb.WriteString("line ")
+		sb.WriteString(string(rune('A' + i%26)))
+		sb.WriteString("\n")
+	}
+	text := sb.String()
+	overrideBudget := 500
+
+	got := ShapeWithHint(text, overrideBudget, "pass offset=20 for the next page")
+
+	if !IsShaped(got) {
+		t.Fatal("ShapeWithHint must mark text as shaped when it truncates")
+	}
+	if !strings.Contains(got, "pass offset=20") {
+		t.Errorf("truncated text must contain the tool-specific hint, got %q", got[:min(200, len(got))])
+	}
+	if !strings.Contains(got, truncationFooterPrefix) {
+		t.Error("truncated text must contain the truncation footer")
+	}
+	// Should NOT contain the budget-applied marker (truncation path, not fit path).
+	if strings.Contains(got, budgetAppliedMarker) {
+		t.Error("truncated text should not contain the budget-applied marker")
+	}
+}
+
+// TestShapeWithHint_ZeroBudget_NoMarker verifies that budget <= 0 returns text
+// unchanged with no marker (same as Shape).
+func TestShapeWithHint_ZeroBudget_NoMarker(t *testing.T) {
+	text := "some response"
+	got := ShapeWithHint(text, 0, "hint")
+	if got != text {
+		t.Errorf("zero budget should return text unchanged, got %q", got)
+	}
+	if IsShaped(got) {
+		t.Error("zero budget should not mark as shaped")
+	}
+}
+
+// TestIsShaped_DetectsBudgetAppliedMarker verifies that IsShaped detects the
+// budget-applied marker (not just the truncation footer).
+func TestIsShaped_DetectsBudgetAppliedMarker(t *testing.T) {
+	text := "response" + budgetAppliedMarker
+	if !IsShaped(text) {
+		t.Error("IsShaped must detect the budget-applied marker")
+	}
+}
+
+// TestStripBudgetMarker_RemovesMarker verifies that StripBudgetMarker removes
+// the marker and leaves the rest of the text intact.
+func TestStripBudgetMarker_RemovesMarker(t *testing.T) {
+	text := "response body\n[budget-applied]\nmore text"
+	got := StripBudgetMarker(text)
+	expected := "response body\nmore text"
+	if got != expected {
+		t.Errorf("StripBudgetMarker: got %q, want %q", got, expected)
+	}
+}
+
+// TestShapeWithHint_WrapperSimulation proves the end-to-end #582 scenario:
+// a tool calls ShapeWithHint with an override budget > DefaultBudget, text
+// fits within the override but exceeds DefaultBudget. The wrapper's
+// applyBudgetAndTook logic must NOT re-shape (IsShaped=true), and after
+// stripping the marker, the text is intact with no generic hint.
+func TestShapeWithHint_WrapperSimulation(t *testing.T) {
+	// Text that fits within override (9000) but exceeds default (8192).
+	var sb strings.Builder
+	sb.WriteString(strings.Repeat("x", 8500))
+	text := sb.String()
+
+	overrideBudget := 9000
+	hint := "pass offset=20 for the next page"
+
+	// Tool calls ShapeWithHint.
+	shaped := ShapeWithHint(text, overrideBudget, hint)
+
+	// Wrapper checks IsShaped — must be true so it skips re-shaping.
+	if !IsShaped(shaped) {
+		t.Fatal("wrapper must see IsShaped=true and skip re-shaping with default budget")
+	}
+
+	// Wrapper strips the marker.
+	final := StripBudgetMarker(shaped)
+
+	// The final text must equal the original (no truncation, no generic hint).
+	if final != text {
+		t.Errorf("final text must equal original (no re-shaping), got len %d vs %d", len(final), len(text))
+	}
+	if strings.Contains(final, "narrow your query") {
+		t.Error("final text must NOT contain the generic hint from default-budget re-shaping")
+	}
+}

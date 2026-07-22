@@ -253,4 +253,13 @@ type CompareResult struct {
 	ArchMetricsA    *ArchMetrics       `json:"arch_metrics_a,omitempty"`
 	ArchMetricsB    *ArchMetrics       `json:"arch_metrics_b,omitempty"`
 	CrossLangReport *CrossLangReport   `json:"cross_lang_report,omitempty"`
+
+	// Partial is true when one or more CPU-bound comparison stages were
+	// skipped because the caller's context deadline fired mid-computation
+	// (#580). When set, MatchedSymbols/UnmatchedA/UnmatchedB may be
+	// undercounted, Analysis may carry a "skipped" verdict, and enrichment
+	// fields (Quality/Freshness/Dataflow/ArchMetrics) may be nil. The result
+	// is still usable — the structural data that WAS computed is accurate —
+	// but MUST NOT be presented as a complete comparison.
+	Partial bool `json:"partial,omitempty"`
 }

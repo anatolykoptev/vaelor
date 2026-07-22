@@ -383,7 +383,7 @@ func TestF3_IndexRepoAsync_OnlyOneGoroutine_UnderConcurrency(t *testing.T) {
 
 	// Override writeRepoStateFn to count body executions.
 	p := NewPipeline(client, store, "", WithFileCache(nil),
-		withWriteRepoStateFn(func(ctx context.Context, repoKey, sha string) error {
+		withWriteRepoStateFn(func(ctx context.Context, repoKey, sha, sourcePath string) error {
 			atomic.AddInt64(&bodyCount, 1)
 			select {
 			case indexBodyStarted <- struct{}{}:

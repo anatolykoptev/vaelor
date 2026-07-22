@@ -124,6 +124,7 @@ func buildCompareXML(r *compare.CompareResult) xmlCompareResponse {
 	if r.CrossLangReport != nil {
 		resp.Compare.CrossLang = convertCrossLang(r.CrossLangReport)
 	}
+	resp.Compare.Partial = r.Partial
 
 	return resp
 }

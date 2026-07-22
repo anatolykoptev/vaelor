@@ -81,6 +81,9 @@ func applyBudgetAndTook(res *mcp.CallToolResult, elapsed time.Duration) {
 	if !mcpmeta.IsShaped(text) {
 		text = mcpmeta.Shape(text, mcpmeta.DefaultBudget, "")
 	}
+	// Strip the budget-applied marker (if any) so it's not visible to the
+	// agent — it was only there to prevent re-shaping (#582).
+	text = mcpmeta.StripBudgetMarker(text)
 	// took_ms footer — idempotent.
 	text = mcpmeta.AppendTook(text, elapsed)
 	tc.Text = text

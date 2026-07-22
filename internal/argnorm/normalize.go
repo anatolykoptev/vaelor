@@ -57,8 +57,10 @@ func quoteList(items []string) string {
 // map. Aliases are applied first (so a renamed-away src is not also reported
 // as stripped); then any remaining key not in accepted is stripped.
 //
-// When accepted is empty (open schema) no stripping is performed and no note
-// is produced — open-schema tools accept anything by definition.
+// When accepted is nil (open schema) no stripping is performed and no note
+// is produced — open-schema tools accept anything by definition. A non-nil
+// but empty accepted map means the tool accepts NO params (closed empty struct,
+// #581): all keys are stripped.
 func NormalizeArgs(toolName string, raw map[string]any, accepted map[string]struct{}) NormalizeResult {
 	if raw == nil {
 		return NormalizeResult{}
@@ -70,8 +72,8 @@ func NormalizeArgs(toolName string, raw map[string]any, accepted map[string]stru
 
 	res := NormalizeResult{Args: out}
 
-	// Open schema: accept everything, no stripping, no note.
-	if len(accepted) == 0 {
+	// Open schema (nil accepted): accept everything, no stripping, no note.
+	if accepted == nil {
 		return res
 	}
 

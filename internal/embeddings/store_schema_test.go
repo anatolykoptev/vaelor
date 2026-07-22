@@ -243,6 +243,7 @@ func TestEnsureSchema_Idempotent_Warm(t *testing.T) {
 	db.cols["code_embeddings.sparse_embedding"] = true
 	db.cols["code_embeddings.embed_model"] = true
 	db.cols["code_repo_state.embed_model"] = true
+	db.cols["code_repo_state.source_path"] = true
 	db.indexes["code_embeddings.idx_code_embeddings_repo"] = true
 	db.indexes["code_embeddings.idx_code_embeddings_hnsw"] = true
 	db.indexes["code_embeddings.code_embeddings_sparse_hnsw"] = true
@@ -328,6 +329,7 @@ func TestEnsureSchema_StatementTimeout_ForIndexBuild(t *testing.T) {
 	db.cols["code_embeddings.sparse_embedding"] = true
 	db.cols["code_embeddings.embed_model"] = true
 	db.cols["code_repo_state.embed_model"] = true
+	db.cols["code_repo_state.source_path"] = true
 	db.tables["code_repo_state"] = true
 	db.owners["code_embeddings"] = "app"
 	db.owners["code_repo_state"] = "app"

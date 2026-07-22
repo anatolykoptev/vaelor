@@ -1,6 +1,8 @@
 package compare
 
 import (
+	"context"
+
 	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
@@ -20,7 +22,11 @@ type LLMClassifier interface {
 //  4. Semantic: delegate remaining unmatched pairs to classifier (if non-nil).
 //
 // Symbols with no counterpart become gap entries (SymbolA or SymbolB is nil).
-func MatchSymbols(symbolsA, symbolsB []*parser.Symbol, classifier LLMClassifier) []SymbolMatch {
+//
+// ctx is checked at pass boundaries and inside the O(n×m) fuzzy loop so a
+// canceled ctx bails promptly with whatever matches were computed so far
+// (#580). The remaining unmatched symbols become gaps.
+func MatchSymbols(ctx context.Context, symbolsA, symbolsB []*parser.Symbol, classifier LLMClassifier) []SymbolMatch {
 	var matches []SymbolMatch
 
 	unmatchedA := make([]*parser.Symbol, len(symbolsA))
@@ -32,13 +38,25 @@ func MatchSymbols(symbolsA, symbolsB []*parser.Symbol, classifier LLMClassifier)
 	unmatchedA, unmatchedB, exactMatches := matchExact(unmatchedA, unmatchedB)
 	matches = append(matches, exactMatches...)
 
+	if ctx.Err() != nil {
+		return appendGapMatches(matches, unmatchedA, unmatchedB)
+	}
+
 	// Pass 2: fuzzy match by name similarity, same kind.
-	unmatchedA, unmatchedB, fuzzyMatches := matchFuzzy(unmatchedA, unmatchedB)
+	unmatchedA, unmatchedB, fuzzyMatches := matchFuzzy(ctx, unmatchedA, unmatchedB)
 	matches = append(matches, fuzzyMatches...)
 
+	if ctx.Err() != nil {
+		return appendGapMatches(matches, unmatchedA, unmatchedB)
+	}
+
 	// Pass 3: signature match (catches renames where code is identical).
-	unmatchedA, unmatchedB, sigMatches := matchSignature(unmatchedA, unmatchedB)
+	unmatchedA, unmatchedB, sigMatches := matchSignature(ctx, unmatchedA, unmatchedB)
 	matches = append(matches, sigMatches...)
+
+	if ctx.Err() != nil {
+		return appendGapMatches(matches, unmatchedA, unmatchedB)
+	}
 
 	// Pass 4: semantic match via LLM classifier.
 	if classifier != nil && (len(unmatchedA) > 0 || len(unmatchedB) > 0) {
@@ -49,7 +67,13 @@ func MatchSymbols(symbolsA, symbolsB []*parser.Symbol, classifier LLMClassifier)
 		}
 	}
 
-	// Remaining unmatched symbols become gaps.
+	return appendGapMatches(matches, unmatchedA, unmatchedB)
+}
+
+// appendGapMatches adds gap entries for remaining unmatched symbols and
+// returns the combined slice. Extracted so each ctx.Err() bail point in
+// MatchSymbols can reuse it without duplicating the gap loop.
+func appendGapMatches(matches []SymbolMatch, unmatchedA, unmatchedB []*parser.Symbol) []SymbolMatch {
 	for _, sym := range unmatchedA {
 		matches = append(matches, SymbolMatch{
 			SymbolA:   sym,
@@ -64,7 +88,6 @@ func MatchSymbols(symbolsA, symbolsB []*parser.Symbol, classifier LLMClassifier)
 			Category:  string(sym.Kind),
 		})
 	}
-
 	return matches
 }
 
@@ -117,11 +140,17 @@ func findExact(target *parser.Symbol, candidates []*parser.Symbol, used []bool) 
 }
 
 // matchFuzzy returns fuzzy matches (same kind, name similarity >= fuzzyThreshold)
-// and the remaining unmatched slices.
-func matchFuzzy(a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol, matches []SymbolMatch) {
+// and the remaining unmatched slices. Checks ctx at loop granularity so a
+// canceled ctx bails mid-scan (#580).
+func matchFuzzy(ctx context.Context, a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol, matches []SymbolMatch) {
 	usedB := make([]bool, len(b))
 
 	for _, symA := range a {
+		if ctx.Err() != nil {
+			// Bail: remaining a-symbols become unmatched.
+			unmatchedA = append(unmatchedA, symA)
+			continue
+		}
 		idx, score := findFuzzy(symA, b, usedB)
 		if idx >= 0 {
 			usedB[idx] = true
@@ -177,10 +206,15 @@ const signatureMatchThreshold = 0.85
 
 // matchSignature matches symbols with identical or very similar signatures
 // and the same body hash. Catches renames where name changed but code didn't.
-func matchSignature(a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol, matches []SymbolMatch) {
+// Checks ctx at loop granularity (#580).
+func matchSignature(ctx context.Context, a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol, matches []SymbolMatch) {
 	usedB := make([]bool, len(b))
 
 	for _, symA := range a {
+		if ctx.Err() != nil {
+			unmatchedA = append(unmatchedA, symA)
+			continue
+		}
 		if symA.Signature == "" {
 			unmatchedA = append(unmatchedA, symA)
 			continue

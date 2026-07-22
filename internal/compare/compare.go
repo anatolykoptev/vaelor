@@ -9,6 +9,7 @@ package compare
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -31,17 +32,23 @@ type CompareInput struct {
 	ParseCache  *cache.ParseCache // nil = skip parse caching
 }
 
-// compareTimeout is the hard deadline for the entire CompareRepos operation.
-// It must be slightly shorter than the MCP server per-tool timeout (set in
-// cmd/go-code/main.go:toolTimeouts) so the tool has headroom to marshal and
-// return the XML response. The Cloudflare proxy in front of the MCP server
-// times out at ~100s, so both CompareRepos and the per-tool MCP deadline are
-// capped well below that.
-const compareTimeout = 90 * time.Second
+// compareTimeout is the hard deadline cap for the entire CompareRepos
+// operation when the caller's context has no earlier deadline. It is aligned
+// with mcpmeta.DefaultSoftDeadline (25s) so the internal cap does not extend
+// past the soft deadline — the #580 bug was a 90s cap that let CPU-bound
+// stages run 65s past the 25s soft deadline, producing a result the client
+// never saw. context.WithTimeout respects a shorter parent deadline, so when
+// the caller wraps with SoftDeadline (25s) the effective deadline is 25s
+// regardless of this cap.
+const compareTimeout = 25 * time.Second
 
 // annotateASTDiffs computes AST diffs for modified symbol matches.
-func annotateASTDiffs(matches []SymbolMatch) {
+// Checks ctx at loop granularity so a canceled ctx bails promptly (#580).
+func annotateASTDiffs(ctx context.Context, matches []SymbolMatch) {
 	for i := range matches {
+		if ctx.Err() != nil {
+			return
+		}
 		m := &matches[i]
 		if m.MatchType != MatchModified || m.SymbolA == nil || m.SymbolB == nil {
 			continue
@@ -111,36 +118,69 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 	}
 
 	if errA != nil {
+		// #580: when ctx is canceled, return a partial result instead of a
+		// hard error so the tool handler can render it with a partial footer.
+		if ctx.Err() != nil {
+			return &CompareResult{
+				RepoA:   filepath.Base(input.RootA),
+				RepoB:   filepath.Base(input.RootB),
+				Query:   input.Query,
+				Partial: true,
+			}, nil
+		}
 		return nil, fmt.Errorf("snapshot repo_a: %w", errA)
 	}
 	if errB != nil {
+		if ctx.Err() != nil {
+			return &CompareResult{
+				RepoA:   snapA.Name,
+				RepoB:   filepath.Base(input.RootB),
+				Query:   input.Query,
+				Partial: true,
+			}, nil
+		}
 		return nil, fmt.Errorf("snapshot repo_b: %w", errB)
 	}
 
-	// Match symbols.
+	// Match symbols — O(n×m) CPU-bound, the dominant stage (#580).
 	var classifier LLMClassifier
 	if input.EmbedClient != nil {
 		classifier = NewEmbeddingClassifier(ctx, input.EmbedClient)
 	}
-	matches := MatchSymbols(snapA.Symbols, snapB.Symbols, classifier)
+	matches := MatchSymbols(ctx, snapA.Symbols, snapB.Symbols, classifier)
+	partial := ctx.Err() != nil
 
 	// Annotate modified matches with AST diffs.
-	annotateASTDiffs(matches)
+	if !partial {
+		annotateASTDiffs(ctx, matches)
+		partial = ctx.Err() != nil
+	}
 
 	// Compute metrics.
-	metricsA := ComputeMetrics(snapA)
-	metricsB := ComputeMetrics(snapB)
+	var metricsA, metricsB RepoMetrics
+	if !partial {
+		metricsA = ComputeMetrics(snapA)
+		metricsB = ComputeMetrics(snapB)
+		partial = ctx.Err() != nil
+	}
 
 	// Compute import diff.
 	importDiff := ComputeImportDiff(snapA.Imports, snapB.Imports, snapA.Language)
 
 	// Hotspot analysis (non-fatal — skip if git unavailable).
-	hotspotsA := collectHotspots(ctx, input.RootA, snapA)
-	hotspotsB := collectHotspots(ctx, input.RootB, snapB)
+	var hotspotsA, hotspotsB []HotspotFile
+	if !partial {
+		hotspotsA = collectHotspots(ctx, input.RootA, snapA)
+		hotspotsB = collectHotspots(ctx, input.RootB, snapB)
+		partial = ctx.Err() != nil
+	}
 
 	// Compute type relationship stats.
-	relStatsA := ComputeRelStats(snapA.Rels)
-	relStatsB := ComputeRelStats(snapB.Rels)
+	var relStatsA, relStatsB *RelStats
+	if !partial {
+		relStatsA = ComputeRelStats(snapA.Rels)
+		relStatsB = ComputeRelStats(snapB.Rels)
+	}
 
 	// Count matches and gaps.
 	matched, unmatchedA, unmatchedB, breakdown := countMatches(matches)
@@ -148,42 +188,53 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 	diffStats := computeDiffStats(matches)
 
 	// --- Parallel enrichment: quality + freshness + dataflow + arch ---
-	enr := collectEnrichment(ctx, enrichInput{
-		rootA:      input.RootA,
-		rootB:      input.RootB,
-		langA:      snapA.Language,
-		langB:      snapB.Language,
-		oxCodes:    input.OxCodes,
-		graphStore: input.GraphStore,
-	})
+	var enr enrichResult
+	if !partial {
+		enr = collectEnrichment(ctx, enrichInput{
+			rootA:      input.RootA,
+			rootB:      input.RootB,
+			langA:      snapA.Language,
+			langB:      snapB.Language,
+			oxCodes:    input.OxCodes,
+			graphStore: input.GraphStore,
+		})
+		partial = ctx.Err() != nil
+	}
 
 	// Propagate freshness enrichment and recompute score/grade for each repo.
-	applyEnrichmentAndRescore(&metricsA, enr.freshnessA)
-	applyEnrichmentAndRescore(&metricsB, enr.freshnessB)
+	if !partial {
+		applyEnrichmentAndRescore(&metricsA, enr.freshnessA)
+		applyEnrichmentAndRescore(&metricsB, enr.freshnessB)
+	}
 
 	var analysis LLMAnalysis
 
 	// API surface diff (fast, no I/O).
-	apiSurfA := ExtractAPISurface(snapA.Symbols, snapA.Language)
-	apiSurfB := ExtractAPISurface(snapB.Symbols, snapB.Language)
 	var apiDiff *APIDiff
-	if len(apiSurfA) > 0 || len(apiSurfB) > 0 {
-		d := ComputeAPIDiff(apiSurfA, apiSurfB)
-		apiDiff = &d
+	if !partial {
+		apiSurfA := ExtractAPISurface(snapA.Symbols, snapA.Language)
+		apiSurfB := ExtractAPISurface(snapB.Symbols, snapB.Language)
+		if len(apiSurfA) > 0 || len(apiSurfB) > 0 {
+			d := ComputeAPIDiff(apiSurfA, apiSurfB)
+			apiDiff = &d
+		}
 	}
 
 	// Route comparison (reads files, but fast).
-	routesA := ExtractRoutes(ctx, input.RootA, snapA)
-	routesB := ExtractRoutes(ctx, input.RootB, snapB)
 	var routeDiff *RouteDiff
-	if len(routesA) > 0 || len(routesB) > 0 {
-		d := ComputeRouteDiff(routesA, routesB)
-		routeDiff = &d
+	if !partial {
+		routesA := ExtractRoutes(ctx, input.RootA, snapA)
+		routesB := ExtractRoutes(ctx, input.RootB, snapB)
+		if len(routesA) > 0 || len(routesB) > 0 {
+			d := ComputeRouteDiff(routesA, routesB)
+			routeDiff = &d
+		}
+		partial = ctx.Err() != nil
 	}
 
 	// Cross-language report (when repos use different languages).
 	var crossLangReport *CrossLangReport
-	if snapA.Language != snapB.Language {
+	if !partial && snapA.Language != snapB.Language {
 		crossLangReport = BuildCrossLangReport(matches, snapA.Language, snapB.Language)
 	}
 
@@ -201,6 +252,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 	// footer. Without this guard, a near-deadline CompareRepos would spend
 	// its remaining budget on an LLM call that the client will never see.
 	if ctx.Err() != nil {
+		partial = true
 		analysis = LLMAnalysis{Verdict: VerdictResult{Reason: "skipped: soft deadline fired before LLM stage"}}
 	} else {
 		analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
@@ -239,6 +291,7 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 		ArchMetricsA:    enr.archMetricsA,
 		ArchMetricsB:    enr.archMetricsB,
 		CrossLangReport: crossLangReport,
+		Partial:         partial,
 	}
 
 	return result, nil

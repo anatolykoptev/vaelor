@@ -494,7 +494,18 @@ func finalResult(
 	if sha := deps.AnalyzeDeps.IndexedSHA(ctx, repoKey); sha != "" {
 		env = mcpmeta.WithFreshness(env, root, sha)
 	}
-	return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
+	formatted := formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)
+	// Meta footer goes on BEFORE budget shaping so a truncation cut keeps the
+	// `[truncated: …]` hint at the tail and the total stays within the
+	// requested max_bytes; the freshness footer is auxiliary and may be cut.
+	formatted = appendMetaFooter(formatted, env)
+	// Apply per-call budget override when max_bytes is set; the addTool
+	// wrapper applies the default budget otherwise (#582).
+	if input.MaxBytes > 0 {
+		formatted = mcpmeta.ShapeWithHint(formatted, budgetOverride(input.MaxBytes),
+			"narrow with language= or query=, or increase max_bytes")
+	}
+	return textResult(formatted), nil
 }
 
 // symbolNameFromResults returns the symbol name from the first result when there
