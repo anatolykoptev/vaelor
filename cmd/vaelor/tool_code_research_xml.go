@@ -34,16 +34,21 @@ type researchRespXML struct {
 	Repo    string           `xml:"repo"`
 	Mode    string           `xml:"mode"`
 	Stats   researchStatsXML `xml:"stats"`
-	// Seeds/Graph are nil (omitted) in compact mode or when empty, matching the
-	// prior guard `!input.Compact && len(...) > 0`.
-	Seeds *researchSeedsXML `xml:"seeds,omitempty"`
-	Graph *researchGraphXML `xml:"graph,omitempty"`
 	// Map is the Aider-style code map, carried verbatim in a CDATA section via
 	// the shared xmlCDATA carrier. CDATA is byte-neutral, where ,chardata would
 	// escape every <-chan / Vec<T> / &x to a 4-5 byte entity and inflate the
 	// response tokens on this heavy tool. A nil pointer omits the element,
 	// matching the prior `if r.Map != ""` guard.
+	//
+	// Emitted BEFORE Seeds/Graph (#571): the map is the primary LLM-consumable
+	// verdict/summary; Seeds and Graph are detail sections that get cut off
+	// first when the response hits the client truncation ceiling. XML element
+	// order follows struct field order, so Map must precede Seeds/Graph here.
 	Map *xmlCDATA `xml:"map,omitempty"`
+	// Seeds/Graph are nil (omitted) in compact mode or when empty, matching the
+	// prior guard `!input.Compact && len(...) > 0`.
+	Seeds *researchSeedsXML `xml:"seeds,omitempty"`
+	Graph *researchGraphXML `xml:"graph,omitempty"`
 }
 
 type researchStatsXML struct {

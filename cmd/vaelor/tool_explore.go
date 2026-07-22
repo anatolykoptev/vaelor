@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/envdetect"
 	"github.com/anatolykoptev/vaelor/internal/explore"
@@ -18,6 +17,7 @@ type ExploreInput struct {
 	Repo     string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
 	Language string `json:"language,omitempty" jsonschema_description:"Limit analysis to files of this language (e.g. go, python)"`
 	Focus    string `json:"focus,omitempty" jsonschema_description:"Subdirectory path to limit scope (e.g. internal/auth), or space-separated keywords to filter by path components (e.g. 'auth middleware')"`
+	MaxBytes int    `json:"max_bytes,omitempty" jsonschema_description:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
 // exploreFreshnessSummary is the trimmed freshness view surfaced on explore
@@ -83,7 +83,7 @@ func buildExploreOutput(ctx context.Context, root string, input ExploreInput) (*
 }
 
 func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "explore",
 		Description: "Quick structured overview of a repository. " +
 			"Returns file/symbol counts, language breakdown, top symbols by call frequency, " +

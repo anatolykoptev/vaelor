@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
@@ -31,7 +30,7 @@ type CodeResearchInput struct {
 
 // registerCodeResearch registers the code_research MCP tool.
 func registerCodeResearch(server *mcp.Server, _ Config, deps analyze.Deps, semDeps *SemanticDeps) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "code_research",
 		Description: "Deep code research for large repositories. " +
 			"Combines keyword (BM25F with doc-comment indexing), semantic (embeddings), " +
@@ -134,6 +133,18 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 		},
 	}
 
+	// Compact map — the primary LLM-consumable output, carried verbatim in a
+	// CDATA section (byte-neutral vs entity-escaping every <-chan / Vec<T> / &x).
+	// A nil pointer omits the element, matching the prior `if r.Map != ""` guard.
+	//
+	// Emitted BEFORE Seeds/Graph (#571): the map is the verdict/summary the
+	// agent needs most; Seeds and Graph are detail sections that get cut off
+	// first when the response hits the client truncation ceiling. Putting the
+	// map first ensures it survives budget shaping.
+	if r.Map != "" {
+		resp.Map = &xmlCDATA{Inner: wrapCDATA(r.Map)}
+	}
+
 	if !input.Compact {
 		// Seeds section — top N by score.
 		if seeds := sortedSeeds(r.Seeds, maxSeedsOutput); len(seeds) > 0 {
@@ -143,13 +154,6 @@ func formatResearchResult(input CodeResearchInput, root string, r *research.Resu
 		if graph := sortedGraph(r.Graph, maxGraphOutput); len(graph) > 0 {
 			resp.Graph = buildResearchGraph(graph, stripRoot)
 		}
-	}
-
-	// Compact map — the primary LLM-consumable output, carried verbatim in a
-	// CDATA section (byte-neutral vs entity-escaping every <-chan / Vec<T> / &x).
-	// A nil pointer omits the element, matching the prior `if r.Map != ""` guard.
-	if r.Map != "" {
-		resp.Map = &xmlCDATA{Inner: wrapCDATA(r.Map)}
 	}
 
 	return xmlMarshalFragment(resp)
