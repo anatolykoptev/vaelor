@@ -69,7 +69,13 @@ func Middleware(reg *Registry) mcp.Middleware {
 				if nres.Stripped == nil || len(nres.Stripped) == 0 {
 					return result, err
 				}
-				return appendNote(result, nres.Note(accepted)), nil
+				note := nres.Note(accepted)
+				for _, p := range nres.Stripped {
+					if hint := StrippedHint(params.Name, p); hint != "" {
+						note += " — " + hint
+					}
+				}
+				return appendNote(result, note), nil
 			}
 
 			return next(ctx, method, req)

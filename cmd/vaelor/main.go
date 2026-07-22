@@ -67,7 +67,6 @@ var toolTimeouts = map[string]time.Duration{
 
 const (
 	serviceName = "vaelor"
-	toolCount   = 16
 
 	defaultPort = "8897"
 
@@ -159,7 +158,7 @@ func runMCPServe(cfg Config) {
 	})
 
 	deps, pipeline := registerTools(server, cfg, reg)
-	slog.Info("tools registered", slog.Int("count", toolCount))
+	slog.Info("tools registered", slog.Int("count", argnorm.Default().Count()))
 
 	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a
 	// background goroutine so it does not block MCP serve. Eliminates the

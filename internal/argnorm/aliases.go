@@ -37,8 +37,6 @@ var didYouMeanHints = map[string]string{
 // Rules (issue #568):
 //   - limit → max_results  (every tool that declares max_results)
 //   - limit → top_k        (semantic_search declares top_k, not max_results)
-//   - insights → repo      (remember_graph_insights: agents send `insights`
-//     where the tool requires `repo`; 100% failure rate pre-fix)
 func aliasTargetsFor(toolName string, accepted map[string]struct{}) map[string]string {
 	out := map[string]string{}
 	has := func(k string) bool { _, ok := accepted[k]; return ok }
@@ -53,12 +51,25 @@ func aliasTargetsFor(toolName string, accepted map[string]struct{}) map[string]s
 		}
 	}
 
-	// remember_graph_insights: insights → repo.
-	if toolName == "remember_graph_insights" && has("repo") && !has("insights") {
-		out["insights"] = "repo"
-	}
-
 	return out
+}
+
+// strippedParamHints maps tool→param→explanation appended to the tolerant-
+// reader note when that param is stripped. For demand-signal params whose
+// presence reveals a misunderstanding of the tool's purpose: session evidence
+// (issue #568) shows agents send free-text notes in `insights` expecting a
+// note-store, but the tool analyzes a repo's graph and persists findings
+// itself — an alias onto `repo` would map content garbage into a repo lookup.
+var strippedParamHints = map[string]map[string]string{
+	"remember_graph_insights": {
+		"insights": `this tool does not store free-text notes — it analyzes a repo's code graph and persists the findings itself; pass "repo" (owner/repo or absolute path)`,
+	},
+}
+
+// StrippedHint returns the explanation to append when param was stripped from
+// a call to toolName, or "" when none is registered.
+func StrippedHint(toolName, param string) string {
+	return strippedParamHints[toolName][param]
 }
 
 // DidYouMean returns up to maxSuggest closest registered tool names to the

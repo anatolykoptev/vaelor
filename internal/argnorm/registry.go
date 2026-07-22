@@ -53,6 +53,13 @@ func NewRegistry() *Registry {
 	return &Registry{tools: make(map[string]toolSpec)}
 }
 
+// Count returns the number of registered tools.
+func (r *Registry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.tools)
+}
+
 // Register records the accepted property names for a tool. Exported for tests
 // that build a Registry without a full server. Production registration goes
 // through AddTool, which reflects the property names from In.

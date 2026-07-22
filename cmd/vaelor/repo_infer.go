@@ -91,8 +91,10 @@ func shortMissingRepoMsg(ctx context.Context, store *embeddings.Store, dirs []st
 }
 
 // resolveOrInferRepo is the shared helper for tools that require `repo` but
-// whose agents frequently omit it (code_search, code_research, semantic_search
-// — issue #569). When repo is present it is returned unchanged with a nil note.
+// whose agents frequently omit it (issue #569). Wired into code_search only:
+// code_research and semantic_search have no absolute-path param to infer from,
+// so they emit shortMissingRepoMsg directly instead.
+// When repo is present it is returned unchanged with a nil note.
 // When repo is missing but an absolute path/file infers a checkout, the
 // inferred repo is returned with a short note to append to the response. When
 // repo is missing and no inference is possible, it returns ("", "", false) and

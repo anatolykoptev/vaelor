@@ -140,18 +140,32 @@ func TestNormalizeArgs_LimitAliasToTopKForSemanticSearch(t *testing.T) {
 	}
 }
 
-func TestNormalizeArgs_InsightsAliasToRepoForRememberGraphInsights(t *testing.T) {
+func TestNormalizeArgs_InsightsStrippedWithHintOnRememberGraphInsights(t *testing.T) {
+	// Session evidence (#568): agents send free-text CONTENT in `insights`
+	// expecting a note-store — an alias onto `repo` would map content garbage
+	// into a repo lookup. It must be stripped, and a hint must explain the
+	// tool's actual purpose.
 	accepted := map[string]struct{}{"repo": {}, "max_per_template": {}}
-	raw := map[string]any{"insights": "owner/repo"}
+	raw := map[string]any{"insights": "Competitor recon 2026-07-18: 8 players surveyed..."}
 	res := NormalizeArgs("remember_graph_insights", raw, accepted)
 	if _, ok := res.Args["insights"]; ok {
-		t.Errorf("insights should be renamed away")
+		t.Errorf("insights should be stripped")
 	}
-	if res.Args["repo"] != "owner/repo" {
-		t.Errorf("repo should be inferred from insights, got %v", res.Args["repo"])
+	if _, ok := res.Args["repo"]; ok {
+		t.Errorf("repo must NOT be fabricated from insights content, got %v", res.Args["repo"])
 	}
-	if len(res.Aliased) != 1 || res.Aliased[0] != "insights→repo" {
-		t.Errorf("expected insights→repo, got %v", res.Aliased)
+	if len(res.Aliased) != 0 {
+		t.Errorf("no alias expected, got %v", res.Aliased)
+	}
+	if len(res.Stripped) != 1 || res.Stripped[0] != "insights" {
+		t.Errorf("expected stripped [insights], got %v", res.Stripped)
+	}
+	hint := StrippedHint("remember_graph_insights", "insights")
+	if hint == "" || !strings.Contains(hint, "repo") {
+		t.Errorf("expected a hint naming repo, got %q", hint)
+	}
+	if StrippedHint("code_search", "insights") != "" {
+		t.Errorf("hint must be tool-scoped")
 	}
 }
 
