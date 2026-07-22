@@ -516,6 +516,14 @@ func (s *Store) deleteExplicitOrphanChunk(ctx context.Context, repoKey string, f
 	return ct.RowsAffected(), nil
 }
 
+// orphanRepoKeyPredicate is the shared WHERE clause that identifies
+// code_embeddings rows whose repo_key has no matching code_repo_state row.
+// DeleteOrphanRepoKeys, CountOrphanRepoKeys and PreviewOrphanRepoKeys all
+// reference it so the delete set, the gauge count, and the dry-run preview
+// can never diverge (a probe once wiped 15076 rows because the preview and
+// the delete used different predicates — see orphan_sweep dry-run gate).
+const orphanRepoKeyPredicate = "repo_key NOT IN (SELECT repo_key FROM public.code_repo_state)"
+
 // DeleteOrphanRepoKeys removes all code_embeddings rows whose repo_key has no
 // corresponding row in code_repo_state. These orphans accumulate when:
 //   - a worktree checkout creates a new repo_key (GraphNameFor hashes the root
@@ -536,15 +544,43 @@ func (s *Store) DeleteOrphanRepoKeys(ctx context.Context) (int64, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return 0, err
 	}
-	ct, err := s.pool.Exec(ctx, `
-		DELETE FROM public.code_embeddings
-		WHERE repo_key NOT IN (
-			SELECT repo_key FROM public.code_repo_state
-		)`)
+	ct, err := s.pool.Exec(ctx, "DELETE FROM public.code_embeddings WHERE "+orphanRepoKeyPredicate)
 	if err != nil {
 		return 0, fmt.Errorf("DeleteOrphanRepoKeys: %w", err)
 	}
 	return ct.RowsAffected(), nil
+}
+
+// PreviewOrphanRepoKeys returns the orphan repo_keys and the total number of
+// code_embeddings rows that DeleteOrphanRepoKeys would remove, WITHOUT
+// deleting anything. Used by the orphan_sweep dry-run path so an operator can
+// confirm the blast radius before committing to a bulk DELETE.
+//
+// The orphan predicate is shared with DeleteOrphanRepoKeys via
+// orphanRepoKeyPredicate so preview and delete can never diverge.
+func (s *Store) PreviewOrphanRepoKeys(ctx context.Context) (repoKeys []string, rowCount int64, err error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.pool.Query(ctx, "SELECT DISTINCT repo_key FROM public.code_embeddings WHERE "+orphanRepoKeyPredicate)
+	if err != nil {
+		return nil, 0, fmt.Errorf("PreviewOrphanRepoKeys: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, 0, fmt.Errorf("PreviewOrphanRepoKeys: scan: %w", err)
+		}
+		repoKeys = append(repoKeys, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("PreviewOrphanRepoKeys: %w", err)
+	}
+	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM public.code_embeddings WHERE "+orphanRepoKeyPredicate).Scan(&rowCount); err != nil {
+		return nil, 0, fmt.Errorf("PreviewOrphanRepoKeys: count: %w", err)
+	}
+	return repoKeys, rowCount, nil
 }
 
 // CountOrphanRepoKeys returns the number of distinct repo_keys present in
@@ -555,12 +591,8 @@ func (s *Store) CountOrphanRepoKeys(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	var n int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT repo_key)
-		FROM public.code_embeddings
-		WHERE repo_key NOT IN (
-			SELECT repo_key FROM public.code_repo_state
-		)`).Scan(&n)
+	err := s.pool.QueryRow(ctx,
+		"SELECT COUNT(DISTINCT repo_key) FROM public.code_embeddings WHERE "+orphanRepoKeyPredicate).Scan(&n)
 	return n, err
 }
 

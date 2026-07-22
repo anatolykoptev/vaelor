@@ -199,6 +199,14 @@ func jsonProperties(t reflect.Type) (props []string, isStruct bool) {
 	return props, true
 }
 
+// JsonProperty is the exported form of jsonProperties, for use by callers
+// outside internal/argnorm (e.g. handler tests in cmd/vaelor that need to
+// assert a tool's input schema is closed/non-empty without spinning up a full
+// server). See jsonProperties for the return-value semantics.
+func JsonProperty(t reflect.Type) (props []string, isStruct bool) {
+	return jsonProperties(t)
+}
+
 func collectJSONProps(t reflect.Type, out *[]string) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
