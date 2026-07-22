@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/anatolykoptev/vaelor/internal/polyglot"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,6 +24,9 @@ type DataflowInput struct {
 	FileGlob    string           `json:"file_glob,omitempty" jsonschema_description:"Include only files matching glob"`
 	ExcludeGlob string           `json:"exclude_glob,omitempty" jsonschema_description:"Exclude files matching glob"`
 	Rules       []TaintRuleInput `json:"rules,omitempty" jsonschema_description:"Custom taint-tracking rules (JSON array). When omitted, built-in SQL/command injection rules are used. Each rule: {id, sources:[{pattern,tag}], sinks:[{pattern,arg_index,cwe,description}], sanitizers:[{pattern}], severity}"`
+	Limit       int              `json:"limit,omitempty" jsonschema_description:"Maximum findings per section (quality, security, dead functions). Default 50. Use offset to paginate."`
+	Offset      int              `json:"offset,omitempty" jsonschema_description:"Skip the first N findings in each section (for pagination). Use with limit to page through large result sets."`
+	MaxBytes    int              `json:"max_bytes,omitempty" jsonschema_description:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
 // TaintRuleInput is the MCP input schema for a custom taint rule.
@@ -97,12 +100,46 @@ type xmlSecurityFinding struct {
 	Message  string `xml:",chardata"`
 }
 
-const dataflowMaxResults = 100
+// dataflowMaxResults is the DEFAULT number of findings requested from
+// ox-codes. Tightened from 100 to 50 so the default call fits the ~8 KB
+// response budget (#571) — 100 findings at ~100 chars each exceeded the
+// 10149-char client truncation ceiling. The actual fetch grows to cover the
+// caller's offset+limit page (see dataflowFetchWindow) so pagination beyond
+// the first 50 returns data, not an empty section.
+const dataflowMaxResults = 50
+
+// dataflowFetchCap bounds the ox-codes fetch window so deep pagination cannot
+// request unbounded result sets from the backend.
+const dataflowFetchCap = 500
+
+// dataflowFetchWindow returns how many findings to request from ox-codes so
+// the caller's offset+limit page is actually fetchable.
+func dataflowFetchWindow(offset, limit int) int {
+	if limit <= 0 {
+		limit = dataflowDefaultLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	w := offset + limit
+	if w < dataflowMaxResults {
+		w = dataflowMaxResults
+	}
+	if w > dataflowFetchCap {
+		w = dataflowFetchCap
+	}
+	return w
+}
+
+// dataflowDefaultLimit is the per-section rendering limit when the caller
+// does not specify one. Matches dataflowMaxResults so the default call
+// returns at most 50 findings per section.
+const dataflowDefaultLimit = 50
 
 func registerDataflow(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "dataflow_analyze",
 		Description: "Unified code quality and security analysis. " +
 			"Quality: dead stores, unused variables (data-flow), dead functions (callgraph). " +
@@ -128,6 +165,15 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	}
 	if focus != "all" && focus != "quality" && focus != "security" {
 		return errResult("focus must be 'all', 'quality', or 'security'"), nil
+	}
+
+	limit := input.Limit
+	if limit <= 0 {
+		limit = dataflowDefaultLimit
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
 	}
 
 	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
@@ -194,7 +240,21 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 		return errResult("dataflow analysis failed: no results from ox-codes"), nil
 	}
 
-	return xmlMarshalResult(resp, "dataflow_analyze", outputDir), nil
+	// Apply offset/limit pagination to each section's findings.
+	applyDataflowPagination(&resp.Dataflow, offset, limit)
+
+	data, err := xml.Marshal(resp)
+	if err != nil {
+		return errResult(fmt.Sprintf("marshal: %s", err)), nil
+	}
+	text := xml.Header + string(data)
+
+	// Apply per-call budget override when max_bytes is set.
+	if input.MaxBytes > 0 {
+		text = mcpmeta.Shape(text, budgetOverride(input.MaxBytes),
+			fmt.Sprintf("pass offset=%d for the next page", offset+limit))
+	}
+	return largeTextResult(text, "dataflow_analyze", outputDir), nil
 }
 
 type qualityResult struct {
@@ -207,7 +267,7 @@ func runQualityAnalysis(ctx context.Context, client *oxcodes.Client, root string
 	result, err := client.DataflowAnalyze(ctx, oxcodes.DataflowInput{
 		Root:        root,
 		Language:    input.Language,
-		MaxResults:  dataflowMaxResults,
+		MaxResults:  dataflowFetchWindow(input.Offset, input.Limit),
 		FileGlob:    input.FileGlob,
 		ExcludeGlob: input.ExcludeGlob,
 	})
@@ -253,4 +313,55 @@ func detectDominantLanguage(root string) string {
 		return nil
 	})
 	return polyglot.DominantLanguageFromCounts(counts)
+}
+
+// applyDataflowPagination applies offset/limit to each section's findings
+// slice in place. The Count/Total/Dead/Ratio attributes are preserved
+// (they reflect the full result set, not just the page) so the agent
+// knows how many total findings exist and can paginate with offset.
+func applyDataflowPagination(df *xmlDataflow, offset, limit int) {
+	if offset <= 0 && limit <= 0 {
+		return
+	}
+	if df.Quality != nil {
+		df.Quality.Findings = paginateFindings(df.Quality.Findings, offset, limit)
+	}
+	if df.DeadFunctions != nil {
+		df.DeadFunctions.Symbols = paginateDeadSyms(df.DeadFunctions.Symbols, offset, limit)
+	}
+	if df.Security != nil {
+		df.Security.Findings = paginateFindings(df.Security.Findings, offset, limit)
+	}
+}
+
+func paginateFindings[T any](findings []T, offset, limit int) []T {
+	if len(findings) == 0 {
+		return findings
+	}
+	if offset > 0 {
+		if offset >= len(findings) {
+			return findings[:0]
+		}
+		findings = findings[offset:]
+	}
+	if limit > 0 && len(findings) > limit {
+		findings = findings[:limit]
+	}
+	return findings
+}
+
+func paginateDeadSyms(syms []xmlDfDeadFuncSym, offset, limit int) []xmlDfDeadFuncSym {
+	if len(syms) == 0 {
+		return syms
+	}
+	if offset > 0 {
+		if offset >= len(syms) {
+			return syms[:0]
+		}
+		syms = syms[offset:]
+	}
+	if limit > 0 && len(syms) > limit {
+		syms = syms[:limit]
+	}
+	return syms
 }

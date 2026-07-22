@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/webanalyze"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -25,7 +24,7 @@ func registerSiteAnalyze(server *mcp.Server, cfg Config) {
 	client := webanalyze.NewClient(cfg.OxBrowserURL)
 	workDir := cfg.WorkspaceDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "site_analyze",
 		Description: "Analyze a website: technology stack (7000+ techs), SEO/OG tags, " +
 			"performance hints, accessibility audit, content/media analysis, fonts, PWA, API discovery. " +

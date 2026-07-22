@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
@@ -35,7 +34,7 @@ const (
 )
 
 func registerImpact(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "impact_analysis",
 		Description: "Analyze the blast radius of changing a function or method. " +
 			"Shows direct callers, transitive callers, affected packages, " +

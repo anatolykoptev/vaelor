@@ -27,8 +27,16 @@ func TestNoDirectMCPServerAddTool(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(src), "mcpserver.AddTool(") {
-			t.Errorf("%s: direct mcpserver.AddTool call — use argnorm.AddTool, "+
+			t.Errorf("%s: direct mcpserver.AddTool call — use addTool, "+
 				"otherwise the argnorm middleware rejects the tool as unknown", name)
+		}
+		// argnorm.AddTool directly (bypassing addTool) registers fine but
+		// skips budget shaping + took_ms — the wrapper chain must be
+		// addTool → argnorm.AddTool → mcpserver.AddTool, with the argnorm
+		// call living only inside addtool.go.
+		if name != "addtool.go" && strings.Contains(string(src), "argnorm.AddTool(") {
+			t.Errorf("%s: direct argnorm.AddTool call — use addTool so the "+
+				"response budget and took_ms wrapper applies", name)
 		}
 	}
 }

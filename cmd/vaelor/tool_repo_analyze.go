@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -42,7 +41,7 @@ type RepoAnalyzeInput struct {
 func registerRepoAnalyze(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "repo_analyze",
 		Description: "Analyze a code repository (GitHub or local) using AST parsing. " +
 			"Returns structured mechanical data: symbols with complexity, " +

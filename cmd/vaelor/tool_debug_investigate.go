@@ -14,7 +14,6 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/jaegerclient"
 	"github.com/anatolykoptev/vaelor/internal/promclient"
 
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -101,6 +100,8 @@ type DebugInvestigateInput struct {
 	Host string `json:"host,omitempty"  jsonschema_description:"Optional probe target for runtime-binary drift analysis (Phase 7). 'local://' for local docker, 'ssh://...' for remote (requires GOCODE_FLEET_SSH_ENABLE=true)."`
 	// Hosts enables multi-host Phase 7. Supersedes Host when both are set.
 	Hosts []string `json:"hosts,omitempty" jsonschema_description:"Multiple probe targets for Phase 7 fleet diff. Supersedes 'host' when set. Each is local://, docker://, or ssh://[user@]host[:port]."`
+	// MaxBytes is the per-call response budget override (default 8192).
+	MaxBytes int `json:"max_bytes,omitempty" jsonschema_description:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
 // debugInvestigateStore is module-scoped — survives across calls in the same process.
@@ -119,7 +120,7 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 		dozor = dozorclient.NewClient(cfg.DozorURL, cfg.DozorAPIToken, 10*time.Second)
 	}
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "debug_investigate",
 		Description: "Correlate Prometheus metrics + Jaeger failed traces + code symbols to suggest the likely buggy file:function for the given service+window. Long-running (5min budget); poll same input to fetch result.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DebugInvestigateInput) (*mcp.CallToolResult, error) {

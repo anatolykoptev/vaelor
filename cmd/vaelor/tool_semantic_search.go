@@ -8,7 +8,6 @@ import (
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/sparse"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
@@ -24,6 +23,7 @@ type SemanticSearchInput struct {
 	Language    string  `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript)"`
 	TopK        int     `json:"top_k,omitempty" jsonschema_description:"Number of results (default 10, max 50)"`
 	MaxDistance float32 `json:"max_distance,omitempty" jsonschema_description:"Maximum cosine distance (0.0-1.0, default 0.75). Lower = stricter matching"`
+	MaxBytes    int     `json:"max_bytes,omitempty" jsonschema_description:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
 // SemanticDeps holds dependencies for semantic search.
@@ -98,7 +98,7 @@ const (
 
 // registerSemanticSearch registers the semantic_search MCP tool.
 func registerSemanticSearch(server *mcp.Server, _ Config, deps SemanticDeps) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "semantic_search",
 		Description: "Find code by meaning using natural language queries. " +
 			"Uses hybrid RRF (semantic + keyword + graph-candidate + hotspot + recency) with 1-hop graph expansion via Apache AGE. " +
@@ -146,25 +146,45 @@ func handleSemanticSearch(
 
 	t0 := time.Now()
 
+	// Soft deadline: 25s default, below the 30s client timeout. On expiry,
+	// return whatever results we have so far with a partial footer instead
+	// of computing past the point anyone is listening (#572).
+	softCtx, softCancel := mcpmeta.SoftDeadline(ctx)
+	defer softCancel()
+
 	repoKey := codegraph.GraphNameFor(root)
 
 	// Embed query first (fast, ~1s).
 	// Use QueryClient (not Client) so model-specific prefixes (e.g. code-rank-embed
 	// retrieval prefix) are applied on the query path only. Document embedding in
 	// the Pipeline always uses Client.Embed without any prefix.
-	vector, err := deps.QueryClient.EmbedQuery(ctx, input.Query)
+	vector, err := deps.QueryClient.EmbedQuery(softCtx, input.Query)
 	if err != nil {
+		if softCtx.Err() != nil {
+			return softDeadlineResult(
+				fmt.Sprintf("semantic_search: timed out during query embedding after %s — retry with a simpler query.", time.Since(t0).Round(time.Second)),
+				"query embedding, vector search, hybrid merge (soft deadline)",
+				time.Since(t0),
+			), nil
+		}
 		return errResult(fmt.Sprintf("embed query: %s", err)), nil
 	}
 
 	// Try searching existing embeddings.
-	results, err := deps.Store.Search(ctx, vector, embeddings.SearchOpts{
+	results, err := deps.Store.Search(softCtx, vector, embeddings.SearchOpts{
 		RepoKey:     repoKey,
 		Language:    input.Language,
 		TopK:        topK,
 		MaxDistance: maxDist,
 	})
 	if err != nil {
+		if softCtx.Err() != nil {
+			return softDeadlineResult(
+				fmt.Sprintf("semantic_search: timed out during vector search after %s — query was embedded but pgvector search exceeded the soft deadline.", time.Since(t0).Round(time.Second)),
+				"vector search, hybrid merge (soft deadline)",
+				time.Since(t0),
+			), nil
+		}
 		return errResult(fmt.Sprintf("search: %s", err)), nil
 	}
 
@@ -190,19 +210,19 @@ func handleSemanticSearch(
 			invalidator = deps.Pipeline
 		}
 		if checker != nil && invalidator != nil && invalidator.EmbedModel() != "" {
-			storedModel := checker.GetStoredModel(ctx, repoKey)
+			storedModel := checker.GetStoredModel(softCtx, repoKey)
 			// Defense-in-depth: when code_repo_state has no row for this repo_key
 			// (e.g. orphan vectors from a removed checkout), GetStoredModel returns "".
 			// Fall back to reading embed_model from code_embeddings rows directly so
 			// the guard fires even for repos with no state row.
 			if storedModel == "" {
 				if prc, ok := checker.(perRowModelChecker); ok {
-					storedModel = prc.GetEmbedModelForRepo(ctx, repoKey)
+					storedModel = prc.GetEmbedModelForRepo(softCtx, repoKey)
 				}
 			}
 			if storedModel != "" && storedModel != invalidator.EmbedModel() {
 				// Stale-space hit: invalidate (purge old vectors) and reindex.
-				invalidator.InvalidateIfModelChanged(ctx, repoKey) // purges atomically
+				invalidator.InvalidateIfModelChanged(softCtx, repoKey) // purges atomically
 				if invalidator.IsIndexing(repoKey) {
 					done, total, _ := invalidator.IndexProgress(repoKey)
 					msg := "Repository is being re-indexed (embedding model changed). " +
@@ -219,7 +239,7 @@ func handleSemanticSearch(
 						semanticSearchGraphHint+" "+semanticSearchRetryHint), nil
 			}
 		}
-		return handleSemanticHits(ctx, input, deps, repoKey, root, results, topK, maxDist, t0)
+		return handleSemanticHits(softCtx, input, deps, repoKey, root, results, topK, maxDist, t0)
 	}
 
 	// No results — start background indexing if not already running.

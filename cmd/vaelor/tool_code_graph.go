@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -67,7 +66,7 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 		return
 	}
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "code_graph",
 		Description: "Query a persistent code knowledge graph backed by Apache AGE. " +
 			"Indexes the repository as a property graph with vertices (Package, File, Symbol, Layer, Route) " +

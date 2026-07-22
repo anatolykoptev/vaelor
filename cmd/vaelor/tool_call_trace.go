@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
@@ -156,7 +155,7 @@ func normalizeCallTraceDirection(direction string) string {
 func registerCallTrace(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps, store *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "call_trace",
 		Description: "Trace the execution path of a function through a codebase. " +
 			"Shows what happens when a function is called (callees) or who calls it (callers). " +

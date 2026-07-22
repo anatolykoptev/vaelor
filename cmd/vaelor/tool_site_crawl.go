@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/webanalyze"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -29,7 +28,7 @@ func registerSiteCrawl(server *mcp.Server, cfg Config) {
 	}
 	client := webanalyze.NewClient(cfg.OxBrowserURL)
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "site_crawl",
 		Description: "BFS site crawler via ox-browser. Starts from a seed URL, " +
 			"discovers pages up to max_depth, respects robots.txt, deduplicates URLs. " +

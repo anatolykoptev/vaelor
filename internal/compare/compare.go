@@ -191,10 +191,23 @@ func CompareRepos(ctx context.Context, input CompareInput, llmClient llm.Complet
 	// freshness, dataflow, API surface, and routes.
 	// llmClient is always non-nil (NoOp{} when unconfigured); runLLMAnalysis
 	// handles ErrLLMUnavailable via its own error branch (compare/llm.go).
-	analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
-		hotspotsA, hotspotsB, relStatsA, relStatsB,
-		enr.freshnessA, enr.freshnessB, enr.dataflowA, enr.dataflowB, apiDiff, routeDiff,
-		enr.archMetricsA, enr.archMetricsB)
+	//
+	// Soft-deadline short-circuit (#572): the LLM call is the single most
+	// expensive stage (5-30s network round-trip). When the caller's soft
+	// deadline has already fired by the time we reach this point, skip the
+	// LLM analysis entirely and return the structural comparison (metrics,
+	// matches, enrichment) without the narrative. The caller (tool handler)
+	// checks ctx.Err() after CompareRepos returns and appends a partial
+	// footer. Without this guard, a near-deadline CompareRepos would spend
+	// its remaining budget on an LLM call that the client will never see.
+	if ctx.Err() != nil {
+		analysis = LLMAnalysis{Verdict: VerdictResult{Reason: "skipped: soft deadline fired before LLM stage"}}
+	} else {
+		analysis = runLLMAnalysis(ctx, llmClient, matches, metricsA, metricsB, input.Query,
+			hotspotsA, hotspotsB, relStatsA, relStatsB,
+			enr.freshnessA, enr.freshnessB, enr.dataflowA, enr.dataflowB, apiDiff, routeDiff,
+			enr.archMetricsA, enr.archMetricsB)
+	}
 
 	result := &CompareResult{
 		RepoA:           snapA.Name,

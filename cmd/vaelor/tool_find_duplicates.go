@@ -7,19 +7,20 @@ import (
 	"sort"
 	"strings"
 
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/semhealth"
 )
 
 // Default and validation constants for find_duplicates.
 const (
 	// defaultDupLimit is the maximum number of duplicate groups returned when
-	// the caller does not specify a limit. Matches the maxExactDupPairs cap in
-	// embeddings/store_dup.go to keep output volume consistent across tiers.
-	defaultDupLimit = 50
+	// the caller does not specify a limit. Tightened from 50 to 20 so the
+	// DEFAULT call fits the ~8 KB response budget (#571) — 50 groups at
+	// ~200 chars each exceeded the 10149-char client truncation ceiling.
+	defaultDupLimit = 20
 
 	// validTiers are the accepted tier filter values. Kept as constants so callers
 	// cannot pass free-form strings into the formatted output.
@@ -37,11 +38,13 @@ type FindDuplicatesInput struct {
 	Repo            string  `json:"repo" jsonschema_description:"Repository path or identifier to scan for intra-repo semantic duplicates (GitHub slug, full URL, or absolute local path)"`
 	IncludeSameFile bool    `json:"include_same_file,omitempty" jsonschema_description:"Include same-file near-duplicates (default false — overloads and helpers in the same file are excluded)"`
 	Tier            string  `json:"tier,omitempty" jsonschema_description:"Filter output to a single tier: exact | very-close | related (default: all tiers)"`
-	Limit           int     `json:"limit,omitempty" jsonschema_description:"Maximum number of duplicate groups to report (default 50)"`
+	Limit           int     `json:"limit,omitempty" jsonschema_description:"Maximum number of duplicate groups to report (default 20)"`
+	Offset          int     `json:"offset,omitempty" jsonschema_description:"Skip the first N groups (for pagination). Use with limit to page through large result sets."`
 	Language        string  `json:"language,omitempty" jsonschema_description:"Restrict to symbols in files of this language (e.g. go, python, typescript). Inferred from file extension."`
 	MinLines        int     `json:"min_lines,omitempty" jsonschema_description:"Drop groups where any symbol's body is shorter than this many lines (best-effort brace scan from the symbol's start line)."`
 	Threshold       float64 `json:"threshold,omitempty" jsonschema_description:"Minimum average similarity (0.0-1.0) to report a group. Exact-tier groups (sim=1.0) always pass."`
 	Path            string  `json:"path,omitempty" jsonschema_description:"Restrict to symbols whose file path is under this directory (relative to repo root, e.g. \"internal/query\")."`
+	MaxBytes        int     `json:"max_bytes,omitempty" jsonschema_description:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
 // registerFindDuplicates registers the find_duplicates MCP tool.
@@ -66,7 +69,7 @@ func registerFindDuplicates(server *mcp.Server, deps SemanticDeps) {
 		return
 	}
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "find_duplicates",
 		Description: "Operator-invoked: find pairs of symbols in ONE repo that are semantically near-identical. " +
 			"Targets the 'agent re-implemented ProcessX as HandleX' class of drift, which is invisible to " +
@@ -173,7 +176,17 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 		Root:      root,
 	})
 
-	return textResult(formatTriage(res, in.Tier, limit)), nil
+	formatted := formatTriage(res, in.Tier, in.Offset, limit)
+	// Apply per-call budget override when max_bytes is set; the addTool
+	// wrapper applies the default budget otherwise. A byte-cut is NOT a page
+	// boundary — an unknown number of this page's groups were rendered but
+	// cut, so the hint must not advance offset (skipping cut groups loses
+	// data); it suggests re-reading the same page with more room instead.
+	if in.MaxBytes > 0 {
+		formatted = mcpmeta.Shape(formatted, budgetOverride(in.MaxBytes),
+			fmt.Sprintf("byte-cut mid-page — retry offset=%d with a larger max_bytes, or narrow with language=/path=", in.Offset))
+	}
+	return textResult(formatted), nil
 }
 
 // formatTriage renders a TriageResult as a human-readable triage report.
@@ -193,11 +206,13 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 //	⚠ search incomplete (some queries timed out) — results may be partial
 //
 // tierFilter, when non-empty, restricts output to groups of that tier.
+// offset skips the first N groups (after tier filtering) for pagination.
 // limit caps the total number of groups rendered.
+// When offset > 0, a pagination header is prepended: "showing N-M of T".
 //
 // The function is pure (no side effects) to make it unit-testable without
 // a live DB or context.
-func formatTriage(res *semhealth.TriageResult, tierFilter string, limit int) string {
+func formatTriage(res *semhealth.TriageResult, tierFilter string, offset, limit int) string {
 	if res == nil || (len(res.Groups) == 0 && res.Candidates == 0) {
 		if res != nil && res.TimedOut {
 			return "⚠ search incomplete (some queries timed out) — results may be partial\nno semantic duplicates found in partial result set"
@@ -205,24 +220,42 @@ func formatTriage(res *semhealth.TriageResult, tierFilter string, limit int) str
 		return "no semantic duplicates found (no candidates returned by pgvector)"
 	}
 
-	groups := filterAndLimitGroups(res.Groups, tierFilter, limit)
+	groups, totalAfterFilter := filterOffsetAndLimitGroups(res.Groups, tierFilter, offset, limit)
 
 	var sb strings.Builder
 	if res.TimedOut {
 		fmt.Fprint(&sb, "⚠ search incomplete (some queries timed out) — results may be partial\n")
 	}
 	if len(groups) == 0 {
-		fmt.Fprintf(&sb, "no semantic duplicates found in %q tier (candidates=%d before filtering)", tierFilter, res.Candidates)
+		if offset > 0 && totalAfterFilter > 0 {
+			fmt.Fprintf(&sb, "no more groups at offset=%d (total=%d after tier filter) — use a smaller offset", offset, totalAfterFilter)
+		} else {
+			fmt.Fprintf(&sb, "no semantic duplicates found in %q tier (candidates=%d before filtering)", tierFilter, res.Candidates)
+		}
 		return sb.String()
+	}
+
+	// Pagination header when offsetting.
+	if offset > 0 {
+		fmt.Fprintf(&sb, "showing %d-%d of %d groups (offset=%d)\n", offset+1, offset+len(groups), totalAfterFilter, offset)
 	}
 
 	fmt.Fprint(&sb, formatTriageSummary(res, tierFilter))
 	fmt.Fprint(&sb, formatTriageTiers(groups))
+
+	// Continuation footer when there are more groups beyond this page.
+	if offset+len(groups) < totalAfterFilter {
+		next := offset + len(groups)
+		fmt.Fprintf(&sb, "\n[truncated: %d more groups — pass offset=%d to continue]", totalAfterFilter-next, next)
+	}
 	return sb.String()
 }
 
-// filterAndLimitGroups applies the tier filter and limit cap to a group slice.
-func filterAndLimitGroups(groups []semhealth.DupGroup, tierFilter string, limit int) []semhealth.DupGroup {
+// filterOffsetAndLimitGroups applies the tier filter, then offset, then limit
+// cap to a group slice. Returns the page slice and the total count after
+// tier filtering (before offset/limit) so the caller can emit a pagination
+// footer.
+func filterOffsetAndLimitGroups(groups []semhealth.DupGroup, tierFilter string, offset, limit int) ([]semhealth.DupGroup, int) {
 	if tierFilter != "" {
 		filtered := groups[:0:0]
 		for _, g := range groups {
@@ -232,13 +265,21 @@ func filterAndLimitGroups(groups []semhealth.DupGroup, tierFilter string, limit 
 		}
 		groups = filtered
 	}
+	total := len(groups)
+
 	if limit <= 0 {
 		limit = defaultDupLimit
+	}
+	if offset > 0 {
+		if offset >= len(groups) {
+			return nil, total
+		}
+		groups = groups[offset:]
 	}
 	if len(groups) > limit {
 		groups = groups[:limit]
 	}
-	return groups
+	return groups, total
 }
 
 // formatTriageSummary renders the header line with candidate and filter-drop counts.

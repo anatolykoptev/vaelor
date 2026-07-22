@@ -17,7 +17,7 @@ func runSecurityAnalysis(ctx context.Context, client *oxcodes.Client, root strin
 	taintInput := oxcodes.TaintInput{
 		Root:        root,
 		Language:    input.Language,
-		MaxResults:  dataflowMaxResults,
+		MaxResults:  dataflowFetchWindow(input.Offset, input.Limit),
 		FileGlob:    input.FileGlob,
 		ExcludeGlob: input.ExcludeGlob,
 	}

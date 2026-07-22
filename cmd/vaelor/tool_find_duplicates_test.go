@@ -42,7 +42,7 @@ func TestFormatTriage_TierOrdering(t *testing.T) {
 		ReportedByTier: map[string]int{"exact": 1, "very-close": 1, "related": 1},
 	}
 
-	out := formatTriage(res, "", defaultDupLimit)
+	out := formatTriage(res, "", 0, defaultDupLimit)
 
 	// Tier ordering: the exact SECTION must precede very-close, very-close before
 	// related. Assert on the section markers, not bare tier tokens — the bare tokens
@@ -80,7 +80,7 @@ func TestFormatTriage_SummaryLine(t *testing.T) {
 		ReportedByTier: map[string]int{"very-close": 1},
 	}
 
-	out := formatTriage(res, "", defaultDupLimit)
+	out := formatTriage(res, "", 0, defaultDupLimit)
 
 	checks := []string{
 		"candidates=10",
@@ -116,7 +116,7 @@ func TestFormatTriage_SymbolLineFormat(t *testing.T) {
 		ReportedByTier: map[string]int{"very-close": 1},
 	}
 
-	out := formatTriage(res, "", defaultDupLimit)
+	out := formatTriage(res, "", 0, defaultDupLimit)
 
 	wants := []string{
 		"ProcessOrder",
@@ -171,7 +171,7 @@ func TestFormatTriage_TierFilter(t *testing.T) {
 	}
 
 	// Filter to "very-close" only.
-	out := formatTriage(res, "very-close", defaultDupLimit)
+	out := formatTriage(res, "very-close", 0, defaultDupLimit)
 
 	if strings.Contains(out, "Exact1") {
 		t.Errorf("exact group should be filtered out, but found Exact1 in output:\n%s", out)
@@ -204,7 +204,7 @@ func TestFormatTriage_LimitCap(t *testing.T) {
 		ReportedByTier: map[string]int{"very-close": 10},
 	}
 
-	out := formatTriage(res, "", 3)
+	out := formatTriage(res, "", 0, 3)
 
 	// Only the first 3 groups should appear. Count occurrence of "sim=" as a proxy for group lines.
 	count := strings.Count(out, "sim=")
@@ -223,7 +223,7 @@ func TestFormatTriage_EmptyGroups(t *testing.T) {
 		ReportedByTier: map[string]int{},
 	}
 
-	out := formatTriage(res, "", defaultDupLimit)
+	out := formatTriage(res, "", 0, defaultDupLimit)
 
 	if !strings.Contains(out, "no semantic duplicates") {
 		t.Errorf("expected no-duplicates message, got:\n%s", out)
@@ -255,7 +255,7 @@ func TestFormatTriage_DefaultLimit(t *testing.T) {
 		ReportedByTier: map[string]int{"very-close": 60},
 	}
 
-	out := formatTriage(res, "", defaultDupLimit)
+	out := formatTriage(res, "", 0, defaultDupLimit)
 	count := strings.Count(out, "sim=")
 	if count != defaultDupLimit {
 		t.Errorf("expected defaultDupLimit=%d groups, got %d in output", defaultDupLimit, count)
@@ -284,7 +284,7 @@ func TestFormatTriage_RevertGuard(t *testing.T) {
 		ReportedByTier: map[string]int{"exact": 1, "related": 1},
 	}
 
-	out := formatTriage(res, "", defaultDupLimit)
+	out := formatTriage(res, "", 0, defaultDupLimit)
 
 	// "exact" section header must come before the "related" section header.
 	// (The groups are ordered by AnalyzeTriage already; formatTriage must preserve that order.)
