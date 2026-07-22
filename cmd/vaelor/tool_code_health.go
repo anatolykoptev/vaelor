@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/explore"
@@ -74,7 +73,7 @@ type CodeHealthInput struct {
 func registerCodeHealth(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps, graphStore *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "code_health",
 		Description: "Assess code quality of a single repository. " +
 			"Returns grade (A-F), numeric score (0-100), metrics " +

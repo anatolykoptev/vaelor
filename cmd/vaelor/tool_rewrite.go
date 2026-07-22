@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -53,7 +52,7 @@ type xmlRewriteFile struct {
 func registerRewrite(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "rewrite",
 		Description: "Structural search-and-replace using AST patterns with $WILDCARDS. " +
 			"Finds code matching the pattern and generates unified diffs showing the transformation. " +

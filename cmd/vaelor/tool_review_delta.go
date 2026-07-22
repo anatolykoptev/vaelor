@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/review"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,7 +29,7 @@ const (
 )
 
 func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphStore *codegraph.Store) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "review_delta",
 		Description: "Analyze changes between two git refs and compute differential impact. " +
 			"Returns changed files, changed symbols, impacted downstream symbols, " +

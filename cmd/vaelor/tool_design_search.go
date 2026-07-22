@@ -6,7 +6,6 @@ import (
 
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/designmd"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -33,7 +32,7 @@ func registerDesignSearch(server *mcp.Server, cfg Config, deps DesignDeps) {
 	desc := fmt.Sprintf("Find the best DESIGN.md for your UI by describing the look and feel. "+
 		"Searches %d design systems: brand-inspired (Stripe, Linear) and style-based (Cyberpunk, Art Deco).", len(metaIndex))
 
-	argnorm.AddTool(server, &mcp.Tool{Name: "design_search", Description: desc},
+	addTool(server, &mcp.Tool{Name: "design_search", Description: desc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input DesignSearchInput) (*mcp.CallToolResult, error) {
 			return handleDesignSearch(ctx, input, deps, metaIndex, dirs, cfg.PathMappings)
 		})

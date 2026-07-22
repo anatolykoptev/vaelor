@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/compound"
@@ -33,7 +32,7 @@ type UnderstandInput struct {
 var understandBuildFromRepo = callgraph.BuildFromRepo
 
 func registerUnderstand(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps, graphStore *codegraph.Store) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "understand",
 		Description: "Deep-dive into a single symbol. Aggregates: symbol info + callees + callers + complexity. " +
 			"Returns type-aware results for Go repos (interface dispatch resolution). " +

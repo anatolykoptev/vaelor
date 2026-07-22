@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/codesearch"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
@@ -67,7 +66,7 @@ type xmlExpandedBlock struct {
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "code_search",
 		Description: "Search for code patterns within a repository. " +
 			"Supports literal strings and regular expressions. " +

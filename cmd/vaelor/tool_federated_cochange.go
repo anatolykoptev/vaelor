@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/coupling"
 	"github.com/anatolykoptev/vaelor/internal/federate"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
@@ -346,7 +345,7 @@ func marshalFedResult(out *FederatedCoChangeResult, t0 time.Time) (*mcp.CallTool
 
 // registerFederatedCoChange registers the federated_cochange tool on the MCP server.
 func registerFederatedCoChange(server *mcp.Server, cfg Config, deps analyze.Deps) {
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "federated_cochange",
 		Description: "Find files in DIFFERENT repos that change together (cross-repo co-change) across a workspace. Ranked by Wilson lower bound on directional confidence (support-aware, continuous, never saturates): a thin coincidence (co=2, n=2) ranks well below a well-supported coupling (co=8, n=10) because Wilson penalizes small sample sizes — more evidence always wins. Ubiquitous stop-word files (CHANGELOGs, lockfiles, generated files touched in >85% of windows) are filtered out as noise before scoring. g2/significance are informational (un-capped Dunning log-likelihood); confidence_level derives from the Wilson score. min_lift is an optional raw effect-size pre-filter (not emitted in results). repos='all' | 'acme-*' | a repo name. Surfaces hidden coupling, e.g. a signaling change in one repo that needs a synchronized edit in another. Returns status:'partial' or 'building' with retry_after_seconds when result is not yet ready; re-call with the same args to get the complete 'ready' result.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FederatedCoChangeArgs) (*mcp.CallToolResult, error) {

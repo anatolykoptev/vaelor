@@ -5,13 +5,20 @@ import (
 	"log/slog"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	"github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// addTool is the budget-aware wrapper around mcpserver.AddTool. It registers
-// the tool and wraps the handler so every response gets:
+// addTool is the budget-aware wrapper around argnorm.AddTool (which itself
+// registers through mcpserver.AddTool and records the tool's accepted
+// property set in the argnorm registry — see internal/argnorm/registry.go).
+// Every tool registration in this package MUST go through addTool (guarded
+// by TestNoDirectMCPServerAddTool in argnorm_registration_test.go): calling
+// mcpserver.AddTool directly would bypass the argnorm registry, and the
+// normalization middleware fail-closes on registry membership — the tool
+// would be silently uncallable ("unknown tool"). addTool wraps the handler
+// so every response also gets:
 //
 //  1. Response budget shaping (default 8 KB) — when the response text
 //     exceeds the budget, the RANKED HEAD is kept and a continuation footer
@@ -32,12 +39,13 @@ func addTool[In any](
 	t *mcp.Tool,
 	h func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, error),
 ) {
-	mcpserver.AddTool(s, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, error) {
+	argnorm.AddTool(s, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, error) {
 		t0 := time.Now()
 		res, err := h(ctx, req, in)
 		if err != nil {
-			// mcpserver.AddTool converts errors to toolError results; we let
-			// that happen by returning the error as-is. No footer on errors.
+			// mcpserver.AddTool (via argnorm.AddTool) converts errors to
+			// toolError results; we let that happen by returning the error
+			// as-is. No footer on errors.
 			return res, err
 		}
 		if res == nil {

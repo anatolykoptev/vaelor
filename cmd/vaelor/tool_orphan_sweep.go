@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
@@ -33,7 +32,7 @@ func registerOrphanSweep(server *mcp.Server, deps SemanticDeps) {
 		return
 	}
 
-	argnorm.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "orphan_sweep",
 		Description: "Operator-initiated: delete code_embeddings rows whose repo_key has no matching code_repo_state row. " +
 			"These orphans accumulate when worktrees are removed without cleanup, or when a repo's checkout path " +
