@@ -60,7 +60,7 @@
 | `wp_plugin_search` | Search the WordPress.org plugin directory |
 | `semantic_search` | Vector similarity search via pgvector + hybrid RRF + graph expansion |
 | `sparse_backfill` | Maintenance/internal: populate `sparse_embedding` for existing `code_embeddings` rows where NULL. Operator-initiated |
-| `orphan_sweep` | Maintenance/internal: delete `code_embeddings` rows whose `repo_key` has no matching `code_repo_state` row. Operator-initiated |
+| `orphan_sweep` | Maintenance/internal: delete `code_embeddings` rows whose `repo_key` has no matching `code_repo_state` row. Operator-initiated. DRY-RUN BY DEFAULT (`dry_run` omitted/true ⇒ preview-only count; `dry_run=false` ⇒ real delete) |
 | `list_flows` | List precomputed named execution flows for a repo, ordered by priority (highest-PageRank chains first) |
 | `find_duplicates` | Find pairs of symbols in one repo that are semantically near-identical |
 | `code_research` | Deep repo research — AST traversal + LLM narrative + test linkage |

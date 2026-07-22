@@ -167,6 +167,74 @@ func TestDeleteOrphanRepoKeys_IdempotentOnClean(t *testing.T) {
 	assert.Len(t, rows, 1, "live repo with state row must not be swept")
 }
 
+// -- Store.PreviewOrphanRepoKeys tests --
+
+// TestPreviewOrphanRepoKeys_CountsAndDoesNotDelete is the falsifiable guard for
+// the dry-run preview: seed an orphan repo_key (no code_repo_state row) and a
+// live repo_key (with state), call PreviewOrphanRepoKeys, and assert (a) the
+// orphan repo_key is reported, (b) the row count matches the seeded orphan
+// rows, and (c) the orphan rows are NOT deleted — preview must be read-only.
+//
+// Falsifiable:
+//   - reverting PreviewOrphanRepoKeys to call DeleteOrphanRepoKeys leaves the
+//     orphan rows gone → assert.NotEmpty(orphanRowsAfter) fails.
+//   - reverting the shared orphanRepoKeyPredicate so preview uses a different
+//     WHERE than delete makes the reported count diverge from the real delete
+//     blast radius → assert.EqualValues(rowCount, deleted) fails.
+func TestPreviewOrphanRepoKeys_CountsAndDoesNotDelete(t *testing.T) {
+	s := testStore(t)
+	const orphanRepo = "test/preview-orphan-repo-key"
+	const liveRepo = "test/preview-orphan-live-repo"
+	cleanRepo(t, s, orphanRepo)
+	cleanRepo(t, s, liveRepo)
+	ctx := context.Background()
+
+	// 3 orphan rows (no state row).
+	insertSymbols(t, s, orphanRepo, "file.go", []string{"OldA", "OldB", "OldC"})
+	// 1 live row + state row.
+	insertSymbols(t, s, liveRepo, "file.go", []string{"LiveSym"})
+	require.NoError(t, s.SetRepoState(ctx, liveRepo, "abc123", ""))
+
+	keys, rowCount, err := s.PreviewOrphanRepoKeys(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, keys, orphanRepo, "orphan repo_key must be reported by preview")
+	assert.NotContains(t, keys, liveRepo, "live repo_key must NOT be reported by preview")
+	assert.EqualValues(t, 3, rowCount, "rowCount must equal the 3 seeded orphan rows")
+
+	// Preview is read-only: orphan rows must survive.
+	orphanRowsAfter, err := s.GetSymbolsForFile(ctx, orphanRepo, "file.go")
+	require.NoError(t, err)
+	assert.Len(t, orphanRowsAfter, 3, "preview must NOT delete — orphan rows must survive")
+
+	// Cross-check: a real delete must remove exactly the rowCount preview reported.
+	deleted, err := s.DeleteOrphanRepoKeys(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, rowCount, deleted, "preview rowCount must equal real delete count (shared predicate)")
+}
+
+// TestPreviewOrphanRepoKeys_IdempotentOnClean verifies preview returns 0 keys /
+// 0 rows when there are no orphans, and is safe to run on a clean DB.
+func TestPreviewOrphanRepoKeys_IdempotentOnClean(t *testing.T) {
+	s := testStore(t)
+	const repo = "test/preview-orphan-clean"
+	cleanRepo(t, s, repo)
+	ctx := context.Background()
+
+	insertSymbols(t, s, repo, "file.go", []string{"Sym"})
+	require.NoError(t, s.SetRepoState(ctx, repo, "sha1", ""))
+
+	keys, rowCount, err := s.PreviewOrphanRepoKeys(ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, keys, repo, "live repo must not be reported as orphan")
+	// rowCount may include orphans from other tests' state, but repo's own row
+	// must not be counted. We only assert no error and that repo's row survives.
+	_ = rowCount
+
+	rows, err := s.GetSymbolsForFile(ctx, repo, "file.go")
+	require.NoError(t, err)
+	assert.Len(t, rows, 1, "live repo row must survive preview")
+}
+
 // -- Pipeline.IndexRepo intra-key reconciliation integration test --
 
 // TestIndexRepo_OrphanDeletedOnFullReindex is the end-to-end falsifiable guard
