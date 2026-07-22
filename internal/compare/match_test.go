@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anatolykoptev/vaelor/internal/parser"
@@ -17,7 +18,7 @@ func TestMatchExact(t *testing.T) {
 	symB2 := &parser.Symbol{Name: "NewServer", Kind: parser.KindFunction}
 	symB3 := &parser.Symbol{Name: "OnlyInB", Kind: parser.KindType}
 
-	matches := MatchSymbols(
+	matches := MatchSymbols(context.Background(),
 		[]*parser.Symbol{symA1, symA2, symA3},
 		[]*parser.Symbol{symB1, symB2, symB3},
 		nil,
@@ -51,7 +52,7 @@ func TestMatchFuzzy(t *testing.T) {
 	symA := &parser.Symbol{Name: "HandleRequest", Kind: parser.KindFunction}
 	symB := &parser.Symbol{Name: "HandleRequests", Kind: parser.KindFunction}
 
-	matches := MatchSymbols(
+	matches := MatchSymbols(context.Background(),
 		[]*parser.Symbol{symA},
 		[]*parser.Symbol{symB},
 		nil,
@@ -82,7 +83,7 @@ func TestMatchFuzzyDifferentKind(t *testing.T) {
 	symA := &parser.Symbol{Name: "Handler", Kind: parser.KindFunction}
 	symB := &parser.Symbol{Name: "Handler", Kind: parser.KindType}
 
-	matches := MatchSymbols(
+	matches := MatchSymbols(context.Background(),
 		[]*parser.Symbol{symA},
 		[]*parser.Symbol{symB},
 		nil,
@@ -131,7 +132,7 @@ func TestMatchSemantic(t *testing.T) {
 		},
 	}
 
-	matches := MatchSymbols(
+	matches := MatchSymbols(context.Background(),
 		[]*parser.Symbol{symA},
 		[]*parser.Symbol{symB},
 		fake,
@@ -165,7 +166,7 @@ func TestMatchExact_DistinguishIdenticalFromModified(t *testing.T) {
 		{Name: "Bar", Kind: parser.KindFunction, Body: "func Bar() { return 99 }", BodyHash: 333},
 	}
 
-	matches := MatchSymbols(symbolsA, symbolsB, nil)
+	matches := MatchSymbols(context.Background(), symbolsA, symbolsB, nil)
 
 	var identicalCount, modifiedCount int
 	for _, m := range matches {
@@ -195,7 +196,7 @@ func TestMatchSignature_CatchRename(t *testing.T) {
 		{Name: "ProcessRequest", Kind: parser.KindFunction, Signature: "func(ctx context.Context, req *Request) error", BodyHash: 555},
 	}
 
-	matches := MatchSymbols(symbolsA, symbolsB, nil)
+	matches := MatchSymbols(context.Background(), symbolsA, symbolsB, nil)
 
 	found := false
 	for _, m := range matches {
@@ -224,7 +225,7 @@ func TestMatchSignature_DifferentSignature_NoMatch(t *testing.T) {
 		{Name: "ProcessData", Kind: parser.KindFunction, Signature: "func(data []byte) (int, error)"},
 	}
 
-	matches := MatchSymbols(symbolsA, symbolsB, nil)
+	matches := MatchSymbols(context.Background(), symbolsA, symbolsB, nil)
 
 	for _, m := range matches {
 		if m.SymbolA != nil && m.SymbolB != nil && m.MatchType == MatchRenamed {
@@ -244,7 +245,7 @@ func TestMatchSymbols_Moved(t *testing.T) {
 		{Name: "HandleAuth", Kind: "function", File: "internal/auth/handler.go",
 			Signature: "func HandleAuth()", BodyHash: 12345},
 	}
-	matches := MatchSymbols(a, b, nil)
+	matches := MatchSymbols(context.Background(), a, b, nil)
 	if len(matches) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(matches))
 	}
@@ -264,7 +265,7 @@ func TestMatchSymbols_NotMovedWhenSameFile(t *testing.T) {
 		{Name: "HandleAuth", Kind: "function", File: "pkg/auth/handler.go",
 			Signature: "func HandleAuth()", BodyHash: 12345},
 	}
-	matches := MatchSymbols(a, b, nil)
+	matches := MatchSymbols(context.Background(), a, b, nil)
 	if len(matches) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(matches))
 	}

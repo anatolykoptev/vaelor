@@ -37,6 +37,7 @@ type xmlCompare struct {
 	ArchMetricsA   *xmlArchMetrics       `xml:"archMetricsA,omitempty"`
 	ArchMetricsB   *xmlArchMetrics       `xml:"archMetricsB,omitempty"`
 	CrossLang      *xmlCrossLang         `xml:"crossLang,omitempty"`
+	Partial        bool                  `xml:"partial,attr,omitempty"`
 }
 
 type xmlCoupling struct {
