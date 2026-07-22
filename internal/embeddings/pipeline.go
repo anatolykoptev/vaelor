@@ -47,6 +47,13 @@ type indexProgress struct {
 // bounding a goroutine that is stuck waiting on a permanently-unreachable embed server.
 const defaultIndexBudget = 30 * time.Minute
 
+// repoStateRetryBackoff is the brief wait before the single retry of a failed
+// writeRepoState. Covers transient Postgres deadlock/statement_timeout without
+// adding meaningful latency to the happy path (retry only fires on failure).
+// Kept short so the first-index compensate path (which runs after the retry is
+// exhausted) is not delayed materially on a genuinely-broken DB.
+const repoStateRetryBackoff = 150 * time.Millisecond
+
 // Pipeline orchestrates embedding indexing for repository symbols.
 type Pipeline struct {
 	client            *embed.Client
@@ -54,6 +61,7 @@ type Pipeline struct {
 	embedModel        string                                                           // active embedding model name; stored alongside head_sha for cross-model reindex detection
 	writeRepoState    func(ctx context.Context, repoKey, sha, sourcePath string) error // defaults to a closure over store.SetRepoStateWithPath + embedModel; injectable for testing
 	writeSparsesBatch func(ctx context.Context, rows []SparseUpdate) error             // defaults to store.UpdateSparseEmbeddingsBatch; injectable for testing
+	deleteRepo        func(ctx context.Context, repoKey string) error                  // defaults to store.DeleteRepo; injectable for testing (compensating rollback)
 	progress          sync.Map                                                         // repoKey -> *indexProgress
 	fileCache         *kitcache.Cache                                                  // optional per-file symbol-entry cache; nil disables.
 	sparseClient      sparse.SparseEmbedder                                            // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
@@ -76,6 +84,7 @@ func NewPipeline(client *embed.Client, store *Store, model string, opts ...Pipel
 		store:             store,
 		embedModel:        model,
 		writeSparsesBatch: store.UpdateSparseEmbeddingsBatch,
+		deleteRepo:        store.DeleteRepo,
 	}
 	// writeRepoState closes over model so the injectable fn keeps a (ctx, repoKey, sha)
 	// signature (no model param) — avoids a breaking change in test injectors.
@@ -153,6 +162,14 @@ func withWriteRepoStateFn(fn func(ctx context.Context, repoKey, sha, sourcePath 
 // the batch shape without a real Postgres store.
 func withWriteSparsesBatchFn(fn func(ctx context.Context, rows []SparseUpdate) error) PipelineOpt {
 	return func(p *Pipeline) { p.writeSparsesBatch = fn }
+}
+
+// withDeleteRepoFn overrides the DeleteRepo implementation used by the
+// compensating-rollback paths. For testing only — allows a spy that counts
+// calls and verifies the compensate fired (or did not) without relying on
+// log-string matching.
+func withDeleteRepoFn(fn func(ctx context.Context, repoKey string) error) PipelineOpt {
+	return func(p *Pipeline) { p.deleteRepo = fn }
 }
 
 // InvalidateIfModelChanged purges code_embeddings for repoKey when the stored
@@ -306,6 +323,11 @@ func shortSHA(sha string) string { return sha[:min(shortSHALen, len(sha))] }
 // Returns (nil, false) when the caller must proceed to full re-index (empty store
 // or DB error — the Bug #1 frozen-empty recovery path).
 //
+// prevSHA/prevErr are the result of the GetRepoState lookup the caller already
+// performed (for first-index detection) — reused here to avoid a redundant
+// query. prevSHA=="" with prevErr==nil means no state row (first index);
+// prevErr!=nil means the lookup failed and the caller must fall through.
+//
 // root is the absolute filesystem path to the repo; it is used to distinguish a
 // real desync (code repo with 0 stored rows) from a docs-only repo that
 // legitimately has 0 embeddable symbols — the counter must only fire for the
@@ -314,9 +336,8 @@ func shortSHA(sha string) string { return sha[:min(shortSHALen, len(sha))] }
 // Side-effects on skip: bumps indexed_at via writeRepoState (liveness), sets
 // gocode_repo_embeddings_present gauge.
 // Side-effects on desync (0 rows, code repo): bumps gocode_repo_state_advanced_with_zero_embeddings_total.
-func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, root, currentSHA string) (*IndexResult, bool) {
-	prevSHA, err := p.store.GetRepoState(ctx, repoKey)
-	if err != nil || prevSHA != currentSHA {
+func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, root, currentSHA, prevSHA string, prevErr error) (*IndexResult, bool) {
+	if prevErr != nil || prevSHA != currentSHA {
 		return nil, false // not same-SHA — fall through
 	}
 	embCount, countErr := p.store.CountEmbeddings(ctx, repoKey)
@@ -382,6 +403,38 @@ func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, root, curre
 	return result, nil
 }
 
+// firstIndexVerdict decides whether a compensating rollback of just-written
+// embeddings is safe. It fails CLOSED: only a confirmed-absent state row
+// (stateExists=false with no error on EITHER the GetRepoState or the
+// RepoStateExists probe) is a first index. A lookup error on either probe, or
+// a present row, is treated as NOT first index — compensating-deleting on
+// uncertainty would erase a live repo's embeddings. Pure function so the
+// dangerous error branches are unit-testable without a DB.
+func firstIndexVerdict(prevErr error, stateExists bool, existErr error) bool {
+	return prevErr == nil && existErr == nil && !stateExists
+}
+
+// compensateFirstIndexOrphan rolls back the just-written embeddings for a first
+// index whose state-row write (or embedChunks) failed — UNLESS a concurrent
+// indexer for the same repoKey has meanwhile committed the state row. A
+// bypassing sync IndexRepo can race the async single-flight; without this
+// re-check, the loser's compensating delete would erase the winner's committed
+// embeddings while the winner's state row survives (an inverted orphan). The
+// re-check narrows that window: if a state row now exists, our embeddings are
+// no longer orphaned, so we do NOT delete. orphanPreventedTotal counts only a
+// successful rollback (a failed delete leaves the orphan intact — not prevented).
+func (p *Pipeline) compensateFirstIndexOrphan(ctx context.Context, repoKey, stage string) {
+	if exists, err := p.store.RepoStateExists(ctx, repoKey); err == nil && exists {
+		return // a concurrent indexer wrote the state row — our rows are backed, not orphans
+	}
+	if delErr := p.deleteRepo(ctx, repoKey); delErr != nil {
+		slog.Warn("indexRepo: compensating DeleteRepo failed",
+			slog.String("repo", repoKey), slog.String("stage", stage), slog.Any("error", delErr))
+		return
+	}
+	orphanPreventedTotal.Inc()
+}
+
 // indexRepoWithTool is the internal implementation that optionally reports progress.
 // tool is passed down to embedChunks for cancel-counter attribution.
 func (p *Pipeline) indexRepoWithTool(
@@ -393,8 +446,29 @@ func (p *Pipeline) indexRepoWithTool(
 	// repos. A repo with no main/master/HEAD ref (non-git path) returns
 	// sha="" and falls through to the full path.
 	currentSHA, _ := repoMainBranchSHA(root)
+
+	// First-index detection decides whether a post-embed/embedChunks failure
+	// COMPENSATES (first index, no state row: roll back embeddings → no orphan)
+	// or preserves the swallowed-failure behavior (re-index: a stale state row
+	// is acceptable, not an orphan). This gate guards a DESTRUCTIVE delete of
+	// the whole repoKey's embeddings, so it MUST fail CLOSED: a wrong "first
+	// index" verdict on a live repo wipes its embeddings.
+	//
+	// GetRepoState collapses three cases to "": no row (true first index),
+	// an empty-head_sha row (non-git re-index), and a lookup error (DB
+	// instability — the very window this fix targets). Only the first is
+	// compensate-safe. So when the SHA is empty we resolve existence
+	// explicitly via RepoStateExists and treat ANY error as NOT first index.
+	prevSHA, prevErr := p.store.GetRepoState(ctx, repoKey)
+	stateExists := true // present unless proven absent
+	var existErr error
+	if prevErr == nil && prevSHA == "" {
+		stateExists, existErr = p.store.RepoStateExists(ctx, repoKey)
+	}
+	firstIndex := firstIndexVerdict(prevErr, stateExists, existErr)
+
 	if currentSHA != "" {
-		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, root, currentSHA); skip {
+		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, root, currentSHA, prevSHA, prevErr); skip {
 			return result, nil
 		}
 	}
@@ -446,6 +520,15 @@ func (p *Pipeline) indexRepoWithTool(
 	}
 
 	if err := p.embedChunks(ctx, repoKey, tool, toEmbed, result, prog); err != nil {
+		// First-index orphan guard: on a first index (no state row), a partial
+		// embedChunks failure leaves committed chunk rows with no state row →
+		// orphan. Roll them back so the next index re-embeds cleanly, and
+		// return the error so the caller retries. On re-index the prior state
+		// row means partial rows are not an orphan — leave as-is.
+		if firstIndex {
+			p.compensateFirstIndexOrphan(ctx, repoKey, "embedChunks")
+			return nil, fmt.Errorf("first-index embedChunks failed; partial embeddings rolled back: %w", err)
+		}
 		return nil, err
 	}
 
@@ -461,13 +544,48 @@ func (p *Pipeline) indexRepoWithTool(
 	SetEmbeddingsCoverageRows(repoKey, result.Indexed+result.Skipped)
 
 	if currentSHA != "" {
-		if err := p.writeRepoState(ctx, repoKey, currentSHA, root); err != nil {
+		if err := p.writeRepoStateWithRetry(ctx, repoKey, currentSHA, root); err != nil {
 			recordRepoStateWriteFailure(repoKey, "indexRepo:post-embed", err)
+			if firstIndex {
+				// First-index orphan guard (the dominant orphan source): no
+				// state row exists, so persisting embeddings without a state
+				// row would create an orphan. COMPENSATE — roll back the
+				// just-written embeddings so the next index re-embeds cleanly
+				// (hash-skip makes the retry cheap) — and RETURN the error so
+				// the caller (AutoIndex/IndexRepoAsync) sees the failure and
+				// can retry. Net: no orphan — either state is written, or the
+				// embeddings are rolled back.
+				p.compensateFirstIndexOrphan(ctx, repoKey, "writeRepoState")
+				return nil, fmt.Errorf("first-index repo_state write failed; embeddings rolled back: %w", err)
+			}
+			// Re-index: a state row already exists, so a swallowed failure
+			// leaves a stale row — NOT an orphan. Preserve current behavior.
 		}
 	}
 	SetEmbeddingsPresentGauge(repoKey, result.Indexed)
 
 	return result, nil
+}
+
+// writeRepoStateWithRetry calls writeRepoState once, and on failure waits a
+// brief backoff (respecting ctx cancellation) and retries exactly once. Returns
+// the first error if both attempts fail, nil if either succeeds. The single
+// retry covers transient Postgres deadlock/statement_timeout — the dominant
+// orphan source was a swallowed writeRepoState failure on first index, and the
+// retry eliminates the large majority of those before the compensate path runs.
+func (p *Pipeline) writeRepoStateWithRetry(ctx context.Context, repoKey, sha, sourcePath string) error {
+	err := p.writeRepoState(ctx, repoKey, sha, sourcePath)
+	if err == nil {
+		return nil
+	}
+	// Brief backoff then one retry. Respect ctx so a cancelled index does not
+	// burn the full backoff waiting to retry an op that will be discarded.
+	select {
+	case <-time.After(repoStateRetryBackoff):
+	case <-ctx.Done():
+		return err
+	}
+	return p.writeRepoState(ctx, repoKey, sha, sourcePath)
 }
 
 // filterSymbols deduplicates symbols by (file_path+symKeySep+symbol_name) key
