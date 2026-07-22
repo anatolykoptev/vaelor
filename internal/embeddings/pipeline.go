@@ -460,7 +460,8 @@ func (p *Pipeline) indexRepoWithTool(
 	// compensate-safe. So when the SHA is empty we resolve existence
 	// explicitly via RepoStateExists and treat ANY error as NOT first index.
 	prevSHA, prevErr := p.store.GetRepoState(ctx, repoKey)
-	stateExists, existErr := true, error(nil) // present unless proven absent
+	stateExists := true // present unless proven absent
+	var existErr error
 	if prevErr == nil && prevSHA == "" {
 		stateExists, existErr = p.store.RepoStateExists(ctx, repoKey)
 	}
