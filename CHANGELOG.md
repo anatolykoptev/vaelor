@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.51.0](https://github.com/anatolykoptev/vaelor/compare/v1.50.2...v1.51.0) (2026-07-22)
+
+
+### Added
+
+* **orphan_sweep:** dry-run by default, explicit dry_run=false to delete ([#586](https://github.com/anatolykoptev/vaelor/issues/586)) ([efa9620](https://github.com/anatolykoptev/vaelor/commit/efa96209c6a244f3a282807a08cb28e275368eca))
+
 ## [1.50.2](https://github.com/anatolykoptev/vaelor/compare/v1.50.1...v1.50.2) (2026-07-22)
 
 
