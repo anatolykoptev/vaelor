@@ -40,3 +40,27 @@ func TestNoDirectMCPServerAddTool(t *testing.T) {
 		}
 	}
 }
+
+// TestRepoSchemaOptionalOnInferenceTools guards the #569 live path: the
+// framework derives JSON-schema `required` from non-omitempty json tags, so a
+// bare `json:"repo"` makes validation reject a missing repo BEFORE the
+// handler runs — turning resolveOrInferRepo / shortMissingRepoMsg into dead
+// code (caught live on v1.50.0: the generic framework error shipped instead
+// of inference). The tag must stay `repo,omitempty` on these tools.
+func TestRepoSchemaOptionalOnInferenceTools(t *testing.T) {
+	for _, name := range []string{
+		"tool_code_search.go",
+		"tool_code_research.go",
+		"tool_semantic_search.go",
+	} {
+		src, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(src), "`json:\"repo\"") {
+			t.Errorf("%s: repo tag lacks omitempty — framework marks it "+
+				"required and the missing-repo inference/short-error path "+
+				"never runs", name)
+		}
+	}
+}

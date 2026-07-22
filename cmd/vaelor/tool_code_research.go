@@ -16,7 +16,7 @@ import (
 
 // CodeResearchInput is the input schema for the code_research tool.
 type CodeResearchInput struct {
-	Repo             string `json:"repo" jsonschema_description:"GitHub repo (owner/repo) or local path"`
+	Repo             string `json:"repo,omitempty" jsonschema_description:"GitHub repo (owner/repo) or local path. Required in practice — omitting it returns a short error naming recently-indexed repos."`
 	Query            string `json:"query" jsonschema_description:"Natural language query describing what you're looking for (e.g. 'DAG parallel executor implementation', 'how retry logic works')"`
 	Language         string `json:"language,omitempty" jsonschema_description:"Filter by language (e.g. go, python, typescript). Optional."`
 	MaxTokens        int    `json:"max_tokens,omitempty" jsonschema_description:"Token budget for the output map (default 8000). Higher = more context, more tokens."`
