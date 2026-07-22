@@ -403,6 +403,38 @@ func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, root, curre
 	return result, nil
 }
 
+// firstIndexVerdict decides whether a compensating rollback of just-written
+// embeddings is safe. It fails CLOSED: only a confirmed-absent state row
+// (stateExists=false with no error on EITHER the GetRepoState or the
+// RepoStateExists probe) is a first index. A lookup error on either probe, or
+// a present row, is treated as NOT first index — compensating-deleting on
+// uncertainty would erase a live repo's embeddings. Pure function so the
+// dangerous error branches are unit-testable without a DB.
+func firstIndexVerdict(prevErr error, stateExists bool, existErr error) bool {
+	return prevErr == nil && existErr == nil && !stateExists
+}
+
+// compensateFirstIndexOrphan rolls back the just-written embeddings for a first
+// index whose state-row write (or embedChunks) failed — UNLESS a concurrent
+// indexer for the same repoKey has meanwhile committed the state row. A
+// bypassing sync IndexRepo can race the async single-flight; without this
+// re-check, the loser's compensating delete would erase the winner's committed
+// embeddings while the winner's state row survives (an inverted orphan). The
+// re-check narrows that window: if a state row now exists, our embeddings are
+// no longer orphaned, so we do NOT delete. orphanPreventedTotal counts only a
+// successful rollback (a failed delete leaves the orphan intact — not prevented).
+func (p *Pipeline) compensateFirstIndexOrphan(ctx context.Context, repoKey, stage string) {
+	if exists, err := p.store.RepoStateExists(ctx, repoKey); err == nil && exists {
+		return // a concurrent indexer wrote the state row — our rows are backed, not orphans
+	}
+	if delErr := p.deleteRepo(ctx, repoKey); delErr != nil {
+		slog.Warn("indexRepo: compensating DeleteRepo failed",
+			slog.String("repo", repoKey), slog.String("stage", stage), slog.Any("error", delErr))
+		return
+	}
+	orphanPreventedTotal.Inc()
+}
+
 // indexRepoWithTool is the internal implementation that optionally reports progress.
 // tool is passed down to embedChunks for cancel-counter attribution.
 func (p *Pipeline) indexRepoWithTool(
@@ -415,17 +447,24 @@ func (p *Pipeline) indexRepoWithTool(
 	// sha="" and falls through to the full path.
 	currentSHA, _ := repoMainBranchSHA(root)
 
-	// First-index detection: a first index has NO prior code_repo_state row for
-	// repoKey. The GetRepoState lookup is performed once here and reused both
-	// for the same-SHA fast path (avoids a redundant query) and to decide
-	// whether a post-embed/embedChunks failure must COMPENSATE (first index:
-	// roll back embeddings → no orphan) vs. preserve the swallowed-failure
-	// behavior (re-index: a stale state row is acceptable, not an orphan).
-	// prevSHA=="" covers both ErrNoRows (true first index) and a lookup error
-	// (compensate-safe: if a state row actually exists, the next run re-embeds
-	// cheaply via hash-skip; if not, an orphan is averted).
+	// First-index detection decides whether a post-embed/embedChunks failure
+	// COMPENSATES (first index, no state row: roll back embeddings → no orphan)
+	// or preserves the swallowed-failure behavior (re-index: a stale state row
+	// is acceptable, not an orphan). This gate guards a DESTRUCTIVE delete of
+	// the whole repoKey's embeddings, so it MUST fail CLOSED: a wrong "first
+	// index" verdict on a live repo wipes its embeddings.
+	//
+	// GetRepoState collapses three cases to "": no row (true first index),
+	// an empty-head_sha row (non-git re-index), and a lookup error (DB
+	// instability — the very window this fix targets). Only the first is
+	// compensate-safe. So when the SHA is empty we resolve existence
+	// explicitly via RepoStateExists and treat ANY error as NOT first index.
 	prevSHA, prevErr := p.store.GetRepoState(ctx, repoKey)
-	firstIndex := prevSHA == ""
+	stateExists, existErr := true, error(nil) // present unless proven absent
+	if prevErr == nil && prevSHA == "" {
+		stateExists, existErr = p.store.RepoStateExists(ctx, repoKey)
+	}
+	firstIndex := firstIndexVerdict(prevErr, stateExists, existErr)
 
 	if currentSHA != "" {
 		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, root, currentSHA, prevSHA, prevErr); skip {
@@ -482,15 +521,11 @@ func (p *Pipeline) indexRepoWithTool(
 	if err := p.embedChunks(ctx, repoKey, tool, toEmbed, result, prog); err != nil {
 		// First-index orphan guard: on a first index (no state row), a partial
 		// embedChunks failure leaves committed chunk rows with no state row →
-		// orphan. Roll them back via DeleteRepo so the next index re-embeds
-		// cleanly, and return the error so the caller retries. On re-index the
-		// prior state row means partial rows are not an orphan — leave as-is.
+		// orphan. Roll them back so the next index re-embeds cleanly, and
+		// return the error so the caller retries. On re-index the prior state
+		// row means partial rows are not an orphan — leave as-is.
 		if firstIndex {
-			if delErr := p.deleteRepo(ctx, repoKey); delErr != nil {
-				slog.Warn("indexRepo: compensating DeleteRepo after embedChunks failure failed",
-					slog.String("repo", repoKey), slog.Any("error", delErr))
-			}
-			orphanPreventedTotal.Inc()
+			p.compensateFirstIndexOrphan(ctx, repoKey, "embedChunks")
 			return nil, fmt.Errorf("first-index embedChunks failed; partial embeddings rolled back: %w", err)
 		}
 		return nil, err
@@ -512,18 +547,14 @@ func (p *Pipeline) indexRepoWithTool(
 			recordRepoStateWriteFailure(repoKey, "indexRepo:post-embed", err)
 			if firstIndex {
 				// First-index orphan guard (the dominant orphan source): no
-				// state row exists, so persisting embeddings here without a
-				// state row would create an orphan. COMPENSATE — delete the
+				// state row exists, so persisting embeddings without a state
+				// row would create an orphan. COMPENSATE — roll back the
 				// just-written embeddings so the next index re-embeds cleanly
 				// (hash-skip makes the retry cheap) — and RETURN the error so
 				// the caller (AutoIndex/IndexRepoAsync) sees the failure and
 				// can retry. Net: no orphan — either state is written, or the
 				// embeddings are rolled back.
-				if delErr := p.deleteRepo(ctx, repoKey); delErr != nil {
-					slog.Warn("indexRepo: compensating DeleteRepo after writeRepoState failure failed",
-						slog.String("repo", repoKey), slog.Any("error", delErr))
-				}
-				orphanPreventedTotal.Inc()
+				p.compensateFirstIndexOrphan(ctx, repoKey, "writeRepoState")
 				return nil, fmt.Errorf("first-index repo_state write failed; embeddings rolled back: %w", err)
 			}
 			// Re-index: a state row already exists, so a swallowed failure

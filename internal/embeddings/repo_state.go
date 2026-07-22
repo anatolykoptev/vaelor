@@ -56,6 +56,23 @@ func (s *Store) GetRepoState(ctx context.Context, repoKey string) (string, error
 	return sha, nil
 }
 
+// RepoStateExists reports whether a code_repo_state row exists for repoKey.
+// GetRepoState collapses "no row", "row with empty head_sha" (non-git repo)
+// and "lookup error" all to "" — none distinguishable by the caller. The
+// compensating-delete path MUST distinguish a genuine first index (no row —
+// rollback is safe) from a re-index or an uncertain lookup (deleting a live
+// repo's embeddings would be data loss), so it needs this explicit probe.
+func (s *Store) RepoStateExists(ctx context.Context, repoKey string) (bool, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return false, err
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM public.code_repo_state WHERE repo_key = $1)`, repoKey).
+		Scan(&exists)
+	return exists, err
+}
+
 // GetIndexedAt returns the indexed_at timestamp for a repo, or zero time when no
 // row exists (repo never indexed). Used by stale-demote to determine the
 // current index generation: any embedding row with updated_at < indexed_at

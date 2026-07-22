@@ -251,3 +251,31 @@ func TestFirstIndexOrphan_EmbedChunksPartialFail_Compensates(t *testing.T) {
 	require.NoError(t, gErr)
 	assert.Equal(t, "", stored, "no state row must be written when embedChunks fails on first index")
 }
+
+// TestFirstIndexVerdict covers the fail-closed classification WITHOUT a DB —
+// the dangerous branches (lookup error, empty-SHA re-index surfacing as a
+// present row) that a compensating delete must never treat as a first index.
+func TestFirstIndexVerdict(t *testing.T) {
+	errBoom := errors.New("boom")
+	cases := []struct {
+		name       string
+		prevErr    error
+		stateExist bool
+		existErr   error
+		want       bool
+	}{
+		{"true first index: no row, no errors", nil, false, nil, true},
+		{"re-index: row present", nil, true, nil, false},
+		{"lookup error on GetRepoState → not first index", errBoom, false, nil, false},
+		{"error on existence probe → not first index", nil, false, errBoom, false},
+		{"present row wins even with nil errors", nil, true, nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := firstIndexVerdict(c.prevErr, c.stateExist, c.existErr); got != c.want {
+				t.Fatalf("firstIndexVerdict(%v,%v,%v)=%v want %v",
+					c.prevErr, c.stateExist, c.existErr, got, c.want)
+			}
+		})
+	}
+}
