@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS public.code_repo_state (
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 ALTER TABLE public.code_repo_state
     ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.code_repo_state
+    ADD COLUMN IF NOT EXISTS source_path TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.code_embeddings
     ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT ''`
 

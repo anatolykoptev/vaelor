@@ -108,7 +108,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			// Fall through to full re-index (safe).
 		} else if embCount > 0 {
 			// Healthy: SHA unchanged AND rows present → safe to skip.
-			if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+			if err := p.writeRepoState(ctx, repoKey, currentSHA, root); err != nil {
 				recordRepoStateWriteFailure(repoKey, "incrementalSync:same-sha", err)
 			}
 			SetEmbeddingsPresentGauge(repoKey, embCount)
@@ -192,7 +192,7 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 
 	// Step 7: advance SHA only on full success.
 	if len(result.Errors) == 0 {
-		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+		if err := p.writeRepoState(ctx, repoKey, currentSHA, root); err != nil {
 			recordRepoStateWriteFailure(repoKey, "incrementalSync:sha-advance", err)
 		}
 	}

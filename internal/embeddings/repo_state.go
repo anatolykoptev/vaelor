@@ -81,17 +81,27 @@ func (s *Store) GetIndexedAt(ctx context.Context, repoKey string) time.Time {
 // model is stored alongside head_sha so that a model switch triggers a full reindex
 // on next startup even when the repo's git SHA has not changed.
 func (s *Store) SetRepoState(ctx context.Context, repoKey, sha, model string) error {
+	return s.SetRepoStateWithPath(ctx, repoKey, sha, model, "")
+}
+
+// SetRepoStateWithPath is the source-path-aware variant of SetRepoState.
+// sourcePath is the absolute filesystem path of the repo root, stored so
+// RecentRepoKeys can return human-readable display names instead of opaque
+// hashed repo_keys (#582). Empty sourcePath preserves backward compatibility
+// (the column defaults to ”).
+func (s *Store) SetRepoStateWithPath(ctx context.Context, repoKey, sha, model, sourcePath string) error {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return err
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at, embed_model)
-		 VALUES ($1, $2, NOW(), $3)
+		`INSERT INTO public.code_repo_state (repo_key, head_sha, indexed_at, embed_model, source_path)
+		 VALUES ($1, $2, NOW(), $3, $4)
 		 ON CONFLICT (repo_key) DO UPDATE
 		     SET head_sha = EXCLUDED.head_sha,
 		         indexed_at = NOW(),
-		         embed_model = EXCLUDED.embed_model`,
-		repoKey, sha, model)
+		         embed_model = EXCLUDED.embed_model,
+		         source_path = EXCLUDED.source_path`,
+		repoKey, sha, model, sourcePath)
 	return err
 }
 
@@ -121,10 +131,13 @@ func (s *Store) ListRepoKeys(ctx context.Context) ([]string, error) {
 	return keys, rows.Err()
 }
 
-// RecentRepoKeys returns up to limit repo_keys ordered by most recently indexed
-// (indexed_at DESC). Used by the short missing-repo error (issue #569) to name
-// a few actionable candidate repos instead of dumping the whole catalog. Errors
-// collapse to an empty slice so the caller can fall back to LocalRepoDirs.
+// RecentRepoKeys returns up to limit repo display names ordered by most
+// recently indexed (indexed_at DESC). Used by the short missing-repo error
+// (issue #569) to name a few actionable candidate repos instead of dumping the
+// whole catalog. Returns the source_path basename when available (human-
+// readable, e.g. "vaelor" instead of "code_a3f2b1c0"), falling back to the
+// hashed repo_key when source_path is empty (pre-#582 rows). Errors collapse
+// to an empty slice so the caller can fall back to LocalRepoDirs.
 func (s *Store) RecentRepoKeys(ctx context.Context, limit int) []string {
 	if s == nil || limit <= 0 {
 		return nil
@@ -133,7 +146,7 @@ func (s *Store) RecentRepoKeys(ctx context.Context, limit int) []string {
 		return nil
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT repo_key FROM public.code_repo_state
+		`SELECT source_path, repo_key FROM public.code_repo_state
 		 ORDER BY indexed_at DESC
 		 LIMIT $1`, limit)
 	if err != nil {
@@ -142,13 +155,32 @@ func (s *Store) RecentRepoKeys(ctx context.Context, limit int) []string {
 	defer rows.Close()
 	var keys []string
 	for rows.Next() {
-		var key string
-		if scanErr := rows.Scan(&key); scanErr != nil {
+		var sourcePath, repoKey string
+		if scanErr := rows.Scan(&sourcePath, &repoKey); scanErr != nil {
 			return nil
 		}
-		keys = append(keys, key)
+		if display := repoDisplayName(sourcePath); display != "" {
+			keys = append(keys, display)
+		} else {
+			keys = append(keys, repoKey)
+		}
 	}
 	return keys
+}
+
+// repoDisplayName returns the basename of sourcePath, or "" when sourcePath is
+// empty. Used by RecentRepoKeys to surface human-readable repo names.
+func repoDisplayName(sourcePath string) string {
+	if sourcePath == "" {
+		return ""
+	}
+	// Use the basename — the full path is host-specific and not actionable
+	// for the agent, but the basename (e.g. "vaelor", "go-mcpserver") is.
+	sourcePath = strings.TrimRight(sourcePath, "/")
+	if i := strings.LastIndex(sourcePath, "/"); i >= 0 {
+		return sourcePath[i+1:]
+	}
+	return sourcePath
 }
 
 // GetStoredModel returns the embed_model stored in code_repo_state for repoKey,

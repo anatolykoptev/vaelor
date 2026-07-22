@@ -183,7 +183,7 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 	// cut, so the hint must not advance offset (skipping cut groups loses
 	// data); it suggests re-reading the same page with more room instead.
 	if in.MaxBytes > 0 {
-		formatted = mcpmeta.Shape(formatted, budgetOverride(in.MaxBytes),
+		formatted = mcpmeta.ShapeWithHint(formatted, budgetOverride(in.MaxBytes),
 			fmt.Sprintf("byte-cut mid-page — retry offset=%d with a larger max_bytes, or narrow with language=/path=", in.Offset))
 	}
 	return textResult(formatted), nil

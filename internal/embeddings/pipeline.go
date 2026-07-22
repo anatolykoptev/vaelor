@@ -51,14 +51,14 @@ const defaultIndexBudget = 30 * time.Minute
 type Pipeline struct {
 	client            *embed.Client
 	store             *Store
-	embedModel        string                                               // active embedding model name; stored alongside head_sha for cross-model reindex detection
-	writeRepoState    func(ctx context.Context, repoKey, sha string) error // defaults to a closure over store.SetRepoState + embedModel; injectable for testing
-	writeSparsesBatch func(ctx context.Context, rows []SparseUpdate) error // defaults to store.UpdateSparseEmbeddingsBatch; injectable for testing
-	progress          sync.Map                                             // repoKey -> *indexProgress
-	fileCache         *kitcache.Cache                                      // optional per-file symbol-entry cache; nil disables.
-	sparseClient      sparse.SparseEmbedder                                // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
-	sparseMaxBatch    int                                                  // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
-	indexBudget       time.Duration                                        // per-goroutine timeout for IndexRepoAsyncWithTool; 0 uses defaultIndexBudget
+	embedModel        string                                                           // active embedding model name; stored alongside head_sha for cross-model reindex detection
+	writeRepoState    func(ctx context.Context, repoKey, sha, sourcePath string) error // defaults to a closure over store.SetRepoStateWithPath + embedModel; injectable for testing
+	writeSparsesBatch func(ctx context.Context, rows []SparseUpdate) error             // defaults to store.UpdateSparseEmbeddingsBatch; injectable for testing
+	progress          sync.Map                                                         // repoKey -> *indexProgress
+	fileCache         *kitcache.Cache                                                  // optional per-file symbol-entry cache; nil disables.
+	sparseClient      sparse.SparseEmbedder                                            // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
+	sparseMaxBatch    int                                                              // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
+	indexBudget       time.Duration                                                    // per-goroutine timeout for IndexRepoAsyncWithTool; 0 uses defaultIndexBudget
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
@@ -80,8 +80,8 @@ func NewPipeline(client *embed.Client, store *Store, model string, opts ...Pipel
 	// writeRepoState closes over model so the injectable fn keeps a (ctx, repoKey, sha)
 	// signature (no model param) — avoids a breaking change in test injectors.
 	m := model
-	p.writeRepoState = func(ctx context.Context, repoKey, sha string) error {
-		return store.SetRepoState(ctx, repoKey, sha, m)
+	p.writeRepoState = func(ctx context.Context, repoKey, sha, sourcePath string) error {
+		return store.SetRepoStateWithPath(ctx, repoKey, sha, m, sourcePath)
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -144,7 +144,7 @@ func WithIndexBudget(d time.Duration) PipelineOpt {
 // withWriteRepoStateFn overrides the SetRepoState implementation used by all
 // pipeline code paths. For testing only — allows injection of a failing writer
 // without touching the real Postgres store.
-func withWriteRepoStateFn(fn func(ctx context.Context, repoKey, sha string) error) PipelineOpt {
+func withWriteRepoStateFn(fn func(ctx context.Context, repoKey, sha, sourcePath string) error) PipelineOpt {
 	return func(p *Pipeline) { p.writeRepoState = fn }
 }
 
@@ -328,7 +328,7 @@ func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, root, curr
 	case embCount > 0:
 		slog.Debug("indexRepo: skip — main branch unchanged",
 			slog.String("repo", repoKey), slog.String("sha", shortSHA(currentSHA)))
-		if setErr := p.writeRepoState(ctx, repoKey, currentSHA); setErr != nil {
+		if setErr := p.writeRepoState(ctx, repoKey, currentSHA, root); setErr != nil {
 			recordRepoStateWriteFailure(repoKey, "indexRepo:same-sha", setErr)
 		}
 		SetEmbeddingsPresentGauge(repoKey, embCount)
@@ -359,7 +359,7 @@ func (p *Pipeline) checkSameSHAFastPath(ctx context.Context, repoKey, root, curr
 // (data inconsistency), the SHA is NOT advanced — the caller will retry next
 // boot. This guards against advancing the SHA when the store is unexpectedly
 // empty (would freeze the repo forever — same root cause as Bug #1).
-func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, currentSHA string, result *IndexResult) (*IndexResult, error) {
+func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, root, currentSHA string, result *IndexResult) (*IndexResult, error) {
 	existingCount, countErr := p.store.CountEmbeddings(ctx, repoKey)
 	if countErr != nil {
 		slog.Warn("indexRepo: CountEmbeddings failed on no-embed path",
@@ -374,7 +374,7 @@ func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, currentSHA 
 		return result, nil
 	}
 	if currentSHA != "" {
-		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+		if err := p.writeRepoState(ctx, repoKey, currentSHA, root); err != nil {
 			recordRepoStateWriteFailure(repoKey, "indexRepo:no-embed", err)
 		}
 	}
@@ -435,7 +435,7 @@ func (p *Pipeline) indexRepoWithTool(
 		// matched existing rows (nothing new to embed), but symbols deleted from
 		// source since the last index are still in the DB and must be cleaned up.
 		deleteIntraKeyOrphans(ctx, p.store, repoKey, seen, existing, orphanKeys)
-		noEmbedResult, noEmbedErr := p.advanceStateNoEmbed(ctx, repoKey, currentSHA, result)
+		noEmbedResult, noEmbedErr := p.advanceStateNoEmbed(ctx, repoKey, root, currentSHA, result)
 		if noEmbedErr == nil {
 			// Refresh the coverage gauge after reconciliation settles.
 			if coverageCount, countErr := p.store.CountEmbeddings(ctx, repoKey); countErr == nil {
@@ -461,7 +461,7 @@ func (p *Pipeline) indexRepoWithTool(
 	SetEmbeddingsCoverageRows(repoKey, result.Indexed+result.Skipped)
 
 	if currentSHA != "" {
-		if err := p.writeRepoState(ctx, repoKey, currentSHA); err != nil {
+		if err := p.writeRepoState(ctx, repoKey, currentSHA, root); err != nil {
 			recordRepoStateWriteFailure(repoKey, "indexRepo:post-embed", err)
 		}
 	}

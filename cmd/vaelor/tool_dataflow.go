@@ -250,8 +250,13 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	text := xml.Header + string(data)
 
 	// Apply per-call budget override when max_bytes is set.
+	// Use ShapeWithHint (not Shape) so the tool-specific pagination hint is
+	// preserved even when the text fits within the override budget but
+	// exceeds the default — without ShapeWithHint, the addTool wrapper would
+	// re-shape with the default budget and replace this hint with a generic
+	// one (#582).
 	if input.MaxBytes > 0 {
-		text = mcpmeta.Shape(text, budgetOverride(input.MaxBytes),
+		text = mcpmeta.ShapeWithHint(text, budgetOverride(input.MaxBytes),
 			fmt.Sprintf("pass offset=%d for the next page", offset+limit))
 	}
 	return largeTextResult(text, "dataflow_analyze", outputDir), nil

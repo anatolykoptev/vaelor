@@ -28,6 +28,14 @@ const MinBudget = 512
 // emitted by Shape. Tools can check for it to detect already-shaped output.
 const truncationFooterPrefix = "\n[truncated:"
 
+// budgetAppliedMarker is a sentinel appended by ShapeWithHint when the text
+// fits within the budget — it signals to the addTool wrapper that a per-call
+// budget was already applied and the wrapper must NOT re-shape with the
+// default budget (#582). Without this, a tool that passes max_bytes > default
+// would have its text re-shaped by the wrapper with the smaller default budget,
+// losing the tool-specific pagination hint.
+const budgetAppliedMarker = "\n[budget-applied]"
+
 // tookFooterPrefix is the sentinel prefix of the took_ms footer.
 const tookFooterPrefix = "\ntook_ms="
 
@@ -71,16 +79,51 @@ func Shape(text string, budget int, continuationHint string) string {
 	return head + footer
 }
 
+// ShapeWithHint is like Shape but guarantees the tool-specific continuationHint
+// is preserved even when the text fits within the budget. When the text fits,
+// ShapeWithHint appends a budget-applied marker so the addTool wrapper detects
+// already-shaped output (IsShaped=true) and skips re-shaping with the default
+// budget — which would truncate the text and replace the tool-specific hint
+// with a generic one (#582).
+//
+// Use ShapeWithHint (instead of Shape) when the tool has a per-call max_bytes
+// override that may be larger than the default budget. When the text fits
+// within the override, only the budget-applied marker is appended; the wrapper
+// strips it (StripBudgetMarker) before the agent sees the output, so it's
+// invisible. When the text exceeds the override, the hint is appended as a
+// truncation footer (same as Shape).
+func ShapeWithHint(text string, budget int, continuationHint string) string {
+	if budget <= 0 || len(text) <= budget {
+		// Text fits — mark as budget-applied so the wrapper doesn't re-shape
+		// with the default budget (which would lose the tool-specific hint).
+		if budget > 0 {
+			return text + budgetAppliedMarker
+		}
+		return text
+	}
+	// Text exceeds budget — truncate with the tool-specific hint (same as Shape).
+	return Shape(text, budget, continuationHint)
+}
+
 // IsShaped reports whether text already carries a truncation footer emitted
-// by Shape. Used by the addTool wrapper to skip double-shaping when a tool
-// handler already applied a custom budget.
+// by Shape, or a budget-applied marker emitted by ShapeWithHint. Used by the
+// addTool wrapper to skip double-shaping when a tool handler already applied
+// a custom budget (#582).
 func IsShaped(text string) bool {
-	return strings.Contains(text, truncationFooterPrefix)
+	return strings.Contains(text, truncationFooterPrefix) ||
+		strings.Contains(text, budgetAppliedMarker)
 }
 
 // HasTookFooter reports whether text already carries a took_ms footer.
 func HasTookFooter(text string) bool {
 	return strings.Contains(text, tookFooterPrefix)
+}
+
+// StripBudgetMarker removes the budget-applied sentinel from text if present.
+// Called by the addTool wrapper after IsShaped check so the marker is not
+// visible in the final agent-facing output (#582).
+func StripBudgetMarker(text string) string {
+	return strings.ReplaceAll(text, budgetAppliedMarker, "")
 }
 
 // TookFooter returns a compact one-line observability footer:

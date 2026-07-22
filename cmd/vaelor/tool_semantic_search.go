@@ -494,7 +494,16 @@ func finalResult(
 	if sha := deps.AnalyzeDeps.IndexedSHA(ctx, repoKey); sha != "" {
 		env = mcpmeta.WithFreshness(env, root, sha)
 	}
-	return metaResult(formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings), env), nil
+	formatted := formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)
+	// Apply per-call budget override when max_bytes is set; the addTool
+	// wrapper applies the default budget otherwise (#582). The hint from
+	// HintAfterCodeSearch is preserved in the meta footer regardless of
+	// whether shaping fires — Shape only touches the body, not the footer.
+	if input.MaxBytes > 0 {
+		formatted = mcpmeta.ShapeWithHint(formatted, budgetOverride(input.MaxBytes),
+			"narrow with language= or query=, or increase max_bytes")
+	}
+	return metaResult(formatted, env), nil
 }
 
 // symbolNameFromResults returns the symbol name from the first result when there

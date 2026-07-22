@@ -540,7 +540,7 @@ func TestMetrics_RepoStateWriteFailures_CounterIncrements(t *testing.T) {
 	// Phase 2: build a pipeline with the same store but a failing writeRepoState.
 	// The same-SHA path fires immediately because the SHA has not changed.
 	writeFails := 0
-	failWriteFn := func(_ context.Context, _ string, _ string) error {
+	failWriteFn := func(_ context.Context, _ string, _ string, _ string) error {
 		writeFails++
 		return errors.New("injected write failure")
 	}
