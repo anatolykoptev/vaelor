@@ -105,12 +105,9 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semD
 				), nil
 			}
 			text := xml.Header + string(data)
-			if input.MaxBytes > 0 {
-				text = mcpmeta.Shape(text, budgetOverride(input.MaxBytes), "narrow with focus= or language=")
-			}
-			text += mcpmeta.PartialFooter("some enrichment/LLM stages skipped (soft deadline)")
-			text = mcpmeta.AppendTook(text, elapsed)
-			return textResult(text), nil
+			return shapedPartialResult(text, budgetOverride(input.MaxBytes),
+				"narrow with focus= or language=",
+				"some enrichment/LLM stages skipped (soft deadline)", elapsed), nil
 		}
 
 		if err != nil {

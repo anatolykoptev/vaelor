@@ -178,10 +178,13 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 
 	formatted := formatTriage(res, in.Tier, in.Offset, limit)
 	// Apply per-call budget override when max_bytes is set; the addTool
-	// wrapper applies the default budget otherwise.
+	// wrapper applies the default budget otherwise. A byte-cut is NOT a page
+	// boundary — an unknown number of this page's groups were rendered but
+	// cut, so the hint must not advance offset (skipping cut groups loses
+	// data); it suggests re-reading the same page with more room instead.
 	if in.MaxBytes > 0 {
 		formatted = mcpmeta.Shape(formatted, budgetOverride(in.MaxBytes),
-			fmt.Sprintf("pass offset=%d for the next page", in.Offset+limit))
+			fmt.Sprintf("byte-cut mid-page — retry offset=%d with a larger max_bytes, or narrow with language=/path=", in.Offset))
 	}
 	return textResult(formatted), nil
 }

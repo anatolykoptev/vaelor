@@ -91,9 +91,19 @@ func applyBudgetAndTook(res *mcp.CallToolResult, elapsed time.Duration) {
 // and the took_ms tag. Used by tools that hit the soft deadline and need
 // to return what they have so far.
 func softDeadlineResult(text string, skipped string, elapsed time.Duration) *mcp.CallToolResult {
+	return shapedPartialResult(text, mcpmeta.DefaultBudget, "", skipped, elapsed)
+}
+
+// shapedPartialResult shapes a partial result BODY first, then appends the
+// partial and took_ms footers. Shaping must precede the footers: appending
+// them to an un-shaped over-budget body would leave them beyond the budget
+// boundary, where the outer wrapper's re-shape (or the client's hard cut)
+// silently destroys the `partial: true` signal — exactly the failure #572
+// exists to prevent.
+func shapedPartialResult(text string, budget int, hint, skipped string, elapsed time.Duration) *mcp.CallToolResult {
 	out := text
 	if !mcpmeta.IsShaped(out) {
-		out = mcpmeta.Shape(out, mcpmeta.DefaultBudget, "")
+		out = mcpmeta.Shape(out, budget, hint)
 	}
 	out += mcpmeta.PartialFooter(skipped)
 	out = mcpmeta.AppendTook(out, elapsed)

@@ -13,6 +13,13 @@ import (
 // truncate at this budget and emit a continuation footer via Shape.
 const DefaultBudget = 8192
 
+// MaxBudget is the ceiling for a per-call budget override. Clients hard-cut
+// tool results at ~10149 bytes (observed: Devin CLI); an uncapped override at
+// or above that ceiling would make Shape a no-op and reintroduce silent
+// client-side truncation — tail AND continuation footer lost. 9000 leaves
+// headroom for the took_ms footer and the argnorm note under the ceiling.
+const MaxBudget = 9000
+
 // MinBudget is the floor for a per-call budget override — anything smaller
 // would leave no room for even a single result item plus the footer.
 const MinBudget = 512
@@ -102,13 +109,17 @@ func AppendTook(text string, elapsed time.Duration) string {
 
 // ResolveBudget picks the effective budget from a per-call override and the
 // default. A non-positive override yields the default; an override below
-// MinBudget is clamped to MinBudget.
+// MinBudget is clamped to MinBudget; an override above MaxBudget is clamped
+// to MaxBudget (see MaxBudget for why the ceiling exists).
 func ResolveBudget(override, defaultBudget int) int {
 	if override <= 0 {
 		return defaultBudget
 	}
 	if override < MinBudget {
 		return MinBudget
+	}
+	if override > MaxBudget {
+		return MaxBudget
 	}
 	return override
 }

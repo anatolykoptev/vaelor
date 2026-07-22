@@ -143,6 +143,9 @@ func TestResolveBudget(t *testing.T) {
 		{"negative override uses default", -1, 8192, 8192},
 		{"valid override used", 4096, 8192, 4096},
 		{"override below min clamped", 100, 8192, MinBudget},
+		{"override above max clamped", 20000, 8192, MaxBudget},
+		{"override at client ceiling clamped", 10149, 8192, MaxBudget},
+		{"override at max passes", MaxBudget, 8192, MaxBudget},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

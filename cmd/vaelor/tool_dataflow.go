@@ -100,11 +100,36 @@ type xmlSecurityFinding struct {
 	Message  string `xml:",chardata"`
 }
 
-// dataflowMaxResults caps the number of findings requested from ox-codes.
-// Tightened from 100 to 50 so the DEFAULT call fits the ~8 KB response
-// budget (#571) — 100 findings at ~100 chars each exceeded the 10149-char
-// client truncation ceiling. Callers can paginate with offset+limit.
+// dataflowMaxResults is the DEFAULT number of findings requested from
+// ox-codes. Tightened from 100 to 50 so the default call fits the ~8 KB
+// response budget (#571) — 100 findings at ~100 chars each exceeded the
+// 10149-char client truncation ceiling. The actual fetch grows to cover the
+// caller's offset+limit page (see dataflowFetchWindow) so pagination beyond
+// the first 50 returns data, not an empty section.
 const dataflowMaxResults = 50
+
+// dataflowFetchCap bounds the ox-codes fetch window so deep pagination cannot
+// request unbounded result sets from the backend.
+const dataflowFetchCap = 500
+
+// dataflowFetchWindow returns how many findings to request from ox-codes so
+// the caller's offset+limit page is actually fetchable.
+func dataflowFetchWindow(offset, limit int) int {
+	if limit <= 0 {
+		limit = dataflowDefaultLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	w := offset + limit
+	if w < dataflowMaxResults {
+		w = dataflowMaxResults
+	}
+	if w > dataflowFetchCap {
+		w = dataflowFetchCap
+	}
+	return w
+}
 
 // dataflowDefaultLimit is the per-section rendering limit when the caller
 // does not specify one. Matches dataflowMaxResults so the default call
@@ -242,7 +267,7 @@ func runQualityAnalysis(ctx context.Context, client *oxcodes.Client, root string
 	result, err := client.DataflowAnalyze(ctx, oxcodes.DataflowInput{
 		Root:        root,
 		Language:    input.Language,
-		MaxResults:  dataflowMaxResults,
+		MaxResults:  dataflowFetchWindow(input.Offset, input.Limit),
 		FileGlob:    input.FileGlob,
 		ExcludeGlob: input.ExcludeGlob,
 	})

@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TestAddTookFooter_PresentOnEveryResponse verifies that the addTool wrapper
@@ -100,5 +103,54 @@ func TestBudgetOverride(t *testing.T) {
 	}
 	if budgetOverride(100) < 512 {
 		t.Fatal("tiny override must be clamped to MinBudget")
+	}
+}
+
+// TestShapedPartialResult_LargeBody guards the #572 contract on the large-
+// partial path: an over-budget partial body must be SHAPED FIRST so the
+// `partial: true` and took_ms footers survive within budget — appending them
+// to an un-shaped body would leave them beyond the boundary where the outer
+// wrapper's re-shape (or the client's hard cut) silently destroys them.
+func TestShapedPartialResult_LargeBody(t *testing.T) {
+	body := strings.Repeat("<line>data</line>\n", 800) // ~14KB, over budget
+	res := shapedPartialResult(body, mcpmeta.DefaultBudget,
+		"narrow with focus=", "LLM stage skipped", 3*time.Second)
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatal("expected TextContent")
+	}
+	got := tc.Text
+	if !strings.Contains(got, "partial: true") {
+		t.Fatalf("partial footer must survive shaping, got tail:\n%s", got[len(got)-300:])
+	}
+	if !strings.Contains(got, "took_ms=") {
+		t.Fatal("took_ms footer must survive shaping")
+	}
+	if !strings.Contains(got, "[truncated:") {
+		t.Fatal("over-budget body must carry the truncation footer")
+	}
+	if len(got) > mcpmeta.DefaultBudget+600 {
+		t.Fatalf("shaped partial must stay near budget, got %d bytes", len(got))
+	}
+	if !mcpmeta.IsShaped(got) {
+		t.Fatal("result must be marked shaped so the outer wrapper skips re-shaping")
+	}
+}
+
+// TestDataflowFetchWindow verifies pagination pages beyond the default fetch
+// are actually fetchable (review finding: fixed 50-fetch made offset>50 an
+// always-empty page while the count attribute advertised more).
+func TestDataflowFetchWindow(t *testing.T) {
+	if got := dataflowFetchWindow(0, 0); got != dataflowMaxResults {
+		t.Fatalf("default window = %d, want %d", got, dataflowMaxResults)
+	}
+	if got := dataflowFetchWindow(100, 50); got != 150 {
+		t.Fatalf("offset page window = %d, want 150", got)
+	}
+	if got := dataflowFetchWindow(490, 50); got != dataflowFetchCap {
+		t.Fatalf("capped window = %d, want %d", got, dataflowFetchCap)
+	}
+	if got := dataflowFetchWindow(-5, -5); got != dataflowMaxResults {
+		t.Fatalf("negative inputs window = %d, want %d", got, dataflowMaxResults)
 	}
 }
