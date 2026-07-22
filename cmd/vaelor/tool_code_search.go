@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/codesearch"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
@@ -33,6 +33,7 @@ type CodeSearchInput struct {
 	Structural    bool   `json:"structural,omitempty" jsonschema_description:"Treat pattern as structural AST pattern with $WILDCARDS (e.g. 'if $ERR != nil { return $ERR }'). Requires language."`
 	Expand        string `json:"expand,omitempty" jsonschema_description:"Expand matches to enclosing AST symbol: 'function' (enclosing function/method) or 'block' (function/struct/class/impl). Returns full symbol body."`
 	MaxTokens     int    `json:"max_tokens,omitempty" jsonschema_description:"Maximum token budget for expanded bodies. Matches exceeding this are skipped. Estimate: 1 token ≈ 4 chars."`
+	IncludeBody   bool   `json:"include_body,omitempty" jsonschema_description:"Return the enclosing declaration body for each match (≈80 line cap per match). Convenience alias for expand=\"function\" with a bounded body budget."`
 }
 
 type xmlSearchResponse struct {
@@ -66,7 +67,7 @@ type xmlExpandedBlock struct {
 func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "code_search",
 		Description: "Search for code patterns within a repository. " +
 			"Supports literal strings and regular expressions. " +
@@ -80,9 +81,35 @@ func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *
 }
 
 func handleCodeSearch(ctx context.Context, input CodeSearchInput, deps analyze.Deps, sem *SemanticDeps, outputDir string) (*mcp.CallToolResult, error) {
-	if input.Repo == "" {
-		return errResult("repo is required"), nil
+	// Repo inference (issue #569): when repo is omitted but an absolute path
+	// lies inside a known indexed checkout, infer repo and note it. Otherwise
+	// emit a short, first-line-actionable error naming recent repos.
+	repo, inferNote, ok := resolveOrInferRepo(input.Repo, input.Path, "", deps)
+	if !ok {
+		return errResult(shortMissingRepoMsg(ctx, semStore(sem), deps.LocalRepoDirs)), nil
 	}
+	input.Repo = repo
+	res, err := handleCodeSearchInner(ctx, input, deps, sem, outputDir)
+	if err != nil {
+		return res, err
+	}
+	return appendInferNote(res, inferNote), nil
+}
+
+// appendInferNote adds the repo-inference note as an extra TextContent block on
+// a non-error CallToolResult. Error results and empty notes pass through so
+// tool-error messages stay clean.
+func appendInferNote(result *mcp.CallToolResult, note string) *mcp.CallToolResult {
+	if note == "" || result == nil || result.IsError {
+		return result
+	}
+	out := *result
+	out.Content = append([]mcp.Content{}, result.Content...)
+	out.Content = append(out.Content, &mcp.TextContent{Text: note})
+	return &out
+}
+
+func handleCodeSearchInner(ctx context.Context, input CodeSearchInput, deps analyze.Deps, sem *SemanticDeps, outputDir string) (*mcp.CallToolResult, error) {
 	normalizeCodeSearchInput(&input)
 	if input.Pattern == "" {
 		return errResult("pattern is required"), nil
@@ -206,7 +233,24 @@ func normalizeCodeSearchInput(input *CodeSearchInput) {
 	if input.Path != "" && input.FileGlob == "" {
 		input.FileGlob = input.Path + "/**"
 	}
+	// include_body (issue #568, 4x demand): convenience alias for expand="function"
+	// with a bounded body budget (~80 lines ≈ 800 tokens). Does not override an
+	// explicit expand/max_tokens. Falls back to plain matches when ox-codes is
+	// unavailable (the expand path degrades gracefully — see handleCodeSearch).
+	if input.IncludeBody {
+		if input.Expand == "" {
+			input.Expand = "function"
+		}
+		if input.MaxTokens == 0 {
+			input.MaxTokens = includeBodyDefaultMaxTokens
+		}
+	}
 }
+
+// includeBodyDefaultMaxTokens bounds the enclosing-decl body returned per match
+// when include_body=true is used without an explicit max_tokens. ≈80 lines at
+// ~10 tokens/line (1 token ≈ 4 chars, ~40 chars/line) → 800 tokens.
+const includeBodyDefaultMaxTokens = 800
 
 const (
 	defaultContextLines = 2

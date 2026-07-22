@@ -14,7 +14,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/jaegerclient"
 	"github.com/anatolykoptev/vaelor/internal/promclient"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -119,7 +119,7 @@ func registerDebugInvestigate(server *mcp.Server, cfg Config, deps analyze.Deps)
 		dozor = dozorclient.NewClient(cfg.DozorURL, cfg.DozorAPIToken, 10*time.Second)
 	}
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name:        "debug_investigate",
 		Description: "Correlate Prometheus metrics + Jaeger failed traces + code symbols to suggest the likely buggy file:function for the given service+window. Long-running (5min budget); poll same input to fetch result.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DebugInvestigateInput) (*mcp.CallToolResult, error) {

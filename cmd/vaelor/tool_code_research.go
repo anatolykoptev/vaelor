@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
@@ -31,7 +31,7 @@ type CodeResearchInput struct {
 
 // registerCodeResearch registers the code_research MCP tool.
 func registerCodeResearch(server *mcp.Server, _ Config, deps analyze.Deps, semDeps *SemanticDeps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "code_research",
 		Description: "Deep code research for large repositories. " +
 			"Combines keyword (BM25F with doc-comment indexing), semantic (embeddings), " +
@@ -53,7 +53,7 @@ func handleCodeResearch(
 	analyzeDeps analyze.Deps, semDeps *SemanticDeps,
 ) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
-		return errResult("repo is required"), nil
+		return errResult(shortMissingRepoMsg(ctx, semStore(semDeps), analyzeDeps.LocalRepoDirs)), nil
 	}
 	if input.Query == "" {
 		return errResult("query is required"), nil

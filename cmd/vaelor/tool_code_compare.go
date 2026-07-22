@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/anatolykoptev/go-kit/embed"
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,7 +25,7 @@ type CodeCompareInput struct {
 func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semDeps *SemanticDeps, graphStore *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "code_compare",
 		Description: "Compare two code repositories to find the better implementation. " +
 			"Analyzes architecture, code quality, patterns, and identifies missing features. " +

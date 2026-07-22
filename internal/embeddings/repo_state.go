@@ -121,6 +121,36 @@ func (s *Store) ListRepoKeys(ctx context.Context) ([]string, error) {
 	return keys, rows.Err()
 }
 
+// RecentRepoKeys returns up to limit repo_keys ordered by most recently indexed
+// (indexed_at DESC). Used by the short missing-repo error (issue #569) to name
+// a few actionable candidate repos instead of dumping the whole catalog. Errors
+// collapse to an empty slice so the caller can fall back to LocalRepoDirs.
+func (s *Store) RecentRepoKeys(ctx context.Context, limit int) []string {
+	if s == nil || limit <= 0 {
+		return nil
+	}
+	if err := s.EnsureSchema(ctx); err != nil {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT repo_key FROM public.code_repo_state
+		 ORDER BY indexed_at DESC
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var key string
+		if scanErr := rows.Scan(&key); scanErr != nil {
+			return nil
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 // GetStoredModel returns the embed_model stored in code_repo_state for repoKey,
 // or "" when no row exists or on any error. Used by semantic_search to detect
 // stale-space hits at query time: results returned from a repo whose stored

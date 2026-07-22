@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/forge"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -47,7 +47,7 @@ type githubCodeSearchOutput struct {
 }
 
 func registerGithubCodeSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "github_code_search",
 		Description: "Search code on GitHub using the Code Search API. Returns file paths with matching code fragments. " +
 			"Use this instead of web_url_read for GitHub search URLs. " +

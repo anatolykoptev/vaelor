@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-kit/ratelimit"
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/sourcemap"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -57,7 +57,7 @@ func registerResolveFrame(server *mcp.Server, cfg Config) {
 		resolveHTTPRateLimiter.StartCleanup(1*time.Minute, 5*time.Minute)
 	}
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name:        "resolve_frame",
 		Description: "Resolve a minified JavaScript stack frame (url, line, column) to its original source location using the companion .map file. Returns file, line, column, and function name.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ResolveFrameInput) (*mcp.CallToolResult, error) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/envdetect"
 	"github.com/anatolykoptev/vaelor/internal/explore"
@@ -83,7 +83,7 @@ func buildExploreOutput(ctx context.Context, root string, input ExploreInput) (*
 }
 
 func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "explore",
 		Description: "Quick structured overview of a repository. " +
 			"Returns file/symbol counts, language breakdown, top symbols by call frequency, " +

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
@@ -33,7 +33,7 @@ func registerSparseBackfill(server *mcp.Server, cfg Config, deps SemanticDeps) {
 		return
 	}
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "sparse_backfill",
 		Description: "Operator-initiated: populate sparse_embedding for existing code_embeddings rows where it is NULL. " +
 			"Reads each symbol's source from disk, recomputes the body hash, skips rows where the hash " +

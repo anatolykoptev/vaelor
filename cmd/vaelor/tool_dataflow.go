@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/anatolykoptev/vaelor/internal/polyglot"
@@ -102,7 +102,7 @@ const dataflowMaxResults = 100
 func registerDataflow(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "dataflow_analyze",
 		Description: "Unified code quality and security analysis. " +
 			"Quality: dead stores, unused variables (data-flow), dead functions (callgraph). " +

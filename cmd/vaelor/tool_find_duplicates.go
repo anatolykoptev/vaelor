@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
@@ -34,10 +34,14 @@ var tierOrder = []string{dupTierExact, dupTierVeryClose, dupTierRelated}
 
 // FindDuplicatesInput is the input schema for the find_duplicates tool.
 type FindDuplicatesInput struct {
-	Repo            string `json:"repo" jsonschema_description:"Repository path or identifier to scan for intra-repo semantic duplicates (GitHub slug, full URL, or absolute local path)"`
-	IncludeSameFile bool   `json:"include_same_file,omitempty" jsonschema_description:"Include same-file near-duplicates (default false — overloads and helpers in the same file are excluded)"`
-	Tier            string `json:"tier,omitempty" jsonschema_description:"Filter output to a single tier: exact | very-close | related (default: all tiers)"`
-	Limit           int    `json:"limit,omitempty" jsonschema_description:"Maximum number of duplicate groups to report (default 50)"`
+	Repo            string  `json:"repo" jsonschema_description:"Repository path or identifier to scan for intra-repo semantic duplicates (GitHub slug, full URL, or absolute local path)"`
+	IncludeSameFile bool    `json:"include_same_file,omitempty" jsonschema_description:"Include same-file near-duplicates (default false — overloads and helpers in the same file are excluded)"`
+	Tier            string  `json:"tier,omitempty" jsonschema_description:"Filter output to a single tier: exact | very-close | related (default: all tiers)"`
+	Limit           int     `json:"limit,omitempty" jsonschema_description:"Maximum number of duplicate groups to report (default 50)"`
+	Language        string  `json:"language,omitempty" jsonschema_description:"Restrict to symbols in files of this language (e.g. go, python, typescript). Inferred from file extension."`
+	MinLines        int     `json:"min_lines,omitempty" jsonschema_description:"Drop groups where any symbol's body is shorter than this many lines (best-effort brace scan from the symbol's start line)."`
+	Threshold       float64 `json:"threshold,omitempty" jsonschema_description:"Minimum average similarity (0.0-1.0) to report a group. Exact-tier groups (sim=1.0) always pass."`
+	Path            string  `json:"path,omitempty" jsonschema_description:"Restrict to symbols whose file path is under this directory (relative to repo root, e.g. \"internal/query\")."`
 }
 
 // registerFindDuplicates registers the find_duplicates MCP tool.
@@ -62,7 +66,7 @@ func registerFindDuplicates(server *mcp.Server, deps SemanticDeps) {
 		return
 	}
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "find_duplicates",
 		Description: "Operator-invoked: find pairs of symbols in ONE repo that are semantically near-identical. " +
 			"Targets the 'agent re-implemented ProcessX as HandleX' class of drift, which is invisible to " +
@@ -156,6 +160,18 @@ func handleFindDuplicates(ctx context.Context, deps SemanticDeps, in FindDuplica
 			in.Repo,
 		)), nil
 	}
+
+	// Post-filters (issue #568, 7x+ demand): language / path / threshold /
+	// min_lines narrow the triage result. Applied AFTER AnalyzeTriage so the
+	// candidate+filter-drop counts in the header still reflect the full scan,
+	// and the post-filter only affects which groups are reported.
+	res.Groups = filterDupGroups(res.Groups, dupFilterOpts{
+		Language:  in.Language,
+		Path:      in.Path,
+		Threshold: in.Threshold,
+		MinLines:  in.MinLines,
+		Root:      root,
+	})
 
 	return textResult(formatTriage(res, in.Tier, limit)), nil
 }

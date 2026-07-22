@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/compare"
@@ -57,7 +57,7 @@ type DeadCodeInput struct {
 func registerDeadCode(server *mcp.Server, cfg Config, deps analyze.Deps, store *codegraph.Store) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "dead_code",
 		Description: "Detect functions and methods with zero incoming calls. " +
 			"Filters out entry points (main, init), test functions, and exported symbols " +

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/compound"
@@ -33,7 +33,7 @@ const maxPrepareChangeDepth = 10
 const couplingMinCoChanges = 3
 
 func registerPrepareChange(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "prepare_change",
 		Description: "Pre-change risk assessment for a function or method. Aggregates: impact_analysis (blast radius, affected callers) + dead_code (is it even used?). " +
 			"Returns risk level, affected packages, and dead code status. " +

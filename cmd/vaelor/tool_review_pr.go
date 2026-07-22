@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/learnings"
 	"github.com/anatolykoptev/vaelor/internal/review"
@@ -35,7 +35,7 @@ type ReviewPRInput struct {
 }
 
 func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps, graphStore *codegraph.Store) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "review_pr",
 		Description: "Review a pull request: fetches PR metadata and diff, " +
 			"then runs differential impact analysis on all changes. " +

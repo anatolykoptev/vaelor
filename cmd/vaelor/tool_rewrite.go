@@ -5,8 +5,8 @@ import (
 	"encoding/xml"
 	"fmt"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/oxcodes"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -53,7 +53,7 @@ type xmlRewriteFile struct {
 func registerRewrite(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "rewrite",
 		Description: "Structural search-and-replace using AST patterns with $WILDCARDS. " +
 			"Finds code matching the pattern and generates unified diffs showing the transformation. " +

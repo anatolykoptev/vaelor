@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/fleet"
 	"github.com/anatolykoptev/vaelor/internal/fleet/docker"
 	"github.com/anatolykoptev/vaelor/internal/fleet/ssh"
@@ -75,7 +75,7 @@ var buildFleetRegistry = func(cfg Config) *fleet.Registry {
 // The tool is always registered regardless of config; the handler degrades
 // gracefully when no probes are reachable.
 func registerFleetVersions(server *mcp.Server, cfg Config, deps analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "fleet_versions",
 		Description: "Compare pinned image versions in a repo (Dockerfile, docker-compose*.yml) " +
 			"against images currently running on one or more hosts. " +

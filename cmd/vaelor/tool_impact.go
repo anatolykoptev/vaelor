@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
@@ -35,7 +35,7 @@ const (
 )
 
 func registerImpact(server *mcp.Server, _ Config, deps analyze.Deps, sem *SemanticDeps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "impact_analysis",
 		Description: "Analyze the blast radius of changing a function or method. " +
 			"Shows direct callers, transitive callers, affected packages, " +
