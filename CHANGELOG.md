@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.50.1](https://github.com/anatolykoptev/vaelor/compare/v1.50.0...v1.50.1) (2026-07-22)
+
+
+### Fixed
+
+* **mcp-ux:** make repo schema-optional so [#569](https://github.com/anatolykoptev/vaelor/issues/569) inference actually runs ([#578](https://github.com/anatolykoptev/vaelor/issues/578)) ([a8f57c1](https://github.com/anatolykoptev/vaelor/commit/a8f57c14db23939e5fa294e980a3bdc57afeaba6))
+
 ## [1.50.0](https://github.com/anatolykoptev/vaelor/compare/v1.49.0...v1.50.0) (2026-07-22)
 
 
