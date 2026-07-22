@@ -34,9 +34,13 @@ import (
 type toolSpec struct {
 	// accepted is the set of top-level JSON property names the tool's input
 	// schema declares. Unknown properties not in this set are stripped before
-	// framework validation. Empty means an open schema (accept anything) —
-	// stripping is skipped so open-schema tools are not narrowed.
+	// framework validation.
 	accepted map[string]struct{}
+	// open is true for tools with an open schema (accept anything). When true,
+	// stripping is skipped entirely. This is distinct from a closed empty
+	// struct (struct{}) which has open=false and accepted=empty — such a tool
+	// accepts NO params, and any args should be stripped (#581).
+	open bool
 }
 
 // Registry records the accepted property set for every tool registered through
@@ -60,7 +64,10 @@ func (r *Registry) Count() int {
 	return len(r.tools)
 }
 
-// Register records the accepted property names for a tool. Exported for tests
+// Register records the accepted property names for a tool as a CLOSED schema
+// — only the listed properties are accepted, and any unknown properties are
+// stripped. An empty accepted slice means the tool accepts NO params (e.g.
+// struct{}), which is distinct from an open schema (#581). Exported for tests
 // that build a Registry without a full server. Production registration goes
 // through AddTool, which reflects the property names from In.
 func (r *Registry) Register(name string, accepted []string) {
@@ -72,7 +79,17 @@ func (r *Registry) Register(name string, accepted []string) {
 			set[p] = struct{}{}
 		}
 	}
-	r.tools[name] = toolSpec{accepted: set}
+	r.tools[name] = toolSpec{accepted: set, open: false}
+}
+
+// RegisterOpen records a tool with an OPEN schema — any properties are
+// accepted, stripping is skipped. Used by AddTool for non-struct input types
+// or structs with no json-tagged fields where the accepted set cannot be
+// determined by reflection (#581).
+func (r *Registry) RegisterOpen(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tools[name] = toolSpec{accepted: nil, open: true}
 }
 
 // Has reports whether name is a registered tool.
@@ -84,7 +101,9 @@ func (r *Registry) Has(name string) bool {
 }
 
 // Accepted returns the accepted property set for name and whether the tool has
-// an open schema (empty accepted set → open). ok is false for unknown tools.
+// an open schema. ok is false for unknown tools. A closed empty struct (struct{})
+// has open=false and an empty accepted set — it accepts NO params, so any args
+// are stripped (#581).
 func (r *Registry) Accepted(name string) (accepted map[string]struct{}, open, ok bool) {
 	r.mu.RLock()
 	spec, exists := r.tools[name]
@@ -92,7 +111,7 @@ func (r *Registry) Accepted(name string) (accepted map[string]struct{}, open, ok
 	if !exists {
 		return nil, false, false
 	}
-	return spec.accepted, len(spec.accepted) == 0, true
+	return spec.accepted, spec.open, true
 }
 
 // Names returns the registered tool names in registration-independent sorted
@@ -122,11 +141,17 @@ func Default() *Registry { return defaultRegistry }
 // It is a drop-in replacement for mcpserver.AddTool: identical signature and
 // semantics. The only addition is the Registry side-effect.
 func AddTool[In any](s *mcp.Server, t *mcp.Tool, h func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, error)) {
-	props := jsonProperties(reflect.TypeFor[In]())
-	defaultRegistry.Register(t.Name, props)
-	if len(props) == 0 {
+	props, isStruct := jsonProperties(reflect.TypeFor[In]())
+	if !isStruct || props == nil {
+		// Open schema: non-struct type, or struct with no json-tagged fields
+		// (can't determine accepted set by reflection). Stripping disabled.
+		defaultRegistry.RegisterOpen(t.Name)
 		slog.Debug("argnorm: open-schema tool (no json-tagged fields), stripping disabled",
 			slog.String("tool", t.Name))
+	} else {
+		// Closed schema: struct with json-tagged fields, or struct{} (zero
+		// fields → empty props, accepts NO params). props is non-nil.
+		defaultRegistry.Register(t.Name, props)
 	}
 	mcpserver.AddTool(s, t, h)
 }
@@ -135,20 +160,43 @@ func AddTool[In any](s *mcp.Server, t *mcp.Tool, h func(context.Context, *mcp.Ca
 // type by reflecting its `json:"name,..." tags. Anonymous (embedded) fields are
 // recursed so promoted fields are included. Names that are "-" or empty (the
 // json:"-" / untagged sentinel) are excluded — they are not accepted input
-// properties. Non-struct types yield nil.
-func jsonProperties(t reflect.Type) []string {
+// properties.
+//
+// Returns (props, isStruct):
+//   - Non-struct type → (nil, false): open schema.
+//   - struct{} (zero fields) → ([]string{}, true): closed schema, accepts NO
+//     params. Distinct from open — any args should be stripped (#581).
+//   - Struct with fields but no json-tagged fields → (nil, true): open schema
+//     (can't determine accepted set by reflection).
+//   - Struct with json-tagged fields → (props, true): closed schema.
+func jsonProperties(t reflect.Type) (props []string, isStruct bool) {
 	if t == nil {
-		return nil
+		return nil, false
 	}
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
-		return nil
+		return nil, false
 	}
-	var props []string
+	// It's a struct — initialize props to non-nil empty so struct{} (zero
+	// fields) is distinguishable from non-struct (nil). collectJSONProps
+	// appends to props; if no json-tagged fields are found, props stays
+	// non-nil empty for struct{}, nil for structs with untagged fields.
+	props = []string{}
 	collectJSONProps(t, &props)
-	return props
+	if len(props) == 0 {
+		// Struct with fields but no json tags → can't determine accepted set.
+		// Return nil to signal open schema. struct{} (zero fields) also lands
+		// here but with NumField()==0 — distinguish by checking field count.
+		if t.NumField() == 0 {
+			// struct{} → closed, accepts no params. Keep non-nil empty.
+			return props, true
+		}
+		// Struct with fields but no json tags → open.
+		return nil, true
+	}
+	return props, true
 }
 
 func collectJSONProps(t reflect.Type, out *[]string) {

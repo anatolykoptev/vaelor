@@ -15,6 +15,7 @@ import (
 type ReviewDeltaInput struct {
 	Repo            string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full URL, or absolute local host path"`
 	Base            string `json:"base,omitempty" jsonschema_description:"Base ref to diff against (commit SHA, branch, tag, HEAD~N). Default: HEAD~1"`
+	Head            string `json:"head,omitempty" jsonschema_description:"Head ref to diff from (commit SHA, branch, tag). Default: HEAD. Use this to review a specific branch or commit without checking it out — e.g. head=feature-branch diffs base..feature-branch."`
 	Depth           int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
 	Language        string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
 	ExcludeSnippets bool   `json:"exclude_snippets,omitempty" jsonschema_description:"Set true to omit source code snippets (included by default)"`
@@ -35,6 +36,7 @@ func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphS
 			"Returns changed files, changed symbols, impacted downstream symbols, " +
 			"untested changes, and risk guidance. " +
 			"Ideal for pre-merge review: shows blast radius of a branch's changes. " +
+			"Set head= to diff against a specific branch/commit without checking it out. " +
 			"impacted_symbols is capped to the top " + fmt.Sprint(maxReviewImpacted) +
 			" entries by default (ranked by impact distance then confidence); " +
 			"set full_impact=true for the complete list.",
@@ -133,6 +135,7 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
 		Root:            root,
 		Base:            input.Base,
+		Head:            input.Head,
 		Depth:           depth,
 		Language:        input.Language,
 		IncludeSnippets: !input.ExcludeSnippets,

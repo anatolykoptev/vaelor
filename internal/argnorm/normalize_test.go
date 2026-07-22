@@ -57,13 +57,13 @@ func TestNormalizeArgs_DoesNotMutateInput(t *testing.T) {
 }
 
 func TestNormalizeArgs_OpenSchemaNoStrip(t *testing.T) {
-	// Empty accepted = open schema: nothing stripped, no note.
+	// nil accepted = open schema: nothing stripped, no note.
 	raw := map[string]any{"anything": 1, "whatever": true}
-	res := NormalizeArgs("open_tool", raw, map[string]struct{}{})
+	res := NormalizeArgs("open_tool", raw, nil)
 	if len(res.Stripped) != 0 {
 		t.Errorf("open schema should not strip, got %v", res.Stripped)
 	}
-	if res.Note(map[string]struct{}{}) != "" {
+	if res.Note(nil) != "" {
 		t.Errorf("open schema should produce no note")
 	}
 }
