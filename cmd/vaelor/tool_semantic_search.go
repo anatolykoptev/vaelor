@@ -495,15 +495,17 @@ func finalResult(
 		env = mcpmeta.WithFreshness(env, root, sha)
 	}
 	formatted := formatSemanticResults(input, reranked, deps.AnalyzeDeps.PathMappings)
+	// Meta footer goes on BEFORE budget shaping so a truncation cut keeps the
+	// `[truncated: …]` hint at the tail and the total stays within the
+	// requested max_bytes; the freshness footer is auxiliary and may be cut.
+	formatted = appendMetaFooter(formatted, env)
 	// Apply per-call budget override when max_bytes is set; the addTool
-	// wrapper applies the default budget otherwise (#582). The hint from
-	// HintAfterCodeSearch is preserved in the meta footer regardless of
-	// whether shaping fires — Shape only touches the body, not the footer.
+	// wrapper applies the default budget otherwise (#582).
 	if input.MaxBytes > 0 {
 		formatted = mcpmeta.ShapeWithHint(formatted, budgetOverride(input.MaxBytes),
 			"narrow with language= or query=, or increase max_bytes")
 	}
-	return metaResult(formatted, env), nil
+	return textResult(formatted), nil
 }
 
 // symbolNameFromResults returns the symbol name from the first result when there

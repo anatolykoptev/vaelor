@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
@@ -15,7 +16,7 @@ import (
 type ReviewDeltaInput struct {
 	Repo            string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full URL, or absolute local host path"`
 	Base            string `json:"base,omitempty" jsonschema_description:"Base ref to diff against (commit SHA, branch, tag, HEAD~N). Default: HEAD~1"`
-	Head            string `json:"head,omitempty" jsonschema_description:"Head ref to diff from (commit SHA, branch, tag). Default: HEAD. Use this to review a specific branch or commit without checking it out — e.g. head=feature-branch diffs base..feature-branch."`
+	Head            string `json:"head,omitempty" jsonschema_description:"Head ref for the diff (commit SHA, branch, tag). Default: HEAD. The DIFF is computed base..head, but impacted-symbol analysis (call graph) always reflects the current working tree — for a full branch review at head without checking it out, use review_pr."`
 	Depth           int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
 	Language        string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
 	ExcludeSnippets bool   `json:"exclude_snippets,omitempty" jsonschema_description:"Set true to omit source code snippets (included by default)"`
@@ -36,7 +37,9 @@ func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphS
 			"Returns changed files, changed symbols, impacted downstream symbols, " +
 			"untested changes, and risk guidance. " +
 			"Ideal for pre-merge review: shows blast radius of a branch's changes. " +
-			"Set head= to diff against a specific branch/commit without checking it out. " +
+			"Set head= to shape the DIFF as base..head; impacted-symbol analysis " +
+			"always reflects the current working tree (use review_pr for a full " +
+			"no-checkout branch review). " +
 			"impacted_symbols is capped to the top " + fmt.Sprint(maxReviewImpacted) +
 			" entries by default (ranked by impact distance then confidence); " +
 			"set full_impact=true for the complete list.",
@@ -197,6 +200,15 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 			return errResult(fmt.Sprintf("marshal: %s", err)), nil
 		}
 		out = string(data)
+	}
+
+	// head= shapes the diff only; the call-graph/impact stage parses the
+	// working tree (review_pr worktrees FETCH_HEAD for the full no-checkout
+	// flow). Say so in the response whenever a non-default head is asked for,
+	// so an agent never mistakes the blast radius for head's tree.
+	if input.Head != "" && !strings.EqualFold(input.Head, "HEAD") {
+		out += "\nnote: diff computed base.." + input.Head +
+			"; impacted symbols reflect the current working tree — use review_pr for a full no-checkout branch review"
 	}
 
 	return textResult(out), nil
