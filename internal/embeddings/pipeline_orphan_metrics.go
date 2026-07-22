@@ -73,3 +73,21 @@ var embeddingsCoverageRows = promauto.NewGaugeVec(
 func SetEmbeddingsCoverageRows(repoKey string, n int) {
 	embeddingsCoverageRows.WithLabelValues(repoKey).Set(float64(n))
 }
+
+// gocode_orphan_prevented_total counts first-index embedding rows rolled back
+// via a compensating DeleteRepo after a repo_state write failure (or embedChunks
+// partial failure). Each increment is one orphan averted: without the compensate,
+// the just-written embeddings would persist with no code_repo_state row — the
+// dominant orphan source (15076 swept historically).
+//
+// A non-zero rate means the retry+compensate fix is actively preventing orphans;
+// pair with embed_repo_state_write_failures_total to see how often the retry
+// alone was insufficient.
+//
+// Cardinality: 1 series (unlabelled).
+var orphanPreventedTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_orphan_prevented_total",
+		Help: "First-index embedding rows rolled back via compensating DeleteRepo after a repo_state write or embedChunks failure (orphan prevented).",
+	},
+)

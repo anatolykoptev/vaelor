@@ -88,16 +88,27 @@ func TestFix1_EmbedClientHonorsHTTPTimeout(t *testing.T) {
 
 // TestFix2_PartialAbortCounter_BumpsOnChunkFailure asserts that when embedChunks
 // fails mid-run (chunk 1 succeeds, chunk 2 errors), gocode_index_partial_abort_total
-// is incremented, committed rows survive (chunk 1 rows > 0), and SHA is NOT advanced.
+// is incremented, and SHA is NOT advanced.
 //
-// RED (3 assertions, each independently RED if Fix 2 is reverted):
+// Contract note (orphan-prevention fix): this is a FIRST-INDEX scenario (no prior
+// code_repo_state row). Under the new contract, the chunk-1 rows that committed
+// before the abort are ROLLED BACK via a compensating DeleteRepo — they would
+// otherwise persist with no state row and become orphans (the dominant orphan
+// source). So assertion 2 asserts count==0 (rolled back), not count>0. The
+// partial-abort counter (assertion 1) and the SHA-frozen invariant (assertion 3)
+// are unchanged. Re-index partial-abort behavior (rows survive) is not exercised
+// here; it is covered by the re-index compensate test in
+// pipeline_orphan_prevent_test.go.
+//
+// RED (3 assertions, each independently RED if its guard is reverted):
 //  1. Counter delta: counter does not exist before Fix 2 — assert fails with "0 == 0".
-//  2. Rows_written > 0: confirms chunk 1 committed before the error (non-vacuous:
-//     reverts if embedChunks rolls back chunk 1 or returns before first write).
+//  2. Rows rolled back: count==0 confirms the first-index compensate fired (non-
+//     vacuous: reverts to count>0 if the compensate is removed).
 //  3. SHA NOT advanced: Bug #1 invariant — partial failure must not advance SHA.
 func TestFix2_PartialAbortCounter_BumpsOnChunkFailure(t *testing.T) {
-	// Baseline counter before the test.
+	// Baseline counters before the test.
 	beforeAbort := sumCounterWithLabels(t, "gocode_index_partial_abort_total", nil)
+	beforePrevented := readCounter(t, "gocode_orphan_prevented_total")
 
 	const repo = "test/fix2-partial-abort"
 
@@ -146,11 +157,17 @@ func TestFix2_PartialAbortCounter_BumpsOnChunkFailure(t *testing.T) {
 	assert.Greater(t, afterAbort, beforeAbort,
 		"gocode_index_partial_abort_total must increment on partial abort (Fix 2)")
 
-	// Assertion 2: chunk 1 rows survived (non-zero rows in DB).
+	// Assertion 2: first-index compensate rolled back the chunk-1 rows (orphan
+	// prevented). Revert the compensate and this flips to count>0 → RED.
 	count, countErr := store.CountEmbeddings(ctx, repo)
 	require.NoError(t, countErr)
-	assert.Greater(t, count, 0,
-		"committed rows from chunk 1 must survive a partial abort")
+	assert.Equal(t, 0, count,
+		"first-index partial-abort rows must be rolled back (orphan prevented), not left behind")
+
+	// Observability: the orphan-prevented counter must also increment.
+	afterPrevented := readCounter(t, "gocode_orphan_prevented_total")
+	assert.Greater(t, afterPrevented, beforePrevented,
+		"gocode_orphan_prevented_total must increment when the first-index compensate fires")
 
 	// Assertion 3: SHA NOT advanced (Bug #1 invariant: partial failure ≠ full success).
 	sha, shaErr := store.GetRepoState(ctx, repo)
