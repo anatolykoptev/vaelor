@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.50.2](https://github.com/anatolykoptev/vaelor/compare/v1.50.1...v1.50.2) (2026-07-22)
+
+
+### Fixed
+
+* **mcp-ux:** 7 live-probe residuals — compare deadline, hint-on-error, budget wiring ([#584](https://github.com/anatolykoptev/vaelor/issues/584)) ([d519960](https://github.com/anatolykoptev/vaelor/commit/d519960f9325149b7c147a111c24e11d33d00deb))
+
 ## [1.50.1](https://github.com/anatolykoptev/vaelor/compare/v1.50.0...v1.50.1) (2026-07-22)
 
 
