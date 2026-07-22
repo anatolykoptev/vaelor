@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
@@ -29,7 +29,7 @@ func registerListFlows(server *mcp.Server, graphStore *codegraph.Store, deps Sem
 		return
 	}
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "list_flows",
 		Description: "List precomputed named execution flows for a repository, ordered by priority (highest-PageRank chains first). " +
 			"Flows are community-clustered, entry-to-leaf call chains extracted at index time — providing a birds-eye view " +

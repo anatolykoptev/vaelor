@@ -9,8 +9,8 @@ import (
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/cache"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -57,7 +57,7 @@ type enrichedRepo struct {
 
 // registerRepoSearch registers the repo_search MCP tool.
 func registerRepoSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "repo_search",
 		Description: "Discover repositories for a task or technology. " +
 			"Searches web + GitHub/GitLab APIs, enriches with metadata (stars, language, topics), " +

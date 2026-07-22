@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -228,7 +228,7 @@ func handleSuggestReviewersCore(ctx context.Context, args SuggestReviewersArgs, 
 
 // registerSuggestReviewers registers the suggest_reviewers tool on the MCP server.
 func registerSuggestReviewers(server *mcp.Server, cfg Config, deps analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name:        "suggest_reviewers",
 		Description: "Rank candidate reviewers for a list of PR file paths using direct authorship, co-change coupling, and recency. Returns up to 5 distinct authors per file (fewer when the repo has fewer contributors with relevant history). Co-change signal only fires when a partner file pair has at least 2 joint commits — recently-introduced couplings won't show until they're exercised twice.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args SuggestReviewersArgs) (*mcp.CallToolResult, error) {

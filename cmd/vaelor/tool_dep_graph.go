@@ -5,8 +5,8 @@ import (
 	"encoding/xml"
 	"fmt"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -53,7 +53,7 @@ type DepGraphInput struct {
 func registerDepGraph(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "dep_graph",
 		Description: "Build and visualize the dependency graph of a repository. " +
 			"Parses import/require/use statements across all source files using tree-sitter, " +

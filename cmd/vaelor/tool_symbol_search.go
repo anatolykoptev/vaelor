@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/parser"
@@ -73,7 +73,7 @@ type xmlSymSearchItem struct {
 func registerSymbolSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *SemanticDeps) {
 	outputDir := cfg.OutputDir
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "symbol_search",
 		Description: "Search for functions, types, methods, constants, or variables across a repository. " +
 			"Uses tree-sitter AST parsing for accurate symbol extraction (no grep heuristics). " +

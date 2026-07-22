@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,7 +40,7 @@ func registerRememberGraphInsights(server *mcp.Server, cfg Config, deps analyze.
 		slog.Info("remember_graph_insights: DATABASE_URL not set, tool disabled")
 		return
 	}
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "remember_graph_insights",
 		Description: "Human-invoked persistence: runs structural graph queries " +
 			"(surprises, dead_code) on the repo and writes findings to the learnings " +

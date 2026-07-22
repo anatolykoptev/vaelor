@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -36,7 +36,7 @@ type FileParseInput struct {
 func registerFileParse(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	maxBytes := cfg.MaxFileBytes
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "file_parse",
 		Description: "Parse a single source file using tree-sitter and return its AST or symbol table. " +
 			"Supports Go, Python, TypeScript, JavaScript, Rust, Java, C, C++. " +

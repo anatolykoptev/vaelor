@@ -7,8 +7,8 @@ import (
 
 	"github.com/anatolykoptev/go-kit/embed"
 	"github.com/anatolykoptev/go-kit/sparse"
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
@@ -98,7 +98,7 @@ const (
 
 // registerSemanticSearch registers the semantic_search MCP tool.
 func registerSemanticSearch(server *mcp.Server, _ Config, deps SemanticDeps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "semantic_search",
 		Description: "Find code by meaning using natural language queries. " +
 			"Uses hybrid RRF (semantic + keyword + graph-candidate + hotspot + recency) with 1-hop graph expansion via Apache AGE. " +
@@ -113,7 +113,7 @@ func handleSemanticSearch(
 	ctx context.Context, input SemanticSearchInput, deps SemanticDeps,
 ) (*mcp.CallToolResult, error) {
 	if input.Repo == "" {
-		return errResult("repo is required"), nil
+		return errResult(shortMissingRepoMsg(ctx, deps.Store, deps.AnalyzeDeps.LocalRepoDirs)), nil
 	}
 	if input.Query == "" {
 		return errResult("query is required"), nil

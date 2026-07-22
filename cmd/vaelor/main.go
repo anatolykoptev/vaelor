@@ -29,6 +29,7 @@ import (
 	"github.com/anatolykoptev/go-kit/tracing/slogh"
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/designmd"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -264,12 +265,17 @@ func runMCPServe(cfg Config) {
 		SessionTimeout:             10 * time.Minute,
 		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
 		MCPLogger:                  slog.Default(),
-		MCPReceivingMiddleware:     []mcp.Middleware{tracemcpmw.Middleware(serviceName), hooks.Middleware(), mcpmw.Middleware(reg, "tool")},
-		Middleware:                 []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
-		RESTBridge:                 true,
-		Routes:                     combinedRoutes,
-		LogSkipPaths:               []string{"/health", "/health/live", "/health/ready", "/metrics"},
-		ToolTimeouts:               runtimeTimeouts,
+		MCPReceivingMiddleware: []mcp.Middleware{
+			argnorm.Middleware(argnorm.Default()), // first (outermost): normalize args + tool names before metrics/tracing observe
+			tracemcpmw.Middleware(serviceName),
+			hooks.Middleware(),
+			mcpmw.Middleware(reg, "tool"),
+		},
+		Middleware:   []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
+		RESTBridge:   true,
+		Routes:       combinedRoutes,
+		LogSkipPaths: []string{"/health", "/health/live", "/health/ready", "/metrics"},
+		ToolTimeouts: runtimeTimeouts,
 		// SSE (text/event-stream) mode. Long tool calls (code_research, debug_investigate,
 		// code_graph, etc.) emit no bytes until they finish; in stateless mode the
 		// server can't send ping requests, so a client/proxy idle-timeout would

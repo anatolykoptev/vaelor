@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -20,7 +20,7 @@ type WPPluginSearchInput struct {
 
 // registerWPPluginSearch registers the wp_plugin_search MCP tool.
 func registerWPPluginSearch(server *mcp.Server, _ Config, _ analyze.Deps) {
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name: "wp_plugin_search",
 		Description: "Search the WordPress.org plugin directory. " +
 			"Returns plugin name, slug, version, active installs, rating, and description. " +

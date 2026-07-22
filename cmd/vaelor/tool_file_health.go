@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	mcpserver "github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	argnorm "github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/biomarkers"
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
@@ -335,7 +335,7 @@ func registerFileHealth(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	reg := defaultHealthRegistry()
 	agg := biomarkers.NewAggregator(reg, defaultHealthWeights)
 
-	mcpserver.AddTool(server, &mcp.Tool{
+	argnorm.AddTool(server, &mcp.Tool{
 		Name:        "get_file_health",
 		Description: "Report a 1-10 health score per file using prior_defect + churn_risk biomarkers. Optional paths defaults to top-20 hotspots.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args FileHealthArgs) (*mcp.CallToolResult, error) {
