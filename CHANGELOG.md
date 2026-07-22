@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.51.1](https://github.com/anatolykoptev/vaelor/compare/v1.51.0...v1.51.1) (2026-07-22)
+
+
+### Fixed
+
+* **embeddings:** stop producing first-index orphans (retry + fail-closed compensate) ([#590](https://github.com/anatolykoptev/vaelor/issues/590)) ([e492dff](https://github.com/anatolykoptev/vaelor/commit/e492dffac580f35e07bc4d1ca40e748e97165408))
+
 ## [1.51.0](https://github.com/anatolykoptev/vaelor/compare/v1.50.2...v1.51.0) (2026-07-22)
 
 
