@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.50.0](https://github.com/anatolykoptev/vaelor/compare/v1.49.0...v1.50.0) (2026-07-22)
+
+
+### Added
+
+* **mcp-ux:** response budgets, pagination, soft deadlines, took_ms ([#576](https://github.com/anatolykoptev/vaelor/issues/576)) ([0f2c9ac](https://github.com/anatolykoptev/vaelor/commit/0f2c9ac76d6651b4cd90b96bee0267ab6d72fd7e))
+
 ## [1.49.0](https://github.com/anatolykoptev/vaelor/compare/v1.48.1...v1.49.0) (2026-07-22)
 
 
