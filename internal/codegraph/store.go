@@ -51,6 +51,17 @@ CREATE TABLE IF NOT EXISTS public.code_graph_meta (
 // makes it idempotent. The column stores ingest.RepoContentHash(root) at
 // build time so checkCache can detect file changes within the TTL window
 // (issue #592: stale graph served until TTL expires despite file changes).
+//
+// TRAP (issue #520): this ALTER is public.-qualified, so a migration added
+// here only reaches the public copy. A legacy deployment whose code_graph_meta
+// still lives in ag_catalog (already-healed prod that was NOT relocated — out
+// of #520 scope) will NOT receive columns added this way, and getMeta's
+// 42703-tolerance would then silently degrade that repo to a permanent
+// cache-miss (the #520 freeze class in a new guise). Before adding any REQUIRED
+// column here, relocate the ag_catalog-resident tables to public first (a
+// separate migration), or add the column unqualified so search_path reaches
+// whichever schema holds the live table. content_hash is safe today because
+// every live deployment's ag_catalog copy already has it (verified).
 const metaTableMigrateSQL = `
 ALTER TABLE public.code_graph_meta ADD COLUMN IF NOT EXISTS content_hash TEXT DEFAULT ''`
 

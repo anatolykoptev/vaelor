@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -162,6 +164,78 @@ func TestTransferOwnership(t *testing.T) {
 func metricVal(t *testing.T, table string) float64 {
 	t.Helper()
 	return testutil.ToFloat64(ownershipTransferFailedTotal.WithLabelValues(table))
+}
+
+// levelCapture is a slog.Handler that records every emitted record so a test
+// can assert the LEVEL of a log line (not just its presence).
+type levelCapture struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *levelCapture) Enabled(context.Context, slog.Level) bool { return true }
+func (h *levelCapture) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r.Clone())
+	return nil
+}
+func (h *levelCapture) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *levelCapture) WithGroup(string) slog.Handler      { return h }
+
+// TestTransferOwnership_LogLevels pins the anti-spam property (issue #520): the
+// 42501 "not owner" path recurs on every rebuild until an operator normalizes
+// ownership, so it MUST log at DEBUG, not WARN. Without this, reverting
+// slog.Debug -> slog.Warn on that path leaves every other test green (they only
+// check exec/metric, never the level) — the spam guarantee would be
+// unfalsifiable. Other (non-42501) transfer errors stay at WARN.
+//
+// Not parallel: swaps slog.Default().
+func TestTransferOwnership_LogLevels(t *testing.T) {
+	cases := []struct {
+		name      string
+		execErr   error
+		wantLevel slog.Level
+		wantMsg   string
+	}{
+		{
+			name:      "42501 not-owner recurring path logs at DEBUG (a WARN would spam every rebuild)",
+			execErr:   &pgconn.PgError{Code: "42501"},
+			wantLevel: slog.LevelDebug,
+			wantMsg:   "cannot transfer table ownership",
+		},
+		{
+			name:      "other transfer error logs at WARN",
+			execErr:   errors.New("connection reset by peer"),
+			wantLevel: slog.LevelWarn,
+			wantMsg:   "transfer table owner",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cap := &levelCapture{}
+			orig := slog.Default()
+			slog.SetDefault(slog.New(cap))
+			defer slog.SetDefault(orig)
+
+			ex := &fakeQueryExecer{ownedByCurrent: false, execErr: tc.execErr}
+			TransferOwnership(context.Background(), ex, "testpkg", "public.tbl_loglevel")
+
+			var gotLevel slog.Level
+			found := false
+			for _, r := range cap.records {
+				if strings.Contains(r.Message, tc.wantMsg) {
+					gotLevel, found = r.Level, true
+				}
+			}
+			if !found {
+				t.Fatalf("no log record containing %q was emitted (records=%d)", tc.wantMsg, len(cap.records))
+			}
+			if gotLevel != tc.wantLevel {
+				t.Errorf("transfer-failure log level = %v, want %v (the anti-spam property)", gotLevel, tc.wantLevel)
+			}
+		})
+	}
 }
 
 func TestIsInsufficientPrivilege(t *testing.T) {

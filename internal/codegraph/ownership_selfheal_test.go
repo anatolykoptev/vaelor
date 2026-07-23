@@ -168,8 +168,9 @@ func TestEnsureGraph_CreatesMetadataTablesInPublicOwnedByApp(t *testing.T) {
 // superuser is not solely what it guards. The load-bearing assertion here is
 // that EnsureGraph succeeds twice AND the tables remain in public owned by
 // the app (the leak-prevention contract). The guard's quietness on the
-// non-owner path is falsified DB-free by pgutil.TestTransferOwnership's
-// "already owner: skip ALTER entirely" case (asserts Exec is NOT called).
+// already-owner (correct-DB) path is falsified DB-free by
+// pgutil.TestTransferOwnership's "already owner: skip ALTER entirely" case
+// (asserts Exec is NOT called).
 //
 // Gated on DATABASE_URL — runs in CI's live AGE.
 func TestEnsureGraph_OwnershipSweep_IdempotentNoOp(t *testing.T) {
@@ -275,7 +276,8 @@ func TestEnsureGraph_OwnershipSweep_IdempotentNoOp(t *testing.T) {
 // This runs in CI (DATABASE_URL only): the non-superuser role is created
 // inside the test against the ephemeral CI DB. The 42501-graceful-skip LOGIC
 // is additionally falsified DB-free by pgutil.TestTransferOwnership's
-// "not owner, 42501" case (asserts no panic + metric +1).
+// "not owner, 42501" case (asserts no panic + metric +1) and by
+// pgutil.TestTransferOwnership_LogLevels (asserts that path logs at DEBUG).
 //
 // Skipped when the connecting role is not a superuser (cannot CREATE ROLE) or
 // when role-authenticated TCP connect is unavailable.
@@ -387,7 +389,9 @@ func TestOwnershipSweep_GuardSkipsGracefullyWhenNotOwner(t *testing.T) {
 	}
 
 	// The failure counter must bump exactly once (the alertable signal that
-	// ownership is wrong) — but no WARN log is emitted (covered DB-free).
+	// ownership is wrong); the log line stays at DEBUG, not WARN, so it does not
+	// spam every rebuild — that level is asserted DB-free by
+	// pgutil.TestTransferOwnership_LogLevels.
 	metricAfter := testutil.ToFloat64(pgutil.OwnershipTransferFailedTotalForTest("public.code_graph_meta"))
 	if delta := metricAfter - metricBefore; delta != 1 {
 		t.Errorf("gocode_table_ownership_transfer_failed_total{code_graph_meta}: want +1 on graceful 42501 skip, got +%v", delta)
