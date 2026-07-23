@@ -237,7 +237,7 @@ func TestFederatedCoChange_DeadlineHit_ReturnsPartialOrBuilding(t *testing.T) {
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	// Clean the cache for this test so repos start cold.
-	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
+	federatedCoChangeCache.clear()
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
@@ -279,7 +279,7 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 	parent, chatDir, edgeDir := makeCoChangeTempRepos(t)
 
 	// Clean state.
-	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
+	federatedCoChangeCache.clear()
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
@@ -300,7 +300,7 @@ func TestFederatedCoChange_WarmCacheGivesPartialPairs(t *testing.T) {
 	}
 
 	// Drop result cache only, keeping touches cache warm.
-	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
+	federatedCoChangeCache.clear()
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 	// Now call with tiny budget — touches are warm so we should get a partial/ready result.
@@ -336,7 +336,7 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	// Clean state.
-	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
+	federatedCoChangeCache.clear()
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 	deps := analyze.Deps{LocalRepoDirs: []string{parent}}
@@ -347,7 +347,7 @@ func TestFederatedCoChange_PollReturnsReady(t *testing.T) {
 	fakePairs := []coupling.VerifiedPair{
 		{CrossPair: federate.CrossPair{RepoA: "acme-web", FileA: "rooms.rs", RepoB: "acme-edge", FileB: "install.sh", CoChanges: 2}},
 	}
-	federatedCoChangeCache.Store(cacheKey, &federatedCoChangeCacheEntry{
+	federatedCoChangeCache.store(cacheKey, &federatedCoChangeCacheEntry{
 		result: &FederatedCoChangeResult{Pairs: fakePairs},
 		done:   true,
 	})
@@ -392,7 +392,7 @@ func TestFederatedCoChange_DeduplicatesConcurrentCalls(t *testing.T) {
 	parent, _, _ := makeCoChangeTempRepos(t)
 
 	// Clean state.
-	federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
+	federatedCoChangeCache.clear()
 	fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 	// gate blocks the background worker until we release it, ensuring all 10
@@ -448,7 +448,7 @@ func TestFederatedCoChange_BackCompatPairsAlwaysArray(t *testing.T) {
 		{"full_budget", 60 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			federatedCoChangeCache.Range(func(k, _ any) bool { federatedCoChangeCache.Delete(k); return true })
+			federatedCoChangeCache.clear()
 			fedInFlight.Range(func(k, _ any) bool { fedInFlight.Delete(k); return true })
 
 			deps := analyze.Deps{LocalRepoDirs: []string{parent}}
