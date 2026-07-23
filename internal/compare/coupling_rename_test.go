@@ -102,9 +102,9 @@ func partnersOf(path string, pairs []compare.CoupledPair) []compare.CoupledPair 
 // Falsification: revert the rename-normalization fix -> the pair is keyed on
 // old/a.go/old/b.go, partnersOf("new/a.go") returns nothing -> RED.
 func TestCollectCoupling_RenameAwareSurfaceCurrentPath(t *testing.T) {
-	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
-	}
+	// Runs on the merge gate (not -short-skipped): this is the load-bearing
+	// regression guard for #355 — a bugfix whose entire value IS the guard must
+	// gate the merge. Git-exec-bound but ~1s, so cheap enough for preflight.
 	dir := mkCouplingRenameRepo(t)
 
 	pairs := compare.CollectCoupling(context.Background(), dir, 2)
@@ -150,9 +150,8 @@ func TestCollectCoupling_RenameAwareSurfaceCurrentPath(t *testing.T) {
 // never co-changes with anything must have zero partners (the fix must not
 // fabricate coupling for genuinely independent files).
 func TestCollectCoupling_UncoupledFileStaysZero(t *testing.T) {
-	if testing.Short() {
-		t.Skip("heavy integration test; runs in the nightly full suite (make test)")
-	}
+	// Runs on the merge gate (see the sibling test): the no-fabrication control
+	// for #355 belongs on the merge path alongside the guard it balances.
 	dir := mkCouplingRenameRepo(t)
 
 	pairs := compare.CollectCoupling(context.Background(), dir, 2)
