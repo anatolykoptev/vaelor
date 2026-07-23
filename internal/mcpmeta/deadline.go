@@ -12,6 +12,15 @@ import (
 // listening and returning nothing.
 const DefaultSoftDeadline = 25 * time.Second
 
+// SlowToolSoftDeadline is for the heavy tools (explore, code_compare,
+// dataflow_analyze) that legitimately take tens of seconds on large repos and
+// run under the ~95-100s external proxy budget. It sits safely below that hard
+// kill (keepalive holds the transport for long calls) so these tools COMPLETE
+// when they can and only fall back to a partial result near the real limit —
+// the default 25s would fire before dataflow's own 30s ox-codes stage even
+// finishes, needlessly returning partial on every non-trivial repo.
+const SlowToolSoftDeadline = 80 * time.Second
+
 // SoftDeadline wraps a context with the default soft deadline. The returned
 // context is cancelled when the deadline expires; callers should check
 // ctx.Err() at natural boundaries and return a partial result when it fires.

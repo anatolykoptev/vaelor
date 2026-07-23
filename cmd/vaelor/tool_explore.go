@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/compare"
 	"github.com/anatolykoptev/vaelor/internal/envdetect"
 	"github.com/anatolykoptev/vaelor/internal/explore"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -91,21 +93,68 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Use as a first step when encountering an unfamiliar codebase. " +
 			"Fast (no LLM calls) — purely static analysis.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ExploreInput) (*mcp.CallToolResult, error) {
-		if input.Repo == "" {
-			return errResult("repo is required"), nil
-		}
-
-		root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
-		if err != nil {
-			return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
-		}
-		defer cleanup()
-
-		output, err := buildExploreOutput(ctx, root, input)
-		if err != nil {
-			return errResult(err.Error()), nil
-		}
-
-		return jsonMarshalResult(output), nil
+		return handleExplore(ctx, input, deps)
 	})
+}
+
+// handleExplore is the extracted explore tool handler body, testable without
+// MCP request/response marshaling. Applies the soft deadline, resolves the
+// repo, runs the analysis, and renders a partial result + footer when the
+// deadline fires (#534).
+func handleExplore(ctx context.Context, input ExploreInput, deps analyze.Deps) (*mcp.CallToolResult, error) {
+	if input.Repo == "" {
+		return errResult("repo is required"), nil
+	}
+
+	t0 := time.Now()
+
+	// Soft deadline: 25s default, strictly below the ~100s external MCP
+	// proxy timeout. Applied before resolveRoot so the entire tool
+	// (clone + analysis) is bounded — without it a large repo's Louvain
+	// community detection runs unbounded past the proxy kill (#534).
+	softCtx, softCancel := mcpmeta.SoftDeadlineWith(ctx, mcpmeta.SlowToolSoftDeadline)
+	defer softCancel()
+
+	root, cleanup, err := resolveRoot(softCtx, input.Repo, "", deps)
+	if err != nil {
+		if softCtx.Err() != nil {
+			return softDeadlineResult(
+				fmt.Sprintf("explore: timed out during repo resolution after %s — retry with a local path or narrower focus.", time.Since(t0).Round(time.Second)),
+				"repo resolution (soft deadline)",
+				time.Since(t0),
+			), nil
+		}
+		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
+	}
+	defer cleanup()
+
+	output, err := buildExploreOutput(softCtx, root, input)
+	if err != nil {
+		if softCtx.Err() != nil {
+			return softDeadlineResult(
+				fmt.Sprintf("explore: timed out after %s — partial overview, some stages skipped.", time.Since(t0).Round(time.Second)),
+				"community detection, recent commits, coupled files (soft deadline)",
+				time.Since(t0),
+			), nil
+		}
+		return errResult(err.Error()), nil
+	}
+
+	// Fast path (no deadline hit): byte-identical JSON output.
+	if softCtx.Err() == nil && (output.Result == nil || !output.Partial) {
+		return jsonMarshalResult(output), nil
+	}
+
+	// Partial path: append a partial footer to the JSON text so the agent
+	// sees both the partial data and what was truncated.
+	data, mErr := json.Marshal(output)
+	if mErr != nil {
+		return errResult(fmt.Sprintf("marshal: %s", mErr)), nil
+	}
+	what := "community detection, recent commits, coupled files"
+	if output.Result != nil && output.PartialReason != "" {
+		what = output.PartialReason
+	}
+	text := string(data) + mcpmeta.PartialFooter(what+" (soft deadline)")
+	return textResult(text), nil
 }

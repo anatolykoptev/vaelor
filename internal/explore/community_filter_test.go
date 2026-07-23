@@ -40,7 +40,7 @@ func TestBuildCommunityOverview_KeepsOnlyNonTrivial(t *testing.T) {
 	edges = append(edges, connect(pair)...)
 
 	cg := &callgraph.CallGraph{Symbols: all, Edges: edges}
-	overview := buildCommunityOverview(cg, "/repo")
+	overview := buildCommunityOverview(t.Context(), cg, "/repo")
 	if overview == nil {
 		t.Fatal("expected non-nil overview when ≥2 non-trivial communities exist")
 	}

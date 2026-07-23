@@ -43,14 +43,36 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semD
 			input.Query = "Compare architecture, code quality, patterns, and identify missing features"
 		}
 
-		rootA, cleanupA, err := resolveRoot(ctx, input.RepoA, "", deps)
+		// Soft deadline: 25s default, strictly below the ~100s external MCP
+		// proxy timeout. Applied BEFORE resolveRoot so the entire tool
+		// (clone + snapshot + match + enrichment) is bounded — the #566 bug
+		// was the deadline applied AFTER clone, so clone ate the proxy
+		// budget and the 25s compute window fired at ~95s = the proxy kill.
+		softCtx, softCancel := mcpmeta.SoftDeadlineWith(ctx, mcpmeta.SlowToolSoftDeadline)
+		defer softCancel()
+
+		rootA, cleanupA, err := resolveRoot(softCtx, input.RepoA, "", deps)
 		if err != nil {
+			if softCtx.Err() != nil {
+				return softDeadlineResult(
+					fmt.Sprintf("code_compare: timed out resolving repo_a after %s — retry with a local path or narrower focus.", time.Since(t0).Round(time.Second)),
+					"repo_a resolution (soft deadline)",
+					time.Since(t0),
+				), nil
+			}
 			return errResult(fmt.Sprintf("resolve repo_a: %s", err)), nil
 		}
 		defer cleanupA()
 
-		rootB, cleanupB, err := resolveRoot(ctx, input.RepoB, "", deps)
+		rootB, cleanupB, err := resolveRoot(softCtx, input.RepoB, "", deps)
 		if err != nil {
+			if softCtx.Err() != nil {
+				return softDeadlineResult(
+					fmt.Sprintf("code_compare: timed out resolving repo_b after %s — retry with a local path or narrower focus.", time.Since(t0).Round(time.Second)),
+					"repo_b resolution (soft deadline)",
+					time.Since(t0),
+				), nil
+			}
 			return errResult(fmt.Sprintf("resolve repo_b: %s", err)), nil
 		}
 		defer cleanupB()
@@ -59,12 +81,6 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semD
 		if semDeps != nil {
 			embedClient = semDeps.Client
 		}
-
-		// Soft deadline: 25s default, below the 95s client timeout. On
-		// expiry, compare.CompareRepos returns a partial result (the
-		// compare package checks ctx.Err() at natural boundaries).
-		softCtx, softCancel := mcpmeta.SoftDeadline(ctx)
-		defer softCancel()
 
 		result, err := compare.CompareRepos(softCtx, compare.CompareInput{
 			RootA:       rootA,
