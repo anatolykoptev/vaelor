@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/anatolykoptev/go-kit/embed"
@@ -60,9 +61,9 @@ func (queryEmbedderStub) EmbedQuery(_ context.Context, _ string) ([]float32, err
 	return make([]float32, 768), nil
 }
 
-// storeStub implements the minimal store interface needed by handleSemanticSearch:
-// Search returns a fixed result slice (simulating stale-space hits from the old model),
-// and the rest of the methods are no-ops.
+// storeStub implements vectorSearcher with a fixed result slice (simulating
+// stale-space hits from the old model). Used as the storeSearcherSeam so
+// handleSemanticSearch can run end-to-end without a live Postgres pool.
 type storeStub struct {
 	searchResults []embeddings.SearchResult
 }
@@ -73,6 +74,23 @@ func (s *storeStub) Search(_ context.Context, _ []float32, _ embeddings.SearchOp
 
 // --- tests ---
 
+// staleTestDeps builds a SemanticDeps wired with test doubles sufficient to drive
+// handleSemanticSearch end-to-end through the stale-hit guard, without a live
+// embed-server or Postgres pool. The storeSearcherSeam intercepts Store.Search,
+// staleModelChecker intercepts GetStoredModel, and pipelineInvalidatorSeam
+// intercepts the pipeline operations. deps.Store is left nil so handleSemanticHits
+// (the post-guard path) skips all Store-dependent calls cleanly.
+func staleTestDeps(checker modelChecker, invalidator *pipelineInvalidatorSpy, hits []embeddings.SearchResult) SemanticDeps {
+	return SemanticDeps{
+		QueryClient:             queryEmbedderStub{},
+		Client:                  &embed.Client{},
+		storeSearcherSeam:       &storeStub{searchResults: hits},
+		staleModelChecker:       checker,
+		pipelineInvalidatorSeam: invalidator,
+		RRFWeights:              embeddings.DefaultRRFWeights(),
+	}
+}
+
 // TestHandleSemanticSearch_StaleSpaceHit_TriggersReindex verifies the MAJOR bug fix:
 // when semantic_search returns non-empty results from a repo whose stored embed_model
 // differs from the active model (stale-space hit), the handler must:
@@ -81,25 +99,27 @@ func (s *storeStub) Search(_ context.Context, _ []float32, _ embeddings.SearchOp
 //	(b) call InvalidateIfModelChanged to atomically purge stale vectors, and
 //	(c) call IndexRepoAsyncWithTool to start a fresh reindex.
 //
+// This test drives the REAL production path: handleSemanticSearch is called directly
+// with test seams (storeSearcherSeam, staleModelChecker, pipelineInvalidatorSeam).
+// The assertion is anchored on the real CallToolResult output (status="indexing",
+// message contains "model changed") and on the pipelineInvalidatorSpy flags.
+//
 // Anti-tautology (red-on-revert contract):
 //   - Remove the stale-hit guard entirely → invalidateCalled stays false → FAIL.
 //   - Return stale hits instead of discarding → result status != "indexing" → FAIL.
 //   - Call guard but skip InvalidateIfModelChanged → invalidateCalled false → FAIL.
 //   - Call guard but skip IndexRepoAsyncWithTool → indexAsyncCalled false → FAIL.
-//
-// This test does NOT require a live Postgres pool or embed-server; all
-// network-touching deps are replaced by test doubles above.
 func TestHandleSemanticSearch_StaleSpaceHit_TriggersReindex(t *testing.T) {
 	const (
-		repoKey     = "testrepo/stale"
 		oldModel    = "jina-code-v2"
 		activeModel = "code-rank-embed"
 	)
 
-	// Stale hits in the old embedding space.
+	repoDir := t.TempDir()
+
 	staleHits := []embeddings.SearchResult{
-		{RepoKey: repoKey, FilePath: "pkg/foo.go", SymbolName: "Foo", Distance: 0.1},
-		{RepoKey: repoKey, FilePath: "pkg/bar.go", SymbolName: "Bar", Distance: 0.2},
+		{RepoKey: "testrepo/stale", FilePath: "pkg/foo.go", SymbolName: "Foo", Distance: 0.1},
+		{RepoKey: "testrepo/stale", FilePath: "pkg/bar.go", SymbolName: "Bar", Distance: 0.2},
 	}
 
 	checker := &modelCheckerSpy{storedModel: oldModel}
@@ -107,100 +127,41 @@ func TestHandleSemanticSearch_StaleSpaceHit_TriggersReindex(t *testing.T) {
 		activeModel:       activeModel,
 		isIndexingRunning: false, // reindex not yet started
 	}
+	deps := staleTestDeps(checker, invalidator, staleHits)
 
-	_ = SemanticDeps{
-		// QueryClient returns a zero vector — enough to drive Store.Search.
-		QueryClient: queryEmbedderStub{},
-		// Client must be non-nil so the "disabled" guard passes.
-		Client: &embed.Client{},
-		// Store produces stale hits when Search is called.
-		// We do NOT set deps.Store itself here because the concrete *embeddings.Store
-		// would need a live Postgres connection. Instead we use the seam fields below.
-		// The staleModelChecker seam bypasses deps.Store.GetStoredModel.
-		staleModelChecker:       checker,
-		pipelineInvalidatorSeam: invalidator,
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  repoDir,
+		Query: "function that validates JWT tokens",
+	}, deps)
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("handleSemanticSearch returned nil result")
 	}
 
-	// handleSemanticSearch calls deps.Store.Search (not the seam). We must supply
-	// a real-shaped Store for the Search call — wire a minimal stub.
-	// Since Store is a concrete *embeddings.Store, we cannot swap it here without
-	// a more invasive refactor (out of scope). Instead we verify the guard logic
-	// directly by calling the search path with an injected vector store.
-	//
-	// The guard fires BEFORE handleSemanticHits, so we test it at the level where
-	// the stale-hit check is visible: build the deps with non-nil checker+invalidator
-	// and verify behavior via the pipelineInvalidatorSpy.
-	//
-	// Full integration (with a live pg pool) is covered by TestInvalidateRepoIfModelChanged_*
-	// in internal/embeddings/model_fingerprint_test.go. This test covers the ROUTING logic
-	// (does the guard fire and produce the right side-effects) without a db dependency.
-
-	// Simulate the scenario: checker reports oldModel, invalidator reports activeModel
-	// → mismatch → guard should fire.
-	storedModel := checker.GetStoredModel(context.Background(), repoKey)
-	activeModelStr := invalidator.EmbedModel()
-
-	if storedModel == activeModelStr {
-		t.Fatalf("precondition failed: stored=%q active=%q must differ for stale-hit scenario", storedModel, activeModelStr)
+	// (a) The stale hits must NOT be returned to the caller — the guard discards
+	// them and returns an "indexing" status response instead.
+	text := resultText(res)
+	if !strings.Contains(text, "<status>indexing</status>") {
+		t.Errorf("expected status 'indexing' in response (stale hits discarded), got: %s", text)
+	}
+	if strings.Contains(text, "Foo") || strings.Contains(text, "Bar") {
+		t.Errorf("stale-space hits leaked to caller (should have been discarded): %s", text)
 	}
 
-	// Simulate the guard logic as it appears in handleSemanticSearch.
-	// We extract the guard into a local function to test it in isolation without
-	// a live embed-server (EmbedQuery) or pgvector store (Store.Search).
-	//
-	// This approach tests the guard logic faithfully: same condition, same side-effects.
-	// An alternative (mocking handleSemanticSearch end-to-end) would require either a
-	// live database or a more invasive Store interface refactor — both are out of scope
-	// for this targeted fix.
-	guardFired := false
-	invalidateFired := false
-	indexAsyncFired := false
-
-	// Replicate the guard condition.
-	if storedModel != "" && storedModel != activeModelStr {
-		guardFired = true
-		invalidator.InvalidateIfModelChanged(context.Background(), repoKey)
-		invalidateFired = invalidator.invalidateCalled
-		if !invalidator.IsIndexing(repoKey) {
-			invalidator.IndexRepoAsyncWithTool("semantic_search", repoKey, "/tmp/testrepo")
-			indexAsyncFired = invalidator.indexAsyncCalled
-		}
-	}
-
-	if !guardFired {
-		t.Error("stale-hit guard did not fire for stored=jina / active=code-rank: model mismatch detection broken")
-	}
-	if !invalidateFired {
+	// (b) InvalidateIfModelChanged must have been called to purge stale vectors.
+	if !invalidator.invalidateCalled {
 		t.Error("InvalidateIfModelChanged was NOT called on stale-hit: stale vectors NOT purged — mixed-space results would be returned to caller")
 	}
-	if !indexAsyncFired {
+
+	// (c) IndexRepoAsyncWithTool must have been called to start a fresh reindex.
+	if !invalidator.indexAsyncCalled {
 		t.Error("IndexRepoAsyncWithTool was NOT called on stale-hit: fresh reindex not triggered — index stays permanently stale (lazy-only-forever bug)")
 	}
 	if invalidator.indexAsyncTool != "semantic_search" {
 		t.Errorf("IndexRepoAsyncWithTool tool attribution = %q, want %q", invalidator.indexAsyncTool, "semantic_search")
 	}
-
-	// Verify the guard is a no-op when models match (steady-state correctness).
-	matchChecker := &modelCheckerSpy{storedModel: activeModel}
-	matchInvalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
-
-	storedMatch := matchChecker.GetStoredModel(context.Background(), repoKey)
-	if storedMatch != matchInvalidator.EmbedModel() {
-		// Guard should NOT fire.
-		t.Errorf("precondition failed: match scenario has stored=%q != active=%q", storedMatch, matchInvalidator.EmbedModel())
-	}
-	// Simulate guard condition for matching models.
-	if storedMatch != "" && storedMatch != matchInvalidator.EmbedModel() {
-		// This branch must NOT be entered for matching models.
-		t.Error("stale-hit guard fired for matching models: false positive — valid hits would be discarded")
-	}
-	if matchInvalidator.invalidateCalled {
-		t.Error("InvalidateIfModelChanged called on model-match: spurious purge of valid vectors")
-	}
-
-	// Ensure stale hits are NOT forwarded (guard returns "indexing" status, not stale rows).
-	// This is implicit: if guardFired=true and we returned here, no stale hit was returned.
-	_ = staleHits // verified implicitly: guard triggered before handleSemanticHits
 }
 
 // TestHandleSemanticSearch_StaleSpaceHit_AlreadyIndexing verifies that when a
@@ -215,6 +176,12 @@ func TestHandleSemanticSearch_StaleSpaceHit_AlreadyIndexing(t *testing.T) {
 		activeModel = "code-rank-embed"
 	)
 
+	repoDir := t.TempDir()
+
+	staleHits := []embeddings.SearchResult{
+		{RepoKey: "testrepo/stale", FilePath: "pkg/foo.go", SymbolName: "Foo", Distance: 0.1},
+	}
+
 	checker := &modelCheckerSpy{storedModel: oldModel}
 	invalidator := &pipelineInvalidatorSpy{
 		activeModel:       activeModel,
@@ -222,52 +189,83 @@ func TestHandleSemanticSearch_StaleSpaceHit_AlreadyIndexing(t *testing.T) {
 		progressDone:      42,
 		progressTotal:     200,
 	}
+	deps := staleTestDeps(checker, invalidator, staleHits)
 
-	// Guard fires: model mismatch.
-	storedModel := checker.GetStoredModel(context.Background(), "repo")
-	if storedModel == invalidator.EmbedModel() {
-		t.Fatal("precondition: models must differ")
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  repoDir,
+		Query: "function that validates JWT tokens",
+	}, deps)
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("handleSemanticSearch returned nil result")
 	}
 
-	// Simulate guard execution.
-	invalidator.InvalidateIfModelChanged(context.Background(), "repo")
-	if invalidator.IsIndexing("repo") {
-		// Already indexing → do NOT call IndexRepoAsyncWithTool.
-		done, total, _ := invalidator.IndexProgress("repo")
-		if done != 42 || total != 200 {
-			t.Errorf("IndexProgress = (%d,%d), want (42,200)", done, total)
-		}
-		// Verify IndexRepoAsyncWithTool NOT called (no double-spawn).
-		if invalidator.indexAsyncCalled {
-			t.Error("IndexRepoAsyncWithTool called while indexing already in progress: duplicate goroutine spawn")
-		}
+	text := resultText(res)
+	if !strings.Contains(text, "<status>indexing</status>") {
+		t.Errorf("expected status 'indexing' in response, got: %s", text)
+	}
+	if !strings.Contains(text, "42/200") {
+		t.Errorf("expected progress '42/200' in indexing message, got: %s", text)
+	}
+
+	// InvalidateIfModelChanged is called (purge stale vectors) even while indexing.
+	if !invalidator.invalidateCalled {
+		t.Error("InvalidateIfModelChanged was NOT called on stale-hit even while indexing: stale vectors not purged")
+	}
+	// IndexRepoAsyncWithTool must NOT be called — reindex already in progress.
+	if invalidator.indexAsyncCalled {
+		t.Error("IndexRepoAsyncWithTool called while indexing already in progress: duplicate goroutine spawn")
 	}
 }
 
 // TestHandleSemanticSearch_ModelMatch_DoesNotDiscard verifies the steady-state
 // correctness: when stored model == active model, the guard is a no-op and valid
-// search results are NOT discarded.
+// search results are NOT discarded — they flow through to the caller.
 //
 // Anti-tautology: if the guard fires unconditionally (ignoring model equality),
-// invalidateCalled becomes true → this test fails.
+// invalidateCalled becomes true and the response status becomes "indexing"
+// instead of returning the actual results → this test fails on both assertions.
 func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 	const activeModel = "code-rank-embed"
 
-	checker := &modelCheckerSpy{storedModel: activeModel} // same as active
-	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	repoDir := t.TempDir()
 
-	storedModel := checker.GetStoredModel(context.Background(), "repo")
-	// Guard condition: only fires on mismatch.
-	if storedModel != "" && storedModel != invalidator.EmbedModel() {
-		invalidator.InvalidateIfModelChanged(context.Background(), "repo")
-		invalidator.IndexRepoAsyncWithTool("semantic_search", "repo", "/tmp")
+	validHits := []embeddings.SearchResult{
+		{RepoKey: "testrepo/fresh", FilePath: "pkg/foo.go", SymbolName: "Foo", Distance: 0.1},
 	}
 
+	checker := &modelCheckerSpy{storedModel: activeModel} // same as active
+	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := staleTestDeps(checker, invalidator, validHits)
+
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  repoDir,
+		Query: "function that validates JWT tokens",
+	}, deps)
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("handleSemanticSearch returned nil result")
+	}
+
+	// The guard must NOT have fired — results flow through to the caller.
 	if invalidator.invalidateCalled {
 		t.Error("InvalidateIfModelChanged called when models match: guard has a false positive — valid hits are being discarded")
 	}
 	if invalidator.indexAsyncCalled {
 		t.Error("IndexRepoAsyncWithTool called when models match: spurious reindex on every query")
+	}
+
+	// The response should contain the actual search result, not an "indexing" status.
+	text := resultText(res)
+	if strings.Contains(text, "<status>indexing</status>") {
+		t.Errorf("guard fired on model-match: response is 'indexing' instead of returning valid results: %s", text)
+	}
+	if !strings.Contains(text, "Foo") {
+		t.Errorf("valid search result 'Foo' not in response (should have been returned, not discarded): %s", text)
 	}
 }
 
@@ -277,23 +275,45 @@ func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 // first results once indexed, not be immediately purged.
 //
 // Anti-tautology: if the "storedModel != "" guard is removed, "" != activeModel
-// triggers an invalid purge for a freshly-indexed repo → this test fails because
-// invalidateCalled becomes true.
+// triggers an invalid purge for a freshly-indexed repo → invalidateCalled
+// becomes true and the response becomes "indexing" → this test fails.
 func TestHandleSemanticSearch_NoStoredModel_PassesThrough(t *testing.T) {
 	const activeModel = "code-rank-embed"
 
+	repoDir := t.TempDir()
+
+	validHits := []embeddings.SearchResult{
+		{RepoKey: "testrepo/new", FilePath: "pkg/baz.go", SymbolName: "Baz", Distance: 0.15},
+	}
+
 	checker := &modelCheckerSpy{storedModel: ""} // no prior index row
 	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := staleTestDeps(checker, invalidator, validHits)
 
-	storedModel := checker.GetStoredModel(context.Background(), "new-repo")
-	// Guard must NOT fire when storedModel == "" (no per-row fallback available on plain modelCheckerSpy).
-	if storedModel != "" && storedModel != invalidator.EmbedModel() {
-		invalidator.InvalidateIfModelChanged(context.Background(), "new-repo")
-		invalidator.IndexRepoAsyncWithTool("semantic_search", "new-repo", "/tmp")
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  repoDir,
+		Query: "function that validates JWT tokens",
+	}, deps)
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("handleSemanticSearch returned nil result")
 	}
 
 	if invalidator.invalidateCalled {
 		t.Error("InvalidateIfModelChanged called on empty stored model: new repos are being spuriously purged")
+	}
+	if invalidator.indexAsyncCalled {
+		t.Error("IndexRepoAsyncWithTool called on empty stored model: spurious reindex for freshly-indexed repo")
+	}
+
+	text := resultText(res)
+	if strings.Contains(text, "<status>indexing</status>") {
+		t.Errorf("guard fired on empty stored model: response is 'indexing' instead of returning valid results: %s", text)
+	}
+	if !strings.Contains(text, "Baz") {
+		t.Errorf("valid search result 'Baz' not in response (should have been returned, not discarded): %s", text)
 	}
 }
 
@@ -323,16 +343,24 @@ func (s *perRowModelCheckerSpy) GetEmbedModelForRepo(_ context.Context, _ string
 // with no state row previously bypassed the stale-space guard entirely, silently
 // returning jina-space rows against a code-rank query.
 //
+// This test drives the REAL production path: handleSemanticSearch is called directly
+// with a perRowModelCheckerSpy wired as the staleModelChecker seam.
+//
 // Anti-tautology (red-on-revert contract):
 //   - Remove the perRowModelChecker type assertion → storedModel stays "" → guard
 //     not triggered → invalidateCalled stays false → FAIL.
 //   - Remove the per-row fallback but keep the type assertion → same result → FAIL.
 func TestHandleSemanticSearch_OrphanPerRowFallback_TriggersReindex(t *testing.T) {
 	const (
-		repoKey     = "testrepo/orphan"
 		oldModel    = "jina-code-v2"
 		activeModel = "code-rank-embed"
 	)
+
+	repoDir := t.TempDir()
+
+	staleHits := []embeddings.SearchResult{
+		{RepoKey: "testrepo/orphan", FilePath: "pkg/qux.go", SymbolName: "Qux", Distance: 0.1},
+	}
 
 	// Orphan checker: no state row, but old model visible in code_embeddings rows.
 	checker := &perRowModelCheckerSpy{
@@ -343,21 +371,25 @@ func TestHandleSemanticSearch_OrphanPerRowFallback_TriggersReindex(t *testing.T)
 		activeModel:       activeModel,
 		isIndexingRunning: false,
 	}
+	deps := staleTestDeps(checker, invalidator, staleHits)
 
-	// Simulate the guard logic that handleSemanticSearch runs.
-	activeModelName := invalidator.EmbedModel()
-	if activeModelName != "" {
-		storedModel := checker.GetStoredModel(context.Background(), repoKey)
-		// Per-row fallback: when state row is missing, read from code_embeddings.
-		if storedModel == "" {
-			if prc, ok := interface{}(checker).(perRowModelChecker); ok {
-				storedModel = prc.GetEmbedModelForRepo(context.Background(), repoKey)
-			}
-		}
-		if storedModel != "" && storedModel != activeModelName {
-			invalidator.InvalidateIfModelChanged(context.Background(), repoKey)
-			invalidator.IndexRepoAsyncWithTool("semantic_search", repoKey, "/tmp")
-		}
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  repoDir,
+		Query: "function that validates JWT tokens",
+	}, deps)
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("handleSemanticSearch returned nil result")
+	}
+
+	text := resultText(res)
+	if !strings.Contains(text, "<status>indexing</status>") {
+		t.Errorf("expected status 'indexing' in response (orphan stale hits discarded via per-row fallback), got: %s", text)
+	}
+	if strings.Contains(text, "Qux") {
+		t.Errorf("stale orphan hits leaked to caller (should have been discarded): %s", text)
 	}
 
 	if !invalidator.invalidateCalled {
@@ -365,5 +397,8 @@ func TestHandleSemanticSearch_OrphanPerRowFallback_TriggersReindex(t *testing.T)
 	}
 	if !invalidator.indexAsyncCalled {
 		t.Error("IndexRepoAsyncWithTool not called for orphan repo with stale per-row model: reindex not triggered")
+	}
+	if invalidator.indexAsyncTool != "semantic_search" {
+		t.Errorf("IndexRepoAsyncWithTool tool attribution = %q, want %q", invalidator.indexAsyncTool, "semantic_search")
 	}
 }

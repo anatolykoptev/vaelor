@@ -172,3 +172,65 @@ func metricFamilyNames(mfs []*dto.MetricFamily) []string {
 	sort.Strings(names)
 	return names
 }
+
+// TestLLMObs_MetricsInProductionNamespace verifies that the LLM observation
+// middleware registers metrics under the PRODUCTION namespace (metricsNamespace
+// constant, not a test-local "gocodetest" string) in prometheus.DefaultGatherer.
+//
+// This closes the synthetic-green gap identified in TG2: the existing
+// TestLLMObs_HistogramVisibleInDefaultGatherer uses a disconnected "gocodetest"
+// namespace, so if main.go is changed to use a different namespace the test
+// would still pass. This test references the production metricsNamespace
+// constant directly — if the constant changes, the test assertion changes with
+// it; if main.go bypasses the constant, the test still pins the expected
+// namespace value.
+//
+// Anti-tautology: if metricsNamespace is changed (e.g. to "vaelor"), the
+// wantFamily prefix changes and the metric family is not found → FAIL.
+func TestLLMObs_MetricsInProductionNamespace(t *testing.T) {
+	reg := kitmetrics.NewPrometheusRegistry(metricsNamespace)
+	obs := newLLMObs(reg)
+
+	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
+		return &kitllm.ChatResponse{}, nil
+	}
+	if _, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next); err != nil {
+		t.Fatalf("middleware returned unexpected error: %v", err)
+	}
+
+	wantCounter := metricsNamespace + "_llm_calls_total"
+	wantHistogram := metricsNamespace + "_llm_request_seconds"
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("DefaultGatherer.Gather: %v", err)
+	}
+
+	foundCounter := false
+	foundHistogram := false
+	for _, mf := range mfs {
+		name := mf.GetName()
+		if name == wantCounter {
+			for _, m := range mf.GetMetric() {
+				if m.GetCounter() != nil && m.GetCounter().GetValue() > 0 {
+					foundCounter = true
+				}
+			}
+		}
+		if name == wantHistogram {
+			for _, m := range mf.GetMetric() {
+				if h := m.GetHistogram(); h != nil && h.GetSampleCount() > 0 {
+					foundHistogram = true
+				}
+			}
+		}
+	}
+
+	if !foundCounter {
+		t.Errorf("counter metric family %q not found with samples in DefaultGatherer; family names seen: %v",
+			wantCounter, metricFamilyNames(mfs))
+	}
+	if !foundHistogram {
+		t.Errorf("histogram metric family %q not found with samples in DefaultGatherer; family names seen: %v",
+			wantHistogram, metricFamilyNames(mfs))
+	}
+}

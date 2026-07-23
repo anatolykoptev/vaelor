@@ -63,6 +63,10 @@ type SemanticDeps struct {
 	// handleSemanticHits calls Expander.GraphCandidates directly. Tests wire a spy
 	// to avoid a live AGE connection.
 	graphCandidatesFunc graphCandidatesFn
+	// storeSearcherSeam is the test seam for Store.Search (the vector search
+	// call). Production leaves this nil and handleSemanticSearch falls back to
+	// deps.Store. Tests wire a fake to avoid a live Postgres pool.
+	storeSearcherSeam vectorSearcher
 	// staleModelChecker is the stale-hit guard test seam for store.GetStoredModel.
 	// Production leaves this nil and the guard falls back to deps.Store directly.
 	staleModelChecker modelChecker
@@ -118,7 +122,7 @@ func handleSemanticSearch(
 	if input.Query == "" {
 		return errResult("query is required"), nil
 	}
-	if deps.Client == nil || deps.QueryClient == nil || deps.Store == nil {
+	if deps.Client == nil || deps.QueryClient == nil || (deps.Store == nil && deps.storeSearcherSeam == nil) {
 		return textResult(buildStatusResponse(input, "disabled",
 			"Semantic search is not available: embedding service not configured. "+
 				"Set EMBED_URL and EMBED_MODEL environment variables to enable.")), nil
@@ -171,7 +175,13 @@ func handleSemanticSearch(
 	}
 
 	// Try searching existing embeddings.
-	results, err := deps.Store.Search(softCtx, vector, embeddings.SearchOpts{
+	// Seam: storeSearcherSeam lets tests inject a fake Store.Search without a
+	// live Postgres pool. Production leaves it nil and falls back to deps.Store.
+	searcher := deps.storeSearcherSeam
+	if searcher == nil {
+		searcher = deps.Store
+	}
+	results, err := searcher.Search(softCtx, vector, embeddings.SearchOpts{
 		RepoKey:     repoKey,
 		Language:    input.Language,
 		TopK:        topK,

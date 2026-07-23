@@ -70,6 +70,12 @@ const (
 
 	defaultPort = "8897"
 
+	// metricsNamespace is the Prometheus namespace for all gocode metrics.
+	// Exported as a package-level constant so tests can verify the production
+	// namespace is used (closes the synthetic-green gap where a test with a
+	// disconnected "gocodetest" namespace would pass even if main changed it).
+	metricsNamespace = "gocode"
+
 	// workspaceDirPerm is the permission mode for the workspace directory.
 	workspaceDirPerm = 0o750
 )
@@ -147,7 +153,7 @@ func runMCPServe(cfg Config) {
 	// attrs. Enables log↔trace correlation in Jaeger without changing call sites.
 	slog.SetDefault(slog.New(slogh.NewHandler(slog.NewTextHandler(os.Stderr, nil))))
 
-	reg := kitmetrics.NewPrometheusRegistry("gocode")
+	reg := kitmetrics.NewPrometheusRegistry(metricsNamespace)
 	startPrometheusScrape(ctx, slog.Default())
 
 	server := mcpserver.NewServer(&mcp.Implementation{
