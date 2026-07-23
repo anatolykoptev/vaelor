@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.51.3](https://github.com/anatolykoptev/vaelor/compare/v1.51.2...v1.51.3) (2026-07-23)
+
+
+### Fixed
+
+* **parser:** synchronize handler registry data race + test-hygiene flakes ([#573](https://github.com/anatolykoptev/vaelor/issues/573)) ([#614](https://github.com/anatolykoptev/vaelor/issues/614)) ([40156e7](https://github.com/anatolykoptev/vaelor/commit/40156e79847bdd2b56af2bfb5e087ec363b48397))
+
 ## [1.51.2](https://github.com/anatolykoptev/vaelor/compare/v1.51.1...v1.51.2) (2026-07-23)
 
 
