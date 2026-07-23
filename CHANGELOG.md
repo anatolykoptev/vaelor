@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.52.5](https://github.com/anatolykoptev/vaelor/compare/v1.52.4...v1.52.5) (2026-07-23)
+
+
+### Fixed
+
+* **config:** wire MaxRepoBytes/GithubSearchRepos, warn inert rank-weights, drop dead wphooks ([#604](https://github.com/anatolykoptev/vaelor/issues/604)-606) ([#633](https://github.com/anatolykoptev/vaelor/issues/633)) ([7df04e9](https://github.com/anatolykoptev/vaelor/commit/7df04e9ccf5c4ee6348209327b1d8cbe55b141ac))
+
 ## [1.52.4](https://github.com/anatolykoptev/vaelor/compare/v1.52.3...v1.52.4) (2026-07-23)
 
 
