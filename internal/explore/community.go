@@ -1,6 +1,7 @@
 package explore
 
 import (
+	"context"
 	"path/filepath"
 	"sort"
 
@@ -31,8 +32,12 @@ type CommunityCluster struct {
 }
 
 // buildCommunityOverview runs Louvain on the call graph edges and returns
-// a summary of detected communities. Returns nil if fewer than 2 communities.
-func buildCommunityOverview(cg *callgraph.CallGraph, root string) *CommunityOverview {
+// a summary of detected communities. Returns nil if fewer than 2 communities
+// or if ctx is canceled (partial — communities skipped, #534).
+func buildCommunityOverview(ctx context.Context, cg *callgraph.CallGraph, root string) *CommunityOverview {
+	if ctx.Err() != nil {
+		return nil
+	}
 	graph := make(map[string]map[string]int)
 	for _, sym := range cg.Symbols {
 		key := symKey(sym, root)
@@ -63,7 +68,7 @@ func buildCommunityOverview(cg *callgraph.CallGraph, root string) *CommunityOver
 		return nil
 	}
 
-	communities := ranking.LouvainWeighted(graph)
+	communities := ranking.LouvainWeightedCtx(ctx, graph)
 	if communities == nil {
 		return nil
 	}

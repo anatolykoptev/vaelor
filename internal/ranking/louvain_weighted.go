@@ -1,8 +1,19 @@
 package ranking
 
+import "context"
+
 // LouvainWeighted performs community detection on a weighted undirected graph.
 // Input: node → neighbor → edge weight. Uses γ = 1.0.
 func LouvainWeighted(graph map[string]map[string]int) map[string]int {
+	return LouvainWeightedCtx(context.Background(), graph)
+}
+
+// LouvainWeightedCtx is the context-aware variant. It checks ctx.Err() between
+// Louvain levels and between passes; on ctx cancellation it returns nil (a
+// partial/empty result) so a long community-detection run on a large call graph
+// cannot blow past a soft deadline into a session-killing hard timeout (#534).
+// The fast path (ctx not canceled) is byte-identical to LouvainWeighted.
+func LouvainWeightedCtx(ctx context.Context, graph map[string]map[string]int) map[string]int {
 	if len(graph) == 0 {
 		return nil
 	}
@@ -22,7 +33,13 @@ func LouvainWeighted(graph map[string]map[string]int) map[string]int {
 	currentWeights := weights
 
 	for range maxLevels {
-		communities := coreLouvainWeighted(currentAdj, currentNodes, currentWeights, 1.0)
+		if ctx.Err() != nil {
+			return nil
+		}
+		communities := coreLouvainWeightedCtx(ctx, currentAdj, currentNodes, currentWeights, 1.0)
+		if ctx.Err() != nil {
+			return nil
+		}
 
 		distinct := countDistinct(communities)
 		if distinct >= len(currentNodes) {
@@ -71,6 +88,14 @@ func LouvainWeighted(graph map[string]map[string]int) map[string]int {
 
 // coreLouvainWeighted runs Phase 1 with edge weights and resolution γ.
 func coreLouvainWeighted(adj map[string][]string, nodes []string, weights map[[2]string]int, gamma float64) map[string]int {
+	return coreLouvainWeightedCtx(context.Background(), adj, nodes, weights, gamma)
+}
+
+// coreLouvainWeightedCtx is the context-aware variant. It checks ctx.Err()
+// between passes and between nodes so a canceled ctx bails promptly instead of
+// completing all 50 passes (#534). The fast path is identical to
+// coreLouvainWeighted.
+func coreLouvainWeightedCtx(ctx context.Context, adj map[string][]string, nodes []string, weights map[[2]string]int, gamma float64) map[string]int {
 	if len(adj) == 0 {
 		return map[string]int{}
 	}
@@ -105,6 +130,9 @@ func coreLouvainWeighted(adj map[string][]string, nodes []string, weights map[[2
 	edgesToComm := make(map[int]int)
 
 	for range maxLouvainPasses {
+		if ctx.Err() != nil {
+			return community
+		}
 		improved := false
 
 		for _, node := range nodes {

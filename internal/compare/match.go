@@ -35,7 +35,7 @@ func MatchSymbols(ctx context.Context, symbolsA, symbolsB []*parser.Symbol, clas
 	copy(unmatchedB, symbolsB)
 
 	// Pass 1: exact match by name + kind.
-	unmatchedA, unmatchedB, exactMatches := matchExact(unmatchedA, unmatchedB)
+	unmatchedA, unmatchedB, exactMatches := matchExact(ctx, unmatchedA, unmatchedB)
 	matches = append(matches, exactMatches...)
 
 	if ctx.Err() != nil {
@@ -92,10 +92,17 @@ func appendGapMatches(matches []SymbolMatch, unmatchedA, unmatchedB []*parser.Sy
 }
 
 // matchExact returns exact matches (name + kind) and the remaining unmatched slices.
-func matchExact(a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol, matches []SymbolMatch) {
+// Checks ctx every matchExactCtxBatch symbols so a canceled ctx bails promptly
+// instead of completing an O(n×m) scan past the soft deadline (#566).
+func matchExact(ctx context.Context, a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol, matches []SymbolMatch) {
 	usedB := make([]bool, len(b))
 
-	for _, symA := range a {
+	for i, symA := range a {
+		if i%matchExactCtxBatch == 0 && ctx.Err() != nil {
+			// Bail: remaining symbols in a go to unmatchedA, unused b to unmatchedB.
+			unmatchedA = append(unmatchedA, a[i:]...)
+			break
+		}
 		idx := findExact(symA, b, usedB)
 		if idx >= 0 {
 			usedB[idx] = true
@@ -127,6 +134,12 @@ func matchExact(a, b []*parser.Symbol) (unmatchedA, unmatchedB []*parser.Symbol,
 
 	return unmatchedA, unmatchedB, matches
 }
+
+// matchExactCtxBatch is the interval (in symbols) between ctx.Err() checks in
+// matchExact. findExact is O(m) per symbol, so checking every 512 symbols keeps
+// the worst-case unbounded window at ~512×m iterations — single-digit seconds
+// even for 10k-symbol repos, well inside the soft deadline's remaining budget.
+const matchExactCtxBatch = 512
 
 // findExact returns the index of the first symbol in candidates that has the
 // same Name and Kind as target, or -1 if none is found.

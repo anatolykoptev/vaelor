@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
@@ -70,6 +73,8 @@ type xmlDataflow struct {
 	Quality       *xmlDfQuality   `xml:"quality,omitempty"`
 	DeadFunctions *xmlDfDeadFuncs `xml:"deadFunctions,omitempty"`
 	Security      *xmlDfSecurity  `xml:"security,omitempty"`
+	Partial       bool            `xml:"partial,attr,omitempty"`
+	PartialReason string          `xml:"partialReason,attr,omitempty"`
 }
 
 type xmlDfQuality struct {
@@ -136,6 +141,13 @@ func dataflowFetchWindow(offset, limit int) int {
 // returns at most 50 findings per section.
 const dataflowDefaultLimit = 50
 
+// dataflowMaxFileLines is the line count above which a file is flagged as
+// oversized in the partial footer. ox-codes analyzes server-side and cannot
+// be per-file capped from the client, but a 6000+ line file (#565) dominates
+// the analysis time — flagging it gives the agent actionable guidance to
+// narrow with exclude_glob.
+const dataflowMaxFileLines = 2000
+
 func registerDataflow(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	outputDir := cfg.OutputDir
 
@@ -176,8 +188,25 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 		offset = 0
 	}
 
-	root, cleanup, err := resolveRoot(ctx, input.Repo, "", deps)
+	t0 := time.Now()
+
+	// Soft deadline: 25s default, strictly below the ~100s external MCP proxy
+	// timeout. Without it the three sequential ox-codes/callgraph analyses run
+	// unbounded — 2× 30s HTTP + dead-function callgraph = ~90s on a large file
+	// (#565), past the proxy kill. Applied before resolveRoot so clone is
+	// bounded too.
+	softCtx, softCancel := mcpmeta.SoftDeadline(ctx)
+	defer softCancel()
+
+	root, cleanup, err := resolveRoot(softCtx, input.Repo, "", deps)
 	if err != nil {
+		if softCtx.Err() != nil {
+			return softDeadlineResult(
+				fmt.Sprintf("dataflow_analyze: timed out resolving repo after %s — retry with a local path or narrower file_glob.", time.Since(t0).Round(time.Second)),
+				"repo resolution (soft deadline)",
+				time.Since(t0),
+			), nil
+		}
 		return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 	}
 	defer cleanup()
@@ -190,6 +219,12 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 		}
 	}
 
+	// Pre-scan for oversized files — the dominant cause of #565 (6130-line
+	// file). ox-codes analyzes server-side and cannot be per-file capped from
+	// the client, but flagging oversized files gives the agent actionable
+	// guidance to narrow with exclude_glob.
+	oversized := findOversizedFiles(root, input.Language, dataflowMaxFileLines)
+
 	resp := xmlDataflowResponse{
 		Dataflow: xmlDataflow{
 			Repo:     input.Repo,
@@ -199,44 +234,80 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	}
 
 	var totalDuration int64
+	var skipped []string
 
 	// Quality analysis (dead stores, unused vars).
 	if focus == "all" || focus == "quality" {
-		qResp, err := runQualityAnalysis(ctx, deps.OxCodes, root, input)
-		if err != nil {
-			slog.Warn("dataflow quality analysis failed", "err", err)
+		if softCtx.Err() != nil {
+			skipped = append(skipped, "quality analysis")
 		} else {
-			resp.Dataflow.Quality = qResp.xmlDfQuality
-			resp.Dataflow.FilesAnalyzed = qResp.filesAnalyzed
-			totalDuration += qResp.durationMS
+			qResp, err := runQualityAnalysis(softCtx, deps.OxCodes, root, input)
+			if err != nil {
+				if softCtx.Err() != nil {
+					skipped = append(skipped, "quality analysis")
+				} else {
+					slog.Warn("dataflow quality analysis failed", "err", err)
+				}
+			} else {
+				resp.Dataflow.Quality = qResp.xmlDfQuality
+				resp.Dataflow.FilesAnalyzed = qResp.filesAnalyzed
+				totalDuration += qResp.durationMS
+			}
 		}
 	}
 
 	// Dead function analysis (callgraph-based).
-	if focus == "all" || focus == "quality" {
-		if dfResult := runDeadFunctionAnalysis(ctx, root, input.Language, deps); dfResult != nil {
+	if (focus == "all" || focus == "quality") && softCtx.Err() == nil {
+		if dfResult := runDeadFunctionAnalysis(softCtx, root, input.Language, deps); dfResult != nil {
 			resp.Dataflow.DeadFunctions = dfResult.xmlDfDeadFuncs
 			totalDuration += dfResult.durationMS
 		}
+	} else if focus == "all" || focus == "quality" {
+		skipped = append(skipped, "dead function analysis")
 	}
 
 	// Security analysis (taint tracking).
 	if focus == "all" || focus == "security" {
-		sResp, err := runSecurityAnalysis(ctx, deps.OxCodes, root, input)
-		if err != nil {
-			slog.Warn("dataflow taint analysis failed", "err", err)
+		if softCtx.Err() != nil {
+			skipped = append(skipped, "security/taint analysis")
 		} else {
-			resp.Dataflow.Security = sResp.xmlDfSecurity
-			if sResp.filesAnalyzed > resp.Dataflow.FilesAnalyzed {
-				resp.Dataflow.FilesAnalyzed = sResp.filesAnalyzed
+			sResp, err := runSecurityAnalysis(softCtx, deps.OxCodes, root, input)
+			if err != nil {
+				if softCtx.Err() != nil {
+					skipped = append(skipped, "security/taint analysis")
+				} else {
+					slog.Warn("dataflow taint analysis failed", "err", err)
+				}
+			} else {
+				resp.Dataflow.Security = sResp.xmlDfSecurity
+				if sResp.filesAnalyzed > resp.Dataflow.FilesAnalyzed {
+					resp.Dataflow.FilesAnalyzed = sResp.filesAnalyzed
+				}
+				totalDuration += sResp.durationMS
 			}
-			totalDuration += sResp.durationMS
 		}
 	}
 
 	resp.Dataflow.DurationMS = totalDuration
 
+	partial := softCtx.Err() != nil && len(skipped) > 0
+	if partial {
+		resp.Dataflow.Partial = true
+		reason := strings.Join(skipped, ", ") + " — soft deadline"
+		if len(oversized) > 0 {
+			reason += fmt.Sprintf("; oversized files (>%d lines): %s — narrow with exclude_glob", dataflowMaxFileLines, strings.Join(oversized, ", "))
+		}
+		resp.Dataflow.PartialReason = reason
+	}
+
 	if resp.Dataflow.Quality == nil && resp.Dataflow.DeadFunctions == nil && resp.Dataflow.Security == nil {
+		if partial {
+			return softDeadlineResult(
+				fmt.Sprintf("dataflow_analyze: timed out after %s — no analysis section completed. %s", time.Since(t0).Round(time.Second), resp.Dataflow.PartialReason),
+				strings.Join(skipped, ", ")+" (soft deadline)",
+				time.Since(t0),
+			), nil
+		}
 		return errResult("dataflow analysis failed: no results from ox-codes"), nil
 	}
 
@@ -248,6 +319,13 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil
 	}
 	text := xml.Header + string(data)
+
+	// Partial path: append a partial footer to the XML text so the agent sees
+	// both the partial data and what was truncated. Fast path (no deadline)
+	// is byte-identical (Partial/PartialReason are omitempty).
+	if partial {
+		text += mcpmeta.PartialFooter(resp.Dataflow.PartialReason)
+	}
 
 	// Apply per-call budget override when max_bytes is set.
 	// Use ShapeWithHint (not Shape) so the tool-specific pagination hint is
@@ -318,6 +396,46 @@ func detectDominantLanguage(root string) string {
 		return nil
 	})
 	return polyglot.DominantLanguageFromCounts(counts)
+}
+
+// findOversizedFiles walks root and returns the relative paths of source files
+// exceeding maxLines, capped at 5 entries. Used to flag the dominant cause of
+// dataflow timeouts (#565: a 6130-line file) so the agent can narrow with
+// exclude_glob. Returns nil when no file exceeds the threshold.
+func findOversizedFiles(root, language string, maxLines int) []string {
+	var oversized []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if lang := ingest.DetectLanguage(path); lang == "" || (language != "" && lang != language) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		// Cheap byte-based estimate: ~3 bytes/line for typical source. Only
+		// read+count lines for files above the byte threshold to avoid
+		// reading every file.
+		if info.Size() < int64(maxLines)*2 {
+			return nil
+		}
+		data, rErr := os.ReadFile(path)
+		if rErr != nil {
+			return nil
+		}
+		lines := strings.Count(string(data), "\n") + 1
+		if lines > maxLines {
+			rel, _ := filepath.Rel(root, path)
+			oversized = append(oversized, rel)
+		}
+		return nil
+	})
+	if len(oversized) > 5 {
+		oversized = oversized[:5]
+	}
+	return oversized
 }
 
 // applyDataflowPagination applies offset/limit to each section's findings

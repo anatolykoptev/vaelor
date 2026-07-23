@@ -54,6 +54,8 @@ type Result struct {
 	Backend       string             `json:"backend,omitempty"`
 	RecentCommits []CommitSummary    `json:"recent_commits,omitempty"`
 	TopCoupled    []CoupledSummary   `json:"top_coupled_files,omitempty"`
+	Partial       bool               `json:"partial,omitempty"`
+	PartialReason string             `json:"partial_reason,omitempty"`
 }
 
 // LanguageStat holds file count and ratio for a detected language.
@@ -153,13 +155,20 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	depHL := buildDepHighlights(ir.Files, pr.imports, input.Root)
 
 	readme := readmeExcerpt(input.Root)
+
+	// Health is cheap (in-memory metric counting) — always compute when not
+	// yet partial. Community detection (Louvain) is the expensive CPU stage
+	// (#534): skip it when the deadline has already fired.
 	health := computeHealth(pr.symbols, ir.Files)
 
-	communityOverview := buildCommunityOverview(cg, input.Root)
+	var communityOverview *CommunityOverview
+	if ctx.Err() == nil {
+		communityOverview = buildCommunityOverview(ctx, cg, input.Root)
+	}
 
 	// Recent commits: last 20, non-fatal.
 	var recentCommits []CommitSummary
-	{
+	if ctx.Err() == nil {
 		rctx, rcancel := context.WithTimeout(ctx, 10*time.Second)
 		commits, cerr := collectRecentCommits(rctx, input.Root, maxRecentCommits)
 		rcancel()
@@ -170,7 +179,7 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 
 	// Top coupled files: non-fatal (CollectCoupling has LRU cache).
 	var topCoupled []CoupledSummary
-	{
+	if ctx.Err() == nil {
 		cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
 		pairs := compare.CollectCoupling(cctx, input.Root, 3)
 		ccancel()
@@ -205,5 +214,9 @@ func Run(ctx context.Context, input Input) (*Result, error) {
 	}
 	result.Tier = cg.Tier
 	result.Backend = cg.Backend
+	if ctx.Err() != nil {
+		result.Partial = true
+		result.PartialReason = "community detection, recent commits, coupled files — soft deadline"
+	}
 	return result, nil
 }
