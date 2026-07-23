@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.53.0](https://github.com/anatolykoptev/vaelor/compare/v1.52.5...v1.53.0) (2026-07-23)
+
+
+### Added
+
+* **metrics:** instrument 7 silent failure classes ([#610](https://github.com/anatolykoptev/vaelor/issues/610)) ([#634](https://github.com/anatolykoptev/vaelor/issues/634)) ([edc143c](https://github.com/anatolykoptev/vaelor/commit/edc143cffb919390cd4c333ef16a7bcdf7ef8a13))
+
 ## [1.52.5](https://github.com/anatolykoptev/vaelor/compare/v1.52.4...v1.52.5) (2026-07-23)
 
 
