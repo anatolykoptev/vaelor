@@ -91,7 +91,7 @@ func llmCooldownDuration() time.Duration {
 // Each tool has its own file: tool_<name>.go
 // Returns the analyze.Deps for use by other components (e.g., webhook handler)
 // and the embeddings Pipeline (nil when EMBED_URL is unset) for the file watcher.
-func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) (analyze.Deps, *embeddings.Pipeline) {
+func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kitmetrics.Registry) (analyze.Deps, *embeddings.Pipeline) {
 	parseCacheSize := env.Int("PARSE_CACHE_SIZE", cache.DefaultParseCacheSize)
 	llmCacheSize := env.Int("LLM_CACHE_SIZE", cache.DefaultLLMCacheSize)
 	llmCacheTTLMin := env.Int("LLM_CACHE_TTL_MIN", defaultLLMCacheTTL)
@@ -331,16 +331,9 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) (an
 	// reality continuously rather than only after an operator-run orphan_sweep.
 	// The gauge previously read 0 while Postgres had 17 orphan repo_keys; the fix
 	// exposes the true count within 5 min of boot (2026-06-13 observability gap).
-	if semDeps.Store != nil {
-		go func() {
-			publishOrphanGauge(semDeps.Store)
-			t := time.NewTicker(5 * time.Minute)
-			defer t.Stop()
-			for range t.C {
-				publishOrphanGauge(semDeps.Store)
-			}
-		}()
-	}
+	// Threaded through the lifecycle ctx (#596) so the goroutine exits on
+	// SIGINT/SIGTERM instead of leaking on every shutdown/re-init.
+	startOrphanGaugeWarm(ctx, semDeps.Store)
 
 	// Code-graph age gauge + zero-embeddings desync counter — boot warm, both
 	// extracted to their own functions rather than inlined here: registerTools
@@ -348,10 +341,61 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) (an
 	// this change) and two more inline `if + go func` blocks would add to that
 	// debt for no benefit — see each function's doc comment for the incident
 	// writeup (2026-07-01 metrics audit).
-	startCodeGraphAgeGaugeWarm(graphStore, autoIndexDirs(cfg))
+	// Threaded through the lifecycle ctx (#597) so the goroutine exits on
+	// SIGINT/SIGTERM instead of leaking on every shutdown/re-init.
+	startCodeGraphAgeGaugeWarm(ctx, graphStore, autoIndexDirs(cfg))
 	startZeroEmbeddingsCounterWarm(semDeps.Store)
 
 	return deps, semDeps.Pipeline
+}
+
+// gaugeTickerInterval is the publication cadence for both background gauge
+// warmers (orphan repo_keys, code-graph age). Matches the prior inline tickers.
+const gaugeTickerInterval = 5 * time.Minute
+
+// runGaugeTicker runs fn once immediately (boot-warm), then on every tick of
+// interval, until ctx is cancelled. It returns a done channel that closes when
+// the goroutine has fully exited (ticker stopped, loop returned) so callers and
+// tests can confirm no goroutine leak (#596, #597).
+//
+// This replaces the bare `for range t.C` loops that had no cancellation path
+// and leaked on every shutdown/re-init. The done channel is closed in all
+// exit paths: ctx cancellation, or the immediate-call-only case (interval
+// callers still get a goroutine that exits after the first fn() if ctx is
+// already cancelled before the first tick).
+func runGaugeTicker(ctx context.Context, interval time.Duration, fn func()) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				fn()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return done
+}
+
+// startOrphanGaugeWarm launches the boot + periodic-ticker goroutine that
+// keeps gocode_orphan_repo_keys populated from the real orphan-repo-key count.
+// No-ops (returns a pre-closed done channel) when store is nil — EMBED_URL /
+// DATABASE_URL unset, semantic_search already disabled in that case.
+//
+// Threaded through the lifecycle ctx (#596) so the goroutine exits on
+// SIGINT/SIGTERM instead of leaking.
+func startOrphanGaugeWarm(ctx context.Context, store *embeddings.Store) <-chan struct{} {
+	if store == nil {
+		c := make(chan struct{})
+		close(c)
+		return c
+	}
+	return runGaugeTicker(ctx, gaugeTickerInterval, func() { publishOrphanGauge(store) })
 }
 
 // startCodeGraphAgeGaugeWarm launches the boot + periodic-ticker goroutine
@@ -367,18 +411,18 @@ func registerTools(server *mcp.Server, cfg Config, reg *kitmetrics.Registry) (an
 // publication to tracked repos — see publishCodeGraphAgeGauge's doc comment
 // for why untracked code_graph_meta rows (WORKSPACE_DIR clones, test
 // sentinels) must not carry a series.
-func startCodeGraphAgeGaugeWarm(graphStore *codegraph.Store, scopeDirs []string) {
+//
+// Threaded through the lifecycle ctx (#597) so the goroutine exits on
+// SIGINT/SIGTERM instead of leaking.
+func startCodeGraphAgeGaugeWarm(ctx context.Context, graphStore *codegraph.Store, scopeDirs []string) <-chan struct{} {
 	if graphStore == nil {
-		return
+		c := make(chan struct{})
+		close(c)
+		return c
 	}
-	go func() {
-		publishCodeGraphAgeGauge(context.Background(), graphStore, scopeDirs)
-		t := time.NewTicker(5 * time.Minute)
-		defer t.Stop()
-		for range t.C {
-			publishCodeGraphAgeGauge(context.Background(), graphStore, scopeDirs)
-		}
-	}()
+	return runGaugeTicker(ctx, gaugeTickerInterval, func() {
+		publishCodeGraphAgeGauge(ctx, graphStore, scopeDirs)
+	})
 }
 
 // zeroEmbeddingsWarmTimeout bounds the boot-time ListRepoKeys query so a

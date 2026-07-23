@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/cache"
 	"github.com/anatolykoptev/vaelor/internal/coupling"
 	"github.com/anatolykoptev/vaelor/internal/federate"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
@@ -62,13 +63,81 @@ type FederatedCoChangeResult struct {
 type federatedCoChangeCacheEntry struct {
 	result *FederatedCoChangeResult // nil while in flight
 	done   bool
+	at     time.Time // when the entry was stored; used for TTL expiry
 }
+
+const (
+	// federatedCoChangeCacheTTL matches internal/federate.touchesCacheTTL so
+	// cached results age out together with the underlying touches data they
+	// were derived from. Reuses the repo's existing TTL+LRU bounded-cache
+	// idiom (same as touchesCache and callgraph.cgCache) — #608.
+	federatedCoChangeCacheTTL = 10 * time.Minute
+	// federatedCoChangeCacheMaxSize bounds the number of distinct query
+	// combinations retained. The cache key includes localDirs + repos pattern
+	// + window + minPairs + minLift; without a cap these accumulate
+	// indefinitely on a long-running server (#608).
+	federatedCoChangeCacheMaxSize = 32
+)
 
 // federatedCoChangeCache caches completed federated_cochange results keyed on
 // canonical args (repos+window+minPairs+minLift).  Entries live for
-// touchesCacheTTL so they age out together with the underlying touches data.
+// federatedCoChangeCacheTTL so they age out together with the underlying
+// touches data, and the cache is bounded by an LRU cap (#608). Reuses the
+// repo's existing cache.LRU + TTL-on-get idiom.
+var federatedCoChangeCache = &federatedCoChangeCacheType{
+	lru: cache.NewLRU[string, *federatedCoChangeCacheEntry](federatedCoChangeCacheMaxSize),
+}
+
+// federatedCoChangeCacheType wraps an LRU with a mutex (cache.LRU is not
+// concurrent-safe) and a TTL check on load, mirroring touchesCache/cgCache.
+type federatedCoChangeCacheType struct {
+	mu  sync.Mutex
+	lru *cache.LRU[string, *federatedCoChangeCacheEntry]
+}
+
+func (c *federatedCoChangeCacheType) load(key string) (*federatedCoChangeCacheEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.lru.Get(key)
+	if !ok {
+		return nil, false
+	}
+	if time.Since(e.at) > federatedCoChangeCacheTTL {
+		c.lru.Delete(key)
+		return nil, false
+	}
+	return e, true
+}
+
+func (c *federatedCoChangeCacheType) store(key string, entry *federatedCoChangeCacheEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if entry.at.IsZero() {
+		entry.at = time.Now()
+	}
+	c.lru.Set(key, entry)
+}
+
+func (c *federatedCoChangeCacheType) delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lru.Delete(key)
+}
+
+func (c *federatedCoChangeCacheType) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lru.Len()
+}
+
+// clear resets the cache to empty; used by tests for isolation.
+func (c *federatedCoChangeCacheType) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lru = cache.NewLRU[string, *federatedCoChangeCacheEntry](federatedCoChangeCacheMaxSize)
+}
+
 var (
-	federatedCoChangeCache sync.Map // key string → *federatedCoChangeCacheEntry
 	// fedInFlight deduplicates concurrent background workers for the same key.
 	// Mirrors buildingRepos in age_graph_gate.go.
 	fedInFlight sync.Map // key string → struct{}
@@ -134,8 +203,7 @@ func handleFederatedCoChangeCoreWithBudget(
 	cacheKey := federatedCoChangeCacheKey(args.Repos, window, minPairs, args.MinLift, deps.LocalRepoDirs)
 
 	// Poll path: check if a previous background job has completed.
-	if v, ok := federatedCoChangeCache.Load(cacheKey); ok {
-		entry := v.(*federatedCoChangeCacheEntry)
+	if entry, ok := federatedCoChangeCache.load(cacheKey); ok {
 		if entry.done && entry.result != nil {
 			return marshalFedResult(entry.result, t0)
 		}
@@ -183,7 +251,7 @@ func handleFederatedCoChangeCoreWithBudget(
 	case full := <-resultCh:
 		// Full result within budget — cache and return.
 		full.Meta = mcpmeta.Wrap(time.Since(t0), "")
-		federatedCoChangeCache.Store(cacheKey, &federatedCoChangeCacheEntry{result: full, done: true})
+		federatedCoChangeCache.store(cacheKey, &federatedCoChangeCacheEntry{result: full, done: true})
 		return marshalFedResult(full, t0)
 
 	case <-budgetCtx.Done():
@@ -321,7 +389,7 @@ func kickFedBackground(
 		}
 		slog.Info("federated_cochange background complete",
 			slog.String("key", cacheKey), slog.Int("pairs", len(verified)))
-		federatedCoChangeCache.Store(cacheKey, &federatedCoChangeCacheEntry{result: full, done: true})
+		federatedCoChangeCache.store(cacheKey, &federatedCoChangeCacheEntry{result: full, done: true})
 	}()
 }
 

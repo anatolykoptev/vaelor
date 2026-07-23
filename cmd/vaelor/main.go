@@ -157,7 +157,7 @@ func runMCPServe(cfg Config) {
 		SchemaCache: mcp.NewSchemaCache(),
 	})
 
-	deps, pipeline := registerTools(server, cfg, reg)
+	deps, pipeline := registerTools(ctx, server, cfg, reg)
 	slog.Info("tools registered", slog.Int("count", argnorm.Default().Count()))
 
 	// Eager GOCACHE pre-warm for AUTO_INDEX_DIRS Go repos. Runs in a
