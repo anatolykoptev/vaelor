@@ -102,3 +102,34 @@ func TestResolveOrInferRepo_MissingNoPathReturnsFalse(t *testing.T) {
 		t.Errorf("missing repo + no path should return ok=false (caller emits short error)")
 	}
 }
+
+// TestShortMissingRepoMsg_TableDriven guards #563(b): the missing-repo error
+// must be a SHORT, first-line-actionable message naming the field and the
+// accepted forms (owner/repo or /host/src/<name>) — never a JSON-schema dump.
+// Each row falsifies by reverting shortMissingRepoMsg to a schema-dump style.
+func TestShortMissingRepoMsg_TableDriven(t *testing.T) {
+	dirs := []string{"/host/src/go-nerv", "/host/src/vaelor", "/host/src/go-wp"}
+	cases := []struct {
+		name  string
+		dirs  []string
+		store bool
+	}{
+		{"with_dir_basenames", dirs, false},
+		{"no_dirs_no_store", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := shortMissingRepoMsg(context.Background(), nil, tc.dirs)
+			if len(msg) > 200 {
+				t.Errorf("missing-repo message must be SHORT (<200 chars), got %d: %q", len(msg), msg)
+			}
+			if !strings.Contains(msg, `"repo"`) {
+				t.Errorf("message must name the \"repo\" field: %q", msg)
+			}
+			// Must NOT look like a JSON-schema validation dump.
+			if strings.Contains(msg, "validating arguments") || strings.Contains(msg, `"required"`) || strings.Contains(msg, `"properties"`) {
+				t.Errorf("message must not be a schema dump: %q", msg)
+			}
+		})
+	}
+}

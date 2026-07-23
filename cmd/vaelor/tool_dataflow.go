@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path/filepath"
+	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
@@ -20,7 +21,7 @@ import (
 type DataflowInput struct {
 	Repo        string           `json:"repo" jsonschema_description:"Repository: GitHub slug, URL, or absolute local path"`
 	Language    string           `json:"language,omitempty" jsonschema_description:"Language to analyze (go, python, typescript, javascript, rust). Auto-detected if omitted."`
-	Focus       string           `json:"focus,omitempty" jsonschema_description:"Analysis focus: 'all' (default), 'quality' (dead stores, unused vars), 'security' (taint/injection)"`
+	Focus       string           `json:"focus,omitempty" jsonschema_description:"Analysis mode — one of: \"all\" (default), \"quality\" (dead stores, unused vars), \"security\" (taint/injection). NOT a file path; to scope to a file, use file_glob."`
 	FileGlob    string           `json:"file_glob,omitempty" jsonschema_description:"Include only files matching glob"`
 	ExcludeGlob string           `json:"exclude_glob,omitempty" jsonschema_description:"Exclude files matching glob"`
 	Rules       []TaintRuleInput `json:"rules,omitempty" jsonschema_description:"Custom taint-tracking rules (JSON array). When omitted, built-in SQL/command injection rules are used. Each rule: {id, sources:[{pattern,tag}], sinks:[{pattern,arg_index,cwe,description}], sanitizers:[{pattern}], severity}"`
@@ -163,7 +164,15 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	if focus == "" {
 		focus = "all"
 	}
+	// #565: agents pass a FILE PATH as `focus` expecting it to scope the
+	// analysis to that file. `focus` is an analysis-mode enum, not a path —
+	// detect the misuse early and point to file_glob (the real scoping knob).
 	if focus != "all" && focus != "quality" && focus != "security" {
+		if strings.Contains(focus, "/") || strings.Contains(focus, ".") {
+			return errResult(fmt.Sprintf(
+				"focus must be 'all', 'quality', or 'security' (got %q — looks like a file path; use file_glob to scope to a file)",
+				focus)), nil
+		}
 		return errResult("focus must be 'all', 'quality', or 'security'"), nil
 	}
 

@@ -97,6 +97,77 @@ func TestNormalizeArgs_LimitAliasToMaxResults(t *testing.T) {
 	}
 }
 
+// TestNormalizeArgs_LimitAliasTableDriven guards #564: tools that declare
+// max_results (github_code_search, code_search, …) must accept `limit` as an
+// alias. github_code_search's accepted set mirrors GithubCodeSearchInput's
+// json-tagged fields. Reverting the limit→max_results alias in aliases.go
+// REDS every row where limit is sent and max_results is accepted.
+func TestNormalizeArgs_LimitAliasTableDriven(t *testing.T) {
+	// githubCodeSearchAccepted mirrors GithubCodeSearchInput json tags.
+	githubCodeSearchAccepted := map[string]struct{}{
+		"query": {}, "repo": {}, "exclude_repos": {}, "language": {},
+		"file_extensions": {}, "sort": {}, "order": {}, "min_stars": {},
+		"per_page": {}, "page": {}, "max_results": {}, "max_fragment_chars": {},
+		"max_total_chars": {},
+	}
+	cases := []struct {
+		name     string
+		tool     string
+		accepted map[string]struct{}
+		raw      map[string]any
+		wantKey  string // the canonical key that should hold the value
+		wantVal  any
+	}{
+		{
+			name:     "github_code_search limit→max_results",
+			tool:     "github_code_search",
+			accepted: githubCodeSearchAccepted,
+			raw:      map[string]any{"query": "ice_servers", "limit": float64(20)},
+			wantKey:  "max_results",
+			wantVal:  float64(20),
+		},
+		{
+			name:     "github_code_search max_results still works",
+			tool:     "github_code_search",
+			accepted: githubCodeSearchAccepted,
+			raw:      map[string]any{"query": "ice_servers", "max_results": float64(15)},
+			wantKey:  "max_results",
+			wantVal:  float64(15),
+		},
+		{
+			name:     "github_code_search limit dropped when max_results present",
+			tool:     "github_code_search",
+			accepted: githubCodeSearchAccepted,
+			raw:      map[string]any{"query": "ice_servers", "limit": float64(20), "max_results": float64(5)},
+			wantKey:  "max_results",
+			wantVal:  float64(5),
+		},
+		{
+			name:     "code_search limit→max_results",
+			tool:     "code_search",
+			accepted: map[string]struct{}{"repo": {}, "pattern": {}, "max_results": {}},
+			raw:      map[string]any{"repo": "x", "pattern": "y", "limit": float64(40)},
+			wantKey:  "max_results",
+			wantVal:  float64(40),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := NormalizeArgs(tc.tool, tc.raw, tc.accepted)
+			if _, ok := res.Args["limit"]; ok {
+				t.Errorf("limit should be renamed away, still present: %v", res.Args)
+			}
+			got, ok := res.Args[tc.wantKey]
+			if !ok {
+				t.Fatalf("canonical key %q missing from args: %v", tc.wantKey, res.Args)
+			}
+			if got != tc.wantVal {
+				t.Errorf("%q = %v, want %v", tc.wantKey, got, tc.wantVal)
+			}
+		})
+	}
+}
+
 func TestNormalizeArgs_LimitAliasDoesNotOverrideExistingMaxResults(t *testing.T) {
 	accepted := map[string]struct{}{"repo": {}, "max_results": {}}
 	raw := map[string]any{"repo": "x", "max_results": float64(5), "limit": float64(20)}
