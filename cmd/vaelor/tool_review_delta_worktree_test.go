@@ -25,7 +25,7 @@ func deltaTestGitRepo(t *testing.T) string {
 			t.Fatalf("git %v: %s: %s", args, err, out)
 		}
 	}
-	run("init")
+	run("init", "-b", "main") // force initial branch (CI git may default to master)
 	run("config", "user.email", "test@test.com")
 	run("config", "user.name", "test")
 	if err := os.WriteFile(filepath.Join(dir, "main.go"),

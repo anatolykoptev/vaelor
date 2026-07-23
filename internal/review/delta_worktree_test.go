@@ -34,7 +34,7 @@ func TestDeltaReview_AnalysisRootUsesWorktreeTree(t *testing.T) {
 			t.Fatalf("git %v: %s: %s", args, err, out)
 		}
 	}
-	run("init")
+	run("init", "-b", "main") // force initial branch (CI git may default to master)
 	run("config", "user.email", "test@test.com")
 	run("config", "user.name", "test")
 
