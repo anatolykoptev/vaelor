@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // getMeta retrieves the stored GraphMeta for repoKey, or returns nil if none exists.
@@ -35,8 +37,18 @@ func getMeta(ctx context.Context, store *Store, repoKey string) (*GraphMeta, err
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		// 42P01 = undefined_table: schema not yet initialised; treat as cache miss.
-		if strings.Contains(err.Error(), "42P01") {
+		// Tolerate schema-not-yet-migrated errors as cache misses so IndexRepo
+		// falls through to EnsureGraph (which runs the ALTER) and self-heals:
+		//   42P01 = undefined_table: code_graph_meta does not exist yet.
+		//   42703 = undefined_column: content_hash missing on a table created
+		//           by the OLD schema (#592 review BLOCKER). The SELECT now
+		//           references content_hash, so a pre-migration prod table
+		//           fails at PLAN time with 42703 BEFORE EnsureGraph runs the
+		//           ALTER — without this tolerance the read errors, IndexRepo
+		//           returns before the migration, and every AGE-graph tool is
+		//           permanently broken post-deploy (CI can't catch it: a fresh
+		//           DB already has the column).
+		if isSchemaNotReady(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query meta: %w", err)
@@ -67,8 +79,10 @@ func ListMeta(ctx context.Context, store *Store) ([]GraphMeta, error) {
 		       built_at, ttl_seconds, content_hash
 		FROM code_graph_meta`)
 	if err != nil {
-		// 42P01 = undefined_table: schema not yet initialised; treat as no known repos.
-		if strings.Contains(err.Error(), "42P01") {
+		// Tolerate schema-not-yet-migrated errors as "no known repos",
+		// matching getMeta's cold-path handling (see getMeta for the full
+		// 42703 rationale — the same pre-migration BLOCKER applies here).
+		if isSchemaNotReady(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query meta: %w", err)
@@ -132,9 +146,87 @@ func isFresh(builtAt time.Time, ttlSeconds int) bool {
 	return time.Since(builtAt) < time.Duration(ttlSeconds)*time.Second
 }
 
+// isSchemaNotReady reports whether err is a PostgreSQL "schema not yet
+// initialised/migrated" error that the meta accessors should treat as a
+// cache miss rather than a hard failure:
+//   - 42P01 undefined_table: code_graph_meta does not exist yet.
+//   - 42703 undefined_column: a column the SELECT references (content_hash)
+//     is missing on a table created by an older schema version.
+//
+// Detection uses pgconn.PgError (the typed pgx v5 error) via errors.As, which
+// unwraps pgx's layered errors correctly; a string-match fallback is kept as
+// defence-in-depth for any wrapper that loses the typed error.
+func isSchemaNotReady(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "42P01", "42703":
+			return true
+		}
+	}
+	// Fallback: some wrappers (e.g. logged/re-wrapped errors) may not unwrap
+	// to *pgconn.PgError. Keep the original string-match for 42P01 so we
+	// don't regress the pre-existing cold-path behaviour.
+	return strings.Contains(err.Error(), "42P01")
+}
+
+// contentHashCacheTTL bounds how long a freshness hash is reused on the hot
+// AGE-gate path (CacheStatus → RepoContentHash). A burst of tool calls within
+// the TTL doesn't re-walk the tree. Kept small (5s) so a git checkout or file
+// edit is detected within one tool-call burst, not minutes (#592 review MAJOR
+// perf fix). This memoization is gate-path-only — ingest/callgraph caches call
+// RepoContentHash directly and need a fresh hash for their own correctness.
+const contentHashCacheTTL = 5 * time.Second
+
+// contentHashMemo is the short-TTL memo for RepoContentHash on the gate path.
+var contentHashMemo = &contentHashCache{}
+
+type contentHashCache struct {
+	mu      sync.Mutex
+	entries map[string]contentHashMemoEntry
+}
+
+type contentHashMemoEntry struct {
+	hash string
+	at   time.Time
+}
+
+// get returns the memoized hash for root if still within the TTL, else ("" , false).
+func (c *contentHashCache) get(root string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[root]
+	if !ok || time.Since(e.at) > contentHashCacheTTL {
+		return "", false
+	}
+	return e.hash, true
+}
+
+func (c *contentHashCache) set(root, hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[string]contentHashMemoEntry)
+	}
+	c.entries[root] = contentHashMemoEntry{hash: hash, at: time.Now()}
+}
+
+// resetContentHashMemo is exposed for tests that need to bypass the TTL.
+func resetContentHashMemo() {
+	contentHashMemo.mu.Lock()
+	defer contentHashMemo.mu.Unlock()
+	contentHashMemo.entries = nil
+}
+
 // CacheStatus checks if a valid cached graph exists for root.
 // Returns (true, nil) if cached and fresh, (false, nil) if not present or stale.
 // Freshness requires BOTH temporal TTL and content-hash match (#592).
+//
+// The content-hash re-walk is memoized for contentHashCacheTTL (5s) keyed on
+// root so a burst of AGE-backed tool calls (code_graph, understand,
+// prepare_change, …) within the TTL doesn't re-walk the tree on every call —
+// the gate path was O(1) timestamp compare before #592 and is now O(walk)
+// without this memo (#592 review MAJOR perf fix).
 func CacheStatus(ctx context.Context, store *Store, root string) (bool, error) {
 	key := GraphNameFor(root)
 	meta, err := getMeta(ctx, store, key)
@@ -146,7 +238,12 @@ func CacheStatus(ctx context.Context, store *Store, root string) (bool, error) {
 	}
 	// Temporal TTL hit — validate content hash.
 	if meta.ContentHash != "" {
-		return ingest.RepoContentHash(root) == meta.ContentHash, nil
+		currentHash, ok := contentHashMemo.get(root)
+		if !ok {
+			currentHash = ingest.RepoContentHash(root)
+			contentHashMemo.set(root, currentHash)
+		}
+		return currentHash == meta.ContentHash, nil
 	}
 	return true, nil
 }

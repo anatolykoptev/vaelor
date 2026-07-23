@@ -300,13 +300,28 @@ func ResetCache() {
 
 // RepoContentHash computes a content-based hash of a repository's source
 // files, mirroring scip.CacheKey's approach: walk the tree, hash the first
-// 4KB of each non-hidden, non-.git file, and fold (relpath, digest) pairs
-// into a single SHA256. Content-based (not mtime) so git checkout cycles
-// don't cause false invalidation.
+// 4KB of each non-hidden, non-.git file, and fold (relpath, digest, size)
+// triples into a single SHA256. Content-based (not mtime) so git checkout
+// cycles don't cause false invalidation.
+//
+// The file SIZE is folded into each entry's digest (#592 review MAJOR
+// correctness fix): the first-4KB chunk alone misses in-place edits past
+// byte 4096 and truncate/append that leave the head intact — both yield the
+// same chunk hash, so a stale graph was judged fresh. Size comes from
+// DirEntry.Info (no extra content read) and catches append/truncate/tail-edits
+// cheaply. Go source is routinely 4-12KB, so this matters.
+//
+// The walk reuses ingest's defaultIgnoreDirs (#592 review MAJOR perf fix):
+// node_modules/vendor/target/etc. are skipped so vendored files neither drive
+// source-graph freshness nor get opened+read on every AGE tool call. We check
+// defaultIgnoreDirs directly rather than shouldIgnoreDir to avoid inflating
+// the gocode_ingest_skipped_dirs_total counter on every freshness walk — that
+// metric tracks the ingest indexer, not the cache-freshness path.
 func RepoContentHash(root string) string {
 	type entry struct {
 		rel    string
 		digest [sha256.Size]byte
+		size   int64
 	}
 	var entries []entry
 
@@ -329,6 +344,11 @@ func RepoContentHash(root string) string {
 			}
 			full := filepath.Join(current, name)
 			if de.IsDir() {
+				// Skip ignore-dirs (node_modules, vendor, target, …) so
+				// vendored files don't drive source-graph freshness.
+				if defaultIgnoreDirs[name] {
+					continue
+				}
 				walk(full, depth+1)
 				continue
 			}
@@ -336,7 +356,18 @@ func RepoContentHash(root string) string {
 			if err != nil {
 				continue
 			}
-			entries = append(entries, entry{rel: rel, digest: hashFileChunk(full, chunkSize)})
+			// Fold the file size into the entry — catches append/truncate/
+			// tail-edits that leave the first 4KB (the only chunk hashed)
+			// intact. Size comes from the DirEntry, no extra content read.
+			var size int64
+			if info, infoErr := de.Info(); infoErr == nil {
+				size = info.Size()
+			}
+			entries = append(entries, entry{
+				rel:    rel,
+				digest: hashFileChunk(full, chunkSize),
+				size:   size,
+			})
 		}
 	}
 	walk(root, 0)
@@ -346,10 +377,14 @@ func RepoContentHash(root string) string {
 	})
 
 	h := sha256.New()
+	var sizeBuf [8]byte
 	for _, e := range entries {
 		h.Write([]byte(e.rel))
 		h.Write([]byte{':'})
 		h.Write(e.digest[:])
+		h.Write([]byte{':'})
+		binary.LittleEndian.PutUint64(sizeBuf[:], uint64(e.size))
+		h.Write(sizeBuf[:])
 		h.Write([]byte{'\n'})
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))[:32]
