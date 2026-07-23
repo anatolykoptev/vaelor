@@ -112,7 +112,7 @@ func handleExplore(ctx context.Context, input ExploreInput, deps analyze.Deps) (
 	// proxy timeout. Applied before resolveRoot so the entire tool
 	// (clone + analysis) is bounded — without it a large repo's Louvain
 	// community detection runs unbounded past the proxy kill (#534).
-	softCtx, softCancel := mcpmeta.SoftDeadline(ctx)
+	softCtx, softCancel := mcpmeta.SoftDeadlineWith(ctx, mcpmeta.SlowToolSoftDeadline)
 	defer softCancel()
 
 	root, cleanup, err := resolveRoot(softCtx, input.Repo, "", deps)

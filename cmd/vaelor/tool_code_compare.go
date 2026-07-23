@@ -48,7 +48,7 @@ func registerCodeCompare(server *mcp.Server, cfg Config, deps analyze.Deps, semD
 		// (clone + snapshot + match + enrichment) is bounded — the #566 bug
 		// was the deadline applied AFTER clone, so clone ate the proxy
 		// budget and the 25s compute window fired at ~95s = the proxy kill.
-		softCtx, softCancel := mcpmeta.SoftDeadline(ctx)
+		softCtx, softCancel := mcpmeta.SoftDeadlineWith(ctx, mcpmeta.SlowToolSoftDeadline)
 		defer softCancel()
 
 		rootA, cleanupA, err := resolveRoot(softCtx, input.RepoA, "", deps)

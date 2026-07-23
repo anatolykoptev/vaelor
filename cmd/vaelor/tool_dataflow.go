@@ -195,7 +195,7 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	// unbounded — 2× 30s HTTP + dead-function callgraph = ~90s on a large file
 	// (#565), past the proxy kill. Applied before resolveRoot so clone is
 	// bounded too.
-	softCtx, softCancel := mcpmeta.SoftDeadline(ctx)
+	softCtx, softCancel := mcpmeta.SoftDeadlineWith(ctx, mcpmeta.SlowToolSoftDeadline)
 	defer softCancel()
 
 	root, cleanup, err := resolveRoot(softCtx, input.Repo, "", deps)
@@ -218,12 +218,6 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 			slog.Debug("dataflow: auto-detected language", "lang", input.Language)
 		}
 	}
-
-	// Pre-scan for oversized files — the dominant cause of #565 (6130-line
-	// file). ox-codes analyzes server-side and cannot be per-file capped from
-	// the client, but flagging oversized files gives the agent actionable
-	// guidance to narrow with exclude_glob.
-	oversized := findOversizedFiles(root, input.Language, dataflowMaxFileLines)
 
 	resp := xmlDataflowResponse{
 		Dataflow: xmlDataflow{
@@ -294,6 +288,10 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	if partial {
 		resp.Dataflow.Partial = true
 		reason := strings.Join(skipped, ", ") + " — soft deadline"
+		// Pre-scan for oversized files (#565, the dominant timeout cause) ONLY on
+		// the partial path — the scan is a full tree-walk + large-file reads, dead
+		// work on the fast path this PR aims to speed up (review MAJOR).
+		oversized := findOversizedFiles(root, input.Language, dataflowMaxFileLines)
 		if len(oversized) > 0 {
 			reason += fmt.Sprintf("; oversized files (>%d lines): %s — narrow with exclude_glob", dataflowMaxFileLines, strings.Join(oversized, ", "))
 		}

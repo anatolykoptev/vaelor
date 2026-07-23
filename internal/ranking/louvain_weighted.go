@@ -12,7 +12,8 @@ func LouvainWeighted(graph map[string]map[string]int) map[string]int {
 // Louvain levels and between passes; on ctx cancellation it returns nil (a
 // partial/empty result) so a long community-detection run on a large call graph
 // cannot blow past a soft deadline into a session-killing hard timeout (#534).
-// The fast path (ctx not canceled) is byte-identical to LouvainWeighted.
+// With a never-canceled ctx (as LouvainWeighted passes) it produces the exact
+// pre-ctx result.
 func LouvainWeightedCtx(ctx context.Context, graph map[string]map[string]int) map[string]int {
 	if len(graph) == 0 {
 		return nil
@@ -86,15 +87,10 @@ func LouvainWeightedCtx(ctx context.Context, graph map[string]map[string]int) ma
 	return result
 }
 
-// coreLouvainWeighted runs Phase 1 with edge weights and resolution γ.
-func coreLouvainWeighted(adj map[string][]string, nodes []string, weights map[[2]string]int, gamma float64) map[string]int {
-	return coreLouvainWeightedCtx(context.Background(), adj, nodes, weights, gamma)
-}
-
-// coreLouvainWeightedCtx is the context-aware variant. It checks ctx.Err()
-// between passes and between nodes so a canceled ctx bails promptly instead of
-// completing all 50 passes (#534). The fast path is identical to
-// coreLouvainWeighted.
+// coreLouvainWeightedCtx runs Phase 1 with edge weights and resolution γ. It
+// checks ctx.Err() between passes and between nodes so a canceled ctx bails
+// promptly instead of completing all 50 passes (#534); with a never-canceled
+// ctx (background) it runs the full Phase 1 unchanged.
 func coreLouvainWeightedCtx(ctx context.Context, adj map[string][]string, nodes []string, weights map[[2]string]int, gamma float64) map[string]int {
 	if len(adj) == 0 {
 		return map[string]int{}
