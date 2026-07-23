@@ -38,7 +38,13 @@ func newSemanticDeps(
 	graphStore *codegraph.Store,
 	rrfWeights embeddings.RRFWeights,
 ) SemanticDeps {
-	if cfg.EmbedURL == "" || dataPool == nil {
+	if cfg.EmbedURL == "" {
+		slog.Warn("config: semantic_search disabled — EMBED_URL not set; set EMBED_URL to enable semantic search",
+			slog.String("env_var", "EMBED_URL"),
+		)
+		return SemanticDeps{}
+	}
+	if dataPool == nil {
 		return SemanticDeps{}
 	}
 
@@ -73,6 +79,8 @@ func newSemanticDeps(
 			slog.String("model", cfg.SparseEmbedModel),
 			slog.Int("max_array", cfg.SparseEmbedMaxArray),
 			slog.Float64("rrf_weight_sparse", rrfWeights.Sparse))
+	} else {
+		warnSparseDisabled(cfg, rrfWeights)
 	}
 
 	// QueryClient wraps ec with the model-correct retrieval prefix.
@@ -93,5 +101,23 @@ func newSemanticDeps(
 		RRFWeights:   rrfWeights,
 		SparseClient: sparseClient,
 		KeywordArm:   cfg.KeywordArm,
+	}
+}
+
+// warnSparseDisabled emits a startup WARN when the sparse retrieval arm is
+// expected to contribute (RRF_WEIGHT_SPARSE > 0) but SPARSE_EMBED_URL is not
+// configured. Without this warning, an operator who increases RRF_WEIGHT_SPARSE
+// post-A/B would see ranking quality degrade silently — the sparse arm
+// contributes nothing because sparseClient is nil.
+//
+// Called from newSemanticDeps in the else branch of the sparse embedder
+// construction. Extracted as a standalone function for testability (the caller
+// path requires a live pgpool that tests cannot easily provide).
+func warnSparseDisabled(cfg Config, rrfWeights embeddings.RRFWeights) {
+	if cfg.SparseEmbedURL == "" && rrfWeights.Sparse > 0 {
+		slog.Warn("config: sparse retrieval disabled — SPARSE_EMBED_URL not set but RRF_WEIGHT_SPARSE > 0; sparse arm will not contribute to ranking",
+			slog.String("env_var", "SPARSE_EMBED_URL"),
+			slog.Float64("rrf_weight_sparse", rrfWeights.Sparse),
+		)
 	}
 }
