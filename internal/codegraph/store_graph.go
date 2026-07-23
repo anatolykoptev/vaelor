@@ -61,7 +61,9 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		}
 	}
 
-	// Ensure the meta table exists in the default schema.
+	// Ensure the meta table exists in the app (public) schema. The DDL is
+	// public.-qualified so it never leaks into ag_catalog via the ageSetup
+	// search_path (issue #520).
 	if _, err := tx.Exec(ctx, metaTableSQL); err != nil {
 		return fmt.Errorf("ensure meta table: %w", err)
 	}
@@ -90,7 +92,7 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		return fmt.Errorf("commit ensure graph: %w", err)
 	}
 
-	// Best-effort ownership transfer, run AFTER commit on the autocommit
+	// Best-effort ownership self-heal, run AFTER commit on the autocommit
 	// conn (NOT inside the tx above): each ALTER TABLE ... OWNER TO is its
 	// own independent statement, deliberately fail-soft (see
 	// pgutil.TransferOwnership) for the "restore where a superuser created
@@ -103,10 +105,16 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 	// keeps each transfer independent and preserves the original
 	// best-effort semantics. Ownership transfer is idempotent and does not
 	// need the advisory-lock serialization above.
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_meta")
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_file_mtimes")
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_graph_snapshots")
-	pgutil.TransferOwnership(ctx, conn, "codegraph", "code_dead_code_scores")
+	//
+	// Targets are public.-qualified to match the DDL above (issue #520):
+	// on a fresh DB the app creates these tables in public and owns them
+	// from birth, so the guarded sweep is a pure no-op (zero ALTERs). On a
+	// DB where a pre-existing copy is owned by another role, the guard
+	// skips gracefully (42501 → debug log + metric, no warning spam).
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "public.code_graph_meta")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "public.code_file_mtimes")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "public.code_graph_snapshots")
+	pgutil.TransferOwnership(ctx, conn, "codegraph", "public.code_dead_code_scores")
 
 	// Seed the exists-cache so subsequent read-path preflight calls don't hit
 	// ag_catalog.ag_graph immediately after a build.

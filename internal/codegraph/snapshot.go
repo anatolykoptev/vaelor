@@ -11,8 +11,9 @@ import (
 )
 
 // snapshotTableSQL defines the schema for storing code graph snapshots.
+// Schema-qualified to public — see metaTableSQL for the leak-prevention rationale.
 const snapshotTableSQL = `
-CREATE TABLE IF NOT EXISTS code_graph_snapshots (
+CREATE TABLE IF NOT EXISTS public.code_graph_snapshots (
     repo_key    TEXT NOT NULL,
     snapshot_at TIMESTAMPTZ NOT NULL,
     symbols     JSONB NOT NULL,

@@ -21,8 +21,20 @@ const graphExistsCacheTTL = 30 * time.Second
 const ageSetup = `SET search_path TO ag_catalog, "$user", public`
 
 // metaTableSQL defines the schema for tracking built code graphs.
+//
+// Schema-qualified to public (issue #520): EnsureGraph runs after ageSetup
+// (SET search_path TO ag_catalog, "$user", public), so an UNqualified
+// CREATE TABLE would resolve to ag_catalog — the first schema in search_path
+// where the role has CREATE privilege — and the table would leak into
+// ag_catalog, owned-by-birth by whatever role ran the DDL. Qualifying as
+// public.<name> forces creation into the app schema under the app's own
+// connection, so the app owns the table from birth and the staleness marker
+// in code_graph_meta never freezes. Bare-name accessors (getMeta/upsertMeta)
+// still resolve via the ageSetup search_path (ag_catalog, public), so
+// existing prod tables that already live in ag_catalog (already healed,
+// out-of-scope to move) keep working.
 const metaTableSQL = `
-CREATE TABLE IF NOT EXISTS code_graph_meta (
+CREATE TABLE IF NOT EXISTS public.code_graph_meta (
     repo_key      TEXT PRIMARY KEY,
     repo_path     TEXT NOT NULL,
     graph_name    TEXT NOT NULL,
@@ -39,12 +51,24 @@ CREATE TABLE IF NOT EXISTS code_graph_meta (
 // makes it idempotent. The column stores ingest.RepoContentHash(root) at
 // build time so checkCache can detect file changes within the TTL window
 // (issue #592: stale graph served until TTL expires despite file changes).
+//
+// TRAP (issue #520): this ALTER is public.-qualified, so a migration added
+// here only reaches the public copy. A legacy deployment whose code_graph_meta
+// still lives in ag_catalog (already-healed prod that was NOT relocated — out
+// of #520 scope) will NOT receive columns added this way, and getMeta's
+// 42703-tolerance would then silently degrade that repo to a permanent
+// cache-miss (the #520 freeze class in a new guise). Before adding any REQUIRED
+// column here, relocate the ag_catalog-resident tables to public first (a
+// separate migration), or add the column unqualified so search_path reaches
+// whichever schema holds the live table. content_hash is safe today because
+// every live deployment's ag_catalog copy already has it (verified).
 const metaTableMigrateSQL = `
-ALTER TABLE code_graph_meta ADD COLUMN IF NOT EXISTS content_hash TEXT DEFAULT ''`
+ALTER TABLE public.code_graph_meta ADD COLUMN IF NOT EXISTS content_hash TEXT DEFAULT ''`
 
 // mtimeTableSQL defines the schema for tracking per-file modification times.
+// Schema-qualified to public — see metaTableSQL for the leak-prevention rationale.
 const mtimeTableSQL = `
-CREATE TABLE IF NOT EXISTS code_file_mtimes (
+CREATE TABLE IF NOT EXISTS public.code_file_mtimes (
     repo_key  TEXT NOT NULL,
     file_path TEXT NOT NULL,
     mod_time  TIMESTAMPTZ NOT NULL,
@@ -52,8 +76,9 @@ CREATE TABLE IF NOT EXISTS code_file_mtimes (
 )`
 
 // deadCodeScoresTableSQL defines the schema for pre-computed dead_code reranker scores.
+// Schema-qualified to public — see metaTableSQL for the leak-prevention rationale.
 const deadCodeScoresTableSQL = `
-CREATE TABLE IF NOT EXISTS code_dead_code_scores (
+CREATE TABLE IF NOT EXISTS public.code_dead_code_scores (
     repo_key  TEXT NOT NULL,
     name      TEXT NOT NULL,
     file      TEXT NOT NULL,
@@ -85,12 +110,16 @@ func (s *Store) Pool() *pgxpool.Pool {
 
 // acquireAGE acquires a pooled connection and applies the AGE search_path
 // (ageSetup). The codegraph bookkeeping tables (code_graph_meta, code_file_mtimes,
-// code_graph_snapshots, code_dead_code_scores) live in the ag_catalog schema, so a
-// connection that touches them must run ageSetup first — otherwise the default
-// `"$user", public` search_path hides them and access fails with 42P01. Callers
-// must Release the returned connection. (Tables in public — code_health_cache,
-// code_repo_state, code_embeddings — must NOT use this; plain Acquire keeps them
-// on the default search_path where their live data lives.)
+// code_graph_snapshots, code_dead_code_scores) are created in the public schema
+// on fresh DBs (#520: public.-qualified DDL) but may still live in ag_catalog on
+// pre-existing deployments that were healed in place; ageSetup puts ag_catalog
+// ahead of public in search_path so bare-name access resolves to whichever
+// schema holds the table. Without ageSetup the default `"$user", public`
+// search_path hides any legacy ag_catalog copy and access fails with 42P01.
+// Callers must Release the returned connection. (Tables in public —
+// code_health_cache, code_repo_state, code_embeddings — must NOT use this;
+// plain Acquire keeps them on the default search_path where their live data
+// lives.)
 func (s *Store) acquireAGE(ctx context.Context) (*pgxpool.Conn, error) {
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
