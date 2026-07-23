@@ -2,6 +2,18 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.52.0](https://github.com/anatolykoptev/vaelor/compare/v1.51.4...v1.52.0) (2026-07-23)
+
+
+### Added
+
+* **review_delta:** analyze impact against the head ref's worktree ([#583](https://github.com/anatolykoptev/vaelor/issues/583)) ([#619](https://github.com/anatolykoptev/vaelor/issues/619)) ([b146c81](https://github.com/anatolykoptev/vaelor/commit/b146c81056c82021462517962cb638e553c381c4))
+
+
+### Fixed
+
+* **codegraph:** validate content hash on TTL cache hit ([#613](https://github.com/anatolykoptev/vaelor/issues/613)) ([3c99a1b](https://github.com/anatolykoptev/vaelor/commit/3c99a1b56a7f887dd46674608166e549af94f200))
+
 ## [1.51.4](https://github.com/anatolykoptev/vaelor/compare/v1.51.3...v1.51.4) (2026-07-23)
 
 
