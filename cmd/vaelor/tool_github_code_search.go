@@ -95,7 +95,15 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 
 	result, err := gh.SearchCode(ctx, input.Query, repos, opts)
 	if err != nil {
-		return errResult(fmt.Sprintf("github code search: %s", err)), nil
+		msg := fmt.Sprintf("github code search: %s", err)
+		// #567: GitHub Code Search times out (HTTP 408) or 5xx on complex
+		// queries — the forge layer already retries once; surface a hint to
+		// simplify the query (fewer OR operators) so the agent pivots instead
+		// of retrying the same shape.
+		if forge.IsTransientAPIError(err) {
+			msg += " — tip: simplify the query (drop OR operators / narrow terms) and retry"
+		}
+		return errResult(msg), nil
 	}
 
 	out := githubCodeSearchOutput{
