@@ -47,6 +47,10 @@ func TestUpsertMeta_AppliesAgeSetup(t *testing.T) {
 		_ = setup.Close(ctx)
 		t.Fatalf("ensure meta table: %v", err)
 	}
+	if _, err := setup.Exec(ctx, metaTableMigrateSQL); err != nil {
+		_ = setup.Close(ctx)
+		t.Fatalf("migrate meta table: %v", err)
+	}
 	_, _ = setup.Exec(ctx, "DELETE FROM code_graph_meta WHERE repo_key = $1", testKey)
 	_ = setup.Close(ctx)
 
@@ -78,6 +82,7 @@ func TestUpsertMeta_AppliesAgeSetup(t *testing.T) {
 		EdgeCount:   3,
 		BuiltAt:     time.Now().UTC(),
 		TTLSeconds:  3600,
+		ContentHash: "abc123def456",
 	}
 
 	// Decisive assertion: upsertMeta must succeed even though the pool's default
@@ -95,5 +100,8 @@ func TestUpsertMeta_AppliesAgeSetup(t *testing.T) {
 	}
 	if got.RepoKey != testKey || got.GraphName != testKey || got.EdgeCount != 3 {
 		t.Fatalf("getMeta round-trip mismatch: %+v", got)
+	}
+	if got.ContentHash != "abc123def456" {
+		t.Fatalf("content_hash round-trip mismatch: got %q, want %q", got.ContentHash, "abc123def456")
 	}
 }

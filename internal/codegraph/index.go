@@ -51,6 +51,7 @@ type GraphMeta struct {
 	EdgeCount   int       `json:"edge_count"`
 	BuiltAt     time.Time `json:"built_at"`
 	TTLSeconds  int       `json:"ttl_seconds"`
+	ContentHash string    `json:"content_hash"`
 }
 
 // vertexData holds label and properties for one graph vertex.
@@ -96,7 +97,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 	buildStatus := "error"
 	defer func() { recordGraphBuild(repoKey, buildStatus) }()
 
-	if cached, err := checkCache(ctx, store, repoKey, gname); err != nil {
+	if cached, err := checkCache(ctx, store, repoKey, gname, root); err != nil {
 		return nil, err
 	} else if cached != nil {
 		buildStatus = "skip"
@@ -268,6 +269,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		RepoKey: repoKey, RepoPath: root, GraphName: gname,
 		FileCount: len(allFiles), SymbolCount: len(allSymbols), EdgeCount: len(edges),
 		BuiltAt: time.Now().UTC(), TTLSeconds: ttl,
+		ContentHash: ingest.RepoContentHash(root),
 	}
 	if err := upsertMeta(ctx, store, meta); err != nil {
 		return nil, fmt.Errorf("upsert meta: %w", err)
