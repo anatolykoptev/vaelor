@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.53.1](https://github.com/anatolykoptev/vaelor/compare/v1.53.0...v1.53.1) (2026-07-23)
+
+
+### Fixed
+
+* **codegraph:** create metadata tables in app schema + idempotent guarded ownership self-heal ([#520](https://github.com/anatolykoptev/vaelor/issues/520)) ([#638](https://github.com/anatolykoptev/vaelor/issues/638)) ([624db9f](https://github.com/anatolykoptev/vaelor/commit/624db9f8e774fe73f9ffe73de5acfa755a15801b))
+
 ## [1.53.0](https://github.com/anatolykoptev/vaelor/compare/v1.52.5...v1.53.0) (2026-07-23)
 
 
