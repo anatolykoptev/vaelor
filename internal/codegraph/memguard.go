@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -182,8 +183,34 @@ func parsePSILine(line string) (memoryPSI, error) {
 }
 
 // memGuardCheckInterval is the polling interval for the background watchdog.
-// A var (not const) so tests can shorten it.
-var memGuardCheckInterval = 10 * time.Second
+// A var (not const) so tests can shorten it. Guarded by memGuardMu because
+// MemGuardWatchdog reads it from a goroutine while a parallel test
+// (TestMemGuardWatchdog_CancelsContext) writes it — without synchronization
+// that is a data race detected by `go test -race`.
+var (
+	memGuardCheckInterval = 10 * time.Second
+	memGuardMu            sync.RWMutex
+)
+
+// memGuardInterval returns the current watchdog polling interval under the
+// read lock, so MemGuardWatchdog's goroutine observes a consistent value even
+// when a test is mutating memGuardCheckInterval concurrently.
+func memGuardInterval() time.Duration {
+	memGuardMu.RLock()
+	defer memGuardMu.RUnlock()
+	return memGuardCheckInterval
+}
+
+// setMemGuardInterval sets the watchdog polling interval under the write lock
+// and returns the previous value so callers can restore it. Used only by tests
+// that need to shorten the interval.
+func setMemGuardInterval(d time.Duration) time.Duration {
+	memGuardMu.Lock()
+	defer memGuardMu.Unlock()
+	prev := memGuardCheckInterval
+	memGuardCheckInterval = d
+	return prev
+}
 
 // memGuardWatchdog runs in a goroutine alongside IndexRepo, periodically
 // checking memory pressure. If pressure exceeds thresholds, it cancels the
@@ -195,7 +222,7 @@ var memGuardCheckInterval = 10 * time.Second
 // catches the case where pressure develops DURING the build (e.g. another
 // container spikes while we're inserting).
 func MemGuardWatchdog(ctx context.Context, cancel context.CancelFunc) {
-	ticker := time.NewTicker(memGuardCheckInterval)
+	ticker := time.NewTicker(memGuardInterval())
 	defer ticker.Stop()
 
 	for {

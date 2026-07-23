@@ -161,10 +161,11 @@ func TestMemGuardWatchdog_CancelsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start watchdog with a short interval.
-	origInterval := memGuardCheckInterval
-	memGuardCheckInterval = 50 * time.Millisecond
-	defer func() { memGuardCheckInterval = origInterval }()
+	// Start watchdog with a short interval. Use the lock-guarded setter so a
+	// parallel test reading memGuardCheckInterval via MemGuardWatchdog does
+	// not race this write (the package var is shared mutable state).
+	origInterval := setMemGuardInterval(50 * time.Millisecond)
+	defer func() { setMemGuardInterval(origInterval) }()
 
 	// We can't force /proc to show pressure, so we verify the watchdog
 	// exits cleanly when the context is cancelled (no goroutine leak).

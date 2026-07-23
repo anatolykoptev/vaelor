@@ -19,9 +19,11 @@ func SupportedLanguages() []string {
 		}
 		seen[name] = struct{}{}
 	}
+	registryMu.RLock()
 	for _, h := range registry {
 		add(h.Language())
 	}
+	registryMu.RUnlock()
 	for _, name := range extLanguageOverride {
 		add(name)
 	}

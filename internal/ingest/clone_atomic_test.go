@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,17 @@ import (
 // after a failed refreshClone, the final clone directory is replaced atomically
 // (renameat2 RENAME_EXCHANGE on Linux; best-effort on other platforms).
 // A concurrent goroutine polling the path should never observe it absent.
+//
+// The never-absent invariant holds ONLY on Linux, where atomicDirectorySwap is
+// a single renameat2(RENAME_EXCHANGE) syscall (clone_swap_linux.go). On
+// non-Linux platforms the fallback (clone_swap_other.go) deliberately uses a
+// two-step rename with a brief window where finalDest is absent — so a polling
+// goroutine can legitimately observe absence and the test would flake. Skip on
+// non-Linux rather than assert a property the platform cannot provide.
 func TestAtomicReclone_FinalPathNeverAbsent(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("atomic never-absent guarantee requires renameat2(RENAME_EXCHANGE) (Linux); %s uses the two-rename fallback with a deliberate absence window", runtime.GOOS)
+	}
 	t.Parallel()
 	tmp := t.TempDir()
 	origin := filepath.Join(tmp, "origin")
