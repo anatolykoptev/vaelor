@@ -41,6 +41,18 @@ type bm25Searcher interface {
 // Compile-time assertion: *embeddings.Store satisfies bm25Searcher.
 var _ bm25Searcher = (*embeddings.Store)(nil)
 
+// vectorSearcher is the minimal interface for Store.Search used by
+// handleSemanticSearch. *embeddings.Store satisfies it via Search.
+// Extracted as a seam so tests inject fakes without a live Postgres pool —
+// production leaves storeSearcherSeam nil and the handler falls back to
+// deps.Store, yielding byte-identical production behavior.
+type vectorSearcher interface {
+	Search(ctx context.Context, query []float32, opts embeddings.SearchOpts) ([]embeddings.SearchResult, error)
+}
+
+// Compile-time assertion: *embeddings.Store satisfies vectorSearcher.
+var _ vectorSearcher = (*embeddings.Store)(nil)
+
 // modelChecker is the minimal interface that the stale-hit guard in
 // handleSemanticSearch needs. Production wires (*embeddings.Store).GetStoredModel
 // for the store side and (*embeddings.Pipeline).EmbedModel + InvalidateIfModelChanged

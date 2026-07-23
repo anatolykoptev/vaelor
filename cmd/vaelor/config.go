@@ -171,7 +171,13 @@ type Config struct {
 	// AnalyzeRank* control prioritizeFilesWithScores fusion (Stream 3).
 	// Mode = "minmax" (default, legacy byte-identical) | "rrf" (opt-in, routes
 	// signals through rerank.WeightedRRF). Default flip pending offline-harness
-	// validation; do not flip in this sprint. Weights apply to the rrf path.
+	// validation; do not flip in this sprint.
+	//
+	// The Weight* fields apply ONLY to the rrf path (rank_fusion.go). They have
+	// NO effect in minmax mode, which uses hardcoded const weights in rank.go
+	// (weightBM25=0.5, weightPR=0.3, weightExact=0.2) to preserve byte-identical
+	// legacy output. Setting ANALYZE_RANK_WEIGHT_* in minmax mode is a silent
+	// no-op; loadConfig emits a startup WARN to make that explicit (#606).
 	AnalyzeRankFusionMode     analyze.FusionMode
 	AnalyzeRankWeightBM25     float64
 	AnalyzeRankWeightPageRank float64
@@ -382,7 +388,7 @@ const (
 	bytesPerKB            = 1024
 
 	// 200 MB per repo.
-	defaultMaxRepoBytesMB = 200
+	defaultMaxRepoBytesMB = 250
 	bytesPerMB            = 1024 * 1024
 
 	// Graph defaults.
@@ -620,6 +626,19 @@ func loadConfig() (Config, error) {
 	return cfg, nil
 }
 
+// warnInertRankWeights emits a startup WARN for each ANALYZE_RANK_WEIGHT_* env
+// var that is explicitly set but inert because the fusion mode is minmax. The
+// weights only apply to the rrf path (rank_fusion.go); minmax uses hardcoded
+// const weights (rank.go). Called once at startup from main after loadConfig.
+func warnInertRankWeights(cfg Config) {
+	for _, name := range inertRankWeightEnvVars(cfg.AnalyzeRankFusionMode) {
+		slog.Warn("config: "+name+" has no effect in minmax fusion mode; set ANALYZE_RANK_FUSION_MODE=rrf to apply it",
+			slog.String("env_var", name),
+			slog.String("fusion_mode", string(cfg.AnalyzeRankFusionMode)),
+		)
+	}
+}
+
 // parseFusionMode validates ANALYZE_RANK_FUSION_MODE. Empty/missing falls back
 // to minmax via the caller's default; any non-empty value must be exactly
 // "minmax" or "rrf" — typos must surface loudly rather than silently default.
@@ -633,6 +652,34 @@ func parseFusionMode(raw string) (analyze.FusionMode, error) {
 	}
 }
 
+// rankWeightEnvVars are the ANALYZE_RANK_WEIGHT_* env var names that control
+// the fusion weights. They only take effect in rrf mode (rank_fusion.go); in
+// the default minmax mode the legacy ranking.FusionRank path uses its own
+// hardcoded const weights (rank.go) and these knobs are inert.
+var rankWeightEnvVars = []string{
+	"ANALYZE_RANK_WEIGHT_BM25",
+	"ANALYZE_RANK_WEIGHT_PAGERANK",
+	"ANALYZE_RANK_WEIGHT_SEED",
+}
+
+// inertRankWeightEnvVars returns the ANALYZE_RANK_WEIGHT_* env vars that are
+// explicitly set but inert because the fusion mode is minmax (the weights only
+// apply to the rrf path). Returns nil in rrf mode (weights are honored) or
+// when no weight env var is explicitly set. loadConfig emits a startup WARN
+// per returned var so an operator doesn't silently configure a no-op knob.
+func inertRankWeightEnvVars(mode analyze.FusionMode) []string {
+	if mode == analyze.FusionModeRRF {
+		return nil
+	}
+	var inert []string
+	for _, name := range rankWeightEnvVars {
+		if v, ok := os.LookupEnv(name); ok && v != "" {
+			inert = append(inert, name)
+		}
+	}
+	return inert
+}
+
 // parseKeywordArm validates KEYWORD_ARM. Valid values are "grep" and "bm25f".
 // Any other value WARNs and falls back to "grep" so operators see a clear signal
 // without crashing (contrast parseFusionMode which returns an error — keyword arm
@@ -642,7 +689,8 @@ func parseKeywordArm(raw string) string {
 	case keywordArmGrep, keywordArmBM25F:
 		return raw
 	default:
-		slog.Warn("invalid KEYWORD_ARM: falling back to grep",
+		slog.Warn("config: keyword arm invalid — falling back to grep; BM25F will not be active",
+			slog.String("env_var", "KEYWORD_ARM"),
 			slog.String("value", raw),
 			slog.String("allowed", keywordArmGrep+"|"+keywordArmBM25F),
 		)
@@ -692,26 +740,44 @@ func parseNonNegFloat(key string, def float64) (float64, error) {
 //
 // A warning is logged so operators know App auth is inactive.
 func loadGithubAppConfig() forge.AppConfig {
-	appID, err := strconv.ParseInt(getenvRebrand("GITHUB_APP_ID"), 10, 64)
-	if err != nil || appID == 0 {
+	appIDRaw := getenvRebrand("GITHUB_APP_ID")
+	if appIDRaw == "" {
+		// App auth not requested at all — silent by design, not a misconfiguration.
 		return forge.AppConfig{}
 	}
-	installID, err := strconv.ParseInt(getenvRebrand("GITHUB_APP_INSTALLATION_ID"), 10, 64)
+
+	// GITHUB_APP_ID is set, so the operator intends App auth: the other two fields
+	// are now required. Collect EVERY missing/invalid field so a single warning
+	// tells the operator the full fix, rather than one field per reboot.
+	var problems []string
+
+	appID, err := strconv.ParseInt(appIDRaw, 10, 64)
+	if err != nil || appID == 0 {
+		problems = append(problems, fmt.Sprintf("GITHUB_APP_ID invalid (value=%q)", appIDRaw))
+	}
+
+	installIDRaw := getenvRebrand("GITHUB_APP_INSTALLATION_ID")
+	installID, err := strconv.ParseInt(installIDRaw, 10, 64)
 	if err != nil || installID == 0 {
-		slog.Warn("GITHUB_APP_ID set but GITHUB_APP_INSTALLATION_ID missing; App auth disabled")
-		return forge.AppConfig{}
+		if installIDRaw == "" {
+			problems = append(problems, "GITHUB_APP_INSTALLATION_ID unset")
+		} else {
+			problems = append(problems, fmt.Sprintf("GITHUB_APP_INSTALLATION_ID invalid (value=%q)", installIDRaw))
+		}
 	}
 
 	keyPath := getenvRebrand("GITHUB_APP_KEY_PATH")
 	if keyPath == "" {
 		keyPath = "/run/secrets/go-code-app-key"
 	}
-
 	pem, err := os.ReadFile(keyPath) //nolint:gosec // path from operator-controlled env var
 	if err != nil {
-		slog.Warn("github app key file unreadable, App auth disabled", //nolint:gosec // G706: path is operator-supplied env var, not user input
-			slog.String("path", keyPath),
-			slog.Any("error", err),
+		problems = append(problems, fmt.Sprintf("GITHUB_APP_KEY_PATH unreadable (path=%q: %v)", keyPath, err))
+	}
+
+	if len(problems) > 0 {
+		slog.Warn("config: github app auth disabled — incomplete config; fix all listed fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH must all be set together)",
+			slog.String("missing", strings.Join(problems, "; ")),
 		)
 		return forge.AppConfig{}
 	}

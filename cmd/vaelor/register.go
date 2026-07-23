@@ -151,21 +151,23 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	}
 
 	deps := analyze.Deps{
-		LLM:            llmClient,
-		LLMHasKey:      hasKey,
-		MaxFileBytes:   cfg.MaxFileBytes,
-		GithubToken:    cfg.GithubToken,
-		CloneTokenFunc: buildCloneTokenFunc(cfg),
-		WorkspaceDir:   cfg.WorkspaceDir,
-		PathMappings:   cfg.PathMappings,
-		LocalRepoDirs:  autoIndexDirs(cfg),
-		ParseCache:     parseCache,
-		LLMCache:       llmCache,
-		Forges:         buildForgeRegistry(cfg, toolCache),
-		WebSearch:      buildWebSearchClient(cfg),
-		ToolCache:      toolCache,
-		OxCodes:        buildOxCodesClient(cfg),
-		Learnings:      buildLearningsStore(cfg),
+		LLM:               llmClient,
+		LLMHasKey:         hasKey,
+		MaxFileBytes:      cfg.MaxFileBytes,
+		MaxRepoBytes:      cfg.MaxRepoBytes,
+		GithubSearchRepos: cfg.GithubSearchRepos,
+		GithubToken:       cfg.GithubToken,
+		CloneTokenFunc:    buildCloneTokenFunc(cfg),
+		WorkspaceDir:      cfg.WorkspaceDir,
+		PathMappings:      cfg.PathMappings,
+		LocalRepoDirs:     autoIndexDirs(cfg),
+		ParseCache:        parseCache,
+		LLMCache:          llmCache,
+		Forges:            buildForgeRegistry(cfg, toolCache),
+		WebSearch:         buildWebSearchClient(cfg),
+		ToolCache:         toolCache,
+		OxCodes:           buildOxCodesClient(cfg),
+		Learnings:         buildLearningsStore(cfg),
 	}
 
 	// Database pools (optional — need DATABASE_URL). Tier-2: TWO pools, separated by
@@ -511,6 +513,9 @@ func buildGraphDeps(store *codegraph.Store, mappings []analyze.PathMapping) (gra
 // Returns nil (disabled) when LearningsDSN is empty or the pool fails to open.
 func buildLearningsStore(cfg Config) *learnings.Store {
 	if cfg.LearningsDSN == "" {
+		slog.Warn("config: learnings store disabled — neither LEARNINGS_DATABASE_URL nor DATABASE_URL set; remember_graph_insights and prior_learnings in understand will be unavailable",
+			slog.String("env_var", "LEARNINGS_DATABASE_URL"),
+		)
 		return nil
 	}
 	ls, err := learnings.New(context.Background(), cfg.LearningsDSN, nil)

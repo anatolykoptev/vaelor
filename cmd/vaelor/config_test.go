@@ -187,3 +187,36 @@ func TestLoadConfig_SparseBackfillDeadline_ZeroClamped(t *testing.T) {
 		}
 	})
 }
+
+// TestInertRankWeightEnvVars_MinmaxMode proves the AnalyzeRankWeight* knobs
+// are explicitly flagged as inert when set in the default minmax mode: the
+// weights only apply to the rrf path (rank_fusion.go), so an operator setting
+// them in minmax mode configures a silent no-op. This makes that explicit
+// instead of advertising the knob as global.
+//
+// Falsification: revert inertRankWeightEnvVars to always return nil → the
+// minmax+set case returns no inert vars → the assertion goes RED.
+func TestInertRankWeightEnvVars_MinmaxMode(t *testing.T) {
+	// minmax + explicitly set weights → inert (flagged).
+	t.Setenv("ANALYZE_RANK_FUSION_MODE", "")
+	t.Setenv("ANALYZE_RANK_WEIGHT_BM25", "2.0")
+	t.Setenv("ANALYZE_RANK_WEIGHT_PAGERANK", "3.0")
+	inert := inertRankWeightEnvVars(analyze.FusionModeMinmax)
+	if len(inert) != 2 {
+		t.Fatalf("minmax+set: got %d inert vars, want 2 (%v)", len(inert), inert)
+	}
+
+	// rrf mode → weights are honored, none inert.
+	inert = inertRankWeightEnvVars(analyze.FusionModeRRF)
+	if inert != nil {
+		t.Errorf("rrf mode: got %v inert vars, want nil (weights honored in rrf)", inert)
+	}
+
+	// minmax + no weights set → nothing to flag.
+	t.Setenv("ANALYZE_RANK_WEIGHT_BM25", "")
+	t.Setenv("ANALYZE_RANK_WEIGHT_PAGERANK", "")
+	inert = inertRankWeightEnvVars(analyze.FusionModeMinmax)
+	if inert != nil {
+		t.Errorf("minmax+unset: got %v inert vars, want nil", inert)
+	}
+}
