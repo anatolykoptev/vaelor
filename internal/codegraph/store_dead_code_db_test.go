@@ -470,3 +470,57 @@ func TestDropGraph_DeletesDeadCodeScores(t *testing.T) {
 		t.Errorf("expected code_dead_code_scores rows to be deleted when their graph is dropped, found %d row(s)", staleCount)
 	}
 }
+
+// TestDropGraph_ForgetsExistsCache is the regression test for #593:
+// DropGraph dropped the AGE graph and meta row but did NOT call
+// existsCache.Forget(name), so the 30s positive cache kept reporting the
+// graph as existing. Subsequent EnsureGraphExistsForRead calls hit the
+// cache and returned nil without querying ag_catalog, causing Cypher
+// queries to fail with "graph does not exist" for up to 30s after a drop.
+//
+// Skipped when DATABASE_URL is unset — requires a live PostgreSQL + AGE instance.
+func TestDropGraph_ForgetsExistsCache(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+
+	store := NewStore(pool)
+
+	const testGraph = "code_dropgraph_existscache_test"
+	const repoKey = testGraph
+
+	cleanup := func() {
+		_ = store.DropGraph(ctx, testGraph, testGraph)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	// Build the graph — EnsureGraph seeds existsCache.Mark(name).
+	if err := store.EnsureGraph(ctx, testGraph); err != nil {
+		t.Fatalf("EnsureGraph: %v", err)
+	}
+
+	// Verify the cache is seeded.
+	if !store.existsCache.Hit(testGraph) {
+		t.Fatal("existsCache should have a hit after EnsureGraph")
+	}
+
+	// Drop the graph — must invalidate the cache.
+	if err := store.DropGraph(ctx, testGraph, repoKey); err != nil {
+		t.Fatalf("DropGraph: %v", err)
+	}
+
+	// Decisive assertion: the cache must no longer report the graph as existing.
+	if store.existsCache.Hit(testGraph) {
+		t.Error("existsCache.Hit returned true after DropGraph — cache was not invalidated (#593)")
+	}
+}
