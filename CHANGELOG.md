@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.52.3](https://github.com/anatolykoptev/vaelor/compare/v1.52.2...v1.52.3) (2026-07-23)
+
+
+### Fixed
+
+* **suggest_reviewers:** surface real co-change coupling across renames ([#355](https://github.com/anatolykoptev/vaelor/issues/355)) ([#626](https://github.com/anatolykoptev/vaelor/issues/626)) ([bf1fe58](https://github.com/anatolykoptev/vaelor/commit/bf1fe588617b2f05c91596509c053e4e997adad5))
+
 ## [1.52.2](https://github.com/anatolykoptev/vaelor/compare/v1.52.1...v1.52.2) (2026-07-23)
 
 
