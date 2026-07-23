@@ -54,12 +54,13 @@ type fakeDB struct {
 	mu    sync.Mutex
 	execs []string
 
-	ext     bool
-	tables  map[string]bool
-	cols    map[string]bool
-	indexes map[string]bool
-	owners  map[string]string
-	curUser string
+	ext      bool
+	tables   map[string]bool
+	cols     map[string]bool
+	indexes  map[string]bool
+	triggers map[string]bool
+	owners   map[string]string
+	curUser  string
 
 	failSQL string // substring; Exec returns execErr for matching SQL
 	execErr error
@@ -71,11 +72,12 @@ type fakeDB struct {
 
 func newFakeDB() *fakeDB {
 	return &fakeDB{
-		tables:  make(map[string]bool),
-		cols:    make(map[string]bool),
-		indexes: make(map[string]bool),
-		owners:  make(map[string]string),
-		curUser: "app",
+		tables:   make(map[string]bool),
+		cols:     make(map[string]bool),
+		indexes:  make(map[string]bool),
+		triggers: make(map[string]bool),
+		owners:   make(map[string]string),
+		curUser:  "app",
 	}
 }
 
@@ -149,6 +151,21 @@ func (f *fakeDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 			}
 		}
 		return &fakeRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "FROM pg_trigger"):
+		// triggerExists: args[0] = "public."+table, args[1] = trigger name.
+		if len(args) > 1 {
+			tbl, tok := argString(args[0])
+			trig, trigOK := argString(args[1])
+			if tok && trigOK {
+				// tbl is schema-qualified ("public.code_repo_state"); strip the
+				// prefix to match the applyDDL key format (table.trigger).
+				bare := strings.TrimPrefix(tbl, "public.")
+				if f.triggers[bare+"."+trig] {
+					return &fakeRow{err: nil}
+				}
+			}
+		}
+		return &fakeRow{err: pgx.ErrNoRows}
 	}
 	return &fakeRow{err: pgx.ErrNoRows}
 }
@@ -193,10 +210,27 @@ func (f *fakeDB) applyDDL(sql string) {
 			tbl := normalizeTable(m[1])
 			f.owners[tbl] = f.curUser
 		}
+	case strings.HasPrefix(upper, "CREATE TRIGGER"):
+		// CREATE TRIGGER <name> ... ON <table> ... — record table.name.
+		if m := reCreateTrigger.FindStringSubmatch(sql); m != nil {
+			f.triggers[normalizeTable(m[2])+"."+m[1]] = true
+		}
+	case strings.HasPrefix(upper, "DROP TRIGGER"):
+		if m := reDropTrigger.FindStringSubmatch(sql); m != nil {
+			delete(f.triggers, normalizeTable(m[2])+"."+m[1])
+		}
+	case strings.HasPrefix(upper, "CREATE OR REPLACE FUNCTION"):
+		// No state to track for the function itself; the trigger entry is the
+		// observable artifact exercised by triggerExists.
 	}
 }
 
 var reAlterOwner = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(\S+)\s+OWNER\s+TO`)
+
+var (
+	reCreateTrigger = regexp.MustCompile(`(?i)^\s*CREATE\s+TRIGGER\s+(\S+)\s.*?\sON\s+(\S+)`)
+	reDropTrigger   = regexp.MustCompile(`(?i)^\s*DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?(\S+)\s+ON\s+(\S+)`)
+)
 
 func (f *fakeDB) ddlCount() int {
 	f.mu.Lock()
@@ -250,6 +284,7 @@ func TestEnsureSchema_Idempotent_Warm(t *testing.T) {
 	db.indexes["code_embeddings.idx_code_embeddings_body_hash"] = true
 	db.owners["code_embeddings"] = "app"
 	db.owners["code_repo_state"] = "app"
+	db.triggers["code_repo_state.trg_code_repo_state_cascade"] = true
 
 	s := storeForTest(db)
 	if err := s.EnsureSchema(context.Background()); err != nil {
@@ -333,6 +368,7 @@ func TestEnsureSchema_StatementTimeout_ForIndexBuild(t *testing.T) {
 	db.tables["code_repo_state"] = true
 	db.owners["code_embeddings"] = "app"
 	db.owners["code_repo_state"] = "app"
+	db.triggers["code_repo_state.trg_code_repo_state_cascade"] = true
 
 	s := storeForTest(db)
 	if err := s.EnsureSchema(context.Background()); err != nil {
@@ -344,6 +380,62 @@ func TestEnsureSchema_StatementTimeout_ForIndexBuild(t *testing.T) {
 	if !db.hasExec("CREATE INDEX IF NOT EXISTS idx_code_embeddings_hnsw") {
 		t.Fatal("expected hnsw index build")
 	}
+}
+
+// TestEnsureSchema_CreatesCascadeTrigger_ColdPath asserts that EnsureSchema
+// installs the code_repo_state ON DELETE CASCADE trigger (#588) when it is
+// absent, and is a no-op when it already exists. Uses the fakeDB so it runs
+// without a Postgres dependency.
+//
+// Falsifiable: remove the ensureCascadeTrigger call from runEnsureSchema →
+// no CREATE TRIGGER exec and the trigger map stays empty → assertions RED.
+func TestEnsureSchema_CreatesCascadeTrigger_ColdPath(t *testing.T) {
+	db := newFakeDB()
+	db.ext = true
+	db.tables["code_embeddings"] = true
+	db.tables["code_repo_state"] = true
+	db.cols["code_embeddings.sparse_embedding"] = true
+	db.cols["code_embeddings.embed_model"] = true
+	db.cols["code_repo_state.embed_model"] = true
+	db.cols["code_repo_state.source_path"] = true
+	db.indexes["code_embeddings.idx_code_embeddings_repo"] = true
+	db.indexes["code_embeddings.idx_code_embeddings_hnsw"] = true
+	db.indexes["code_embeddings.code_embeddings_sparse_hnsw"] = true
+	db.indexes["code_embeddings.idx_code_embeddings_body_hash"] = true
+	db.owners["code_embeddings"] = "app"
+	db.owners["code_repo_state"] = "app"
+	// trigger deliberately NOT pre-populated → cold path must create it.
+
+	s := storeForTest(db)
+	if err := s.EnsureSchema(context.Background()); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	if !db.hasExec("CREATE TRIGGER trg_code_repo_state_cascade") {
+		t.Fatal("expected CREATE TRIGGER trg_code_repo_state_cascade on cold path")
+	}
+	if !db.hasExec("CREATE OR REPLACE FUNCTION public.fn_cascade_delete_embeddings") {
+		t.Fatal("expected CREATE OR REPLACE FUNCTION for the cascade trigger backing fn")
+	}
+	if !db.triggers["code_repo_state.trg_code_repo_state_cascade"] {
+		t.Fatal("trigger must be recorded in fakeDB state after creation")
+	}
+
+	// Second call over a FRESH Store (schemaDone=false) sharing the same fakeDB
+	// (trigger now present): the pg_trigger catalog guard must short-circuit —
+	// no second CREATE TRIGGER. This tests the idempotent catalog guard, not the
+	// schemaDone latch (which the first Store already set).
+	db.clearExecs()
+	s2 := storeForTest(db)
+	if err := s2.EnsureSchema(context.Background()); err != nil {
+		t.Fatalf("second EnsureSchema: %v", err)
+	}
+	if db.hasExec("CREATE TRIGGER trg_code_repo_state_cascade") {
+		t.Fatal("warm second run must NOT re-create the trigger (idempotent catalog guard)")
+	}
+	if db.hasExec("CREATE OR REPLACE FUNCTION public.fn_cascade_delete_embeddings") {
+		t.Fatal("warm second run must NOT re-create the cascade function (trigger already exists)")
+	}
+	_ = s // keep s referenced (first Store set schemaDone; s2 is the catalog-guard probe)
 }
 
 // TestEnsureSchema_Concurrent_Dedup asserts that concurrent EnsureSchema calls
