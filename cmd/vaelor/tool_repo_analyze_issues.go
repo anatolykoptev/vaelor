@@ -17,7 +17,7 @@ func handleIssuesMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.
 	if isLocalPath(input.Repo) {
 		return errResult(kind + " search requires a GitHub repo (owner/repo), not a local path"), nil
 	}
-	repos := resolveQuickRepos(input)
+	repos := resolveQuickRepos(input, deps.GithubSearchRepos)
 	if len(repos) == 0 {
 		return errResult(fmt.Sprintf("repo is required for %s search", kind)), nil
 	}

@@ -143,6 +143,7 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 		Focus:        input.Focus,
 		Languages:    langs,
 		MaxFileBytes: deps.maxFileBytes(),
+		MaxRepoBytes: deps.maxRepoBytes(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ingest repo: %w", err)

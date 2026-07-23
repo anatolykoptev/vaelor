@@ -37,6 +37,18 @@ type Deps struct {
 	// MaxFileBytes is the max file size to parse. 0 uses the default.
 	MaxFileBytes int64
 
+	// MaxRepoBytes caps the total ingested source size for AnalyzeRepo. 0
+	// means no limit (byte-identical to pre-cap behavior). Wired from the
+	// MAX_REPO_MB env var; enforced by ingest.IngestRepo.
+	MaxRepoBytes int64
+
+	// GithubSearchRepos are default repos for quick-mode code search
+	// (repo_analyze mode=quick/raw and type=pr/issue). When a caller supplies
+	// neither Repo nor Repos, these are used as the search scope. Wired from
+	// the GITHUB_SEARCH_REPOS env var. Empty = no default (caller must supply
+	// a repo, preserving prior behavior).
+	GithubSearchRepos []string
+
 	// GithubToken is the optional GitHub token for cloning private repos.
 	// Deprecated: prefer CloneTokenFunc for dynamic tokens (e.g. GitHub App installation tokens).
 	// Kept for backwards-compat; CloneTokenFunc takes precedence when set.
@@ -121,4 +133,11 @@ func (d Deps) maxFileBytes() int64 {
 		return d.MaxFileBytes
 	}
 	return defaultMaxFileBytes
+}
+
+// maxRepoBytes returns the effective total-repo-size cap. 0 means no limit
+// (byte-identical to pre-cap behavior); a positive value is forwarded to
+// ingest.IngestOpts.MaxRepoBytes.
+func (d Deps) maxRepoBytes() int64 {
+	return d.MaxRepoBytes
 }

@@ -49,6 +49,13 @@ type IngestOpts struct {
 	// MaxFileBytes skips files larger than this size. 0 means no limit.
 	MaxFileBytes int64
 
+	// MaxRepoBytes caps the total ingested source size (sum of accepted file
+	// sizes). Once the cumulative total exceeds this cap, further files are
+	// skipped with reason "repo_oversize" and counted in SkippedReasons. 0
+	// means no limit (byte-identical to pre-cap behavior). Wired from the
+	// MAX_REPO_MB env var via analyze.Deps.MaxRepoBytes.
+	MaxRepoBytes int64
+
 	// MaxFiles is the maximum number of files to keep from the walk.
 	// 0 means use the default cap (maxWalkFiles).
 	MaxFiles int
@@ -163,6 +170,11 @@ func IngestRepo(ctx context.Context, opts IngestOpts) (*IngestResult, error) {
 			return nil
 		}
 
+		if opts.MaxRepoBytes > 0 && result.TotalBytes > opts.MaxRepoBytes {
+			result.SkippedReasons["repo_oversize"]++
+			result.SkippedCount++
+			return nil
+		}
 		if len(result.Files) < maxFiles {
 			result.Files = append(result.Files, file)
 			result.TotalBytes += file.Size
