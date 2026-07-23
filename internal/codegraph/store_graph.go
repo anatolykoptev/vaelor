@@ -150,6 +150,12 @@ func (s *Store) DropGraph(ctx context.Context, name, repoKey string) error {
 		slog.Warn("codegraph: delete dead_code scores on drop", slog.String("repo", repoKey), slog.Any("error", err))
 	}
 
+	// Invalidate the exists-cache: the graph no longer exists in ag_catalog.
+	// Without this, EnsureGraphExistsForRead hits the cache and returns nil,
+	// causing Cypher queries to fail with "graph does not exist" for up to
+	// 30s after a drop (#593).
+	s.existsCache.Forget(name)
+
 	return nil
 }
 
