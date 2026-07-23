@@ -174,19 +174,23 @@ func metricFamilyNames(mfs []*dto.MetricFamily) []string {
 }
 
 // TestLLMObs_MetricsInProductionNamespace verifies that the LLM observation
-// middleware registers metrics under the PRODUCTION namespace (metricsNamespace
-// constant, not a test-local "gocodetest" string) in prometheus.DefaultGatherer.
+// middleware actually registers its metrics into the process-global
+// prometheus.DefaultGatherer under the production metricsNamespace — exercising
+// the real registration path rather than a disconnected test-local registry.
 //
 // This closes the synthetic-green gap identified in TG2: the existing
-// TestLLMObs_HistogramVisibleInDefaultGatherer uses a disconnected "gocodetest"
-// namespace, so if main.go is changed to use a different namespace the test
-// would still pass. This test references the production metricsNamespace
-// constant directly — if the constant changes, the test assertion changes with
-// it; if main.go bypasses the constant, the test still pins the expected
-// namespace value.
+// TestLLMObs_HistogramVisibleInDefaultGatherer builds its own "gocodetest"
+// namespace, so it never proves the production wiring reaches DefaultGatherer.
+// Here we drive newLLMObs(NewPrometheusRegistry(metricsNamespace)) and gather
+// from DefaultGatherer, so a middleware that fails to register (or registers
+// into a private registry) is caught — the counter/histogram families are
+// absent → FAIL.
 //
-// Anti-tautology: if metricsNamespace is changed (e.g. to "vaelor"), the
-// wantFamily prefix changes and the metric family is not found → FAIL.
+// Scope note (not a tautology, but bounded): the expected family names and the
+// registry namespace both derive from the same metricsNamespace constant, so
+// this test does NOT detect a rename of the constant itself (they move
+// together). What it pins is the WIRING — middleware → DefaultGatherer under
+// whatever the production namespace is.
 func TestLLMObs_MetricsInProductionNamespace(t *testing.T) {
 	reg := kitmetrics.NewPrometheusRegistry(metricsNamespace)
 	obs := newLLMObs(reg)
