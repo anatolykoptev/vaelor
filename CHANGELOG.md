@@ -2,6 +2,14 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.52.2](https://github.com/anatolykoptev/vaelor/compare/v1.52.1...v1.52.2) (2026-07-23)
+
+
+### Fixed
+
+* cancel metric-gauge tickers + bound federated co-change cache ([#624](https://github.com/anatolykoptev/vaelor/issues/624)) ([7f78bd1](https://github.com/anatolykoptev/vaelor/commit/7f78bd17d42536f9e7902d2f4c5544b3ae4fff9d))
+* **mcp:** bounded partial results for explore/code_compare/dataflow under deadline ([#534](https://github.com/anatolykoptev/vaelor/issues/534)/[#566](https://github.com/anatolykoptev/vaelor/issues/566)/[#565](https://github.com/anatolykoptev/vaelor/issues/565)) ([#623](https://github.com/anatolykoptev/vaelor/issues/623)) ([085c641](https://github.com/anatolykoptev/vaelor/commit/085c6412ca06f4edc04712f225097fa1598e9f68))
+
 ## [1.52.1](https://github.com/anatolykoptev/vaelor/compare/v1.52.0...v1.52.1) (2026-07-23)
 
 
