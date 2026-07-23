@@ -352,6 +352,9 @@ func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexR
 		// Serialize: do NOT run indexRepoWithTool concurrently — the winner is
 		// performing the index. Returning an empty result avoids the TOCTOU where
 		// the loser's compensating DeleteRepo could wipe the winner's embeddings.
+		// If the winner subsequently fails-and-compensates, this repo is left
+		// unindexed for this cycle — strictly safer than the data-loss it replaces,
+		// and it converges via the next autoindex cycle / lazy semantic_search.
 		slog.Info("indexRepo: concurrent index in progress for repoKey; skipping (single-flight)",
 			slog.String("repo", repoKey))
 		return &IndexResult{}, nil
