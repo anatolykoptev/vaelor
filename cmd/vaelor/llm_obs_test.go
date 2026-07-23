@@ -172,3 +172,69 @@ func metricFamilyNames(mfs []*dto.MetricFamily) []string {
 	sort.Strings(names)
 	return names
 }
+
+// TestLLMObs_MetricsInProductionNamespace verifies that the LLM observation
+// middleware actually registers its metrics into the process-global
+// prometheus.DefaultGatherer under the production metricsNamespace — exercising
+// the real registration path rather than a disconnected test-local registry.
+//
+// This closes the synthetic-green gap identified in TG2: the existing
+// TestLLMObs_HistogramVisibleInDefaultGatherer builds its own "gocodetest"
+// namespace, so it never proves the production wiring reaches DefaultGatherer.
+// Here we drive newLLMObs(NewPrometheusRegistry(metricsNamespace)) and gather
+// from DefaultGatherer, so a middleware that fails to register (or registers
+// into a private registry) is caught — the counter/histogram families are
+// absent → FAIL.
+//
+// Scope note (not a tautology, but bounded): the expected family names and the
+// registry namespace both derive from the same metricsNamespace constant, so
+// this test does NOT detect a rename of the constant itself (they move
+// together). What it pins is the WIRING — middleware → DefaultGatherer under
+// whatever the production namespace is.
+func TestLLMObs_MetricsInProductionNamespace(t *testing.T) {
+	reg := kitmetrics.NewPrometheusRegistry(metricsNamespace)
+	obs := newLLMObs(reg)
+
+	next := func(ctx context.Context, req *kitllm.ChatRequest) (*kitllm.ChatResponse, error) {
+		return &kitllm.ChatResponse{}, nil
+	}
+	if _, err := obs.middleware(context.Background(), &kitllm.ChatRequest{}, next); err != nil {
+		t.Fatalf("middleware returned unexpected error: %v", err)
+	}
+
+	wantCounter := metricsNamespace + "_llm_calls_total"
+	wantHistogram := metricsNamespace + "_llm_request_seconds"
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("DefaultGatherer.Gather: %v", err)
+	}
+
+	foundCounter := false
+	foundHistogram := false
+	for _, mf := range mfs {
+		name := mf.GetName()
+		if name == wantCounter {
+			for _, m := range mf.GetMetric() {
+				if m.GetCounter() != nil && m.GetCounter().GetValue() > 0 {
+					foundCounter = true
+				}
+			}
+		}
+		if name == wantHistogram {
+			for _, m := range mf.GetMetric() {
+				if h := m.GetHistogram(); h != nil && h.GetSampleCount() > 0 {
+					foundHistogram = true
+				}
+			}
+		}
+	}
+
+	if !foundCounter {
+		t.Errorf("counter metric family %q not found with samples in DefaultGatherer; family names seen: %v",
+			wantCounter, metricFamilyNames(mfs))
+	}
+	if !foundHistogram {
+		t.Errorf("histogram metric family %q not found with samples in DefaultGatherer; family names seen: %v",
+			wantHistogram, metricFamilyNames(mfs))
+	}
+}
