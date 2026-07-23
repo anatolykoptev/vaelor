@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.52.4](https://github.com/anatolykoptev/vaelor/compare/v1.52.3...v1.52.4) (2026-07-23)
+
+
+### Fixed
+
+* **config:** warn on silent feature-disable ([#599](https://github.com/anatolykoptev/vaelor/issues/599)-603) ([#630](https://github.com/anatolykoptev/vaelor/issues/630)) ([f79d4a9](https://github.com/anatolykoptev/vaelor/commit/f79d4a9ea65c9f430a39a99dd2fc43448caf611b))
+
 ## [1.52.3](https://github.com/anatolykoptev/vaelor/compare/v1.52.2...v1.52.3) (2026-07-23)
 
 
