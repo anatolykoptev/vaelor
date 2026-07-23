@@ -3,7 +3,6 @@ package main
 import (
 	"log/slog"
 
-	"github.com/anatolykoptev/go-kit/sparse"
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
@@ -63,17 +62,12 @@ func newSemanticDeps(
 	// sparse retrieval arm in handleSemanticHits is skipped entirely
 	// (byte-identical to pre-P4 behavior). Token auto-resolved from
 	// EMBED_TOKEN env by go-kit/sparse v2 NewHTTPSparseEmbedder.
-	var sparseClient sparse.SparseEmbedder
-	if sc := newSparseEmbedder(cfg); sc != nil {
-		sparseClient = sc
-		pipelineOpts = append(pipelineOpts, embeddings.WithSparseEmbedder(sc))
-		pipelineOpts = append(pipelineOpts, embeddings.WithSparseMaxBatch(cfg.SparseEmbedMaxArray))
-		slog.Info("sparse embed: enabled (P4 dark-launch: rrf_weight_sparse=0.0 until A/B)",
-			slog.String("url", cfg.SparseEmbedURL),
-			slog.String("model", cfg.SparseEmbedModel),
-			slog.Int("max_array", cfg.SparseEmbedMaxArray),
-			slog.Float64("rrf_weight_sparse", rrfWeights.Sparse))
-	}
+	//
+	// wireSparse also publishes gocode_sparse_embedder_active so a misconfigured
+	// SPARSE_EMBED_URL (or vocab mismatch) that silently disables the sparse
+	// arm is visible on /metrics (#602).
+	sparseClient, sparseOpts := wireSparse(cfg, rrfWeights)
+	pipelineOpts = append(pipelineOpts, sparseOpts...)
 
 	// QueryClient wraps ec with the model-correct retrieval prefix.
 	// For code-rank-embed: prepends the required query prefix on EmbedQuery.

@@ -87,6 +87,7 @@ func newGitHubForgeWithBase(token string, app AppConfig, base string, opts ...Gi
 
 	// Try App auth first when all three credentials are present.
 	var transport http.RoundTripper
+	authMode := authModeNone // resolved below; published for the production base only
 	if app.AppID != 0 && app.InstallationID != 0 && len(app.KeyPEM) > 0 {
 		src, err := newAppTokenSourceWithBase(AppAuthConfig{
 			AppID:          app.AppID,
@@ -95,14 +96,25 @@ func newGitHubForgeWithBase(token string, app AppConfig, base string, opts ...Gi
 		}, base)
 		if err == nil {
 			transport = &appRoundTripper{src: src, next: http.DefaultTransport}
+			authMode = authModeApp
 		} else {
 			// Key parse failed — fall through to PAT, warn loudly.
 			// This matches the spec: "log warning, fall back to PAT, don't crash".
 			logGitHubAppFallback(err)
 			transport = &patRoundTripper{token: token, next: http.DefaultTransport}
+			authMode = authModePAT
 		}
 	} else {
 		transport = &patRoundTripper{token: token, next: http.DefaultTransport}
+		if token != "" {
+			authMode = authModePAT
+		}
+	}
+
+	// Publish the active auth-mode gauge only for the production api.github.com
+	// base — test servers (httptest) must not mutate the process-global gauge.
+	if base == ghDefaultAPIBase {
+		publishGitHubAuthMode(authMode)
 	}
 
 	g := &GitHubForge{

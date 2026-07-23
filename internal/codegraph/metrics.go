@@ -132,3 +132,84 @@ func init() {
 func RecordSemanticDupCollapsed(path string) {
 	semanticDupCollapsedTotal.WithLabelValues(path).Inc()
 }
+
+// --- Graph cache + existsCache observability (#592, #593, #610 gaps 1+2) -----
+//
+// The graph cache (checkCache) and the existsCache (graphExistsCache) both fail
+// silently: a stale graph served within TTL (#592) and a cache/DB divergence
+// after DropGraph without Forget (#593) are invisible to the operator. These
+// counters make every cache event observable on /metrics.
+
+// graphCache{hit,miss,stale}Total counts IndexRepo cache decisions made by
+// checkCache:
+//
+//   - hit:   cached graph is fresh AND content hash matches (or pre-migration
+//     temporal-only row with empty content_hash) → served from cache.
+//   - miss:  no cached graph row at all → full build.
+//   - stale: TTL expired OR content hash mismatch within TTL → snapshot + drop
+//   - rebuild (#592).
+//
+// Unlabeled (single series each) — the cache decision is process-global, not
+// per-repo, to avoid cardinality.
+var (
+	graphCacheHitTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_graph_cache_hit_total",
+			Help: "IndexRepo cache hits (fresh graph served from cache, content hash matches).",
+		},
+	)
+	graphCacheMissTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_graph_cache_miss_total",
+			Help: "IndexRepo cache misses (no cached graph row — full build).",
+		},
+	)
+	graphCacheStaleTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_graph_cache_stale_total",
+			Help: "IndexRepo stale-cache rebuilds (TTL expired or content hash mismatch within TTL, #592).",
+		},
+	)
+)
+
+// recordGraphCacheOutcome bumps the counter for the given cache outcome
+// ("hit", "miss", or "stale"). Called by checkCache via classifyGraphCache.
+func recordGraphCacheOutcome(outcome string) {
+	switch outcome {
+	case "hit":
+		graphCacheHitTotal.Inc()
+	case "miss":
+		graphCacheMissTotal.Inc()
+	case "stale":
+		graphCacheStaleTotal.Inc()
+	}
+}
+
+// existsCache{hit,miss,forget}Total counts graphExistsCache events so a
+// cache/DB divergence (#593 — DropGraph without Forget) is visible on /metrics:
+//
+//   - hit:    existsCache.Hit returned true (graph known to exist within TTL).
+//   - miss:   existsCache.Hit returned false (absent or TTL-expired → re-probe
+//     ag_catalog.ag_graph).
+//   - forget: existsCache.Forget ran (explicit invalidation after a known-failed
+//     cypher or DropGraph). forget < drop-graph events ⇒ divergence.
+var (
+	existsCacheHitTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_exists_cache_hit_total",
+			Help: "graphExistsCache hits (graph known to exist within TTL).",
+		},
+	)
+	existsCacheMissTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_exists_cache_miss_total",
+			Help: "graphExistsCache misses (absent or TTL-expired → re-probe ag_catalog.ag_graph).",
+		},
+	)
+	existsCacheForgetTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gocode_exists_cache_forget_total",
+			Help: "graphExistsCache Forget calls (explicit invalidation after DropGraph / failed cypher, #593).",
+		},
+	)
+)
