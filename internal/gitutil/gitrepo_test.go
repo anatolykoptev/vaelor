@@ -183,7 +183,13 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 }
 
 func TestOriginURL(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel: t.Setenv is incompatible with t.Parallel, and we need to
+	// isolate from the user's global git config (e.g. url.<base>.insteadOf
+	// rewrites SSH→HTTPS) so the asserted URL is deterministic regardless of
+	// the host's ~/.gitconfig. OriginURL shells out to `git remote get-url`,
+	// which applies insteadOf rewrites from global/system config.
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	dir := t.TempDir()
 	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
