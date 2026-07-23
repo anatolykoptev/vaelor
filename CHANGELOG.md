@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.51.2](https://github.com/anatolykoptev/vaelor/compare/v1.51.1...v1.51.2) (2026-07-23)
+
+
+### Fixed
+
+* **embeddings:** harden orphan class — single-flight sync index ([#589](https://github.com/anatolykoptev/vaelor/issues/589)) + cascade trigger ([#588](https://github.com/anatolykoptev/vaelor/issues/588)) ([#612](https://github.com/anatolykoptev/vaelor/issues/612)) ([3e17042](https://github.com/anatolykoptev/vaelor/commit/3e17042c052930497e2d2d9e7a8910401d1b4cb0))
+
 ## [1.51.1](https://github.com/anatolykoptev/vaelor/compare/v1.51.0...v1.51.1) (2026-07-22)
 
 
