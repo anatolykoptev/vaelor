@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.51.4](https://github.com/anatolykoptev/vaelor/compare/v1.51.3...v1.51.4) (2026-07-23)
+
+
+### Fixed
+
+* **codegraph:** invalidate existsCache on DropGraph ([#593](https://github.com/anatolykoptev/vaelor/issues/593)) ([#615](https://github.com/anatolykoptev/vaelor/issues/615)) ([99a04e9](https://github.com/anatolykoptev/vaelor/commit/99a04e92ad070f72699b0fc3ed7c62dd45272741))
+
 ## [1.51.3](https://github.com/anatolykoptev/vaelor/compare/v1.51.2...v1.51.3) (2026-07-23)
 
 
