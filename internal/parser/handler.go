@@ -10,6 +10,7 @@ package parser
 import (
 	"fmt"
 	"sort"
+	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
@@ -71,7 +72,20 @@ type LanguageHandler interface {
 }
 
 // registry maps file extension (e.g. ".go") to its LanguageHandler.
-var registry = map[string]LanguageHandler{}
+//
+// In production every registerHandler call runs from a handler file's init(),
+// and the Go runtime serializes init() before main — so the map is effectively
+// frozen before any ParseFile read. It is still guarded by registryMu because
+// the map is package-global shared mutable state with no compiler-enforced
+// init-only discipline: a future runtime registration path (or the registry
+// mutation performed by TestRegisterHandlerCollisionPanics) would otherwise
+// race the per-ParseFile read in HandlerForExt. RLock on the read path is a
+// single atomic add, negligible next to the tree-sitter CGO parse that
+// dominates ParseFile.
+var (
+	registry   = map[string]LanguageHandler{}
+	registryMu sync.RWMutex
+)
 
 // registerHandler registers a LanguageHandler for all its extensions.
 // Called from each handler's init() function.
@@ -84,6 +98,8 @@ var registry = map[string]LanguageHandler{}
 // Phase 4) quietly steal an already-registered extension like ".svelte"
 // without anyone noticing until symbols/edges silently changed producer.
 func registerHandler(h LanguageHandler) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
 	for _, ext := range h.Extensions() {
 		if existing, ok := registry[ext]; ok {
 			panic(fmt.Sprintf("parser: extension %q already registered to %T, cannot register %T", ext, existing, h))
@@ -92,9 +108,22 @@ func registerHandler(h LanguageHandler) {
 	}
 }
 
+// unregisterHandler removes a single extension's handler mapping. Only used
+// by tests that inject a synthetic handler (TestRegisterHandlerCollisionPanics)
+// to restore the registry; kept here so the write goes through registryMu
+// instead of an unguarded `delete(registry, ext)` that would race concurrent
+// readers.
+func unregisterHandler(ext string) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	delete(registry, ext)
+}
+
 // HandlerForExt returns the LanguageHandler for a given file extension.
 // Returns nil if the extension is not supported.
 func HandlerForExt(ext string) LanguageHandler {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
 	return registry[ext]
 }
 
@@ -103,10 +132,29 @@ func HandlerForExt(ext string) LanguageHandler {
 // language has a fixture proving ParseFileWithCalls matches ParseFile+ExtractCalls,
 // so a newly registered handler cannot ship without that coverage.
 func RegisteredExtensions() []string {
+	registryMu.RLock()
 	exts := make([]string, 0, len(registry))
 	for ext := range registry {
 		exts = append(exts, ext)
 	}
+	registryMu.RUnlock()
 	sort.Strings(exts)
 	return exts
+}
+
+// registrySnapshot returns a point-in-time copy of the registry for safe
+// iteration without holding registryMu across caller work. Callers that range
+// the registry and then re-enter it (e.g. a test's t.Run subtest calling
+// ParseFile -> HandlerForExt, which re-takes the read lock) MUST snapshot
+// first: holding an RLock across a re-entrant RLock can self-deadlock when a
+// writer is waiting, and ranges over the live map race any concurrent
+// registerHandler/unregisterHandler.
+func registrySnapshot() map[string]LanguageHandler {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	out := make(map[string]LanguageHandler, len(registry))
+	for ext, h := range registry {
+		out[ext] = h
+	}
+	return out
 }

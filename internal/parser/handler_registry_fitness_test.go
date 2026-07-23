@@ -37,7 +37,7 @@ func TestRegistryWideSymbolLanguageAgreesWithDetector(t *testing.T) {
 	t.Parallel()
 	fixtures := registrationFixtures(t)
 
-	for ext := range registry {
+	for ext := range registrySnapshot() {
 		t.Run(ext, func(t *testing.T) {
 			src, ok := fixtures[ext]
 			if !ok {
@@ -88,7 +88,7 @@ func TestRegistryWideSymbolLanguageAgreesWithDetector(t *testing.T) {
 // handler (e.g. a Vue template pass) shipping only half of it.
 func TestScriptCallSourceImpliesMarkupCallSource(t *testing.T) {
 	t.Parallel()
-	for ext, h := range registry {
+	for ext, h := range registrySnapshot() {
 		_, hasScript := h.(scriptCallSource)
 		_, hasMarkup := h.(markupCallSource)
 		if hasScript && !hasMarkup {
@@ -112,7 +112,7 @@ func TestScriptCallSourceImpliesMarkupCallSource(t *testing.T) {
 func TestScriptOrMarkupCallSourceForcesFallback(t *testing.T) {
 	t.Parallel()
 	checked := 0
-	for ext, h := range registry {
+	for ext, h := range registrySnapshot() {
 		_, hasScript := h.(scriptCallSource)
 		_, hasMarkup := h.(markupCallSource)
 		if !hasScript && !hasMarkup {

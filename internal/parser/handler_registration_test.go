@@ -40,7 +40,7 @@ func (f *fakeHandler) MapCapture(_ string, _ *sitter.Node, _ []byte) *Symbol { r
 func TestRegisterHandlerCollisionPanics(t *testing.T) {
 	t.Parallel()
 	const testExt = ".gocode_test_synthetic"
-	t.Cleanup(func() { delete(registry, testExt) })
+	t.Cleanup(func() { unregisterHandler(testExt) })
 
 	registerHandler(&fakeHandler{lang: "synthetic-a", exts: []string{testExt}})
 
@@ -176,7 +176,7 @@ func TestHandlerRegistrationHealth(t *testing.T) {
 	t.Parallel()
 	fixtures := registrationFixtures(t)
 
-	for ext := range registry {
+	for ext := range registrySnapshot() {
 		t.Run(ext, func(t *testing.T) {
 			h := HandlerForExt(ext)
 			if h == nil {
