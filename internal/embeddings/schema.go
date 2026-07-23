@@ -210,6 +210,16 @@ func (s *Store) runEnsureSchema(ctx context.Context) error {
 	}
 
 	s.transferOwnership(ctx, tables)
+
+	// Install the code_repo_state ON DELETE CASCADE trigger (#588). This is a
+	// separate idempotent step from the parsed schemaStatements (which only
+	// cover extension/table/index/column) because CREATE FUNCTION / CREATE
+	// TRIGGER have no IF NOT EXISTS guard and need a pg_trigger catalog check.
+	// Runs on every EnsureSchema cold path but is a no-op once the trigger
+	// exists (warm DB: one cheap catalog probe, zero DDL).
+	if err := s.ensureCascadeTrigger(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -249,6 +259,68 @@ func (s *Store) tableOwnedByCurrentUser(ctx context.Context, table string) (bool
 	var one int
 	err := s.schema.QueryRow(ctx, "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = $1 AND tableowner = current_user", table).Scan(&one)
 	return rowExists(err)
+}
+
+// triggerExists reports whether a non-internal trigger named `trigger` is
+// attached to `table` (schema-qualified to public). Used by ensureCascadeTrigger
+// to guard the CREATE TRIGGER (Postgres has no CREATE TRIGGER IF NOT EXISTS).
+func (s *Store) triggerExists(ctx context.Context, table, trigger string) (bool, error) {
+	var one int
+	err := s.schema.QueryRow(ctx,
+		"SELECT 1 FROM pg_trigger WHERE tgrelid = $1::regclass AND tgname = $2 AND NOT tgisinternal",
+		"public."+table, trigger).Scan(&one)
+	return rowExists(err)
+}
+
+// ensureCascadeTrigger installs the code_repo_state ON DELETE CASCADE trigger
+// (#588) idempotently. A FK is deliberately NOT used: the embed-first write
+// order (embedChunks commits code_embeddings BEFORE writeRepoState commits the
+// state row) would make a FK reject the first-index INSERT — see
+// cascadeDeleteFnSQL for the full rationale. The trigger gives the cascade
+// guarantee (state-row delete → embeddings delete) without enforcing INSERT.
+//
+// Idempotent + safe to re-run on the shared prod table:
+//   - guarded by a pg_trigger catalog check (no-op once the trigger exists);
+//   - the function is CREATE OR REPLACE;
+//   - DROP TRIGGER IF EXISTS clears any partially-created state from a prior
+//     interrupted run before CREATE;
+//   - runs in its own short transaction with lock_timeout=3s so a lock conflict
+//     on the small code_repo_state table fast-fails instead of hanging.
+//
+// WipeRepo compatibility: WipeRepo deletes code_embeddings first, then
+// code_repo_state. The trigger fires on the state delete and issues a DELETE
+// against code_embeddings that affects 0 rows (already deleted) — no
+// double-delete, no conflict. See TestCascadeTrigger_WipeRepoStillCleansBoth.
+func (s *Store) ensureCascadeTrigger(ctx context.Context) error {
+	exists, err := s.triggerExists(ctx, "code_repo_state", "trg_code_repo_state_cascade")
+	if err != nil {
+		return fmt.Errorf("check cascade trigger: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	tx, err := s.schema.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin cascade trigger tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '3s'"); err != nil {
+		return fmt.Errorf("set lock_timeout (cascade trigger): %w", err)
+	}
+	if _, err := tx.Exec(ctx, cascadeDeleteFnSQL); err != nil {
+		return fmt.Errorf("create cascade function: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "DROP TRIGGER IF EXISTS trg_code_repo_state_cascade ON public.code_repo_state"); err != nil {
+		return fmt.Errorf("drop stale cascade trigger: %w", err)
+	}
+	if _, err := tx.Exec(ctx, cascadeTriggerSQL); err != nil {
+		return fmt.Errorf("create cascade trigger: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit cascade trigger tx: %w", err)
+	}
+	return nil
 }
 
 func rowExists(err error) (bool, error) {

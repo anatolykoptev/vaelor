@@ -85,6 +85,36 @@ ALTER TABLE public.code_repo_state
 ALTER TABLE public.code_embeddings
     ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT ''`
 
+// cascadeDeleteFnSQL installs the PL/pgSQL function backing the
+// code_repo_state ON DELETE CASCADE trigger (#588). CREATE OR REPLACE makes it
+// idempotent — re-running EnsureSchema is a no-op once the function exists.
+//
+// A FK with ON DELETE CASCADE is NOT used here because the embed-first write
+// order (embedChunks commits code_embeddings rows BEFORE writeRepoState commits
+// the code_repo_state row) would make a FK reject the first-index INSERT: at the
+// moment embedChunks inserts, no parent code_repo_state row exists yet. Even a
+// NOT VALID FK enforces NEW inserts immediately, so first indexing would break.
+// A DEFERRABLE FK does not help either — embedChunks and writeRepoState run in
+// SEPARATE transactions (per-chunk commits), not one deferred tx. The trigger
+// gives the cascade guarantee (state-row delete → embeddings delete) WITHOUT
+// enforcing INSERT, so the embed-first write order is unaffected. See #588 for
+// the full migration-safety analysis.
+const cascadeDeleteFnSQL = `CREATE OR REPLACE FUNCTION public.fn_cascade_delete_embeddings()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM public.code_embeddings WHERE repo_key = OLD.repo_key;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql`
+
+// cascadeTriggerSQL creates the AFTER DELETE row-level trigger on code_repo_state.
+// Postgres has no CREATE TRIGGER IF NOT EXISTS, so ensureCascadeTrigger guards
+// creation with a pg_trigger catalog check (and a DROP IF EXISTS belt-and-suspenders
+// for a partially-created state from a prior interrupted run).
+const cascadeTriggerSQL = `CREATE TRIGGER trg_code_repo_state_cascade
+    AFTER DELETE ON public.code_repo_state
+    FOR EACH ROW EXECUTE FUNCTION public.fn_cascade_delete_embeddings()`
+
 // EmbeddingRecord holds a single symbol embedding for storage.
 type EmbeddingRecord struct {
 	RepoKey         string
