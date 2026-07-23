@@ -238,6 +238,34 @@ func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
 	return p.IndexRepoAsyncWithTool("autoindex", repoKey, root)
 }
 
+// claimIndexSlot is the shared per-repoKey single-flight claim used by BOTH the
+// async (IndexRepoAsyncWithTool) and sync (IndexRepo) index entrypoints. It
+// atomically reserves the progress slot via LoadOrStore so two indexers for one
+// repoKey never run concurrently — the residual TOCTOU from #589 where a sync
+// IndexRepo bypassed this gate and raced an async indexer for the same repoKey
+// (the loser's compensating DeleteRepo could wipe the winner's just-committed
+// embeddings in the gap between the winner's embed-commit and its state-write).
+//
+// running is set BEFORE LoadOrStore so the winner's slot is always observed as
+// running=true by IsIndexing. On success the caller MUST call the returned
+// release when its index completes (sets running=false and deletes the slot).
+// On loss (won=false) the caller must NOT run indexRepoWithTool — a concurrent
+// indexer owns the repoKey.
+func (p *Pipeline) claimIndexSlot(repoKey string) (prog *indexProgress, release func(), won bool) {
+	prog = &indexProgress{}
+	prog.running.Store(true)
+	if _, loaded := p.progress.LoadOrStore(repoKey, prog); loaded {
+		// Slot already taken by a concurrent or still-running indexer.
+		// The loser discards prog; release is nil so there is nothing to undo.
+		return nil, nil, false
+	}
+	release = func() {
+		prog.running.Store(false)
+		p.progress.Delete(repoKey)
+	}
+	return prog, release, true
+}
+
 // IndexRepoAsyncWithTool starts background indexing if not already running, with
 // tool attribution for observability. Returns true if indexing was started, false
 // if already in progress.
@@ -252,8 +280,9 @@ func (p *Pipeline) IndexRepoAsync(repoKey, root string) bool {
 // cancellations are attributable. Callers that do not know the tool should pass
 // "autoindex".
 //
-// Concurrency: the check-and-claim is atomic (LoadOrStore); only one goroutine per
-// repoKey runs at a time.
+// Concurrency: the claim is atomic (claimIndexSlot → LoadOrStore); only one
+// goroutine per repoKey runs at a time. The sync IndexRepo path shares the same
+// slot, so a sync and an async indexer for one repoKey never overlap (#589).
 func (p *Pipeline) IndexRepoAsyncWithTool(tool, repoKey, root string) bool {
 	// Model-fingerprint guard: purge stale vectors before indexing if the active
 	// model changed since the last index. This covers the lazy per-query path
@@ -261,11 +290,10 @@ func (p *Pipeline) IndexRepoAsyncWithTool(tool, repoKey, root string) bool {
 	// its own pre-loop invalidation in autoindex.go.
 	p.InvalidateIfModelChanged(context.Background(), repoKey)
 
-	prog := &indexProgress{}
-	prog.running.Store(true) // claim before LoadOrStore so the winner's slot is always running=true
-	if _, loaded := p.progress.LoadOrStore(repoKey, prog); loaded {
-		// Slot already taken by a concurrent or still-running goroutine.
-		// The loser discards prog — no goroutine is spawned.
+	prog, release, won := p.claimIndexSlot(repoKey)
+	if !won {
+		// Slot already taken by a concurrent or still-running indexer (sync or
+		// async). No goroutine is spawned.
 		return false
 	}
 	budget := p.indexBudget
@@ -274,10 +302,7 @@ func (p *Pipeline) IndexRepoAsyncWithTool(tool, repoKey, root string) bool {
 	}
 	// We won the slot. The stored prog already has running=true.
 	go func() {
-		defer func() {
-			prog.running.Store(false)
-			p.progress.Delete(repoKey)
-		}()
+		defer release()
 		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		defer cancel()
 		result, err := p.indexRepoWithTool(ctx, tool, repoKey, root, prog)
@@ -306,10 +331,32 @@ type IndexResult struct {
 }
 
 // IndexRepo indexes all functions and methods in a repository for semantic search.
+//
+// Concurrency (#589): the sync path claims the SAME per-repoKey single-flight slot
+// the async path (IndexRepoAsyncWithTool) uses, so a sync and an async indexer for
+// one repoKey never run concurrently. Previously the sync path bypassed the slot and
+// could race a concurrent async indexer: the loser's compensating DeleteRepo wiped
+// the winner's just-committed embeddings in the gap between the winner's embed-commit
+// and its state-write (inverted orphan — state row, zero embeddings). When the slot
+// is already held by a concurrent indexer, this call returns an empty IndexResult
+// without running — the winner performs the index, so the loser doing nothing is the
+// safe outcome (no concurrent DeleteRepo to invert). The non-racing case is
+// byte-identical to the prior behavior (claim → indexRepoWithTool → release).
 func (p *Pipeline) IndexRepo(ctx context.Context, repoKey, root string) (*IndexResult, error) {
 	// Register the (repo key → path) mapping so dashboards can resolve the
 	// opaque hash. IncrementalSync also calls this; the double-set is harmless.
 	SetRepoInfoGauge(repoKey, root)
+	_, release, won := p.claimIndexSlot(repoKey)
+	if !won {
+		// A concurrent indexer (sync or async) already holds the per-repoKey slot.
+		// Serialize: do NOT run indexRepoWithTool concurrently — the winner is
+		// performing the index. Returning an empty result avoids the TOCTOU where
+		// the loser's compensating DeleteRepo could wipe the winner's embeddings.
+		slog.Info("indexRepo: concurrent index in progress for repoKey; skipping (single-flight)",
+			slog.String("repo", repoKey))
+		return &IndexResult{}, nil
+	}
+	defer release()
 	return p.indexRepoWithTool(ctx, "unknown", repoKey, root, nil)
 }
 
