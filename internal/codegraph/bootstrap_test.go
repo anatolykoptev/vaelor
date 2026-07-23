@@ -13,10 +13,10 @@ func TestOwnershipSQL_UsesCurrentUserKeyword(t *testing.T) {
 	t.Parallel()
 
 	tables := []string{
-		"code_graph_meta",
-		"code_file_mtimes",
-		"code_graph_snapshots",
-		"code_dead_code_scores",
+		"public.code_graph_meta",
+		"public.code_file_mtimes",
+		"public.code_graph_snapshots",
+		"public.code_dead_code_scores",
 	}
 
 	for _, table := range tables {
