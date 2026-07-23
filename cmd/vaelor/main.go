@@ -87,6 +87,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Surface ANALYZE_RANK_WEIGHT_* knobs that are set but inert in the default
+	// minmax mode (weights only apply to the rrf path). Makes the no-op
+	// explicit instead of advertising the knob as global (#606).
+	warnInertRankWeights(cfg)
+
 	// Wire the analyze package's fusion config + publish gocode_analyze_fusion_mode
 	// gauge before any analyze call path runs. Default minmax = byte-identical
 	// legacy; rrf is opt-in via ANALYZE_RANK_FUSION_MODE=rrf.

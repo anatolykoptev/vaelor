@@ -171,7 +171,13 @@ type Config struct {
 	// AnalyzeRank* control prioritizeFilesWithScores fusion (Stream 3).
 	// Mode = "minmax" (default, legacy byte-identical) | "rrf" (opt-in, routes
 	// signals through rerank.WeightedRRF). Default flip pending offline-harness
-	// validation; do not flip in this sprint. Weights apply to the rrf path.
+	// validation; do not flip in this sprint.
+	//
+	// The Weight* fields apply ONLY to the rrf path (rank_fusion.go). They have
+	// NO effect in minmax mode, which uses hardcoded const weights in rank.go
+	// (weightBM25=0.5, weightPR=0.3, weightExact=0.2) to preserve byte-identical
+	// legacy output. Setting ANALYZE_RANK_WEIGHT_* in minmax mode is a silent
+	// no-op; loadConfig emits a startup WARN to make that explicit (#606).
 	AnalyzeRankFusionMode     analyze.FusionMode
 	AnalyzeRankWeightBM25     float64
 	AnalyzeRankWeightPageRank float64
@@ -382,7 +388,7 @@ const (
 	bytesPerKB            = 1024
 
 	// 200 MB per repo.
-	defaultMaxRepoBytesMB = 200
+	defaultMaxRepoBytesMB = 250
 	bytesPerMB            = 1024 * 1024
 
 	// Graph defaults.
@@ -616,6 +622,19 @@ func loadConfig() (Config, error) {
 	}, nil
 }
 
+// warnInertRankWeights emits a startup WARN for each ANALYZE_RANK_WEIGHT_* env
+// var that is explicitly set but inert because the fusion mode is minmax. The
+// weights only apply to the rrf path (rank_fusion.go); minmax uses hardcoded
+// const weights (rank.go). Called once at startup from main after loadConfig.
+func warnInertRankWeights(cfg Config) {
+	for _, name := range inertRankWeightEnvVars(cfg.AnalyzeRankFusionMode) {
+		slog.Warn("config: "+name+" has no effect in minmax fusion mode; set ANALYZE_RANK_FUSION_MODE=rrf to apply it",
+			slog.String("env_var", name),
+			slog.String("fusion_mode", string(cfg.AnalyzeRankFusionMode)),
+		)
+	}
+}
+
 // parseFusionMode validates ANALYZE_RANK_FUSION_MODE. Empty/missing falls back
 // to minmax via the caller's default; any non-empty value must be exactly
 // "minmax" or "rrf" — typos must surface loudly rather than silently default.
@@ -627,6 +646,34 @@ func parseFusionMode(raw string) (analyze.FusionMode, error) {
 		return "", fmt.Errorf("invalid ANALYZE_RANK_FUSION_MODE %q: must be %q or %q",
 			raw, analyze.FusionModeMinmax, analyze.FusionModeRRF)
 	}
+}
+
+// rankWeightEnvVars are the ANALYZE_RANK_WEIGHT_* env var names that control
+// the fusion weights. They only take effect in rrf mode (rank_fusion.go); in
+// the default minmax mode the legacy ranking.FusionRank path uses its own
+// hardcoded const weights (rank.go) and these knobs are inert.
+var rankWeightEnvVars = []string{
+	"ANALYZE_RANK_WEIGHT_BM25",
+	"ANALYZE_RANK_WEIGHT_PAGERANK",
+	"ANALYZE_RANK_WEIGHT_SEED",
+}
+
+// inertRankWeightEnvVars returns the ANALYZE_RANK_WEIGHT_* env vars that are
+// explicitly set but inert because the fusion mode is minmax (the weights only
+// apply to the rrf path). Returns nil in rrf mode (weights are honored) or
+// when no weight env var is explicitly set. loadConfig emits a startup WARN
+// per returned var so an operator doesn't silently configure a no-op knob.
+func inertRankWeightEnvVars(mode analyze.FusionMode) []string {
+	if mode == analyze.FusionModeRRF {
+		return nil
+	}
+	var inert []string
+	for _, name := range rankWeightEnvVars {
+		if v, ok := os.LookupEnv(name); ok && v != "" {
+			inert = append(inert, name)
+		}
+	}
+	return inert
 }
 
 // parseKeywordArm validates KEYWORD_ARM. Valid values are "grep" and "bm25f".

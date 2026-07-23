@@ -21,7 +21,7 @@ func handleQuickMode(ctx context.Context, input RepoAnalyzeInput, deps analyze.D
 	if isLocalPath(input.Repo) {
 		return handleLocalQuickMode(ctx, input, deps)
 	}
-	repos := resolveQuickRepos(input)
+	repos := resolveQuickRepos(input, deps.GithubSearchRepos)
 	if len(repos) == 0 {
 		return errResult("repo or repos is required for quick mode"), nil
 	}
@@ -195,11 +195,18 @@ func isLocalPath(repo string) bool {
 }
 
 // resolveQuickRepos returns the list of owner/repo slugs for quick/issues modes.
-func resolveQuickRepos(input RepoAnalyzeInput) []string {
+// When the caller supplies neither Repo nor Repos, it falls back to
+// defaultRepos (wired from the GITHUB_SEARCH_REPOS env var via
+// analyze.Deps.GithubSearchRepos) so an operator can configure default repos
+// for quick-mode code search without per-call input.
+func resolveQuickRepos(input RepoAnalyzeInput, defaultRepos []string) []string {
 	if len(input.Repos) > 0 {
 		return input.Repos
 	}
 	if input.Repo == "" || isLocalPath(input.Repo) {
+		if len(defaultRepos) > 0 {
+			return defaultRepos
+		}
 		return nil
 	}
 	if strings.HasPrefix(input.Repo, "http") {

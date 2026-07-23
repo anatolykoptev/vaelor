@@ -69,12 +69,13 @@ type ingestRepoCache struct {
 }
 
 // ingestOptsKey is the cache-key component derived from IngestOpts. Two
-// calls with different Focus/Languages/MaxFileBytes/MaxFiles/FollowSymlinks/
-// ExcludeTests produce different keys, so they don't collide.
+// calls with different Focus/Languages/MaxFileBytes/MaxRepoBytes/MaxFiles/
+// FollowSymlinks/ExcludeTests produce different keys, so they don't collide.
 type ingestOptsKey struct {
 	Focus          string
 	Languages      string // sorted, comma-joined
 	MaxFileBytes   int64
+	MaxRepoBytes   int64
 	MaxFiles       int
 	FollowSymlinks bool
 	ExcludeTests   bool
@@ -88,6 +89,7 @@ func optsKey(opts IngestOpts) ingestOptsKey {
 		Focus:          opts.Focus,
 		Languages:      strings.Join(langs, ","),
 		MaxFileBytes:   opts.MaxFileBytes,
+		MaxRepoBytes:   opts.MaxRepoBytes,
 		MaxFiles:       opts.MaxFiles,
 		FollowSymlinks: opts.FollowSymlinks,
 		ExcludeTests:   opts.ExcludeTests,
@@ -108,6 +110,8 @@ func cacheKey(root string, opts IngestOpts) string {
 	h.Write([]byte{0})
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], uint64(ok.MaxFileBytes))
+	h.Write(buf[:])
+	binary.LittleEndian.PutUint64(buf[:], uint64(ok.MaxRepoBytes))
 	h.Write(buf[:])
 	binary.LittleEndian.PutUint64(buf[:], uint64(ok.MaxFiles))
 	h.Write(buf[:])

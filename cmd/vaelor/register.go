@@ -151,21 +151,23 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	}
 
 	deps := analyze.Deps{
-		LLM:            llmClient,
-		LLMHasKey:      hasKey,
-		MaxFileBytes:   cfg.MaxFileBytes,
-		GithubToken:    cfg.GithubToken,
-		CloneTokenFunc: buildCloneTokenFunc(cfg),
-		WorkspaceDir:   cfg.WorkspaceDir,
-		PathMappings:   cfg.PathMappings,
-		LocalRepoDirs:  autoIndexDirs(cfg),
-		ParseCache:     parseCache,
-		LLMCache:       llmCache,
-		Forges:         buildForgeRegistry(cfg, toolCache),
-		WebSearch:      buildWebSearchClient(cfg),
-		ToolCache:      toolCache,
-		OxCodes:        buildOxCodesClient(cfg),
-		Learnings:      buildLearningsStore(cfg),
+		LLM:               llmClient,
+		LLMHasKey:         hasKey,
+		MaxFileBytes:      cfg.MaxFileBytes,
+		MaxRepoBytes:      cfg.MaxRepoBytes,
+		GithubSearchRepos: cfg.GithubSearchRepos,
+		GithubToken:       cfg.GithubToken,
+		CloneTokenFunc:    buildCloneTokenFunc(cfg),
+		WorkspaceDir:      cfg.WorkspaceDir,
+		PathMappings:      cfg.PathMappings,
+		LocalRepoDirs:     autoIndexDirs(cfg),
+		ParseCache:        parseCache,
+		LLMCache:          llmCache,
+		Forges:            buildForgeRegistry(cfg, toolCache),
+		WebSearch:         buildWebSearchClient(cfg),
+		ToolCache:         toolCache,
+		OxCodes:           buildOxCodesClient(cfg),
+		Learnings:         buildLearningsStore(cfg),
 	}
 
 	// Database pools (optional — need DATABASE_URL). Tier-2: TWO pools, separated by
