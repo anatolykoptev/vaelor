@@ -38,7 +38,14 @@ func (f *fakeHandler) MapCapture(_ string, _ *sitter.Node, _ []byte) *Symbol { r
 // like ".svelte" without anyone noticing until symbols/edges silently
 // changed producer.
 func TestRegisterHandlerCollisionPanics(t *testing.T) {
-	t.Parallel()
+	// NOT t.Parallel(): this test transiently mutates the shared global handler
+	// registry (registers .gocode_test_synthetic, then unregisters it in
+	// Cleanup). The registry-walking fitness tests (TestHandlerRegistrationHealth,
+	// TestRegistryWideSymbolLanguageAgreesWithDetector) are parallel and snapshot
+	// the registry; if this ran in parallel, its transient synthetic extension
+	// could appear in their snapshot with no fixture and fail them (flaky under
+	// `-count>1`). Running serial guarantees register→Cleanup completes during
+	// the serial phase, before any paused parallel test resumes.
 	const testExt = ".gocode_test_synthetic"
 	t.Cleanup(func() { unregisterHandler(testExt) })
 
