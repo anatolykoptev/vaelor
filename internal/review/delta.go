@@ -23,6 +23,14 @@ type DeltaInput struct {
 	IncludeSnippets bool   // include source code snippets around changed symbols
 	OxCodes         *oxcodes.Client
 
+	// AnalysisRoot, when non-empty, is the tree-walking root used by the
+	// call-graph / impact / snippet stages. When empty, it defaults to Root.
+	// Set this to a worktree checked out at Head so impacted symbols reflect
+	// head's tree while the base..head DIFF still resolves git refs against
+	// Root (the diff operates on refs, not files). Mirrors review_pr's
+	// CreatePRWorktree flow.
+	AnalysisRoot string
+
 	// PathRewrite, when non-nil, is applied to gitdir paths extracted from
 	// worktree .git pointer files. Use this when git commands run inside a
 	// container where filesystem paths differ from host paths embedded in
@@ -61,7 +69,17 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 		input.Depth = defaultDeltaDepth
 	}
 
-	// Step 1: Git diff.
+	// The base..head DIFF resolves git refs against Root. The tree-walking
+	// stages (call graph, impact, snippets) parse the working tree on disk,
+	// so they run against analysisRoot — which callers may set to a worktree
+	// checked out at Head (#583). When empty, analysisRoot defaults to Root
+	// (the pre-#583 fast path, unchanged).
+	analysisRoot := input.AnalysisRoot
+	if analysisRoot == "" {
+		analysisRoot = input.Root
+	}
+
+	// Step 1: Git diff — always against Root (refs, not files).
 	diffs, err := ChangedFilesRewrite(ctx, input.Root, input.PathRewrite, input.Base, input.Head)
 	if err != nil {
 		return nil, fmt.Errorf("changed files: %w", err)
@@ -70,17 +88,20 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 		return &DeltaResult{Risk: RiskGuidance{RiskLevel: "low"}}, nil
 	}
 
-	// Step 2: Build call graph for current state.
+	// Step 2: Build call graph for the analysis tree (Head's tree when a
+	// worktree was supplied, else the live checkout).
 	cg, err := callgraph.BuildFromRepo(ctx, callgraph.TraceRepoInput{
-		Root:     input.Root,
+		Root:     analysisRoot,
 		Language: input.Language,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build call graph: %w", err)
 	}
 
-	// Step 3: Intersect diffs with symbols.
-	changed := ChangedSymbols(cg.Symbols, diffs, input.Root)
+	// Step 3: Intersect diffs with symbols. Symbols carry absolute File paths
+	// rooted at analysisRoot, so relPath must strip analysisRoot (not Root) to
+	// match the diff's repo-relative paths.
+	changed := ChangedSymbols(cg.Symbols, diffs, analysisRoot)
 
 	// Step 4: Impact analysis per changed symbol.
 	impactResults := make(map[string]*impact.Result)
@@ -89,7 +110,7 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 		ir := impact.Analyze(ctx, cg, cs.Symbol.Name, impact.Options{
 			MaxDepth: input.Depth,
 			OxCodes:  input.OxCodes,
-			Root:     input.Root,
+			Root:     analysisRoot,
 			Language: input.Language,
 		})
 		if ir.Found {
@@ -118,14 +139,15 @@ func DeltaReview(ctx context.Context, input DeltaInput) (*DeltaResult, error) {
 	// Second pass: ox-codes scoped search — find test files that reference
 	// changed symbols inside function bodies (catches table-driven tests, etc.).
 	if input.OxCodes != nil {
-		enrichTestedSetViaOxCodes(ctx, input.OxCodes, input.Root, changed, testedSet)
+		enrichTestedSetViaOxCodes(ctx, input.OxCodes, analysisRoot, changed, testedSet)
 	}
 	untestedSymbols := computeUntestedSymbols(changed, testedSet)
 
-	// Step 7: Source snippets (optional).
+	// Step 7: Source snippets (optional). Symbols' File paths are rooted at
+	// analysisRoot, so snippets must read from there too.
 	var snippets []Snippet
 	if input.IncludeSnippets && len(changed) > 0 {
-		snippets = ExtractSnippets(changed, input.Root)
+		snippets = ExtractSnippets(changed, analysisRoot)
 	}
 
 	// Step 8: Risk guidance.

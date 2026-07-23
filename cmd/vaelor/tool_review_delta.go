@@ -16,7 +16,7 @@ import (
 type ReviewDeltaInput struct {
 	Repo            string `json:"repo" jsonschema_description:"Repository: GitHub slug (owner/repo), full URL, or absolute local host path"`
 	Base            string `json:"base,omitempty" jsonschema_description:"Base ref to diff against (commit SHA, branch, tag, HEAD~N). Default: HEAD~1"`
-	Head            string `json:"head,omitempty" jsonschema_description:"Head ref for the diff (commit SHA, branch, tag). Default: HEAD. The DIFF is computed base..head, but impacted-symbol analysis (call graph) always reflects the current working tree — for a full branch review at head without checking it out, use review_pr."`
+	Head            string `json:"head,omitempty" jsonschema_description:"Head ref for the diff (commit SHA, branch, tag). Default: HEAD. The DIFF is computed base..head; when head differs from the current checkout, impacted-symbol analysis runs against an isolated worktree at head so it reflects head tree (falls back to the working tree with a note if the worktree cannot be created)."`
 	Depth           int    `json:"depth,omitempty" jsonschema_description:"Impact traversal depth (default 2, max 5)"`
 	Language        string `json:"language,omitempty" jsonschema_description:"Limit to files of this language (e.g. go, python)"`
 	ExcludeSnippets bool   `json:"exclude_snippets,omitempty" jsonschema_description:"Set true to omit source code snippets (included by default)"`
@@ -37,9 +37,10 @@ func registerReviewDelta(server *mcp.Server, _ Config, deps analyze.Deps, graphS
 			"Returns changed files, changed symbols, impacted downstream symbols, " +
 			"untested changes, and risk guidance. " +
 			"Ideal for pre-merge review: shows blast radius of a branch's changes. " +
-			"Set head= to shape the DIFF as base..head; impacted-symbol analysis " +
-			"always reflects the current working tree (use review_pr for a full " +
-			"no-checkout branch review). " +
+			"Set head= to shape the DIFF as base..head; when head differs from the " +
+			"current checkout, impacted-symbol analysis runs against an isolated " +
+			"worktree at head so it reflects head's tree (falls back to the working " +
+			"tree with a note if the worktree can't be created). " +
 			"impacted_symbols is capped to the top " + fmt.Sprint(maxReviewImpacted) +
 			" entries by default (ranked by impact distance then confidence); " +
 			"set full_impact=true for the complete list.",
@@ -135,8 +136,28 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 		depth = maxReviewDepth
 	}
 
+	// Tree-walking root for the call-graph/impact stage. When head is set and
+	// points at a different tree than the current checkout, build an isolated
+	// worktree at head (mirror review_pr's CreatePRWorktree) so impacted
+	// symbols reflect head's tree, not the warm checkout. The base..head diff
+	// stays against `root` (it resolves git refs, not files). Falls back to the
+	// live checkout with an honest note when the worktree can't be created —
+	// degrade, don't crash.
+	analysisRoot := root
+	var fallbackNote string
+	if headRef := input.Head; headRef != "" && !strings.EqualFold(headRef, "HEAD") {
+		wt, ok, note := tryHeadWorktree(ctx, root, headRef)
+		if ok {
+			defer wt.Cleanup()
+			analysisRoot = wt.Path
+		} else if note != "" {
+			fallbackNote = note
+		}
+	}
+
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
 		Root:            root,
+		AnalysisRoot:    analysisRoot,
 		Base:            input.Base,
 		Head:            input.Head,
 		Depth:           depth,
@@ -202,16 +223,71 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 		out = string(data)
 	}
 
-	// head= shapes the diff only; the call-graph/impact stage parses the
-	// working tree (review_pr worktrees FETCH_HEAD for the full no-checkout
-	// flow). Say so in the response whenever a non-default head is asked for,
-	// so an agent never mistakes the blast radius for head's tree.
-	if input.Head != "" && !strings.EqualFold(input.Head, "HEAD") {
-		out += "\nnote: diff computed base.." + input.Head +
-			"; impacted symbols reflect the current working tree — use review_pr for a full no-checkout branch review"
+	// When head differed from the checkout AND we could not build a worktree
+	// at head, impacted symbols reflect the live working tree (not head's).
+	// Surface that honestly so an agent never mistakes the blast radius for
+	// head's tree. When the worktree succeeded (or head equals the checkout,
+	// or head was unset), no note is needed — the impact stage already
+	// reflects head's tree.
+	if fallbackNote != "" {
+		out += "\n" + fallbackNote
 	}
 
 	return textResult(out), nil
+}
+
+// tryHeadWorktree resolves headRef to a SHA, compares it to the current
+// checkout HEAD, and — when they differ — creates an isolated worktree at
+// headRef (mirroring review_pr's CreatePRWorktree) so tree-walking analysis
+// sees head's tree instead of the warm checkout.
+//
+// Returns:
+//   - (wt, true, "")  on success — caller MUST defer wt.Cleanup().
+//   - (nil, false, "")  when head equals the checkout (fast path: no worktree
+//     needed, impacted symbols reflect head's tree via the live checkout).
+//   - (nil, false, note)  when the worktree could not be created (unknown ref,
+//     fetch failed, worktree add failed) — caller appends `note` to the
+//     response; impacted symbols fall back to the working tree.
+func tryHeadWorktree(ctx context.Context, root, headRef string) (wt *review.PRWorktree, ok bool, note string) {
+	headSHA, err := resolveRef(ctx, root, headRef)
+	if err != nil {
+		return nil, false, "note: could not resolve head=" + headRef + " for worktree (" + err.Error() +
+			"); impacted symbols reflect the current working tree — use review_pr for a full no-checkout branch review"
+	}
+	curSHA, err := review.GitExec(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, false, "note: could not resolve checkout HEAD (" + err.Error() +
+			"); impacted symbols reflect the current working tree — use review_pr for a full no-checkout branch review"
+	}
+	if strings.TrimSpace(headSHA) == strings.TrimSpace(curSHA) {
+		// Checkout already at head — impacted symbols reflect head's tree via
+		// the live checkout. No worktree, no note.
+		return nil, false, ""
+	}
+	wt, err = review.CreatePRWorktree(ctx, root, strings.TrimSpace(headSHA))
+	if err != nil {
+		return nil, false, "note: head=" + headRef + " worktree creation failed (" + err.Error() +
+			"); impacted symbols reflect the current working tree — use review_pr for a full no-checkout branch review"
+	}
+	return wt, true, ""
+}
+
+// resolveRef resolves a git ref to a SHA, fetching it from origin first if it
+// is unknown locally (e.g. a remote branch that has not been fetched yet).
+func resolveRef(ctx context.Context, root, ref string) (string, error) {
+	out, err := review.GitExec(ctx, root, "rev-parse", ref)
+	if err == nil {
+		return out, nil
+	}
+	// Ref unknown locally — try fetching it from origin, then resolve again.
+	if _, ferr := review.GitExec(ctx, root, "fetch", "origin", ref); ferr != nil {
+		return "", fmt.Errorf("rev-parse %q: %w (fetch: %v)", ref, err, ferr)
+	}
+	out, err = review.GitExec(ctx, root, "rev-parse", ref)
+	if err != nil {
+		return "", fmt.Errorf("rev-parse %q after fetch: %w", ref, err)
+	}
+	return out, nil
 }
 
 // capImpactedSymbols bounds the impacted_symbols list returned to the caller.
