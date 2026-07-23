@@ -691,37 +691,42 @@ func parseNonNegFloat(key string, def float64) (float64, error) {
 func loadGithubAppConfig() forge.AppConfig {
 	appIDRaw := getenvRebrand("GITHUB_APP_ID")
 	if appIDRaw == "" {
+		// App auth not requested at all — silent by design, not a misconfiguration.
 		return forge.AppConfig{}
 	}
+
+	// GITHUB_APP_ID is set, so the operator intends App auth: the other two fields
+	// are now required. Collect EVERY missing/invalid field so a single warning
+	// tells the operator the full fix, rather than one field per reboot.
+	var problems []string
+
 	appID, err := strconv.ParseInt(appIDRaw, 10, 64)
 	if err != nil || appID == 0 {
-		slog.Warn("config: github app auth disabled — GITHUB_APP_ID invalid; all three fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH) must be set together",
-			slog.String("env_var", "GITHUB_APP_ID"),
-			slog.String("value", appIDRaw),
-		)
-		return forge.AppConfig{}
+		problems = append(problems, fmt.Sprintf("GITHUB_APP_ID invalid (value=%q)", appIDRaw))
 	}
+
 	installIDRaw := getenvRebrand("GITHUB_APP_INSTALLATION_ID")
 	installID, err := strconv.ParseInt(installIDRaw, 10, 64)
 	if err != nil || installID == 0 {
-		slog.Warn("config: github app auth disabled — GITHUB_APP_INSTALLATION_ID missing or invalid; all three fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH) must be set together",
-			slog.String("env_var", "GITHUB_APP_INSTALLATION_ID"),
-			slog.String("value", installIDRaw),
-		)
-		return forge.AppConfig{}
+		if installIDRaw == "" {
+			problems = append(problems, "GITHUB_APP_INSTALLATION_ID unset")
+		} else {
+			problems = append(problems, fmt.Sprintf("GITHUB_APP_INSTALLATION_ID invalid (value=%q)", installIDRaw))
+		}
 	}
 
 	keyPath := getenvRebrand("GITHUB_APP_KEY_PATH")
 	if keyPath == "" {
 		keyPath = "/run/secrets/go-code-app-key"
 	}
-
 	pem, err := os.ReadFile(keyPath) //nolint:gosec // path from operator-controlled env var
 	if err != nil {
-		slog.Warn("config: github app auth disabled — key file unreadable; all three fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH) must be set together",
-			slog.String("env_var", "GITHUB_APP_KEY_PATH"),
-			slog.String("path", keyPath),
-			slog.Any("error", err),
+		problems = append(problems, fmt.Sprintf("GITHUB_APP_KEY_PATH unreadable (path=%q: %v)", keyPath, err))
+	}
+
+	if len(problems) > 0 {
+		slog.Warn("config: github app auth disabled — incomplete config; fix all listed fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH must all be set together)",
+			slog.String("missing", strings.Join(problems, "; ")),
 		)
 		return forge.AppConfig{}
 	}

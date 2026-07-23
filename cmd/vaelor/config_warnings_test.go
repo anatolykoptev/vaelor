@@ -2,6 +2,8 @@ package main
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -218,33 +220,56 @@ func TestWarnSparseDisabled_URLUnsetWeightPositive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadGithubAppConfig_PartialConfigWarns(t *testing.T) {
+	// A readable key file lets each case isolate WHICH fields are reported
+	// missing — the warning must enumerate exactly the broken fields (and not
+	// the valid ones) in a single record, so one reboot fixes everything.
+	validKey := filepath.Join(t.TempDir(), "key.pem")
+	if err := os.WriteFile(validKey, []byte("dummy-pem"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name           string
 		appID          string
 		installationID string
-		keyPath        string
-		wantWarnSubstr string
+		keyPath        string // "" => forced nonexistent (unreadable)
+		wantMissing    []string
+		wantNotMissing []string
 	}{
 		{
-			name:           "app_id_invalid",
+			name:           "app_id_invalid_others_ok",
+			appID:          "abc",
+			installationID: "456",
+			keyPath:        validKey,
+			wantMissing:    []string{"GITHUB_APP_ID invalid"},
+			wantNotMissing: []string{"GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_KEY_PATH"},
+		},
+		{
+			name:           "installation_unset_others_ok",
+			appID:          "123",
+			installationID: "",
+			keyPath:        validKey,
+			wantMissing:    []string{"GITHUB_APP_INSTALLATION_ID unset"},
+			wantNotMissing: []string{"GITHUB_APP_ID invalid", "GITHUB_APP_KEY_PATH"},
+		},
+		{
+			name:           "key_unreadable_others_ok",
+			appID:          "123",
+			installationID: "456",
+			keyPath:        "",
+			wantMissing:    []string{"GITHUB_APP_KEY_PATH unreadable"},
+			wantNotMissing: []string{"GITHUB_APP_ID invalid", "GITHUB_APP_INSTALLATION_ID"},
+		},
+		{
+			// The whole point of #603: every broken field in ONE record.
+			name:           "all_three_broken_enumerated_together",
 			appID:          "abc",
 			installationID: "",
 			keyPath:        "",
-			wantWarnSubstr: "GITHUB_APP_ID",
-		},
-		{
-			name:           "app_id_set_installation_missing",
-			appID:          "123",
-			installationID: "",
-			keyPath:        "",
-			wantWarnSubstr: "GITHUB_APP_INSTALLATION_ID",
-		},
-		{
-			name:           "app_id_set_installation_invalid",
-			appID:          "123",
-			installationID: "abc",
-			keyPath:        "",
-			wantWarnSubstr: "GITHUB_APP_INSTALLATION_ID",
+			wantMissing: []string{
+				"GITHUB_APP_ID invalid",
+				"GITHUB_APP_INSTALLATION_ID unset",
+				"GITHUB_APP_KEY_PATH unreadable",
+			},
 		},
 	}
 	for _, tc := range cases {
@@ -264,11 +289,40 @@ func TestLoadGithubAppConfig_PartialConfigWarns(t *testing.T) {
 			if cfg.IsConfigured() {
 				t.Error("expected App auth NOT configured on partial config")
 			}
-			if !warnContains(th.records, tc.wantWarnSubstr) {
-				t.Errorf("expected WARN containing %q, got records: %v",
-					tc.wantWarnSubstr, th.records)
+			for _, want := range tc.wantMissing {
+				if !warnContainsAttr(th.records, "github app auth disabled", "missing", want) {
+					t.Errorf("expected 'missing' attr to contain %q, got records: %v", want, th.records)
+				}
+			}
+			for _, notWant := range tc.wantNotMissing {
+				if warnContainsAttr(th.records, "github app auth disabled", "missing", notWant) {
+					t.Errorf("'missing' attr must NOT flag valid field %q, got records: %v", notWant, th.records)
+				}
 			}
 		})
+	}
+}
+
+func TestLoadGithubAppConfig_FullConfigNoWarn(t *testing.T) {
+	// The absent-warn side: when all three fields are valid, App auth is
+	// configured and no warning is emitted (the #603 clean-config path).
+	validKey := filepath.Join(t.TempDir(), "key.pem")
+	if err := os.WriteFile(validKey, []byte("dummy-pem"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	th, restore := captureSlog(t)
+	defer restore()
+
+	t.Setenv("VAELOR_GITHUB_APP_ID", "123")
+	t.Setenv("VAELOR_GITHUB_APP_INSTALLATION_ID", "456")
+	t.Setenv("VAELOR_GITHUB_APP_KEY_PATH", validKey)
+
+	cfg := loadGithubAppConfig()
+	if !cfg.IsConfigured() {
+		t.Error("expected App auth configured with all three fields valid")
+	}
+	if anyWarn(th.records) {
+		t.Errorf("expected NO warnings when GitHub App fully configured, got: %v", th.records)
 	}
 }
 
