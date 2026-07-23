@@ -511,6 +511,9 @@ func buildGraphDeps(store *codegraph.Store, mappings []analyze.PathMapping) (gra
 // Returns nil (disabled) when LearningsDSN is empty or the pool fails to open.
 func buildLearningsStore(cfg Config) *learnings.Store {
 	if cfg.LearningsDSN == "" {
+		slog.Warn("config: learnings store disabled — LEARNINGS_DATABASE_URL not set (falls back to DATABASE_URL); remember_graph_insights and prior_learnings in understand will be unavailable",
+			slog.String("env_var", "LEARNINGS_DATABASE_URL"),
+		)
 		return nil
 	}
 	ls, err := learnings.New(context.Background(), cfg.LearningsDSN, nil)

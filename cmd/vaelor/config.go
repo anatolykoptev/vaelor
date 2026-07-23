@@ -638,7 +638,8 @@ func parseKeywordArm(raw string) string {
 	case keywordArmGrep, keywordArmBM25F:
 		return raw
 	default:
-		slog.Warn("invalid KEYWORD_ARM: falling back to grep",
+		slog.Warn("config: keyword arm invalid — falling back to grep; BM25F will not be active",
+			slog.String("env_var", "KEYWORD_ARM"),
 			slog.String("value", raw),
 			slog.String("allowed", keywordArmGrep+"|"+keywordArmBM25F),
 		)
@@ -688,13 +689,25 @@ func parseNonNegFloat(key string, def float64) (float64, error) {
 //
 // A warning is logged so operators know App auth is inactive.
 func loadGithubAppConfig() forge.AppConfig {
-	appID, err := strconv.ParseInt(getenvRebrand("GITHUB_APP_ID"), 10, 64)
-	if err != nil || appID == 0 {
+	appIDRaw := getenvRebrand("GITHUB_APP_ID")
+	if appIDRaw == "" {
 		return forge.AppConfig{}
 	}
-	installID, err := strconv.ParseInt(getenvRebrand("GITHUB_APP_INSTALLATION_ID"), 10, 64)
+	appID, err := strconv.ParseInt(appIDRaw, 10, 64)
+	if err != nil || appID == 0 {
+		slog.Warn("config: github app auth disabled — GITHUB_APP_ID invalid; all three fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH) must be set together",
+			slog.String("env_var", "GITHUB_APP_ID"),
+			slog.String("value", appIDRaw),
+		)
+		return forge.AppConfig{}
+	}
+	installIDRaw := getenvRebrand("GITHUB_APP_INSTALLATION_ID")
+	installID, err := strconv.ParseInt(installIDRaw, 10, 64)
 	if err != nil || installID == 0 {
-		slog.Warn("GITHUB_APP_ID set but GITHUB_APP_INSTALLATION_ID missing; App auth disabled")
+		slog.Warn("config: github app auth disabled — GITHUB_APP_INSTALLATION_ID missing or invalid; all three fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH) must be set together",
+			slog.String("env_var", "GITHUB_APP_INSTALLATION_ID"),
+			slog.String("value", installIDRaw),
+		)
 		return forge.AppConfig{}
 	}
 
@@ -705,7 +718,8 @@ func loadGithubAppConfig() forge.AppConfig {
 
 	pem, err := os.ReadFile(keyPath) //nolint:gosec // path from operator-controlled env var
 	if err != nil {
-		slog.Warn("github app key file unreadable, App auth disabled", //nolint:gosec // G706: path is operator-supplied env var, not user input
+		slog.Warn("config: github app auth disabled — key file unreadable; all three fields (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_KEY_PATH) must be set together",
+			slog.String("env_var", "GITHUB_APP_KEY_PATH"),
 			slog.String("path", keyPath),
 			slog.Any("error", err),
 		)
