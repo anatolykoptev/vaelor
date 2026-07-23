@@ -388,7 +388,7 @@ const (
 	bytesPerKB            = 1024
 
 	// 200 MB per repo.
-	defaultMaxRepoBytesMB = 200
+	defaultMaxRepoBytesMB = 250
 	bytesPerMB            = 1024 * 1024
 
 	// Graph defaults.

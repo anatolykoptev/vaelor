@@ -10,6 +10,7 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/parser"
@@ -31,6 +32,11 @@ type RepoAnalysisInput struct {
 
 	// Depth controls analysis depth: overview, module (default), deep.
 	Depth string
+
+	// MaxRepoBytes is a per-request override for the total ingested-source
+	// cap. >0 overrides deps.maxRepoBytes() (the MAX_REPO_MB default) for this
+	// call; 0 falls back to the configured default.
+	MaxRepoBytes int64
 }
 
 // RepoAnalysisResult is the output of a repository analysis.
@@ -138,15 +144,30 @@ func AnalyzeRepo(ctx context.Context, input RepoAnalysisInput, deps Deps) (*Repo
 		langs = []string{input.Language}
 	}
 
+	// Per-request override wins over the configured default; 0 => default.
+	maxRepoBytes := deps.maxRepoBytes()
+	if input.MaxRepoBytes > 0 {
+		maxRepoBytes = input.MaxRepoBytes
+	}
+
 	ingestResult, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         input.Root,
 		Focus:        input.Focus,
 		Languages:    langs,
 		MaxFileBytes: deps.maxFileBytes(),
-		MaxRepoBytes: deps.maxRepoBytes(),
+		MaxRepoBytes: maxRepoBytes,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ingest repo: %w", err)
+	}
+	// The size cap silently drops files; surface it so a truncated analysis
+	// isn't mistaken for a complete one (raise via the max_repo_mb arg).
+	if n := ingestResult.SkippedReasons["repo_oversize"]; n > 0 {
+		slog.Warn("analyze: repo exceeded the size cap — files truncated from analysis; raise max_repo_mb to index them",
+			slog.Int("files_skipped", n),
+			slog.Int64("cap_bytes", maxRepoBytes),
+			slog.Int64("ingested_bytes", ingestResult.TotalBytes),
+		)
 	}
 
 	parseResults := parseFilesParallel(ctx, ingestResult.Files, false, deps.ParseCache)

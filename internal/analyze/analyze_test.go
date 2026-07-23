@@ -1,7 +1,9 @@
 package analyze
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +106,49 @@ func TestAnalyzeRepo(t *testing.T) {
 	}
 	if result.FileTree == "" {
 		t.Error("expected non-empty file tree")
+	}
+}
+
+// TestAnalyzeRepo_MaxRepoBytesOverride proves the per-request MaxRepoBytes
+// override reaches ingest and truncates a repo, and that truncation emits a
+// WARN (so a capped analysis isn't mistaken for a complete one).
+//
+// Not parallel: it swaps slog.Default() to capture the WARN.
+//
+// Falsification: drop the `if input.MaxRepoBytes > 0` override in AnalyzeRepo →
+// the capped run ingests every file like the uncapped run → capped.FileCount ==
+// full.FileCount and no WARN → RED.
+func TestAnalyzeRepo_MaxRepoBytesOverride(t *testing.T) {
+	root := makeFixtureRepo(t)
+	ctx := context.Background()
+	deps := Deps{MaxFileBytes: defaultMaxFileBytes} // no configured repo cap (MaxRepoBytes 0)
+
+	// Baseline: no override, no configured cap → every fixture file analyzed.
+	full, err := AnalyzeRepo(ctx, RepoAnalysisInput{Root: root, Query: "x"}, deps)
+	if err != nil {
+		t.Fatalf("AnalyzeRepo (no override): %v", err)
+	}
+	if full.FileCount < 2 {
+		t.Fatalf("fixture must have >=2 files for the override test, got %d", full.FileCount)
+	}
+
+	// Per-request override to a 1-byte cap → ingest stops after the first file →
+	// strictly fewer files than the uncapped run, and a truncation WARN fires.
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(orig)
+
+	capped, err := AnalyzeRepo(ctx, RepoAnalysisInput{Root: root, Query: "x", MaxRepoBytes: 1}, deps)
+	if err != nil {
+		t.Fatalf("AnalyzeRepo (override): %v", err)
+	}
+	if capped.FileCount >= full.FileCount {
+		t.Errorf("per-request MaxRepoBytes override not honored: capped=%d full=%d (want capped < full)",
+			capped.FileCount, full.FileCount)
+	}
+	if !strings.Contains(buf.String(), "repo exceeded the size cap") {
+		t.Errorf("expected a truncation WARN when the cap drops files, got: %q", buf.String())
 	}
 }
 

@@ -95,7 +95,7 @@
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp clone location |
 | `MAX_FILE_KB` | `512` | |
 | `INDEX_SKIP_DIRS` | `` | Comma-separated dir names appended to the built-in skip set (`vendor`, `node_modules`, `target`, etc.). E.g. `INDEX_SKIP_DIRS=mygenerated,legacy`. Empty = default list only. |
-| `MAX_REPO_MB` | `200` | |
+| `MAX_REPO_MB` | `250` | Total ingested-source cap for deep repo_analyze. Per-request override via the `max_repo_mb` tool arg (>0 wins; 0 uses this default). Truncation emits a WARN. |
 | `REDIS_URL` | optional | L2 cache, DB 6 |
 | `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
 | `LEARNINGS_DATABASE_URL` | optional | PostgreSQL DSN (pgvector) for the review learnings store; falls back to `DATABASE_URL` when unset. When both are empty, the learnings loop is silently disabled |

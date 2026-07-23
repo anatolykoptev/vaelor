@@ -34,11 +34,14 @@ func TestIngestRepo_MaxRepoBytesCapsTotalSize(t *testing.T) {
 		t.Fatalf("baseline ingested %d files, want 3", len(full.Files))
 	}
 
-	// Cap just above file a.go's size but below the cumulative total → must
-	// stop after the first file and record the repo_oversize reason.
+	// Cap just above file a.go's size but below the cumulative total. The cap
+	// is checked against already-accepted bytes BEFORE appending, so the
+	// accepted set can overshoot the cap by up to one file: a is accepted, b is
+	// accepted (its size only pushes the total over on the NEXT check), c is
+	// skipped with repo_oversize. Net: strictly fewer than the uncapped run.
 	capped, err := IngestRepo(context.Background(), IngestOpts{
 		Root:         root,
-		MaxRepoBytes: full.Files[0].Size + 1, // a.go fits, b.go would exceed
+		MaxRepoBytes: full.Files[0].Size + 1,
 	})
 	if err != nil {
 		t.Fatalf("IngestRepo (capped): %v", err)
