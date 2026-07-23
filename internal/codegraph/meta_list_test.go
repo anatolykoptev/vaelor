@@ -51,6 +51,10 @@ func TestListMeta_ReturnsAllRows(t *testing.T) {
 		_ = setup.Close(ctx)
 		t.Fatalf("ensure meta table: %v", err)
 	}
+	if _, err := setup.Exec(ctx, metaTableMigrateSQL); err != nil {
+		_ = setup.Close(ctx)
+		t.Fatalf("migrate meta table: %v", err)
+	}
 	_, _ = setup.Exec(ctx, "DELETE FROM code_graph_meta WHERE repo_key = ANY($1)",
 		[]string{freshKey, staleKey})
 	_ = setup.Close(ctx)

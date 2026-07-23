@@ -23,15 +23,24 @@ const ageSetup = `SET search_path TO ag_catalog, "$user", public`
 // metaTableSQL defines the schema for tracking built code graphs.
 const metaTableSQL = `
 CREATE TABLE IF NOT EXISTS code_graph_meta (
-    repo_key     TEXT PRIMARY KEY,
-    repo_path    TEXT NOT NULL,
-    graph_name   TEXT NOT NULL,
-    file_count   INT,
-    symbol_count INT,
-    edge_count   INT,
-    built_at     TIMESTAMPTZ NOT NULL,
-    ttl_seconds  INT DEFAULT 3600
+    repo_key      TEXT PRIMARY KEY,
+    repo_path     TEXT NOT NULL,
+    graph_name    TEXT NOT NULL,
+    file_count    INT,
+    symbol_count  INT,
+    edge_count    INT,
+    built_at      TIMESTAMPTZ NOT NULL,
+    ttl_seconds   INT DEFAULT 3600,
+    content_hash  TEXT DEFAULT ''
 )`
+
+// metaTableMigrateSQL adds the content_hash column to pre-existing
+// code_graph_meta tables. Runs once at EnsureGraph time; IF NOT EXISTS
+// makes it idempotent. The column stores ingest.RepoContentHash(root) at
+// build time so checkCache can detect file changes within the TTL window
+// (issue #592: stale graph served until TTL expires despite file changes).
+const metaTableMigrateSQL = `
+ALTER TABLE code_graph_meta ADD COLUMN IF NOT EXISTS content_hash TEXT DEFAULT ''`
 
 // mtimeTableSQL defines the schema for tracking per-file modification times.
 const mtimeTableSQL = `

@@ -66,6 +66,11 @@ func (s *Store) EnsureGraph(ctx context.Context, name string) error {
 		return fmt.Errorf("ensure meta table: %w", err)
 	}
 
+	// Migrate pre-existing meta table: add content_hash column (#592).
+	if _, err := tx.Exec(ctx, metaTableMigrateSQL); err != nil {
+		return fmt.Errorf("migrate meta table: %w", err)
+	}
+
 	// Ensure the file mtimes table exists for incremental indexing.
 	if _, err := tx.Exec(ctx, mtimeTableSQL); err != nil {
 		return fmt.Errorf("ensure mtimes table: %w", err)
