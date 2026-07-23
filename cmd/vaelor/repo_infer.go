@@ -81,7 +81,7 @@ func shortMissingRepoMsg(ctx context.Context, store *embeddings.Store, dirs []st
 		}
 	}
 	if len(examples) == 0 {
-		return `missing "repo" — pass a GitHub slug (owner/repo) or an absolute local path`
+		return `missing "repo" — pass a GitHub slug (owner/repo) or an absolute local path like /host/src/<name>`
 	}
 	quoted := make([]string, len(examples))
 	for i, e := range examples {

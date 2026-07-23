@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.52.1](https://github.com/anatolykoptev/vaelor/compare/v1.52.0...v1.52.1) (2026-07-23)
+
+
+### Fixed
+
+* **mcp:** surface required repo, limit alias, 408 retry, focus enum guidance ([#621](https://github.com/anatolykoptev/vaelor/issues/621)) ([6e75892](https://github.com/anatolykoptev/vaelor/commit/6e75892e9ef3cff45a9da9e0489001df1e33b00b))
+
 ## [1.52.0](https://github.com/anatolykoptev/vaelor/compare/v1.51.4...v1.52.0) (2026-07-23)
 
 

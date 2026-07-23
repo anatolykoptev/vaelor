@@ -17,7 +17,7 @@ import (
 
 // CodeSearchInput is the input schema for the code_search tool.
 type CodeSearchInput struct {
-	Repo          string `json:"repo,omitempty" jsonschema_description:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path. Optional when path is an absolute path under a known root (repo is inferred); otherwise required."`
+	Repo          string `json:"repo,omitempty" jsonschema_description:"REQUIRED (first argument). Repository to search: GitHub slug (owner/repo), full GitHub URL, or absolute local host path (e.g. /host/src/<name>). When omitted, it is inferred only if an absolute path/file argument lies inside a known indexed checkout — otherwise the call fails."`
 	Pattern       string `json:"pattern,omitempty" jsonschema_description:"Search pattern (literal string or regex). Use pattern or query."`
 	Query         string `json:"query,omitempty" jsonschema_description:"Alias for pattern — use either query or pattern"`
 	IsRegex       bool   `json:"is_regex,omitempty" jsonschema_description:"Treat pattern as regular expression (default: literal)"`
@@ -69,6 +69,7 @@ func registerCodeSearch(server *mcp.Server, cfg Config, deps analyze.Deps, sem *
 	addTool(server, &mcp.Tool{
 		Name: "code_search",
 		Description: "Search for code patterns within a repository. " +
+			"REQUIRED first argument: \"repo\" (owner/repo or /host/src/<name>) — the call fails without it unless an absolute path argument infers the repo. " +
 			"Supports literal strings and regular expressions. " +
 			"Returns matching lines with file paths, line numbers, and surrounding context. " +
 			"Use for finding: TODO comments, error messages, function calls, string literals, " +

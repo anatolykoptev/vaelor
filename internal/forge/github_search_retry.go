@@ -171,6 +171,14 @@ type githubAPIError struct {
 
 func (e *githubAPIError) Error() string { return e.msg }
 
+// NewGitHubAPIError constructs a structured GitHub API error with the given
+// status code and message. Exported so callers (and tests) can build a value
+// that IsTransientAPIError recognizes — e.g. a fake forge simulating a 408
+// timeout (issue #567).
+func NewGitHubAPIError(statusCode int, msg string) error {
+	return &githubAPIError{statusCode: statusCode, msg: msg}
+}
+
 // newGitHubAPIError reads the response body and builds a descriptive error.
 func newGitHubAPIError(resp *http.Response, context string) error {
 	defer resp.Body.Close()
@@ -229,7 +237,8 @@ func nextBackoff(current time.Duration, cfg RetryConfig) time.Duration {
 // isRetryableStatus reports whether a non-2xx HTTP status should be retried.
 func isRetryableStatus(status int) bool {
 	switch status {
-	case http.StatusTooManyRequests,
+	case http.StatusRequestTimeout, // 408 — GitHub Code Search times out on complex queries (issue #567)
+		http.StatusTooManyRequests,
 		http.StatusInternalServerError,
 		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
@@ -238,6 +247,19 @@ func isRetryableStatus(status int) bool {
 	default:
 		return false
 	}
+}
+
+// IsTransientAPIError reports whether err is a GitHub API error whose status
+// is transient and worth surfacing with a retry/simplify hint to the caller
+// (408 Request Timeout or 5xx). Exported so tool handlers (github_code_search)
+// can append a query-simplification hint on these failures (issue #567).
+// 4xx other than 408 are NOT transient.
+func IsTransientAPIError(err error) bool {
+	var apiErr *githubAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr.statusCode == http.StatusRequestTimeout || apiErr.statusCode >= 500
+	}
+	return false
 }
 
 // isRetryableError reports whether a network/transport error is worth retrying.
