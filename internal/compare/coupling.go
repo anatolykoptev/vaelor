@@ -28,6 +28,13 @@ type CoupledPair struct {
 // CollectCoupling analyzes git log to find files that frequently change together.
 // Returns pairs with at least minCoChanges co-occurrences, sorted by frequency desc.
 // Looks at the last year of history. Returns nil if git is unavailable.
+//
+// Rename-aware: git log --name-only emits the path AS OF EACH COMMIT, so a
+// rename within the window (e.g. cmd/go-code/ -> cmd/vaelor/) leaves pre-rename
+// commits keyed on stale paths. CollectCoupling detects renames in the window
+// and rewrites historical paths to their current (post-rename) location before
+// counting pairs — otherwise suggest_reviewers, called with current PR paths,
+// sees co-change=0 for recently-renamed files (bug #355).
 func CollectCoupling(ctx context.Context, root string, minCoChanges int) []CoupledPair {
 	key := couplingCacheKey(root, minCoChanges)
 	if cached, ok := globalCouplingCache.get(key); ok {
@@ -46,6 +53,11 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 		return nil
 	}
 
+	// Build old->current rename map for the same window so pre-rename commits
+	// can be rewritten to their current path. -M enables rename detection;
+	// --diff-filter=R emits only rename records as "R<score>\told\tnew".
+	renameMap := collectRenames(ctx, root)
+
 	commits := parseCommits(stdout.String())
 
 	// Count per-file changes and co-changes.
@@ -53,6 +65,21 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 	coChanges := make(map[string]int)
 
 	for _, files := range commits {
+		// Rewrite historical paths to their current (post-rename) location
+		// and dedup: a pure-rename commit lists both old and new path, which
+		// after rewrite collapses to a single logical file.
+		seen := make(map[string]struct{}, len(files))
+		var resolved []string
+		for _, f := range files {
+			f = resolveRename(renameMap, f)
+			if _, ok := seen[f]; ok {
+				continue
+			}
+			seen[f] = struct{}{}
+			resolved = append(resolved, f)
+		}
+		files = resolved
+
 		// Filter out compiled artifacts from coupling analysis.
 		var srcFiles []string
 		for _, f := range files {
@@ -78,6 +105,9 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 		for i := 0; i < len(files); i++ {
 			for j := i + 1; j < len(files); j++ {
 				a, b := files[i], files[j]
+				if a == b {
+					continue
+				}
 				if a > b {
 					a, b = b, a
 				}
@@ -99,6 +129,62 @@ func CollectCoupling(ctx context.Context, root string, minCoChanges int) []Coupl
 
 	globalCouplingCache.set(key, pairs)
 	return pairs
+}
+
+// collectRenames builds an old->new path map for renames within the coupling
+// window (--since=1 year, matching CollectCoupling). Returns nil if git is
+// unavailable or no renames are detected. The map is resolved transitively in
+// resolveRename so chained renames (A->B->C) collapse to the final path.
+//
+//nolint:gosec // root is a trusted local path from resolveRoot
+func collectRenames(ctx context.Context, root string) map[string]string {
+	cmd := exec.CommandContext(ctx, "git", "-C", root,
+		"log", "--name-status", "-M", "--diff-filter=R",
+		"--since=1 year", "--format=")
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return nil
+	}
+
+	m := make(map[string]string)
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		// Lines look like: R100\told/path.go\tnew/path.go
+		if len(line) < 2 || line[0] != 'R' {
+			continue
+		}
+		parts := strings.Split(line[1:], "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		old, nw := strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
+		if old == "" || nw == "" || old == nw {
+			continue
+		}
+		m[old] = nw
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// resolveRename rewrites a historical path to its current (post-rename)
+// location, following chained renames (A->B->C) up to a small bound to avoid
+// cycles in malformed history.
+func resolveRename(renameMap map[string]string, path string) string {
+	if renameMap == nil {
+		return path
+	}
+	for i := 0; i < 16; i++ {
+		nw, ok := renameMap[path]
+		if !ok {
+			return path
+		}
+		path = nw
+	}
+	return path
 }
 
 // parseCommits splits git log output into per-commit file lists.
