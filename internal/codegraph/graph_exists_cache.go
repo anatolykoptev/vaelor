@@ -31,11 +31,14 @@ func (c *graphExistsCache) Hit(name string) bool {
 	t, ok := c.seen[name]
 	c.mu.RUnlock()
 	if !ok {
+		existsCacheMissTotal.Inc()
 		return false
 	}
 	if time.Since(t) > c.ttl {
+		existsCacheMissTotal.Inc()
 		return false
 	}
+	existsCacheHitTotal.Inc()
 	return true
 }
 
@@ -52,4 +55,5 @@ func (c *graphExistsCache) Forget(name string) {
 	c.mu.Lock()
 	delete(c.seen, name)
 	c.mu.Unlock()
+	existsCacheForgetTotal.Inc()
 }

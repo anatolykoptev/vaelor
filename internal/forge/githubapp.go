@@ -144,6 +144,7 @@ func (a *AppTokenSource) Token(ctx context.Context) (string, error) {
 			cached, expires := a.token, a.expires
 			a.mu.RUnlock()
 			if cached != "" && time.Now().Before(expires) {
+				githubAppStaleTokenServedTotal.Inc()
 				slog.Warn("github app: token refresh failed, serving cached token", //nolint:gosec // G706: error from internal HTTP call, not user input
 					slog.Any("error", err),
 					slog.Time("expires", expires),

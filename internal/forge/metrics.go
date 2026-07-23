@@ -71,3 +71,55 @@ func resolveOutcome(input string) string {
 	}
 	return "invalid_form"
 }
+
+// --- GitHub App auth observability (#598, #603, #610 gaps 5+7) --------------
+//
+// Two silent failure classes in the GitHub App auth path:
+//
+//   - Stale token served (#598): Token() falls back to a cached token on refresh
+//     failure when the cache is still clock-valid. A sustained non-zero rate
+//     means every subsequent API call rides an expiring token → 401 cascade.
+//   - Auth mode invisible (#603): App vs PAT vs none is decided at forge
+//     construction but never surfaced, so a partial App config (key unreadable,
+//     install id missing) silently falls back to PAT — the operator can't tell.
+
+// githubAppStaleTokenServedTotal counts every Token() call that served a stale
+// cached token because the refresh HTTP call failed (network, 5xx) while the
+// cached token was still clock-valid. Should stay at 0 in steady state; a
+// sustained rate signals an expiring token + failing refresh → 401 cascade.
+var githubAppStaleTokenServedTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "gocode_github_app_stale_token_served_total",
+		Help: "GitHub App installation tokens served stale from cache after a refresh failure (401-cascade risk, #598).",
+	},
+)
+
+// githubAuthMode is a gauge labelled by the active GitHub auth mode
+// (app | pat | none), value 1 for the active mode and 0 for the others.
+// Published once at forge construction (production api.github.com base only)
+// so the operator can see which auth mode is live without issuing a request.
+// Mirrors the gocode_keyword_arm_active pattern.
+var githubAuthMode = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "gocode_github_auth_mode",
+		Help: "Active GitHub auth mode (1 = active). app = GitHub App installation tokens, pat = static PAT, none = unauthenticated (60 req/h).",
+	},
+	[]string{"mode"},
+)
+
+func init() {
+	// Pre-touch all three label values so /metrics always exports every series.
+	githubAuthMode.WithLabelValues(authModeApp).Set(0)
+	githubAuthMode.WithLabelValues(authModePAT).Set(0)
+	githubAuthMode.WithLabelValues(authModeNone).Set(0)
+}
+
+// publishGitHubAuthMode sets the auth-mode gauge so the active mode reads 1 and
+// the others read 0. Called from newGitHubForgeWithBase for the production
+// api.github.com base only (test servers must not mutate the process gauge).
+func publishGitHubAuthMode(mode string) {
+	githubAuthMode.WithLabelValues(authModeApp).Set(0)
+	githubAuthMode.WithLabelValues(authModePAT).Set(0)
+	githubAuthMode.WithLabelValues(authModeNone).Set(0)
+	githubAuthMode.WithLabelValues(mode).Set(1)
+}

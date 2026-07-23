@@ -537,7 +537,7 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 
-	return Config{
+	cfg := Config{
 		Port:                   env.Str("MCP_PORT", defaultPort),
 		LLMURL:                 env.Str("LLM_API_BASE", defaultLLMURL),
 		LLMAPIKey:              env.Str("LLM_API_KEY", ""),
@@ -619,7 +619,11 @@ func loadConfig() (Config, error) {
 		// File watcher — opt-in, default off (ADR-9 one-way door).
 		WatchEnabled:    env.Bool("WATCH_ENABLED", false),
 		WatchDebounceMS: env.Int("WATCH_DEBOUNCE_MS", defaultWatchDebounceMS),
-	}, nil
+	}
+	// Publish the learnings DB fallback gauge (#594) from the raw env values so
+	// the operator can see dedicated vs fallback vs disabled on /metrics.
+	publishLearningsDBFallback(env.Str("LEARNINGS_DATABASE_URL", ""), os.Getenv("DATABASE_URL"))
+	return cfg, nil
 }
 
 // warnInertRankWeights emits a startup WARN for each ANALYZE_RANK_WEIGHT_* env

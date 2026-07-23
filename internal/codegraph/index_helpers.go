@@ -27,6 +27,7 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname, root string) 
 		return nil, fmt.Errorf("check cache: %w", err)
 	}
 	if existing == nil {
+		recordGraphCacheOutcome(classifyGraphCache(nil, ""))
 		return nil, nil
 	}
 	if isFresh(existing.BuiltAt, existing.TTLSeconds) {
@@ -40,13 +41,18 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname, root string) 
 					slog.String("stored_hash", existing.ContentHash[:min(12, len(existing.ContentHash))]),
 					slog.String("current_hash", currentHash[:min(12, len(currentHash))]))
 				// Fall through to stale path: snapshot + drop + rebuild.
+				recordGraphCacheOutcome(classifyGraphCache(existing, currentHash))
 			} else {
+				recordGraphCacheOutcome(classifyGraphCache(existing, currentHash))
 				return existing, nil
 			}
 		} else {
 			// Pre-migration row (no content_hash) — temporal check only.
+			recordGraphCacheOutcome(classifyGraphCache(existing, ""))
 			return existing, nil
 		}
+	} else {
+		recordGraphCacheOutcome(classifyGraphCache(existing, ""))
 	}
 	// Snapshot the stale graph before dropping it.
 	SnapshotBeforeRebuild(ctx, store, repoKey, gname)
@@ -54,6 +60,31 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname, root string) 
 		return nil, fmt.Errorf("drop stale graph: %w", dropErr)
 	}
 	return nil, nil
+}
+
+// classifyGraphCache maps a cache-decision state to its metric outcome:
+//
+//   - "miss":  no cached graph row (existing == nil) → full build.
+//   - "stale": TTL expired, OR content hash mismatch within TTL → rebuild (#592).
+//   - "hit":   fresh AND (content hash matches OR pre-migration empty hash).
+//
+// Pure (no I/O) so it is unit-testable in isolation; checkCache calls it and
+// feeds the result to recordGraphCacheOutcome. currentHash is only consulted
+// when existing is fresh and has a non-empty ContentHash.
+func classifyGraphCache(existing *GraphMeta, currentHash string) string {
+	if existing == nil {
+		return "miss"
+	}
+	if !isFresh(existing.BuiltAt, existing.TTLSeconds) {
+		return "stale"
+	}
+	if existing.ContentHash == "" {
+		return "hit" // pre-migration temporal-only row
+	}
+	if existing.ContentHash == currentHash {
+		return "hit"
+	}
+	return "stale"
 }
 
 // relPath returns the path of abs relative to root.
