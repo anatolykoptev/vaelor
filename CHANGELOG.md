@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.54.0](https://github.com/anatolykoptev/go-code/compare/v1.53.2...v1.54.0) (2026-07-24)
+
+
+### Added
+
+* **eval:** latency, per-language, repo-map, keyword-arm/fusion gate flags ([#645](https://github.com/anatolykoptev/go-code/issues/645)) ([#647](https://github.com/anatolykoptev/go-code/issues/647)) ([f840c69](https://github.com/anatolykoptev/go-code/commit/f840c69e87d9ea5a56fcc4f40346f5a21314c482))
+
 ## [1.53.2](https://github.com/anatolykoptev/vaelor/compare/v1.53.1...v1.53.2) (2026-07-24)
 
 
