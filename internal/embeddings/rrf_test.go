@@ -514,3 +514,138 @@ func TestMergeRRF_FourWayHybrid(t *testing.T) {
 		t.Errorf("four-way overlap: expected source=hybrid, got %q", results[0].Source)
 	}
 }
+
+// TestMergeRRF_RankWindow covers the Elasticsearch rank_window_size cap (issue
+// #663): each arm's ranked input list is truncated to its top-N BEFORE
+// WeightedRRF, so an item ranked beyond the window in every arm it appears in
+// cannot contribute to (or re-order) the fused output. The cap is opt-in —
+// RankWindow <= 0 means "no truncation" and MUST be byte-identical to the
+// unbounded fusion (dark-launch: prod keeps RRF_RANK_WINDOW=0 until the
+// controller flips it). rrfK=60 is unchanged.
+//
+// Fixture: two arms with partial overlap. F appears ONLY in keyword at rank 5;
+// A appears ONLY in semantic at rank 1. With a window < 5 the keyword-only tail
+// (F) is cut and must vanish from the fused output; the semantic-only head (A)
+// is never cut by any window >= 1.
+func TestMergeRRF_RankWindow(t *testing.T) {
+	semantic := []SearchResult{
+		{FilePath: "a.go", SymbolName: "A", Distance: 0.10},
+		{FilePath: "b.go", SymbolName: "B", Distance: 0.20},
+		{FilePath: "c.go", SymbolName: "C", Distance: 0.30},
+		{FilePath: "d.go", SymbolName: "D", Distance: 0.40},
+		{FilePath: "e.go", SymbolName: "E", Distance: 0.50},
+	}
+	keyword := []KeywordHit{
+		{FilePath: "b.go", SymbolName: "B", Line: 2},
+		{FilePath: "c.go", SymbolName: "C", Line: 3},
+		{FilePath: "d.go", SymbolName: "D", Line: 4},
+		{FilePath: "e.go", SymbolName: "E", Line: 5},
+		{FilePath: "f.go", SymbolName: "F", Line: 6}, // keyword-only, rank 5
+	}
+
+	// unbounded is the byte-identical reference: default zero value, no cap.
+	unbounded := MergeRRF(semantic, keyword, nil, nil, nil, nil, 0,
+		RRFWeights{Semantic: 1.0, Keyword: 1.0})
+
+	// names extracts the fused symbol order for compact comparison.
+	names := func(rs []HybridResult) []string {
+		out := make([]string, len(rs))
+		for i, r := range rs {
+			out[i] = r.SymbolName
+		}
+		return out
+	}
+	// scores extracts the fused RRF scores in order.
+	scores := func(rs []HybridResult) []float64 {
+		out := make([]float64, len(rs))
+		for i, r := range rs {
+			out[i] = r.RRFScore
+		}
+		return out
+	}
+	// has reports whether name appears in the fused output.
+	has := func(rs []HybridResult, name string) bool {
+		for _, r := range rs {
+			if r.SymbolName == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	cases := []struct {
+		name        string
+		window      int
+		check       func(t *testing.T, rs []HybridResult)
+		falsifiable string // what goes RED when the production change is reverted
+	}{
+		{
+			name:   "window=0 reproduces current fused order byte-identical",
+			window: 0,
+			check: func(t *testing.T, rs []HybridResult) {
+				// The zero-value path MUST equal DefaultRRFWeights() (also 0)
+				// and the explicit unbounded reference — same names, same scores.
+				def := MergeRRF(semantic, keyword, nil, nil, nil, nil, 0, DefaultRRFWeights())
+				if got, want := names(rs), names(def); !equalSlice(got, want) {
+					t.Fatalf("window=0 order %v != DefaultRRFWeights order %v", got, want)
+				}
+				if got, want := scores(rs), scores(def); !equalSlice(got, want) {
+					t.Fatalf("window=0 scores %v != DefaultRRFWeights scores %v", got, want)
+				}
+				// F (keyword-only, rank 5) survives under no cap.
+				if !has(rs, "F") {
+					t.Fatalf("window=0: expected F present (unbounded), got %v", names(rs))
+				}
+			},
+			falsifiable: "revert the sentinel (window<=0 still truncates) → F vanishes and order/scores drift",
+		},
+		{
+			name:   "window=3 drops keyword-only tail F (rank 5 > window)",
+			window: 3,
+			check: func(t *testing.T, rs []HybridResult) {
+				if has(rs, "F") {
+					t.Fatalf("window=3: F is keyword rank 5, beyond window; must be cut, got %v", names(rs))
+				}
+				// A is semantic rank 1 — always within any window >= 1.
+				if !has(rs, "A") {
+					t.Fatalf("window=3: A is semantic rank 1, must survive, got %v", names(rs))
+				}
+			},
+			falsifiable: "revert the truncation → F reappears from keyword's rank-5 contribution",
+		},
+		{
+			name:   "window=100 larger than every arm is a no-op (== unbounded)",
+			window: 100,
+			check: func(t *testing.T, rs []HybridResult) {
+				if got, want := names(rs), names(unbounded); !equalSlice(got, want) {
+					t.Fatalf("window=100 order %v != unbounded order %v", got, want)
+				}
+				if got, want := scores(rs), scores(unbounded); !equalSlice(got, want) {
+					t.Fatalf("window=100 scores %v != unbounded scores %v", got, want)
+				}
+			},
+			falsifiable: "revert the sentinel (window>max still truncates) → order/scores diverge from unbounded",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := MergeRRF(semantic, keyword, nil, nil, nil, nil, 0,
+				RRFWeights{Semantic: 1.0, Keyword: 1.0, RankWindow: tc.window})
+			tc.check(t, rs)
+		})
+	}
+}
+
+// equalSlice reports whether two slices are element-identical (order matters).
+func equalSlice[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

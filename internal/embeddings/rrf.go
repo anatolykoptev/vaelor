@@ -95,6 +95,14 @@ type RRFWeights struct {
 	// validates the quality gain). Post-A/B recommended band: 0.05–0.15.
 	// Tune via RRF_WEIGHT_RECENCY env. Must be ≥ 0.
 	Recency float64
+	// RankWindow is the Elasticsearch rank_window_size cap (issue #663): each
+	// arm's ranked input list is truncated to its top-RankWindow entries BEFORE
+	// WeightedRRF, so an item ranked beyond the window in every arm it appears
+	// in cannot contribute to (or re-order) the fused output. Sentinel: <= 0
+	// means "no truncation" — byte-identical to the unbounded fusion (dark-
+	// launch: prod keeps RRF_RANK_WINDOW=0 until the controller flips it).
+	// rrfK=60 is unchanged. Tune via RRF_RANK_WINDOW env.
+	RankWindow int
 }
 
 // DefaultRRFWeights returns the (1.0, 1.0, 1.0, 1.0, 1.0, 1.0) math identity
@@ -227,6 +235,21 @@ func MergeRRF(
 		return nil
 	}
 
+	// rank_window_size cap (issue #663): truncate each arm's ranked input to
+	// its top-N BEFORE buildRRFIndex so beyond-window IDs never enter the
+	// dedup index from that arm. Sentinel <= 0 = no truncation (byte-identical
+	// to the unbounded fusion — dark-launch default). Each arm is already in
+	// ranked order (semantic by distance asc, keyword by relevance, etc.), so
+	// a prefix slice preserves the top-N. rrfK=60 is unchanged.
+	if w := weights.RankWindow; w > 0 {
+		semantic = capSearchResults(semantic, w)
+		keyword = capKeywordHits(keyword, w)
+		sparse = capSparseHits(sparse, w)
+		graph = capGraphHits(graph, w)
+		hotspot = capGraphHits(hotspot, w)
+		recency = capGraphHits(recency, w)
+	}
+
 	index, semIDs, kwIDs, sparseIDs, graphIDs, hotspotIDs, recencyIDs :=
 		buildRRFIndex(semantic, keyword, sparse, graph, hotspot, recency)
 
@@ -300,4 +323,39 @@ func attributeSource(inSem, inKw, inSparse, inGraph, inHotspot, inRecency bool) 
 	default:
 		return sourceSemantic
 	}
+}
+
+// capSearchResults returns xs truncated to its first n entries (the ranked
+// top-N) when n > 0 and len(xs) > n; otherwise xs unchanged. Used by the
+// rank_window_size cap in MergeRRF. Does not copy when no truncation is needed.
+func capSearchResults(xs []SearchResult, n int) []SearchResult {
+	if n > 0 && len(xs) > n {
+		return xs[:n]
+	}
+	return xs
+}
+
+// capKeywordHits is the []KeywordHit variant of capSearchResults.
+func capKeywordHits(xs []KeywordHit, n int) []KeywordHit {
+	if n > 0 && len(xs) > n {
+		return xs[:n]
+	}
+	return xs
+}
+
+// capSparseHits is the []SparseHit variant of capSearchResults.
+func capSparseHits(xs []SparseHit, n int) []SparseHit {
+	if n > 0 && len(xs) > n {
+		return xs[:n]
+	}
+	return xs
+}
+
+// capGraphHits is the []GraphHit variant of capSearchResults (shared by the
+// graph, hotspot, and recency arms, all of which are []GraphHit).
+func capGraphHits(xs []GraphHit, n int) []GraphHit {
+	if n > 0 && len(xs) > n {
+		return xs[:n]
+	}
+	return xs
 }
