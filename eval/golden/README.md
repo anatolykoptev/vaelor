@@ -110,8 +110,13 @@ retrieval patterns. (Additional local-only targets can be added as
   AST-level symbol_search results (file + line + kind). ZERO guessed or
   unverified labels. Queries with no clear verifiable ground truth were
   dropped rather than stubbed.
+- **Repo slug**: every record uses the distinct forge slug `psf/requests` (not
+  a `/path/to/repo` placeholder) so `--repo-map psf-requests=/abs/path` resolves
+  correctly — a `/`-prefixed value is treated as an already-resolved local path
+  before the map is consulted. Matches the TS/Rust/Java sets (honojs/hono,
+  serde-rs/serde, google/gson).
 - **Resolve at run time**: `--repo-map psf-requests=/host/src/psf-requests`
-  (or use the forge slug `psf/requests` as the `repo` override).
+  (maps the file basename `psf-requests` to the local clone path).
 
 ## TypeScript golden set (`honojs-hono.jsonl`)
 

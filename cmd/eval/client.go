@@ -30,6 +30,95 @@ const (
 	restRepoAnalyzePath = "/api/tools/repo_analyze"
 )
 
+// ErrTransient signals a transient tool signal (soft-deadline timeout text or
+// an indexing/pending/queued <status> envelope) that the caller should retry
+// rather than record as a permanent hard failure. The harness retry loop
+// (runWithRetry) checks errors.Is(err, ErrTransient{}) to decide whether to
+// back off and retry or fail the query immediately.
+type ErrTransient struct {
+	Reason string
+}
+
+func (e ErrTransient) Error() string {
+	return "transient: " + e.Reason
+}
+
+// Is makes errors.Is(err, ErrTransient{}) match any ErrTransient value,
+// including when wrapped by fmt.Errorf("...: %w", ...).
+func (e ErrTransient) Is(target error) bool {
+	_, ok := target.(ErrTransient)
+	return ok
+}
+
+// transientStatuses are <status> envelope values that mean "the repo is not
+// ready yet — retry later". Case-insensitive match.
+var transientStatuses = map[string]bool{
+	"indexing": true,
+	"pending":  true,
+	"queued":   true,
+}
+
+// statusProbe is a minimal XML decoder used only to extract the <status>
+// element from a payload, without committing to the full response schema.
+type statusProbe struct {
+	Status string `xml:"status"`
+}
+
+// classifyPayload inspects a raw tool payload and returns ErrTransient when it
+// is a transient tool signal (not a real result or a real error). Used by BOTH
+// parseSemanticXML and parseRepoAnalyzeXML so both modes share the same
+// transient classification.
+//
+// Transient signals:
+//   - plain-text soft-deadline timeout (contains "timed out during query
+//     embedding" or starts with "semantic_search: timed out");
+//   - any non-empty, non-XML payload (defensive: a non-XML tool message is
+//     a transient signal, not a parse crash);
+//   - a <status> envelope whose status is indexing/pending/queued.
+//
+// Returns nil for: empty string (caller returns nil,nil), and genuine XML
+// payloads (real <results> or a ready-empty envelope) — the caller proceeds
+// with normal parsing. Malformed XML that starts with '<' and isn't a
+// status/timeout returns nil so the real parser produces the real parse error
+// (non-transient).
+func classifyPayload(payload string) error {
+	if payload == "" {
+		return nil
+	}
+	trimmed := strings.TrimSpace(payload)
+
+	// Soft-deadline timeout text (plain text, not XML).
+	if strings.Contains(payload, "timed out during query embedding") ||
+		strings.HasPrefix(trimmed, "semantic_search: timed out") {
+		return ErrTransient{Reason: "soft deadline: " + firstLine(payload)}
+	}
+
+	// Defensive: any non-XML tool message is transient, not a parse crash.
+	if !strings.HasPrefix(trimmed, "<") {
+		return ErrTransient{Reason: "non-XML tool message: " + firstLine(payload)}
+	}
+
+	// XML payload — probe for a <status> envelope.
+	var sp statusProbe
+	if err := xml.Unmarshal([]byte(payload), &sp); err == nil && sp.Status != "" {
+		if transientStatuses[strings.ToLower(sp.Status)] {
+			return ErrTransient{Reason: "repo status: " + sp.Status}
+		}
+	}
+
+	// Genuine XML (real results or a ready-empty envelope) — parse normally.
+	return nil
+}
+
+// firstLine returns the first line of s (without the trailing newline), or s
+// itself if it has no newline. Used to keep ErrTransient reasons concise.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
+}
+
 // MCPClient calls the go-code REST bridge for semantic_search.
 type MCPClient struct {
 	BaseURL string
@@ -152,12 +241,21 @@ type xmlSym struct {
 
 // parseSemanticXML extracts ranked hits from semantic_search's XML response.
 //
-// When the response is a <status> envelope (no results), returns an empty slice.
-// Hits are sorted by their declared rank attribute to be defensive against any
-// future server-side reordering bugs.
+// Transient tool signals (soft-deadline timeout text, indexing/pending/queued
+// <status> envelope) are classified by classifyPayload and returned as
+// ErrTransient so the caller can retry. A genuine <results> payload parses to
+// hits. A definitively-ready envelope with zero results (status ok/none, empty
+// <results>) → empty slice + nil (a REAL zero, not transient). Empty string →
+// nil,nil. Malformed XML that starts with '<' and isn't a status/timeout → the
+// real parse xml: error (non-transient). Hits are sorted by their declared
+// rank attribute to be defensive against any future server-side reordering
+// bugs.
 func parseSemanticXML(payload string) ([]SearchHit, error) {
 	if payload == "" {
 		return nil, nil
+	}
+	if err := classifyPayload(payload); err != nil {
+		return nil, err
 	}
 	var parsed xmlResponse
 	if err := xml.Unmarshal([]byte(payload), &parsed); err != nil {
@@ -257,9 +355,14 @@ type repoAnalyzeFile struct {
 // response, preserving document order (which is the tool's relevance order).
 // Returns an empty slice when the response has no <files> section (e.g. an
 // overview-depth response, or a file-summary text returned in place of XML).
+// Transient tool signals (timeout text, indexing status) are classified by
+// classifyPayload and returned as ErrTransient for retry by the caller.
 func parseRepoAnalyzeXML(payload string) ([]string, error) {
 	if payload == "" {
 		return nil, nil
+	}
+	if err := classifyPayload(payload); err != nil {
+		return nil, err
 	}
 	var parsed repoAnalyzeXML
 	if err := xml.Unmarshal([]byte(payload), &parsed); err != nil {

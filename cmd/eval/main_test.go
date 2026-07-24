@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -165,11 +166,11 @@ func TestParseSemanticXML_StatusEnvelope(t *testing.T) {
 	t.Parallel()
 	body := `<response tool="semantic_search"><status>indexing</status></response>`
 	hits, err := parseSemanticXML(body)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
+	if !errors.Is(err, ErrTransient{}) {
+		t.Fatalf("expected ErrTransient for indexing status, got hits=%v err=%v", hits, err)
 	}
-	if len(hits) != 0 {
-		t.Errorf("expected 0 hits on status envelope, got %d", len(hits))
+	if hits != nil {
+		t.Errorf("expected nil hits on transient status envelope, got %d", len(hits))
 	}
 }
 
@@ -987,13 +988,13 @@ func TestRun_KeywordArmAndFusionModeFlags(t *testing.T) {
 
 	// First run: baseline (no gates).
 	baselinePath := filepath.Join(t.TempDir(), "baseline.json")
-	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 2, 20, 30*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("baseline run: %v", err)
 	}
 
 	// Second run: candidate with --keyword-arm=bm25f and --fusion-mode=rrf.
 	outPath := filepath.Join(t.TempDir(), "cand.json")
-	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "bm25f", "rrf", "", modeSemanticSearch, 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "bm25f", "rrf", "", modeSemanticSearch, 2, 20, 30*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("candidate run: %v", err)
 	}
 
@@ -1056,7 +1057,7 @@ func TestRun_RepoMapFlag(t *testing.T) {
 
 	outPath := filepath.Join(t.TempDir(), "out.json")
 	repoMap := "go-code=/host/src/go-code"
-	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", repoMap, modeSemanticSearch, 1, 20, 10*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", repoMap, modeSemanticSearch, 1, 20, 10*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -1101,7 +1102,7 @@ func TestRun_RepoMapFallback(t *testing.T) {
 	}
 
 	outPath := filepath.Join(t.TempDir(), "out.json")
-	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 1, 20, 10*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 1, 20, 10*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
