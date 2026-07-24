@@ -335,3 +335,31 @@ func TestLoadConfig_RRFRankWindowOverride(t *testing.T) {
 			w)
 	}
 }
+
+// TestLoadConfig_ExpandSymbolKinds_DefaultOff confirms the default is OFF —
+// prod must be byte-identical until the controller measures recall lift vs
+// index-size cost and explicitly enables the flag.
+//
+// Falsification: flip the default to true → the assertion goes Red.
+func TestLoadConfig_ExpandSymbolKinds_DefaultOff(t *testing.T) {
+	t.Setenv("EXPAND_SYMBOL_KINDS", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ExpandSymbolKinds {
+		t.Errorf("EXPAND_SYMBOL_KINDS default = true, want false (prod must be unchanged)")
+	}
+}
+
+// TestLoadConfig_ExpandSymbolKinds_Enabled confirms the env var is honored.
+func TestLoadConfig_ExpandSymbolKinds_Enabled(t *testing.T) {
+	t.Setenv("EXPAND_SYMBOL_KINDS", "true")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if !cfg.ExpandSymbolKinds {
+		t.Errorf("EXPAND_SYMBOL_KINDS=true: ExpandSymbolKinds = false, want true")
+	}
+}

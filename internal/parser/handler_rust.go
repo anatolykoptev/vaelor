@@ -56,6 +56,10 @@ func (h *rustHandler) MapCapture(captureName string, node *sitter.Node, source [
 		return h.mapConst(node, source)
 	case captureVar:
 		return h.mapVar(node, source)
+	case captureMacro:
+		return h.mapMacro(node, source)
+	case captureModule:
+		return h.mapModule(node, source)
 	}
 	return nil
 }
@@ -159,6 +163,42 @@ func (h *rustHandler) mapVar(node *sitter.Node, source []byte) *Symbol {
 	return &Symbol{
 		Name:       nameNode.Content(source),
 		Kind:       KindVar,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
+	}
+}
+
+// mapMacro extracts a macro_rules! definition as a KindMacro symbol (#664).
+func (h *rustHandler) mapMacro(node *sitter.Node, source []byte) *Symbol {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil
+	}
+	return &Symbol{
+		Name:       nameNode.Content(source),
+		Kind:       KindMacro,
+		Language:   "rust",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   hasVisibilityModifier(node),
+		Attributes: extractRustAttributes(node, source),
+	}
+}
+
+// mapModule extracts a mod declaration as a KindModule symbol (#664).
+func (h *rustHandler) mapModule(node *sitter.Node, source []byte) *Symbol {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil
+	}
+	return &Symbol{
+		Name:       nameNode.Content(source),
+		Kind:       KindModule,
 		Language:   "rust",
 		StartLine:  node.StartPoint().Row + 1,
 		EndLine:    node.EndPoint().Row + 1,

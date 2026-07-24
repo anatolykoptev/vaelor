@@ -34,6 +34,16 @@
 (type_item
   name: (type_identifier) @symbol.name) @symbol.type
 
+; Macro rules definitions (#664: macro kind).
+(macro_definition
+  name: (identifier) @symbol.name) @symbol.macro
+
+; Module declarations (#664: module kind). Captures both `mod foo;` and
+; `mod foo { ... }`. Functions inside mod blocks are already captured by the
+; function_item patterns above; this captures the module declaration itself.
+(mod_item
+  name: (identifier) @symbol.name) @symbol.module
+
 ; Const items.
 (const_item
   name: (identifier) @symbol.name) @symbol.const

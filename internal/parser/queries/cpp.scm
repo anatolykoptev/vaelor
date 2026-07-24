@@ -121,3 +121,12 @@
 
 ; NOTE: using_declaration and using_directive node types are not available
 ; in this tree-sitter-cpp grammar version.
+
+; #define macros (#664: macro kind).
+; Object-like macros: #define PI 3.14159
+(preproc_def
+  name: (identifier) @symbol.name) @symbol.macro
+
+; Function-like macros: #define SQUARE(x) ((x) * (x))
+(preproc_function_def
+  name: (identifier) @symbol.name) @symbol.macro

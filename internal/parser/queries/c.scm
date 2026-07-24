@@ -30,3 +30,12 @@
 
 ; #include "header.h"
 (preproc_include path: (string_literal) @import.path)
+
+; #define macros (#664: macro kind).
+; Object-like macros: #define MAX_BUFFER 4096
+(preproc_def
+  name: (identifier) @symbol.name) @symbol.macro
+
+; Function-like macros: #define SQUARE(x) ((x) * (x))
+(preproc_function_def
+  name: (identifier) @symbol.name) @symbol.macro

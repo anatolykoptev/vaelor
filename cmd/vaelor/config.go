@@ -354,6 +354,13 @@ type Config struct {
 	// file watcher. Rapid bursts of saves to the same file are coalesced into
 	// one IndexFile call (ADR-11). Default 500. Env: WATCH_DEBOUNCE_MS.
 	WatchDebounceMS int
+
+	// ExpandSymbolKinds gates the #664 low-volume symbol-kind expansion
+	// (macro, module, type-alias) and the Aider LOI embed-text format.
+	// Default false — prod is byte-identical to pre-#664 until the controller
+	// measures recall lift vs index-size cost and explicitly enables it.
+	// Env: EXPAND_SYMBOL_KINDS.
+	ExpandSymbolKinds bool
 }
 
 const (
@@ -641,6 +648,9 @@ func loadConfig() (Config, error) {
 		// File watcher — opt-in, default off (ADR-9 one-way door).
 		WatchEnabled:    env.Bool("WATCH_ENABLED", false),
 		WatchDebounceMS: env.Int("WATCH_DEBOUNCE_MS", defaultWatchDebounceMS),
+
+		// #664: symbol-kind expansion — dark-launched, default off.
+		ExpandSymbolKinds: env.Bool("EXPAND_SYMBOL_KINDS", false),
 	}
 	// Publish the learnings DB fallback gauge (#594) from the raw env values so
 	// the operator can see dedicated vs fallback vs disabled on /metrics.

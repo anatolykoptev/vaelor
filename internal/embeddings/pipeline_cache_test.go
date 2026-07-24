@@ -121,7 +121,7 @@ func TestCollectSymbolsCached_NilCacheFallsBackToBaseline(t *testing.T) {
 	require.Len(t, got, 2)
 	require.Len(t, files, 2)
 
-	want, wantFiles, err := collectSymbols(context.Background(), dir)
+	want, wantFiles, err := collectSymbols(context.Background(), dir, false)
 	require.NoError(t, err)
 	require.Equal(t, len(want), len(got), "nil cache must match collectSymbols output length")
 

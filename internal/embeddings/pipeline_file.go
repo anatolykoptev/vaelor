@@ -163,8 +163,9 @@ func (p *Pipeline) parseAndDiff(
 	}
 
 	pr, parseErr := parser.ParseFile(absPath, source, parser.ParseOpts{
-		Language:    lang,
-		IncludeBody: true,
+		Language:          lang,
+		IncludeBody:       true,
+		ExpandSymbolKinds: p.expandSymbolKinds,
 	})
 	if parseErr != nil {
 		return nil, nil, nil, fmt.Errorf("indexFile: parse %s: %w", relPath, parseErr)
@@ -191,10 +192,10 @@ func (p *Pipeline) parseAndDiff(
 	}
 	current := make(map[string]currentEntry, len(pr.Symbols))
 	for _, sym := range pr.Symbols {
-		if !parser.IsEmbeddableKind(sym.Kind) {
+		if !parser.IsEmbeddableKindExpanded(sym.Kind, p.expandSymbolKinds) {
 			continue
 		}
-		et := buildEmbedText(sym, relPath)
+		et := buildEmbedTextExpanded(sym, relPath, p.expandSymbolKinds)
 		current[sym.Name] = currentEntry{sym: sym, hash: strutil.TextHash(et), embedText: et}
 	}
 

@@ -80,7 +80,7 @@ func TestHandle(t *testing.T) {}
 func main() {}
 `)
 
-	syms, files, err := collectSymbols(context.Background(), dir)
+	syms, files, err := collectSymbols(context.Background(), dir, false)
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(syms), "expected 2 symbols, got %d", len(syms))
 	for _, f := range files {
