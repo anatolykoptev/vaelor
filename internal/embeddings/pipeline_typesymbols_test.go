@@ -70,7 +70,7 @@ def main():
     pass
 `)
 
-	syms, _, err := collectSymbols(context.Background(), dir)
+	syms, _, err := collectSymbols(context.Background(), dir, false)
 	require.NoError(t, err)
 
 	byName := make(map[string]parser.NodeKind, len(syms))
@@ -259,7 +259,7 @@ type Config struct {
 
 func Init() {}
 `)
-	syms, _, err := collectSymbols(context.Background(), dir)
+	syms, _, err := collectSymbols(context.Background(), dir, false)
 	require.NoError(t, err)
 
 	for _, s := range syms {
@@ -333,7 +333,7 @@ func TestCollectSymbols_SameNameCollisionDocumented(t *testing.T) {
   public String greet() { return ""; }
 }
 `)
-	syms, _, err := collectSymbols(context.Background(), dir)
+	syms, _, err := collectSymbols(context.Background(), dir, false)
 	require.NoError(t, err)
 
 	// Both the class and the constructor are parsed and emitted by collectSymbols.

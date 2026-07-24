@@ -188,6 +188,17 @@ func processCaptureWithCaps(
 		return
 	}
 
+	// #664: when ExpandSymbolKinds is OFF, skip the new low-volume kinds
+	// (macro, module) entirely so they never enter pr.Symbols. This is the
+	// parse-time gate that makes ALL consumers (codegraph, explore, ingest,
+	// embeddings) byte-identical to the pre-#664 parse result when the flag is
+	// OFF — not just the embeddings path (which additionally filters via
+	// IsEmbeddableKindExpanded as defense-in-depth). Type-alias refinement is
+	// gated separately below (the symbol stays, only the kind changes).
+	if !opts.ExpandSymbolKinds && (sym.Kind == KindMacro || sym.Kind == KindModule) {
+		return
+	}
+
 	// #664: when ExpandSymbolKinds is set, refine KindType → KindTypeAlias for
 	// type-alias AST nodes (Rust type_item, TS type_alias_declaration, C/C++
 	// type_definition/alias_declaration). When the flag is OFF the kind stays

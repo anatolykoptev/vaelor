@@ -3,6 +3,7 @@ package embeddings
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -79,15 +80,13 @@ func TestBuildEmbedTextExpanded_IncludesDocComment(t *testing.T) {
 		"expanded embed text must include @doc docstring")
 }
 
-// TestCollectSymbolsExpanded_NewKinds verifies that when expanded=true,
-// collectSymbolsExpanded includes macro/module/type-alias symbols. When
-// expanded=false, the filtered set is byte-identical to the legacy
-// collectSymbols (no new kinds).
+// TestCollectSymbols_ExpandedKinds verifies that when expanded=true,
+// collectSymbols includes macro/module/type-alias symbols. When expanded=false,
+// the filtered set excludes the new kinds (byte-identical to pre-#664).
 //
-// Falsification: revert collectSymbolsExpanded to always delegate to
-// collectSymbols (ignore expanded) → the expanded=true assertions for
-// macro/module go Red.
-func TestCollectSymbolsExpanded_NewKinds(t *testing.T) {
+// Falsification: revert the expanded parameter threading (hardcode expanded=false)
+// → the expanded=true assertions for macro/module go Red.
+func TestCollectSymbols_ExpandedKinds(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeTestFile(t, dir, "lib.rs", `pub macro_rules! dbg {
@@ -103,20 +102,15 @@ pub type Id = u64;
 pub fn init() {}
 `)
 
-	// Flag OFF — byte-identical to legacy collectSymbols.
-	symsOff, _, err := collectSymbolsExpanded(context.Background(), dir, false)
-	require.NoError(t, err)
-	symsLegacy, _, err := collectSymbols(context.Background(), dir)
+	// Flag OFF — no new kinds in the embed set.
+	symsOff, _, err := collectSymbols(context.Background(), dir, false)
 	require.NoError(t, err)
 	offNames := sortedSymbolNames(symsOff)
-	legacyNames := sortedSymbolNames(symsLegacy)
-	assert.Equal(t, legacyNames, offNames,
-		"flag OFF: collectSymbolsExpanded must produce the same symbol set as legacy collectSymbols")
 	assert.NotContains(t, offNames, "dbg", "flag OFF: macro must NOT be in embed set")
 	assert.NotContains(t, offNames, "net", "flag OFF: module must NOT be in embed set")
 
 	// Flag ON — macro/module/type-alias included.
-	symsOn, _, err := collectSymbolsExpanded(context.Background(), dir, true)
+	symsOn, _, err := collectSymbols(context.Background(), dir, true)
 	require.NoError(t, err)
 	onByKind := make(map[string]parser.NodeKind, len(symsOn))
 	for _, s := range symsOn {
@@ -217,14 +211,6 @@ func sortedSymbolNames(syms []*parser.Symbol) []string {
 	for _, s := range syms {
 		out = append(out, s.Name)
 	}
-	sortStrings(out)
+	sort.Strings(out)
 	return out
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
-			s[j-1], s[j] = s[j], s[j-1]
-		}
-	}
 }

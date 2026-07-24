@@ -41,59 +41,17 @@ func rootHasEmbeddableFiles(root string) bool {
 }
 
 // collectSymbols ingests a repo and parses all files, returning only the
-// embeddable symbols (functions, methods, and type-level symbols: class,
-// interface, trait, struct, enum, type). See parser.IsEmbeddableKind.
-func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*ingest.File, error) {
-	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
-		Root:         root,
-		MaxFileBytes: maxIndexFileBytes,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("ingest repo: %w", err)
-	}
-
-	var symbols []*parser.Symbol
-	var files []*ingest.File
-
-	for _, f := range ir.Files {
-		if isTestFile(f.RelPath) {
-			continue
-		}
-		source, err := os.ReadFile(f.Path)
-		if err != nil {
-			slog.Debug("embeddings: read failed", slog.String("file", f.Path), slog.Any("error", err))
-			continue
-		}
-		pr, err := parser.ParseFile(f.Path, source, parser.ParseOpts{
-			Language:    f.Language,
-			IncludeBody: true,
-		})
-		if err != nil {
-			slog.Debug("embeddings: parse failed", slog.String("file", f.Path), slog.Any("error", err))
-			continue
-		}
-		for _, sym := range pr.Symbols {
-			if !parser.IsEmbeddableKind(sym.Kind) {
-				continue
-			}
-			symbols = append(symbols, sym)
-			files = append(files, f)
-		}
-	}
-
-	return symbols, files, nil
-}
-
-// collectSymbolsExpanded is the flag-gated variant of collectSymbols (#664).
-// When expanded=false it delegates to collectSymbols — byte-identical to the
-// pre-#664 indexed set. When expanded=true it uses IsEmbeddableKindExpanded
-// (admitting macro/module/type-alias) and sets ParseOpts.ExpandSymbolKinds so
-// type-alias nodes are refined to KindTypeAlias during parse.
-func collectSymbolsExpanded(ctx context.Context, root string, expanded bool) ([]*parser.Symbol, []*ingest.File, error) {
-	if !expanded {
-		return collectSymbols(ctx, root)
-	}
-
+// embeddable symbols. The expanded parameter controls the #664 symbol-kind
+// expansion: when false, the indexed set is byte-identical to the pre-#664
+// collectSymbols (IsEmbeddableKind filter, no ExpandSymbolKinds in ParseOpts).
+// When true, it uses IsEmbeddableKindExpanded(kind, true) (admitting
+// macro/module/type-alias) and sets ParseOpts.ExpandSymbolKinds so type-alias
+// nodes are refined to KindTypeAlias during parse.
+//
+// Parametrizing the ON/OFF paths into one function prevents the two from
+// drifting (the former separate collectSymbolsExpanded was a near-duplicate
+// that diverged only in the kind filter + ExpandSymbolKinds flag).
+func collectSymbols(ctx context.Context, root string, expanded bool) ([]*parser.Symbol, []*ingest.File, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
 		MaxFileBytes: maxIndexFileBytes,
@@ -117,14 +75,14 @@ func collectSymbolsExpanded(ctx context.Context, root string, expanded bool) ([]
 		pr, err := parser.ParseFile(f.Path, source, parser.ParseOpts{
 			Language:          f.Language,
 			IncludeBody:       true,
-			ExpandSymbolKinds: true,
+			ExpandSymbolKinds: expanded,
 		})
 		if err != nil {
 			slog.Debug("embeddings: parse failed", slog.String("file", f.Path), slog.Any("error", err))
 			continue
 		}
 		for _, sym := range pr.Symbols {
-			if !parser.IsEmbeddableKindExpanded(sym.Kind, true) {
+			if !parser.IsEmbeddableKindExpanded(sym.Kind, expanded) {
 				continue
 			}
 			symbols = append(symbols, sym)

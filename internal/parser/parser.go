@@ -210,13 +210,15 @@ type ParseOpts struct {
 	IncludeTypeRels bool
 
 	// ExpandSymbolKinds gates the #664 low-volume symbol-kind expansion. When
-	// true, type-alias nodes (Rust type_item, TS type_alias_declaration, C/C++
-	// type_definition/alias_declaration) are refined from KindType to
-	// KindTypeAlias during capture processing. When false (the default), the
-	// parse result is byte-identical to the pre-#664 behavior. The new kinds
-	// (macro, module) are always extracted by the .scm queries; this flag only
-	// controls the type-alias kind refinement. The embedding pipeline filters
-	// the new kinds via IsEmbeddableKindExpanded when this flag is OFF.
+	// true, macro and module symbols (C/C++ #define, Rust macro_rules!/mod) are
+	// emitted into pr.Symbols and type-alias nodes (Rust type_item, TS
+	// type_alias_declaration, C/C++ type_definition/alias_declaration) are
+	// refined from KindType to KindTypeAlias. When false (the default), the
+	// parse result is byte-identical to the pre-#664 behavior: macro and module
+	// symbols are skipped at the parse-time emission chokepoint
+	// (processCaptureWithCaps) so they never enter pr.Symbols, and type aliases
+	// remain KindType. The embedding pipeline additionally filters via
+	// IsEmbeddableKindExpanded as defense-in-depth.
 	ExpandSymbolKinds bool
 }
 

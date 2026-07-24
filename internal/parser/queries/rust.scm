@@ -40,7 +40,7 @@
 
 ; Module declarations (#664: module kind). Captures both `mod foo;` and
 ; `mod foo { ... }`. Functions inside mod blocks are already captured by the
-; mod_item pattern above; this captures the module declaration itself.
+; function_item patterns above; this captures the module declaration itself.
 (mod_item
   name: (identifier) @symbol.name) @symbol.module
 

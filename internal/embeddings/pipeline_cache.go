@@ -53,7 +53,7 @@ func (p *Pipeline) collectSymbolsCached(
 	ctx context.Context, repoKey, root string,
 ) ([]*parser.Symbol, []*ingest.File, error) {
 	if p.fileCache == nil {
-		return collectSymbolsExpanded(ctx, root, p.expandSymbolKinds)
+		return collectSymbols(ctx, root, p.expandSymbolKinds)
 	}
 
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
