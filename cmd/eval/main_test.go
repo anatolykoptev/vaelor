@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,58 @@ import (
 	"testing"
 	"time"
 )
+
+// captureSlog swaps slog.Default() with a logger backed by testHandler so
+// tests can assert on emitted records. Returns the captured records and a
+// cleanup that restores the original default logger.
+//
+// Tests using this helper MUST NOT call t.Parallel() (global slog.Default).
+func captureSlog(t *testing.T) (*testHandler, func()) {
+	t.Helper()
+	th := &testHandler{}
+	orig := slog.Default()
+	slog.SetDefault(slog.New(th))
+	return th, func() { slog.SetDefault(orig) }
+}
+
+// testHandler captures slog records for level/attr assertions.
+type testHandler struct {
+	records []slog.Record
+}
+
+func (h *testHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *testHandler) Handle(_ context.Context, r slog.Record) error {
+	h.records = append(h.records, r)
+	return nil
+}
+func (h *testHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *testHandler) WithGroup(_ string) slog.Handler      { return h }
+
+// warnContainsAttr searches captured Warn records for one whose Message
+// contains msgSubstr AND has an attr with the given key whose value
+// contains valSubstr.
+func warnContainsAttr(records []slog.Record, msgSubstr, attrKey, valSubstr string) bool {
+	for _, r := range records {
+		if r.Level != slog.LevelWarn {
+			continue
+		}
+		if !strings.Contains(r.Message, msgSubstr) {
+			continue
+		}
+		found := false
+		r.Attrs(func(a slog.Attr) bool {
+			if a.Key == attrKey && strings.Contains(a.Value.String(), valSubstr) {
+				found = true
+				return false
+			}
+			return true
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
 
 // ──────────────────── matching ────────────────────
 
@@ -882,6 +935,70 @@ func TestApplyRepoMap_FallbackWhenAbsent(t *testing.T) {
 	gset.ApplyRepoMap(nil)
 	if gset.PerRepo["go-code"][0].Repo != "/path/to/repo" {
 		t.Errorf("Repo = %q, want /path/to/repo (unchanged)", gset.PerRepo["go-code"][0].Repo)
+	}
+}
+
+// TestApplyRepoMap_SlugKeyFallback verifies that a repo-map keyed by the
+// record's Repo slug (not the golden file basename) also maps correctly.
+// This covers callers that key the map by the record's Repo field instead
+// of the .jsonl file basename — both keying conventions must work.
+//
+// Falsification: remove the slug-fallback branch in ApplyRepoMap → the
+// slug-keyed entry never matches → Repo stays "github.com/.../go-code" → RED.
+func TestApplyRepoMap_SlugKeyFallback(t *testing.T) {
+	t.Parallel()
+	gset := &GoldenSet{PerRepo: map[string][]GoldenRecord{
+		"go-code": {
+			{Query: "q1", ExpectedTop3: []string{"X"}, Repo: "github.com/anatolykoptev/go-code"},
+		},
+	}}
+	repoMap := map[string]string{
+		"github.com/anatolykoptev/go-code": "/host/src/go-code",
+	}
+	unmatched := gset.ApplyRepoMap(repoMap)
+
+	if gset.PerRepo["go-code"][0].Repo != "/host/src/go-code" {
+		t.Errorf("slug-keyed map: Repo = %q, want /host/src/go-code",
+			gset.PerRepo["go-code"][0].Repo)
+	}
+	if len(unmatched) != 0 {
+		t.Errorf("slug-keyed map: unmatched = %v, want empty", unmatched)
+	}
+}
+
+// TestApplyRepoMap_UnmatchedKeyWarns verifies that a repo-map key matching
+// no golden basename AND no record Repo slug is reported as unmatched
+// (returned in the unmatched set AND logged as WARN). A silent unused
+// mapping key is almost always a typo/mismatch.
+//
+// Falsification: remove the unmatched-tracking in ApplyRepoMap → unmatched
+// is nil and no WARN fires → RED.
+func TestApplyRepoMap_UnmatchedKeyWarns(t *testing.T) {
+	// NOT parallel — captures global slog.Default.
+	th, restore := captureSlog(t)
+	defer restore()
+
+	gset := &GoldenSet{PerRepo: map[string][]GoldenRecord{
+		"go-code": {
+			{Query: "q1", ExpectedTop3: []string{"X"}, Repo: "/path/to/repo"},
+		},
+	}}
+	repoMap := map[string]string{
+		"go-code":   "/host/src/go-code", // matches basename
+		"typo-repo": "/host/src/typo",    // matches nothing
+	}
+	unmatched := gset.ApplyRepoMap(repoMap)
+
+	// Basename key still maps (back-compat).
+	if gset.PerRepo["go-code"][0].Repo != "/host/src/go-code" {
+		t.Errorf("basename key: Repo = %q, want /host/src/go-code",
+			gset.PerRepo["go-code"][0].Repo)
+	}
+	if len(unmatched) != 1 || unmatched[0] != "typo-repo" {
+		t.Errorf("unmatched = %v, want [typo-repo]", unmatched)
+	}
+	if !warnContainsAttr(th.records, "repo-map", "repo_map_key", "typo-repo") {
+		t.Error("expected WARN about unmatched repo-map key 'typo-repo', got none")
 	}
 }
 
