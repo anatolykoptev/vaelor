@@ -1,6 +1,7 @@
 package ranking
 
 import (
+	"math"
 	"testing"
 )
 
@@ -210,8 +211,10 @@ func TestBM25F_SamePathCandidatesScoredAgainstOwnDocument(t *testing.T) {
 // behavior (internal/analyze/rank.go: each Document has a UNIQUE path, one doc
 // per file). The fix computes TF from the passed doc's own fields instead of a
 // path lookup; for unique-path docs the passed doc IS the corpus doc, so TF,
-// DL, and the final score are byte-identical to the pre-fix path-lookup path.
-// This test asserts exact golden scores so any drift is caught.
+// DL, and the final score are identical to the pre-fix path-lookup path within
+// floating-point tolerance (a different accumulation order shifts the last few
+// ULPs but never the ranking). This test asserts golden scores within tolerance
+// so any real drift in the scoring math is caught.
 func TestBM25F_UniquePathRankingUnchanged(t *testing.T) {
 	t.Parallel()
 	docs := []Document{
@@ -236,8 +239,13 @@ func TestBM25F_UniquePathRankingUnchanged(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got := scorer.ScoreTerms(tc.terms, tc.doc)
-		if got != tc.expected {
-			t.Errorf("%s: expected %f, got %f", tc.name, tc.expected, got)
+		// Tolerance, not exact equality: the fix computes the same value via a
+		// different accumulation order (per-doc TF inline vs the old docDL
+		// array), which can differ by a few ULPs (~1e-15). That is far below
+		// any score gap that affects ranking, so a tight tolerance both locks
+		// the scoring math and tolerates float re-association.
+		if math.Abs(got-tc.expected) > 1e-9 {
+			t.Errorf("%s: expected %.16f, got %.16f (delta %g)", tc.name, tc.expected, got, got-tc.expected)
 		}
 	}
 }
