@@ -436,7 +436,12 @@ const (
 	// stay 1.0 so deploys are byte-identical until weights are grid-searched
 	// via the offline harness.
 	defaultRRFWeightSemantic = 1.0
-	defaultRRFWeightKeyword  = 1.0
+	// defaultRRFWeightKeyword: 0.5 is the Phase E promoted default (empirical
+	// 4-repo golden eval, 194 queries: bm25f@0.5 = OVERALL nDCG@10 0.568 vs
+	// 0.499 for grep@1.0, +0.069, no per-language regression; 0.5 is the
+	// inverted-U peak beating both 0.3 and 1.0). Env RRF_WEIGHT_KEYWORD still
+	// overrides. Must be ≥ 0.
+	defaultRRFWeightKeyword = 0.5
 	// defaultRRFWeightSparse: 0.0 = DARK-LAUNCHED. The arm is plumbed (P4)
 	// but contributes nothing to ranking until Phase 6 A/B validates the
 	// quality gain (target p<0.05 nDCG@10 improvement). Flip to 0.2–0.4
@@ -462,10 +467,12 @@ const (
 	// Must be ≥ 0 (negative rejected at startup).
 	defaultRRFWeightRecency = 0.1
 
-	// defaultKeywordArm: "grep" = byte-identical to pre-BM25F behavior.
-	// Dark-launched: no prod change until operator sets KEYWORD_ARM=bm25f after
-	// Phase 5 A/B gate (non-inferiority on nDCG@10). Valid values: grep | bm25f.
-	defaultKeywordArm = keywordArmGrep
+	// defaultKeywordArm: "bm25f" is the Phase E promoted default (empirical
+	// 4-repo golden eval, 194 queries: bm25f@keyword-weight 0.5 = OVERALL
+	// nDCG@10 0.568 vs 0.499 for grep@1.0, +0.069, no per-language regression).
+	// Env KEYWORD_ARM still overrides (set KEYWORD_ARM=grep to revert).
+	// Valid values: grep | bm25f.
+	defaultKeywordArm = keywordArmBM25F
 
 	// keywordArm* are the allowed values for KEYWORD_ARM.
 	keywordArmGrep  = "grep"

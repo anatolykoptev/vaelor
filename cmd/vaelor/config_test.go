@@ -220,3 +220,80 @@ func TestInertRankWeightEnvVars_MinmaxMode(t *testing.T) {
 		t.Errorf("minmax+unset: got %v inert vars, want nil", inert)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// #660/#661 — Phase E: default keyword arm to bm25f at RRF weight 0.5
+// ---------------------------------------------------------------------------
+//
+// Empirical 4-repo golden eval (194 queries, python/ts/java/rust) picked
+// bm25f @ keyword-weight 0.5 as the new default (OVERALL nDCG@10 0.568 vs
+// 0.499 for the prior grep@1.0 default; +0.069, no per-language regression).
+// A fresh deploy (no env overrides) must resolve to this config. The env
+// overrides (KEYWORD_ARM, RRF_WEIGHT_KEYWORD) must still win.
+//
+// Falsification (per-case, revert the specific default → RED):
+//   - TestLoadConfig_DefaultKeywordArmBm25f: revert defaultKeywordArm to
+//     keywordArmGrep → KeywordArm=="grep" → RED.
+//   - TestLoadConfig_DefaultRRFWeightKeyword05: revert defaultRRFWeightKeyword
+//     to 1.0 → RRFWeightKeyword==1.0 → RED.
+//   - TestLoadConfig_KeywordArmGrepOverride / RRFWeightKeywordOverride:
+//     these stay GREEN regardless (they assert the override path, not the
+//     default), proving the override plumbing is untouched.
+
+// TestLoadConfig_DefaultKeywordArmBm25f confirms a fresh deploy (KEYWORD_ARM
+// unset) resolves the keyword arm to bm25f — the Phase E promoted default.
+func TestLoadConfig_DefaultKeywordArmBm25f(t *testing.T) {
+	t.Setenv("KEYWORD_ARM", "") // unset → default
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.KeywordArm != keywordArmBM25F {
+		t.Errorf("default KeywordArm = %q, want %q (bm25f is the Phase E promoted default)",
+			cfg.KeywordArm, keywordArmBM25F)
+	}
+}
+
+// TestLoadConfig_DefaultRRFWeightKeyword05 confirms a fresh deploy
+// (RRF_WEIGHT_KEYWORD unset) resolves the keyword-arm RRF weight to 0.5 —
+// the inverted-U peak from the empirical eval.
+func TestLoadConfig_DefaultRRFWeightKeyword05(t *testing.T) {
+	t.Setenv("RRF_WEIGHT_KEYWORD", "") // unset → default
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.RRFWeightKeyword != 0.5 {
+		t.Errorf("default RRFWeightKeyword = %g, want 0.5 (Phase E promoted default)",
+			cfg.RRFWeightKeyword)
+	}
+}
+
+// TestLoadConfig_KeywordArmGrepOverride confirms KEYWORD_ARM=grep still
+// selects the grep arm — the env override must win over the new default.
+func TestLoadConfig_KeywordArmGrepOverride(t *testing.T) {
+	t.Setenv("KEYWORD_ARM", "grep")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.KeywordArm != keywordArmGrep {
+		t.Errorf("KEYWORD_ARM=grep: KeywordArm = %q, want %q (override must win)",
+			cfg.KeywordArm, keywordArmGrep)
+	}
+}
+
+// TestLoadConfig_RRFWeightKeywordOverride confirms RRF_WEIGHT_KEYWORD=0.9
+// still sets the keyword weight to 0.9 — the env override must win over the
+// new 0.5 default.
+func TestLoadConfig_RRFWeightKeywordOverride(t *testing.T) {
+	t.Setenv("RRF_WEIGHT_KEYWORD", "0.9")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.RRFWeightKeyword != 0.9 {
+		t.Errorf("RRF_WEIGHT_KEYWORD=0.9: RRFWeightKeyword = %g, want 0.9 (override must win)",
+			cfg.RRFWeightKeyword)
+	}
+}
