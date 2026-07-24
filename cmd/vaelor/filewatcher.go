@@ -14,6 +14,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/anatolykoptev/vaelor/internal/repofind"
 )
 
@@ -68,11 +69,7 @@ func startFileWatcher(ctx context.Context, cfg Config, pipeline *embeddings.Pipe
 		debounce = defaultWatchDebounce
 	}
 
-	w, err := watcher.New(repoRoots,
-		watcher.WithRecursive(true),
-		watcher.WithDebounce(debounce),
-		watcher.WithIgnoreDirs(ingest.IgnoredDirNames()...),
-	)
+	w, err := watcher.New(repoRoots, buildWatcherOptions(debounce)...)
 	if err != nil {
 		slog.Warn("file watcher: failed to create watcher — graceful degradation to boot-time AutoIndex",
 			slog.Any("error", err))
@@ -136,6 +133,38 @@ func startFileWatcher(ctx context.Context, cfg Config, pipeline *embeddings.Pipe
 		slog.Info("file watcher: worker stopped")
 		reg.Gauge("watcher_healthy").Set(0)
 	}()
+}
+
+// sourceWatchExtensions returns the parser-registered source file extensions
+// that the file watcher subscribes to. Sourced from parser.RegisteredExtensions
+// (the single source of truth — handler.Extensions() aggregated by the
+// registry) so a newly registered language is automatically watched without a
+// duplicate extension map. The historical bug a duplicated ext map caused:
+// `.cjs` was registered in the handler but missing from a separate lang map,
+// making ParseFile("foo.cjs") fail silently. Hardcoding a second list here
+// would reintroduce that class of drift (#644).
+func sourceWatchExtensions() []string {
+	return parser.RegisteredExtensions()
+}
+
+// buildWatcherOptions assembles the functional options for the file watcher.
+// Extracted from startFileWatcher so the extension filter is unit-testable in
+// isolation (a behavioral test that a non-source file produces no event while a
+// source file does). The extension list is the parser registry, NOT a
+// hardcoded duplicate — see sourceWatchExtensions.
+func buildWatcherOptions(debounce time.Duration) []watcher.Option {
+	return []watcher.Option{
+		watcher.WithRecursive(true),
+		watcher.WithDebounce(debounce),
+		watcher.WithIgnoreDirs(ingest.IgnoredDirNames()...),
+		// B5 (#644): restrict events to files vaelor can actually index.
+		// Without this every file change (README, go.sum, .git internals, .env)
+		// fires an event into the cap-100 channel; under burst (git checkout /
+		// pull) non-source events fill the buffer and real source-file events
+		// are dropped (events_dropped_total) and not reindexed until a full
+		// rebuild.
+		watcher.WithExtensions(sourceWatchExtensions()...),
+	}
 }
 
 // processWatchEvent maps a watcher.Event to (repoKey, root, relPath) and calls
