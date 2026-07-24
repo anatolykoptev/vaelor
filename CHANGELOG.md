@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.53.2](https://github.com/anatolykoptev/vaelor/compare/v1.53.1...v1.53.2) (2026-07-24)
+
+
+### Fixed
+
+* **ranking:** score BM25F candidates against their own document (B1, [#640](https://github.com/anatolykoptev/vaelor/issues/640)) ([#646](https://github.com/anatolykoptev/vaelor/issues/646)) ([b5180c8](https://github.com/anatolykoptev/vaelor/commit/b5180c884c6210b7a87b09d70a8d112221bbb3b7))
+
 ## [1.53.1](https://github.com/anatolykoptev/vaelor/compare/v1.53.0...v1.53.1) (2026-07-23)
 
 
