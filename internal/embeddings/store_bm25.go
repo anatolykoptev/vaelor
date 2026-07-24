@@ -112,18 +112,17 @@ func (s *Store) BM25Search(ctx context.Context, repoKey, queryText, language str
 	bm25CandidatesScored.Observe(float64(len(candidates)))
 
 	// Step 3: build ranking.Document corpus from candidates.
-	// Symbol field carries both the raw symbol_name AND its identifier-split
-	// subwords so that a query "parseConfig" matches "parse_config" and vice versa.
+	// The scorer now tokenizes each field itself (lextoken.SplitIdentifier
+	// subwords + compact compound + whole-identifier), so the Symbols field
+	// carries only the raw symbol_name — manual subword injection is no longer
+	// needed and would double-count tokens. A query "parseConfig" matches
+	// "parse_config" and vice versa via the shared compact/subword tokens.
 	// Doc field is nil — code_embeddings has no body column (body_hash BIGINT only).
 	docs := make([]ranking.Document, len(candidates))
 	for i, c := range candidates {
-		subwords := lextoken.SplitIdentifier(c.SymbolName)
-		symbols := make([]string, 0, 1+len(subwords))
-		symbols = append(symbols, c.SymbolName)
-		symbols = append(symbols, subwords...)
 		docs[i] = ranking.Document{
 			Path:    c.FilePath,
-			Symbols: symbols,
+			Symbols: []string{c.SymbolName},
 			Docs:    nil,
 		}
 	}

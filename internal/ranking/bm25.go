@@ -2,14 +2,23 @@ package ranking
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"sync"
+	"unicode"
+
+	"github.com/anatolykoptev/vaelor/internal/langutil"
+	"github.com/anatolykoptev/vaelor/internal/lextoken"
 )
 
 // Field weight constants for BM25F scoring.
+//
+// WeightPath matches WeightSymbol (both 5.0): Zoekt (index/score.go, PR#785)
+// uses equal filename+symbol boost — filenames are as important as symbol names
+// for code search.
 const (
 	WeightSymbol = 5.0 // symbol name matches are most important
-	WeightPath   = 3.0 // file path matches are moderately important
+	WeightPath   = 5.0 // file path matches are as important as symbol matches (Zoekt equal boost)
 	WeightDoc    = 2.0 // doc-comment matches (more verbose, less specific than symbol names)
 )
 
@@ -18,6 +27,23 @@ const (
 	bm25K1 = 1.2  // term frequency saturation parameter
 	bm25B  = 0.75 // length normalization parameter
 )
+
+// lowPriorityFilePenalty divides the weighted TF for test/generated files,
+// demoting mechanically-produced or test-only matches. Mirrors Zoekt's
+// const lowPriorityFilePenalty = 5 (index/score.go), eval-validated.
+const lowPriorityFilePenalty = 5.0
+
+// minTokenLen is the minimum token length kept in a field/query term multiset.
+// Matches lextoken.Tokenize's ≥3-char floor so index and query tokenization are
+// symmetric and short noise tokens (e.g. "go", "id") never score.
+const minTokenLen = 3
+
+// compactRe strips every character that is not a letter or digit, producing the
+// separator-free compact compound (e.g. "get_user_name" → "getusername"). This
+// is the cross-convention bridge: a query "getusername" and a symbol
+// "get_user_name" both yield the compact token "getusername" and match under
+// exact-token matching where substring matching used to.
+var compactRe = regexp.MustCompile(`[^\pL\pN]`)
 
 // Document represents a file for BM25F scoring.
 // Only Path, Symbols, and Docs are used — file content is scored via LLM, not BM25F.
@@ -38,11 +64,15 @@ type BM25F struct {
 	dfMap map[string]int
 }
 
-// documentInternal holds preprocessed lowercase data for fast matching.
+// documentInternal holds the per-field term multisets used for exact-token TF
+// and DF computation. Tokenization is symmetric with the query path
+// (tokenizeForQuery) so a query "parse_config" and a symbol "parseConfig"
+// produce overlapping token sets.
 type documentInternal struct {
-	pathLower    string
-	symbolsLower []string
-	docsLower    []string // lowercased doc-comment strings
+	path         string         // original path, for IsLowPriorityFile penalty gate
+	pathTokens   map[string]int // term multiset for the Path field
+	symbolTokens map[string]int // term multiset for the Symbols field
+	docTokens    map[string]int // term multiset for the Docs field
 }
 
 // NewBM25F creates a BM25F scorer from a corpus of documents.
@@ -57,25 +87,11 @@ func NewBM25F(docs []Document) *BM25F {
 		dfMap: make(map[string]int),
 	}
 
-	// Preprocess documents: lowercase everything once.
+	// Preprocess documents: tokenize each field once.
 	var totalDL float64
 	for i, doc := range docs {
-		b.docs[i] = documentInternal{
-			pathLower: strings.ToLower(doc.Path),
-		}
-		b.docs[i].symbolsLower = make([]string, len(doc.Symbols))
-		for j, sym := range doc.Symbols {
-			b.docs[i].symbolsLower[j] = strings.ToLower(sym)
-		}
-		b.docs[i].docsLower = make([]string, len(doc.Docs))
-		for j, d := range doc.Docs {
-			b.docs[i].docsLower[j] = strings.ToLower(d)
-		}
-
-		// Accumulate weighted document length for avgDL.
-		dl := float64(len(b.docs[i].symbolsLower))*WeightSymbol +
-			float64(len(b.docs[i].docsLower))*WeightDoc +
-			WeightPath // path always contributes a baseline length
+		di, dl := tokenizeDocument(doc)
+		b.docs[i] = di
 		totalDL += dl
 	}
 
@@ -85,6 +101,10 @@ func NewBM25F(docs []Document) *BM25F {
 }
 
 // Score computes the BM25F score for a single query term against a document.
+// The term is tokenized the same way as the document fields (symmetric
+// index/query tokenization), so an identifier-like term "parse_config" scores
+// against a symbol "parseConfig" via the shared compact/subword tokens.
+//
 // TF and document length are computed from the passed doc's own fields; the
 // corpus (built by NewBM25F) supplies only corpus-wide IDF and avgDL. This
 // makes scoring correct when multiple candidates share the same Path (the
@@ -95,50 +115,80 @@ func (b *BM25F) Score(term string, doc Document) float64 {
 		return 0
 	}
 
-	di, dl := preprocessDoc(doc)
-	return b.scoreTermInDoc(strings.ToLower(term), di, dl)
+	di, dl := tokenizeDocument(doc)
+	var total float64
+	for qtok := range tokenizeForQuery(term) {
+		total += b.scoreTermInDoc(qtok, di, dl)
+	}
+	return total
 }
 
 // ScoreTerms computes total BM25F score for multiple query terms.
-// See Score for the per-document TF semantics.
+// Each term is tokenized (symmetric with field tokenization) and the resulting
+// query-token set is deduplicated so a token produced by several terms is not
+// double-counted. See Score for the per-document TF semantics.
 func (b *BM25F) ScoreTerms(terms []string, doc Document) float64 {
 	if b.n == 0 || len(terms) == 0 {
 		return 0
 	}
 
-	di, dl := preprocessDoc(doc)
+	di, dl := tokenizeDocument(doc)
+
+	qset := make(map[string]struct{})
+	for _, term := range terms {
+		for qtok := range tokenizeForQuery(term) {
+			qset[qtok] = struct{}{}
+		}
+	}
 
 	var total float64
-	for _, term := range terms {
-		total += b.scoreTermInDoc(strings.ToLower(term), di, dl)
+	for qtok := range qset {
+		total += b.scoreTermInDoc(qtok, di, dl)
 	}
 	return total
 }
 
-// preprocessDoc lowercases a Document's fields and computes its weighted
-// document length. This is the per-document TF/DL source for Score/ScoreTerms,
-// replacing the former path-lookup (findDocIndex) which was incorrect for
-// same-path candidates.
-func preprocessDoc(doc Document) (documentInternal, float64) {
+// tokenizeDocument tokenizes a Document's fields into per-field term multisets
+// and computes its weighted document length. This is the per-document TF/DL
+// source for Score/ScoreTerms, replacing the former path-lookup (findDocIndex)
+// which was incorrect for same-path candidates.
+//
+// Field-length policy:
+//   - Symbols: token-multiset occurrence count (BM25F field length = term
+//     occurrences). A symbol "Deserialize" (1 token) is shorter than
+//     "deserialize_u32" (3 tokens), so the exact trait wins on length
+//     normalization — the core Rust relevance fix.
+//   - Docs: entry count (one doc-comment string = one unit). Doc comments are
+//     arbitrary-length natural language; penalizing a thorough comment would
+//     make a well-documented file less relevant, which is undesirable.
+//   - Path: constant WeightPath baseline (every file has a path; a token-count
+//     path length would let short filenames like "a.go" artificially shrink the
+//     document and distort normalization).
+func tokenizeDocument(doc Document) (documentInternal, float64) {
 	di := documentInternal{
-		pathLower: strings.ToLower(doc.Path),
+		path:         doc.Path,
+		pathTokens:   tokenizeField(doc.Path, true),
+		symbolTokens: tokenizeSymbolField(doc.Symbols),
+		docTokens:    tokenizeDocField(doc.Docs),
 	}
-	di.symbolsLower = make([]string, len(doc.Symbols))
-	for j, sym := range doc.Symbols {
-		di.symbolsLower[j] = strings.ToLower(sym)
-	}
-	di.docsLower = make([]string, len(doc.Docs))
-	for j, d := range doc.Docs {
-		di.docsLower[j] = strings.ToLower(d)
-	}
-	dl := float64(len(di.symbolsLower))*WeightSymbol +
-		float64(len(di.docsLower))*WeightDoc +
+	dl := float64(multisetCount(di.symbolTokens))*WeightSymbol +
+		float64(len(doc.Docs))*WeightDoc +
 		WeightPath
 	return di, dl
 }
 
-// documentFrequency returns how many documents contain the term (substring match).
-// Results are cached for repeated queries.
+// multisetCount returns the total number of term occurrences in a multiset
+// (sum of counts), used as the BM25F symbol field length.
+func multisetCount(m map[string]int) int {
+	var n int
+	for _, c := range m {
+		n += c
+	}
+	return n
+}
+
+// documentFrequency returns how many documents contain the term (exact-token
+// match against the tokenized fields). Results are cached for repeated queries.
 func (b *BM25F) documentFrequency(termLower string) int {
 	b.mu.Lock()
 	if df, ok := b.dfMap[termLower]; ok {
@@ -147,7 +197,7 @@ func (b *BM25F) documentFrequency(termLower string) int {
 	}
 	b.mu.Unlock()
 
-	// Compute df by scanning all documents (substring match, same as scoring).
+	// Compute df by scanning all documents (exact-token match, same as scoring).
 	df := 0
 	for i := range b.docs {
 		if documentContainsTerm(b.docs[i], termLower) {
@@ -162,11 +212,11 @@ func (b *BM25F) documentFrequency(termLower string) int {
 	return df
 }
 
-// scoreTermInDoc computes BM25F score for a single lowercase term against a
-// preprocessed document with its own weighted length. TF and DL are
+// scoreTermInDoc computes BM25F score for a single lowercase query token against
+// a preprocessed document with its own weighted length. TF and DL are
 // per-document (from the passed doc); IDF and avgDL are corpus-wide.
 func (b *BM25F) scoreTermInDoc(termLower string, doc documentInternal, dl float64) float64 {
-	// Weighted term frequency across fields.
+	// Weighted term frequency across fields (tokenized, exact-token match).
 	tf := computeWeightedTF(doc, termLower)
 	if tf == 0 {
 		return 0
@@ -192,47 +242,114 @@ func (b *BM25F) scoreTermInDoc(termLower string, doc documentInternal, dl float6
 	return idf * numerator / denominator
 }
 
-// computeWeightedTF computes the weighted term frequency for a term in a document.
-// tf = (symbol match count * WeightSymbol) + (doc-comment match count * WeightDoc) + (path match * WeightPath)
+// computeWeightedTF computes the weighted term frequency for an exact query
+// token in a document. tf = Σ_field (term count in field's token multiset ×
+// field weight). Test/generated files have their TF divided by
+// lowPriorityFilePenalty (Zoekt index/score.go), demoting weak signals.
 func computeWeightedTF(doc documentInternal, termLower string) float64 {
 	var tf float64
-
-	// Symbol matches: count how many symbol names contain the term.
-	for _, sym := range doc.symbolsLower {
-		if strings.Contains(sym, termLower) {
-			tf += WeightSymbol
-		}
+	tf += float64(doc.symbolTokens[termLower]) * WeightSymbol
+	tf += float64(doc.docTokens[termLower]) * WeightDoc
+	tf += float64(doc.pathTokens[termLower]) * WeightPath
+	if tf == 0 {
+		return 0
 	}
-
-	// Doc-comment matches: count how many doc strings contain the term.
-	for _, d := range doc.docsLower {
-		if strings.Contains(d, termLower) {
-			tf += WeightDoc
-		}
+	if langutil.IsLowPriorityFile(doc.path) {
+		tf /= lowPriorityFilePenalty
 	}
-
-	// Path match: binary (1 or 0).
-	if strings.Contains(doc.pathLower, termLower) {
-		tf += WeightPath
-	}
-
 	return tf
 }
 
-// documentContainsTerm checks if any field in the document contains the term (substring match).
+// documentContainsTerm checks if any field's token multiset contains the term
+// (exact-token match). Used for corpus-wide document-frequency (IDF); the
+// lowPriorityFilePenalty is NOT applied here — DF reflects term presence, not
+// relevance weight.
 func documentContainsTerm(doc documentInternal, termLower string) bool {
-	if strings.Contains(doc.pathLower, termLower) {
+	if _, ok := doc.pathTokens[termLower]; ok {
 		return true
 	}
-	for _, sym := range doc.symbolsLower {
-		if strings.Contains(sym, termLower) {
-			return true
-		}
+	if _, ok := doc.symbolTokens[termLower]; ok {
+		return true
 	}
-	for _, d := range doc.docsLower {
-		if strings.Contains(d, termLower) {
-			return true
-		}
+	if _, ok := doc.docTokens[termLower]; ok {
+		return true
 	}
 	return false
+}
+
+// tokenizeField builds the term multiset for a single field string:
+//   - each alphanumeric word (split on non-letter/digit) is added lowercased
+//     (≥ minTokenLen);
+//   - lextoken.SplitIdentifier subwords of each word are added (camelCase +
+//     snake_case split), reusing the canonical splitter — no new splitter here;
+//   - when emitCompact is true, the separator-free lowercased compact compound
+//     of the whole string is added (e.g. "get_user_name" → "getusername") so
+//     cross-convention substring queries still match after the tokenized switch.
+//
+// Query and field share this function (via tokenizeForQuery) → symmetric
+// tokenization, the core requirement from BM25F arXiv:0911.506 / Lucene /
+// tantivy / Zoekt.
+func tokenizeField(s string, emitCompact bool) map[string]int {
+	tokens := make(map[string]int)
+	words := strings.FieldsFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	for _, w := range words {
+		lower := strings.ToLower(w)
+		if len(lower) >= minTokenLen {
+			tokens[lower]++
+		}
+		// Add subwords only when they differ from the whole lowercased word —
+		// otherwise a standalone word ("auth") would double-count itself
+		// (word + trivial SplitIdentifier result), inflating its TF relative
+		// to the same token appearing as a subword of a larger identifier.
+		for _, sw := range lextoken.SplitIdentifier(w) {
+			if len(sw) >= minTokenLen && sw != lower {
+				tokens[sw]++
+			}
+		}
+	}
+	// The compact compound is only distinct from the per-word tokens when the
+	// string actually split into multiple words (separators present). For a
+	// single word the whole lowercased token already IS the compact form, so
+	// skip it to avoid a word+compact double count.
+	if emitCompact && len(words) > 1 {
+		compact := strings.ToLower(compactRe.ReplaceAllString(s, ""))
+		if len(compact) >= minTokenLen {
+			tokens[compact]++
+		}
+	}
+	return tokens
+}
+
+// tokenizeSymbolField tokenizes each symbol name with compact-compound emission
+// (whole-identifier + subwords) and merges the per-symbol multisets.
+func tokenizeSymbolField(symbols []string) map[string]int {
+	out := make(map[string]int)
+	for _, sym := range symbols {
+		for tok, n := range tokenizeField(sym, true) {
+			out[tok] += n
+		}
+	}
+	return out
+}
+
+// tokenizeDocField tokenizes each doc-comment string as natural language (word
+// tokens + identifier subwords, no compact compound) and merges the multisets.
+func tokenizeDocField(docs []string) map[string]int {
+	out := make(map[string]int)
+	for _, d := range docs {
+		for tok, n := range tokenizeField(d, false) {
+			out[tok] += n
+		}
+	}
+	return out
+}
+
+// tokenizeForQuery tokenizes a query term with the same rules as a symbol field
+// (compact compound + subwords), guaranteeing symmetric index/query
+// tokenization. A term like "parse_config" yields {parse, config, parseconfig},
+// matching a symbol "parseConfig" → {parse, config, parseconfig} on all three.
+func tokenizeForQuery(term string) map[string]int {
+	return tokenizeField(term, true)
 }
