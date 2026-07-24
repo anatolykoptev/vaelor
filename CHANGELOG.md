@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.56.0](https://github.com/anatolykoptev/vaelor/compare/v1.55.2...v1.56.0) (2026-07-24)
+
+
+### Added
+
+* **ranking:** tokenized BM25F term matching + Zoekt field weights/test penalty ([#665](https://github.com/anatolykoptev/vaelor/issues/665)) ([b7880ab](https://github.com/anatolykoptev/vaelor/commit/b7880aba6c9095fed7244212095de0e89a0eff87))
+
 ## [1.55.2](https://github.com/anatolykoptev/go-code/compare/v1.55.1...v1.55.2) (2026-07-24)
 
 
