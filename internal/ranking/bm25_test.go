@@ -41,12 +41,20 @@ func TestBM25F_SingleDocument(t *testing.T) {
 	}
 }
 
-func TestBM25F_SymbolWeightHigherThanPath(t *testing.T) {
+// TestBM25F_PathAndSymbolEqualWeight locks the Zoekt equal-boost field-weight
+// change (WeightPath 3 → 5, == WeightSymbol). With equal field weights, a doc
+// whose only "auth" hit is in the Path field and a doc whose only "auth" hit is
+// in the Symbols field — both with the same token count and thus the same
+// weighted document length — score identically.
+//
+// Falsification: revert WeightPath to 3.0 → pathScore's TF is 3, symbolScore's
+// TF is 5 → pathScore < symbolScore → the equality assertion goes RED.
+func TestBM25F_PathAndSymbolEqualWeight(t *testing.T) {
 	t.Parallel()
 	docs := []Document{
 		{
 			Path:    "file_a.go",
-			Symbols: []string{"AuthHandler"},
+			Symbols: []string{"Auth"},
 		},
 		{
 			Path:    "auth/file_b.go",
@@ -58,8 +66,11 @@ func TestBM25F_SymbolWeightHigherThanPath(t *testing.T) {
 	symbolScore := scorer.ScoreTerms([]string{"auth"}, docs[0])
 	pathScore := scorer.ScoreTerms([]string{"auth"}, docs[1])
 
-	if symbolScore <= pathScore {
-		t.Errorf("symbol match (%f) should score higher than path-only match (%f)", symbolScore, pathScore)
+	// Both docs: one "auth" token (×5), one single-token symbol entry
+	// (dl = 1×5 + WeightPath = 10), df=2, N=2 → identical IDF, TF, and DL →
+	// identical scores.
+	if math.Abs(symbolScore-pathScore) > 1e-9 {
+		t.Errorf("equal field weights: symbol match (%f) should equal path-only match (%f)", symbolScore, pathScore)
 	}
 }
 
@@ -209,12 +220,12 @@ func TestBM25F_SamePathCandidatesScoredAgainstOwnDocument(t *testing.T) {
 
 // TestBM25F_UniquePathRankingUnchanged locks the repo_analyze call-site
 // behavior (internal/analyze/rank.go: each Document has a UNIQUE path, one doc
-// per file). The fix computes TF from the passed doc's own fields instead of a
-// path lookup; for unique-path docs the passed doc IS the corpus doc, so TF,
-// DL, and the final score are identical to the pre-fix path-lookup path within
-// floating-point tolerance (a different accumulation order shifts the last few
-// ULPs but never the ranking). This test asserts golden scores within tolerance
-// so any real drift in the scoring math is caught.
+// per file). The per-doc-TF fix computes TF from the passed doc's own fields
+// instead of a path lookup; for unique-path docs the passed doc IS the corpus
+// doc. The golden scores below reflect the tokenized BM25F math (exact-token TF
+// via lextoken.SplitIdentifier + compact compound) with Zoekt equal field
+// weights (WeightPath = WeightSymbol = 5). Any drift in the scoring math breaks
+// these.
 func TestBM25F_UniquePathRankingUnchanged(t *testing.T) {
 	t.Parallel()
 	docs := []Document{
@@ -224,18 +235,17 @@ func TestBM25F_UniquePathRankingUnchanged(t *testing.T) {
 	}
 	scorer := NewBM25F(docs)
 
-	// Golden scores captured from the pre-fix path-lookup implementation
-	// (findDocIndex resolved correctly for unique paths → identical to the
-	// post-fix per-doc-TF path). Any change to the scoring math breaks these.
+	// Golden scores captured from the tokenized BM25F implementation
+	// (exact-token TF, WeightPath=5). Any change to the scoring math breaks these.
 	tests := []struct {
 		name     string
 		terms    []string
 		doc      Document
 		expected float64
 	}{
-		{"handler symbol+doc match", []string{"handle"}, docs[0], 1.9156335442461112},
+		{"handler symbol+doc match", []string{"handle"}, docs[0], 1.6858002786139050},
 		{"server no match", []string{"handle"}, docs[1], 0},
-		{"config sparse doc match", []string{"sparse"}, docs[2], 1.3220805686109927},
+		{"config sparse doc match", []string{"sparse"}, docs[2], 1.2693084450739991},
 	}
 	for _, tc := range tests {
 		got := scorer.ScoreTerms(tc.terms, tc.doc)
@@ -265,5 +275,162 @@ func TestBM25FDocWeightLowerThanSymbol(t *testing.T) {
 
 	if a <= b {
 		t.Errorf("symbol match (a=%f) must out-rank doc-only match (b=%f)", a, b)
+	}
+}
+
+// --- Phase E: tokenized BM25F term matching (issue #661) ---
+
+// TestBM25F_TokenizedCrossConventionMatch verifies that a query "parse_config"
+// matches a symbol "parseConfig" and vice versa, via the shared subword
+// (parse, config) and compact (parseconfig) tokens produced by symmetric
+// index/query tokenization.
+//
+// Falsification: revert to substring matching (strings.Contains on lowercased
+// raw fields without tokenization). "parse_config" lowercased is
+// "parse_config"; strings.Contains("parseconfig", "parse_config") is FALSE
+// (the underscore is not in "parseconfig"), so the cross-convention match is
+// lost and the score drops to 0 → RED.
+func TestBM25F_TokenizedCrossConventionMatch(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "logic.go", Symbols: []string{"parseConfig"}},
+	}
+	scorer := NewBM25F(docs)
+
+	snakeQuery := scorer.ScoreTerms([]string{"parse_config"}, docs[0])
+	camelQuery := scorer.ScoreTerms([]string{"parseConfig"}, docs[0])
+
+	if snakeQuery <= 0 {
+		t.Errorf("tokenized: query \"parse_config\" must match symbol \"parseConfig\", got %f", snakeQuery)
+	}
+	if camelQuery <= 0 {
+		t.Errorf("tokenized: query \"parseConfig\" must match symbol \"parseConfig\", got %f", camelQuery)
+	}
+	// Both queries produce the same token set {parse, config, parseconfig} →
+	// identical scores (symmetric tokenization).
+	if math.Abs(snakeQuery-camelQuery) > 1e-9 {
+		t.Errorf("tokenized: snake and camel queries should score equally, got snake=%f camel=%f", snakeQuery, camelQuery)
+	}
+}
+
+// TestBM25F_SubstringFalseMatchNoLongerInflatesTF verifies that a substring-only
+// false match the OLD code accepted — query "serial" matching "Deserializer"
+// mid-word (strings.Contains("deserializer", "serial") == true) — no longer
+// inflates TF under exact-token matching. "serial" is not a token of
+// "Deserializer" (which tokenizes to {deserializer}).
+//
+// Falsification: revert to substring matching → strings.Contains("deserializer",
+// "serial") is TRUE → TF > 0 → score > 0 → the "score == 0" assertion goes RED.
+func TestBM25F_SubstringFalseMatchNoLongerInflatesTF(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "serde.go", Symbols: []string{"Deserializer"}},
+	}
+	scorer := NewBM25F(docs)
+
+	score := scorer.ScoreTerms([]string{"serial"}, docs[0])
+	if score != 0 {
+		t.Errorf("tokenized: \"serial\" is not a token of \"Deserializer\", must score 0, got %f", score)
+	}
+}
+
+// TestBM25F_ExactTokenRanksTraitAboveMethod is the core Rust relevance fix from
+// issue #661. Given docs with symbols "Deserialize" (the trait) and
+// "deserialize_u32" (a method), a query "Deserialize" must score the exact trait
+// strictly higher. Under exact-token matching both contain the token
+// "deserialize" (TF equal), but the trait doc is shorter (fewer tokens → smaller
+// weighted DL → less length-normalization penalty), so it wins.
+//
+// Falsification: revert to substring matching → "deserialize" is a substring of
+// BOTH "deserialize" and "deserialize_u32"; the method's longer name still
+// contains "deserialize" so both match, but substring TF counts the method's
+// swarm of deserialize_* siblings equally, collapsing the trait's advantage →
+// the strict "trait > method" assertion goes RED (tie or reversed).
+func TestBM25F_ExactTokenRanksTraitAboveMethod(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "trait.go", Symbols: []string{"Deserialize"}},
+		{Path: "impl.go", Symbols: []string{"deserialize_u32"}},
+	}
+	scorer := NewBM25F(docs)
+
+	trait := scorer.ScoreTerms([]string{"Deserialize"}, docs[0])
+	method := scorer.ScoreTerms([]string{"Deserialize"}, docs[1])
+
+	if trait <= method {
+		t.Errorf("exact-token: trait Deserialize (%f) must rank strictly above method deserialize_u32 (%f)", trait, method)
+	}
+}
+
+// TestBM25F_CompactCompoundFallback verifies that a cross-convention compact
+// query "getusername" still matches a symbol "get_user_name" via the compact
+// compound token "getusername" indexed alongside the subwords.
+//
+// Falsification: remove the compact-compound emission (emitCompact=false for
+// symbols) → "get_user_name" tokenizes to {get, user, name} only; query
+// "getusername" tokenizes to {getusername}; no shared token → score 0 → RED.
+func TestBM25F_CompactCompoundFallback(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "user.go", Symbols: []string{"get_user_name"}},
+	}
+	scorer := NewBM25F(docs)
+
+	score := scorer.ScoreTerms([]string{"getusername"}, docs[0])
+	if score <= 0 {
+		t.Errorf("compact compound: query \"getusername\" must match symbol \"get_user_name\", got %f", score)
+	}
+}
+
+// TestBM25F_WholeIdentifierEmission verifies that an exact whole-identifier
+// query matches the whole-identifier token emitted alongside subwords. The
+// symbol "Deserialize" emits the whole token "deserialize" (== its compact form
+// for a single camelCase word); a query "deserialize" matches it exactly.
+//
+// Falsification: drop the whole-word token emission (only emit subwords) →
+// "Deserialize" → SplitIdentifier → ["deserializer"]? No: SplitCamelCase of
+// "Deserialize" yields ["deserialize"]; the whole token IS that subword here.
+// To make this test independently falsifiable, use a symbol whose subword split
+// differs from the whole identifier: "XMLParser" → subwords {xml, parser},
+// whole {xmlparser}. A query "xmlparser" matches only via the whole token.
+// Revert whole-token emission → "xmlparser" not in {xml, parser} → score 0 → RED.
+func TestBM25F_WholeIdentifierEmission(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "xml.go", Symbols: []string{"XMLParser"}},
+	}
+	scorer := NewBM25F(docs)
+
+	score := scorer.ScoreTerms([]string{"xmlparser"}, docs[0])
+	if score <= 0 {
+		t.Errorf("whole-identifier: query \"xmlparser\" must match symbol \"XMLParser\" via whole token, got %f", score)
+	}
+}
+
+// TestBM25F_LowPriorityFilePenalty verifies that a match in a test file has its
+// TF divided by lowPriorityFilePenalty (5), so an equal symbol match in a
+// non-test file scores strictly higher than the same match in a *_test.go file.
+//
+// Falsification: remove the lowPriorityFilePenalty division in
+// computeWeightedTF → both docs have identical TF (5), identical DL, identical
+// IDF → equal scores → the strict "normal > test" assertion goes RED.
+func TestBM25F_LowPriorityFilePenalty(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "handler.go", Symbols: []string{"Auth"}},
+		{Path: "handler_test.go", Symbols: []string{"Auth"}},
+	}
+	scorer := NewBM25F(docs)
+
+	normal := scorer.ScoreTerms([]string{"auth"}, docs[0])
+	testFile := scorer.ScoreTerms([]string{"auth"}, docs[1])
+
+	if normal <= testFile {
+		t.Errorf("lowPriorityFilePenalty: normal-file match (%f) must outrank test-file match (%f)", normal, testFile)
+	}
+	// The test-file TF is divided by 5; with identical IDF/DL structure the
+	// test-file score must be strictly lower, not equal.
+	if testFile <= 0 {
+		t.Errorf("lowPriorityFilePenalty: test-file match must still score >0 (TF divided, not zeroed), got %f", testFile)
 	}
 }
