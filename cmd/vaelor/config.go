@@ -191,7 +191,8 @@ type Config struct {
 	RRFWeightSemantic float64
 
 	// RRFWeightKeyword is the per-list weight applied to the keyword ranked
-	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
+	// list inside MergeRRF (Stream 1). Default 0.5 (Phase E tuning). Tune via
+	// RRF_WEIGHT_KEYWORD.
 	RRFWeightKeyword float64
 
 	// RRFWeightSparse is the per-list weight applied to the SPLADE sparse
@@ -220,11 +221,10 @@ type Config struct {
 	RRFWeightRecency float64
 
 	// KeywordArm selects the lexical retriever that feeds the Keyword slot of
-	// MergeRRF. Allowed values: "grep" (default, byte-identical to today) |
-	// "bm25f" (BM25F over trigram-prefiltered candidates, BM25F P4).
+	// MergeRRF. Allowed values: "bm25f" (default, BM25F over trigram-prefiltered
+	// candidates, BM25F P4) | "grep" (byte-identical to the legacy lexical arm).
 	// Invalid values WARN and fall back to "grep".
-	// Env: KEYWORD_ARM. Dark-launch: flip to "bm25f" only after Phase 5 A/B
-	// gate clears (non-inferiority on nDCG@10). Operator-ack required per git §4.
+	// Env: KEYWORD_ARM.
 	KeywordArm string
 
 	// SparseEmbedURL is the base URL for the SPLADE sparse-embedding server
