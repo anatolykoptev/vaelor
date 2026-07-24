@@ -86,11 +86,14 @@ retrieval patterns. (Additional local-only targets can be added as
 
 ## Coverage targets
 
-| Repo           | Records | Why                                                                |
-|----------------|---------|--------------------------------------------------------------------|
-| `go-code`      | 30-40   | Self-test; many small files exercise exact-symbol matching.        |
-| `MemDB`        | 30-40   | Go + pgvector, dense per-symbol descriptions.                      |
-| `psf-requests` | 50      | Python pilot — real OSS repo, NL + identifier + concept queries.   |
+| Repo              | Records | Why                                                                |
+|-------------------|---------|--------------------------------------------------------------------|
+| `go-code`         | 30-40   | Self-test; many small files exercise exact-symbol matching.        |
+| `MemDB`           | 30-40   | Go + pgvector, dense per-symbol descriptions.                      |
+| `psf-requests`    | 50      | Python pilot — real OSS repo, NL + identifier + concept queries.   |
+| `honojs-hono`     | 47      | TypeScript — web framework; camelCase + interfaces + generics.     |
+| `serde-rs-serde`  | 47      | Rust — serialization traits; snake_case + trait/impl + lifetimes.  |
+| `google-gson`     | 50      | Java — JSON library; PascalCase + package paths + generics.        |
 
 ## Python golden set (`psf-requests.jsonl`)
 
@@ -109,6 +112,52 @@ retrieval patterns. (Additional local-only targets can be added as
   dropped rather than stubbed.
 - **Resolve at run time**: `--repo-map psf-requests=/host/src/psf-requests`
   (or use the forge slug `psf/requests` as the `repo` override).
+
+## TypeScript golden set (`honojs-hono.jsonl`)
+
+- **Repo**: `honojs/hono` (https://github.com/honojs/hono)
+- **Pinned SHA**: `cadff88bba34153646c9b35f24d7cc0cb61be913` (tag v4.12.31)
+- **Records**: 47 (18 natural-language, 12 identifier, 10 concept/behavior,
+  7 synonym/paraphrase)
+- **Language**: `typescript` (set on every record via the `language` field)
+- **Labeling method**: every `expected_top_3` entry was verified by (a) grep
+  against a local checkout of the pinned SHA confirming file + symbol exist,
+  and (b) `mcp__vaelor__symbol_search` at HEAD confirming retrievability (HEAD
+  paths match the pinned SHA — zero drift). ZERO guessed or unverified labels.
+  Queries with no clear verifiable ground truth were dropped rather than stubbed.
+- **Resolve at run time**: `--repo-map honojs-hono=/host/src/honojs-hono`
+  (or use the forge slug `honojs/hono` as the `repo` override).
+
+## Rust golden set (`serde-rs-serde.jsonl`)
+
+- **Repo**: `serde-rs/serde` (https://github.com/serde-rs/serde)
+- **Pinned SHA**: `7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8` (tag v1.0.229)
+- **Records**: 47 (18 natural-language, 13 identifier, 10 concept/behavior,
+  6 synonym/paraphrase)
+- **Language**: `rust` (set on every record via the `language` field)
+- **Labeling method**: every `expected_top_3` entry was verified by (a) grep
+  against a local checkout of the pinned SHA confirming file + symbol exist,
+  and (b) `mcp__vaelor__symbol_search` at HEAD confirming retrievability (HEAD
+  paths match the pinned SHA — zero drift). ZERO guessed or unverified labels.
+  Queries with no clear verifiable ground truth were dropped rather than stubbed.
+- **Resolve at run time**: `--repo-map serde-rs-serde=/host/src/serde-rs-serde`
+  (or use the forge slug `serde-rs/serde` as the `repo` override).
+
+## Java golden set (`google-gson.jsonl`)
+
+- **Repo**: `google/gson` (https://github.com/google/gson)
+- **Pinned SHA**: `3ff35d6269894901ab8006258395aafc4b9765cd` (tag gson-parent-2.14.0)
+- **Records**: 50 (19 natural-language, 14 identifier, 12 concept/behavior,
+  5 synonym/paraphrase)
+- **Language**: `java` (set on every record via the `language` field)
+- **Labeling method**: every `expected_top_3` entry was verified by (a) grep
+  against a local checkout of the pinned SHA confirming file + symbol exist,
+  and (b) `mcp__vaelor__symbol_search` at HEAD confirming retrievability (HEAD
+  paths match the pinned SHA — only minor line-number drift, no path/symbol
+  drift). ZERO guessed or unverified labels. Queries with no clear verifiable
+  ground truth were dropped rather than stubbed.
+- **Resolve at run time**: `--repo-map google-gson=/host/src/google-gson`
+  (or use the forge slug `google/gson` as the `repo` override).
 
 ## Reproducibility
 
