@@ -30,3 +30,7 @@
 
 ; #include "header.h"
 (preproc_include path: (string_literal) @import.path)
+
+; #define macros (#664: macro kind).
+(preproc_def
+  name: (identifier) @symbol.name) @symbol.macro

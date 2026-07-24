@@ -27,6 +27,11 @@ const (
 	captureVar       = "symbol.var"
 	captureImport    = "import.path"
 
+	// #664: new low-volume symbol kinds — macro, module. Aligned with the
+	// tree-sitter @definition.* / SCIP vocabulary.
+	captureMacro  = "symbol.macro"
+	captureModule = "symbol.module"
+
 	captureCallFunction = "call.function"
 	captureCallMethod   = "call.method"
 

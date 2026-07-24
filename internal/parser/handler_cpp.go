@@ -58,6 +58,8 @@ func (h *cppHandler) MapCapture(captureName string, node *sitter.Node, source []
 		return h.mapVariable(node, source)
 	case captureConst:
 		return h.mapConst(node, source)
+	case captureMacro:
+		return h.mapMacro(node, source)
 	}
 	return nil
 }
@@ -170,6 +172,24 @@ func (h *cppHandler) mapVarOrConst(node *sitter.Node, source []byte, forceConst 
 	return &Symbol{
 		Name:       name,
 		Kind:       kind,
+		Language:   "cpp",
+		StartLine:  node.StartPoint().Row + 1,
+		EndLine:    node.EndPoint().Row + 1,
+		Signature:  extractSignature(node, source),
+		IsPublic:   isCppPublic(node, source),
+		Attributes: extractCppAttributes(node, source),
+	}
+}
+
+// mapMacro extracts a #define preprocessor macro as a KindMacro symbol (#664).
+func (h *cppHandler) mapMacro(node *sitter.Node, source []byte) *Symbol {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil
+	}
+	return &Symbol{
+		Name:       nameNode.Content(source),
+		Kind:       KindMacro,
 		Language:   "cpp",
 		StartLine:  node.StartPoint().Row + 1,
 		EndLine:    node.EndPoint().Row + 1,

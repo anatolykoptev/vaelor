@@ -188,6 +188,16 @@ func processCaptureWithCaps(
 		return
 	}
 
+	// #664: when ExpandSymbolKinds is set, refine KindType → KindTypeAlias for
+	// type-alias AST nodes (Rust type_item, TS type_alias_declaration, C/C++
+	// type_definition/alias_declaration). When the flag is OFF the kind stays
+	// KindType — byte-identical to the pre-#664 parse result.
+	if opts.ExpandSymbolKinds && sym.Kind == KindType {
+		if refined := refineTypeAliasKind(sym, node); refined != sym.Kind {
+			sym.Kind = refined
+		}
+	}
+
 	key := fmt.Sprintf("%s:%s:%d", sym.Kind, sym.Name, sym.StartLine)
 	if _, exists := seen[key]; exists {
 		return

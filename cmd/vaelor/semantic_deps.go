@@ -63,6 +63,11 @@ func newSemanticDeps(
 	// server cannot keep a goroutine alive indefinitely (Fix 3).
 	pipelineOpts = append(pipelineOpts, embeddings.WithIndexBudget(cfg.IndexBudget))
 
+	// #664: symbol-kind expansion (macro/module/type-alias + LOI embed text).
+	// Dark-launched — default false; prod is byte-identical until the controller
+	// measures recall lift vs index-size cost and enables EXPAND_SYMBOL_KINDS.
+	pipelineOpts = append(pipelineOpts, embeddings.WithExpandSymbolKinds(cfg.ExpandSymbolKinds))
+
 	// Sparse embed (P2+P4): optional SPLADE gate. When SPARSE_EMBED_URL is
 	// empty the sparseClient is nil — Pipeline stays dense-only AND the P4
 	// sparse retrieval arm in handleSemanticHits is skipped entirely

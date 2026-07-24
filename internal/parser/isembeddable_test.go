@@ -35,6 +35,11 @@ func TestIsEmbeddableKind(t *testing.T) {
 		{parser.KindImport, false},
 		{parser.KindRune, false},
 
+		// New kinds (#664) — excluded from the conservative predicate; admitted
+		// only via IsEmbeddableKindExpanded when EXPAND_SYMBOL_KINDS is set.
+		{parser.KindMacro, false},
+		{parser.KindTypeAlias, false},
+
 		// Unknown / empty kind must be false (defensive — never index an
 		// unrecognised kind, even if a future handler emits one).
 		{"", false},

@@ -84,6 +84,57 @@ func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*inge
 	return symbols, files, nil
 }
 
+// collectSymbolsExpanded is the flag-gated variant of collectSymbols (#664).
+// When expanded=false it delegates to collectSymbols — byte-identical to the
+// pre-#664 indexed set. When expanded=true it uses IsEmbeddableKindExpanded
+// (admitting macro/module/type-alias) and sets ParseOpts.ExpandSymbolKinds so
+// type-alias nodes are refined to KindTypeAlias during parse.
+func collectSymbolsExpanded(ctx context.Context, root string, expanded bool) ([]*parser.Symbol, []*ingest.File, error) {
+	if !expanded {
+		return collectSymbols(ctx, root)
+	}
+
+	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
+		Root:         root,
+		MaxFileBytes: maxIndexFileBytes,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("ingest repo: %w", err)
+	}
+
+	var symbols []*parser.Symbol
+	var files []*ingest.File
+
+	for _, f := range ir.Files {
+		if isTestFile(f.RelPath) {
+			continue
+		}
+		source, err := os.ReadFile(f.Path)
+		if err != nil {
+			slog.Debug("embeddings: read failed", slog.String("file", f.Path), slog.Any("error", err))
+			continue
+		}
+		pr, err := parser.ParseFile(f.Path, source, parser.ParseOpts{
+			Language:          f.Language,
+			IncludeBody:       true,
+			ExpandSymbolKinds: true,
+		})
+		if err != nil {
+			slog.Debug("embeddings: parse failed", slog.String("file", f.Path), slog.Any("error", err))
+			continue
+		}
+		for _, sym := range pr.Symbols {
+			if !parser.IsEmbeddableKindExpanded(sym.Kind, true) {
+				continue
+			}
+			symbols = append(symbols, sym)
+			files = append(files, f)
+		}
+	}
+
+	return symbols, files, nil
+}
+
 // isTestFile returns true for test/spec files that should be excluded from indexing.
 func isTestFile(relPath string) bool {
 	return langutil.IsTestFile(relPath)
@@ -115,6 +166,59 @@ func buildEmbedText(sym *parser.Symbol, filePath string) string {
 		}
 	}
 	return header + body
+}
+
+// buildEmbedTextExpanded is the flag-gated variant of buildEmbedText (#664).
+// When expanded=false it delegates to buildEmbedText — byte-identical to the
+// pre-#664 embed text. When expanded=true it uses the Aider LOI (Lines of
+// Interest) approach: the @doc docstring is included (same as legacy) but the
+// body is limited to the first loiBodyLines lines, producing a more focused
+// embedding that emphasizes signature + docstring + opening implementation
+// rather than the full body. The result is still capped at maxEmbedText chars.
+func buildEmbedTextExpanded(sym *parser.Symbol, filePath string, expanded bool) string {
+	if !expanded {
+		return buildEmbedText(sym, filePath)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s %s %s %s: %s\n", filePath, sym.Language, sym.Kind, sym.Name, sym.Signature)
+	if doc := strings.TrimSpace(sym.DocComment); doc != "" {
+		sb.WriteString(doc)
+		sb.WriteString("\n")
+	}
+	header := sb.String()
+	remaining := maxEmbedText - len(header)
+	if remaining <= 0 {
+		return header[:maxEmbedText]
+	}
+	// LOI: limit body to the first loiBodyLines lines.
+	body := limitLines(sym.Body, loiBodyLines)
+	if len(body) > remaining {
+		cut := strings.LastIndex(body[:remaining], "\n")
+		if cut > 0 {
+			body = body[:cut+1]
+		} else {
+			body = body[:remaining]
+		}
+	}
+	return header + body
+}
+
+// limitLines returns the first n lines of s (including their newlines). If s
+// has fewer than n lines, the full string is returned unchanged.
+func limitLines(s string, n int) string {
+	if n <= 0 || s == "" {
+		return ""
+	}
+	count := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			count++
+			if count >= n {
+				return s[:i+1]
+			}
+		}
+	}
+	return s
 }
 
 // GetHashes returns a map of symbol_name -> body_hash for all embeddings in a repo.

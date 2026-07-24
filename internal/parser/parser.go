@@ -30,6 +30,15 @@ const (
 	KindImport    NodeKind = "import"
 	KindClass     NodeKind = "class"
 	KindModule    NodeKind = "module"
+	// KindMacro is a C/C++ preprocessor #define or a Rust macro_rules! definition.
+	// Aligned with the tree-sitter @definition.macro / SCIP Macro kind.
+	KindMacro NodeKind = "macro"
+	// KindTypeAlias is a type alias (Rust type_item, TS type_alias_declaration,
+	// C++ alias_declaration/type_definition). Aligned with the tree-sitter
+	// @definition.type_alias / SCIP TypeAlias kind. When EXPAND_SYMBOL_KINDS is
+	// OFF, type aliases remain indexed as KindType (byte-identical to pre-#664);
+	// the refinement to KindTypeAlias only fires when the flag is ON.
+	KindTypeAlias NodeKind = "type_alias"
 	// KindRune is a Svelte 5 rune call expression ($state, $derived, $effect, etc.).
 	// Svelte-only: the rune detector in runes_svelte.go synthesizes these symbols
 	// after tree-sitter parsing and sets RuneKind to the canonical rune category.
@@ -58,6 +67,32 @@ const (
 func IsEmbeddableKind(k NodeKind) bool {
 	switch k {
 	case KindFunction, KindMethod, KindType, KindStruct, KindInterface, KindClass:
+		return true
+	}
+	return false
+}
+
+// IsEmbeddableKindExpanded is the flag-gated predicate that controls whether
+// the new low-volume symbol kinds (#664: macro, module, type-alias) enter the
+// embedding index. When expanded=false it delegates to IsEmbeddableKind —
+// byte-identical to the pre-#664 indexed set (prod unchanged). When
+// expanded=true it additionally admits KindMacro, KindModule, and
+// KindTypeAlias.
+//
+// The embedding pipeline (bulk, incremental, and cache paths) uses this
+// predicate so all three agree on the indexed set — a divergent set would
+// churn (embed on one path, orphan-delete on the next). The flag is read from
+// the EXPAND_SYMBOL_KINDS env var (default false) and wired through the
+// Pipeline; see cmd/vaelor/config.go.
+func IsEmbeddableKindExpanded(k NodeKind, expanded bool) bool {
+	if IsEmbeddableKind(k) {
+		return true
+	}
+	if !expanded {
+		return false
+	}
+	switch k {
+	case KindMacro, KindModule, KindTypeAlias:
 		return true
 	}
 	return false
@@ -173,6 +208,16 @@ type ParseOpts struct {
 	// IncludeTypeRels extracts type relationships (embeds/extends/implements)
 	// during parse. When false, TypeRels is left empty.
 	IncludeTypeRels bool
+
+	// ExpandSymbolKinds gates the #664 low-volume symbol-kind expansion. When
+	// true, type-alias nodes (Rust type_item, TS type_alias_declaration, C/C++
+	// type_definition/alias_declaration) are refined from KindType to
+	// KindTypeAlias during capture processing. When false (the default), the
+	// parse result is byte-identical to the pre-#664 behavior. The new kinds
+	// (macro, module) are always extracted by the .scm queries; this flag only
+	// controls the type-alias kind refinement. The embedding pipeline filters
+	// the new kinds via IsEmbeddableKindExpanded when this flag is OFF.
+	ExpandSymbolKinds bool
 }
 
 // ParseFile parses a single source file and returns its symbol table.

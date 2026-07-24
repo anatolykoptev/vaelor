@@ -29,6 +29,14 @@ const (
 	maxEmbedText      = 1500
 	maxIndexFileBytes = 512 * 1024
 	indexChunkSize    = 100
+
+	// loiBodyLines is the number of body lines included in the expanded embed
+	// text (Aider LOI — Lines of Interest — approach). When EXPAND_SYMBOL_KINDS
+	// is ON, buildEmbedTextExpanded limits the body to the first loiBodyLines
+	// lines instead of the full body, producing a more focused embedding that
+	// emphasizes the signature + @doc docstring + opening implementation lines.
+	// The controller measures recall lift vs index-size cost before enabling.
+	loiBodyLines = 8
 )
 
 // indexProgress tracks the progress of a background indexing run.
@@ -67,6 +75,7 @@ type Pipeline struct {
 	sparseClient      sparse.SparseEmbedder                                            // optional SPLADE embedder; nil disables sparse indexing (cold-path: byte-identical to dense-only)
 	sparseMaxBatch    int                                                              // per-request cap for sparse server (EMBED_MAX_INPUT_ARRAY); defaults to sparseServerMaxDocs
 	indexBudget       time.Duration                                                    // per-goroutine timeout for IndexRepoAsyncWithTool; 0 uses defaultIndexBudget
+	expandSymbolKinds bool                                                             // #664: gate macro/module/type-alias extraction + LOI embed text (EXPAND_SYMBOL_KINDS, default false)
 }
 
 // NewPipeline creates a Pipeline backed by the given client and store.
@@ -148,6 +157,15 @@ func WithIndexBudget(d time.Duration) PipelineOpt {
 			p.indexBudget = d
 		}
 	}
+}
+
+// WithExpandSymbolKinds enables the #664 low-volume symbol-kind expansion
+// (macro, module, type-alias) and the Aider LOI embed-text format. When false
+// (the default), the pipeline is byte-identical to the pre-#664 behavior — no
+// new kinds enter the embed set, and buildEmbedText uses the full-body format.
+// Wired from Config.ExpandSymbolKinds (env EXPAND_SYMBOL_KINDS, default false).
+func WithExpandSymbolKinds(v bool) PipelineOpt {
+	return func(p *Pipeline) { p.expandSymbolKinds = v }
 }
 
 // withWriteRepoStateFn overrides the SetRepoState implementation used by all
@@ -535,7 +553,7 @@ func (p *Pipeline) indexRepoWithTool(
 		return nil, fmt.Errorf("get existing hashes: %w", err)
 	}
 
-	toEmbed, seen := filterSymbols(symbols, files, existing, result)
+	toEmbed, seen := filterSymbols(symbols, files, existing, result, p.expandSymbolKinds)
 
 	// Compute the explicit orphan set: DB keys present for this repo_key that
 	// are NOT in the freshly-parsed symbol set. `existing` is the full DB-hash
@@ -658,6 +676,7 @@ func (p *Pipeline) writeRepoStateWithRetry(ctx context.Context, repoKey, sha, so
 func filterSymbols(
 	symbols []*parser.Symbol, files []*ingest.File,
 	existing map[string]uint64, result *IndexResult,
+	expanded bool,
 ) (toEmbed []symbolEntry, seen map[string]bool) {
 	seen = make(map[string]bool, len(symbols))
 	for i, sym := range symbols {
@@ -666,7 +685,7 @@ func filterSymbols(
 			continue
 		}
 		seen[key] = true
-		embedText := buildEmbedText(sym, files[i].RelPath)
+		embedText := buildEmbedTextExpanded(sym, files[i].RelPath, expanded)
 		h := strutil.TextHash(embedText)
 		if prev, ok := existing[key]; ok && prev == h {
 			result.Skipped++

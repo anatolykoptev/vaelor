@@ -54,6 +54,8 @@ func (h *cHandler) MapCapture(captureName string, node *sitter.Node, source []by
 		return h.mapFunction(node, source)
 	case captureType:
 		return h.mapType(node, source)
+	case captureMacro:
+		return h.mapMacro(node, source)
 	}
 	return nil
 }
@@ -157,4 +159,20 @@ func findIdentifierInDeclarator(node *sitter.Node, source []byte) string {
 		return findIdentifierInDeclarator(inner, source)
 	}
 	return ""
+}
+
+// mapMacro extracts a #define preprocessor macro as a KindMacro symbol (#664).
+func (h *cHandler) mapMacro(node *sitter.Node, source []byte) *Symbol {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil
+	}
+	return &Symbol{
+		Name:      nameNode.Content(source),
+		Kind:      KindMacro,
+		Language:  "c",
+		StartLine: node.StartPoint().Row + 1,
+		EndLine:   node.EndPoint().Row + 1,
+		Signature: extractSignature(node, source),
+	}
 }

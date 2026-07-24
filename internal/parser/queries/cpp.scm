@@ -121,3 +121,7 @@
 
 ; NOTE: using_declaration and using_directive node types are not available
 ; in this tree-sitter-cpp grammar version.
+
+; #define macros (#664: macro kind).
+(preproc_def
+  name: (identifier) @symbol.name) @symbol.macro

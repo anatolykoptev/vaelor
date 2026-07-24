@@ -53,7 +53,7 @@ func (p *Pipeline) collectSymbolsCached(
 	ctx context.Context, repoKey, root string,
 ) ([]*parser.Symbol, []*ingest.File, error) {
 	if p.fileCache == nil {
-		return collectSymbols(ctx, root)
+		return collectSymbolsExpanded(ctx, root, p.expandSymbolKinds)
 	}
 
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
@@ -106,8 +106,9 @@ func (p *Pipeline) buildSymbolEntriesForFile(f *ingest.File) ([]symbolEntry, err
 		return nil, err
 	}
 	pr, err := parser.ParseFile(f.Path, source, parser.ParseOpts{
-		Language:    f.Language,
-		IncludeBody: true,
+		Language:          f.Language,
+		IncludeBody:       true,
+		ExpandSymbolKinds: p.expandSymbolKinds,
 	})
 	if err != nil {
 		slog.Debug("embeddings: parse failed", slog.String("file", f.Path), slog.Any("error", err))
@@ -115,10 +116,10 @@ func (p *Pipeline) buildSymbolEntriesForFile(f *ingest.File) ([]symbolEntry, err
 	}
 	out := make([]symbolEntry, 0, len(pr.Symbols))
 	for _, sym := range pr.Symbols {
-		if !parser.IsEmbeddableKind(sym.Kind) {
+		if !parser.IsEmbeddableKindExpanded(sym.Kind, p.expandSymbolKinds) {
 			continue
 		}
-		text := buildEmbedText(sym, f.RelPath)
+		text := buildEmbedTextExpanded(sym, f.RelPath, p.expandSymbolKinds)
 		out = append(out, symbolEntry{
 			sym:       sym,
 			file:      f,
