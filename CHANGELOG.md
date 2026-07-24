@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.59.1](https://github.com/anatolykoptev/vaelor/compare/v1.59.0...v1.59.1) (2026-07-24)
+
+
+### Fixed
+
+* stale keyword-arm log note + eval repo-map slug matching ([#673](https://github.com/anatolykoptev/vaelor/issues/673)) ([10b28c2](https://github.com/anatolykoptev/vaelor/commit/10b28c2657271cd95b41284182bd3b6946453ed5))
+
 ## [1.59.0](https://github.com/anatolykoptev/vaelor/compare/v1.58.0...v1.59.0) (2026-07-24)
 
 
