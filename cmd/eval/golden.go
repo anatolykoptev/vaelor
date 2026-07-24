@@ -163,8 +163,9 @@ func (g *GoldenSet) ApplyRepoMap(repoMap map[string]string) {
 
 // ParseRepoMap parses a comma-separated "key=path,key=path" string into a
 // map. Whitespace around keys and values is trimmed. Empty input returns nil.
-// Keys or values containing '=' are rejected (paths with '=' are vanishingly
-// rare and would make the format ambiguous — use a JSON file if needed).
+// Each pair is split on its FIRST '=', so a value (path) may itself contain
+// '=' characters; a key may not (everything before the first '=' is the key).
+// A pair with no '=' is an error; an empty key or value is an error.
 func ParseRepoMap(raw string) (map[string]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
