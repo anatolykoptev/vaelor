@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.55.1](https://github.com/anatolykoptev/vaelor/compare/v1.55.0...v1.55.1) (2026-07-24)
+
+
+### Fixed
+
+* **eval:** retry transient tool signals, warm indexes before measuring, distinct python golden slug ([#656](https://github.com/anatolykoptev/vaelor/issues/656)) ([ea4a614](https://github.com/anatolykoptev/vaelor/commit/ea4a61431e53a1ff3207567e00762a60e88d2a7f))
+
 ## [1.55.0](https://github.com/anatolykoptev/go-code/compare/v1.54.0...v1.55.0) (2026-07-24)
 
 
