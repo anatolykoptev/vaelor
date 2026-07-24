@@ -191,7 +191,8 @@ type Config struct {
 	RRFWeightSemantic float64
 
 	// RRFWeightKeyword is the per-list weight applied to the keyword ranked
-	// list inside MergeRRF (Stream 1). Default 1.0. Tune via RRF_WEIGHT_KEYWORD.
+	// list inside MergeRRF (Stream 1). Default 0.5 (Phase E tuning). Tune via
+	// RRF_WEIGHT_KEYWORD.
 	RRFWeightKeyword float64
 
 	// RRFWeightSparse is the per-list weight applied to the SPLADE sparse
@@ -220,11 +221,10 @@ type Config struct {
 	RRFWeightRecency float64
 
 	// KeywordArm selects the lexical retriever that feeds the Keyword slot of
-	// MergeRRF. Allowed values: "grep" (default, byte-identical to today) |
-	// "bm25f" (BM25F over trigram-prefiltered candidates, BM25F P4).
+	// MergeRRF. Allowed values: "bm25f" (default, BM25F over trigram-prefiltered
+	// candidates, BM25F P4) | "grep" (byte-identical to the legacy lexical arm).
 	// Invalid values WARN and fall back to "grep".
-	// Env: KEYWORD_ARM. Dark-launch: flip to "bm25f" only after Phase 5 A/B
-	// gate clears (non-inferiority on nDCG@10). Operator-ack required per git §4.
+	// Env: KEYWORD_ARM.
 	KeywordArm string
 
 	// SparseEmbedURL is the base URL for the SPLADE sparse-embedding server
@@ -436,7 +436,12 @@ const (
 	// stay 1.0 so deploys are byte-identical until weights are grid-searched
 	// via the offline harness.
 	defaultRRFWeightSemantic = 1.0
-	defaultRRFWeightKeyword  = 1.0
+	// defaultRRFWeightKeyword: 0.5 is the Phase E promoted default (empirical
+	// 4-repo golden eval, 194 queries: bm25f@0.5 = OVERALL nDCG@10 0.568 vs
+	// 0.499 for grep@1.0, +0.069, no per-language regression; 0.5 is the
+	// inverted-U peak beating both 0.3 and 1.0). Env RRF_WEIGHT_KEYWORD still
+	// overrides. Must be ≥ 0.
+	defaultRRFWeightKeyword = 0.5
 	// defaultRRFWeightSparse: 0.0 = DARK-LAUNCHED. The arm is plumbed (P4)
 	// but contributes nothing to ranking until Phase 6 A/B validates the
 	// quality gain (target p<0.05 nDCG@10 improvement). Flip to 0.2–0.4
@@ -462,10 +467,12 @@ const (
 	// Must be ≥ 0 (negative rejected at startup).
 	defaultRRFWeightRecency = 0.1
 
-	// defaultKeywordArm: "grep" = byte-identical to pre-BM25F behavior.
-	// Dark-launched: no prod change until operator sets KEYWORD_ARM=bm25f after
-	// Phase 5 A/B gate (non-inferiority on nDCG@10). Valid values: grep | bm25f.
-	defaultKeywordArm = keywordArmGrep
+	// defaultKeywordArm: "bm25f" is the Phase E promoted default (empirical
+	// 4-repo golden eval, 194 queries: bm25f@keyword-weight 0.5 = OVERALL
+	// nDCG@10 0.568 vs 0.499 for grep@1.0, +0.069, no per-language regression).
+	// Env KEYWORD_ARM still overrides (set KEYWORD_ARM=grep to revert).
+	// Valid values: grep | bm25f.
+	defaultKeywordArm = keywordArmBM25F
 
 	// keywordArm* are the allowed values for KEYWORD_ARM.
 	keywordArmGrep  = "grep"
