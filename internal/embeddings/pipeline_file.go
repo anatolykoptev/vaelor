@@ -18,6 +18,13 @@ type FileIndexResult struct {
 	Embedded int   // newly-embedded symbol count (new or body-changed)
 	Skipped  int   // hash-matched symbols — no embed call issued
 	Deleted  int64 // symbols removed from DB (file shrank or was deleted)
+	// DeferredToBulk is true when IndexFile skipped because a bulk reindex
+	// (IndexRepoAsyncWithTool / indexRepoWithTool) held the per-repoKey
+	// single-flight slot for this repoKey. The bulk pass walks every source
+	// file and re-embeds changed symbols, so the file's update is NOT dropped —
+	// it is covered by the authoritative full-repo pass (#641). When false
+	// (the common case, no bulk in flight) IndexFile ran the per-file index.
+	DeferredToBulk bool
 }
 
 // IndexFile incrementally indexes one file: parses it, extracts symbols,
@@ -37,6 +44,33 @@ type FileIndexResult struct {
 // IndexFile does NOT touch repo_state / repoMainBranchSHA — that is repo-level
 // fingerprinting owned by IndexRepo. IndexFile is file-level only.
 func (p *Pipeline) IndexFile(ctx context.Context, repoKey, root, relPath string) (*FileIndexResult, error) {
+	// B2 (#641): serialize against a concurrent bulk reindex. IndexFile does
+	// DeleteSymbolsForFile + embedAndUpsert on the same rows the bulk path
+	// (IndexRepoAsyncWithTool / indexRepoWithTool) touches via
+	// DeleteExplicitOrphans + embedChunks. Without this guard the two
+	// interleave → a just-inserted watcher symbol can be swept by the bulk
+	// orphan-delete, double-embedded, or deadlock PG.
+	//
+	// When a bulk reindex is in flight, DEFER: the bulk pass walks every source
+	// file in the repo root and re-embeds changed symbols, so this file's
+	// update is NOT dropped — it is covered by the authoritative full-repo
+	// pass. This is the option that cannot drop a file's update silently: the
+	// bulk re-parse is the source of truth and subsumes any single-file diff.
+	// The common case (no bulk in flight) is byte-identical: IsIndexing==false
+	// → IndexFile proceeds unchanged.
+	//
+	// Claiming the slot instead would make IsIndexing true during a per-file
+	// index, causing semantic_search to report a spurious "indexing in
+	// progress" (total=0) and needlessly blocking a cold-repo bulk reindex
+	// behind a single-file event. Deferring preserves the common-case
+	// behavior and the semantic_search IsIndexing contract.
+	if p.IsIndexing(repoKey) {
+		slog.Info("indexFile: bulk reindex in progress — deferring to bulk pass (covers this file)",
+			slog.String("repo", repoKey),
+			slog.String("file", relPath))
+		return &FileIndexResult{DeferredToBulk: true}, nil
+	}
+
 	absPath := filepath.Join(root, relPath)
 
 	// Mirror indexRepo's isTestFile filter: test files are never indexed via the
