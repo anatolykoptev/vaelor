@@ -151,6 +151,97 @@ func TestBM25FMatchesDocComment(t *testing.T) {
 	}
 }
 
+// TestBM25F_SamePathCandidatesScoredAgainstOwnDocument is the B1 regression
+// test. It reproduces the per-symbol candidate shape from
+// internal/embeddings/store_bm25.go (BM25Search): multiple Documents sharing
+// the SAME Path, each carrying distinct symbol tokens.
+//
+// Before the fix, ScoreTerms resolved the document via findDocIndex(path) — a
+// linear scan returning the FIRST match. With identical paths, every candidate
+// resolved to index 0 (Config's doc), so SparseConfig was scored against
+// Config's tokens — losing its rightful symbol-match boost. All same-path
+// candidates received Config's score (a tie), not their own.
+//
+// After the fix, ScoreTerms computes TF directly from the passed doc's own
+// fields (corpus-wide IDF/avgdl only), so each candidate is scored against its
+// own tokens. SparseConfig (symbol hit, WeightSymbol=5) must outrank Config
+// (doc-comment hit, WeightDoc=2); RRFWeights (no "sparse" token) must score 0.
+//
+// Falsification: revert the fix → findDocIndex returns 0 for all three → all
+// scored against Config's doc → scoreSparse == scoreConfig (tie) → the
+// `scoreSparse > scoreConfig` assertion goes RED.
+func TestBM25F_SamePathCandidatesScoredAgainstOwnDocument(t *testing.T) {
+	t.Parallel()
+	// Three candidates from the SAME file (config.go), distinct symbol tokens.
+	// "sparse" appears in Config's Docs (WeightDoc=2) and SparseConfig's symbol
+	// (WeightSymbol=5), but NOT in RRFWeights at all.
+	docs := []Document{
+		{Path: "config.go", Symbols: []string{"Config"}, Docs: []string{"sparse config helper"}},
+		{Path: "config.go", Symbols: []string{"RRFWeights"}},
+		{Path: "config.go", Symbols: []string{"SparseConfig"}},
+	}
+	scorer := NewBM25F(docs)
+
+	scoreConfig := scorer.ScoreTerms([]string{"sparse"}, docs[0])
+	scoreRRF := scorer.ScoreTerms([]string{"sparse"}, docs[1])
+	scoreSparse := scorer.ScoreTerms([]string{"sparse"}, docs[2])
+
+	// SparseConfig's symbol contains "sparse" (×5) — must outrank Config's
+	// doc-comment-only match (×2). With the bug, both equal Config's score.
+	if scoreSparse <= scoreConfig {
+		t.Errorf("same-path: SparseConfig (symbol hit) must outrank Config "+
+			"(doc-only hit): sparse=%f config=%f rrf=%f",
+			scoreSparse, scoreConfig, scoreRRF)
+	}
+	// RRFWeights has no "sparse" token in any field — must score exactly 0.
+	// With the bug, it inherits Config's doc-comment score (>0) — RED.
+	if scoreRRF != 0 {
+		t.Errorf("same-path: RRFWeights has no 'sparse' token, must score 0, "+
+			"got %f (bug: scored against Config's doc)", scoreRRF)
+	}
+	// Config's own score must be positive (doc-comment match).
+	if scoreConfig <= 0 {
+		t.Errorf("same-path: Config doc-comment match must score >0, got %f",
+			scoreConfig)
+	}
+}
+
+// TestBM25F_UniquePathRankingUnchanged locks the repo_analyze call-site
+// behavior (internal/analyze/rank.go: each Document has a UNIQUE path, one doc
+// per file). The fix computes TF from the passed doc's own fields instead of a
+// path lookup; for unique-path docs the passed doc IS the corpus doc, so TF,
+// DL, and the final score are byte-identical to the pre-fix path-lookup path.
+// This test asserts exact golden scores so any drift is caught.
+func TestBM25F_UniquePathRankingUnchanged(t *testing.T) {
+	t.Parallel()
+	docs := []Document{
+		{Path: "handler.go", Symbols: []string{"HandleRequest"}, Docs: []string{"handles http requests"}},
+		{Path: "server.go", Symbols: []string{"Serve"}},
+		{Path: "config.go", Symbols: []string{"LoadConfig"}, Docs: []string{"loads sparse config"}},
+	}
+	scorer := NewBM25F(docs)
+
+	// Golden scores captured from the pre-fix path-lookup implementation
+	// (findDocIndex resolved correctly for unique paths → identical to the
+	// post-fix per-doc-TF path). Any change to the scoring math breaks these.
+	tests := []struct {
+		name     string
+		terms    []string
+		doc      Document
+		expected float64
+	}{
+		{"handler symbol+doc match", []string{"handle"}, docs[0], 1.9156335442461112},
+		{"server no match", []string{"handle"}, docs[1], 0},
+		{"config sparse doc match", []string{"sparse"}, docs[2], 1.3220805686109927},
+	}
+	for _, tc := range tests {
+		got := scorer.ScoreTerms(tc.terms, tc.doc)
+		if got != tc.expected {
+			t.Errorf("%s: expected %f, got %f", tc.name, tc.expected, got)
+		}
+	}
+}
+
 func TestBM25FDocWeightLowerThanSymbol(t *testing.T) {
 	t.Parallel()
 	// A symbol-name match should out-rank a doc-comment-only match

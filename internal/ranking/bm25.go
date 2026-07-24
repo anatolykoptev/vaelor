@@ -31,8 +31,7 @@ type Document struct {
 type BM25F struct {
 	n     int                // total number of documents in the corpus
 	avgDL float64            // average document length across the corpus
-	docDL []float64          // per-document weighted length
-	docs  []documentInternal // preprocessed documents for fast lookup
+	docs  []documentInternal // preprocessed corpus for document-frequency (IDF) computation
 
 	// Lazy document-frequency cache: computed on first query for each term.
 	mu    sync.Mutex
@@ -54,7 +53,6 @@ func NewBM25F(docs []Document) *BM25F {
 
 	b := &BM25F{
 		n:     len(docs),
-		docDL: make([]float64, len(docs)),
 		docs:  make([]documentInternal, len(docs)),
 		dfMap: make(map[string]int),
 	}
@@ -74,11 +72,10 @@ func NewBM25F(docs []Document) *BM25F {
 			b.docs[i].docsLower[j] = strings.ToLower(d)
 		}
 
-		// Compute weighted document length: sum of field contributions.
+		// Accumulate weighted document length for avgDL.
 		dl := float64(len(b.docs[i].symbolsLower))*WeightSymbol +
 			float64(len(b.docs[i].docsLower))*WeightDoc +
 			WeightPath // path always contributes a baseline length
-		b.docDL[i] = dl
 		totalDL += dl
 	}
 
@@ -88,48 +85,56 @@ func NewBM25F(docs []Document) *BM25F {
 }
 
 // Score computes the BM25F score for a single query term against a document.
+// TF and document length are computed from the passed doc's own fields; the
+// corpus (built by NewBM25F) supplies only corpus-wide IDF and avgDL. This
+// makes scoring correct when multiple candidates share the same Path (the
+// per-symbol candidate shape from store_bm25.go BM25Search) — each candidate is
+// scored against its own tokens, not the first same-path document in the corpus.
 func (b *BM25F) Score(term string, doc Document) float64 {
 	if b.n == 0 {
 		return 0
 	}
 
-	termLower := strings.ToLower(term)
-
-	// Find the document index.
-	docIdx := b.findDocIndex(strings.ToLower(doc.Path))
-	if docIdx < 0 {
-		return 0
-	}
-
-	return b.scoreTermAtIndex(termLower, docIdx)
+	di, dl := preprocessDoc(doc)
+	return b.scoreTermInDoc(strings.ToLower(term), di, dl)
 }
 
 // ScoreTerms computes total BM25F score for multiple query terms.
+// See Score for the per-document TF semantics.
 func (b *BM25F) ScoreTerms(terms []string, doc Document) float64 {
 	if b.n == 0 || len(terms) == 0 {
 		return 0
 	}
 
-	docIdx := b.findDocIndex(strings.ToLower(doc.Path))
-	if docIdx < 0 {
-		return 0
-	}
+	di, dl := preprocessDoc(doc)
 
 	var total float64
 	for _, term := range terms {
-		total += b.scoreTermAtIndex(strings.ToLower(term), docIdx)
+		total += b.scoreTermInDoc(strings.ToLower(term), di, dl)
 	}
 	return total
 }
 
-// findDocIndex returns the index of the document with the given lowercase path, or -1.
-func (b *BM25F) findDocIndex(pathLower string) int {
-	for i := range b.docs {
-		if b.docs[i].pathLower == pathLower {
-			return i
-		}
+// preprocessDoc lowercases a Document's fields and computes its weighted
+// document length. This is the per-document TF/DL source for Score/ScoreTerms,
+// replacing the former path-lookup (findDocIndex) which was incorrect for
+// same-path candidates.
+func preprocessDoc(doc Document) (documentInternal, float64) {
+	di := documentInternal{
+		pathLower: strings.ToLower(doc.Path),
 	}
-	return -1
+	di.symbolsLower = make([]string, len(doc.Symbols))
+	for j, sym := range doc.Symbols {
+		di.symbolsLower[j] = strings.ToLower(sym)
+	}
+	di.docsLower = make([]string, len(doc.Docs))
+	for j, d := range doc.Docs {
+		di.docsLower[j] = strings.ToLower(d)
+	}
+	dl := float64(len(di.symbolsLower))*WeightSymbol +
+		float64(len(di.docsLower))*WeightDoc +
+		WeightPath
+	return di, dl
 }
 
 // documentFrequency returns how many documents contain the term (substring match).
@@ -157,10 +162,12 @@ func (b *BM25F) documentFrequency(termLower string) int {
 	return df
 }
 
-// scoreTermAtIndex computes BM25F score for a single lowercase term at a given doc index.
-func (b *BM25F) scoreTermAtIndex(termLower string, docIdx int) float64 {
+// scoreTermInDoc computes BM25F score for a single lowercase term against a
+// preprocessed document with its own weighted length. TF and DL are
+// per-document (from the passed doc); IDF and avgDL are corpus-wide.
+func (b *BM25F) scoreTermInDoc(termLower string, doc documentInternal, dl float64) float64 {
 	// Weighted term frequency across fields.
-	tf := computeWeightedTF(b.docs[docIdx], termLower)
+	tf := computeWeightedTF(doc, termLower)
 	if tf == 0 {
 		return 0
 	}
@@ -174,7 +181,6 @@ func (b *BM25F) scoreTermAtIndex(termLower string, docIdx int) float64 {
 	idf := math.Log((float64(b.n-df)+0.5)/(float64(df)+0.5) + 1)
 
 	// BM25 score: idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl/avgdl))
-	dl := b.docDL[docIdx]
 	avgdl := b.avgDL
 	if avgdl == 0 {
 		avgdl = 1 // avoid division by zero
