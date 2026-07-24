@@ -1,0 +1,85 @@
+# Golden records for psf/requests retrieval evaluation (Python).
+# Lines beginning with '#' and blank lines are skipped.
+#
+# Repo: psf/requests (https://github.com/psf/requests)
+# Pinned SHA: 6e83187b8feb273ed4c6cdab5efd8d54901dfab3 (tag v2.34.2)
+# Language: python
+#
+# repo is a portable placeholder — resolve at run time with --repo-map:
+#   go-code-eval --repo-map psf-requests=/host/src/psf-requests
+# or override per-record with a real forge slug "psf/requests".
+#
+# LABELING METHOD (documented for honesty / reproducibility)
+# ──────────────────────────────────────────────────────────
+# Labels were derived by running `mcp__vaelor__symbol_search` and
+# `mcp__vaelor__code_search` against the live vaelor MCP (which cloned
+# psf/requests at HEAD ≈ v2.34.2; source files in src/requests/ are
+# identical between the pinned tag and HEAD — only CI config bumps differ).
+# Every expected_top_3 entry is a REAL symbol path verified to exist at the
+# SHA via AST-level symbol_search results (file + line + kind confirmed).
+# Relevance is BINARY: any symbol in expected_top_3 is fully relevant.
+# ZERO guessed or unverified labels — every label was cross-checked against
+# the vaelor symbol index. Queries with no clear verifiable ground truth
+# were dropped rather than stubbed.
+#
+# ── SECTION 1: Natural-language queries (how/where questions) ──
+#
+{"query": "how are HTTP redirects followed", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:resolve_redirects"], "language": "python", "notes": "NL: core redirect-resolution generator in SessionRedirectMixin"}
+{"query": "where is the redirect target URL extracted from a response", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:get_redirect_target"], "language": "python", "notes": "NL: parses Location header to get next redirect URL"}
+{"query": "how is the authorization header stripped on cross-host redirect", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:should_strip_auth"], "language": "python", "notes": "NL: decides whether to remove Authorization on scheme/port/host change"}
+{"query": "how are proxy headers rebuilt for a redirect", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:rebuild_proxies"], "language": "python", "notes": "NL: reconstructs proxy dict for the redirected request"}
+{"query": "how is the HTTP method changed on redirect", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:rebuild_method"], "language": "python", "notes": "NL: may downgrade POST→GET on 301/302/303 per RFC"}
+{"query": "how are cookies extracted from an HTTP response", "repo": "/path/to/repo", "expected_top_3": ["src/requests/cookies.py:extract_cookies_to_jar"], "language": "python", "notes": "NL: bridges urllib3 response → cookielib jar via MockRequest/MockResponse"}
+{"query": "where is the cookie header string generated for a request", "repo": "/path/to/repo", "expected_top_3": ["src/requests/cookies.py:get_cookie_header"], "language": "python", "notes": "NL: produces the Cookie header value from jar + PreparedRequest"}
+{"query": "how are cookies merged from session and request settings", "repo": "/path/to/repo", "expected_top_3": ["src/requests/cookies.py:merge_cookies"], "language": "python", "notes": "NL: merges session-level cookies into the per-request jar"}
+{"query": "where is a cookie jar created from a dictionary", "repo": "/path/to/repo", "expected_top_3": ["src/requests/cookies.py:cookiejar_from_dict"], "language": "python", "notes": "NL: factory that builds RequestsCookieJar from a plain dict"}
+{"query": "how is basic authentication encoded into a header value", "repo": "/path/to/repo", "expected_top_3": ["src/requests/auth.py:_basic_auth_str"], "language": "python", "notes": "NL: base64-encodes user:pass into the Authorization header string"}
+{"query": "where is HTTP digest authentication challenge handling", "repo": "/path/to/repo", "expected_top_3": ["src/requests/auth.py:handle_401"], "language": "python", "notes": "NL: response hook that parses WWW-Authenticate and retries with digest"}
+{"query": "how is the digest auth header built", "repo": "/path/to/repo", "expected_top_3": ["src/requests/auth.py:build_digest_header"], "language": "python", "notes": "NL: constructs the Digest Authorization header from nonce/nc/qop"}
+{"query": "how is the user agent string generated", "repo": "/path/to/repo", "expected_top_3": ["src/requests/utils.py:default_user_agent"], "language": "python", "notes": "NL: builds the default User-Agent header value"}
+{"query": "where are default HTTP headers created for a request", "repo": "/path/to/repo", "expected_top_3": ["src/requests/utils.py:default_headers"], "language": "python", "notes": "NL: returns CaseInsensitiveDict with standard default headers"}
+{"query": "how is the response body decoded as text", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:text"], "language": "python", "notes": "NL: property that decodes response bytes using detected encoding"}
+{"query": "where is the JSON response body parsed", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:json"], "language": "python", "notes": "NL: Response.json() method — decodes content as JSON"}
+{"query": "how is the content length of a request body prepared", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:prepare_content_length"], "language": "python", "notes": "NL: sets Content-Length header based on body type and method"}
+{"query": "where are proxy settings read from the environment", "repo": "/path/to/repo", "expected_top_3": ["src/requests/utils.py:get_environ_proxies"], "language": "python", "notes": "NL: reads HTTP_PROXY/HTTPS_PROXY env vars for a URL"}
+{"query": "how is a URL prepared for an HTTP request", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:prepare_url"], "language": "python", "notes": "NL: parses, encodes, and normalizes the request URL"}
+{"query": "where is the connection pool initialized for the adapter", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:init_poolmanager"], "language": "python", "notes": "NL: creates the urllib3 PoolManager with connection/maxsize/block params"}
+#
+# ── SECTION 2: Identifier queries (exact symbol names) ──
+#
+{"query": "Session", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:Session"], "language": "python", "notes": "identifier: main session class — persistent cookie/auth/adapter state"}
+{"query": "HTTPAdapter", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:HTTPAdapter"], "language": "python", "notes": "identifier: standard transport adapter wrapping urllib3 PoolManager"}
+{"query": "PreparedRequest", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:PreparedRequest"], "language": "python", "notes": "identifier: fully-prepared request object with url/headers/body/auth"}
+{"query": "Response", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:Response"], "language": "python", "notes": "identifier: HTTP response object — content/text/json/status_code"}
+{"query": "RequestsCookieJar", "repo": "/path/to/repo", "expected_top_3": ["src/requests/cookies.py:RequestsCookieJar"], "language": "python", "notes": "identifier: dict-like CookieJar subclass with domain/path accessors"}
+{"query": "CaseInsensitiveDict", "repo": "/path/to/repo", "expected_top_3": ["src/requests/structures.py:CaseInsensitiveDict"], "language": "python", "notes": "identifier: case-insensitive mapping used for headers"}
+{"query": "resolve_redirects", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:resolve_redirects"], "language": "python", "notes": "identifier: redirect-resolution generator"}
+{"query": "raise_for_status", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:raise_for_status"], "language": "python", "notes": "identifier: raises HTTPError for 4xx/5xx response status"}
+{"query": "cert_verify", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:cert_verify"], "language": "python", "notes": "identifier: configures SSL CA bundle and client cert on a connection"}
+{"query": "build_response", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:build_response"], "language": "python", "notes": "identifier: constructs Response from urllib3 HTTPResponse + PreparedRequest"}
+{"query": "get_adapter", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:get_adapter"], "language": "python", "notes": "identifier: selects the transport adapter for a URL prefix"}
+{"query": "merge_setting", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:merge_setting"], "language": "python", "notes": "identifier: merges session-level and request-level setting dicts"}
+{"query": "prepare_url", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:prepare_url"], "language": "python", "notes": "identifier: URL preparation — parsing, encoding, auth extraction"}
+{"query": "proxy_manager_for", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:proxy_manager_for"], "language": "python", "notes": "identifier: returns/creates a urllib3 ProxyManager for a proxy URL"}
+{"query": "HTTPDigestAuth", "repo": "/path/to/repo", "expected_top_3": ["src/requests/auth.py:HTTPDigestAuth"], "language": "python", "notes": "identifier: digest auth handler with per-thread 401-call state"}
+#
+# ── SECTION 3: Concept/behavior queries (paraphrased descriptions) ──
+#
+{"query": "follow redirect chain", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:resolve_redirects"], "language": "python", "notes": "concept: paraphrase of redirect-following logic"}
+{"query": "send an HTTP GET request", "repo": "/path/to/repo", "expected_top_3": ["src/requests/api.py:get", "src/requests/sessions.py:get"], "language": "python", "notes": "concept: top-level get() convenience + Session.get"}
+{"query": "create a persistent session for multiple requests", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:Session", "src/requests/sessions.py:session"], "language": "python", "notes": "concept: Session class + session() factory"}
+{"query": "mount a custom transport adapter for a URL prefix", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:mount"], "language": "python", "notes": "concept: Session.mount registers adapter by prefix"}
+{"query": "stream large response body in chunks", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:iter_content"], "language": "python", "notes": "concept: Response.iter_content generator for chunked reads"}
+{"query": "check if a response status indicates an error", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:raise_for_status", "src/requests/models.py:ok"], "language": "python", "notes": "concept: raise_for_status + ok property"}
+{"query": "determine the apparent encoding of a response body", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:apparent_encoding"], "language": "python", "notes": "concept: chardet-based encoding detection property"}
+{"query": "get the next redirect request from a response", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:next"], "language": "python", "notes": "concept: Response.next property returns PreparedRequest for redirect"}
+{"query": "merge session-level settings with request-level overrides", "repo": "/path/to/repo", "expected_top_3": ["src/requests/sessions.py:merge_setting"], "language": "python", "notes": "concept: paraphrase of merge_setting utility"}
+{"query": "select a proxy for a given URL", "repo": "/path/to/repo", "expected_top_3": ["src/requests/utils.py:select_proxy"], "language": "python", "notes": "concept: picks the right proxy entry by URL scheme"}
+#
+# ── SECTION 4: Synonym/abbreviation queries ──
+#
+{"query": "how are SSL certificates verified for a connection", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:cert_verify"], "language": "python", "notes": "synonym: SSL=TLS; cert_verify sets CA bundle + client cert"}
+{"query": "where is the response object built from a urllib3 response", "repo": "/path/to/repo", "expected_top_3": ["src/requests/adapters.py:build_response"], "language": "python", "notes": "synonym: built=constructed; adapter bridges urllib3→requests Response"}
+{"query": "how are request hooks registered", "repo": "/path/to/repo", "expected_top_3": ["src/requests/models.py:register_hook"], "language": "python", "notes": "synonym: registered=added; RequestHooksMixin.register_hook"}
+{"query": "where is the encoding of a response detected from headers", "repo": "/path/to/repo", "expected_top_3": ["src/requests/utils.py:get_encoding_from_headers"], "language": "python", "notes": "synonym: detected=determined; parses Content-Type charset"}
+{"query": "where are netrc credentials looked up for authentication", "repo": "/path/to/repo", "expected_top_3": ["src/requests/utils.py:get_netrc_auth"], "language": "python", "notes": "synonym: credentials=login; reads ~/.netrc for URL hostname"}

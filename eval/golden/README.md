@@ -90,6 +90,25 @@ retrieval patterns. (Additional local-only targets can be added as
 |----------------|---------|--------------------------------------------------------------------|
 | `go-code`      | 30-40   | Self-test; many small files exercise exact-symbol matching.        |
 | `MemDB`        | 30-40   | Go + pgvector, dense per-symbol descriptions.                      |
+| `psf-requests` | 50      | Python pilot — real OSS repo, NL + identifier + concept queries.   |
+
+## Python golden set (`psf-requests.jsonl`)
+
+- **Repo**: `psf/requests` (https://github.com/psf/requests)
+- **Pinned SHA**: `6e83187b8feb273ed4c6cdab5efd8d54901dfab3` (tag v2.34.2)
+- **Records**: 50 (20 natural-language, 15 identifier, 10 concept/behavior,
+  5 synonym/paraphrase)
+- **Language**: `python` (set on every record via the `language` field)
+- **Labeling method**: every `expected_top_3` entry was verified by running
+  `mcp__vaelor__symbol_search` and `mcp__vaelor__code_search` against the
+  live vaelor MCP, which cloned `psf/requests` at HEAD (source files in
+  `src/requests/` are identical between the pinned tag and HEAD — only CI
+  config bumps differ). Each label is a real symbol path confirmed by
+  AST-level symbol_search results (file + line + kind). ZERO guessed or
+  unverified labels. Queries with no clear verifiable ground truth were
+  dropped rather than stubbed.
+- **Resolve at run time**: `--repo-map psf-requests=/host/src/psf-requests`
+  (or use the forge slug `psf/requests` as the `repo` override).
 
 ## Reproducibility
 
