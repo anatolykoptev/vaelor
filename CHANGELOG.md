@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.58.0](https://github.com/anatolykoptev/vaelor/compare/v1.57.0...v1.58.0) (2026-07-24)
+
+
+### Added
+
+* **rrf:** configurable rank_window_size cap on MergeRRF (default unbounded) ([#669](https://github.com/anatolykoptev/vaelor/issues/669)) ([5cc9fa2](https://github.com/anatolykoptev/vaelor/commit/5cc9fa2cb2a992ab36c0a89788a861ed128c77ac))
+
 ## [1.57.0](https://github.com/anatolykoptev/vaelor/compare/v1.56.0...v1.57.0) (2026-07-24)
 
 
