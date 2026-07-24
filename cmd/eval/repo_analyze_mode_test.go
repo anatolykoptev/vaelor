@@ -340,7 +340,7 @@ func TestRun_ModeDefault_SemanticSearch(t *testing.T) {
 
 	outPath := filepath.Join(t.TempDir(), "out.json")
 	// Pass modeSemanticSearch explicitly (the flag default).
-	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 1, 20, 10*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 1, 20, 10*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if seenPath != restToolPath {
@@ -388,13 +388,13 @@ func TestRun_RepoAnalyzeMode_RealFusionGate(t *testing.T) {
 
 	// Baseline run (minmax on the server).
 	baselinePath := filepath.Join(t.TempDir(), "baseline.json")
-	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeRepoAnalyze, 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeRepoAnalyze, 2, 20, 30*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("baseline run: %v", err)
 	}
 
 	// Candidate run with --fusion-mode=rrf.
 	outPath := filepath.Join(t.TempDir(), "cand.json")
-	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "", "rrf", "", modeRepoAnalyze, 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "", "rrf", "", modeRepoAnalyze, 2, 20, 30*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("candidate run: %v", err)
 	}
 
@@ -454,11 +454,11 @@ func TestRun_SemanticSearchMode_FusionNotExercised(t *testing.T) {
 	}
 
 	baselinePath := filepath.Join(t.TempDir(), "baseline.json")
-	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 2, 20, 30*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("baseline run: %v", err)
 	}
 	outPath := filepath.Join(t.TempDir(), "cand.json")
-	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "", "rrf", "", modeSemanticSearch, 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "", "rrf", "", modeSemanticSearch, 2, 20, 30*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("candidate run: %v", err)
 	}
 	report, err := readReport(outPath)
@@ -496,7 +496,7 @@ func TestRun_RepoAnalyzeMode_FusionNoBaseline_Insufficient(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	outPath := filepath.Join(t.TempDir(), "cand.json")
-	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "rrf", "", modeRepoAnalyze, 1, 20, 10*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "rrf", "", modeRepoAnalyze, 1, 20, 10*time.Second, 1, false, 0); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	report, err := readReport(outPath)
@@ -523,7 +523,7 @@ func TestRun_InvalidMode(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go-code.jsonl"), []byte(content), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	err := run(dir, "http://127.0.0.1:1", "", "", math.NaN(), math.NaN(), "", "", "", "bogus", 1, 20, 1*time.Second)
+	err := run(dir, "http://127.0.0.1:1", "", "", math.NaN(), math.NaN(), "", "", "", "bogus", 1, 20, 1*time.Second, 1, false, 0)
 	if err == nil {
 		t.Fatal("expected error for invalid mode, got nil")
 	}

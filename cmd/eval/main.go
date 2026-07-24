@@ -138,6 +138,9 @@ func main() {
 	workers := fs.Int("workers", defaultWorkers, "concurrent HTTP workers")
 	topK := fs.Int("top-k", minTopK, "top_k passed to semantic_search (≥10 for Recall@10/@20)")
 	timeout := fs.Duration("timeout", defaultTimeout, "overall harness timeout")
+	queryRetry := fs.Int("query-retry", 6, "max attempts per query on transient tool signals (1=no retry)")
+	warmup := fs.Bool("warmup", true, "warm up indexes before the measured run")
+	warmupTimeout := fs.Duration("warmup-timeout", 10*time.Minute, "per-repo warmup timeout (0 disables warmup)")
 	verFlag := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
@@ -162,13 +165,13 @@ func main() {
 		repoMapRaw = os.Getenv("REPO_MAP")
 	}
 
-	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *keywordArm, *fusionMode, repoMapRaw, *mode, *workers, *topK, *timeout); err != nil {
+	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *keywordArm, *fusionMode, repoMapRaw, *mode, *workers, *topK, *timeout, *queryRetry, *warmup, *warmupTimeout); err != nil {
 		slog.Error("eval failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, keywordArm, fusionMode, repoMapRaw, mode string, workers, topK int, timeout time.Duration) error {
+func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, keywordArm, fusionMode, repoMapRaw, mode string, workers, topK int, timeout time.Duration, queryRetry int, warmup bool, warmupTimeout time.Duration) error {
 	if mode != modeSemanticSearch && mode != modeRepoAnalyze {
 		return fmt.Errorf("invalid mode %q: use %q or %q", mode, modeSemanticSearch, modeRepoAnalyze)
 	}
@@ -202,8 +205,30 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 	defer cancel()
 
 	client := NewMCPClient(targetURL)
+
+	// Warmup phase: probe each distinct resolved repo until its index is ready
+	// so the measured pass runs against warm indexes and measured latency
+	// isn't polluted by first-hit indexing. Best-effort — a timeout or error
+	// on one repo does not abort the run.
+	if warmup && warmupTimeout > 0 {
+		warmupRepos(ctx, client, golden, runnerCfg{
+			Mode:          mode,
+			TopK:          topK,
+			RetryAttempts: queryRetry,
+			RetryBase:     defaultRetryBase,
+			RetryCap:      defaultRetryCap,
+		}, warmupTimeout)
+	}
+
 	start := time.Now()
-	results := runEval(ctx, client, golden, runnerCfg{Workers: workers, TopK: topK, Mode: mode})
+	results := runEval(ctx, client, golden, runnerCfg{
+		Workers:       workers,
+		TopK:          topK,
+		Mode:          mode,
+		RetryAttempts: queryRetry,
+		RetryBase:     defaultRetryBase,
+		RetryCap:      defaultRetryCap,
+	})
 	elapsed := time.Since(start)
 	slog.Info("eval complete",
 		slog.Duration("elapsed", elapsed),

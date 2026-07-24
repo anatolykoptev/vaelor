@@ -30,6 +30,7 @@ type QueryResult struct {
 	MRR       float64       `json:"mrr"`
 	Latency   time.Duration `json:"-"`
 	LatencyMS float64       `json:"latency_ms"`
+	Retries   int           `json:"retries,omitempty"`
 	Error     string        `json:"error,omitempty"`
 }
 
@@ -45,12 +46,13 @@ type LatencyStats struct {
 // Aggregates is the mean of each metric across all queries plus latency
 // percentiles. Latency percentiles are 0 when no non-error queries exist.
 type Aggregates struct {
-	NDCG10   float64 `json:"ndcg10"`
-	Recall10 float64 `json:"recall10"`
-	Recall20 float64 `json:"recall20"`
-	MRR      float64 `json:"mrr"`
-	Queries  int     `json:"queries"`
-	Errors   int     `json:"errors"`
+	NDCG10         float64 `json:"ndcg10"`
+	Recall10       float64 `json:"recall10"`
+	Recall20       float64 `json:"recall20"`
+	MRR            float64 `json:"mrr"`
+	Queries        int     `json:"queries"`
+	Errors         int     `json:"errors"`
+	QueriesRetried int     `json:"queries_retried,omitempty"`
 	LatencyStats
 }
 
@@ -123,6 +125,9 @@ func computeAggregates(results []QueryResult) Aggregates {
 	var n int
 	latencies := make([]float64, 0, len(results))
 	for _, r := range results {
+		if r.Retries > 0 {
+			agg.QueriesRetried++
+		}
 		if r.Error != "" {
 			agg.Errors++
 			continue
