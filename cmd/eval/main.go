@@ -47,6 +47,25 @@
 // Gate: PASS iff nDCG@10 improves at p<0.05 AND Recall@20 is non-inferior
 // (delta >= -2% OR p >= 0.05). See abgate.go for the full rule.
 //
+// Keyword-arm A/B gate mode (--keyword-arm):
+//
+// Same pattern as SPLADE but use --keyword-arm grep|bm25f and the report's
+// "keyword_arm_gate". The gate uses the same nDCG@10 + Recall@20 non-inferiority
+// logic as the SPLADE/graph gates.
+//
+// Fusion-mode flag (--fusion-mode minmax|rrf):
+//
+// Reports NOT_EXERCISED: the harness calls semantic_search only, and
+// ANALYZE_RANK_FUSION_MODE affects repo_analyze (a separate eval mode not yet
+// implemented). The flag records the tested mode in metadata for traceability
+// but does NOT fake a fusion measurement.
+//
+// --repo-map (or REPO_MAP env):
+//
+// Comma-separated repo_key=path mapping that resolves placeholder golden paths
+// (e.g. /path/to/repo) to real absolute paths or forge slugs at run time, so
+// the golden JSONL stays portable. See eval/golden/README.md.
+//
 // Future online step: Team Draft Interleaving (TDI) on live traffic provides
 // higher sensitivity; this offline harness is the prerequisite gate.
 //
@@ -88,6 +107,12 @@ const noSPLADEWeight = -1.0
 // noGraphWeight is the sentinel that signals "graph-weight not provided".
 const noGraphWeight = -1.0
 
+// keywordArmUnset and fusionModeUnset are sentinels for flags not provided.
+const (
+	keywordArmUnset = ""
+	fusionModeUnset = ""
+)
+
 func main() {
 	fs := flag.NewFlagSet("eval", flag.ExitOnError)
 	goldenDir := fs.String("golden-dir", "eval/golden", "directory of <repo>.jsonl golden files")
@@ -98,6 +123,12 @@ func main() {
 		"RRF_WEIGHT_SPARSE used in the candidate run; enables SPLADE go/no-go gate in output (requires --baseline)")
 	graphWeight := fs.Float64("graph-weight", noGraphWeight,
 		"RRF_WEIGHT_GRAPH used in the candidate run; enables graph-arm go/no-go gate in output (requires --baseline)")
+	keywordArm := fs.String("keyword-arm", keywordArmUnset,
+		"KEYWORD_ARM used in the candidate run (grep|bm25f); enables keyword-arm go/no-go gate in output (requires --baseline)")
+	fusionMode := fs.String("fusion-mode", fusionModeUnset,
+		"ANALYZE_RANK_FUSION_MODE used in the candidate run (minmax|rrf); reports NOT_EXERCISED (harness calls semantic_search only, not repo_analyze)")
+	repoMapFlag := fs.String("repo-map", "",
+		"comma-separated repo_key=path mapping (e.g. go-code=/host/src/go-code,MemDB=/host/src/MemDB); resolves placeholder golden paths at run time. Falls back to REPO_MAP env.")
 	workers := fs.Int("workers", defaultWorkers, "concurrent HTTP workers")
 	topK := fs.Int("top-k", minTopK, "top_k passed to semantic_search (≥10 for Recall@10/@20)")
 	timeout := fs.Duration("timeout", defaultTimeout, "overall harness timeout")
@@ -118,13 +149,20 @@ func main() {
 	if gw == noGraphWeight {
 		gw = math.NaN()
 	}
-	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *workers, *topK, *timeout); err != nil {
+
+	// --repo-map flag takes precedence; fall back to REPO_MAP env.
+	repoMapRaw := *repoMapFlag
+	if repoMapRaw == "" {
+		repoMapRaw = os.Getenv("REPO_MAP")
+	}
+
+	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *keywordArm, *fusionMode, repoMapRaw, *workers, *topK, *timeout); err != nil {
 		slog.Error("eval failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, workers, topK int, timeout time.Duration) error {
+func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, keywordArm, fusionMode, repoMapRaw string, workers, topK int, timeout time.Duration) error {
 	if topK < minTopK {
 		// Recall@20 requires the candidate pool to have at least 20 items.
 		topK = minTopK
@@ -134,6 +172,14 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 	if err != nil {
 		return fmt.Errorf("load golden: %w", err)
 	}
+
+	// Apply repo-map override: resolve placeholder paths to real paths/slug.
+	repoMap, err := ParseRepoMap(repoMapRaw)
+	if err != nil {
+		return fmt.Errorf("repo-map: %w", err)
+	}
+	golden.ApplyRepoMap(repoMap)
+
 	totalQ := 0
 	for _, r := range golden.PerRepo {
 		totalQ += len(r)
@@ -157,15 +203,21 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 
 	report := Report{
 		Metadata: Metadata{
-			Timestamp: time.Now().UTC(),
-			TargetURL: targetURL,
-			GitSHA:    detectGitSHA(),
-			GoldenDir: goldenDir,
-			TopK:      topK,
+			Timestamp:  time.Now().UTC(),
+			TargetURL:  targetURL,
+			GitSHA:     detectGitSHA(),
+			GoldenDir:  goldenDir,
+			TopK:       topK,
+			KeywordArm: keywordArm,
+			FusionMode: fusionMode,
 		},
-		PerQuery:   results,
-		PerRepo:    computePerRepo(results),
-		Aggregates: computeAggregates(results),
+		PerQuery:    results,
+		PerRepo:     computePerRepo(results),
+		PerLanguage: computePerLanguage(results),
+		Aggregates:  computeAggregates(results),
+	}
+	if repoMapRaw != "" {
+		report.Metadata.RepoMapPath = repoMapRaw
 	}
 
 	if baseline != "" {
@@ -193,7 +245,7 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 		// Emit the graph-arm go/no-go gate when --graph-weight is provided.
 		// Same gate logic as SPLADE; GateResult.TestedWeight records the graph weight.
 		if !math.IsNaN(graphWeight) {
-			gate := EvaluateGate(base.PerQuery, results, graphWeight)
+			gate := EvaluateGraphGate(base.PerQuery, results, graphWeight)
 			report.GraphGate = &gate
 			slog.Info("graph arm gate",
 				slog.String("verdict", string(gate.Verdict)),
@@ -204,6 +256,32 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 				slog.Int("paired_queries", gate.PairedQueries),
 			)
 		}
+
+		// Emit the keyword-arm go/no-go gate when --keyword-arm is provided.
+		if keywordArm != keywordArmUnset {
+			gate := EvaluateKeywordArmGate(base.PerQuery, results, keywordArm)
+			report.KeywordArmGate = &gate
+			slog.Info("keyword arm gate",
+				slog.String("verdict", string(gate.Verdict)),
+				slog.String("tested_arm", gate.TestedArm),
+				slog.Float64("ndcg10_delta", gate.NDCG10Delta),
+				slog.Float64("ndcg10_p", gate.NDCG10P),
+				slog.Int("paired_queries", gate.PairedQueries),
+			)
+		}
+	}
+
+	// Emit the fusion-mode NOT_EXERCISED gate when --fusion-mode is provided.
+	// The harness calls semantic_search only; fusion mode affects repo_analyze
+	// (a separate eval mode not yet implemented). The gate makes the skip
+	// VISIBLE rather than silently omitting or faking a measurement.
+	if fusionMode != fusionModeUnset {
+		gate := FusionSkipResult(fusionMode)
+		report.FusionGate = &gate
+		slog.Info("fusion mode gate",
+			slog.String("verdict", string(gate.Verdict)),
+			slog.String("tested_fusion_mode", gate.TestedFusionMode),
+		)
 	}
 
 	if err := writeReport(output, report); err != nil {

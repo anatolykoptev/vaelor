@@ -15,7 +15,40 @@ ignored. Schema:
 | `query`          | string   | yes      | Free-form natural-language or identifier query, exactly as a real caller would phrase it.   |
 | `expected_top_3` | string[] | yes      | 3 labels (1 minimum) that the harness will count as relevant when present in the top-K.     |
 | `repo`           | string   | no       | Override of the `semantic_search` `repo` argument. Defaults to the file basename.           |
+| `language`       | string   | no       | Language filter passed to `semantic_search` (e.g. `go`, `python`, `typescript`). When empty, no filter is sent and the record aggregates under the `unspecified` bucket in per-language reports. Backward-compatible: old records without this field parse and run identically (no filter, same search results). |
 | `notes`          | string   | no       | Free-form for the labeler. Not used in scoring.                                             |
+
+### Per-language breakdown
+
+When the `language` field is present, the harness:
+
+1. Passes it as the `language` filter to `semantic_search` (narrowing results
+   to that language).
+2. Aggregates **every** metric (nDCG@10, Recall@10/@20, MRR, latency p50/p95/
+   p99/mean) both overall AND per-language in the report's `per_language`
+   array.
+
+Records without `language` aggregate under `"unspecified"`. This makes a
+feature that helps Go but regresses Python visible in a single run — the
+per-language table shows the split.
+
+## Repo path resolution (`--repo-map`)
+
+The golden JSONL files use placeholder repo paths (e.g. `/path/to/repo`) so
+the dataset stays portable — no operator-specific paths are committed. At run
+time, resolve them with `--repo-map` (or the `REPO_MAP` env var):
+
+```bash
+go-code-eval --golden-dir eval/golden \
+             --target-url http://127.0.0.1:8897 \
+             --repo-map go-code=/host/src/go-code,MemDB=/host/src/MemDB \
+             --output /tmp/eval.json
+```
+
+The format is comma-separated `repo_key=path` pairs, where `repo_key` is the
+`.jsonl` file basename (e.g. `go-code` for `go-code.jsonl`) and `path` is the
+real absolute path or forge slug to pass to `semantic_search`. Records whose
+`repo_key` is not in the map fall back to the record's own `repo` field.
 
 ### `expected_top_3` matching
 

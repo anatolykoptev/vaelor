@@ -32,20 +32,25 @@ const nonInferiorMargin = 0.02
 // p < pAlpha is required for a PASS verdict.
 const pAlpha = 0.05
 
-// GateVerdict is the go/no-go decision for flipping RRF_WEIGHT_SPARSE.
+// GateVerdict is the go/no-go decision for flipping a dark-launched config.
 type GateVerdict string
 
 const (
 	// GatePass: nDCG@10 improved significantly AND Recall@20 is non-inferior.
-	// Operator may flip RRF_WEIGHT_SPARSE to the tested weight.
+	// Operator may flip the tested config to the candidate value.
 	GatePass GateVerdict = "PASS"
 
 	// GateFail: primary metric did not improve significantly, or Recall@20
-	// significantly regressed. Do NOT flip RRF_WEIGHT_SPARSE.
+	// significantly regressed. Do NOT flip the tested config.
 	GateFail GateVerdict = "FAIL"
 
 	// GateInsufficient: fewer than 2 paired queries — t-test is undefined.
 	GateInsufficient GateVerdict = "INSUFFICIENT_DATA"
+
+	// GateNotExercised: the flag was provided but the harness does not call
+	// the tool the config affects (e.g. --fusion-mode affects repo_analyze,
+	// which the harness does not yet call). No measurement was made.
+	GateNotExercised GateVerdict = "NOT_EXERCISED"
 )
 
 // GateResult captures the gate evaluation in a machine-readable + human-readable form.
@@ -53,9 +58,18 @@ type GateResult struct {
 	// Verdict is the go/no-go decision.
 	Verdict GateVerdict `json:"verdict"`
 
-	// TestedWeight is the RRF_WEIGHT_SPARSE value the candidate was run with.
-	// Set to math.NaN() when unknown (harness called without --splade-weight).
+	// TestedWeight is the numeric config value the candidate was run with
+	// (RRF_WEIGHT_SPARSE / RRF_WEIGHT_GRAPH). Set to math.NaN() when unknown
+	// or when the gate is not weight-driven (keyword-arm, fusion-mode).
 	TestedWeight float64 `json:"tested_weight,omitempty"`
+
+	// TestedArm is the KEYWORD_ARM value the candidate was run with
+	// (grep | bm25f). Only set for the keyword-arm gate.
+	TestedArm string `json:"tested_arm,omitempty"`
+
+	// TestedFusionMode is the ANALYZE_RANK_FUSION_MODE value the candidate
+	// was run with (minmax | rrf). Only set for the fusion-mode gate.
+	TestedFusionMode string `json:"tested_fusion_mode,omitempty"`
 
 	// RecommendedAction is a human-readable next step.
 	RecommendedAction string `json:"recommended_action"`
@@ -85,6 +99,18 @@ type GateResult struct {
 	Explanation string `json:"explanation"`
 }
 
+// gateLabel parameterizes the gate's human-readable text for the config
+// under test (RRF_WEIGHT_SPARSE, RRF_WEIGHT_GRAPH, KEYWORD_ARM, etc.) so the
+// same numeric gate logic serves all config-driven features.
+type gateLabel struct {
+	envVar         string // e.g. "RRF_WEIGHT_SPARSE", "KEYWORD_ARM"
+	passAction     string // action on PASS (fmt.Sprintf'd with testedValue)
+	failAction     string // action on FAIL
+	failRecall     string // action on FAIL due to Recall@20 regression
+	passExtra      string // extra text appended to PASS explanation
+	failRecallHint string // hint appended to Recall@20 regression explanation
+}
+
 // EvaluateGate computes the SPLADE A/B go/no-go verdict from raw query results.
 //
 // baseline and candidate are the per-query result slices from the two harness
@@ -95,6 +121,91 @@ type GateResult struct {
 // The function performs its own paired t-tests over nDCG@10 and Recall@20 so
 // the verdict is grounded in raw floats, not in parsed strings from DeltaBlock.
 func EvaluateGate(baseline, candidate []QueryResult, sparseWeight float64) GateResult {
+	return evaluateGate(baseline, candidate, spladeLabel, sparseWeight)
+}
+
+// EvaluateGraphGate computes the graph-arm A/B go/no-go verdict. Same numeric
+// logic as EvaluateGate but labels the output for RRF_WEIGHT_GRAPH.
+func EvaluateGraphGate(baseline, candidate []QueryResult, graphWeight float64) GateResult {
+	return evaluateGate(baseline, candidate, graphLabel, graphWeight)
+}
+
+// EvaluateKeywordArmGate computes the KEYWORD_ARM A/B go/no-go verdict. Same
+// numeric logic as EvaluateGate but labels the output for KEYWORD_ARM and
+// records the tested arm string instead of a weight. The RecommendedAction is
+// rewritten with the arm string since evaluateGate formats with a float weight.
+func EvaluateKeywordArmGate(baseline, candidate []QueryResult, arm string) GateResult {
+	g := evaluateGate(baseline, candidate, keywordArmLabel, math.NaN())
+	g.TestedArm = arm
+	g.TestedWeight = 0 // not weight-driven; clear the NaN
+	switch g.Verdict {
+	case GatePass:
+		g.RecommendedAction = fmt.Sprintf(
+			"Set KEYWORD_ARM=%s in production. Monitor keyword arm metrics and re-run harness after 2 weeks.",
+			arm,
+		)
+	case GateFail:
+		if !g.Recall20NonInferior {
+			g.RecommendedAction = "Do not flip KEYWORD_ARM. Recall@20 regressed; investigate keyword arm coverage gaps."
+		} else {
+			g.RecommendedAction = "Do not flip KEYWORD_ARM. Consider tuning the arm or query-set composition."
+		}
+	}
+	return g
+}
+
+// FusionSkipResult returns a NOT_EXERCISED gate result for --fusion-mode. The
+// harness calls semantic_search only; fusion mode (ANALYZE_RANK_FUSION_MODE)
+// affects repo_analyze, which is a separate eval mode not yet implemented.
+// This makes the skip VISIBLE in the report rather than silently omitting the
+// gate or faking a meaningless measurement.
+func FusionSkipResult(mode string) GateResult {
+	return GateResult{
+		Verdict:           GateNotExercised,
+		TestedFusionMode:  mode,
+		RecommendedAction: "No action: fusion mode was not measured by this harness run.",
+		Explanation: fmt.Sprintf(
+			"fusion mode not exercised: harness calls semantic_search only "+
+				"(see repo_analyze eval mode, separate task). "+
+				"ANALYZE_RANK_FUSION_MODE=%q affects repo_analyze ranking, not semantic_search. "+
+				"Set the env on the server for completeness; a real fusion gate requires a "+
+				"repo_analyze eval mode that is not yet implemented.",
+			mode,
+		),
+	}
+}
+
+var spladeLabel = gateLabel{
+	envVar:         "RRF_WEIGHT_SPARSE",
+	passAction:     "Set RRF_WEIGHT_SPARSE=%.2f in production. Monitor gocode_rrf_weights{retriever='sparse'} and re-run harness after 2 weeks of backfill.",
+	failAction:     "Do not flip RRF_WEIGHT_SPARSE. Consider tuning weight or query-set composition.",
+	failRecall:     "Do not flip RRF_WEIGHT_SPARSE. Recall@20 regressed; investigate sparse arm coverage gaps.",
+	passExtra:      "(TDI online interleaving is the recommended follow-up to confirm with live traffic.)",
+	failRecallHint: "Possible cause: sparse arm biases toward rare high-weight tokens, crowding out relevant-but-broad symbols. Try lower weight or adjust SPLADE model.",
+}
+
+var graphLabel = gateLabel{
+	envVar:         "RRF_WEIGHT_GRAPH",
+	passAction:     "Set RRF_WEIGHT_GRAPH=%.2f in production. Monitor gocode_rrf_weights{retriever='graph'} and re-run harness after 2 weeks.",
+	failAction:     "Do not flip RRF_WEIGHT_GRAPH. Consider tuning weight or query-set composition.",
+	failRecall:     "Do not flip RRF_WEIGHT_GRAPH. Recall@20 regressed; investigate graph arm coverage gaps.",
+	passExtra:      "(Graph arm is fused below dense; monitor PageRank candidate quality.)",
+	failRecallHint: "Possible cause: graph candidates crowd out relevant-but-low-PageRank symbols. Try lower weight.",
+}
+
+var keywordArmLabel = gateLabel{
+	envVar:         "KEYWORD_ARM",
+	passAction:     "Set KEYWORD_ARM=%s in production. Monitor keyword arm metrics and re-run harness after 2 weeks.",
+	failAction:     "Do not flip KEYWORD_ARM. Consider tuning the arm or query-set composition.",
+	failRecall:     "Do not flip KEYWORD_ARM. Recall@20 regressed; investigate keyword arm coverage gaps.",
+	passExtra:      "(BM25F arm is dark-launched; monitor keyword retrieval quality.)",
+	failRecallHint: "Possible cause: BM25F term weighting crowds out relevant-but-broad symbols. Try grep arm or adjust BM25F params.",
+}
+
+// evaluateGate is the shared numeric gate logic. testedWeight is recorded in
+// GateResult.TestedWeight; pass math.NaN() for non-weight-driven gates
+// (keyword-arm sets TestedArm separately after this returns).
+func evaluateGate(baseline, candidate []QueryResult, lbl gateLabel, testedWeight float64) GateResult {
 	// Build paired slices: match on (repo, query).
 	type pair struct{ blNDCG, cnNDCG, blR20, cnR20 float64 }
 	idx := make(map[string]QueryResult, len(baseline))
@@ -122,7 +233,7 @@ func EvaluateGate(baseline, candidate []QueryResult, sparseWeight float64) GateR
 	if len(pairs) < 2 {
 		return GateResult{
 			Verdict:           GateInsufficient,
-			TestedWeight:      sparseWeight,
+			TestedWeight:      testedWeight,
 			PairedQueries:     len(pairs),
 			RecommendedAction: "Add more golden queries; paired t-test requires ≥ 2 matched pairs.",
 			Explanation: fmt.Sprintf(
@@ -155,7 +266,7 @@ func EvaluateGate(baseline, candidate []QueryResult, sparseWeight float64) GateR
 	r20NonInf := r20Delta >= -nonInferiorMargin || r20P >= pAlpha
 
 	g := GateResult{
-		TestedWeight:        sparseWeight,
+		TestedWeight:        testedWeight,
 		PairedQueries:       len(pairs),
 		NDCG10Delta:         ndcgDelta,
 		NDCG10P:             ndcgP,
@@ -168,22 +279,17 @@ func EvaluateGate(baseline, candidate []QueryResult, sparseWeight float64) GateR
 	switch {
 	case ndcgSig && r20NonInf:
 		g.Verdict = GatePass
-		g.RecommendedAction = fmt.Sprintf(
-			"Set RRF_WEIGHT_SPARSE=%.2f in production. "+
-				"Monitor gocode_rrf_weights{retriever='sparse'} and re-run harness after 2 weeks of backfill.",
-			sparseWeight,
-		)
+		g.RecommendedAction = fmt.Sprintf(lbl.passAction, testedWeight)
 		g.Explanation = fmt.Sprintf(
 			"nDCG@10 improved by %+.4f (p=%.4f < %.2f) — statistically significant. "+
 				"Recall@20 delta %+.4f (p=%.4f) — non-inferior (margin %.2f). "+
-				"Both gate conditions met. PASS. "+
-				"(TDI online interleaving is the recommended follow-up to confirm with live traffic.)",
-			ndcgDelta, ndcgP, pAlpha, r20Delta, r20P, nonInferiorMargin,
+				"Both gate conditions met. PASS. %s",
+			ndcgDelta, ndcgP, pAlpha, r20Delta, r20P, nonInferiorMargin, lbl.passExtra,
 		)
 
 	case !ndcgSig && r20NonInf:
 		g.Verdict = GateFail
-		g.RecommendedAction = "Do not flip RRF_WEIGHT_SPARSE. Consider tuning weight or query-set composition."
+		g.RecommendedAction = lbl.failAction
 		g.Explanation = fmt.Sprintf(
 			"nDCG@10 delta %+.4f (p=%.4f >= %.2f) — no significant improvement. "+
 				"Recall@20 delta %+.4f (p=%.4f). "+
@@ -194,13 +300,11 @@ func EvaluateGate(baseline, candidate []QueryResult, sparseWeight float64) GateR
 	default:
 		// ndcgSig is true but Recall@20 regressed significantly.
 		g.Verdict = GateFail
-		g.RecommendedAction = "Do not flip RRF_WEIGHT_SPARSE. Recall@20 regressed; investigate sparse arm coverage gaps."
+		g.RecommendedAction = lbl.failRecall
 		g.Explanation = fmt.Sprintf(
 			"nDCG@10 improved %+.4f (p=%.4f) but Recall@20 regressed %+.4f (p=%.4f) beyond "+
-				"non-inferior margin %.2f. SPLADE arm hurts recall at 20. FAIL. "+
-				"Possible cause: sparse arm biases toward rare high-weight tokens, crowding out "+
-				"relevant-but-broad symbols. Try lower weight or adjust SPLADE model.",
-			ndcgDelta, ndcgP, r20Delta, r20P, nonInferiorMargin,
+				"non-inferior margin %.2f. %s arm hurts recall at 20. FAIL. %s",
+			ndcgDelta, ndcgP, r20Delta, r20P, nonInferiorMargin, lbl.envVar, lbl.failRecallHint,
 		)
 	}
 

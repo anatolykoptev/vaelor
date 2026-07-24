@@ -7,6 +7,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 )
 
 // runnerCfg controls dispatch behavior.
@@ -62,14 +63,23 @@ func runEval(ctx context.Context, client *MCPClient, golden *GoldenSet, cfg runn
 	return results
 }
 
-// runSingle executes one query and computes metrics on the response.
+// runSingle executes one query and computes metrics on the response. The
+// wall-clock latency of the semantic_search call is recorded in Latency /
+// LatencyMS. When rec.Language is non-empty it is passed as the `language`
+// filter to semantic_search; when empty no filter is sent (byte-identical to
+// pre-instrumentation behavior — existing golden runs produce identical
+// relevance numbers).
 func runSingle(ctx context.Context, client *MCPClient, rec GoldenRecord, topK int) QueryResult {
 	out := QueryResult{
 		Repo:     rec.Repo,
 		Query:    rec.Query,
+		Language: rec.Language,
 		Expected: rec.ExpectedTop3,
 	}
-	hits, err := client.Search(ctx, rec.Repo, rec.Query, topK)
+	searchStart := time.Now()
+	hits, err := client.Search(ctx, rec.Repo, rec.Query, rec.Language, topK)
+	out.Latency = time.Since(searchStart)
+	out.LatencyMS = float64(out.Latency) / float64(time.Millisecond)
 	if err != nil {
 		out.Error = err.Error()
 		return out
