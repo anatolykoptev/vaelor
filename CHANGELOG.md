@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.55.2](https://github.com/anatolykoptev/go-code/compare/v1.55.1...v1.55.2) (2026-07-24)
+
+
+### Fixed
+
+* **embeddings:** index type-level symbols (class/interface/trait/struct/enum), not just func/method ([#658](https://github.com/anatolykoptev/go-code/issues/658)) ([df2275c](https://github.com/anatolykoptev/go-code/commit/df2275c63e3e5081e718127eb6c3f582d0247164))
+
 ## [1.55.1](https://github.com/anatolykoptev/vaelor/compare/v1.55.0...v1.55.1) (2026-07-24)
 
 
