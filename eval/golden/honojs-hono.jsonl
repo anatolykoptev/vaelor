@@ -1,0 +1,63 @@
+# Golden records for honojs/hono retrieval evaluation (TypeScript).
+# Lines beginning with '#' and blank lines are skipped.
+#
+# Repo: honojs/hono (https://github.com/honojs/hono)
+# Pinned SHA: cadff88bba34153646c9b35f24d7cc0cb61be913 (tag v4.12.31)
+# Language: typescript
+#
+# LABELING METHOD: every expected_top_3 entry verified by (a) grep against the
+# pinned checkout at /tmp/golden-hono (SHA cadff88) confirming file+symbol exist,
+# and (b) vaelor symbol_search at HEAD confirming retrievability. ZERO guessed labels.
+# Queries with no clear verifiable ground truth were dropped rather than stubbed.
+#
+# ── SECTION 1: Natural-language queries ──
+{"query":"how is the request context object constructed and what does it expose","repo":"honojs/hono","expected_top_3":["src/context.ts:Context"],"language":"typescript","notes":"NL: developer asks where the Context object holding request/response state is defined"}
+{"query":"where is the main Hono application class defined","repo":"honojs/hono","expected_top_3":["src/hono.ts:Hono","src/hono-base.ts:Hono"],"language":"typescript","notes":"NL: locate the core app class users instantiate"}
+{"query":"how does Hono compose middleware into a single handler","repo":"honojs/hono","expected_top_3":["src/compose.ts:compose"],"language":"typescript","notes":"NL: koa-style middleware composition mechanism"}
+{"query":"where is the request body parsed into JSON or form data","repo":"honojs/hono","expected_top_3":["src/utils/body.ts:parseBody","src/request.ts:HonoRequest"],"language":"typescript","notes":"NL: body parsing utility and the request method that wraps it"}
+{"query":"how are URL path parameters extracted from a matched route","repo":"honojs/hono","expected_top_3":["src/request.ts:HonoRequest"],"language":"typescript","notes":"NL: param() accessor lives on HonoRequest"}
+{"query":"where does Hono throw an HTTP error with a status code","repo":"honojs/hono","expected_top_3":["src/http-exception.ts:HTTPException"],"language":"typescript","notes":"NL: typed exception for HTTP status responses"}
+{"query":"how does the smart router choose between routers","repo":"honojs/hono","expected_top_3":["src/router/smart-router/router.ts:SmartRouter"],"language":"typescript","notes":"NL: router that delegates to regexp/trie based on routes"}
+{"query":"where is the regexp-based router implemented","repo":"honojs/hono","expected_top_3":["src/router/reg-exp-router/router.ts:RegExpRouter"],"language":"typescript","notes":"NL: high-performance regex router implementation"}
+{"query":"how are cookies read and written on a context","repo":"honojs/hono","expected_top_3":["src/helper/cookie/index.ts:getCookie","src/helper/cookie/index.ts:setCookie"],"language":"typescript","notes":"NL: cookie helper functions operating on Context"}
+{"query":"where is the CORS middleware that sets access control headers","repo":"honojs/hono","expected_top_3":["src/middleware/cors/index.ts:cors"],"language":"typescript","notes":"NL: built-in cross-origin middleware"}
+{"query":"how does Hono validate request input with a schema","repo":"honojs/hono","expected_top_3":["src/validator/validator.ts:validator"],"language":"typescript","notes":"NL: validator helper for json/form/query/header targets"}
+{"query":"where is the RPC-style typed client generated from a Hono app","repo":"honojs/hono","expected_top_3":["src/client/client.ts:hc"],"language":"typescript","notes":"NL: hc() client builder with endpoint typing"}
+{"query":"how are server-sent events streamed to the client","repo":"honojs/hono","expected_top_3":["src/helper/streaming/sse.ts:streamSSE"],"language":"typescript","notes":"NL: SSE streaming helper"}
+{"query":"where is the JWT authentication middleware defined","repo":"honojs/hono","expected_top_3":["src/middleware/jwt/jwt.ts:jwt"],"language":"typescript","notes":"NL: built-in JWT auth middleware"}
+{"query":"how does Hono generate static site files from routes","repo":"honojs/hono","expected_top_3":["src/helper/ssg/ssg.ts:toSSG"],"language":"typescript","notes":"NL: static site generation helper"}
+{"query":"where is the not found handler customized on the app","repo":"honojs/hono","expected_top_3":["src/hono-base.ts:Hono","src/types.ts:NotFoundHandler"],"language":"typescript","notes":"NL: notFound() registration and the NotFoundHandler type"}
+{"query":"how are response headers set on the context","repo":"honojs/hono","expected_top_3":["src/context.ts:Context"],"language":"typescript","notes":"NL: header()/setHeaders methods live on Context"}
+{"query":"where is the bearer token authentication middleware","repo":"honojs/hono","expected_top_3":["src/middleware/bearer-auth/index.ts:bearerAuth"],"language":"typescript","notes":"NL: OAuth-style bearer token middleware"}
+# ── SECTION 2: Identifier queries ──
+{"query":"Hono","repo":"honojs/hono","expected_top_3":["src/hono.ts:Hono","src/hono-base.ts:Hono"],"language":"typescript","notes":"identifier: core app class name"}
+{"query":"HonoRequest","repo":"honojs/hono","expected_top_3":["src/request.ts:HonoRequest"],"language":"typescript","notes":"identifier: request wrapper class"}
+{"query":"Context","repo":"honojs/hono","expected_top_3":["src/context.ts:Context"],"language":"typescript","notes":"identifier: request/response context class"}
+{"query":"Router","repo":"honojs/hono","expected_top_3":["src/router.ts:Router"],"language":"typescript","notes":"identifier: router interface contract"}
+{"query":"RegExpRouter","repo":"honojs/hono","expected_top_3":["src/router/reg-exp-router/router.ts:RegExpRouter"],"language":"typescript","notes":"identifier: regex router class"}
+{"query":"LinearRouter","repo":"honojs/hono","expected_top_3":["src/router/linear-router/router.ts:LinearRouter"],"language":"typescript","notes":"identifier: linear scan router class"}
+{"query":"TrieRouter","repo":"honojs/hono","expected_top_3":["src/router/trie-router/router.ts:TrieRouter"],"language":"typescript","notes":"identifier: trie-based router class"}
+{"query":"SmartRouter","repo":"honojs/hono","expected_top_3":["src/router/smart-router/router.ts:SmartRouter"],"language":"typescript","notes":"identifier: router that selects an implementation"}
+{"query":"HTTPException","repo":"honojs/hono","expected_top_3":["src/http-exception.ts:HTTPException"],"language":"typescript","notes":"identifier: HTTP error exception class"}
+{"query":"compose","repo":"honojs/hono","expected_top_3":["src/compose.ts:compose"],"language":"typescript","notes":"identifier: middleware composition function"}
+{"query":"validator","repo":"honojs/hono","expected_top_3":["src/validator/validator.ts:validator"],"language":"typescript","notes":"identifier: input validation helper"}
+{"query":"hc","repo":"honojs/hono","expected_top_3":["src/client/client.ts:hc"],"language":"typescript","notes":"identifier: Hono Client factory function"}
+# ── SECTION 3: Concept/behavior queries ──
+{"query":"register a GET route handler","repo":"honojs/hono","expected_top_3":["src/hono-base.ts:Hono"],"language":"typescript","notes":"concept: app.get() routing method on Hono"}
+{"query":"run middleware before route handlers","repo":"honojs/hono","expected_top_3":["src/hono-base.ts:Hono","src/compose.ts:compose"],"language":"typescript","notes":"concept: app.use() registration and compose execution"}
+{"query":"extract path params from the request","repo":"honojs/hono","expected_top_3":["src/request.ts:HonoRequest"],"language":"typescript","notes":"concept: param() accessor on HonoRequest"}
+{"query":"group routes under a path prefix","repo":"honojs/hono","expected_top_3":["src/hono-base.ts:Hono"],"language":"typescript","notes":"concept: app.route() mounting sub-apps"}
+{"query":"handle errors thrown in handlers","repo":"honojs/hono","expected_top_3":["src/hono-base.ts:Hono","src/types.ts:ErrorHandler"],"language":"typescript","notes":"concept: app.onError() and the ErrorHandler type"}
+{"query":"compress response bodies with gzip","repo":"honojs/hono","expected_top_3":["src/middleware/compress/index.ts:compress"],"language":"typescript","notes":"concept: compression middleware"}
+{"query":"add an ETag header for caching","repo":"honojs/hono","expected_top_3":["src/middleware/etag/index.ts:etag"],"language":"typescript","notes":"concept: ETag generation middleware"}
+{"query":"log incoming requests with status and time","repo":"honojs/hono","expected_top_3":["src/middleware/logger/index.ts:logger"],"language":"typescript","notes":"concept: request logging middleware"}
+{"query":"set security headers like CSP and HSTS","repo":"honojs/hono","expected_top_3":["src/middleware/secure-headers/secure-headers.ts:secureHeaders"],"language":"typescript","notes":"concept: secure headers middleware"}
+{"query":"generate a unique request id header","repo":"honojs/hono","expected_top_3":["src/middleware/request-id/request-id.ts:requestId"],"language":"typescript","notes":"concept: request id middleware"}
+# ── SECTION 4: Synonym/paraphrase queries ──
+{"query":"cross-origin resource sharing configuration","repo":"honojs/hono","expected_top_3":["src/middleware/cors/index.ts:cors"],"language":"typescript","notes":"synonym: CORS spelled out -> cors middleware"}
+{"query":"JSON web token verification middleware","repo":"honojs/hono","expected_top_3":["src/middleware/jwt/jwt.ts:jwt"],"language":"typescript","notes":"synonym: JWT spelled out -> jwt middleware"}
+{"query":"static file serving middleware","repo":"honojs/hono","expected_top_3":["src/middleware/serve-static/index.ts:serveStatic"],"language":"typescript","notes":"synonym: serve static assets -> serveStatic"}
+{"query":"pretty print JSON responses","repo":"honojs/hono","expected_top_3":["src/middleware/pretty-json/index.ts:prettyJSON"],"language":"typescript","notes":"synonym: indent JSON output -> prettyJSON"}
+{"query":"timeout a request after N milliseconds","repo":"honojs/hono","expected_top_3":["src/middleware/timeout/index.ts:timeout"],"language":"typescript","notes":"synonym: abort long-running requests -> timeout middleware"}
+{"query":"detect the client language and locale","repo":"honojs/hono","expected_top_3":["src/middleware/language/language.ts:languageDetector"],"language":"typescript","notes":"synonym: i18n language detection -> languageDetector"}
+{"query":"restrict access by IP address allowlist","repo":"honojs/hono","expected_top_3":["src/middleware/ip-restriction/index.ts:ipRestriction"],"language":"typescript","notes":"synonym: IP allow/deny list -> ipRestriction"}

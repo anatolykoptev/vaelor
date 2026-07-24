@@ -1,0 +1,63 @@
+# Golden records for serde-rs/serde retrieval evaluation (Rust).
+# Lines beginning with '#' and blank lines are skipped.
+#
+# Repo: serde-rs/serde (https://github.com/serde-rs/serde)
+# Pinned SHA: 7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8 (tag v1.0.229)
+# Language: rust
+#
+# LABELING METHOD: every expected_top_3 entry verified by (a) grep against the
+# pinned checkout at /tmp/golden-serde (SHA 7fc3b4c) confirming file+symbol exist,
+# and (b) vaelor symbol_search at HEAD confirming retrievability. ZERO guessed labels.
+# Queries with no clear verifiable ground truth were dropped rather than stubbed.
+#
+# ── SECTION 1: Natural-language queries ──
+{"query":"how does the serializer trait work","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:Serializer"],"language":"rust","notes":"NL: core Serializer trait definition"}
+{"query":"where is the visitor pattern for deserialization","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Visitor"],"language":"rust","notes":"NL: Visitor trait driving deserialization"}
+{"query":"how are map access entries read","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:MapAccess"],"language":"rust","notes":"NL: MapAccess trait for reading map entries"}
+{"query":"how are sequence elements accessed during deserialization","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:SeqAccess"],"language":"rust","notes":"NL: SeqAccess trait for reading sequence elements"}
+{"query":"where is the Deserialize trait defined","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Deserialize"],"language":"rust","notes":"NL: core Deserialize trait"}
+{"query":"where is the Serialize trait defined","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:Serialize"],"language":"rust","notes":"NL: core Serialize trait"}
+{"query":"how does serde handle enum deserialization access","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:EnumAccess"],"language":"rust","notes":"NL: EnumAccess trait for enum deserialization"}
+{"query":"how does serde handle enum variant access during deserialization","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:VariantAccess"],"language":"rust","notes":"NL: VariantAccess trait for variant data"}
+{"query":"where is the deserialize seed abstraction","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:DeserializeSeed"],"language":"rust","notes":"NL: DeserializeSeed trait"}
+{"query":"how does serde represent an unexpected value during deserialization","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Unexpected"],"language":"rust","notes":"NL: Unexpected enum for error reporting"}
+{"query":"where is the Expected trait for error messages","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Expected"],"language":"rust","notes":"NL: Expected trait for formatting errors"}
+{"query":"how does serde serialize a struct","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeStruct"],"language":"rust","notes":"NL: SerializeStruct trait"}
+{"query":"how does serde serialize a map","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeMap"],"language":"rust","notes":"NL: SerializeMap trait"}
+{"query":"how does serde serialize a tuple variant","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeTupleVariant"],"language":"rust","notes":"NL: SerializeTupleVariant trait"}
+{"query":"where is the Impossible serializer placeholder","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/impossible.rs:Impossible"],"language":"rust","notes":"NL: Impossible placeholder serializer type"}
+{"query":"how does serde ignore any value during deserialization","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/ignored_any.rs:IgnoredAny"],"language":"rust","notes":"NL: IgnoredAny type that discards input"}
+{"query":"where is the derive macro entry point for Serialize","repo":"serde-rs/serde","expected_top_3":["serde_derive/src/lib.rs:derive_serialize"],"language":"rust","notes":"NL: proc-macro entry point derive_serialize"}
+{"query":"where is the derive macro entry point for Deserialize","repo":"serde-rs/serde","expected_top_3":["serde_derive/src/lib.rs:derive_deserialize"],"language":"rust","notes":"NL: proc-macro entry point derive_deserialize"}
+# ── SECTION 2: Identifier queries ──
+{"query":"Serializer","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:Serializer"],"language":"rust","notes":"ID: Serializer trait"}
+{"query":"Deserializer","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Deserializer"],"language":"rust","notes":"ID: Deserializer trait"}
+{"query":"Visitor","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Visitor"],"language":"rust","notes":"ID: Visitor trait"}
+{"query":"Serialize","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:Serialize"],"language":"rust","notes":"ID: Serialize trait"}
+{"query":"Deserialize","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Deserialize"],"language":"rust","notes":"ID: Deserialize trait"}
+{"query":"IgnoredAny","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/ignored_any.rs:IgnoredAny"],"language":"rust","notes":"ID: IgnoredAny struct"}
+{"query":"Impossible","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/impossible.rs:Impossible"],"language":"rust","notes":"ID: Impossible struct"}
+{"query":"SerializeSeq","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeSeq"],"language":"rust","notes":"ID: SerializeSeq trait"}
+{"query":"SerializeMap","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeMap"],"language":"rust","notes":"ID: SerializeMap trait"}
+{"query":"SerializeStruct","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeStruct"],"language":"rust","notes":"ID: SerializeStruct trait"}
+{"query":"DeserializeSeed","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:DeserializeSeed"],"language":"rust","notes":"ID: DeserializeSeed trait"}
+{"query":"DeserializeOwned","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:DeserializeOwned"],"language":"rust","notes":"ID: DeserializeOwned trait"}
+{"query":"IntoDeserializer","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:IntoDeserializer"],"language":"rust","notes":"ID: IntoDeserializer trait"}
+# ── SECTION 3: Concept/behavior queries ──
+{"query":"skip a field during deserialization","repo":"serde-rs/serde","expected_top_3":["serde_derive/src/internals/symbol.rs:SKIP_DESERIALIZING"],"language":"rust","notes":"Concept: skip_deserializing attribute symbol"}
+{"query":"deserialize an enum variant","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:EnumAccess","serde_core/src/de/mod.rs:VariantAccess"],"language":"rust","notes":"Concept: enum + variant access traits"}
+{"query":"serialize a sequence of items","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeSeq"],"language":"rust","notes":"Concept: SerializeSeq trait"}
+{"query":"serialize a tuple struct","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:SerializeTupleStruct"],"language":"rust","notes":"Concept: SerializeTupleStruct trait"}
+{"query":"deserialize a borrowed string","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/value.rs:BorrowedStrDeserializer"],"language":"rust","notes":"Concept: BorrowedStrDeserializer for &str"}
+{"query":"convert a value into a deserializer","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:IntoDeserializer"],"language":"rust","notes":"Concept: IntoDeserializer trait"}
+{"query":"deserialize without borrowing lifetime","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:DeserializeOwned"],"language":"rust","notes":"Concept: DeserializeOwned = no borrow lifetime"}
+{"query":"rename fields during serialization","repo":"serde-rs/serde","expected_top_3":["serde_derive/src/internals/case.rs:RenameRule"],"language":"rust","notes":"Concept: RenameRule enum for field renaming"}
+{"query":"provide a default value for a field","repo":"serde-rs/serde","expected_top_3":["serde_derive/src/internals/attr.rs:Default"],"language":"rust","notes":"Concept: Default enum for field defaults"}
+{"query":"access variant data after enum access","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:VariantAccess"],"language":"rust","notes":"Concept: VariantAccess trait"}
+# ── SECTION 4: Synonym/paraphrase queries ──
+{"query":"walk through deserialized data","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:Visitor"],"language":"rust","notes":"Synonym: Visitor walks deserialized input"}
+{"query":"type that can be serialized to a format","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/mod.rs:Serialize"],"language":"rust","notes":"Synonym: Serialize trait"}
+{"query":"read next element from a sequence","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/mod.rs:SeqAccess"],"language":"rust","notes":"Synonym: SeqAccess next_element"}
+{"query":"placeholder serializer that always errors","repo":"serde-rs/serde","expected_top_3":["serde_core/src/ser/impossible.rs:Impossible"],"language":"rust","notes":"Synonym: Impossible error-only serializer"}
+{"query":"drop unknown fields when deserializing","repo":"serde-rs/serde","expected_top_3":["serde_core/src/de/ignored_any.rs:IgnoredAny"],"language":"rust","notes":"Synonym: IgnoredAny discards unknown fields"}
+{"query":"entry point proc macro for deriving Serialize","repo":"serde-rs/serde","expected_top_3":["serde_derive/src/lib.rs:derive_serialize","serde_derive/src/ser.rs:expand_derive_serialize"],"language":"rust","notes":"Synonym: derive + expand for Serialize"}
