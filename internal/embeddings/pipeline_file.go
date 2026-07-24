@@ -170,7 +170,20 @@ func (p *Pipeline) parseAndDiff(
 		return nil, nil, nil, fmt.Errorf("indexFile: parse %s: %w", relPath, parseErr)
 	}
 
-	// Build current symbol map: name → {sym, hash, embedText} for funcs/methods only.
+	// Build current symbol map: name → {sym, hash, embedText} for embeddable
+	// kinds (functions, methods, AND type-level symbols: class/interface/trait/
+	// struct/enum/type). The same predicate feeds currentNames (the keep-list
+	// for orphan reconciliation) so widening the set does not cause add-then-
+	// delete churn on re-index: a type symbol that is now embedded stays in the
+	// keep-list on the next pass and is hash-skipped, never orphan-deleted.
+	//
+	// Keying is name-only to match the code_embeddings PRIMARY KEY
+	// (repo_key, file_path, symbol_name); diverging to (name+start_line) would
+	// decouple the in-memory map from the DB identity and cause perpetual churn
+	// (DB reports 1 row per name, map expects N → re-embed every pass). The
+	// cost is that two embeddable symbols sharing a name in one file (e.g. a
+	// Java class `Foo` and its constructor method `Foo`) collapse to one row —
+	// a pre-existing limitation of the name-only PK, not introduced here.
 	type currentEntry struct {
 		sym       *parser.Symbol
 		hash      uint64
@@ -178,7 +191,7 @@ func (p *Pipeline) parseAndDiff(
 	}
 	current := make(map[string]currentEntry, len(pr.Symbols))
 	for _, sym := range pr.Symbols {
-		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+		if !parser.IsEmbeddableKind(sym.Kind) {
 			continue
 		}
 		et := buildEmbedText(sym, relPath)

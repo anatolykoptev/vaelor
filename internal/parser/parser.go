@@ -36,6 +36,33 @@ const (
 	KindRune NodeKind = "rune"
 )
 
+// IsEmbeddableKind reports whether a symbol kind is eligible for the semantic
+// embedding index. The embedding pipeline (bulk, incremental, and cache paths)
+// uses this single predicate so all three agree on the indexed set — a divergent
+// set would churn (embed on one path, orphan-delete on the next).
+//
+// Indexed kinds (high retrieval value, the symbols users search for by name or
+// concept across every language):
+//   - KindFunction, KindMethod: behaviour — the historical indexed set.
+//   - KindType: Rust enum/type-alias, Java/TS type aliases, etc.
+//   - KindStruct: Rust/Go struct definitions.
+//   - KindInterface: Go interfaces, Rust traits (mapped by handler_rust), Java interfaces.
+//   - KindClass: TS/JS/Python/Java/PHP/Ruby class definitions.
+//
+// Excluded kinds (high volume, low retrieval value, embedding cost — not added
+// here; a future change may revisit with a separate budget):
+//   - KindConst, KindVar: per-symbol embeddings of every constant/variable would
+//     balloon the index with low-signal rows (e.g. `const Version = "1.0"`).
+//   - KindModule: module/import declarations are structural, not searchable concepts.
+//   - KindImport, KindRune: not user-facing definable symbols.
+func IsEmbeddableKind(k NodeKind) bool {
+	switch k {
+	case KindFunction, KindMethod, KindType, KindStruct, KindInterface, KindClass:
+		return true
+	}
+	return false
+}
+
 // Symbol is a named code entity extracted from a parsed file.
 type Symbol struct {
 	// Name is the symbol's identifier (e.g. "ServeHTTP", "Config", "maxRetries").

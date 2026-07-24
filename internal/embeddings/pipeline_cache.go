@@ -96,8 +96,9 @@ func (p *Pipeline) collectSymbolsCached(
 }
 
 // buildSymbolEntriesForFile is the per-file equivalent of the inner loop in
-// the legacy collectSymbols: read source, parse, filter to function/method
-// kinds, and pair each symbol with its precomputed embedText + hash.
+// the legacy collectSymbols: read source, parse, filter to embeddable kinds
+// (functions, methods, and type-level symbols — see parser.IsEmbeddableKind),
+// and pair each symbol with its precomputed embedText + hash.
 func (p *Pipeline) buildSymbolEntriesForFile(f *ingest.File) ([]symbolEntry, error) {
 	source, err := os.ReadFile(f.Path)
 	if err != nil {
@@ -114,7 +115,7 @@ func (p *Pipeline) buildSymbolEntriesForFile(f *ingest.File) ([]symbolEntry, err
 	}
 	out := make([]symbolEntry, 0, len(pr.Symbols))
 	for _, sym := range pr.Symbols {
-		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+		if !parser.IsEmbeddableKind(sym.Kind) {
 			continue
 		}
 		text := buildEmbedText(sym, f.RelPath)

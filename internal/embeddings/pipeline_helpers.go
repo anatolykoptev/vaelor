@@ -40,7 +40,9 @@ func rootHasEmbeddableFiles(root string) bool {
 	return found
 }
 
-// collectSymbols ingests a repo and parses all files, returning only functions and methods.
+// collectSymbols ingests a repo and parses all files, returning only the
+// embeddable symbols (functions, methods, and type-level symbols: class,
+// interface, trait, struct, enum, type). See parser.IsEmbeddableKind.
 func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*ingest.File, error) {
 	ir, err := ingest.IngestRepo(ctx, ingest.IngestOpts{
 		Root:         root,
@@ -71,7 +73,7 @@ func collectSymbols(ctx context.Context, root string) ([]*parser.Symbol, []*inge
 			continue
 		}
 		for _, sym := range pr.Symbols {
-			if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+			if !parser.IsEmbeddableKind(sym.Kind) {
 				continue
 			}
 			symbols = append(symbols, sym)
