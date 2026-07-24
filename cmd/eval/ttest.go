@@ -222,16 +222,30 @@ func computeDelta(baseline, candidate []QueryResult) *DeltaBlock {
 	cnR10, baR10 := cn(func(r QueryResult) float64 { return r.Recall10 })
 	cnR20, baR20 := cn(func(r QueryResult) float64 { return r.Recall20 })
 	cnMRR, baMRR := cn(func(r QueryResult) float64 { return r.MRR })
+	cnLat, baLat := cn(func(r QueryResult) float64 { return r.LatencyMS })
 
 	dn, pn := pairedTTest(cnNDCG, baNDCG)
 	dr10, pr10 := pairedTTest(cnR10, baR10)
 	dr20, pr20 := pairedTTest(cnR20, baR20)
 	dm, pm := pairedTTest(cnMRR, baMRR)
+	dlat, plat := pairedTTest(cnLat, baLat)
 
 	return &DeltaBlock{
-		NDCG10:   formatDelta(dn, pn),
-		Recall10: formatDelta(dr10, pr10),
-		Recall20: formatDelta(dr20, pr20),
-		MRR:      formatDelta(dm, pm),
+		NDCG10:    formatDelta(dn, pn),
+		Recall10:  formatDelta(dr10, pr10),
+		Recall20:  formatDelta(dr20, pr20),
+		MRR:       formatDelta(dm, pm),
+		LatencyMS: formatLatencyDelta(dlat, plat),
 	}
+}
+
+// formatLatencyDelta renders the latency delta as "+X.XXXXms (p=Y.YYYY)".
+// Latency deltas are in milliseconds; the sign convention is candidate −
+// baseline (positive = candidate is slower).
+func formatLatencyDelta(meanMS, p float64) string {
+	sign := "+"
+	if meanMS < 0 {
+		sign = ""
+	}
+	return fmt.Sprintf("%s%.4fms (p=%.4f)", sign, meanMS, p)
 }

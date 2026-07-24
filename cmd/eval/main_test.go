@@ -204,7 +204,7 @@ func TestMCPClient_Search_RoundTrip(t *testing.T) {
 	defer srv.Close()
 
 	client := NewMCPClient(srv.URL)
-	hits, err := client.Search(context.Background(), "go-code", "merge rrf", 20)
+	hits, err := client.Search(context.Background(), "go-code", "merge rrf", "", 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -571,5 +571,565 @@ func TestComputeDelta_PairedQueriesOnly(t *testing.T) {
 	}
 	if !strings.HasPrefix(delta.NDCG10, "+0.1000") {
 		t.Errorf("expected +0.1000 nDCG delta prefix, got %q", delta.NDCG10)
+	}
+}
+
+// ──────────────────── latency measurement ────────────────────
+
+// TestRunSingle_RecordsLatency verifies that runSingle records a non-zero
+// latency for the semantic_search call.
+//
+// Falsification: remove the `searchStart := time.Now()` / `out.Latency = ...`
+// lines in runSingle → Latency and LatencyMS stay zero → RED.
+func TestRunSingle_RecordsLatency(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(5 * time.Millisecond) // ensure measurable latency
+		resp := restCallToolResp{}
+		resp.Content = append(resp.Content, struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: "text", Text: sampleSemanticXML})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	rec := GoldenRecord{Query: "merge rrf", ExpectedTop3: []string{"MergeRRF"}, Repo: "go-code"}
+	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, 20)
+	if result.Error != "" {
+		t.Fatalf("unexpected error: %s", result.Error)
+	}
+	if result.Latency <= 0 {
+		t.Errorf("Latency = %v, want > 0", result.Latency)
+	}
+	if result.LatencyMS <= 0 {
+		t.Errorf("LatencyMS = %f, want > 0", result.LatencyMS)
+	}
+	// 5ms sleep + HTTP overhead — should be at least 1ms.
+	if result.LatencyMS < 1.0 {
+		t.Errorf("LatencyMS = %f, want >= 1.0 (server slept 5ms)", result.LatencyMS)
+	}
+}
+
+// TestComputeAggregates_LatencyPercentiles verifies p50/p95/mean are computed
+// correctly over a known set of per-query latencies.
+//
+// Falsification: remove the computeLatencyStats call in computeAggregates →
+// all latency stats stay zero → RED.
+func TestComputeAggregates_LatencyPercentiles(t *testing.T) {
+	t.Parallel()
+	// 10 queries with latencies 1..10 ms.
+	results := make([]QueryResult, 10)
+	for i := range results {
+		results[i] = QueryResult{
+			Repo:      "r",
+			Query:     fmt.Sprintf("q%d", i),
+			NDCG10:    0.5,
+			LatencyMS: float64(i + 1), // 1, 2, ..., 10
+		}
+	}
+	agg := computeAggregates(results)
+	// Mean = (1+2+...+10)/10 = 5.5
+	if math.Abs(agg.MeanMS-5.5) > 1e-9 {
+		t.Errorf("MeanMS = %f, want 5.5", agg.MeanMS)
+	}
+	// Nearest-rank p50: rank = ceil(0.50 * 10) = 5 → sorted[4] = 5.0
+	if math.Abs(agg.P50MS-5.0) > 1e-9 {
+		t.Errorf("P50MS = %f, want 5.0", agg.P50MS)
+	}
+	// Nearest-rank p95: rank = ceil(0.95 * 10) = 10 → sorted[9] = 10.0
+	if math.Abs(agg.P95MS-10.0) > 1e-9 {
+		t.Errorf("P95MS = %f, want 10.0", agg.P95MS)
+	}
+	// Nearest-rank p99: rank = ceil(0.99 * 10) = 10 → sorted[9] = 10.0
+	if math.Abs(agg.P99MS-10.0) > 1e-9 {
+		t.Errorf("P99MS = %f, want 10.0", agg.P99MS)
+	}
+}
+
+// TestComputeAggregates_LatencyExcludesErrors verifies that error queries are
+// excluded from latency percentiles (consistent with relevance metric means).
+func TestComputeAggregates_LatencyExcludesErrors(t *testing.T) {
+	t.Parallel()
+	results := []QueryResult{
+		{Repo: "r", Query: "q0", NDCG10: 0.5, LatencyMS: 10.0, Error: "timeout"},
+		{Repo: "r", Query: "q1", NDCG10: 0.5, LatencyMS: 5.0},
+		{Repo: "r", Query: "q2", NDCG10: 0.5, LatencyMS: 15.0},
+	}
+	agg := computeAggregates(results)
+	if agg.Errors != 1 {
+		t.Errorf("Errors = %d, want 1", agg.Errors)
+	}
+	if agg.Queries != 2 {
+		t.Errorf("Queries = %d, want 2", agg.Queries)
+	}
+	// Mean over non-error: (5 + 15) / 2 = 10.0
+	if math.Abs(agg.MeanMS-10.0) > 1e-9 {
+		t.Errorf("MeanMS = %f, want 10.0 (error excluded)", agg.MeanMS)
+	}
+}
+
+// ──────────────────── per-language breakdown ────────────────────
+
+// TestComputePerLanguage_SplitsByLanguage verifies that a 2-language fixture
+// splits into 2 buckets + that each bucket has the correct per-bucket mean.
+//
+// Falsification: make computePerLanguage group everything under "unspecified"
+// (remove the `lang := r.Language` assignment) → only 1 bucket → RED.
+func TestComputePerLanguage_SplitsByLanguage(t *testing.T) {
+	t.Parallel()
+	results := []QueryResult{
+		{Repo: "r", Query: "q0", Language: "go", NDCG10: 0.8, LatencyMS: 10},
+		{Repo: "r", Query: "q1", Language: "go", NDCG10: 0.6, LatencyMS: 20},
+		{Repo: "r", Query: "q2", Language: "python", NDCG10: 0.4, LatencyMS: 30},
+		{Repo: "r", Query: "q3", Language: "python", NDCG10: 0.2, LatencyMS: 40},
+	}
+	perLang := computePerLanguage(results)
+	if len(perLang) != 2 {
+		t.Fatalf("expected 2 language buckets, got %d: %+v", len(perLang), perLang)
+	}
+	// Alphabetical: "go" first, then "python".
+	if perLang[0].Language != "go" {
+		t.Errorf("bucket 0 language = %q, want go", perLang[0].Language)
+	}
+	if perLang[1].Language != "python" {
+		t.Errorf("bucket 1 language = %q, want python", perLang[1].Language)
+	}
+	// go: mean nDCG = (0.8 + 0.6) / 2 = 0.7
+	if math.Abs(perLang[0].NDCG10-0.7) > 1e-9 {
+		t.Errorf("go nDCG10 = %f, want 0.7", perLang[0].NDCG10)
+	}
+	// python: mean nDCG = (0.4 + 0.2) / 2 = 0.3
+	if math.Abs(perLang[1].NDCG10-0.3) > 1e-9 {
+		t.Errorf("python nDCG10 = %f, want 0.3", perLang[1].NDCG10)
+	}
+	// go: mean latency = (10 + 20) / 2 = 15
+	if math.Abs(perLang[0].MeanMS-15.0) > 1e-9 {
+		t.Errorf("go MeanMS = %f, want 15.0", perLang[0].MeanMS)
+	}
+	// python: mean latency = (30 + 40) / 2 = 35
+	if math.Abs(perLang[1].MeanMS-35.0) > 1e-9 {
+		t.Errorf("python MeanMS = %f, want 35.0", perLang[1].MeanMS)
+	}
+}
+
+// TestComputePerLanguage_UnspecifiedBucket verifies that records without a
+// language field aggregate under "unspecified".
+func TestComputePerLanguage_UnspecifiedBucket(t *testing.T) {
+	t.Parallel()
+	results := []QueryResult{
+		{Repo: "r", Query: "q0", NDCG10: 0.5},
+		{Repo: "r", Query: "q1", Language: "go", NDCG10: 0.9},
+	}
+	perLang := computePerLanguage(results)
+	if len(perLang) != 2 {
+		t.Fatalf("expected 2 buckets, got %d", len(perLang))
+	}
+	// Alphabetical: "go" < "unspecified"
+	if perLang[0].Language != "go" {
+		t.Errorf("bucket 0 = %q, want go", perLang[0].Language)
+	}
+	if perLang[1].Language != "unspecified" {
+		t.Errorf("bucket 1 = %q, want unspecified", perLang[1].Language)
+	}
+}
+
+// TestRunSingle_PassesLanguageFilter verifies that when a GoldenRecord has a
+// language field, it is passed as the `language` arg to semantic_search.
+//
+// Falsification: remove `Language: rec.Language` from runSingle's QueryResult
+// and the `language` param in client.Search → the server sees no language arg
+// → the test's arg check fails → RED.
+func TestRunSingle_PassesLanguageFilter(t *testing.T) {
+	t.Parallel()
+	var seenLanguage any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var args map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&args)
+		seenLanguage = args["language"]
+		resp := restCallToolResp{}
+		resp.Content = append(resp.Content, struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: "text", Text: sampleSemanticXML})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	rec := GoldenRecord{Query: "merge rrf", ExpectedTop3: []string{"MergeRRF"}, Repo: "go-code", Language: "go"}
+	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, 20)
+	if result.Error != "" {
+		t.Fatalf("unexpected error: %s", result.Error)
+	}
+	if result.Language != "go" {
+		t.Errorf("result.Language = %q, want go", result.Language)
+	}
+	if seenLanguage != "go" {
+		t.Errorf("server received language = %v, want go", seenLanguage)
+	}
+}
+
+// TestRunSingle_NoLanguageFilterWhenEmpty verifies that when Language is empty,
+// no `language` arg is sent (byte-identical to pre-instrumentation behavior).
+func TestRunSingle_NoLanguageFilterWhenEmpty(t *testing.T) {
+	t.Parallel()
+	var hadLanguageKey bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var args map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&args)
+		_, hadLanguageKey = args["language"]
+		resp := restCallToolResp{}
+		resp.Content = append(resp.Content, struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: "text", Text: sampleSemanticXML})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	rec := GoldenRecord{Query: "merge rrf", ExpectedTop3: []string{"MergeRRF"}, Repo: "go-code"}
+	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, 20)
+	if result.Error != "" {
+		t.Fatalf("unexpected error: %s", result.Error)
+	}
+	if hadLanguageKey {
+		t.Error("server received language arg for empty-language record; should be omitted")
+	}
+}
+
+// ──────────────────── repo-map ────────────────────
+
+// TestParseRepoMap_Valid verifies that a comma-separated key=path string
+// parses into the expected map.
+func TestParseRepoMap_Valid(t *testing.T) {
+	t.Parallel()
+	m, err := ParseRepoMap("go-code=/host/src/go-code,MemDB=/host/src/MemDB")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if m["go-code"] != "/host/src/go-code" {
+		t.Errorf("go-code = %q", m["go-code"])
+	}
+	if m["MemDB"] != "/host/src/MemDB" {
+		t.Errorf("MemDB = %q", m["MemDB"])
+	}
+}
+
+// TestParseRepoMap_Empty verifies that empty input returns nil (no error).
+func TestParseRepoMap_Empty(t *testing.T) {
+	t.Parallel()
+	m, err := ParseRepoMap("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m != nil {
+		t.Errorf("expected nil map, got %v", m)
+	}
+}
+
+// TestParseRepoMap_MissingEquals verifies that an entry without '=' errors.
+func TestParseRepoMap_MissingEquals(t *testing.T) {
+	t.Parallel()
+	if _, err := ParseRepoMap("go-code"); err == nil {
+		t.Error("expected error for entry without '='")
+	}
+}
+
+// TestApplyRepoMap_OverridesPath verifies that ApplyRepoMap replaces the
+// record's Repo with the mapped path for the matching repo_key.
+//
+// Falsification: remove the `g.PerRepo[repoKey][i].Repo = mapped` line in
+// ApplyRepoMap → Repo stays "/path/to/repo" → RED.
+func TestApplyRepoMap_OverridesPath(t *testing.T) {
+	t.Parallel()
+	gset := &GoldenSet{PerRepo: map[string][]GoldenRecord{
+		"go-code": {
+			{Query: "q1", ExpectedTop3: []string{"X"}, Repo: "/path/to/repo"},
+			{Query: "q2", ExpectedTop3: []string{"Y"}, Repo: "/path/to/repo"},
+		},
+		"MemDB": {
+			{Query: "q3", ExpectedTop3: []string{"Z"}, Repo: "/path/to/repos/src/MemDB"},
+		},
+	}}
+	repoMap := map[string]string{
+		"go-code": "/host/src/go-code",
+	}
+	gset.ApplyRepoMap(repoMap)
+
+	if gset.PerRepo["go-code"][0].Repo != "/host/src/go-code" {
+		t.Errorf("go-code[0].Repo = %q, want /host/src/go-code", gset.PerRepo["go-code"][0].Repo)
+	}
+	if gset.PerRepo["go-code"][1].Repo != "/host/src/go-code" {
+		t.Errorf("go-code[1].Repo = %q, want /host/src/go-code", gset.PerRepo["go-code"][1].Repo)
+	}
+	// MemDB not in map → falls back to record's own path.
+	if gset.PerRepo["MemDB"][0].Repo != "/path/to/repos/src/MemDB" {
+		t.Errorf("MemDB[0].Repo = %q, want /path/to/repos/src/MemDB (fallback)", gset.PerRepo["MemDB"][0].Repo)
+	}
+}
+
+// TestApplyRepoMap_FallbackWhenAbsent verifies that an empty map leaves all
+// records' Repo fields unchanged.
+func TestApplyRepoMap_FallbackWhenAbsent(t *testing.T) {
+	t.Parallel()
+	gset := &GoldenSet{PerRepo: map[string][]GoldenRecord{
+		"go-code": {{Query: "q1", ExpectedTop3: []string{"X"}, Repo: "/path/to/repo"}},
+	}}
+	gset.ApplyRepoMap(nil)
+	if gset.PerRepo["go-code"][0].Repo != "/path/to/repo" {
+		t.Errorf("Repo = %q, want /path/to/repo (unchanged)", gset.PerRepo["go-code"][0].Repo)
+	}
+}
+
+// ──────────────────── keyword-arm gate ────────────────────
+
+// TestEvaluateKeywordArmGate_Pass verifies that a significant nDCG@10
+// improvement with non-inferior Recall@20 yields PASS and records the arm.
+//
+// Falsification: remove the `ndcgSig && r20NonInf` case in evaluateGate →
+// verdict never PASS → RED.
+func TestEvaluateKeywordArmGate_Pass(t *testing.T) {
+	t.Parallel()
+	n := 20
+	bl := makeResults("r", n, 0.50, 0.60)
+	cn := makeResults("r", n, 0.62, 0.65)
+
+	g := EvaluateKeywordArmGate(bl, cn, "bm25f")
+
+	if g.Verdict != GatePass {
+		t.Errorf("verdict = %s, want PASS", g.Verdict)
+	}
+	if g.TestedArm != "bm25f" {
+		t.Errorf("TestedArm = %q, want bm25f", g.TestedArm)
+	}
+	if !strings.Contains(g.RecommendedAction, "KEYWORD_ARM=bm25f") {
+		t.Errorf("RecommendedAction = %q, want to contain KEYWORD_ARM=bm25f", g.RecommendedAction)
+	}
+}
+
+// TestEvaluateKeywordArmGate_Fail verifies that no significant improvement
+// yields FAIL with the keyword-arm action text.
+func TestEvaluateKeywordArmGate_Fail(t *testing.T) {
+	t.Parallel()
+	bl := makeResults("r", 10, 0.5, 0.6)
+	cn := makeResults("r", 10, 0.5, 0.6) // identical → no improvement
+
+	g := EvaluateKeywordArmGate(bl, cn, "bm25f")
+
+	if g.Verdict != GateFail {
+		t.Errorf("verdict = %s, want FAIL", g.Verdict)
+	}
+	if !strings.Contains(g.RecommendedAction, "KEYWORD_ARM") {
+		t.Errorf("RecommendedAction = %q, want to mention KEYWORD_ARM", g.RecommendedAction)
+	}
+}
+
+// ──────────────────── fusion-mode skip ────────────────────
+
+// TestFusionSkipResult_NotExercised verifies that the fusion-mode gate
+// reports NOT_EXERCISED with the mandated message.
+//
+// Falsification: change FusionSkipResult to return GatePass → verdict
+// mismatch → RED. Or remove the "semantic_search only" phrase → RED.
+func TestFusionSkipResult_NotExercised(t *testing.T) {
+	t.Parallel()
+	g := FusionSkipResult("rrf")
+	if g.Verdict != GateNotExercised {
+		t.Errorf("verdict = %s, want NOT_EXERCISED", g.Verdict)
+	}
+	if g.TestedFusionMode != "rrf" {
+		t.Errorf("TestedFusionMode = %q, want rrf", g.TestedFusionMode)
+	}
+	if !strings.Contains(g.Explanation, "fusion mode not exercised") {
+		t.Errorf("Explanation = %q, want to contain 'fusion mode not exercised'", g.Explanation)
+	}
+	if !strings.Contains(g.Explanation, "semantic_search only") {
+		t.Errorf("Explanation = %q, want to contain 'semantic_search only'", g.Explanation)
+	}
+	if !strings.Contains(g.Explanation, "repo_analyze") {
+		t.Errorf("Explanation = %q, want to mention repo_analyze", g.Explanation)
+	}
+}
+
+// ──────────────────── flag parsing + run integration ────────────────────
+
+// TestRun_KeywordArmAndFusionModeFlags verifies that --keyword-arm and
+// --fusion-mode flags are parsed, recorded in metadata, and emit the
+// correct gate fields in the report.
+//
+// Falsification: remove the keyword-arm gate emission in run() →
+// report.KeywordArmGate is nil → RED. Or remove the fusion gate emission →
+// report.FusionGate is nil → RED.
+func TestRun_KeywordArmAndFusionModeFlags(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := restCallToolResp{}
+		resp.Content = append(resp.Content, struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: "text", Text: sampleSemanticXML})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	// Create a golden dir with 2 queries so the gate has enough pairs.
+	dir := t.TempDir()
+	content := `{"query": "q1", "expected_top_3": ["MergeRRF"], "repo": "go-code"}
+{"query": "q2", "expected_top_3": ["MergeRRF"], "repo": "go-code"}
+`
+	if err := os.WriteFile(filepath.Join(dir, "go-code.jsonl"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	// First run: baseline (no gates).
+	baselinePath := filepath.Join(t.TempDir(), "baseline.json")
+	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", 2, 20, 30*time.Second); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+
+	// Second run: candidate with --keyword-arm=bm25f and --fusion-mode=rrf.
+	outPath := filepath.Join(t.TempDir(), "cand.json")
+	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "bm25f", "rrf", "", 2, 20, 30*time.Second); err != nil {
+		t.Fatalf("candidate run: %v", err)
+	}
+
+	report, err := readReport(outPath)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	if report.Metadata.KeywordArm != "bm25f" {
+		t.Errorf("metadata.KeywordArm = %q, want bm25f", report.Metadata.KeywordArm)
+	}
+	if report.Metadata.FusionMode != "rrf" {
+		t.Errorf("metadata.FusionMode = %q, want rrf", report.Metadata.FusionMode)
+	}
+	if report.KeywordArmGate == nil {
+		t.Error("KeywordArmGate is nil, want non-nil")
+	} else if report.KeywordArmGate.TestedArm != "bm25f" {
+		t.Errorf("KeywordArmGate.TestedArm = %q, want bm25f", report.KeywordArmGate.TestedArm)
+	}
+	if report.FusionGate == nil {
+		t.Error("FusionGate is nil, want non-nil")
+	} else if report.FusionGate.Verdict != GateNotExercised {
+		t.Errorf("FusionGate.Verdict = %s, want NOT_EXERCISED", report.FusionGate.Verdict)
+	}
+	// Per-language should be present (all "unspecified" since no language field).
+	if len(report.PerLanguage) == 0 {
+		t.Error("PerLanguage is empty, want at least 1 bucket")
+	}
+}
+
+// TestRun_RepoMapFlag verifies that --repo-map resolves placeholder paths
+// and that the resolved path is sent to the server.
+//
+// Falsification: remove the `golden.ApplyRepoMap(repoMap)` call in run() →
+// the server sees "/path/to/repo" instead of the mapped path → RED.
+func TestRun_RepoMapFlag(t *testing.T) {
+	t.Parallel()
+	var seenRepo string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var args map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&args)
+		if r, ok := args["repo"].(string); ok {
+			seenRepo = r
+		}
+		resp := restCallToolResp{}
+		resp.Content = append(resp.Content, struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: "text", Text: sampleSemanticXML})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	content := `{"query": "q1", "expected_top_3": ["MergeRRF"], "repo": "/path/to/repo"}
+`
+	if err := os.WriteFile(filepath.Join(dir, "go-code.jsonl"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	outPath := filepath.Join(t.TempDir(), "out.json")
+	repoMap := "go-code=/host/src/go-code"
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", repoMap, 1, 20, 10*time.Second); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if seenRepo != "/host/src/go-code" {
+		t.Errorf("server received repo = %q, want /host/src/go-code", seenRepo)
+	}
+	report, err := readReport(outPath)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	if report.Metadata.RepoMapPath != repoMap {
+		t.Errorf("metadata.RepoMapPath = %q, want %q", report.Metadata.RepoMapPath, repoMap)
+	}
+}
+
+// TestRun_RepoMapFallback verifies that when no --repo-map is given, the
+// record's own path is used (fallback).
+func TestRun_RepoMapFallback(t *testing.T) {
+	t.Parallel()
+	var seenRepo string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var args map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&args)
+		if r, ok := args["repo"].(string); ok {
+			seenRepo = r
+		}
+		resp := restCallToolResp{}
+		resp.Content = append(resp.Content, struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: "text", Text: sampleSemanticXML})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	content := `{"query": "q1", "expected_top_3": ["MergeRRF"], "repo": "/path/to/repo"}
+`
+	if err := os.WriteFile(filepath.Join(dir, "go-code.jsonl"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	outPath := filepath.Join(t.TempDir(), "out.json")
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", 1, 20, 10*time.Second); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if seenRepo != "/path/to/repo" {
+		t.Errorf("server received repo = %q, want /path/to/repo (fallback)", seenRepo)
+	}
+}
+
+// TestComputeDelta_IncludesLatency verifies that the delta block includes a
+// latency delta string.
+func TestComputeDelta_IncludesLatency(t *testing.T) {
+	t.Parallel()
+	baseline := []QueryResult{
+		{Repo: "x", Query: "q1", NDCG10: 0.5, LatencyMS: 10.0},
+		{Repo: "x", Query: "q2", NDCG10: 0.5, LatencyMS: 20.0},
+	}
+	candidate := []QueryResult{
+		{Repo: "x", Query: "q1", NDCG10: 0.5, LatencyMS: 15.0},
+		{Repo: "x", Query: "q2", NDCG10: 0.5, LatencyMS: 25.0},
+	}
+	delta := computeDelta(baseline, candidate)
+	if delta == nil {
+		t.Fatal("delta is nil")
+	}
+	if delta.LatencyMS == "" {
+		t.Error("LatencyMS delta is empty, want non-empty")
+	}
+	if !strings.Contains(delta.LatencyMS, "ms") {
+		t.Errorf("LatencyMS delta = %q, want to contain 'ms'", delta.LatencyMS)
 	}
 }

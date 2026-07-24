@@ -61,16 +61,20 @@ type restCallToolResp struct {
 
 // Search calls semantic_search via the REST bridge and parses the response.
 //
-// repo / query / topK map directly to the tool's input schema. When the server
-// replies with a <status> envelope (e.g. "indexing"), Search returns an empty
-// slice and a nil error — the caller decides whether to retry.
-func (c *MCPClient) Search(ctx context.Context, repo, query string, topK int) ([]SearchHit, error) {
+// repo / query / topK map directly to the tool's input schema. When language
+// is non-empty it is passed as the `language` filter to semantic_search. When
+// the server replies with a <status> envelope (e.g. "indexing"), Search
+// returns an empty slice and a nil error — the caller decides whether to retry.
+func (c *MCPClient) Search(ctx context.Context, repo, query, language string, topK int) ([]SearchHit, error) {
 	args := map[string]any{
 		"repo":  repo,
 		"query": query,
 	}
 	if topK > 0 {
 		args["top_k"] = topK
+	}
+	if language != "" {
+		args["language"] = language
 	}
 	body, err := json.Marshal(args)
 	if err != nil {

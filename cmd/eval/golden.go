@@ -23,11 +23,17 @@ import (
 //   - Repo: optional override of the repo arg to semantic_search; when empty
 //     the file's basename (without .jsonl) is used as the repo identifier the
 //     harness will hand to semantic_search.
+//   - Language: optional language filter passed to semantic_search (e.g. "go",
+//     "python", "typescript"). When empty, no language filter is sent and the
+//     record aggregates under the "unspecified" bucket in per-language reports.
+//     Backward-compatible: old records without this field parse and run exactly
+//     as before (no filter sent, identical search results).
 //   - Notes: optional free-form for the labeler.
 type GoldenRecord struct {
 	Query        string   `json:"query"`
 	ExpectedTop3 []string `json:"expected_top_3"`
 	Repo         string   `json:"repo,omitempty"`
+	Language     string   `json:"language,omitempty"`
 	Notes        string   `json:"notes,omitempty"`
 }
 
@@ -135,4 +141,52 @@ func (g *GoldenSet) FlatQueries() []GoldenRecord {
 		out = append(out, g.PerRepo[r]...)
 	}
 	return out
+}
+
+// ApplyRepoMap overrides each record's Repo field with the mapped path for its
+// repo_key (the .jsonl file basename). Records whose repo_key is not in the
+// map keep their existing Repo field (the record's own path or the injected
+// file basename). This lets the golden JSONL stay portable — placeholder paths
+// like "/path/to/repo" are resolved to real absolute paths or forge slugs at
+// run time without committing operator-specific paths.
+func (g *GoldenSet) ApplyRepoMap(repoMap map[string]string) {
+	for repoKey, records := range g.PerRepo {
+		mapped, ok := repoMap[repoKey]
+		if !ok || mapped == "" {
+			continue
+		}
+		for i := range records {
+			g.PerRepo[repoKey][i].Repo = mapped
+		}
+	}
+}
+
+// ParseRepoMap parses a comma-separated "key=path,key=path" string into a
+// map. Whitespace around keys and values is trimmed. Empty input returns nil.
+// Each pair is split on its FIRST '=', so a value (path) may itself contain
+// '=' characters; a key may not (everything before the first '=' is the key).
+// A pair with no '=' is an error; an empty key or value is an error.
+func ParseRepoMap(raw string) (map[string]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	out := make(map[string]string)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, fmt.Errorf("repo-map entry %q: missing '=' (expected key=path)", pair)
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if key == "" || val == "" {
+			return nil, fmt.Errorf("repo-map entry %q: empty key or path", pair)
+		}
+		out[key] = val
+	}
+	return out, nil
 }
