@@ -55,10 +55,14 @@
 //
 // Fusion-mode flag (--fusion-mode minmax|rrf):
 //
-// Reports NOT_EXERCISED: the harness calls semantic_search only, and
-// ANALYZE_RANK_FUSION_MODE affects repo_analyze (a separate eval mode not yet
-// implemented). The flag records the tested mode in metadata for traceability
-// but does NOT fake a fusion measurement.
+// In semantic_search mode (default): reports NOT_EXERCISED — the harness calls
+// semantic_search only, and ANALYZE_RANK_FUSION_MODE affects repo_analyze's
+// file ranking, not semantic_search. The flag records the tested mode in
+// metadata for traceability but does NOT fake a fusion measurement.
+//
+// In repo_analyze mode (--mode repo_analyze): emits a REAL fusion A/B gate
+// (paired t-test over nDCG@10 + Recall@20 non-inferiority) comparing the
+// baseline (minmax) and candidate (rrf) repo_analyze runs. Requires --baseline.
 //
 // --repo-map (or REPO_MAP env):
 //
@@ -126,7 +130,9 @@ func main() {
 	keywordArm := fs.String("keyword-arm", keywordArmUnset,
 		"KEYWORD_ARM used in the candidate run (grep|bm25f); enables keyword-arm go/no-go gate in output (requires --baseline)")
 	fusionMode := fs.String("fusion-mode", fusionModeUnset,
-		"ANALYZE_RANK_FUSION_MODE used in the candidate run (minmax|rrf); reports NOT_EXERCISED (harness calls semantic_search only, not repo_analyze)")
+		"ANALYZE_RANK_FUSION_MODE used in the candidate run (minmax|rrf); in semantic_search mode reports NOT_EXERCISED, in repo_analyze mode emits a real A/B gate (requires --baseline)")
+	mode := fs.String("mode", modeSemanticSearch,
+		"eval mode: semantic_search (default, current behavior) | repo_analyze (calls repo_analyze, scores the ranked file list, enables the real fusion gate)")
 	repoMapFlag := fs.String("repo-map", "",
 		"comma-separated repo_key=path mapping (e.g. go-code=/host/src/go-code,MemDB=/host/src/MemDB); resolves placeholder golden paths at run time. Falls back to REPO_MAP env.")
 	workers := fs.Int("workers", defaultWorkers, "concurrent HTTP workers")
@@ -156,13 +162,16 @@ func main() {
 		repoMapRaw = os.Getenv("REPO_MAP")
 	}
 
-	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *keywordArm, *fusionMode, repoMapRaw, *workers, *topK, *timeout); err != nil {
+	if err := run(*goldenDir, *targetURL, *output, *baseline, sw, gw, *keywordArm, *fusionMode, repoMapRaw, *mode, *workers, *topK, *timeout); err != nil {
 		slog.Error("eval failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, keywordArm, fusionMode, repoMapRaw string, workers, topK int, timeout time.Duration) error {
+func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeight float64, keywordArm, fusionMode, repoMapRaw, mode string, workers, topK int, timeout time.Duration) error {
+	if mode != modeSemanticSearch && mode != modeRepoAnalyze {
+		return fmt.Errorf("invalid mode %q: use %q or %q", mode, modeSemanticSearch, modeRepoAnalyze)
+	}
 	if topK < minTopK {
 		// Recall@20 requires the candidate pool to have at least 20 items.
 		topK = minTopK
@@ -194,7 +203,7 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 
 	client := NewMCPClient(targetURL)
 	start := time.Now()
-	results := runEval(ctx, client, golden, runnerCfg{Workers: workers, TopK: topK})
+	results := runEval(ctx, client, golden, runnerCfg{Workers: workers, TopK: topK, Mode: mode})
 	elapsed := time.Since(start)
 	slog.Info("eval complete",
 		slog.Duration("elapsed", elapsed),
@@ -218,6 +227,11 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 	}
 	if repoMapRaw != "" {
 		report.Metadata.RepoMapPath = repoMapRaw
+	}
+	// Record the mode only when non-default so default (semantic_search) runs
+	// stay byte-identical to the pre-mode harness (no new metadata field).
+	if mode != modeSemanticSearch {
+		report.Metadata.Mode = mode
 	}
 
 	if baseline != "" {
@@ -269,14 +283,44 @@ func run(goldenDir, targetURL, output, baseline string, splaDeWeight, graphWeigh
 				slog.Int("paired_queries", gate.PairedQueries),
 			)
 		}
+
+		// Emit the fusion-mode A/B gate in repo_analyze mode (requires the
+		// paired baseline). Fusion mode controls repo_analyze's file ranking;
+		// only in this mode does the harness actually exercise it.
+		if fusionMode != fusionModeUnset && mode == modeRepoAnalyze {
+			gate := EvaluateFusionGate(base.PerQuery, results, fusionMode)
+			report.FusionGate = &gate
+			slog.Info("fusion mode gate",
+				slog.String("verdict", string(gate.Verdict)),
+				slog.String("tested_fusion_mode", gate.TestedFusionMode),
+				slog.Float64("ndcg10_delta", gate.NDCG10Delta),
+				slog.Float64("ndcg10_p", gate.NDCG10P),
+				slog.Int("paired_queries", gate.PairedQueries),
+			)
+		}
 	}
 
-	// Emit the fusion-mode NOT_EXERCISED gate when --fusion-mode is provided.
-	// The harness calls semantic_search only; fusion mode affects repo_analyze
-	// (a separate eval mode not yet implemented). The gate makes the skip
-	// VISIBLE rather than silently omitting or faking a measurement.
-	if fusionMode != fusionModeUnset {
-		gate := FusionSkipResult(fusionMode)
+	// Fusion gate for the two non-baseline paths:
+	//   - semantic_search mode: fusion mode does not affect this path →
+	//     NOT_EXERCISED (byte-identical to the pre-mode harness).
+	//   - repo_analyze mode without --baseline: the paired t-test needs a
+	//     baseline → INSUFFICIENT_DATA.
+	if fusionMode != fusionModeUnset && report.FusionGate == nil {
+		var gate GateResult
+		if mode == modeRepoAnalyze {
+			gate = GateResult{
+				Verdict:           GateInsufficient,
+				TestedFusionMode:  fusionMode,
+				RecommendedAction: "Provide --baseline (ANALYZE_RANK_FUSION_MODE=minmax run) to compute the fusion A/B gate.",
+				Explanation: fmt.Sprintf(
+					"fusion gate requires a paired baseline (minmax) and candidate (=%q) "+
+						"repo_analyze run; --baseline not provided.",
+					fusionMode,
+				),
+			}
+		} else {
+			gate = FusionSkipResult(fusionMode)
+		}
 		report.FusionGate = &gate
 		slog.Info("fusion mode gate",
 			slog.String("verdict", string(gate.Verdict)),

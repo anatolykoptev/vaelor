@@ -23,8 +23,11 @@ const (
 	// then retries on the next pass.
 	defaultHTTPTimeout = 60 * time.Second
 
-	// restToolPath is the REST bridge tool-call endpoint.
+	// restToolPath is the REST bridge tool-call endpoint for semantic_search.
 	restToolPath = "/api/tools/semantic_search"
+
+	// restRepoAnalyzePath is the REST bridge tool-call endpoint for repo_analyze.
+	restRepoAnalyzePath = "/api/tools/repo_analyze"
 )
 
 // MCPClient calls the go-code REST bridge for semantic_search.
@@ -172,4 +175,104 @@ func parseSemanticXML(payload string) ([]SearchHit, error) {
 		})
 	}
 	return hits, nil
+}
+
+// RepoAnalyze calls the repo_analyze tool (deep mode) via the REST bridge and
+// returns the ranked file paths in the tool's relevance order (BM25F+PageRank
+// fusion, controlled server-side by ANALYZE_RANK_FUSION_MODE). The XML
+// response's <files><file path="..."/></files> section is emitted in
+// relevance-ranked order by the tool; this method preserves that order.
+//
+// When language is non-empty it is passed as the `language` filter; when
+// empty no filter is sent. depth=deep is requested so the full ranked file
+// list is emitted (overview depth omits the <files> section entirely).
+//
+// Note: when the target server has OUTPUT_DIR set and the deep-mode XML
+// exceeds the inline threshold (50k chars), the tool returns a file-summary
+// text instead of the XML envelope. That text is not XML, so parsing returns
+// an error and the query becomes an error result — dropped from the paired
+// gate and visible via PairedQueries (a shrinking denominator, or
+// INSUFFICIENT_DATA below 2 pairs), never a silent score-0. For faithful
+// benchmarking, run the target server with OUTPUT_DIR unset.
+func (c *MCPClient) RepoAnalyze(ctx context.Context, repo, query, language string) ([]string, error) {
+	args := map[string]any{
+		"repo":  repo,
+		"query": query,
+		"depth": "deep",
+	}
+	if language != "" {
+		args["language"] = language
+	}
+	body, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("marshal args: %w", err)
+	}
+
+	url := c.BaseURL + restRepoAnalyzePath
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusUnprocessableEntity {
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	var parsed restCallToolResp
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if parsed.IsError {
+		return nil, fmt.Errorf("tool returned error: %s", joinContent(parsed.Content))
+	}
+	return parseRepoAnalyzeXML(joinContent(parsed.Content))
+}
+
+// repoAnalyzeXML mirrors the repo_analyze tool's XML envelope. Only the
+// ranked <files> section is needed for file-level relevance scoring; all
+// other sections (repo, packages, imports, tree, symbols, quality, etc.)
+// are ignored by the decoder.
+type repoAnalyzeXML struct {
+	XMLName xml.Name `xml:"response"`
+	Files   *struct {
+		File []repoAnalyzeFile `xml:"file"`
+	} `xml:"files,omitempty"`
+}
+
+type repoAnalyzeFile struct {
+	Path string `xml:"path,attr"`
+}
+
+// parseRepoAnalyzeXML extracts the ranked file paths from a repo_analyze XML
+// response, preserving document order (which is the tool's relevance order).
+// Returns an empty slice when the response has no <files> section (e.g. an
+// overview-depth response, or a file-summary text returned in place of XML).
+func parseRepoAnalyzeXML(payload string) ([]string, error) {
+	if payload == "" {
+		return nil, nil
+	}
+	var parsed repoAnalyzeXML
+	if err := xml.Unmarshal([]byte(payload), &parsed); err != nil {
+		return nil, fmt.Errorf("parse repo_analyze xml: %w", err)
+	}
+	if parsed.Files == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(parsed.Files.File))
+	for _, f := range parsed.Files.File {
+		if f.Path != "" {
+			out = append(out, f.Path)
+		}
+	}
+	return out, nil
 }

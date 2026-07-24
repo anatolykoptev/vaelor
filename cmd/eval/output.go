@@ -87,6 +87,10 @@ type Metadata struct {
 	KeywordArm  string    `json:"keyword_arm,omitempty"`
 	FusionMode  string    `json:"fusion_mode,omitempty"`
 	RepoMapPath string    `json:"repo_map,omitempty"`
+	// Mode is the eval mode (semantic_search | repo_analyze). Omitted for the
+	// default (semantic_search) so default runs stay byte-identical to the
+	// pre-mode harness.
+	Mode string `json:"mode,omitempty"`
 }
 
 // Report is the full harness output. Delta is omitted when --baseline is unset.
