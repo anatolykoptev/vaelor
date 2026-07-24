@@ -237,7 +237,7 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	publishKeywordArm(cfg.KeywordArm)
 	slog.Info("keyword arm",
 		slog.String("arm", cfg.KeywordArm),
-		slog.String("note", "set KEYWORD_ARM=bm25f after Phase 5 A/B gate clears"),
+		slog.String("note", "default; override with KEYWORD_ARM=grep"),
 	)
 
 	// Semantic deps (optional — needs EMBED_URL + DATABASE_URL).
