@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.57.0](https://github.com/anatolykoptev/vaelor/compare/v1.56.0...v1.57.0) (2026-07-24)
+
+
+### Added
+
+* **retrieval:** default keyword arm to bm25f at RRF weight 0.5 (empirical tuning) ([#667](https://github.com/anatolykoptev/vaelor/issues/667)) ([a83534c](https://github.com/anatolykoptev/vaelor/commit/a83534c540d2616b1d6c4bb8798bf4c49a96cb56))
+
 ## [1.56.0](https://github.com/anatolykoptev/vaelor/compare/v1.55.2...v1.56.0) (2026-07-24)
 
 
