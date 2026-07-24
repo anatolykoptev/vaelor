@@ -220,6 +220,13 @@ type Config struct {
 	// recency arm is skipped entirely. Tune via RRF_WEIGHT_RECENCY env. Must be ≥ 0.
 	RRFWeightRecency float64
 
+	// RRFRankWindow is the Elasticsearch rank_window_size cap (issue #663):
+	// each arm's ranked input list is truncated to its top-RRFRankWindow
+	// entries before WeightedRRF. Default 0 = UNBOUNDED (dark-launch: prod is
+	// byte-identical until the controller flips it). Sentinel <= 0 means "no
+	// truncation". rrfK=60 is unchanged. Tune via RRF_RANK_WINDOW env.
+	RRFRankWindow int
+
 	// KeywordArm selects the lexical retriever that feeds the Keyword slot of
 	// MergeRRF. Allowed values: "bm25f" (default, BM25F over trigram-prefiltered
 	// candidates, BM25F P4) | "grep" (byte-identical to the legacy lexical arm).
@@ -467,6 +474,13 @@ const (
 	// Must be ≥ 0 (negative rejected at startup).
 	defaultRRFWeightRecency = 0.1
 
+	// defaultRRFRankWindow: 0 = UNBOUNDED (issue #663 dark-launch). Prod is
+	// byte-identical to the pre-cap fusion until the controller flips
+	// RRF_RANK_WINDOW to a positive N. Sentinel <= 0 means "no truncation".
+	// Elasticsearch defaults rank_window_size to the result `size`; we keep it
+	// unbounded so the flip is a measured, reversible operator action.
+	defaultRRFRankWindow = 0
+
 	// defaultKeywordArm: "bm25f" is the Phase E promoted default (empirical
 	// 4-repo golden eval, 194 queries: bm25f@keyword-weight 0.5 = OVERALL
 	// nDCG@10 0.568 vs 0.499 for grep@1.0, +0.069, no per-language regression).
@@ -599,6 +613,7 @@ func loadConfig() (Config, error) {
 		RRFWeightGraph:         wGraph,
 		RRFWeightHotspot:       wHotspot,
 		RRFWeightRecency:       wRecency,
+		RRFRankWindow:          env.Int("RRF_RANK_WINDOW", defaultRRFRankWindow),
 		KeywordArm:             parseKeywordArm(env.Str("KEYWORD_ARM", defaultKeywordArm)),
 		SparseEmbedURL:         env.Str("SPARSE_EMBED_URL", ""),
 		SparseEmbedModel:       env.Str("SPARSE_EMBED_MODEL", defaultSparseEmbedModel),
@@ -709,15 +724,17 @@ func parseKeywordArm(raw string) string {
 // Semantic and Keyword default to 1.0 (byte-identical to the unweighted RRF
 // baseline). Sparse defaults to 0.0 (dark-launched). Graph, Hotspot, and Recency
 // are enabled by default (0.25, 0.15, 0.1) and can be disabled by setting their
-// env weights to 0.0.
+// env weights to 0.0. RankWindow defaults to 0 (unbounded — issue #663
+// dark-launch: prod is byte-identical until RRF_RANK_WINDOW is flipped).
 func (c Config) RRFWeights() embeddings.RRFWeights {
 	return embeddings.RRFWeights{
-		Semantic: c.RRFWeightSemantic,
-		Keyword:  c.RRFWeightKeyword,
-		Sparse:   c.RRFWeightSparse,
-		Graph:    c.RRFWeightGraph,
-		Hotspot:  c.RRFWeightHotspot,
-		Recency:  c.RRFWeightRecency,
+		Semantic:   c.RRFWeightSemantic,
+		Keyword:    c.RRFWeightKeyword,
+		Sparse:     c.RRFWeightSparse,
+		Graph:      c.RRFWeightGraph,
+		Hotspot:    c.RRFWeightHotspot,
+		Recency:    c.RRFWeightRecency,
+		RankWindow: c.RRFRankWindow,
 	}
 }
 

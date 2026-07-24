@@ -297,3 +297,41 @@ func TestLoadConfig_RRFWeightKeywordOverride(t *testing.T) {
 			cfg.RRFWeightKeyword)
 	}
 }
+
+// TestLoadConfig_DefaultRRFRankWindowUnbounded confirms the rank_window_size
+// cap defaults to 0 (UNBOUNDED) — the issue #663 dark-launch guarantee: prod
+// is byte-identical to the pre-cap fusion until the controller flips
+// RRF_RANK_WINDOW. Also asserts RRFWeights() threads the zero through.
+func TestLoadConfig_DefaultRRFRankWindowUnbounded(t *testing.T) {
+	t.Setenv("RRF_RANK_WINDOW", "") // unset → default
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.RRFRankWindow != 0 {
+		t.Errorf("default RRFRankWindow = %d, want 0 (unbounded dark-launch default)",
+			cfg.RRFRankWindow)
+	}
+	if w := cfg.RRFWeights().RankWindow; w != 0 {
+		t.Errorf("default RRFWeights().RankWindow = %d, want 0 (threaded from cfg)",
+			w)
+	}
+}
+
+// TestLoadConfig_RRFRankWindowOverride confirms RRF_RANK_WINDOW=50 threads
+// through to both Config.RRFRankWindow and Config.RRFWeights().RankWindow.
+func TestLoadConfig_RRFRankWindowOverride(t *testing.T) {
+	t.Setenv("RRF_RANK_WINDOW", "50")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.RRFRankWindow != 50 {
+		t.Errorf("RRF_RANK_WINDOW=50: RRFRankWindow = %d, want 50 (override must win)",
+			cfg.RRFRankWindow)
+	}
+	if w := cfg.RRFWeights().RankWindow; w != 50 {
+		t.Errorf("RRF_RANK_WINDOW=50: RRFWeights().RankWindow = %d, want 50 (threaded)",
+			w)
+	}
+}
