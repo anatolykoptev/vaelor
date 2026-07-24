@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.59.0](https://github.com/anatolykoptev/vaelor/compare/v1.58.0...v1.59.0) (2026-07-24)
+
+
+### Added
+
+* **parser:** macro/module/type-alias kinds + [@doc](https://github.com/doc) LOI embed text behind EXPAND_SYMBOL_KINDS (dark) ([#671](https://github.com/anatolykoptev/vaelor/issues/671)) ([412bf9f](https://github.com/anatolykoptev/vaelor/commit/412bf9f4086bda08063a13bdef2ffd7a9f447e62))
+
 ## [1.58.0](https://github.com/anatolykoptev/vaelor/compare/v1.57.0...v1.58.0) (2026-07-24)
 
 
