@@ -596,7 +596,7 @@ func TestRunSingle_RecordsLatency(t *testing.T) {
 	defer srv.Close()
 
 	rec := GoldenRecord{Query: "merge rrf", ExpectedTop3: []string{"MergeRRF"}, Repo: "go-code"}
-	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, 20)
+	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, runnerCfg{TopK: 20})
 	if result.Error != "" {
 		t.Fatalf("unexpected error: %s", result.Error)
 	}
@@ -759,7 +759,7 @@ func TestRunSingle_PassesLanguageFilter(t *testing.T) {
 	defer srv.Close()
 
 	rec := GoldenRecord{Query: "merge rrf", ExpectedTop3: []string{"MergeRRF"}, Repo: "go-code", Language: "go"}
-	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, 20)
+	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, runnerCfg{TopK: 20})
 	if result.Error != "" {
 		t.Fatalf("unexpected error: %s", result.Error)
 	}
@@ -791,7 +791,7 @@ func TestRunSingle_NoLanguageFilterWhenEmpty(t *testing.T) {
 	defer srv.Close()
 
 	rec := GoldenRecord{Query: "merge rrf", ExpectedTop3: []string{"MergeRRF"}, Repo: "go-code"}
-	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, 20)
+	result := runSingle(context.Background(), NewMCPClient(srv.URL), rec, runnerCfg{TopK: 20})
 	if result.Error != "" {
 		t.Fatalf("unexpected error: %s", result.Error)
 	}
@@ -987,13 +987,13 @@ func TestRun_KeywordArmAndFusionModeFlags(t *testing.T) {
 
 	// First run: baseline (no gates).
 	baselinePath := filepath.Join(t.TempDir(), "baseline.json")
-	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, baselinePath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 2, 20, 30*time.Second); err != nil {
 		t.Fatalf("baseline run: %v", err)
 	}
 
 	// Second run: candidate with --keyword-arm=bm25f and --fusion-mode=rrf.
 	outPath := filepath.Join(t.TempDir(), "cand.json")
-	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "bm25f", "rrf", "", 2, 20, 30*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, baselinePath, math.NaN(), math.NaN(), "bm25f", "rrf", "", modeSemanticSearch, 2, 20, 30*time.Second); err != nil {
 		t.Fatalf("candidate run: %v", err)
 	}
 
@@ -1056,7 +1056,7 @@ func TestRun_RepoMapFlag(t *testing.T) {
 
 	outPath := filepath.Join(t.TempDir(), "out.json")
 	repoMap := "go-code=/host/src/go-code"
-	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", repoMap, 1, 20, 10*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", repoMap, modeSemanticSearch, 1, 20, 10*time.Second); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -1101,7 +1101,7 @@ func TestRun_RepoMapFallback(t *testing.T) {
 	}
 
 	outPath := filepath.Join(t.TempDir(), "out.json")
-	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", 1, 20, 10*time.Second); err != nil {
+	if err := run(dir, srv.URL, outPath, "", math.NaN(), math.NaN(), "", "", "", modeSemanticSearch, 1, 20, 10*time.Second); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
