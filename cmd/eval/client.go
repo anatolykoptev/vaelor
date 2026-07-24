@@ -189,9 +189,10 @@ func parseSemanticXML(payload string) ([]SearchHit, error) {
 //
 // Note: when the target server has OUTPUT_DIR set and the deep-mode XML
 // exceeds the inline threshold (50k chars), the tool returns a file-summary
-// text instead of the XML envelope — there is no ranked file list to parse
-// in that case, so this method returns an empty slice (the query scores 0
-// on relevance, a visible degradation rather than a crash). For faithful
+// text instead of the XML envelope. That text is not XML, so parsing returns
+// an error and the query becomes an error result — dropped from the paired
+// gate and visible via PairedQueries (a shrinking denominator, or
+// INSUFFICIENT_DATA below 2 pairs), never a silent score-0. For faithful
 // benchmarking, run the target server with OUTPUT_DIR unset.
 func (c *MCPClient) RepoAnalyze(ctx context.Context, repo, query, language string) ([]string, error) {
 	args := map[string]any{
