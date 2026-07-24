@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -149,16 +150,54 @@ func (g *GoldenSet) FlatQueries() []GoldenRecord {
 // file basename). This lets the golden JSONL stay portable — placeholder paths
 // like "/path/to/repo" are resolved to real absolute paths or forge slugs at
 // run time without committing operator-specific paths.
-func (g *GoldenSet) ApplyRepoMap(repoMap map[string]string) {
+//
+// Two keying conventions are accepted (basename takes precedence for back-compat):
+//  1. map key == golden file basename (without .jsonl) — the historical convention.
+//  2. map key == the record's Repo slug — for callers that key the map by the
+//     record's Repo field instead of the file basename. This fallback only
+//     applies when no basename key matches.
+//
+// Returns the sorted list of repo-map keys that matched NOTHING (no golden
+// basename AND no record Repo slug) and logs a WARN for each — a silent unused
+// mapping key is almost always a typo/mismatch.
+func (g *GoldenSet) ApplyRepoMap(repoMap map[string]string) []string {
+	if len(repoMap) == 0 {
+		return nil
+	}
+	used := make(map[string]bool)
 	for repoKey, records := range g.PerRepo {
-		mapped, ok := repoMap[repoKey]
-		if !ok || mapped == "" {
+		// Basename key takes precedence (back-compat).
+		if mapped, ok := repoMap[repoKey]; ok && mapped != "" {
+			used[repoKey] = true
+			for i := range records {
+				g.PerRepo[repoKey][i].Repo = mapped
+			}
 			continue
 		}
-		for i := range records {
-			g.PerRepo[repoKey][i].Repo = mapped
+		// Fallback: match by each record's Repo slug.
+		for i, rec := range records {
+			if rec.Repo == "" {
+				continue
+			}
+			if mapped, ok := repoMap[rec.Repo]; ok && mapped != "" {
+				used[rec.Repo] = true
+				g.PerRepo[repoKey][i].Repo = mapped
+			}
 		}
 	}
+	var unmatched []string
+	for key := range repoMap {
+		if !used[key] {
+			unmatched = append(unmatched, key)
+		}
+	}
+	sort.Strings(unmatched)
+	for _, key := range unmatched {
+		slog.Warn("eval: repo-map key matched no golden file basename or record repo slug",
+			slog.String("repo_map_key", key),
+		)
+	}
+	return unmatched
 }
 
 // ParseRepoMap parses a comma-separated "key=path,key=path" string into a
