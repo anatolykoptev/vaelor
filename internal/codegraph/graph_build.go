@@ -61,8 +61,11 @@ func buildGraph(in buildGraphInput) ([]vertexData, []edgeData, map[string]float6
 	var vertices []vertexData
 	var edges []edgeData
 
-	// Compute PageRank on CALLS graph.
-	prScores := computeSymbolPageRank(in.Root, in.Symbols, in.CallGraph)
+	// Compute PageRank on CALLS graph. Index time has no query context, so
+	// seeds=nil → unpersonalized fallback (byte-identical to pre-PPR scores).
+	// Query-seeded PPR is exercised via the seedable computeSymbolPageRank
+	// signature by the retrieval path; the index-time build stays unpersonalized.
+	prScores := computeSymbolPageRank(in.Root, in.Symbols, in.CallGraph, nil)
 
 	// Package vertices.
 	for dir := range pkgDirs {
