@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.55.0](https://github.com/anatolykoptev/go-code/compare/v1.54.0...v1.55.0) (2026-07-24)
+
+
+### Added
+
+* **eval:** repo_analyze mode + real fusion-mode gate ([#645](https://github.com/anatolykoptev/go-code/issues/645)) ([#651](https://github.com/anatolykoptev/go-code/issues/651)) ([84b044c](https://github.com/anatolykoptev/go-code/commit/84b044c69f1dddb66ff3a4d0d6495bdd360680c5))
+
 ## [1.54.0](https://github.com/anatolykoptev/go-code/compare/v1.53.2...v1.54.0) (2026-07-24)
 
 
