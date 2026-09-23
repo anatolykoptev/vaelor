@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.64.5](https://github.com/anatolykoptev/vaelor/compare/v1.64.4...v1.64.5) (2026-09-23)
+
+
+### Fixed
+
+* **deps:** bump grpc to v1.83.2 (GO-2026-6443, GO-2026-6348) ([#790](https://github.com/anatolykoptev/vaelor/issues/790)) ([a5864ca](https://github.com/anatolykoptev/vaelor/commit/a5864ca5f12b70782f80c221560844731f9e95b9))
+
 ## [1.64.4](https://github.com/anatolykoptev/vaelor/compare/v1.64.3...v1.64.4) (2026-08-16)
 
 
