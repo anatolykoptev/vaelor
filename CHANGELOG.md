@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.0](https://github.com/anatolykoptev/go-code/compare/v1.64.5...v1.65.0) (2026-09-23)
+
+
+### Added
+
+* **code_graph:** run a template directly with template + params, no LLM ([#788](https://github.com/anatolykoptev/go-code/issues/788)) ([10078f9](https://github.com/anatolykoptev/go-code/commit/10078f9f005625a675919ed299121f4c1bedbbcc))
+
 ## [1.64.5](https://github.com/anatolykoptev/vaelor/compare/v1.64.4...v1.64.5) (2026-09-23)
 
 
