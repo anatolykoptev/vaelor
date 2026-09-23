@@ -3,23 +3,23 @@ package codegraph
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 )
 
 // Template parameter names referenced outside the template table.
-const (
-	paramName  = "name"
-	paramFrom  = "from"
-	paramTo    = "to"
-	paramLimit = "limit"
-)
+const paramLimit = "limit"
 
-// requiredTemplateParams are identity parameters a template cannot run
-// without: an empty name renders as a match on the empty string, which finds
-// nothing, and the caller gets a silently empty result instead of an error.
-var requiredTemplateParams = map[string]bool{paramName: true, paramFrom: true, paramTo: true}
+// paramOptional reports whether an explicit call may omit param. Only
+// Template.Optional entries and {limit} (which has a default) are optional —
+// fail-closed, so a new template's params are required until marked. An
+// omitted param silently changes the answer: an empty name matches nothing,
+// an empty path matches every file.
+func paramOptional(t *Template, param string) bool {
+	return param == paramLimit || slices.Contains(t.Optional, param)
+}
 
 // maxTemplateLimit caps a {limit} parameter.
 const maxTemplateLimit = 500
@@ -28,7 +28,7 @@ const maxTemplateLimit = 500
 // letting code_graph run a template without asking the LLM to classify the
 // query. It rejects freeform (which needs the LLM to write Cypher), unknown
 // template IDs, params the template does not take (a typo would otherwise be
-// dropped silently) and missing identity params.
+// dropped silently) and missing required params. Values are trimmed.
 func ExplicitClassification(id string, params map[string]string) (*Classification, error) {
 	if id == templateFreeform {
 		return nil, errors.New(`template "freeform" needs the LLM to write Cypher; omit template to use it`)
@@ -46,14 +46,29 @@ func ExplicitClassification(id string, params map[string]string) (*Classificatio
 		if !takes[k] {
 			return nil, fmt.Errorf("template %s does not take param %q; it takes %s", id, k, signature(t))
 		}
-		out[k] = v
+		out[k] = strings.TrimSpace(v)
 	}
 	for _, p := range t.Params {
-		if requiredTemplateParams[p] && strings.TrimSpace(out[p]) == "" {
+		if !paramOptional(t, p) && out[p] == "" {
 			return nil, fmt.Errorf("template %s requires param %q", id, p)
 		}
 	}
 	return &Classification{Template: id, Params: out}, nil
+}
+
+// ExplicitQueryText renders an explicit classification as the question text
+// shown in results and narratives, e.g. "who_calls name=ParseFile".
+func ExplicitQueryText(c *Classification) string {
+	keys := make([]string, 0, len(c.Params))
+	for k := range c.Params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := []string{c.Template}
+	for _, k := range keys {
+		parts = append(parts, k+"="+c.Params[k])
+	}
+	return strings.Join(parts, " ")
 }
 
 // TemplateSignatures lists every template as id(params), sorted by ID —

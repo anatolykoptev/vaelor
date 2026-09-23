@@ -55,10 +55,10 @@ type CodeGraphInput struct {
 	Repo      string            `json:"repo" jsonschema:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
 	Query     string            `json:"query,omitempty" jsonschema:"Natural language question about the code graph (e.g. 'who calls ParseFile?', 'what depends on package store?', 'find dead code'). Required unless template is set"`
 	Template  string            `json:"template,omitempty" jsonschema:"Run this query template directly instead of having the LLM classify query — faster, deterministic, and works while the LLM is unavailable (e.g. who_calls, calls_of, call_chain, dead_code). The tool description lists every template with its params"`
-	Params    map[string]string `json:"params,omitempty" jsonschema:"Parameters for template, e.g. {\"name\": \"ParseFile\"} for who_calls or {\"from\": \"main\", \"to\": \"Serve\"} for call_chain; limit must be a positive integer"`
+	Params    map[string]string `json:"params,omitempty" jsonschema:"Parameters for template, e.g. {\"name\": \"ParseFile\"} for who_calls or {\"from\": \"main\", \"to\": \"Serve\"} for call_chain; values are strings, e.g. {\"limit\": \"50\"}; limit must be a positive integer (max 500)"`
 	Language  string            `json:"language,omitempty" jsonschema:"Limit graph to files of this language (e.g. go, python)"`
 	Refresh   bool              `json:"refresh,omitempty" jsonschema:"Force re-indexing of the graph even if cached"`
-	Narrative *bool             `json:"narrative,omitempty" jsonschema:"Set to false to skip LLM narrative generation and return only raw graph rows + Cypher (faster, fewer tokens). Default: true"`
+	Narrative *bool             `json:"narrative,omitempty" jsonschema:"Set to false to skip LLM narrative generation and return only raw graph rows + Cypher (faster, fewer tokens). Default: true for query, false for template"`
 }
 
 // registerCodeGraph registers the code_graph MCP tool.
@@ -151,18 +151,18 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	}
 	recordCodeGraphAge(codegraph.GraphNameFor(root), meta.BuiltAt)
 
-	narrativeEnabled := true
+	// The narrative is another LLM call (up to 15s). An explicit template is
+	// the LLM-free path, so it gets no narrative unless asked for one.
+	narrativeEnabled := explicit == nil
 	if input.Narrative != nil {
 		narrativeEnabled = *input.Narrative
 	}
 
 	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, explicit, meta, narrativeEnabled)
 	if err != nil {
-		// A natural-language query fails mostly in the LLM steps (classify,
-		// generate Cypher) — the free model chain is flaky — so point the
-		// caller at the LLM-free path. Wrapped chain errors are not always
-		// ErrUnavailable, hence no narrower check.
-		if explicit == nil && !errors.Is(err, codegraph.ErrGraphNotIndexed) {
+		// An LLM step (classify, generate Cypher) failed — the free model
+		// chain is flaky — so point the caller at the LLM-free path.
+		if errors.Is(err, codegraph.ErrLLMStep) {
 			return errResult(fmt.Sprintf("query graph: %s — retry with template + params to skip the LLM: %s",
 				err, codegraph.TemplateSignatures())), nil
 		}
@@ -191,7 +191,7 @@ func codeGraphPrecheck(input *CodeGraphInput, deps analyze.Deps) (*codegraph.Cla
 		}
 		explicit = cls
 		if input.Query == "" {
-			input.Query = input.Template
+			input.Query = codegraph.ExplicitQueryText(cls)
 		}
 	}
 	if input.Query == "" {

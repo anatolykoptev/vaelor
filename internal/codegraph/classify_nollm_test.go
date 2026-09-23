@@ -34,8 +34,8 @@ func TestClassifyAndBuildCypherNoLLM_SingleRoundTrip(t *testing.T) {
 	cc := &countingCompleter{inner: llm.NoOp{}}
 	_, _, _, err := classifyAndBuildCypher(context.Background(), cc, "who calls Parse?", nil)
 
-	if !errors.Is(err, llm.ErrUnavailable) {
-		t.Errorf("want ErrLLMUnavailable; got %v", err)
+	if !errors.Is(err, llm.ErrUnavailable) || !errors.Is(err, ErrLLMStep) {
+		t.Errorf("want ErrLLMUnavailable wrapped as ErrLLMStep; got %v", err)
 	}
 	if cc.calls.Load() != 1 {
 		t.Errorf("Complete called %d times, want exactly 1 (classify only, no freeform fallback)", cc.calls.Load())

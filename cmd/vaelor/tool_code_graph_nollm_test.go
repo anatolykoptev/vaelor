@@ -81,7 +81,7 @@ func TestCodeGraphPrecheck_ExplicitTemplateNeedsNoLLM(t *testing.T) {
 	if explicit == nil || explicit.Template != "call_chain" || explicit.Params["to"] != "Serve" {
 		t.Fatalf("explicit = %+v, want call_chain from=main to=Serve", explicit)
 	}
-	if input.Query != "call_chain" {
+	if input.Query != "call_chain from=main to=Serve" {
 		t.Errorf("empty query not filled from template: %q", input.Query)
 	}
 }

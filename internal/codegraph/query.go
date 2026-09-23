@@ -14,6 +14,10 @@ import (
 // templateFreeform is the sentinel template ID used when no named template matches.
 const templateFreeform = "freeform"
 
+// ErrLLMStep marks a QueryGraph failure in an LLM step (classifying the query
+// or generating Cypher) — the failures an explicit template avoids.
+var ErrLLMStep = errors.New("llm step failed")
+
 // GraphStats reports graph metadata attached to a query result.
 type GraphStats struct {
 	Vertices int  `json:"vertices"`
@@ -114,7 +118,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query 
 		// Short-circuit on ErrLLMUnavailable: no point falling through to the
 		// freeform path which would make a second NoOp round-trip via GenerateCypher.
 		if errors.Is(err, llm.ErrUnavailable) {
-			return nil, "", 0, err
+			return nil, "", 0, fmt.Errorf("%w: %w", ErrLLMStep, err)
 		}
 		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
 	}
@@ -135,7 +139,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query 
 	if cls.Template == templateFreeform {
 		generated, genErr := GenerateCypher(ctx, llmClient, query)
 		if genErr != nil {
-			return nil, "", 0, fmt.Errorf("generate cypher: %w", genErr)
+			return nil, "", 0, fmt.Errorf("%w: generate cypher: %w", ErrLLMStep, genErr)
 		}
 		cypher = generated
 		cols = countReturnCols(cypher)
@@ -189,7 +193,7 @@ func execWithRetry(ctx context.Context, store *Store, llmClient llm.Completer, g
 
 	retryCypher, retryErr := GenerateCypherWithRetry(ctx, llmClient, query, execErr.Error())
 	if retryErr != nil {
-		return nil, cypher, fmt.Errorf("cypher failed after retry: %w (original: %w)", retryErr, execErr)
+		return nil, cypher, fmt.Errorf("%w: cypher failed after retry: %w (original: %w)", ErrLLMStep, retryErr, execErr)
 	}
 
 	retryCols := countReturnCols(retryCypher)

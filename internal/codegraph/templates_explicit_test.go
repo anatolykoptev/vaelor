@@ -51,6 +51,10 @@ func TestExplicitClassification(t *testing.T) {
 		{"param typo is rejected, not dropped", "who_calls", map[string]string{"symbol": "Parse"}, `does not take param "symbol"`},
 		{"missing identity param", "who_calls", nil, `requires param "name"`},
 		{"blank identity param", "call_chain", map[string]string{"from": "main", "to": "  "}, `requires param "to"`},
+		{"empty path would match every file", "symbols_in", nil, `requires param "path"`},
+		{"empty pkg would match every package", "depends_on", nil, `requires param "pkg"`},
+		{"limit is optional everywhere", "hotspots", nil, ""},
+		{"inert limit is not advertised", "surprises", map[string]string{"limit": "50"}, `does not take param "limit"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,6 +70,35 @@ func TestExplicitClassification(t *testing.T) {
 				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestExplicitClassification_TrimsValues(t *testing.T) {
+	t.Parallel()
+
+	cls, err := ExplicitClassification("who_calls", map[string]string{"name": "  ParseFile\t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := GetTemplate("who_calls").Render(cls.Params); !strings.Contains(got, "{name: 'ParseFile'}") {
+		t.Fatalf("untrimmed value rendered: %s", got)
+	}
+	if got := ExplicitQueryText(cls); got != "who_calls name=ParseFile" {
+		t.Fatalf("ExplicitQueryText = %q", got)
+	}
+}
+
+// TestTemplateParamsAreRead: every advertised param must appear as a
+// placeholder, or ExplicitClassification accepts a value that changes nothing.
+func TestTemplateParamsAreRead(t *testing.T) {
+	t.Parallel()
+
+	for id, tmpl := range templates {
+		for _, p := range tmpl.Params {
+			if !strings.Contains(tmpl.Cypher, "{"+p+"}") {
+				t.Errorf("template %s advertises param %q but its Cypher has no {%s}", id, p, p)
+			}
+		}
 	}
 }
 
