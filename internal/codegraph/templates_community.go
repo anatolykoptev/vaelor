@@ -18,7 +18,7 @@ func init() {
 	templates["surprises"] = &Template{
 		ID:          "surprises",
 		Description: "Find surprising cross-package dependencies — hidden couplings between packages",
-		Params:      []string{"limit"},
+		Params:      []string{}, // output is capped by PostProcessSurprises, not a {limit}
 		Cypher:      "MATCH (a:Symbol)-[r:CALLS]->(b:Symbol) WHERE a.file <> b.file RETURN a.name, a.file, a.community, b.name, b.file, b.community, a.pagerank, b.pagerank LIMIT 500",
 		Cols:        8,
 	}

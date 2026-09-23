@@ -11,8 +11,11 @@ type Template struct {
 	ID          string
 	Description string
 	Params      []string
-	Cypher      string
-	Cols        int
+	// Optional lists the Params an explicit call may omit. Every other param
+	// except limit is required (see ExplicitClassification).
+	Optional []string
+	Cypher   string
+	Cols     int
 }
 
 // Render substitutes {param} placeholders with escaped values from params.
@@ -23,6 +26,9 @@ func (t *Template) Render(params map[string]string) string {
 		v, ok := params[key]
 		if !ok || v == "" {
 			v = templateDefaults[key]
+		}
+		if key == paramLimit {
+			v = sanitizeLimit(v)
 		}
 		q = strings.ReplaceAll(q, "{"+key+"}", escapeCypher(v))
 	}
@@ -115,6 +121,7 @@ var templates = map[string]*Template{
 		ID:          "api_routes",
 		Description: "Find HTTP routes with their handler symbols, optionally filtered by path",
 		Params:      []string{"path"},
+		Optional:    []string{"path"},
 		Cypher:      "MATCH (s:Symbol)-[r]->(route:Route) WHERE route.path CONTAINS '{path}' RETURN s.name, s.file, type(r) AS relation, route.method, route.path",
 		Cols:        5,
 	},
@@ -122,6 +129,7 @@ var templates = map[string]*Template{
 		ID:          "cross_calls",
 		Description: "Find backend handlers and frontend callers connected through shared HTTP routes",
 		Params:      []string{"path"},
+		Optional:    []string{"path"},
 		Cypher:      "MATCH (server:Symbol)-[:HANDLES]->(route:Route)<-[:FETCHES]-(client:Symbol) WHERE route.path CONTAINS '{path}' RETURN server.name, server.file, route.method, route.path, client.name, client.file",
 		Cols:        6,
 	},
