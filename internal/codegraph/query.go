@@ -199,7 +199,8 @@ func execWithRetry(ctx context.Context, store *Store, llmClient llm.Completer, g
 	retryCols := countReturnCols(retryCypher)
 	rows, execErr = store.ExecCypher(ctx, graphName, retryCypher, retryCols)
 	if execErr != nil {
-		return nil, retryCypher, fmt.Errorf("cypher retry exec: %w", execErr)
+		// The LLM-written Cypher failed twice: still an LLM-step failure.
+		return nil, retryCypher, fmt.Errorf("%w: cypher retry exec: %w", ErrLLMStep, execErr)
 	}
 	return rows, retryCypher, nil
 }
