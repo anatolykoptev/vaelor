@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -51,11 +52,13 @@ type codeGraphStatusXML struct {
 
 // CodeGraphInput is the input schema for the code_graph tool.
 type CodeGraphInput struct {
-	Repo      string `json:"repo" jsonschema:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
-	Query     string `json:"query" jsonschema:"Natural language question about the code graph (e.g. 'who calls ParseFile?', 'what depends on package store?', 'find dead code')"`
-	Language  string `json:"language,omitempty" jsonschema:"Limit graph to files of this language (e.g. go, python)"`
-	Refresh   bool   `json:"refresh,omitempty" jsonschema:"Force re-indexing of the graph even if cached"`
-	Narrative *bool  `json:"narrative,omitempty" jsonschema:"Set to false to skip LLM narrative generation and return only raw graph rows + Cypher (faster, fewer tokens). Default: true"`
+	Repo      string            `json:"repo" jsonschema:"Repository: GitHub slug (owner/repo), full GitHub URL, or absolute local host path"`
+	Query     string            `json:"query,omitempty" jsonschema:"Natural language question about the code graph (e.g. 'who calls ParseFile?', 'what depends on package store?', 'find dead code'). Required unless template is set"`
+	Template  string            `json:"template,omitempty" jsonschema:"Run this query template directly instead of having the LLM classify query — faster, deterministic, and works while the LLM is unavailable (e.g. who_calls, calls_of, call_chain, dead_code). The tool description lists every template with its params"`
+	Params    map[string]string `json:"params,omitempty" jsonschema:"Parameters for template, e.g. {\"name\": \"ParseFile\"} for who_calls or {\"from\": \"main\", \"to\": \"Serve\"} for call_chain; limit must be a positive integer"`
+	Language  string            `json:"language,omitempty" jsonschema:"Limit graph to files of this language (e.g. go, python)"`
+	Refresh   bool              `json:"refresh,omitempty" jsonschema:"Force re-indexing of the graph even if cached"`
+	Narrative *bool             `json:"narrative,omitempty" jsonschema:"Set to false to skip LLM narrative generation and return only raw graph rows + Cypher (faster, fewer tokens). Default: true"`
 }
 
 // registerCodeGraph registers the code_graph MCP tool.
@@ -79,7 +82,9 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			"community detection (Louvain clusters — 'show communities'), " +
 			"surprise scoring (hidden cross-package dependencies — 'find hidden dependencies'), " +
 			"and graph diff (what changed since last rebuild — 'what changed in the graph'). " +
-			"Results include raw graph rows and an LLM narrative.",
+			"Results include raw graph rows and an LLM narrative. " +
+			"To skip LLM classification pass template + params instead of (or with) query: " +
+			codegraph.TemplateSignatures() + ".",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeGraphInput) (*mcp.CallToolResult, error) {
 		return handleCodeGraph(ctx, input, cfg, deps, store)
 	})
@@ -92,13 +97,9 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	if input.Repo == "" {
 		return errResult("repo is required"), nil
 	}
-	if input.Query == "" {
-		return errResult("query is required"), nil
-	}
-
-	// Gate: code_graph NL-query requires LLM to generate or select Cypher.
-	if !deps.LLMHasKey {
-		return errResult("code_graph: requires LLM_API_KEY to be set"), nil
+	explicit, refusal := codeGraphPrecheck(&input, deps)
+	if refusal != nil {
+		return refusal, nil
 	}
 
 	if store != nil && !store.HasAGE(ctx) {
@@ -155,8 +156,16 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 		narrativeEnabled = *input.Narrative
 	}
 
-	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, meta, narrativeEnabled)
+	result, err := codegraph.QueryGraph(ctx, store, deps.LLM, meta.GraphName, input.Query, explicit, meta, narrativeEnabled)
 	if err != nil {
+		// A natural-language query fails mostly in the LLM steps (classify,
+		// generate Cypher) — the free model chain is flaky — so point the
+		// caller at the LLM-free path. Wrapped chain errors are not always
+		// ErrUnavailable, hence no narrower check.
+		if explicit == nil && !errors.Is(err, codegraph.ErrGraphNotIndexed) {
+			return errResult(fmt.Sprintf("query graph: %s — retry with template + params to skip the LLM: %s",
+				err, codegraph.TemplateSignatures())), nil
+		}
 		return errResult(fmt.Sprintf("query graph: %s", err)), nil
 	}
 
@@ -166,6 +175,35 @@ func handleCodeGraph(ctx context.Context, input CodeGraphInput, cfg Config, deps
 	}
 
 	return largeTextResult(formatted, "code_graph", outputDir), nil
+}
+
+// codeGraphPrecheck validates the request before any repo or graph work. It
+// returns the caller-chosen template (nil for a natural-language query) or
+// a refusal: an invalid template, a missing query, or a natural-language
+// query with no LLM configured. An explicit template never needs the LLM,
+// so it passes the LLM gate. Empty input.Query is filled from the template.
+func codeGraphPrecheck(input *CodeGraphInput, deps analyze.Deps) (*codegraph.Classification, *mcp.CallToolResult) {
+	var explicit *codegraph.Classification
+	if input.Template != "" {
+		cls, err := codegraph.ExplicitClassification(input.Template, input.Params)
+		if err != nil {
+			return nil, errResult("code_graph: " + err.Error())
+		}
+		explicit = cls
+		if input.Query == "" {
+			input.Query = input.Template
+		}
+	}
+	if input.Query == "" {
+		return nil, errResult("query or template is required")
+	}
+
+	// Gate: a natural-language query needs the LLM to select or generate Cypher.
+	if explicit == nil && !deps.LLMHasKey {
+		return nil, errResult("code_graph: natural-language queries require LLM_API_KEY to be set; " +
+			"pass template + params to run without the LLM: " + codegraph.TemplateSignatures())
+	}
+	return explicit, nil
 }
 
 // formatGraphXML converts a QueryResult to XML string.

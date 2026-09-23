@@ -24,6 +24,9 @@ func (t *Template) Render(params map[string]string) string {
 		if !ok || v == "" {
 			v = templateDefaults[key]
 		}
+		if key == paramLimit {
+			v = sanitizeLimit(v)
+		}
 		q = strings.ReplaceAll(q, "{"+key+"}", escapeCypher(v))
 	}
 	return q

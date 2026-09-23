@@ -32,7 +32,7 @@ func TestClassifyAndBuildCypherNoLLM_SingleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cc := &countingCompleter{inner: llm.NoOp{}}
-	_, _, _, err := classifyAndBuildCypher(context.Background(), cc, "who calls Parse?")
+	_, _, _, err := classifyAndBuildCypher(context.Background(), cc, "who calls Parse?", nil)
 
 	if !errors.Is(err, llm.ErrUnavailable) {
 		t.Errorf("want ErrLLMUnavailable; got %v", err)

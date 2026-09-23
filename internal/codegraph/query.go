@@ -41,8 +41,12 @@ type QueryResult struct {
 //  3. Freeform path: GenerateCypher + ExecCypher
 //  4. On freeform exec error: GenerateCypherWithRetry + retry ExecCypher
 //  5. LLM narrative (non-fatal, skipped when results are empty)
-func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query string, meta *GraphMeta, narrativeEnabled bool) (*QueryResult, error) {
-	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query)
+//
+// explicit, when non-nil, is a caller-chosen template (see
+// ExplicitClassification) that replaces step 1, so no LLM call is made to
+// classify the query.
+func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query string, explicit *Classification, meta *GraphMeta, narrativeEnabled bool) (*QueryResult, error) {
+	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query, explicit)
 	if err != nil {
 		return nil, err
 	}
@@ -100,8 +104,12 @@ func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, grap
 }
 
 // classifyAndBuildCypher classifies the query and generates Cypher via template or freeform.
-func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query string) (*Classification, string, int, error) {
-	cls, err := Classify(ctx, llmClient, query)
+// A non-nil explicit classification is used as-is and skips the LLM classifier.
+func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query string, explicit *Classification) (*Classification, string, int, error) {
+	cls, err := explicit, error(nil)
+	if cls == nil {
+		cls, err = Classify(ctx, llmClient, query)
+	}
 	if err != nil {
 		// Short-circuit on ErrLLMUnavailable: no point falling through to the
 		// freeform path which would make a second NoOp round-trip via GenerateCypher.
