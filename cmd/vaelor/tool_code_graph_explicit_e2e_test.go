@@ -86,7 +86,7 @@ func TestCodeGraph_ExplicitTemplateE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleCodeGraph NL: %v", err)
 	}
-	if text := resultText(res); !res.IsError || !strings.Contains(text, "retry with template") || !strings.Contains(text, "who_calls(name)") {
+	if text := resultText(res); !res.IsError || !strings.Contains(text, "retry with template") || !strings.Contains(text, "who_calls(name") {
 		t.Errorf("NL query on a failing LLM: want error with template hint, got (isError=%v) %q", res.IsError, text)
 	}
 }

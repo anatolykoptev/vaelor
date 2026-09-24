@@ -44,7 +44,7 @@ func TestCodeGraph_NoLLM_ExplicitTemplateBypassesGate(t *testing.T) {
 	deps := analyze.Deps{LLM: llm.NoOp{}, LLMHasKey: false}
 
 	res, _ := handleCodeGraph(context.Background(), CodeGraphInput{Repo: "owner/repo", Query: "who calls ParseFile?"}, Config{}, deps, nil)
-	if text := resultText(res); !res.IsError || !strings.Contains(text, "who_calls(name)") {
+	if text := resultText(res); !res.IsError || !strings.Contains(text, "who_calls(name") {
 		t.Errorf("NL query without LLM: want error listing templates, got %q", text)
 	}
 

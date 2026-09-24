@@ -26,8 +26,8 @@ func TestClassifyAndBuildCypher_ExplicitTemplateSkipsLLM(t *testing.T) {
 	if n := cc.calls.Load(); n != 0 {
 		t.Errorf("Complete called %d times, want 0", n)
 	}
-	if cls.Template != "who_calls" || cols != 1 {
-		t.Errorf("template=%q cols=%d, want who_calls/1", cls.Template, cols)
+	if cls.Template != "who_calls" || cols != 5 {
+		t.Errorf("template=%q cols=%d, want who_calls/5", cls.Template, cols)
 	}
 	if !strings.Contains(cypher, "{name: 'ParseFile'}") || !strings.Contains(cypher, "caller:Symbol)-[:CALLS]->(target") {
 		t.Errorf("cypher does not look up callers of ParseFile: %s", cypher)

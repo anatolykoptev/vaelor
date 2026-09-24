@@ -14,6 +14,9 @@ type Template struct {
 	// Optional lists the Params an explicit call may omit. Every other param
 	// except limit is required (see ExplicitClassification).
 	Optional []string
+	// Defaults overrides templateDefaults for this template (e.g. a larger
+	// limit for list-shaped results than for top-N rankings).
+	Defaults map[string]string
 	Cypher   string
 	Cols     int
 }
@@ -25,24 +28,33 @@ func (t *Template) Render(params map[string]string) string {
 	for _, key := range t.Params {
 		v, ok := params[key]
 		if !ok || v == "" {
-			v = templateDefaults[key]
+			v = t.defaultFor(key)
 		}
 		if key == paramLimit {
-			v = sanitizeLimit(v)
+			v = sanitizeLimit(v, t.defaultFor(paramLimit))
 		}
 		q = strings.ReplaceAll(q, "{"+key+"}", escapeCypher(v))
 	}
 	return q
 }
 
+// defaultFor returns the template's own default for key, else the global one.
+func (t *Template) defaultFor(key string) string {
+	if v, ok := t.Defaults[key]; ok {
+		return v
+	}
+	return templateDefaults[key]
+}
+
 // templateDefaults provides fallback values for unspecified template parameters.
 var templateDefaults = map[string]string{
-	"limit": "20",
-	"name":  "",
-	"path":  "",
-	"pkg":   "",
-	"from":  "",
-	"to":    "",
+	paramLimit: "20",
+	paramName:  "",
+	paramPath:  "",
+	paramPkg:   "",
+	paramFrom:  "",
+	paramTo:    "",
+	paramFile:  "",
 }
 
 // templates holds all built-in query templates keyed by ID.
@@ -50,49 +62,56 @@ var templates = map[string]*Template{
 	"who_calls": {
 		ID:          "who_calls",
 		Description: "Find all symbols that call the named symbol",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (caller:Symbol)-[:CALLS]->(target:Symbol {name: '{name}'}) RETURN DISTINCT caller",
-		Cols:        1,
+		Params:      []string{paramName, paramFile, paramLimit},
+		Optional:    []string{paramFile},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (caller:Symbol)-[:CALLS]->(target:Symbol {name: '{name}'}) WHERE target.file CONTAINS '{file}' RETURN DISTINCT caller.name, caller.kind, caller.file, toInteger(caller.start_line) AS line, target.file ORDER BY caller.file, line LIMIT {limit}",
+		Cols:        5,
 	},
 	"calls_of": {
 		ID:          "calls_of",
 		Description: "Find all symbols called by the named symbol",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (src:Symbol {name: '{name}'})-[:CALLS]->(callee:Symbol) RETURN DISTINCT callee",
-		Cols:        1,
+		Params:      []string{paramName, paramFile, paramLimit},
+		Optional:    []string{paramFile},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (src:Symbol {name: '{name}'})-[:CALLS]->(callee:Symbol) WHERE src.file CONTAINS '{file}' RETURN DISTINCT callee.name, callee.kind, callee.file, toInteger(callee.start_line) AS line, src.file ORDER BY callee.file, line LIMIT {limit}",
+		Cols:        5,
 	},
 	"imports_of": {
 		ID:          "imports_of",
 		Description: "Find packages imported by files matching a path",
-		Params:      []string{"path"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{path}' RETURN p",
-		Cols:        1,
+		Params:      []string{paramPath, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{path}' RETURN DISTINCT p.path, p.repo ORDER BY p.path LIMIT {limit}",
+		Cols:        2,
 	},
 	"importers_of": {
 		ID:          "importers_of",
 		Description: "Find files that import the named package",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '{name}'}) RETURN f",
-		Cols:        1,
+		Params:      []string{paramName, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' OR p.path CONTAINS '/{name}/' RETURN DISTINCT f.path, p.path ORDER BY f.path LIMIT {limit}",
+		Cols:        2,
 	},
 	"symbols_in": {
 		ID:          "symbols_in",
 		Description: "Find symbols contained in files matching a path",
-		Params:      []string{"path"},
-		Cypher:      "MATCH (c)-[:CONTAINS]->(s:Symbol) WHERE c.path CONTAINS '{path}' RETURN DISTINCT s",
-		Cols:        1,
+		Params:      []string{paramPath, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (c)-[:CONTAINS]->(s:Symbol) WHERE c.path CONTAINS '{path}' RETURN DISTINCT s.name, s.kind, s.file, toInteger(s.start_line) AS line ORDER BY s.file, line LIMIT {limit}",
+		Cols:        4,
 	},
 	"call_chain": {
 		ID:          "call_chain",
 		Description: "Find a call path between two symbols",
-		Params:      []string{"from", "to"},
-		Cypher:      "MATCH (a:Symbol {name: '{from}'})-[:CALLS*1..10]->(b:Symbol {name: '{to}'}) RETURN a, b",
+		Params:      []string{paramFrom, paramTo},
+		Cypher:      "MATCH p = (a:Symbol {name: '{from}'})-[:CALLS*1..6]->(b:Symbol {name: '{to}'}) WITH p ORDER BY length(p) LIMIT 1 UNWIND nodes(p) AS n RETURN n.name, n.file",
 		Cols:        2,
 	},
 	"most_connected": {
 		ID:          "most_connected",
 		Description: "List the most-called symbols up to a limit",
-		Params:      []string{"limit"},
+		Params:      []string{paramLimit},
 		Cypher:      "MATCH (s:Symbol)<-[:CALLS]-(caller:Symbol) RETURN s.name, s.kind, s.file, count(caller) AS call_count ORDER BY call_count DESC LIMIT {limit}",
 		Cols:        4,
 	},
@@ -106,31 +125,35 @@ var templates = map[string]*Template{
 	"depends_on": {
 		ID:          "depends_on",
 		Description: "Find distinct packages depended on by files matching a path prefix",
-		Params:      []string{"pkg"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{pkg}' RETURN DISTINCT p",
-		Cols:        1,
+		Params:      []string{paramPkg, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{pkg}' RETURN DISTINCT p.path, p.repo ORDER BY p.path LIMIT {limit}",
+		Cols:        2,
 	},
 	"dependents_of": {
 		ID:          "dependents_of",
 		Description: "Find distinct files that depend on the named package",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package {name: '{name}'}) RETURN DISTINCT f",
-		Cols:        1,
+		Params:      []string{paramName, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' OR p.path CONTAINS '/{name}/' RETURN DISTINCT f.path, p.path ORDER BY f.path LIMIT {limit}",
+		Cols:        2,
 	},
 	"api_routes": {
 		ID:          "api_routes",
 		Description: "Find HTTP routes with their handler symbols, optionally filtered by path",
-		Params:      []string{"path"},
-		Optional:    []string{"path"},
-		Cypher:      "MATCH (s:Symbol)-[r]->(route:Route) WHERE route.path CONTAINS '{path}' RETURN s.name, s.file, type(r) AS relation, route.method, route.path",
+		Params:      []string{paramPath, paramLimit},
+		Optional:    []string{paramPath},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (s:Symbol)-[r]->(route:Route) WHERE route.path CONTAINS '{path}' RETURN s.name, s.file, type(r) AS relation, route.method, route.path ORDER BY route.path LIMIT {limit}",
 		Cols:        5,
 	},
 	"cross_calls": {
 		ID:          "cross_calls",
 		Description: "Find backend handlers and frontend callers connected through shared HTTP routes",
-		Params:      []string{"path"},
-		Optional:    []string{"path"},
-		Cypher:      "MATCH (server:Symbol)-[:HANDLES]->(route:Route)<-[:FETCHES]-(client:Symbol) WHERE route.path CONTAINS '{path}' RETURN server.name, server.file, route.method, route.path, client.name, client.file",
+		Params:      []string{paramPath, paramLimit},
+		Optional:    []string{paramPath},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (server:Symbol)-[:HANDLES]->(route:Route)<-[:FETCHES]-(client:Symbol) WHERE route.path CONTAINS '{path}' RETURN server.name, server.file, route.method, route.path, client.name, client.file ORDER BY route.path LIMIT {limit}",
 		Cols:        6,
 	},
 	"layer_deps": {
@@ -150,85 +173,96 @@ var templates = map[string]*Template{
 	"complex_symbols": {
 		ID:          "complex_symbols",
 		Description: "Find functions with highest cyclomatic complexity",
-		Params:      []string{"limit"},
-		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY s.complexity DESC LIMIT {limit}",
+		Params:      []string{paramLimit},
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL RETURN s.name, s.file, toInteger(s.complexity) AS complexity, toInteger(s.lines) AS lines ORDER BY complexity DESC, lines DESC LIMIT {limit}",
 		Cols:        4,
 	},
 	"hotspots": {
 		ID:          "hotspots",
 		Description: "Find hotspot functions — high complexity combined with high line count",
-		Params:      []string{"limit"},
-		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL AND s.lines IS NOT NULL RETURN s.name, s.file, s.complexity, s.lines ORDER BY s.complexity DESC, s.lines DESC LIMIT {limit}",
+		Params:      []string{paramLimit},
+		Cypher:      "MATCH (s:Symbol) WHERE s.kind IN ['function', 'method'] AND s.complexity IS NOT NULL AND s.lines IS NOT NULL WITH s, toInteger(s.complexity) AS complexity, toInteger(s.lines) AS lines RETURN s.name, s.file, complexity, lines ORDER BY complexity * lines DESC LIMIT {limit}",
 		Cols:        4,
 	},
 	"inherits": {
 		ID:          "inherits",
 		Description: "Find what a type inherits from or implements (embeds, extends, implements)",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[r]->(parent:Symbol) WHERE type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS' RETURN parent.name, parent.file, type(r) AS relation",
+		Params:      []string{paramName, paramFile, paramLimit},
+		Optional:    []string{paramFile},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[r]->(parent:Symbol) WHERE (type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS') AND child.file CONTAINS '{file}' RETURN parent.name, parent.file, type(r) AS relation LIMIT {limit}",
 		Cols:        3,
 	},
 	"implementations": {
 		ID:          "implementations",
 		Description: "Find all types that inherit from or implement the named type",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (child:Symbol)-[r]->(parent:Symbol {name: '{name}'}) WHERE type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS' RETURN child.name, child.file, type(r) AS relation",
+		Params:      []string{paramName, paramFile, paramLimit},
+		Optional:    []string{paramFile},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (child:Symbol)-[r]->(parent:Symbol {name: '{name}'}) WHERE (type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS') AND parent.file CONTAINS '{file}' RETURN child.name, child.file, type(r) AS relation LIMIT {limit}",
 		Cols:        3,
 	},
 	"type_hierarchy": {
 		ID:          "type_hierarchy",
 		Description: "Show the full type hierarchy (parents and children) for a named type",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (s:Symbol {name: '{name}'}) OPTIONAL MATCH (s)-[:INHERITS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS]->(s) RETURN s, parent, child",
-		Cols:        3,
+		Params:      []string{paramName, paramFile, paramLimit},
+		Optional:    []string{paramFile},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (s:Symbol {name: '{name}'}) WHERE s.file CONTAINS '{file}' OPTIONAL MATCH (s)-[:INHERITS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS]->(s) RETURN s.name, s.file, parent.name, child.name LIMIT {limit}",
+		Cols:        4,
 	},
 	"subtypes": {
 		ID:          "subtypes",
 		Description: "Find all transitive subtypes of the named type (up to 5 levels deep)",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (child:Symbol)-[:INHERITS*1..5]->(ancestor:Symbol {name: '{name}'}) RETURN child",
-		Cols:        1,
+		Params:      []string{paramName, paramFile, paramLimit},
+		Optional:    []string{paramFile},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (child:Symbol)-[:INHERITS*1..5]->(ancestor:Symbol {name: '{name}'}) WHERE ancestor.file CONTAINS '{file}' RETURN DISTINCT child.name, child.file ORDER BY child.file LIMIT {limit}",
+		Cols:        2,
 	},
 	"important_symbols": {
 		ID:          "important_symbols",
 		Description: "Most structurally central symbols by PageRank — the load-bearing code you must understand first before diving into any feature area",
-		Params:      []string{"limit"},
-		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.file, s.kind, s.pagerank ORDER BY s.pagerank DESC LIMIT {limit}",
+		Params:      []string{paramLimit},
+		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL RETURN s.name, s.file, s.kind, toFloat(s.pagerank) AS pagerank ORDER BY pagerank DESC LIMIT {limit}",
 		Cols:        4,
 	},
 	"explain_architecture": {
 		ID:          "explain_architecture",
 		Description: "Top architecturally important symbols with their files and structural communities — the essential map for understanding any codebase",
-		Params:      []string{"limit"},
+		Params:      []string{paramLimit},
 		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL AND s.kind IN ['function', 'method'] WITH s ORDER BY toFloat(s.pagerank) DESC LIMIT {limit} RETURN s.name, s.file, s.kind, s.pagerank, s.community",
 		Cols:        5,
 	},
 	"hotspot_files": {
 		ID:          "hotspot_files",
 		Description: "Files containing the most architecturally important symbols — the structural hotspots of the codebase where changes carry highest risk",
-		Params:      []string{"limit"},
+		Params:      []string{paramLimit},
 		Cypher:      "MATCH (f:File)-[:CONTAINS]->(s:Symbol) WHERE s.pagerank IS NOT NULL WITH f.path AS fpath, max(toFloat(s.pagerank)) AS maxPR, count(s) AS symCount RETURN fpath, maxPR, symCount ORDER BY maxPR DESC LIMIT {limit}",
 		Cols:        3,
 	},
 	"hook_handlers": {
 		ID:          "hook_handlers",
 		Description: "Find all callback functions registered for a WordPress hook",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (s:Symbol)-[:HANDLES]->(r:Route {framework: 'wordpress', path: '{name}', side: 'server'}) RETURN s.name, s.file, s.kind, r.method",
+		Params:      []string{paramName, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (s:Symbol)-[:HANDLES]->(r:Route {framework: 'wordpress', path: '{name}', side: 'server'}) RETURN s.name, s.file, s.kind, r.method LIMIT {limit}",
 		Cols:        4,
 	},
 	"hook_fires": {
 		ID:          "hook_fires",
 		Description: "Find all functions that fire (invoke) a WordPress hook",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (s:Symbol)-[:FETCHES]->(r:Route {framework: 'wordpress', path: '{name}', side: 'client'}) RETURN s.name, s.file",
+		Params:      []string{paramName, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (s:Symbol)-[:FETCHES]->(r:Route {framework: 'wordpress', path: '{name}', side: 'client'}) RETURN s.name, s.file LIMIT {limit}",
 		Cols:        2,
 	},
 	"all_hooks": {
 		ID:          "all_hooks",
 		Description: "List all WordPress hooks found in the codebase",
-		Params:      []string{},
-		Cypher:      "MATCH (r:Route {framework: 'wordpress'}) RETURN r.method, r.path, r.side ORDER BY r.path",
+		Params:      []string{paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (r:Route {framework: 'wordpress'}) RETURN r.method, r.path, r.side ORDER BY r.path LIMIT {limit}",
 		Cols:        3,
 	},
 }

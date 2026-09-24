@@ -10,7 +10,15 @@ import (
 )
 
 // Template parameter names referenced outside the template table.
-const paramLimit = "limit"
+const (
+	paramLimit = "limit"
+	paramName  = "name"
+	paramFile  = "file"
+	paramPath  = "path"
+	paramPkg   = "pkg"
+	paramFrom  = "from"
+	paramTo    = "to"
+)
 
 // paramOptional reports whether an explicit call may omit param. Only
 // Template.Optional entries and {limit} (which has a default) are optional —
@@ -91,13 +99,13 @@ func signature(t *Template) string {
 }
 
 // sanitizeLimit returns v when it is a positive integer (capped at
-// maxTemplateLimit), else the default. {limit} is rendered unquoted into
+// maxTemplateLimit), else def. {limit} is rendered unquoted into
 // `LIMIT {limit}`, so escaping alone does not keep a non-numeric value from
 // changing the query.
-func sanitizeLimit(v string) string {
+func sanitizeLimit(v, def string) string {
 	n, err := strconv.Atoi(strings.TrimSpace(v))
 	if err != nil || n <= 0 {
-		return templateDefaults[paramLimit]
+		return def
 	}
 	return strconv.Itoa(min(n, maxTemplateLimit))
 }
