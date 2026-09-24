@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.1](https://github.com/anatolykoptev/vaelor/compare/v1.65.0...v1.65.1) (2026-09-24)
+
+
+### Fixed
+
+* **code_graph:** bounded column output, file disambiguation, numeric sort ([#795](https://github.com/anatolykoptev/vaelor/issues/795)) ([56381e8](https://github.com/anatolykoptev/vaelor/commit/56381e8c786c5ac5b613c85a27632142f247043d))
+
 ## [1.65.0](https://github.com/anatolykoptev/go-code/compare/v1.64.5...v1.65.0) (2026-09-23)
 
 
