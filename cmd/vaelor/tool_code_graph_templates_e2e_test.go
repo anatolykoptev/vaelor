@@ -63,6 +63,9 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	files := map[string]string{
 		"go.mod": "module example.com/cgtemplates\n\ngo 1.22\n",
 		"main.go": "package main\n\nfunc main() { step1() }\n\nfunc step1() { step2() }\n\nfunc step2() { target() }\n\nfunc target() {}\n\n" +
+			// 8 hops: deeper than a *1..6 ceiling, inside *1..10.
+			"func deep0() { deep1() }\nfunc deep1() { deep2() }\nfunc deep2() { deep3() }\nfunc deep3() { deep4() }\n" +
+			"func deep4() { deep5() }\nfunc deep5() { deep6() }\nfunc deep6() { deep7() }\nfunc deep7() { deep8() }\nfunc deep8() {}\n\n" +
 			"func highComplexity(x int) int {\n" + branches(10) + "\treturn x\n}\n\n" +
 			"func lowComplexity(x int) int {\n" + branches(8) + "\treturn x\n}\n",
 		// pgx/v5's Package vertex is named "v5"; asked for "pgx" it must still match.
@@ -95,13 +98,14 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	}
 	deps := analyze.Deps{LLM: &countingLLM{}, LLMHasKey: true}
 
+	var text string
 	run := func(template string, params map[string]string) [][]string {
 		t.Helper()
 		res, err := handleCodeGraph(ctx, CodeGraphInput{Repo: root, Template: template, Params: params}, cfg, deps, store)
 		if err != nil {
 			t.Fatalf("%s: %v", template, err)
 		}
-		text := resultText(res)
+		text = resultText(res)
 		if res.IsError || strings.Contains(text, "<status>") {
 			t.Fatalf("%s: unexpected result %q", template, text)
 		}
@@ -120,6 +124,29 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	lo, okLo := pos["lowComplexity"]
 	if !okHi || !okLo || hi > lo {
 		t.Errorf("complex_symbols order wrong (high=%d ok=%v, low=%d ok=%v): %v", hi, okHi, lo, okLo, rows)
+	}
+
+	rows = run("hotspots", map[string]string{"limit": "50"})
+	pos = map[string]int{}
+	for i, r := range rows {
+		pos[r[0]] = i
+	}
+	if hi, lo := pos["highComplexity"], pos["lowComplexity"]; len(rows) < 2 || hi > lo {
+		t.Errorf("hotspots order wrong (high=%d, low=%d): %v", hi, lo, rows)
+	}
+
+	rows = run("call_chain", map[string]string{"from": "deep0", "to": "deep8"})
+	if len(rows) != 9 || rows[0][0] != "deep0" || rows[8][0] != "deep8" {
+		t.Errorf("call_chain deep0->deep8 (8 hops) = %v, want the 9-symbol path", rows)
+	}
+
+	rows = run("who_calls", map[string]string{"name": "Close", "limit": "1"})
+	if len(rows) != 1 || !strings.Contains(text, `truncated="true"`) || !strings.Contains(text, `limit="1"`) {
+		t.Errorf("who_calls Close limit=1: want 1 row flagged truncated, got %d rows: %q", len(rows), text)
+	}
+	rows = run("who_calls", map[string]string{"name": "Close", "limit": "5"})
+	if len(rows) != 2 || strings.Contains(text, "truncated") {
+		t.Errorf("who_calls Close limit=5: want 2 rows, not truncated, got %d rows: %q", len(rows), text)
 	}
 
 	rows = run("call_chain", map[string]string{"from": "main", "to": "target"})
@@ -142,7 +169,11 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	}
 
 	rows = run("importers_of", map[string]string{"name": "pgx"})
-	if len(rows) != 1 || rows[0][0] != "pa/pa.go" || rows[0][1] != "github.com/jackc/pgx/v5" {
-		t.Errorf("importers_of pgx = %v, want [[pa/pa.go github.com/jackc/pgx/v5]]", rows)
+	if len(rows) != 1 || rows[0][0] != "pa/pa.go" || rows[0][1] != "github.com/jackc/pgx/v5" || rows[0][2] != "subpackage" {
+		t.Errorf("importers_of pgx = %v, want [[pa/pa.go github.com/jackc/pgx/v5 subpackage]]", rows)
+	}
+	rows = run("dependents_of", map[string]string{"name": "v5"})
+	if len(rows) != 1 || rows[0][2] != "exact" {
+		t.Errorf("dependents_of v5 = %v, want one exact match", rows)
 	}
 }

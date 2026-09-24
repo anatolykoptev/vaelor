@@ -3,7 +3,7 @@ package codegraph
 func init() {
 	templates["communities"] = &Template{
 		ID:          "communities",
-		Description: "Show community clusters: group symbols by Louvain community with member counts",
+		Description: "Show community clusters: group symbols by Louvain community with member counts and up to 10 sample member names",
 		Params:      []string{paramLimit},
 		Cypher:      "MATCH (s:Symbol) WHERE s.community IS NOT NULL WITH s.community AS community, count(s) AS size, collect(s.name) AS members RETURN community, size, members[0..10] ORDER BY size DESC LIMIT {limit}",
 		Cols:        3,

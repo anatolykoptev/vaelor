@@ -3,6 +3,7 @@ package codegraph
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,7 +25,19 @@ type Template struct {
 // Render substitutes {param} placeholders with escaped values from params.
 // Uses curly-brace syntax to avoid conflicts with AGE's $-parameter references.
 func (t *Template) Render(params map[string]string) string {
-	q := t.Cypher
+	q, _ := t.render(params, 0)
+	return q
+}
+
+// RenderProbe renders like Render but asks for one row past the effective
+// {limit}, so the caller can tell a complete answer from a truncated one.
+// limit is that effective limit, or 0 for a template without {limit}.
+func (t *Template) RenderProbe(params map[string]string) (q string, limit int) {
+	return t.render(params, 1)
+}
+
+func (t *Template) render(params map[string]string, extra int) (string, int) {
+	q, limit := t.Cypher, 0
 	for _, key := range t.Params {
 		v, ok := params[key]
 		if !ok || v == "" {
@@ -32,10 +45,12 @@ func (t *Template) Render(params map[string]string) string {
 		}
 		if key == paramLimit {
 			v = sanitizeLimit(v, t.defaultFor(paramLimit))
+			limit, _ = strconv.Atoi(v)
+			v = strconv.Itoa(limit + extra)
 		}
 		q = strings.ReplaceAll(q, "{"+key+"}", escapeCypher(v))
 	}
-	return q
+	return q, limit
 }
 
 // defaultFor returns the template's own default for key, else the global one.
@@ -56,6 +71,17 @@ var templateDefaults = map[string]string{
 	paramTo:    "",
 	paramFile:  "",
 }
+
+// importersCypher is shared by importers_of and dependents_of: files importing
+// a package named by its Go name, full path, last path segment (pgx/v5's name
+// is "v5", so "pgx" needs the path), or as a parent of subpackages. Exact
+// matches sort first so a LIMIT never drops them for subpackage rows.
+const importersCypher = "MATCH (f:File)-[:IMPORTS]->(p:Package) " +
+	"WHERE p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' " +
+	"OR p.path STARTS WITH '{name}/' OR p.path CONTAINS '/{name}/' " +
+	"WITH f, p, CASE WHEN p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' " +
+	"THEN 'exact' ELSE 'subpackage' END AS relation " +
+	"RETURN DISTINCT f.path, p.path, relation ORDER BY relation, f.path LIMIT {limit}"
 
 // templates holds all built-in query templates keyed by ID.
 var templates = map[string]*Template{
@@ -81,7 +107,7 @@ var templates = map[string]*Template{
 		ID:          "imports_of",
 		Description: "Find packages imported by files matching a path",
 		Params:      []string{paramPath, paramLimit},
-		Defaults:    map[string]string{paramLimit: "100"},
+		Defaults:    map[string]string{paramLimit: "300"},
 		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{path}' RETURN DISTINCT p.path, p.repo ORDER BY p.path LIMIT {limit}",
 		Cols:        2,
 	},
@@ -90,8 +116,8 @@ var templates = map[string]*Template{
 		Description: "Find files that import the named package",
 		Params:      []string{paramName, paramLimit},
 		Defaults:    map[string]string{paramLimit: "100"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' OR p.path CONTAINS '/{name}/' RETURN DISTINCT f.path, p.path ORDER BY f.path LIMIT {limit}",
-		Cols:        2,
+		Cypher:      importersCypher,
+		Cols:        3,
 	},
 	"symbols_in": {
 		ID:          "symbols_in",
@@ -105,7 +131,7 @@ var templates = map[string]*Template{
 		ID:          "call_chain",
 		Description: "Find a call path between two symbols",
 		Params:      []string{paramFrom, paramTo},
-		Cypher:      "MATCH p = (a:Symbol {name: '{from}'})-[:CALLS*1..6]->(b:Symbol {name: '{to}'}) WITH p ORDER BY length(p) LIMIT 1 UNWIND nodes(p) AS n RETURN n.name, n.file",
+		Cypher:      "MATCH p = (a:Symbol {name: '{from}'})-[:CALLS*1..10]->(b:Symbol {name: '{to}'}) WITH p ORDER BY length(p) LIMIT 1 UNWIND nodes(p) AS n RETURN n.name, n.file",
 		Cols:        2,
 	},
 	"most_connected": {
@@ -126,7 +152,7 @@ var templates = map[string]*Template{
 		ID:          "depends_on",
 		Description: "Find distinct packages depended on by files matching a path prefix",
 		Params:      []string{paramPkg, paramLimit},
-		Defaults:    map[string]string{paramLimit: "100"},
+		Defaults:    map[string]string{paramLimit: "300"},
 		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE f.path CONTAINS '{pkg}' RETURN DISTINCT p.path, p.repo ORDER BY p.path LIMIT {limit}",
 		Cols:        2,
 	},
@@ -135,8 +161,8 @@ var templates = map[string]*Template{
 		Description: "Find distinct files that depend on the named package",
 		Params:      []string{paramName, paramLimit},
 		Defaults:    map[string]string{paramLimit: "100"},
-		Cypher:      "MATCH (f:File)-[:IMPORTS]->(p:Package) WHERE p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' OR p.path CONTAINS '/{name}/' RETURN DISTINCT f.path, p.path ORDER BY f.path LIMIT {limit}",
-		Cols:        2,
+		Cypher:      importersCypher,
+		Cols:        3,
 	},
 	"api_routes": {
 		ID:          "api_routes",
@@ -190,7 +216,7 @@ var templates = map[string]*Template{
 		Params:      []string{paramName, paramFile, paramLimit},
 		Optional:    []string{paramFile},
 		Defaults:    map[string]string{paramLimit: "100"},
-		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[r]->(parent:Symbol) WHERE (type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS') AND child.file CONTAINS '{file}' RETURN parent.name, parent.file, type(r) AS relation LIMIT {limit}",
+		Cypher:      "MATCH (child:Symbol {name: '{name}'})-[r]->(parent:Symbol) WHERE (type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS') AND child.file CONTAINS '{file}' RETURN parent.name, parent.file, type(r) AS relation ORDER BY parent.file, parent.name LIMIT {limit}",
 		Cols:        3,
 	},
 	"implementations": {
@@ -199,8 +225,8 @@ var templates = map[string]*Template{
 		Params:      []string{paramName, paramFile, paramLimit},
 		Optional:    []string{paramFile},
 		Defaults:    map[string]string{paramLimit: "100"},
-		Cypher:      "MATCH (child:Symbol)-[r]->(parent:Symbol {name: '{name}'}) WHERE (type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS') AND parent.file CONTAINS '{file}' RETURN child.name, child.file, type(r) AS relation LIMIT {limit}",
-		Cols:        3,
+		Cypher:      "MATCH (child:Symbol)-[r]->(parent:Symbol {name: '{name}'}) WHERE (type(r) = 'INHERITS' OR type(r) = 'IMPLEMENTS') AND parent.file CONTAINS '{file}' RETURN child.name, child.file, type(r) AS relation, parent.file ORDER BY child.file, child.name LIMIT {limit}",
+		Cols:        4,
 	},
 	"type_hierarchy": {
 		ID:          "type_hierarchy",
@@ -208,7 +234,7 @@ var templates = map[string]*Template{
 		Params:      []string{paramName, paramFile, paramLimit},
 		Optional:    []string{paramFile},
 		Defaults:    map[string]string{paramLimit: "100"},
-		Cypher:      "MATCH (s:Symbol {name: '{name}'}) WHERE s.file CONTAINS '{file}' OPTIONAL MATCH (s)-[:INHERITS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS]->(s) RETURN s.name, s.file, parent.name, child.name LIMIT {limit}",
+		Cypher:      "MATCH (s:Symbol {name: '{name}'}) WHERE s.file CONTAINS '{file}' OPTIONAL MATCH (s)-[:INHERITS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS]->(s) RETURN s.name, s.file, parent.name, child.name ORDER BY s.file, parent.name, child.name LIMIT {limit}",
 		Cols:        4,
 	},
 	"subtypes": {
@@ -231,7 +257,7 @@ var templates = map[string]*Template{
 		ID:          "explain_architecture",
 		Description: "Top architecturally important symbols with their files and structural communities — the essential map for understanding any codebase",
 		Params:      []string{paramLimit},
-		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL AND s.kind IN ['function', 'method'] WITH s ORDER BY toFloat(s.pagerank) DESC LIMIT {limit} RETURN s.name, s.file, s.kind, s.pagerank, s.community",
+		Cypher:      "MATCH (s:Symbol) WHERE s.pagerank IS NOT NULL AND s.kind IN ['function', 'method'] WITH s ORDER BY toFloat(s.pagerank) DESC LIMIT {limit} RETURN s.name, s.file, s.kind, toFloat(s.pagerank), s.community",
 		Cols:        5,
 	},
 	"hotspot_files": {
@@ -284,7 +310,7 @@ func TemplateList() string {
 	var sb strings.Builder
 	for _, id := range ids {
 		t := templates[id]
-		params := strings.Join(t.Params, ", ")
+		params := strings.Trim(signature(t), "()")
 		if params == "" {
 			params = "(none)"
 		}

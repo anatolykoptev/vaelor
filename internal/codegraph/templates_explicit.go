@@ -94,8 +94,16 @@ func TemplateSignatures() string {
 	return strings.Join(sigs, ", ")
 }
 
+// signature renders a template's params, marking optional ones with "?".
 func signature(t *Template) string {
-	return "(" + strings.Join(t.Params, ", ") + ")"
+	ps := make([]string, len(t.Params))
+	for i, p := range t.Params {
+		ps[i] = p
+		if paramOptional(t, p) {
+			ps[i] += "?"
+		}
+	}
+	return "(" + strings.Join(ps, ", ") + ")"
 }
 
 // sanitizeLimit returns v when it is a positive integer (capped at

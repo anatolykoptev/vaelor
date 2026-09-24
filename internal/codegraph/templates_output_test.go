@@ -31,6 +31,7 @@ func TestTemplatesBoundOutput(t *testing.T) {
 
 var (
 	reNodeVar   = regexp.MustCompile(`\((\w+)(?::\w+)?[\s)\{]`)
+	reUnwindVar = regexp.MustCompile(`(?i)\bUNWIND\s+nodes\(\w+\)\s+AS\s+(\w+)`)
 	reReturnArg = regexp.MustCompile(`(?is)\bRETURN\b\s+(?:DISTINCT\s+)?(.+?)(?:\bORDER\b|\bLIMIT\b|$)`)
 )
 
@@ -43,8 +44,10 @@ func TestTemplatesReturnColumnsNotVertices(t *testing.T) {
 			continue
 		}
 		nodes := map[string]bool{}
-		for _, m := range reNodeVar.FindAllStringSubmatch(tm.Cypher, -1) {
-			nodes[m[1]] = true
+		for _, re := range []*regexp.Regexp{reNodeVar, reUnwindVar} {
+			for _, m := range re.FindAllStringSubmatch(tm.Cypher, -1) {
+				nodes[m[1]] = true
+			}
 		}
 		ret := reReturnArg.FindStringSubmatch(tm.Cypher)
 		if ret == nil {

@@ -19,7 +19,7 @@ func TestClassifyAndBuildCypher_ExplicitTemplateSkipsLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExplicitClassification: %v", err)
 	}
-	cls, cypher, cols, err := classifyAndBuildCypher(context.Background(), cc, "who_calls", explicit)
+	cls, cypher, cols, _, err := classifyAndBuildCypher(context.Background(), cc, "who_calls", explicit)
 	if err != nil {
 		t.Fatalf("classifyAndBuildCypher: %v", err)
 	}
