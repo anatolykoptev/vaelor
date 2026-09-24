@@ -63,13 +63,15 @@ func (t *Template) defaultFor(key string) string {
 
 // templateDefaults provides fallback values for unspecified template parameters.
 var templateDefaults = map[string]string{
-	paramLimit: "20",
-	paramName:  "",
-	paramPath:  "",
-	paramPkg:   "",
-	paramFrom:  "",
-	paramTo:    "",
-	paramFile:  "",
+	paramLimit:    "20",
+	paramName:     "",
+	paramPath:     "",
+	paramPkg:      "",
+	paramFrom:     "",
+	paramTo:       "",
+	paramFile:     "",
+	paramFromFile: "",
+	paramToFile:   "",
 }
 
 // importersCypher is shared by importers_of and dependents_of: files importing
@@ -132,8 +134,9 @@ var templates = map[string]*Template{
 	"call_chain": {
 		ID:          "call_chain",
 		Description: "Find a call path between two symbols",
-		Params:      []string{paramFrom, paramTo},
-		Cypher:      "MATCH p = (a:Symbol {name: '{from}'})-[:CALLS*1..10]->(b:Symbol {name: '{to}'}) WITH p ORDER BY length(p) LIMIT 1 UNWIND nodes(p) AS n RETURN n.name, n.file",
+		Params:      []string{paramFrom, paramTo, paramFromFile, paramToFile},
+		Optional:    []string{paramFromFile, paramToFile},
+		Cypher:      "MATCH p = (a:Symbol {name: '{from}'})-[:CALLS*1..10]->(b:Symbol {name: '{to}'}) WHERE a.file CONTAINS '{from_file}' AND b.file CONTAINS '{to_file}' WITH p ORDER BY length(p) LIMIT 1 UNWIND nodes(p) AS n RETURN n.name, n.file",
 		Cols:        2,
 	},
 	"most_connected": {
@@ -236,8 +239,8 @@ var templates = map[string]*Template{
 		Params:      []string{paramName, paramFile, paramLimit},
 		Optional:    []string{paramFile},
 		Defaults:    map[string]string{paramLimit: "100"},
-		Cypher:      "MATCH (s:Symbol {name: '{name}'}) WHERE s.file CONTAINS '{file}' OPTIONAL MATCH (s)-[:INHERITS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS]->(s) RETURN s.name, s.file, parent.name, child.name ORDER BY s.file, parent.name, child.name LIMIT {limit}",
-		Cols:        4,
+		Cypher:      "MATCH (s:Symbol {name: '{name}'}) WHERE s.file CONTAINS '{file}' OPTIONAL MATCH (s)-[:INHERITS]->(parent:Symbol) OPTIONAL MATCH (child:Symbol)-[:INHERITS]->(s) RETURN s.name, s.file, parent.name, parent.file, child.name, child.file ORDER BY s.file, parent.name, child.name LIMIT {limit}",
+		Cols:        6,
 	},
 	"subtypes": {
 		ID:          "subtypes",

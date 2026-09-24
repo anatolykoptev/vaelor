@@ -77,6 +77,8 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 		"zz/zz.go": "package zz\n\nimport _ \"net/http\"\n",
 		// io/fs is a subpackage of io; "io" must reach it (path STARTS WITH "io/").
 		"fsuser/fs.go": "package fsuser\n\nimport _ \"io/fs\"\n",
+		// Embedding is an INHERITS edge; type_hierarchy must name the parent's file.
+		"th/th.go": "package th\n\ntype Base struct{}\n\ntype Child struct{ Base }\n",
 	}
 	for name, body := range files {
 		p := filepath.Join(root, name)
@@ -155,6 +157,25 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	rows = run("who_calls", map[string]string{"name": "Close", "limit": "5"})
 	if len(rows) != 2 || strings.Contains(text, "truncated") {
 		t.Errorf("who_calls Close limit=5: want 2 rows, not truncated, got %d rows: %q", len(rows), text)
+	}
+
+	// from_file/to_file must constrain the endpoints: a filter that matches
+	// neither endpoint's file yields no path, the matching one the full path.
+	// (Same-named endpoints are the real use, but CALLS edges between
+	// same-named symbols are mis-resolved today — see #793.)
+	if rows = run("call_chain", map[string]string{"from": "main", "to": "target", "from_file": "nowhere/"}); len(rows) != 0 {
+		t.Errorf("call_chain with non-matching from_file = %v, want no path", rows)
+	}
+	if rows = run("call_chain", map[string]string{"from": "main", "to": "target", "to_file": "nowhere/"}); len(rows) != 0 {
+		t.Errorf("call_chain with non-matching to_file = %v, want no path", rows)
+	}
+	if rows = run("call_chain", map[string]string{"from": "main", "to": "target", "from_file": "main.go", "to_file": "main.go"}); len(rows) != 4 {
+		t.Errorf("call_chain with matching file filters = %v, want the 4-symbol path", rows)
+	}
+
+	rows = run("type_hierarchy", map[string]string{"name": "Child", "file": "th/"})
+	if len(rows) != 1 || len(rows[0]) != 6 || rows[0][2] != "Base" || rows[0][3] != "th/th.go" {
+		t.Errorf("type_hierarchy Child = %v, want parent Base in th/th.go", rows)
 	}
 
 	rows = run("call_chain", map[string]string{"from": "main", "to": "target"})

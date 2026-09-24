@@ -18,6 +18,9 @@ const (
 	paramPkg   = "pkg"
 	paramFrom  = "from"
 	paramTo    = "to"
+	// call_chain endpoint filters.
+	paramFromFile = "from_file"
+	paramToFile   = "to_file"
 )
 
 // paramOptional reports whether an explicit call may omit param. Only
