@@ -77,6 +77,9 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 		"zz/zz.go": "package zz\n\nimport _ \"net/http\"\n",
 		// io/fs is a subpackage of io; "io" must reach it (path STARTS WITH "io/").
 		"fsuser/fs.go": "package fsuser\n\nimport _ \"io/fs\"\n",
+		// Cross-file chain with unique names: pins WHICH endpoint each file filter binds to.
+		"chain/a.go": "package chain\n\nfunc chainStart() { chainEnd() }\n",
+		"chain/b.go": "package chain\n\nfunc chainEnd() {}\n",
 		// Embedding is an INHERITS edge; type_hierarchy must name the parent's file.
 		"th/th.go": "package th\n\ntype Base struct{}\n\ntype Child struct{ Base }\n",
 	}
@@ -171,6 +174,18 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	}
 	if rows = run("call_chain", map[string]string{"from": "main", "to": "target", "from_file": "main.go", "to_file": "main.go"}); len(rows) != 4 {
 		t.Errorf("call_chain with matching file filters = %v, want the 4-symbol path", rows)
+	}
+	crossChain := func(fromFile, toFile string) [][]string {
+		return run("call_chain", map[string]string{"from": "chainStart", "to": "chainEnd", "from_file": fromFile, "to_file": toFile})
+	}
+	if rows = crossChain("chain/a.go", "chain/b.go"); len(rows) != 2 {
+		t.Errorf("call_chain chainStart(a.go)->chainEnd(b.go) = %v, want the 2-symbol path", rows)
+	}
+	if rows = crossChain("chain/b.go", ""); len(rows) != 0 {
+		t.Errorf("from_file=b.go must filter the START (in a.go), got %v", rows)
+	}
+	if rows = crossChain("", "chain/a.go"); len(rows) != 0 {
+		t.Errorf("to_file=a.go must filter the END (in b.go), got %v", rows)
 	}
 
 	rows = run("type_hierarchy", map[string]string{"name": "Child", "file": "th/"})
