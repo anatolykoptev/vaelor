@@ -27,12 +27,16 @@ type GraphStats struct {
 
 // QueryResult is the full output of a QueryGraph call.
 type QueryResult struct {
-	Repo       string     `json:"repo"`
-	Query      string     `json:"query"`
-	Template   string     `json:"template"`
-	Cypher     string     `json:"cypher"`
-	Results    [][]string `json:"results"`
-	Narrative  string     `json:"narrative,omitempty"`
+	Repo      string     `json:"repo"`
+	Query     string     `json:"query"`
+	Template  string     `json:"template"`
+	Cypher    string     `json:"cypher"`
+	Results   [][]string `json:"results"`
+	Narrative string     `json:"narrative,omitempty"`
+	// Limit is the row cap a template ran with (0: none or freeform);
+	// Truncated reports that more rows matched than were returned.
+	Limit      int        `json:"limit,omitempty"`
+	Truncated  bool       `json:"truncated,omitempty"`
 	GraphStats GraphStats `json:"graph_stats"`
 }
 
@@ -50,7 +54,7 @@ type QueryResult struct {
 // ExplicitClassification) that replaces step 1, so no LLM call is made to
 // classify the query.
 func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, graphName, query string, explicit *Classification, meta *GraphMeta, narrativeEnabled bool) (*QueryResult, error) {
-	cls, cypher, cols, err := classifyAndBuildCypher(ctx, llmClient, query, explicit)
+	cls, cypher, cols, limit, err := classifyAndBuildCypher(ctx, llmClient, query, explicit)
 	if err != nil {
 		return nil, err
 	}
@@ -63,13 +67,20 @@ func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, grap
 	if rows == nil {
 		rows = [][]string{}
 	}
+	// Templates fetch limit+1 rows: the extra one only says "there is more".
+	truncated := limit > 0 && len(rows) > limit
+	if truncated {
+		rows = rows[:limit]
+	}
 
 	result := &QueryResult{
-		Repo:     meta.RepoPath,
-		Query:    query,
-		Template: cls.Template,
-		Cypher:   cypher,
-		Results:  rows,
+		Repo:      meta.RepoPath,
+		Query:     query,
+		Template:  cls.Template,
+		Cypher:    cypher,
+		Limit:     limit,
+		Truncated: truncated,
+		Results:   rows,
 		GraphStats: GraphStats{
 			Vertices: meta.SymbolCount + meta.FileCount,
 			Edges:    meta.EdgeCount,
@@ -109,7 +120,7 @@ func QueryGraph(ctx context.Context, store *Store, llmClient llm.Completer, grap
 
 // classifyAndBuildCypher classifies the query and generates Cypher via template or freeform.
 // A non-nil explicit classification is used as-is and skips the LLM classifier.
-func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query string, explicit *Classification) (*Classification, string, int, error) {
+func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query string, explicit *Classification) (*Classification, string, int, int, error) {
 	cls, err := explicit, error(nil)
 	if cls == nil {
 		cls, err = Classify(ctx, llmClient, query)
@@ -118,18 +129,18 @@ func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query 
 		// Short-circuit on ErrLLMUnavailable: no point falling through to the
 		// freeform path which would make a second NoOp round-trip via GenerateCypher.
 		if errors.Is(err, llm.ErrUnavailable) {
-			return nil, "", 0, fmt.Errorf("%w: %w", ErrLLMStep, err)
+			return nil, "", 0, 0, fmt.Errorf("%w: %w", ErrLLMStep, err)
 		}
 		cls = &Classification{Template: templateFreeform, Params: map[string]string{}}
 	}
 
 	var cypher string
-	var cols int
+	var cols, limit int
 
 	if cls.Template != templateFreeform {
 		tmpl := GetTemplate(cls.Template)
 		if tmpl != nil {
-			cypher = tmpl.Render(cls.Params)
+			cypher, limit = tmpl.RenderProbe(cls.Params)
 			cols = tmpl.Cols
 		} else {
 			cls.Template = templateFreeform
@@ -139,7 +150,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query 
 	if cls.Template == templateFreeform {
 		generated, genErr := GenerateCypher(ctx, llmClient, query)
 		if genErr != nil {
-			return nil, "", 0, fmt.Errorf("%w: generate cypher: %w", ErrLLMStep, genErr)
+			return nil, "", 0, 0, fmt.Errorf("%w: generate cypher: %w", ErrLLMStep, genErr)
 		}
 		cypher = generated
 		cols = countReturnCols(cypher)
@@ -152,7 +163,7 @@ func classifyAndBuildCypher(ctx context.Context, llmClient llm.Completer, query 
 			slog.Int("cols", cols))
 	}
 
-	return cls, cypher, cols, nil
+	return cls, cypher, cols, limit, nil
 }
 
 // execWithRetry executes Cypher, retrying once for freeform queries with self-correction.

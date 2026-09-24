@@ -32,7 +32,7 @@ func TestClassifyAndBuildCypherNoLLM_SingleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cc := &countingCompleter{inner: llm.NoOp{}}
-	_, _, _, err := classifyAndBuildCypher(context.Background(), cc, "who calls Parse?", nil)
+	_, _, _, _, err := classifyAndBuildCypher(context.Background(), cc, "who calls Parse?", nil)
 
 	if !errors.Is(err, llm.ErrUnavailable) || !errors.Is(err, ErrLLMStep) {
 		t.Errorf("want ErrLLMUnavailable wrapped as ErrLLMStep; got %v", err)
@@ -68,7 +68,7 @@ func TestClassifyAndBuildCypher_GenerateFailureIsLLMStep(t *testing.T) {
 		replies: []string{"not json", ""},
 		errs:    []error{nil, errors.New("model returned 502")},
 	}
-	_, _, _, err := classifyAndBuildCypher(context.Background(), sc, "count functions per file", nil)
+	_, _, _, _, err := classifyAndBuildCypher(context.Background(), sc, "count functions per file", nil)
 	if !errors.Is(err, ErrLLMStep) {
 		t.Fatalf("err = %v, want ErrLLMStep", err)
 	}

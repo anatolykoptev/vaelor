@@ -21,6 +21,8 @@ type xmlGraphResponse struct {
 type xmlGraphQuery struct {
 	Repo      string       `xml:"repo,attr"`
 	Template  string       `xml:"template,attr"`
+	Limit     int          `xml:"limit,attr,omitempty"`
+	Truncated bool         `xml:"truncated,attr,omitempty"`
 	Vertices  int          `xml:"vertices,attr"`
 	Edges     int          `xml:"edges,attr"`
 	Cached    bool         `xml:"cached,attr"`
@@ -83,7 +85,8 @@ func registerCodeGraph(server *mcp.Server, cfg Config, deps analyze.Deps, store 
 			"surprise scoring (hidden cross-package dependencies — 'find hidden dependencies'), " +
 			"and graph diff (what changed since last rebuild — 'what changed in the graph'). " +
 			"Results include raw graph rows and an LLM narrative. " +
-			"To skip LLM classification pass template + params instead of (or with) query: " +
+			"Template results are capped at limit rows; truncated=\"true\" on the result means more matched — raise limit (max 500) or narrow with file/path. " +
+			"To skip LLM classification pass template + params instead of (or with) query (? = optional): " +
 			codegraph.TemplateSignatures() + ".",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CodeGraphInput) (*mcp.CallToolResult, error) {
 		return handleCodeGraph(ctx, input, cfg, deps, store)
@@ -212,6 +215,8 @@ func formatGraphXML(result *codegraph.QueryResult) (string, error) {
 		Graph: xmlGraphQuery{
 			Repo:      result.Repo,
 			Template:  result.Template,
+			Limit:     result.Limit,
+			Truncated: result.Truncated,
 			Vertices:  result.GraphStats.Vertices,
 			Edges:     result.GraphStats.Edges,
 			Cached:    result.GraphStats.Cached,

@@ -3,16 +3,17 @@ package codegraph
 func init() {
 	templates["communities"] = &Template{
 		ID:          "communities",
-		Description: "Show community clusters: group symbols by Louvain community with member counts",
-		Params:      []string{"limit"},
-		Cypher:      "MATCH (s:Symbol) WHERE s.community IS NOT NULL RETURN s.community, count(s) AS size, collect(s.name) AS members ORDER BY size DESC LIMIT {limit}",
+		Description: "Show community clusters: group symbols by Louvain community with member counts and up to 10 sample member names",
+		Params:      []string{paramLimit},
+		Cypher:      "MATCH (s:Symbol) WHERE s.community IS NOT NULL WITH s.community AS community, count(s) AS size, collect(s.name) AS members RETURN community, size, members[0..10] ORDER BY size DESC LIMIT {limit}",
 		Cols:        3,
 	}
 	templates["community_members"] = &Template{
 		ID:          "community_members",
 		Description: "List all symbols in a specific community by its ID",
-		Params:      []string{"name"},
-		Cypher:      "MATCH (s:Symbol {community: '{name}'}) RETURN s.name, s.kind, s.file ORDER BY s.name",
+		Params:      []string{paramName, paramLimit},
+		Defaults:    map[string]string{paramLimit: "100"},
+		Cypher:      "MATCH (s:Symbol {community: '{name}'}) RETURN s.name, s.kind, s.file ORDER BY s.name LIMIT {limit}",
 		Cols:        3,
 	}
 	templates["surprises"] = &Template{

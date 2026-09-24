@@ -19,15 +19,15 @@ func TestClassifyAndBuildCypher_ExplicitTemplateSkipsLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExplicitClassification: %v", err)
 	}
-	cls, cypher, cols, err := classifyAndBuildCypher(context.Background(), cc, "who_calls", explicit)
+	cls, cypher, cols, _, err := classifyAndBuildCypher(context.Background(), cc, "who_calls", explicit)
 	if err != nil {
 		t.Fatalf("classifyAndBuildCypher: %v", err)
 	}
 	if n := cc.calls.Load(); n != 0 {
 		t.Errorf("Complete called %d times, want 0", n)
 	}
-	if cls.Template != "who_calls" || cols != 1 {
-		t.Errorf("template=%q cols=%d, want who_calls/1", cls.Template, cols)
+	if cls.Template != "who_calls" || cols != 5 {
+		t.Errorf("template=%q cols=%d, want who_calls/5", cls.Template, cols)
 	}
 	if !strings.Contains(cypher, "{name: 'ParseFile'}") || !strings.Contains(cypher, "caller:Symbol)-[:CALLS]->(target") {
 		t.Errorf("cypher does not look up callers of ParseFile: %s", cypher)
