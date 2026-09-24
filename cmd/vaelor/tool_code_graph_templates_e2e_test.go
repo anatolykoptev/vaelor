@@ -71,6 +71,12 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 		// pgx/v5's Package vertex is named "v5"; asked for "pgx" it must still match.
 		"pa/pa.go": "package pa\n\nimport _ \"github.com/jackc/pgx/v5\"\n\nfunc Close() {}\n\nfunc UseA() { Close() }\n",
 		"pb/pb.go": "package pb\n\nfunc Close() {}\n\nfunc UseB() { Close() }\n",
+		// aa/ sorts before zz/: at limit=1 the exact net/http importer must
+		// still win over the httptest (subpackage) one.
+		"aa/aa.go": "package aa\n\nimport _ \"net/http/httptest\"\n",
+		"zz/zz.go": "package zz\n\nimport _ \"net/http\"\n",
+		// io/fs is a subpackage of io; "io" must reach it (path STARTS WITH "io/").
+		"fsuser/fs.go": "package fsuser\n\nimport _ \"io/fs\"\n",
 	}
 	for name, body := range files {
 		p := filepath.Join(root, name)
@@ -131,8 +137,10 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	for i, r := range rows {
 		pos[r[0]] = i
 	}
-	if hi, lo := pos["highComplexity"], pos["lowComplexity"]; len(rows) < 2 || hi > lo {
-		t.Errorf("hotspots order wrong (high=%d, low=%d): %v", hi, lo, rows)
+	hi, okHi = pos["highComplexity"]
+	lo, okLo = pos["lowComplexity"]
+	if !okHi || !okLo || hi > lo {
+		t.Errorf("hotspots order wrong (high=%d ok=%v, low=%d ok=%v): %v", hi, okHi, lo, okLo, rows)
 	}
 
 	rows = run("call_chain", map[string]string{"from": "deep0", "to": "deep8"})
@@ -172,6 +180,16 @@ func TestCodeGraphTemplatesE2E(t *testing.T) {
 	if len(rows) != 1 || rows[0][0] != "pa/pa.go" || rows[0][1] != "github.com/jackc/pgx/v5" || rows[0][2] != "subpackage" {
 		t.Errorf("importers_of pgx = %v, want [[pa/pa.go github.com/jackc/pgx/v5 subpackage]]", rows)
 	}
+	rows = run("importers_of", map[string]string{"name": "http", "limit": "1"})
+	if len(rows) != 1 || rows[0][0] != "zz/zz.go" || rows[0][2] != "exact" || !strings.Contains(text, `truncated="true"`) {
+		t.Errorf("importers_of http limit=1 = %v, want the exact zz/zz.go row first (truncated)", rows)
+	}
+
+	rows = run("dependents_of", map[string]string{"name": "io"})
+	if len(rows) != 1 || rows[0][0] != "fsuser/fs.go" || rows[0][1] != "io/fs" || rows[0][2] != "subpackage" {
+		t.Errorf("dependents_of io = %v, want [[fsuser/fs.go io/fs subpackage]]", rows)
+	}
+
 	rows = run("dependents_of", map[string]string{"name": "v5"})
 	if len(rows) != 1 || rows[0][2] != "exact" {
 		t.Errorf("dependents_of v5 = %v, want one exact match", rows)

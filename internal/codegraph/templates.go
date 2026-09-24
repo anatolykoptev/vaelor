@@ -75,7 +75,9 @@ var templateDefaults = map[string]string{
 // importersCypher is shared by importers_of and dependents_of: files importing
 // a package named by its Go name, full path, last path segment (pgx/v5's name
 // is "v5", so "pgx" needs the path), or as a parent of subpackages. Exact
-// matches sort first so a LIMIT never drops them for subpackage rows.
+// matches sort first so a LIMIT never drops them for subpackage rows. A
+// major-version module path (pgx/v5 asked for as "pgx") is labelled
+// "subpackage" — the row's package path column says which module it is.
 const importersCypher = "MATCH (f:File)-[:IMPORTS]->(p:Package) " +
 	"WHERE p.name = '{name}' OR p.path = '{name}' OR p.path ENDS WITH '/{name}' " +
 	"OR p.path STARTS WITH '{name}/' OR p.path CONTAINS '/{name}/' " +
@@ -113,7 +115,7 @@ var templates = map[string]*Template{
 	},
 	"importers_of": {
 		ID:          "importers_of",
-		Description: "Find files that import the named package",
+		Description: "Find files that import the named package or its subpackages; relation says exact or subpackage",
 		Params:      []string{paramName, paramLimit},
 		Defaults:    map[string]string{paramLimit: "100"},
 		Cypher:      importersCypher,
@@ -158,7 +160,7 @@ var templates = map[string]*Template{
 	},
 	"dependents_of": {
 		ID:          "dependents_of",
-		Description: "Find distinct files that depend on the named package",
+		Description: "Find files that depend on the named package or its subpackages; relation says exact or subpackage",
 		Params:      []string{paramName, paramLimit},
 		Defaults:    map[string]string{paramLimit: "100"},
 		Cypher:      importersCypher,
