@@ -11,7 +11,6 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/anatolykoptev/vaelor/internal/policy"
 	"github.com/anatolykoptev/vaelor/internal/review"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // spyPersister implements learningsPersister and records every Upsert call.
@@ -193,22 +192,25 @@ func TestPersistChangedSymbols_UpsertErrorDoesNotPanic(t *testing.T) {
 }
 
 // dryRunBody runs reviewPRDryRun over a synthetic result and returns the
-// serialized response text. DATABASE_URL must be unset for the learnings
-// loop to no-op (tests never carry it).
+// serialized response text. DATABASE_URL is cleared so the learnings loop
+// provably no-ops — CI DOES export it (preflight.yml), and without this a
+// fixture carrying ChangedSymbols would hit the ephemeral DB and have
+// "prior review" suggestions injected into the XML under test.
 func dryRunBody(t *testing.T, input ReviewPRInput, r *review.DeltaResult) string {
 	t.Helper()
+	t.Setenv("DATABASE_URL", "")
 	res, err := reviewPRDryRun(context.Background(), input, r)
 	if err != nil {
 		t.Fatalf("reviewPRDryRun: %v", err)
 	}
-	if res == nil || len(res.Content) == 0 {
+	if res == nil {
+		t.Fatal("nil result")
+	}
+	text := textContentOf(t, res)
+	if text == "" {
 		t.Fatal("empty result")
 	}
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	if !ok {
-		t.Fatalf("content[0] is %T, want *mcp.TextContent", res.Content[0])
-	}
-	return tc.Text
+	return text
 }
 
 // TestReviewPRDryRun_CapsImpactedSymbols is the #765 regression test: the

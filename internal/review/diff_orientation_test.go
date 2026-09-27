@@ -124,10 +124,13 @@ func TestChangedFiles_StagedOrientation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(files) != len(want) {
+		t.Fatalf("expected %d changed files, got %d: %+v", len(want), len(files), files)
+	}
 	for _, f := range files {
 		exp, ok := want[f.Path]
 		if !ok {
-			continue
+			t.Fatalf("unexpected path %q in diff", f.Path)
 		}
 		if exp[0] == exp[1] {
 			t.Fatalf("fixture degenerate: %s has equal add/del (%d)", f.Path, exp[0])

@@ -52,39 +52,71 @@ func escapeCypher(s string) string {
 // reWriteOp matches Cypher write keywords — used to reject writes in ExecCypher.
 var reWriteOp = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|DETACH)\b`)
 
-// stripCypherLiterals removes the contents of single-quoted, double-quoted
-// and backtick-quoted literals (the quote characters are kept, so token
-// boundaries outside literals are preserved). A backslash escapes the next
-// byte inside a literal, so `\'` does not terminate a single-quoted string.
+// stripCypherLiterals blanks the contents of Cypher comments and quoted
+// literals so the write-op regex inspects statement SYNTAX, never payload
+// text. Quote characters are kept, so token boundaries outside literals
+// are preserved. (Distinct from internal/parser.stripStringLiterals, which
+// scans Go source and deliberately ignores single quotes — Cypher's
+// primary string delimiter.)
 //
 // This exists so the write-op guard can never fire on a keyword that lives
 // inside a parameter value (#789): `who_calls{name:"Set"}` renders
 // `s.name = 'Set'` and, unfiltered, the regex rejects the read as a SET.
-// Stripping is safe in the other direction too — a Cypher write keyword only
-// executes when it appears OUTSIDE a literal, and stripping cannot hide one.
-func stripCypherLiterals(s string) string {
+//
+// Scanner rules mirror AGE's lexer (ag_scanner.l):
+//   - '//' starts a line comment ending at '\n' or '\r' (Postgres treats
+//     both as newlines: scan.l non_newline [^\n\r]); '/*' a block comment
+//     ending at '*/'. Comments are consumed BEFORE literals are
+//     considered — a quote char inside a comment must not open a literal,
+//     or a write clause on the next line would be swallowed with it.
+//   - Inside '…' or "…" a backslash escapes the next byte.
+//   - Inside `…` the ONLY escape is a doubled backtick; backslash is an
+//     ordinary byte there (AGE esbquote rule).
+//
+// Returns (stripped, balanced): balanced=false when the scan ends inside
+// an unterminated literal or block comment — callers must fail closed,
+// since whatever follows an unterminated opener is invisible to the scan.
+func stripCypherLiterals(s string) (string, bool) {
 	var b strings.Builder
 	b.Grow(len(s))
-	in := byte(0) // current quote char: '\'', '"', '`' or 0 when outside
+	in := byte(0) // '\'', '"' or '`' when inside a literal; 0 outside
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if in == 0 {
-			b.WriteByte(c)
-			if c == '\'' || c == '"' || c == '`' {
-				in = c
+		if in != 0 {
+			switch {
+			case in == '`' && c == '`' && i+1 < len(s) && s[i+1] == '`':
+				i++ // `` escape inside a backtick identifier
+			case in != '`' && c == '\\' && i+1 < len(s):
+				i++ // \' \" escape inside strings
+			case c == in:
+				b.WriteByte(c)
+				in = 0
 			}
 			continue
 		}
-		if c == '\\' && i+1 < len(s) {
-			i++ // escaped char: drop both bytes, stay inside the literal
-			continue
+		if c == '/' && i+1 < len(s) {
+			switch s[i+1] {
+			case '/':
+				for i+1 < len(s) && s[i+1] != '\n' && s[i+1] != '\r' {
+					i++ // consume through the comment, keep the newline
+				}
+				continue
+			case '*':
+				end := strings.Index(s[i+2:], "*/")
+				if end < 0 {
+					return b.String(), false
+				}
+				b.WriteByte(' ') // keep a token boundary where the comment was
+				i += end + 3     // land past the closing */
+				continue
+			}
 		}
-		if c == in {
-			b.WriteByte(c)
-			in = 0
+		b.WriteByte(c)
+		if c == '\'' || c == '"' || c == '`' {
+			in = c
 		}
 	}
-	return b.String()
+	return b.String(), in == 0
 }
 
 // reGraphName validates graph names: only lowercase alphanumeric and underscores.
@@ -109,11 +141,13 @@ func cypherDollarQuote(cypher string) string {
 }
 
 // isReadOnly returns true if cypher contains no write operations.
-// String/identifier literals are stripped first so write keywords inside
+// Comments and literals are stripped first so write keywords inside
 // parameter values (e.g. a symbol literally named "Set" or "Delete") do not
-// trip the guard (#789).
+// trip the guard (#789). An unterminated literal/comment fails closed —
+// text the scanner cannot delimit is treated as writable surface.
 func isReadOnly(cypher string) bool {
-	return !reWriteOp.MatchString(stripCypherLiterals(cypher))
+	stripped, balanced := stripCypherLiterals(cypher)
+	return balanced && !reWriteOp.MatchString(stripped)
 }
 
 // buildColDefs returns "c0 ag_catalog.agtype, c1 ag_catalog.agtype, ..." for n columns.
