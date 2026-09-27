@@ -11,6 +11,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/anatolykoptev/vaelor/internal/policy"
 	"github.com/anatolykoptev/vaelor/internal/review"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // spyPersister implements learningsPersister and records every Upsert call.
@@ -188,5 +189,83 @@ func TestPersistChangedSymbols_UpsertErrorDoesNotPanic(t *testing.T) {
 	persistChangedSymbols(context.Background(), sp, "r", "", "good", "/repo", syms, nil)
 	if len(sp.calls) != 1 {
 		t.Fatalf("want 1 call even on error, got %d", len(sp.calls))
+	}
+}
+
+// dryRunBody runs reviewPRDryRun over a synthetic result and returns the
+// serialized response text. DATABASE_URL must be unset for the learnings
+// loop to no-op (tests never carry it).
+func dryRunBody(t *testing.T, input ReviewPRInput, r *review.DeltaResult) string {
+	t.Helper()
+	res, err := reviewPRDryRun(context.Background(), input, r)
+	if err != nil {
+		t.Fatalf("reviewPRDryRun: %v", err)
+	}
+	if res == nil || len(res.Content) == 0 {
+		t.Fatal("empty result")
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content[0] is %T, want *mcp.TextContent", res.Content[0])
+	}
+	return tc.Text
+}
+
+// TestReviewPRDryRun_CapsImpactedSymbols is the #765 regression test: the
+// dry-run path must apply the same maxReviewImpacted default cap as
+// review_delta, reporting the TRUE total + truncated marker — a fixture of
+// 300 (> cap) fails whether or not the cap exists.
+func TestReviewPRDryRun_CapsImpactedSymbols(t *testing.T) {
+	r := &review.DeltaResult{
+		ImpactedSymbols: buildLargeImpacted(300),
+		UntestedSymbols: []string{"Foo"},
+		Risk:            review.RiskGuidance{RiskLevel: "medium", RiskScore: 0.5},
+	}
+	out := dryRunBody(t, ReviewPRInput{Repo: "o/r", PR: 1}, r)
+
+	for _, want := range []string{`total="300"`, `shown="50"`, `truncated="true"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("response missing %s", want)
+		}
+	}
+}
+
+// TestReviewPRDryRun_FullImpactUncapped verifies the opt-in escape hatch:
+// full_impact=true returns the complete list, same contract as review_delta.
+func TestReviewPRDryRun_FullImpactUncapped(t *testing.T) {
+	r := &review.DeltaResult{
+		ImpactedSymbols: buildLargeImpacted(300),
+	}
+	out := dryRunBody(t, ReviewPRInput{Repo: "o/r", PR: 1, FullImpact: true}, r)
+
+	if !strings.Contains(out, `total="300"`) || !strings.Contains(out, `shown="300"`) {
+		t.Errorf("full_impact should report total=300 shown=300")
+	}
+	if strings.Contains(out, `truncated="true"`) {
+		t.Error("full_impact must not report truncation")
+	}
+}
+
+// TestReviewPRDryRun_UntestedRiskPrecedeImpacted is the #765 ordering
+// guarantee: untested + risk must serialize BEFORE impacted_symbols so a
+// transport/budget truncation drops the least discriminating section's tail
+// rather than evicting the decision-relevant sections entirely.
+func TestReviewPRDryRun_UntestedRiskPrecedeImpacted(t *testing.T) {
+	r := &review.DeltaResult{
+		ImpactedSymbols: buildLargeImpacted(300),
+		UntestedSymbols: []string{"Foo"},
+		Risk:            review.RiskGuidance{RiskLevel: "medium", RiskScore: 0.5},
+	}
+	out := dryRunBody(t, ReviewPRInput{Repo: "o/r", PR: 1}, r)
+
+	idxUntested := strings.Index(out, "<untested>")
+	idxRisk := strings.Index(out, "<risk ")
+	idxImpacted := strings.Index(out, "<impacted_symbols")
+	if idxUntested < 0 || idxRisk < 0 || idxImpacted < 0 {
+		t.Fatalf("missing sections: untested=%d risk=%d impacted=%d", idxUntested, idxRisk, idxImpacted)
+	}
+	if idxUntested >= idxImpacted || idxRisk >= idxImpacted {
+		t.Errorf("order wrong: untested=%d risk=%d impacted=%d — untested/risk must precede impacted_symbols",
+			idxUntested, idxRisk, idxImpacted)
 	}
 }

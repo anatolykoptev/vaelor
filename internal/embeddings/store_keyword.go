@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/lextoken"
@@ -102,21 +101,23 @@ func (s *Store) SearchBySymbolName(
 		return nil, err
 	}
 
-	// Build a combined search string from keywords for similarity matching.
-	searchStr := strings.Join(keywords, " ")
-
-	// Use pg_trgm similarity to find symbols whose name or path resembles
-	// the query keywords. The % operator uses the similarity_threshold (default 0.3).
-	// Rank by combined similarity of symbol_name (primary) and file_path (secondary).
+	// Per-keyword OR-chained similarity (#643): joining the keywords into one
+	// string dilutes trigram overlap so badly that a multi-word NL query
+	// ("oauth token refresh") scores below the 0.1 prefilter against short
+	// symbol names and BM25F silently falls back to grep. Scoring sums each
+	// keyword's similarity so coverage of more query terms ranks higher.
 	q := `
 		SELECT file_path, symbol_name, symbol_kind, language, start_line,
-		       (similarity(symbol_name, $3) * 2.0 + similarity(file_path, $3)) / 3.0 AS score
-		FROM public.code_embeddings
+		       (SELECT (sum(similarity(e.symbol_name, kw)) * 2.0
+		              + sum(similarity(e.file_path, kw))) / 3.0
+		        FROM unnest($3::text[]) AS kw) AS score
+		FROM public.code_embeddings e
 		WHERE repo_key = $1
 		  AND ($2 = '' OR language = $2)
-		  AND (
-		    similarity(symbol_name, $3) > 0.1
-		    OR similarity(file_path, $3) > 0.1
+		  AND EXISTS (
+		    SELECT 1 FROM unnest($3::text[]) AS kw
+		    WHERE similarity(e.symbol_name, kw) > 0.1
+		       OR similarity(e.file_path, kw) > 0.1
 		  )
 		ORDER BY score DESC
 		LIMIT $4`
@@ -124,7 +125,7 @@ func (s *Store) SearchBySymbolName(
 	// Use a 5s timeout: if pool is exhausted (e.g. concurrent code_graph build), fail fast
 	sQueryCtx, sCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer sCancel()
-	rows, err := s.pool.Query(sQueryCtx, q, repoKey, language, searchStr, limit)
+	rows, err := s.pool.Query(sQueryCtx, q, repoKey, language, keywords, limit)
 	if err != nil {
 		// pg_trgm not available — fall back to ILIKE prefix search.
 		return s.searchBySymbolNameFallback(ctx, repoKey, keywords, language, limit)

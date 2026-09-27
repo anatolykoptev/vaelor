@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
@@ -31,6 +32,11 @@ type ReviewPRInput struct {
 	// Event is the GitHub review event. Required when DryRun=false.
 	// Accepted values: APPROVE | COMMENT | REQUEST_CHANGES.
 	Event string `json:"event,omitempty" jsonschema:"Required when dry_run=false: APPROVE | COMMENT | REQUEST_CHANGES."`
+	// FullImpact mirrors review_delta's escape hatch: set true for the
+	// COMPLETE impacted_symbols list. Default caps to the top
+	// maxReviewImpacted entries (ranked by impact distance then confidence)
+	// and marks the response truncated=true with the true total (#765).
+	FullImpact bool `json:"full_impact,omitempty" jsonschema:"Set true to return the COMPLETE impacted_symbols list, uncapped. Default caps to the top maxReviewImpacted entries (ranked by impact distance ascending, then confidence descending)."`
 }
 
 func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps, graphStore *codegraph.Store) {
@@ -39,6 +45,9 @@ func registerReviewPR(server *mcp.Server, _ Config, deps analyze.Deps, graphStor
 		Description: "Review a pull request: fetches PR metadata and diff, " +
 			"then runs differential impact analysis on all changes. " +
 			"Returns changed symbols, blast radius, untested code, and risk guidance. " +
+			"impacted_symbols is capped to the top " + strconv.Itoa(maxReviewImpacted) +
+			" entries by default (ranked by impact distance then confidence); " +
+			"set full_impact=true for the complete list. " +
 			"When dry_run=false (requires event=APPROVE|COMMENT|REQUEST_CHANGES), " +
 			"posts the review to GitHub and persists per-symbol learnings. " +
 			"Requires GITHUB_TOKEN when dry_run=false.",
@@ -176,6 +185,11 @@ func reviewPRDryRun(ctx context.Context, input ReviewPRInput, result *review.Del
 	resp := buildDeltaXML(result)
 	resp.Tool = "review_pr"
 	resp.Verdict = deriveVerdict(result)
+	// Same compact-by-default contract as review_delta: cap impacted_symbols
+	// to the top maxReviewImpacted unless the caller opted into the full list
+	// (#765 — an uncapped list previously ate the response budget and the
+	// untested/risk sections truncated away entirely).
+	resp.ImpactedSymbols = capImpactedSymbols(resp.ImpactedSymbols.Symbols, maxReviewImpacted, input.FullImpact)
 	data, err := xml.Marshal(resp)
 	if err != nil {
 		return errResult(fmt.Sprintf("marshal: %s", err)), nil

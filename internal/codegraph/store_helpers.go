@@ -52,6 +52,41 @@ func escapeCypher(s string) string {
 // reWriteOp matches Cypher write keywords — used to reject writes in ExecCypher.
 var reWriteOp = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|DETACH)\b`)
 
+// stripCypherLiterals removes the contents of single-quoted, double-quoted
+// and backtick-quoted literals (the quote characters are kept, so token
+// boundaries outside literals are preserved). A backslash escapes the next
+// byte inside a literal, so `\'` does not terminate a single-quoted string.
+//
+// This exists so the write-op guard can never fire on a keyword that lives
+// inside a parameter value (#789): `who_calls{name:"Set"}` renders
+// `s.name = 'Set'` and, unfiltered, the regex rejects the read as a SET.
+// Stripping is safe in the other direction too — a Cypher write keyword only
+// executes when it appears OUTSIDE a literal, and stripping cannot hide one.
+func stripCypherLiterals(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	in := byte(0) // current quote char: '\'', '"', '`' or 0 when outside
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if in == 0 {
+			b.WriteByte(c)
+			if c == '\'' || c == '"' || c == '`' {
+				in = c
+			}
+			continue
+		}
+		if c == '\\' && i+1 < len(s) {
+			i++ // escaped char: drop both bytes, stay inside the literal
+			continue
+		}
+		if c == in {
+			b.WriteByte(c)
+			in = 0
+		}
+	}
+	return b.String()
+}
+
 // reGraphName validates graph names: only lowercase alphanumeric and underscores.
 var reGraphName = regexp.MustCompile(`^[a-z0-9_]+$`)
 
@@ -74,8 +109,11 @@ func cypherDollarQuote(cypher string) string {
 }
 
 // isReadOnly returns true if cypher contains no write operations.
+// String/identifier literals are stripped first so write keywords inside
+// parameter values (e.g. a symbol literally named "Set" or "Delete") do not
+// trip the guard (#789).
 func isReadOnly(cypher string) bool {
-	return !reWriteOp.MatchString(cypher)
+	return !reWriteOp.MatchString(stripCypherLiterals(cypher))
 }
 
 // buildColDefs returns "c0 ag_catalog.agtype, c1 ag_catalog.agtype, ..." for n columns.

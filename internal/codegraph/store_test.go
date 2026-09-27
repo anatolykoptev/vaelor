@@ -202,6 +202,48 @@ func TestIsReadOnly(t *testing.T) {
 			cypher: "",
 			want:   true,
 		},
+		// #789: write keywords inside string literals are parameter values,
+		// not operations — common Go method names like Set/Delete/Create.
+		{
+			name:   "who_calls rendered with name=Set",
+			cypher: "MATCH (caller:Symbol)-[:CALLS]->(s:Symbol) WHERE s.name = 'Set' RETURN caller.name",
+			want:   true,
+		},
+		{
+			name:   "all write keywords as literal values",
+			cypher: "MATCH (s:Symbol) WHERE s.name IN ['Set', 'Delete', 'Create', 'Merge', 'Remove', 'Drop', 'Detach'] RETURN s.name",
+			want:   true,
+		},
+		{
+			name:   "symbols_in rendered with a create/ path",
+			cypher: "MATCH (s:Symbol) WHERE s.file STARTS WITH 'internal/create/' RETURN s.name",
+			want:   true,
+		},
+		{
+			name:   "double-quoted literal containing a write keyword",
+			cypher: `MATCH (s:Symbol) WHERE s.name = "Remove" RETURN s`,
+			want:   true,
+		},
+		{
+			name:   "backtick-quoted identifier containing a write keyword",
+			cypher: "MATCH (s:`Set`) RETURN s",
+			want:   true,
+		},
+		{
+			name:   "escaped quote keeps a write keyword inside the literal",
+			cypher: `MATCH (s:Symbol) WHERE s.name = 'a\' ; DELETE x' RETURN s`,
+			want:   true,
+		},
+		{
+			name:   "write keyword after a closed literal is still caught",
+			cypher: "MATCH (s:Symbol) WHERE s.name = 'x' DETACH DELETE s",
+			want:   false,
+		},
+		{
+			name:   "write keyword between literals is still caught",
+			cypher: "RETURN 'a' + 'b' DELETE n",
+			want:   false,
+		},
 	}
 
 	for _, tc := range tests {

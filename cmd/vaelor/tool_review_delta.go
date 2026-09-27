@@ -54,12 +54,19 @@ type xmlDeltaResponse struct {
 	Tool    string   `xml:"tool,attr"`
 	Tier    string   `xml:"tier,attr,omitempty"`
 
-	ChangedFiles    []xmlChangedFile   `xml:"changed_files>file"`
-	ChangedSymbols  []xmlChangedSymbol `xml:"changed_symbols>symbol"`
+	ChangedFiles   []xmlChangedFile   `xml:"changed_files>file"`
+	ChangedSymbols []xmlChangedSymbol `xml:"changed_symbols>symbol"`
+	// Untested and Risk are emitted BEFORE impacted_symbols: they are the
+	// most decision-relevant sections and the smallest, so if a response is
+	// truncated the budget is spent on them rather than on the least
+	// discriminating section (#765).
+	Untested []string `xml:"untested>symbol,omitempty"`
+	Risk     xmlRisk  `xml:"risk"`
+	// ImpactedSymbols is deliberately the last large section: it is the most
+	// numerous and least discriminating, so a mid-response truncation drops
+	// its tail instead of evicting untested/risk.
 	ImpactedSymbols xmlImpactedList    `xml:"impacted_symbols"`
-	Untested        []string           `xml:"untested>symbol,omitempty"`
 	Snippets        []xmlSnippet       `xml:"snippets>snippet,omitempty"`
-	Risk            xmlRisk            `xml:"risk"`
 	Quality         *xmlQualitySignals `xml:"quality,omitempty"`
 	// Verdict is populated only by review_pr (via deriveVerdict); review_delta
 	// leaves it nil so omitempty suppresses the element for that tool.
@@ -352,10 +359,10 @@ func buildDeltaXML(r *review.DeltaResult) xmlDeltaResponse {
 			ChangedBy: is.ChangedBy, Confidence: is.Confidence,
 		})
 	}
-	// Full, unranked, uncapped baseline — review_pr's dry-run path marshals
-	// this as-is (it has its own consumers and isn't in scope for #391's
-	// default-cap change); review_delta's handler re-caps it via
-	// capImpactedSymbols before marshaling its own response.
+	// Full, unranked, uncapped baseline — both review_delta and review_pr
+	// re-cap it via capImpactedSymbols before marshaling their responses
+	// (#391, #765). The uncapped baseline carries the true Total so callers
+	// always see the real count alongside Shown/Truncated.
 	resp.ImpactedSymbols = xmlImpactedList{
 		Total:   len(impacted),
 		Shown:   len(impacted),
