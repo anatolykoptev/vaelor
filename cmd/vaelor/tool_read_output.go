@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,8 +26,8 @@ func registerReadOutput(server *mcp.Server, cfg Config) {
 	addTool(server, &mcp.Tool{
 		Name: "read_output",
 		Description: "Read a large tool output that was spilled to a file on the server " +
-			"(the \"saved to: …\" notice). Returns one chunk per call; when the response " +
-			"ends with a truncated footer, pass the indicated offset to continue. " +
+			"(the \"saved to: …\" notice). Returns one chunk per call; when the chunk " +
+			"carries a truncated footer, pass the indicated offset to continue. " +
 			"This is the remote-client path — the spilled file itself lives on the MCP " +
 			"server host and is not readable by off-host agents.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input ReadOutputInput) (*mcp.CallToolResult, error) {
@@ -53,12 +55,21 @@ func handleReadOutput(input ReadOutputInput, outputDir string) *mcp.CallToolResu
 	if err != nil {
 		return errResult(fmt.Sprintf("read_output: stat %q: %v", input.Name, err))
 	}
+	if !info.Mode().IsRegular() {
+		// FIFOs would block ReadAt forever; device/dir entries are never
+		// legitimate spill output.
+		return errResult(fmt.Sprintf("read_output: %q is not a regular file", input.Name))
+	}
 	total := int(info.Size())
+	if total == 0 {
+		return textResult(mcpmeta.MarkBudgetApplied(
+			fmt.Sprintf("%s — 0 chars\n", input.Name)))
+	}
 	offset := input.Offset
 	if offset < 0 {
 		offset = 0
 	}
-	if offset >= total && total > 0 {
+	if offset >= total {
 		return errResult(fmt.Sprintf("read_output: offset %d is beyond end of %q (%d chars)", offset, input.Name, total))
 	}
 
@@ -70,6 +81,15 @@ func handleReadOutput(input ReadOutputInput, outputDir string) *mcp.CallToolResu
 	n, err := f.ReadAt(buf, int64(offset))
 	if err != nil && n == 0 {
 		return errResult(fmt.Sprintf("read_output: read %q: %v", input.Name, err))
+	}
+	// Never split a multi-byte rune across pages — a straddling rune would be
+	// replaced by U+FFFD on BOTH sides of the seam during JSON encoding. A
+	// UTF-8 sequence spans ≤4 bytes, so ≤3 decrements suffice for well-formed
+	// content; the cap keeps genuinely-invalid (binary) content bounded.
+	if offset+n < total {
+		for i := 0; i < utf8.UTFMax-1 && n > 0 && !utf8.Valid(buf[:n]); i++ {
+			n--
+		}
 	}
 	chunk := string(buf[:n])
 
@@ -87,7 +107,10 @@ func handleReadOutput(input ReadOutputInput, outputDir string) *mcp.CallToolResu
 // resolve outside the directory — a spilled file is server-generated output and
 // this tool must never become a general file-read primitive.
 func resolveSpillPath(outputDir, name string) (string, error) {
-	if name == "" || filepath.Base(name) != name || !filepath.IsLocal(name) {
+	if name == "" || filepath.Base(name) != name || !filepath.IsLocal(name) ||
+		strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		// Control chars in the name would also echo unquoted into the header
+		// line, breaking its format / enabling fake-footer injection.
 		return "", fmt.Errorf("read_output: invalid file name %q — pass the basename from the spill notice", name)
 	}
 	base, err := filepath.EvalSymlinks(outputDir)

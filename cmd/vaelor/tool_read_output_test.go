@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 )
@@ -107,6 +108,7 @@ func TestReadOutput_RejectsTraversal(t *testing.T) {
 		"/etc/passwd",
 		"sub/../../outside_secret.txt",
 		"",
+		"new\nline.txt", // control char would corrupt the header/footer framing
 	} {
 		res := handleReadOutput(ReadOutputInput{Name: name}, dir)
 		if !res.IsError {
@@ -152,6 +154,88 @@ func TestReadOutput_OffsetBeyondEnd(t *testing.T) {
 	res := handleReadOutput(ReadOutputInput{Name: filepath.Base(path), Offset: 99999}, dir)
 	if !res.IsError || !strings.Contains(textContentOf(t, res), "beyond end") {
 		t.Fatalf("out-of-range offset must produce a clear error; got %q", textContentOf(t, res))
+	}
+}
+
+// Regression for the review finding: offset>0 against a zero-byte file used to
+// compute window = total-offset = -N → make([]byte, -N) panicked the handler
+// (no recover in the MCP transport). Must be an error result, not a crash.
+func TestReadOutput_EmptyFileAnyOffset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty_1.txt")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, off := range []int{0, 1, 99999} {
+		res := handleReadOutput(ReadOutputInput{Name: "empty_1.txt", Offset: off}, dir)
+		if res.IsError {
+			t.Fatalf("offset %d on empty file must not error or panic; got %q",
+				off, truncForLog(textContentOf(t, res), 120))
+		}
+		if !strings.Contains(textContentOf(t, res), "0 chars") {
+			t.Fatalf("offset %d: expected empty-file response; got %q",
+				off, truncForLog(textContentOf(t, res), 120))
+		}
+	}
+}
+
+// A multi-byte rune straddling the page boundary must not corrupt: the window
+// backs down to the last complete rune, so reassembled pages equal the source
+// byte-for-byte — JSON would otherwise U+FFFD the straddling rune on both sides.
+func TestReadOutput_UTF8Boundary(t *testing.T) {
+	dir := t.TempDir()
+	// Place a 3-byte rune (€ = E2 82 AC) exactly at the window edge: fill with
+	// ASCII up to window-1, then a rune whose bytes straddle the cut.
+	var sb strings.Builder
+	sb.WriteString(strings.Repeat("a", readOutputWindow-1))
+	sb.WriteString("€€€ tail after boundary €")
+	content := sb.String()
+	if !utf8.ValidString(content) {
+		t.Fatal("fixture broken")
+	}
+	path, _ := saveToFile(content, "utf8_tool", dir)
+	name := filepath.Base(path)
+
+	var reassembled strings.Builder
+	offset := 0
+	for i := 0; i < 10; i++ {
+		res := handleReadOutput(ReadOutputInput{Name: name, Offset: offset}, dir)
+		got := textContentOf(t, res)
+		if res.IsError {
+			t.Fatalf("page %d errored: %s", i, got)
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("page %d contains invalid UTF-8 — rune split across pages", i)
+		}
+		nl := strings.Index(got, "\n")
+		body := mcpmeta.StripBudgetMarker(got[nl+1:])
+		next := -1
+		if j := strings.Index(body, "\n[truncated:"); j >= 0 {
+			fmt.Sscanf(body[j:], "\n[truncated: %d more chars — read_output(name=%q, offset=%d)]",
+				new(int), new(string), &next)
+			body = body[:j]
+		}
+		reassembled.WriteString(body)
+		if next < 0 {
+			break
+		}
+		offset = next
+	}
+	if reassembled.String() != content {
+		t.Fatalf("UTF-8 reassembly mismatch: got %q", truncForLog(reassembled.String(), 200))
+	}
+}
+
+// The ladder fileSavePointer is the notice for the highest-traffic spill path
+// (code_search/understand/call_trace). Pin the read_output handle there too —
+// a revert at this site alone would silently restore #796 for ladder tools.
+func TestFileSavePointer_NamesReadOutput(t *testing.T) {
+	ptr := fileSavePointer(12345, "/tmp/go-code-output/code_search_1.txt")
+	if !strings.Contains(ptr, "read_output(") {
+		t.Fatalf("ladder pointer must hand remote clients the read_output handle; got %q", ptr)
+	}
+	if !strings.Contains(ptr, "code_search_1.txt") {
+		t.Fatalf("pointer must name the fetchable basename; got %q", ptr)
 	}
 }
 

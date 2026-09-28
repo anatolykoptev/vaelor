@@ -292,13 +292,21 @@ func TestIsShaped_DetectsBudgetAppliedMarker(t *testing.T) {
 }
 
 // TestStripBudgetMarker_RemovesMarker verifies that StripBudgetMarker removes
-// the marker and leaves the rest of the text intact.
+// a trailing marker and leaves the rest of the text intact — including a
+// literal marker mid-payload, which belongs to the content, not the envelope
+// (the marker is only ever appended as a suffix).
 func TestStripBudgetMarker_RemovesMarker(t *testing.T) {
-	text := "response body\n[budget-applied]\nmore text"
+	text := "response body\n[budget-applied]"
 	got := StripBudgetMarker(text)
-	expected := "response body\nmore text"
+	expected := "response body"
 	if got != expected {
 		t.Errorf("StripBudgetMarker: got %q, want %q", got, expected)
+	}
+	// A marker that is part of the payload (mid-text, not a suffix) must
+	// survive — ReplaceAll would corrupt spilled content served verbatim.
+	content := "body quoting the literal \n[budget-applied] sentinel"
+	if got := StripBudgetMarker(content); got != content {
+		t.Errorf("StripBudgetMarker must not touch mid-text sentinels: got %q", got)
 	}
 }
 

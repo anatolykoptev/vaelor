@@ -90,7 +90,7 @@ func fileSavePointerUpperBound(toolName, outputDir string) int {
 	// Measure the real pointer with max-length fields — the basename passed to
 	// read_output is bounded by maxFilename, and the path by maxPathLen. Using
 	// the same builder keeps the bound correct when the format changes.
-	return len(fileSavePointer(math.MaxInt64, strings.Repeat("x", maxPathLen)))
+	return len(fileSavePointer(math.MaxInt, strings.Repeat("x", maxPathLen)))
 }
 
 // fileSavePointer builds the XML-comment pointer appended to the inline body

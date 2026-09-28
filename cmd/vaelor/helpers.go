@@ -105,7 +105,7 @@ func saveToFile(content, toolName, outputDir string) (string, bool) {
 		return "", false
 	}
 
-	filename := fmt.Sprintf("%s_%d.txt", toolName, time.Now().UnixMilli())
+	filename := fmt.Sprintf("%s_%d.txt", toolName, time.Now().UnixNano())
 	path := filepath.Join(outputDir, filename)
 
 	// File must be world-readable so the consuming agent (running as a different user) can access it.

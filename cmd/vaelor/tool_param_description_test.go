@@ -119,6 +119,9 @@ func TestAllRegisteredToolsHaveParamDescriptions(t *testing.T) {
 		JaegerURL:             "http://127.0.0.1:1",
 		OxBrowserURL:          "http://127.0.0.1:1",
 		SourcemapAllowedHosts: []string{"example.com"},
+		// read_output registers only when OUTPUT_DIR is set — give it one so
+		// its input params land in registeredToolInputs and get checked.
+		OutputDir: t.TempDir(),
 	}, nil)
 
 	if len(registeredToolInputs) == 0 {

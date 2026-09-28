@@ -200,7 +200,5 @@ func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) str
 		sb.WriteString("- Directory tree\n")
 	}
 
-	sb.WriteString("\nUse Read tool to access the file. Use Grep to search for specific symbols.")
-
 	return sb.String()
 }
