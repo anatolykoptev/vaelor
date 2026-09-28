@@ -707,7 +707,7 @@ func (s *Store) GetEmbedModelForRepo(ctx context.Context, repoKey string) string
 
 // CountEmbeddingsForModel counts only rows stamped with the given embed_model
 // — the "active embedding space" count. Used by the indexed verdict so a repo
-// whose rows all live in a foreign (or unstamped '') space is correctly seen
+// whose rows all live in a foreign (or unstamped ”) space is correctly seen
 // as not indexed, instead of passing on an invisible-row count (#837).
 func (s *Store) CountEmbeddingsForModel(ctx context.Context, repoKey, model string) (int, error) {
 	if err := s.EnsureSchema(ctx); err != nil {

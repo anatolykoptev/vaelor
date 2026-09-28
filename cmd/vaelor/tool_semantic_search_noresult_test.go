@@ -168,7 +168,7 @@ func TestHandleSemanticSearch_NoResults_Indexed_ReturnsNoMatch(t *testing.T) {
 }
 
 // TestHandleSemanticSearch_NoResults_ForeignSpaceRows_SchedulesIndex is the
-// #837 regression: a repo whose rows are all stamped '' (or a foreign model)
+// #837 regression: a repo whose rows are all stamped ” (or a foreign model)
 // is INVISIBLE to the model-filtered Search — it returns zero hits — yet a
 // plain CountEmbeddings would still report them as populated. repoIsIndexed
 // must consult the model-scoped count, or the repo freezes in a permanent
