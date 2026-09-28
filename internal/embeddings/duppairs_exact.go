@@ -4,7 +4,8 @@ import (
 	"context"
 	"path"
 	"strconv"
-	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // receiverIDSep separates the package directory from the type name in a qualified
@@ -45,7 +46,7 @@ func receiverID(file, typeName string) string {
 // Any query error or graph-missing returns false → heuristic fallback, preserving
 // the never-worse-than-#218 contract. The count agtype is rendered by AGE as a
 // (possibly space-padded, possibly quoted) string; it is parsed via the same
-// strconv.Atoi(strings.Trim(...,"\"")) path as internal/codegraph/store_helpers.go
+// strconv.Atoi(strutil.UnquoteAgtype(...)) path as internal/codegraph/store_helpers.go
 // so a "0" rendering can never be misread as "has edges".
 func (e *Expander) graphHasImplementsEdges(ctx context.Context, graphName string) bool {
 	rows := e.execCypherN(ctx, graphName,
@@ -53,7 +54,7 @@ func (e *Expander) graphHasImplementsEdges(ctx context.Context, graphName string
 	if len(rows) == 0 || len(rows[0]) == 0 {
 		return false
 	}
-	n, err := strconv.Atoi(strings.Trim(strings.TrimSpace(rows[0][0]), `"`))
+	n, err := strconv.Atoi(strutil.UnquoteAgtype(rows[0][0]))
 	return err == nil && n > 0
 }
 
@@ -133,9 +134,9 @@ func (e *Expander) resolveMethodEndpoints(ctx context.Context, graphName string,
 		if len(row) < methodRowCols {
 			continue
 		}
-		name := stripAgtypeQuotes(row[0])
-		file := stripAgtypeQuotes(row[1])
-		sig := parseSignature(stripAgtypeQuotes(row[2]))
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
+		sig := parseSignature(strutil.UnquoteAgtype(row[2]))
 		if name == "" || file == "" || !sig.isMethod || sig.receiver == "" {
 			continue
 		}
@@ -184,10 +185,10 @@ func (e *Expander) receiverPairsSharingInterface(ctx context.Context, graphName 
 		if len(row) < receiverPairCols {
 			continue
 		}
-		taName := stripAgtypeQuotes(row[0])
-		taFile := stripAgtypeQuotes(row[1])
-		tbName := stripAgtypeQuotes(row[2])
-		tbFile := stripAgtypeQuotes(row[3])
+		taName := strutil.UnquoteAgtype(row[0])
+		taFile := strutil.UnquoteAgtype(row[1])
+		tbName := strutil.UnquoteAgtype(row[2])
+		tbFile := strutil.UnquoteAgtype(row[3])
 		if taName == "" || taFile == "" || tbName == "" || tbFile == "" {
 			continue
 		}

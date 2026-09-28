@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // crossRefsAdapter bridges *Store to graphx.CrossRefs.
@@ -71,8 +71,8 @@ func (c *crossRefsAdapter) HandlesRoute(ctx context.Context, repoKey, symbolName
 
 	row := rows[0]
 	route := graphx.Route{
-		Method: strings.Trim(row[0], `"`),
-		Path:   strings.Trim(row[1], `"`),
+		Method: strutil.UnquoteAgtype(row[0]),
+		Path:   strutil.UnquoteAgtype(row[1]),
 	}
 	return route, true, nil
 }
@@ -118,8 +118,8 @@ func (c *crossRefsAdapter) FetchedBy(ctx context.Context, repoKey string, route 
 	refs := make([]graphx.SymbolRef, 0, len(rows))
 	for _, row := range rows {
 		refs = append(refs, graphx.SymbolRef{
-			Name: strings.Trim(row[0], `"`),
-			File: strings.Trim(row[1], `"`),
+			Name: strutil.UnquoteAgtype(row[0]),
+			File: strutil.UnquoteAgtype(row[1]),
 		})
 	}
 	return refs, nil
@@ -167,8 +167,8 @@ func (c *crossRefsAdapter) TestedBy(ctx context.Context, repoKey, symbolName, fi
 	refs := make([]graphx.SymbolRef, 0, len(rows))
 	for _, row := range rows {
 		refs = append(refs, graphx.SymbolRef{
-			Name: strings.Trim(row[0], `"`),
-			File: strings.Trim(row[1], `"`),
+			Name: strutil.UnquoteAgtype(row[0]),
+			File: strutil.UnquoteAgtype(row[1]),
 		})
 	}
 	return refs, nil

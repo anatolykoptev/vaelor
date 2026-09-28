@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // maxSurpriseScore mirrors scoreSurprise's theoretical maximum.
@@ -79,7 +81,7 @@ func IndexSurpriseEdges(ctx context.Context, store *Store, graphName string) err
 		if len(row) < 2 { //nolint:mnd // guard: need name + count
 			continue
 		}
-		name := trimQuotes(row[0])
+		name := strutil.UnquoteAgtype(row[0])
 		degrees[name] = atoiSafe(row[1])
 	}
 
@@ -94,10 +96,10 @@ func IndexSurpriseEdges(ctx context.Context, store *Store, graphName string) err
 			continue
 		}
 		e := surpriseEdge{
-			FromName:      trimQuotes(row[0]),
-			FromFile:      trimQuotes(row[1]),
-			ToName:        trimQuotes(row[4]),
-			ToFile:        trimQuotes(row[5]),
+			FromName:      strutil.UnquoteAgtype(row[0]),
+			FromFile:      strutil.UnquoteAgtype(row[1]),
+			ToName:        strutil.UnquoteAgtype(row[4]),
+			ToFile:        strutil.UnquoteAgtype(row[5]),
 			EdgeLabel:     "CALLS",
 			FromCommunity: atoiSafe(row[2]),
 			ToCommunity:   atoiSafe(row[6]),
@@ -175,8 +177,8 @@ func IndexSurpriseNodes(ctx context.Context, store *Store, graphName string) err
 		if len(row) < 3 { //nolint:mnd // guard: need name, file, max
 			continue
 		}
-		name := trimQuotes(row[0])
-		file := trimQuotes(row[1])
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
 		maxScore := atofSafe(row[2])
 
 		if name == "" {
@@ -202,12 +204,4 @@ func IndexSurpriseNodes(ctx context.Context, store *Store, graphName string) err
 		slog.Int("symbols_processed", processed),
 		slog.Int("symbols_written", written))
 	return nil
-}
-
-// trimQuotes strips surrounding double-quotes that AGE agtype adds to string values.
-func trimQuotes(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
 }

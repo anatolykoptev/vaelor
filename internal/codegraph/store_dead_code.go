@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/anatolykoptev/go-kit/rerank"
+
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // deadCodeBuildRerankTimeout bounds build-time dead_code scoring. There is no
@@ -306,8 +308,8 @@ func (s *Store) pruneStaleDeadCodeScores(ctx context.Context, gname, repoKey str
 				slog.String("repo", repoKey))
 			return 0, nil
 		}
-		name := strings.Trim(row[0], `"`)
-		file := strings.Trim(row[1], `"`)
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
 		if name == "" || file == "" {
 			deadCodeScorePruneAbortedTotal.Inc()
 			slog.Warn("codegraph: dead_code prune aborted — unparseable orphan vertex (name/file empty)",

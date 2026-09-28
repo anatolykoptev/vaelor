@@ -11,6 +11,7 @@ import (
 
 	"github.com/anatolykoptev/go-kit/llm"
 	"github.com/anatolykoptev/vaelor/internal/prompts"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // narrativeTimeout caps the LLM narrative generation. Narrative is best-effort
@@ -75,14 +76,14 @@ func pkgFromFile(relFile string) string {
 
 // atoiSafe parses an int from an AGE agtype string, returning 0 on failure.
 func atoiSafe(s string) int {
-	s = strings.Trim(s, `"`)
+	s = strutil.UnquoteAgtype(s)
 	v, _ := strconv.Atoi(s)
 	return v
 }
 
 // atofSafe parses a float from an AGE agtype string, returning 0 on failure.
 func atofSafe(s string) float64 {
-	s = strings.Trim(s, `"`)
+	s = strutil.UnquoteAgtype(s)
 	v, _ := strconv.ParseFloat(s, 64)
 	return v
 }

@@ -238,6 +238,10 @@ var (
 // EnsureLabels pre-creates all known vertex and edge labels for gname.
 // Safe to call when labels already exist; "already exists" errors are ignored.
 func (s *Store) EnsureLabels(ctx context.Context, gname string) error {
+	if err := validateGraphName(gname); err != nil {
+		return err
+	}
+
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)

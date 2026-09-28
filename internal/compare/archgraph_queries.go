@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 func queryPackageCount(ctx context.Context, store *codegraph.Store, graph string) int {
@@ -124,7 +125,7 @@ func queryGodPackages(ctx context.Context, store *codegraph.Store, graph string)
 			continue
 		}
 		// Strip quotes from AGE string format.
-		name := strings.Trim(row[0], `"`)
+		name := strutil.UnquoteAgtype(row[0])
 		result = append(result, GodPackage{Name: name, Importers: n})
 	}
 	return result
@@ -180,12 +181,12 @@ func buildImportAdjacency(rows [][]string) map[string]map[string]bool {
 		if len(row) < importRowCols {
 			continue
 		}
-		path := strings.Trim(row[2], `"`)
+		path := strutil.UnquoteAgtype(row[2])
 		if strings.HasSuffix(path, "_test.go") {
 			continue // test-file import: never a real package-level cycle
 		}
-		a := strings.Trim(row[0], `"`)
-		b := strings.Trim(row[1], `"`)
+		a := strutil.UnquoteAgtype(row[0])
+		b := strutil.UnquoteAgtype(row[1])
 		if imports[a] == nil {
 			imports[a] = make(map[string]bool)
 		}

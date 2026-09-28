@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // buildSnapshotFromAGE reads the current graph state from AGE and builds a Snapshot.
@@ -27,9 +29,9 @@ func buildSnapshotFromAGE(ctx context.Context, store *Store, graphName string) (
 			continue
 		}
 		syms = append(syms, SnapshotSymbol{
-			Name:       stripQuotes(row[0]),
-			Kind:       stripQuotes(row[1]),
-			File:       stripQuotes(row[2]),
+			Name:       strutil.UnquoteAgtype(row[0]),
+			Kind:       strutil.UnquoteAgtype(row[1]),
+			File:       strutil.UnquoteAgtype(row[2]),
 			Community:  atoiSafe(row[3]),
 			Complexity: atoiSafe(row[4]),
 		})
@@ -55,13 +57,13 @@ func buildSnapshotFromAGE(ctx context.Context, store *Store, graphName string) (
 		if len(row) < 3 {
 			continue
 		}
-		label := stripQuotes(row[2])
+		label := strutil.UnquoteAgtype(row[2])
 		if !semanticEdgeLabels[label] {
 			continue
 		}
 		edges = append(edges, SnapshotEdge{
-			From:  stripQuotes(row[0]),
-			To:    stripQuotes(row[1]),
+			From:  strutil.UnquoteAgtype(row[0]),
+			To:    strutil.UnquoteAgtype(row[1]),
 			Label: label,
 		})
 	}

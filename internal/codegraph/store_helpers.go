@@ -324,7 +324,7 @@ func (s *Store) SymbolStructuralRank(ctx context.Context, repoKey, name, file st
 	if len(totalRows) == 0 {
 		return ""
 	}
-	total, err := strconv.Atoi(strings.Trim(totalRows[0][0], `"`))
+	total, err := strconv.Atoi(strutil.UnquoteAgtype(totalRows[0][0]))
 	if err != nil || total <= 0 {
 		return ""
 	}
@@ -337,7 +337,7 @@ func (s *Store) SymbolStructuralRank(ctx context.Context, repoKey, name, file st
 	if err != nil || len(rankRows) == 0 {
 		return ""
 	}
-	rank, err := strconv.Atoi(strings.Trim(rankRows[0][0], `"`))
+	rank, err := strconv.Atoi(strutil.UnquoteAgtype(rankRows[0][0]))
 	if err != nil || rank <= 0 {
 		return ""
 	}

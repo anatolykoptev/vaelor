@@ -10,6 +10,7 @@ import (
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // defaultTopK is the fallback result count when TopPageRank is called with k<=0.
@@ -83,7 +84,7 @@ func (a *analyticsAdapter) Symbol(ctx context.Context, repoKey, symbolName, file
 
 	row := rows[0]
 	pr := atofSafe(row[0])
-	community := strings.Trim(row[1], `"`)
+	community := strutil.UnquoteAgtype(row[1])
 	surprise := atofSafe(row[2]) // 0 when NULL (graph built without surprise index)
 
 	return graphx.Signals{
@@ -137,8 +138,8 @@ func (a *analyticsAdapter) TopPageRank(ctx context.Context, repoKey string, k in
 
 	signals := make([]graphx.Signal, 0, len(rows))
 	for _, row := range rows {
-		name := strings.Trim(row[0], `"`)
-		file := strings.Trim(row[1], `"`)
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
 		pr := atofSafe(row[2])
 		signals = append(signals, graphx.Signal{
 			Symbol:  graphx.SymbolRef{Name: name, File: file},

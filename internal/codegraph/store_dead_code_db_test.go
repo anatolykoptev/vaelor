@@ -229,7 +229,7 @@ func TestPruneStaleDeadCodeScores_FailsClosedOnUnparseableOrphan(t *testing.T) {
 	}
 
 	// The graph's ONLY vertex/orphan: file is an empty string, so
-	// strings.Trim(row[1], `"`) == "" — this is the malformed-orphan branch.
+	// strutil.UnquoteAgtype(row[1]) == "" — this is the malformed-orphan branch.
 	if err := store.ExecCypherWrite(ctx,
 		testGraph, `CREATE (s:Symbol {name: 'Malformed', file: '', kind: 'function'})`); err != nil {
 		t.Fatalf("fixture write failed: %v", err)

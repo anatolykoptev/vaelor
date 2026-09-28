@@ -3,6 +3,8 @@ package embeddings
 import (
 	"context"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // pairEdgeCols is the number of columns returned by the CALLS and IMPLEMENTS
@@ -98,10 +100,10 @@ func (e *Expander) PairsConnectedByCalls(ctx context.Context, graphName string, 
 		if len(row) < pairEdgeCols {
 			continue
 		}
-		aName := stripAgtypeQuotes(row[0])
-		aFile := stripAgtypeQuotes(row[1])
-		bName := stripAgtypeQuotes(row[2])
-		bFile := stripAgtypeQuotes(row[3])
+		aName := strutil.UnquoteAgtype(row[0])
+		aFile := strutil.UnquoteAgtype(row[1])
+		bName := strutil.UnquoteAgtype(row[2])
+		bFile := strutil.UnquoteAgtype(row[3])
 		if aName == "" || aFile == "" || bName == "" || bFile == "" {
 			continue
 		}
@@ -192,12 +194,12 @@ func (e *Expander) pairsSharingInterfaceHeuristic(ctx context.Context, graphName
 		if len(row) < ifacePairCols {
 			continue
 		}
-		aName := stripAgtypeQuotes(row[0])
-		aFile := stripAgtypeQuotes(row[1])
-		aSig := stripAgtypeQuotes(row[3])
-		bName := stripAgtypeQuotes(row[4])
-		bFile := stripAgtypeQuotes(row[5])
-		bSig := stripAgtypeQuotes(row[7])
+		aName := strutil.UnquoteAgtype(row[0])
+		aFile := strutil.UnquoteAgtype(row[1])
+		aSig := strutil.UnquoteAgtype(row[3])
+		bName := strutil.UnquoteAgtype(row[4])
+		bFile := strutil.UnquoteAgtype(row[5])
+		bSig := strutil.UnquoteAgtype(row[7])
 		if aName == "" || aFile == "" || bName == "" || bFile == "" {
 			continue
 		}

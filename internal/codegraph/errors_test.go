@@ -1,8 +1,10 @@
 package codegraph
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -95,5 +97,36 @@ func TestErrGraphNotIndexed(t *testing.T) {
 	wrapped := fmt.Errorf("query: %w", ErrGraphNotIndexed)
 	if !errors.Is(wrapped, ErrGraphNotIndexed) {
 		t.Error("errors.Is must match wrapped ErrGraphNotIndexed")
+	}
+}
+
+// TestValidateGraphName_InjectionPaths verifies the two call sites that inline
+// gname into SQL (create_vlabel / setval) reject unsafe names before any
+// connection is acquired (#813).
+func TestValidateGraphName_InjectionPaths(t *testing.T) {
+	const bad = `x"; DROP TABLE ag_catalog.ag_label; --`
+
+	t.Run("EnsureLabels", func(t *testing.T) {
+		s := &Store{}
+		err := s.EnsureLabels(context.Background(), bad)
+		if err == nil || !strings.Contains(err.Error(), "invalid graph name") {
+			t.Errorf("expected invalid graph name error, got %v", err)
+		}
+	})
+
+	t.Run("advanceLabelSeqs", func(t *testing.T) {
+		err := advanceLabelSeqs(context.Background(), nil, bad,
+			map[string]labelInfo{"x": {}}, map[string]uint64{"x": 1})
+		if err == nil || !strings.Contains(err.Error(), "invalid graph name") {
+			t.Errorf("expected invalid graph name error, got %v", err)
+		}
+	})
+}
+
+func TestBulkCopyInsert_RejectsBadGraphName(t *testing.T) {
+	s := &Store{}
+	err := s.BulkCopyInsert(context.Background(), `x"; DROP TABLE x; --`, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid graph name") {
+		t.Errorf("expected invalid graph name error, got %v", err)
 	}
 }
