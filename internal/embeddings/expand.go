@@ -212,19 +212,10 @@ func buildNameFilter(variable string, names []string) string {
 }
 
 // wrapCypherSQL renders the SQL that carries a Cypher statement to
-// ag_catalog.cypher: graph name as a '...' SQL literal (strutil.SQLLiteral —
-// doubled quotes), Cypher inside a dollar quote whose tag is verified absent
-// from the body. Returns ok=false when no tag can be found — the caller must
-// not run the query.
+// ag_catalog.cypher. Delegate of strutil.WrapCypherSQL — the single assembler
+// shared with codegraph (#808).
 func wrapCypherSQL(graphName, cypher, colDefs string) (string, bool) {
-	tag, ok := strutil.CypherDollarQuote(cypher)
-	if !ok {
-		return "", false
-	}
-	return fmt.Sprintf(
-		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
-		strutil.SQLLiteral(graphName), tag, cypher, tag, colDefs,
-	), true
+	return strutil.WrapCypherSQL(graphName, cypher, colDefs)
 }
 
 // stripAgtypeQuotes removes the surrounding double-quotes that AGE wraps string values in.

@@ -50,3 +50,20 @@ func CypherDollarQuote(cypher string) (string, bool) {
 	}
 	return "", false
 }
+
+// WrapCypherSQL renders the SQL statement carrying a Cypher body to
+// ag_catalog.cypher: graphName as a single-quoted SQL literal (quote-doubled —
+// safe for any input; callers that regex-validate the name keep that as a
+// precondition), the Cypher body inside a dollar quote whose tag is verified
+// absent from the fully assembled body. Returns ok=false when no safe tag
+// exists — the caller must not run the statement (#808).
+func WrapCypherSQL(graphName, cypher, colDefs string) (string, bool) {
+	tag, ok := CypherDollarQuote(cypher)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf(
+		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
+		SQLLiteral(graphName), tag, cypher, tag, colDefs,
+	), true
+}

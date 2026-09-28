@@ -10,7 +10,6 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/langutil"
 	"github.com/anatolykoptev/vaelor/internal/parser"
-	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // TraceFromAGE builds a call trace by querying CALLS edges directly from
@@ -44,7 +43,7 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 	// name in different files — we pick the first (highest pagerank if available).
 	rootCypher := fmt.Sprintf(
 		`MATCH (s:Symbol {name: '%s'}) RETURN s.name, s.kind, s.file, s.start_line, s.end_line, s.signature ORDER BY s.pagerank DESC LIMIT 1`,
-		escapeCypherString(symbolName),
+		escapeCypher(symbolName),
 	)
 	rootRows, err := store.ExecCypher(ctx, graphName, rootCypher, 6)
 	if err != nil {
@@ -155,13 +154,13 @@ func queryDirectNeighbors(ctx context.Context, store *Store, graphName, symName,
 		cypher = fmt.Sprintf(
 			`MATCH (caller:Symbol)-[r:CALLS]->(s:Symbol {name: '%s'})
 			 RETURN caller.name, caller.kind, caller.file, caller.start_line, caller.end_line, caller.signature, r.line`,
-			escapeCypherString(symName),
+			escapeCypher(symName),
 		)
 	} else {
 		cypher = fmt.Sprintf(
 			`MATCH (s:Symbol {name: '%s'})-[r:CALLS]->(callee:Symbol)
 			 RETURN callee.name, callee.kind, callee.file, callee.start_line, callee.end_line, callee.signature, r.line`,
-			escapeCypherString(symName),
+			escapeCypher(symName),
 		)
 	}
 
@@ -241,8 +240,3 @@ func parseUint32(s string) uint32 {
 	}
 	return uint32(v)
 }
-
-// escapeCypherString escapes a string for safe embedding in a Cypher string
-// literal. Delegate of strutil.EscapeCypher — the previous version escaped
-// only single quotes, leaving backslashes able to reopen the literal (#808).
-func escapeCypherString(s string) string { return strutil.EscapeCypher(s) }

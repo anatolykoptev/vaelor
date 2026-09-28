@@ -122,11 +122,6 @@ func validateGraphName(name string) error {
 	return nil
 }
 
-// cypherDollarQuote returns a dollar-quoting tag that does not appear in the
-// Cypher body. Delegate of strutil.CypherDollarQuote — bounded and fail-closed
-// (#808); callers must handle ok=false.
-func cypherDollarQuote(cypher string) (string, bool) { return strutil.CypherDollarQuote(cypher) }
-
 // isReadOnly returns true if cypher contains no write operations.
 // Comments and literals are stripped first so write keywords inside
 // parameter values (e.g. a symbol literally named "Set" or "Delete") do not

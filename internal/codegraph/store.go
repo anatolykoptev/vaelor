@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -228,13 +229,10 @@ func (s *Store) execCypherReadTx(ctx context.Context, graph, cypher string, cols
 		return nil, fmt.Errorf("AGE setup: %w", err)
 	}
 
-	colDefs := buildColDefs(cols)
-	tag, ok := cypherDollarQuote(cypher)
+	sql, ok := strutil.WrapCypherSQL(graph, cypher, buildColDefs(cols))
 	if !ok {
 		return nil, errors.New("cypher body collides with every dollar-quote tag")
 	}
-	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
-		graph, tag, cypher, tag, colDefs)
 
 	rows, err := tx.Query(ctx, sql)
 	if err != nil {
@@ -280,12 +278,10 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 	}
 
 	// Write statements must project at least one column for cypher() to accept them.
-	tag, ok := cypherDollarQuote(cypher)
+	sql, ok := strutil.WrapCypherSQL(graph, cypher, "v ag_catalog.agtype")
 	if !ok {
 		return errors.New("cypher body collides with every dollar-quote tag")
 	}
-	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (v ag_catalog.agtype)`,
-		graph, tag, cypher, tag)
 
 	slog.Debug("ExecCypherWrite", slog.Int("sql_len", len(sql)))
 
@@ -355,13 +351,10 @@ func (bw *BulkWriter) ExecCypherWrite(ctx context.Context, graph, cypher string)
 	if _, err := bw.conn.Exec(ctx, ageSetup); err != nil {
 		return fmt.Errorf("AGE setup: %w", err)
 	}
-	tag, ok := cypherDollarQuote(cypher)
+	sql, ok := strutil.WrapCypherSQL(graph, cypher, "v ag_catalog.agtype")
 	if !ok {
 		return errors.New("cypher body collides with every dollar-quote tag")
 	}
-	sql := fmt.Sprintf(
-		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (v ag_catalog.agtype)`,
-		graph, tag, cypher, tag)
 
 	rows, err := bw.conn.Query(ctx, sql)
 	if err != nil {
