@@ -214,11 +214,23 @@ func handleSemanticSearch(
 	if searcher == nil {
 		searcher = deps.Store
 	}
+	// Resolve the active embed model up-front: it is both the per-row
+	// stale-space filter on Search (embed_model column) and the input to the
+	// stale-hit guard below. Seam mirrors the guard's fallback order.
+	invalidator := deps.pipelineInvalidatorSeam
+	if invalidator == nil && deps.Pipeline != nil {
+		invalidator = deps.Pipeline
+	}
+	var activeModel string
+	if invalidator != nil {
+		activeModel = invalidator.EmbedModel()
+	}
 	results, err := searcher.Search(softCtx, vector, embeddings.SearchOpts{
 		RepoKey:     repoKey,
 		Language:    input.Language,
 		TopK:        topK,
 		MaxDistance: maxDist,
+		Model:       activeModel,
 	})
 	if err != nil {
 		if softCtx.Err() != nil {
@@ -247,10 +259,6 @@ func handleSemanticSearch(
 		checker := deps.staleModelChecker
 		if checker == nil && deps.Store != nil {
 			checker = deps.Store
-		}
-		invalidator := deps.pipelineInvalidatorSeam
-		if invalidator == nil && deps.Pipeline != nil {
-			invalidator = deps.Pipeline
 		}
 		if checker != nil && invalidator != nil && invalidator.EmbedModel() != "" {
 			storedModel := checker.GetStoredModel(softCtx, repoKey)
@@ -307,10 +315,6 @@ func handleSemanticSearch(
 	// live Postgres pool. Routing the no-results branch through the invalidator
 	// seam (instead of deps.Pipeline directly) makes it testable the same way
 	// the stale-hit guard already is, with byte-identical production behavior.
-	invalidator := deps.pipelineInvalidatorSeam
-	if invalidator == nil && deps.Pipeline != nil {
-		invalidator = deps.Pipeline
-	}
 	if invalidator != nil {
 		if repoIsIndexed(softCtx, deps, repoKey, root, invalidator.EmbedModel()) {
 			return semanticSearchNoMatchResponse(input), nil

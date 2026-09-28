@@ -135,6 +135,13 @@ type SearchOpts struct {
 	Language    string  // optional filter
 	TopK        int     // default 20, max 100
 	MaxDistance float32 // 0 = no filter; cosine distance threshold (0.0-1.0)
+	// Model, when non-empty, restricts results to rows stamped with this
+	// embedding model (embed_model column). Rows written by a different model
+	// occupy a foreign vector space: their distances are meaningless, so they
+	// are excluded at query time — drift is unservable by construction rather
+	// than detected after the fact. Empty Model disables the filter, which
+	// preserves the legacy/test pipeline mode (embedModel == "").
+	Model string
 }
 
 // SearchResult is a single semantic search hit.
@@ -336,6 +343,10 @@ func (s *Store) Search(ctx context.Context, query []float32, opts SearchOpts) ([
 	if opts.MaxDistance > 0 {
 		where = append(where, fmt.Sprintf("embedding <=> $1 < $%d", len(args)+1))
 		args = append(args, opts.MaxDistance)
+	}
+	if opts.Model != "" {
+		where = append(where, fmt.Sprintf("embed_model=$%d", len(args)+1))
+		args = append(args, opts.Model)
 	}
 	q := `SELECT repo_key,file_path,symbol_name,symbol_kind,language,start_line,
 		embedding <=> $1 AS distance,updated_at FROM public.code_embeddings`
