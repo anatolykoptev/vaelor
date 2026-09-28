@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.8](https://github.com/anatolykoptev/vaelor/compare/v1.65.7...v1.65.8) (2026-09-28)
+
+
+### Fixed
+
+* **config:** startup WARN when learnings DSN silently falls back to DATABASE_URL ([#594](https://github.com/anatolykoptev/vaelor/issues/594)) ([#817](https://github.com/anatolykoptev/vaelor/issues/817)) ([75255ca](https://github.com/anatolykoptev/vaelor/commit/75255cad5fb5b6eb8cff604c821c0c396ddb194b))
+
 ## [1.65.7](https://github.com/anatolykoptev/vaelor/compare/v1.65.6...v1.65.7) (2026-09-28)
 
 
