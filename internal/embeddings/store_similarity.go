@@ -264,6 +264,11 @@ func (s *Store) FindNearDuplicates(ctx context.Context, repoKey string, k int, m
 	searchErrors := 0
 
 	for _, sym := range syms {
+		if sym.embedModel == "" {
+			// ''-stamped rows have unknown vector space; an unscoped k-NN would
+			// span every model's space and report cross-space false positives.
+			continue
+		}
 		results, searchErr := s.Search(ctx, sym.embedding, SearchOpts{
 			RepoKey:     repoKey,
 			TopK:        k + 1, // +1 because self (distance 0) is always included

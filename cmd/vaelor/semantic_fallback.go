@@ -96,6 +96,11 @@ type indexedStateReader interface {
 	GetRepoState(ctx context.Context, repoKey string) (string, error)
 	GetStoredModel(ctx context.Context, repoKey string) string
 	CountEmbeddings(ctx context.Context, repoKey string) (int, error)
+	// CountEmbeddingsForModel counts only rows in the active embedding space
+	// (#837): a repo whose rows are all stamped with another model (or the
+	// legacy '' stamp) is NOT indexed for this pipeline even though
+	// CountEmbeddings would report them.
+	CountEmbeddingsForModel(ctx context.Context, repoKey, model string) (int, error)
 }
 
 // Compile-time assertions: concrete types satisfy the seam interfaces.

@@ -705,6 +705,21 @@ func (s *Store) GetEmbedModelForRepo(ctx context.Context, repoKey string) string
 	return model
 }
 
+// CountEmbeddingsForModel counts only rows stamped with the given embed_model
+// — the "active embedding space" count. Used by the indexed verdict so a repo
+// whose rows all live in a foreign (or unstamped '') space is correctly seen
+// as not indexed, instead of passing on an invisible-row count (#837).
+func (s *Store) CountEmbeddingsForModel(ctx context.Context, repoKey, model string) (int, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return 0, err
+	}
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM public.code_embeddings WHERE repo_key = $1 AND embed_model = $2`,
+		repoKey, model).Scan(&n)
+	return n, err
+}
+
 // CountEmbeddings returns the number of code_embeddings rows for a given
 // repoKey. Used by the same-SHA index gate to detect the frozen-empty state:
 // when indexed_sha == HEAD but COUNT == 0 the repo needs recovery re-indexing.

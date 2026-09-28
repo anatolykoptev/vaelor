@@ -260,7 +260,7 @@ func handleSemanticSearch(
 		if checker == nil && deps.Store != nil {
 			checker = deps.Store
 		}
-		if checker != nil && invalidator != nil && invalidator.EmbedModel() != "" {
+		if checker != nil && invalidator != nil && activeModel != "" {
 			storedModel := checker.GetStoredModel(softCtx, repoKey)
 			// Defense-in-depth: when code_repo_state has no row for this repo_key
 			// (e.g. orphan vectors from a removed checkout), GetStoredModel returns "".
@@ -271,7 +271,7 @@ func handleSemanticSearch(
 					storedModel = prc.GetEmbedModelForRepo(softCtx, repoKey)
 				}
 			}
-			if storedModel != "" && storedModel != invalidator.EmbedModel() {
+			if storedModel != "" && storedModel != activeModel {
 				// Stale-space hit: invalidate (purge old vectors) and reindex.
 				invalidator.InvalidateIfModelChanged(softCtx, repoKey) // purges atomically
 				if invalidator.IsIndexing(repoKey) {
@@ -305,8 +305,10 @@ func handleSemanticSearch(
 	//     keyed on main, not working-tree HEAD — mirrors WithFreshness), AND
 	//   - the stored embed_model matches the active model (or model tracking
 	//     is off — EmbedModel()=="", same gate as the stale-hit guard), AND
-	//   - CountEmbeddings > 0 (frozen-empty recovery, same gate as the
-	//     same-SHA fast-path).
+	//   - CountEmbeddingsForModel > 0 in the ACTIVE space (frozen-empty
+	//     recovery — plus #837: rows stamped '' or by a foreign model are
+	//     invisible to filtered Search, so counting them would freeze the
+	//     repo in a permanent confident "no match").
 	// Any miss ⇒ fall through to the existing "indexing started, retry" path,
 	// which is correct for not-yet-indexed / stale-SHA / changed-model repos.
 	//
@@ -316,7 +318,7 @@ func handleSemanticSearch(
 	// seam (instead of deps.Pipeline directly) makes it testable the same way
 	// the stale-hit guard already is, with byte-identical production behavior.
 	if invalidator != nil {
-		if repoIsIndexed(softCtx, deps, repoKey, root, invalidator.EmbedModel()) {
+		if repoIsIndexed(softCtx, deps, repoKey, root, activeModel) {
 			return semanticSearchNoMatchResponse(input), nil
 		}
 		if invalidator.IsIndexing(repoKey) {
@@ -375,7 +377,15 @@ func repoIsIndexed(ctx context.Context, deps SemanticDeps, repoKey, root, active
 			return false
 		}
 	}
-	n, err := stateReader.CountEmbeddings(ctx, repoKey)
+	// Count only rows the filtered Search could actually return: with model
+	// tracking on, rows stamped with a foreign (or legacy '') model are
+	// invisible, so an unscoped count would pass on a permanently-empty repo.
+	var n int
+	if activeModel != "" {
+		n, err = stateReader.CountEmbeddingsForModel(ctx, repoKey, activeModel)
+	} else {
+		n, err = stateReader.CountEmbeddings(ctx, repoKey)
+	}
 	if err != nil || n <= 0 {
 		return false
 	}
