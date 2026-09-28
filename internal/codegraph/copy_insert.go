@@ -34,6 +34,9 @@ const copyChunkSize = 1000
 //
 // Returns an error on failure; the caller should fall back to UNWIND inserts.
 func (s *Store) BulkCopyInsert(ctx context.Context, gname string, vertices []vertexData, edges []edgeData) error {
+	if err := validateGraphName(gname); err != nil {
+		return err
+	}
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire: %w", err)

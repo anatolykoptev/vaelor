@@ -6,7 +6,7 @@ import (
 )
 
 // TestAgtypeJSON_RoundTrip locks in that props survive JSON serialisation
-// byte-identically — a reverted hand-rolled escaper must fail this.
+// byte-identically — mutations that emit invalid JSON fail this.
 func TestAgtypeJSON_RoundTrip(t *testing.T) {
 	t.Parallel()
 	props := map[string]string{

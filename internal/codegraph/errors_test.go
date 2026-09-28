@@ -122,3 +122,11 @@ func TestValidateGraphName_InjectionPaths(t *testing.T) {
 		}
 	})
 }
+
+func TestBulkCopyInsert_RejectsBadGraphName(t *testing.T) {
+	s := &Store{}
+	err := s.BulkCopyInsert(context.Background(), `x"; DROP TABLE x; --`, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid graph name") {
+		t.Errorf("expected invalid graph name error, got %v", err)
+	}
+}
