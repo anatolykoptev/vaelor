@@ -101,6 +101,20 @@ func NormalizeSlug(input string) (string, error) {
 // (< 2× repo size free) the clone step may fail; the tmp directory is
 // cleaned up before the error is returned.
 func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
+	// A caller whose ctx is already done gets ctx.Err() BEFORE the
+	// single-flight fn launches: the cold clone runs on a decoupled ctx
+	// (cloneOpTimeout), so a clone started here would keep writing into
+	// DestDir for up to 10m after this call returned — racing any
+	// caller-owned cleanup of DestDir (#798/#734).
+	// Cancellation landing in the window between this check and the fn's
+	// first statement still launches the clone — accepted: the flight
+	// belongs to all same-key waiters, not to the dead caller (a per-caller
+	// check inside the fn would reintroduce leader-ctx poisoning), and in
+	// production DestDir is the shared workspace where a completed clone
+	// stays useful to the next caller.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	slug, err := NormalizeSlug(opts.Slug)
 	if err != nil {
 		return nil, err
