@@ -159,8 +159,8 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 // standalone review_pr behaviour.
 func reviewPRDryRun(ctx context.Context, input ReviewPRInput, deps analyze.Deps, result *review.DeltaResult) (*mcp.CallToolResult, error) {
 	// Persist learnings and look up prior findings via the startup-built store —
-	// it carries the LEARNINGS_DATABASE_URL/DATABASE_URL provenance and the
-	// ownershipOnce-pooled connection (#818).
+	// it carries the LEARNINGS_DATABASE_URL/DATABASE_URL provenance and shares
+	// the one pgxpool opened at boot (#818).
 	if deps.Learnings != nil {
 		recordDryRunLearnings(ctx, deps.Learnings, input, result)
 	}

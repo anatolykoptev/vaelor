@@ -309,9 +309,13 @@ func TestRecordDryRunLearnings(t *testing.T) {
 		t.Fatalf("want Nearest+Upsert per non-nil symbol, got nearest=%v upserts=%d", spy.nearestCalls, len(spy.upserts))
 	}
 	for _, u := range spy.upserts {
-		if u.RiskLevel != "high" || u.Repo != "o/r" {
-			t.Errorf("upsert missing risk/repo: %+v", u)
+		if u.RiskLevel != "high" || u.Repo != "o/r" || u.Flag != "x" ||
+			u.PRURL != "https://github.com/o/r/pull/9" {
+			t.Errorf("upsert fields wrong: %+v", u)
 		}
+	}
+	if spy.upserts[0].Symbol != "Foo" || spy.upserts[1].Symbol != "Bar" {
+		t.Errorf("upsert symbols = %q,%q; want Foo,Bar", spy.upserts[0].Symbol, spy.upserts[1].Symbol)
 	}
 	// Priors inject into suggestions for every symbol (2 symbols × 1 prior).
 	if len(result.Risk.Suggestions) != 2 {

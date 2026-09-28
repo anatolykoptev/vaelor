@@ -51,11 +51,9 @@ type Store struct {
 }
 
 // ownershipOnce gates the ownership-transfer ALTER to at most once per DSN
-// per process. Unlike embeddings/designmd (long-lived Store singletons with
-// a per-instance sync.Once), New() is also called per-request from
-// reviewPRDryRun with a fresh pool each time — ALTER TABLE ... OWNER TO
-// takes an ACCESS EXCLUSIVE lock even as a no-op, so without this gate every
-// dry-run review would re-acquire that lock on the hot path.
+// per process. New may be invoked more than once per process (e.g. a fresh
+// store per CLI subcommand) — ALTER TABLE ... OWNER TO takes an ACCESS
+// EXCLUSIVE lock even as a no-op, so the gate keeps repeat calls cheap.
 var ownershipOnce sync.Map // dsn string -> *sync.Once
 
 // New opens a pool. Caller must call Close.
