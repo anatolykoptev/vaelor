@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.4](https://github.com/anatolykoptev/vaelor/compare/v1.65.3...v1.65.4) (2026-09-28)
+
+
+### Fixed
+
+* **tests:** kill three CI flakes — clone ctx race, refresh settle, deadline timer ([#805](https://github.com/anatolykoptev/vaelor/issues/805)) ([dff53ef](https://github.com/anatolykoptev/vaelor/commit/dff53ef375721c60e7e7f971873979d2a217530d))
+
 ## [1.65.3](https://github.com/anatolykoptev/vaelor/compare/v1.65.2...v1.65.3) (2026-09-28)
 
 
