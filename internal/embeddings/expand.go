@@ -22,15 +22,20 @@ const ageExpandSetup = `SET LOCAL search_path TO ag_catalog, "$user", public`
 // from the assembled query keeps the invariant at the point of SQL assembly —
 // a fixed tag would instead have to be stripped from every interpolated
 // value, and a single-pass strip can be reassembled by crafted input
-// ("$cq" + "$cq$" + "$" after non-overlapping removal). Copied verbatim from
+// ("$cq" + "$cq$" + "$" after non-overlapping removal). Adapted from
 // internal/codegraph/store_helpers.go — embeddings cannot import codegraph
-// (codegraph imports embeddings: semantic_rerank.go).
-func cypherDollarQuote(cypher string) string {
+// (codegraph imports embeddings: semantic_rerank.go) — with a bounded re-roll:
+// a body containing every candidate tag would otherwise spin forever while
+// holding the pooled conn (#802 review).
+func cypherDollarQuote(cypher string) (string, bool) {
 	tag := "$cq$"
-	for strings.Contains(cypher, tag) {
-		tag = fmt.Sprintf("$cq%d$", rand.IntN(99999)) //nolint:mnd,gosec // random suffix, not crypto
+	for i := 0; i < 64; i++ { //nolint:mnd // re-roll budget, not a domain constant
+		if !strings.Contains(cypher, tag) {
+			return tag, true
+		}
+		tag = fmt.Sprintf("$cq%d$", rand.Int64()) //nolint:gosec // random suffix, not crypto
 	}
-	return tag
+	return "", false
 }
 
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
@@ -183,7 +188,11 @@ func (e *Expander) execCypherNPool(ctx context.Context, graphName, cypher, colDe
 		return nil
 	}
 
-	sql := wrapCypherSQL(graphName, cypher, colDefs)
+	sql, ok := wrapCypherSQL(graphName, cypher, colDefs)
+	if !ok {
+		slog.Debug("graph expand: no usable dollar-quote tag", slog.String("graph", graphName))
+		return nil
+	}
 	rows, err := tx.Query(ctx, sql)
 	if err != nil {
 		slog.Debug("graph expand: cypher query failed",
@@ -203,6 +212,11 @@ func (e *Expander) execCypherNPool(ctx context.Context, graphName, cypher, colDe
 			row[i] = fmt.Sprintf("%v", v)
 		}
 		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Debug("graph expand: row iteration failed",
+			slog.String("graph", graphName), slog.Any("error", err))
+		return nil
 	}
 	return result
 }
@@ -227,13 +241,17 @@ func sqlLiteral(s string) string {
 
 // wrapCypherSQL renders the SQL that carries a Cypher statement to
 // ag_catalog.cypher: graph name as a '...' SQL literal, Cypher inside a
-// dollar quote whose tag is verified absent from the body.
-func wrapCypherSQL(graphName, cypher, colDefs string) string {
-	tag := cypherDollarQuote(cypher)
+// dollar quote whose tag is verified absent from the body. Returns ok=false
+// when no tag can be found — the caller must not run the query.
+func wrapCypherSQL(graphName, cypher, colDefs string) (string, bool) {
+	tag, ok := cypherDollarQuote(cypher)
+	if !ok {
+		return "", false
+	}
 	return fmt.Sprintf(
 		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
 		sqlLiteral(graphName), tag, cypher, tag, colDefs,
-	)
+	), true
 }
 
 // stripAgtypeQuotes removes the surrounding double-quotes that AGE wraps string values in.

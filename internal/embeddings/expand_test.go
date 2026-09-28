@@ -41,7 +41,10 @@ func TestBuildNameFilter_EscapesInjectionClasses(t *testing.T) {
 // Cypher text travels inside a dollar quote, and the graph name is a '...'
 // SQL literal escaped by quote doubling.
 func TestWrapCypherSQL_TaggedDollarQuoteAndGraphName(t *testing.T) {
-	got := wrapCypherSQL("g'r$a/ph", "MATCH (n) RETURN n", "x agtype")
+	got, ok := wrapCypherSQL("g'r$a/ph", "MATCH (n) RETURN n", "x agtype")
+	if !ok {
+		t.Fatal("wrapCypherSQL rejected a benign cypher body")
+	}
 	want := `SELECT * FROM ag_catalog.cypher('g''r$a/ph', $cq$ MATCH (n) RETURN n $cq$) AS (x agtype)`
 	if got != want {
 		t.Fatalf("wrapCypherSQL:\n got %q\nwant %q", got, want)
@@ -56,7 +59,10 @@ func TestWrapCypherSQL_TaggedDollarQuoteAndGraphName(t *testing.T) {
 func TestWrapCypherSQL_TagAvoidsBodyCollision(t *testing.T) {
 	const cols = "x agtype"
 	cypher := `MATCH (a) WHERE a.name = 'x$cq$y' RETURN a.name`
-	got := wrapCypherSQL("g", cypher, cols)
+	got, ok := wrapCypherSQL("g", cypher, cols)
+	if !ok {
+		t.Fatal("wrapCypherSQL rejected a body needing only a non-default tag")
+	}
 
 	prefix := `SELECT * FROM ag_catalog.cypher('g', `
 	rest := strings.TrimPrefix(got, prefix)
