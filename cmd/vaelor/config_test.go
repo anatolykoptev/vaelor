@@ -363,3 +363,31 @@ func TestLoadConfig_ExpandSymbolKinds_Enabled(t *testing.T) {
 		t.Errorf("EXPAND_SYMBOL_KINDS=true: ExpandSymbolKinds = false, want true")
 	}
 }
+
+// TestLoadConfig_EmbedModelEmptyFallsToDefault pins the #724 invariant:
+// EMBED_MODEL set-but-empty resolves to the default model, so an empty
+// active model can never reach the semantic_search drift guards. If this
+// read ever moves to a helper that distinguishes set-empty from unset
+// (e.g. env.Lookup), the empty state becomes reachable and both model-drift
+// guards silently no-op — this test catches that regression.
+func TestLoadConfig_EmbedModelEmptyFallsToDefault(t *testing.T) {
+	t.Setenv("EMBED_MODEL", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.EmbedModel != defaultEmbedModel {
+		t.Errorf("EMBED_MODEL='': EmbedModel = %q, want default %q — empty model would disable drift detection",
+			cfg.EmbedModel, defaultEmbedModel)
+	}
+
+	// Explicit value still passes through.
+	t.Setenv("EMBED_MODEL", "some-embed-model")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.EmbedModel != "some-embed-model" {
+		t.Errorf("EMBED_MODEL override: want %q, got %q", "some-embed-model", cfg.EmbedModel)
+	}
+}

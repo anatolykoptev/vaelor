@@ -689,6 +689,13 @@ func loadConfig() (Config, error) {
 	// Publish the learnings DB fallback gauge (#594) from the same raw env
 	// values used for the Config fields — one derivation for flag and gauge.
 	publishLearningsDBFallback(learningsURLEnv, databaseURLEnv)
+	// EMBED_MODEL set-but-empty resolves to the default via env.Str — say so
+	// loudly, because an empty active model would silently disable the
+	// model-drift guards on both semantic_search paths (#724).
+	if v, ok := os.LookupEnv("EMBED_MODEL"); ok && v == "" {
+		slog.Warn("config: EMBED_MODEL is set but empty — using default; an empty model name disables model-drift detection",
+			slog.String("default", defaultEmbedModel))
+	}
 	return cfg, nil
 }
 
