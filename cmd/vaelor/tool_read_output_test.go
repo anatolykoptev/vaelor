@@ -31,7 +31,7 @@ func TestReadOutput_FetchesWholeSpill(t *testing.T) {
 	if !strings.Contains(got, content) {
 		t.Fatalf("chunk must contain the spilled content; got %q", got)
 	}
-	if !strings.HasPrefix(got, filepath.Base(path)+" — chars 0..") {
+	if !strings.HasPrefix(got, filepath.Base(path)+" — bytes 0..") {
 		t.Fatalf("missing header with name/offset/total; got %q", got)
 	}
 	if strings.Contains(got, "[truncated:") {
@@ -172,7 +172,7 @@ func TestReadOutput_EmptyFileAnyOffset(t *testing.T) {
 			t.Fatalf("offset %d on empty file must not error or panic; got %q",
 				off, truncForLog(textContentOf(t, res), 120))
 		}
-		if !strings.Contains(textContentOf(t, res), "0 chars") {
+		if !strings.Contains(textContentOf(t, res), "0 bytes") {
 			t.Fatalf("offset %d: expected empty-file response; got %q",
 				off, truncForLog(textContentOf(t, res), 120))
 		}

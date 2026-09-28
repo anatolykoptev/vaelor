@@ -82,7 +82,7 @@ func renderLadder(ladder mcpmeta.Ladder, toolName, outputDir string, budget int)
 // changes.
 func fileSavePointerUpperBound(toolName, outputDir string) int {
 	const maxDigits = 20 // covers int64 max (19 digits) + 1 safety
-	// Filename: "<toolName>_<millis>.txt" — millis is int64, bounded by maxDigits.
+	// Filename: "<toolName>_<nanos>.txt" — nanos is int64, bounded by maxDigits.
 	maxFilename := toolName + "_" + strings.Repeat("9", maxDigits) + ".txt"
 	// filepath.Join can only shorten (collapsing slashes/trailing separators),
 	// so len(outputDir)+1+len(maxFilename) is a safe upper bound on the joined path.

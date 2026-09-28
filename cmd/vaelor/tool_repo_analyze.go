@@ -167,7 +167,7 @@ func saveAnalysisFile(content, format, outputDir string) (string, bool) {
 		return "", false
 	}
 
-	filename := fmt.Sprintf("repo_analyze_%d%s", time.Now().UnixMilli(), ext)
+	filename := fmt.Sprintf("repo_analyze_%d%s", time.Now().UnixNano(), ext)
 	path := filepath.Join(outputDir, filename)
 
 	// File must be world-readable so the consuming agent (running as a different user) can access it.

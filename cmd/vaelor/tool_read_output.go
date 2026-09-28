@@ -16,7 +16,7 @@ import (
 // ReadOutputInput is the input schema for the read_output tool.
 type ReadOutputInput struct {
 	Name   string `json:"name" jsonschema:"File name as returned in the spill notice (e.g. code_graph_1234567890.txt). Basename only — no directories."`
-	Offset int    `json:"offset,omitempty" jsonschema:"Character offset to resume from, taken from the previous chunk's truncated footer (default: 0)"`
+	Offset int    `json:"offset,omitempty" jsonschema:"Byte offset to resume from, taken from the previous chunk's truncated footer (default: 0)"`
 }
 
 func registerReadOutput(server *mcp.Server, cfg Config) {
@@ -55,22 +55,17 @@ func handleReadOutput(input ReadOutputInput, outputDir string) *mcp.CallToolResu
 	if err != nil {
 		return errResult(fmt.Sprintf("read_output: stat %q: %v", input.Name, err))
 	}
-	if !info.Mode().IsRegular() {
-		// FIFOs would block ReadAt forever; device/dir entries are never
-		// legitimate spill output.
-		return errResult(fmt.Sprintf("read_output: %q is not a regular file", input.Name))
-	}
 	total := int(info.Size())
 	if total == 0 {
 		return textResult(mcpmeta.MarkBudgetApplied(
-			fmt.Sprintf("%s — 0 chars\n", input.Name)))
+			fmt.Sprintf("%s — 0 bytes\n", input.Name)))
 	}
 	offset := input.Offset
 	if offset < 0 {
 		offset = 0
 	}
 	if offset >= total {
-		return errResult(fmt.Sprintf("read_output: offset %d is beyond end of %q (%d chars)", offset, input.Name, total))
+		return errResult(fmt.Sprintf("read_output: offset %d is beyond end of %q (%d bytes)", offset, input.Name, total))
 	}
 
 	window := readOutputWindow
@@ -91,9 +86,14 @@ func handleReadOutput(input ReadOutputInput, outputDir string) *mcp.CallToolResu
 			n--
 		}
 	}
+	if n == 0 {
+		// The file shrank between Stat and ReadAt and the trim consumed the
+		// remainder — error rather than echo the same offset forever.
+		return errResult(fmt.Sprintf("read_output: %q changed while reading — retry the same offset", input.Name))
+	}
 	chunk := string(buf[:n])
 
-	header := fmt.Sprintf("%s — chars %d..%d of %d\n", input.Name, offset, offset+n, total)
+	header := fmt.Sprintf("%s — bytes %d..%d of %d\n", input.Name, offset, offset+n, total)
 	body := header + chunk
 	if offset+n < total {
 		body += fmt.Sprintf("\n[truncated: %d more chars — read_output(name=%q, offset=%d)]",
@@ -123,6 +123,13 @@ func resolveSpillPath(outputDir, name string) (string, error) {
 	}
 	if !strings.HasPrefix(resolved, base+string(os.PathSeparator)) {
 		return "", fmt.Errorf("read_output: %q resolves outside the output dir", name)
+	}
+	// Reject non-regular files BEFORE os.Open — POSIX open on a FIFO blocks
+	// until a writer appears and no context can interrupt it; IsRegular after
+	// Open would be too late. Residual check-then-open TOCTOU is accepted:
+	// planting anything in OUTPUT_DIR needs write access to the dir itself.
+	if info, err := os.Lstat(resolved); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("read_output: %q is not a regular file", name)
 	}
 	return resolved, nil
 }
