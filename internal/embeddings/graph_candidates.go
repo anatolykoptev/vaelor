@@ -384,11 +384,15 @@ func mergeGraphHits(pr, calls, comm []GraphHit, limit int) []GraphHit {
 // backslash is not itself re-escaped. "foo\" → "foo\\" → 'foo\\' (safe);
 // "O'Brien" → "O\'Brien" → 'O\'Brien' (safe).
 //
-// The Cypher text is carried inside a cypherDollarTag dollar-quoted SQL
-// string — a value containing the tag would close that string early, so the
-// tag sequence is stripped (#802).
+// Escape set mirrors codegraph.escapeCypher (store_helpers.go) — sibling
+// implementation; the packages cannot share it (codegraph imports
+// embeddings). Dollar-quote breakout needs no handling here: wrapCypherSQL
+// derives a tag absent from the assembled body (#802).
 func escapeCypherName(name string) string {
 	name = strings.ReplaceAll(name, `\`, `\\`)
 	name = strings.ReplaceAll(name, "'", "\\'")
-	return strings.ReplaceAll(name, cypherDollarTag, "")
+	name = strings.ReplaceAll(name, "\x00", "") // strip null bytes
+	name = strings.ReplaceAll(name, "\n", `\n`)
+	name = strings.ReplaceAll(name, "\r", `\r`)
+	return strings.ReplaceAll(name, "\t", `\t`)
 }

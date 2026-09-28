@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -16,11 +17,21 @@ import (
 // codegraph.Store.CheckAGEPreloaded).
 const ageExpandSetup = `SET LOCAL search_path TO ag_catalog, "$user", public`
 
-// cypherDollarTag is the PostgreSQL dollar-quote tag wrapping the Cypher text
-// inside ag_catalog.cypher() calls. A named tag (not bare $$) plus stripping
-// the tag inside escapeCypherName means a value containing "$$" — e.g. a PHP
-// $$var symbol — cannot close the SQL string early.
-const cypherDollarTag = "$vaelor$"
+// cypherDollarQuote returns a dollar-quoting tag that does not appear in the
+// Cypher body. PostgreSQL dollar-quoting: $tag$...$tag$. Deriving the tag
+// from the assembled query keeps the invariant at the point of SQL assembly —
+// a fixed tag would instead have to be stripped from every interpolated
+// value, and a single-pass strip can be reassembled by crafted input
+// ("$cq" + "$cq$" + "$" after non-overlapping removal). Copied verbatim from
+// internal/codegraph/store_helpers.go — embeddings cannot import codegraph
+// (codegraph imports embeddings: semantic_rerank.go).
+func cypherDollarQuote(cypher string) string {
+	tag := "$cq$"
+	for strings.Contains(cypher, tag) {
+		tag = fmt.Sprintf("$cq%d$", rand.IntN(99999)) //nolint:mnd,gosec // random suffix, not crypto
+	}
+	return tag
+}
 
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
 const graphRowCols = 3
@@ -215,12 +226,13 @@ func sqlLiteral(s string) string {
 }
 
 // wrapCypherSQL renders the SQL that carries a Cypher statement to
-// ag_catalog.cypher: graph name as a '...' SQL literal, Cypher inside the
-// cypherDollarTag dollar quote.
+// ag_catalog.cypher: graph name as a '...' SQL literal, Cypher inside a
+// dollar quote whose tag is verified absent from the body.
 func wrapCypherSQL(graphName, cypher, colDefs string) string {
+	tag := cypherDollarQuote(cypher)
 	return fmt.Sprintf(
-		`SELECT * FROM ag_catalog.cypher('%s', `+cypherDollarTag+` %s `+cypherDollarTag+`) AS (%s)`,
-		sqlLiteral(graphName), cypher, colDefs,
+		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
+		sqlLiteral(graphName), tag, cypher, tag, colDefs,
 	)
 }
 

@@ -17,30 +17,61 @@ func TestAgeExpandSetupNoLOAD(t *testing.T) {
 }
 
 // TestBuildNameFilter_EscapesInjectionClasses pins the literal rendering for
-// the three breakout classes (#802):
+// the breakout classes (#802):
 //
 //   - backslash: `foo\` must render as 'foo\\' — unescaped, the backslash
 //     escapes the closing quote and the literal swallows the rest of the
 //     query. RED on the pre-fix quote-only escaper.
 //   - single quote: "O'Brien" → 'O\'Brien'.
-//   - dollar tag: a value containing cypherDollarTag must lose it so the tag
-//     can never close the SQL dollar-quote carrying the Cypher text.
+//   - control chars: literal \n/\r/\t are escaped (mirrors
+//     codegraph.escapeCypher); null bytes are stripped.
+//
+// Dollar-quote breakout needs no handling at this layer: wrapCypherSQL
+// derives a tag absent from the assembled body, so any "$...$" text in a
+// name is inert (see TestWrapCypherSQL_TagAvoidsBodyCollision).
 func TestBuildNameFilter_EscapesInjectionClasses(t *testing.T) {
-	got := buildNameFilter("a", []string{`foo\`, "O'Brien", "x" + cypherDollarTag + "y"})
-	want := `a.name = 'foo\\' OR a.name = 'O\'Brien' OR a.name = 'xy'`
+	got := buildNameFilter("a", []string{`foo\`, "O'Brien", "x$cq$y", "line\nbreak"})
+	want := `a.name = 'foo\\' OR a.name = 'O\'Brien' OR a.name = 'x$cq$y' OR a.name = 'line\nbreak'`
 	if got != want {
 		t.Fatalf("buildNameFilter injection-safe rendering:\n got %q\nwant %q", got, want)
 	}
 }
 
 // TestWrapCypherSQL_TaggedDollarQuoteAndGraphName pins the SQL wrapper: the
-// Cypher text travels inside the named dollar tag, and the graph name is a
-// '...' SQL literal escaped by quote doubling.
+// Cypher text travels inside a dollar quote, and the graph name is a '...'
+// SQL literal escaped by quote doubling.
 func TestWrapCypherSQL_TaggedDollarQuoteAndGraphName(t *testing.T) {
 	got := wrapCypherSQL("g'r$a/ph", "MATCH (n) RETURN n", "x agtype")
-	want := `SELECT * FROM ag_catalog.cypher('g''r$a/ph', $vaelor$ MATCH (n) RETURN n $vaelor$) AS (x agtype)`
+	want := `SELECT * FROM ag_catalog.cypher('g''r$a/ph', $cq$ MATCH (n) RETURN n $cq$) AS (x agtype)`
 	if got != want {
 		t.Fatalf("wrapCypherSQL:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestWrapCypherSQL_TagAvoidsBodyCollision: a Cypher body containing the
+// default tag forces a different dollar-quote tag, so no value can close the
+// SQL string early (#802). The tag is derived at assembly — reassembly
+// attacks (e.g. "$v$cq$aelor$" under a single-pass strip) are impossible by
+// construction.
+func TestWrapCypherSQL_TagAvoidsBodyCollision(t *testing.T) {
+	const cols = "x agtype"
+	cypher := `MATCH (a) WHERE a.name = 'x$cq$y' RETURN a.name`
+	got := wrapCypherSQL("g", cypher, cols)
+
+	prefix := `SELECT * FROM ag_catalog.cypher('g', `
+	rest := strings.TrimPrefix(got, prefix)
+	if rest == got {
+		t.Fatalf("wrapCypherSQL missing expected prefix: %q", got)
+	}
+	tag, _, ok := strings.Cut(rest, " ")
+	if !ok || !strings.HasPrefix(tag, "$cq") || !strings.HasSuffix(tag, "$") {
+		t.Fatalf("no dollar-quote tag after cypher( arg: %q", got)
+	}
+	if tag == "$cq$" {
+		t.Fatalf("default tag used though the body contains it: %q", got)
+	}
+	if !strings.Contains(got, tag+" "+cypher+" "+tag) {
+		t.Fatalf("body not wrapped in the chosen tag %q: %q", tag, got)
 	}
 }
 
