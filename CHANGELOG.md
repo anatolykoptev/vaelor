@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.2](https://github.com/anatolykoptev/vaelor/compare/v1.65.1...v1.65.2) (2026-09-28)
+
+
+### Fixed
+
+* review_pr impact cap, code_graph literal guard, per-keyword trigram prefilter ([#800](https://github.com/anatolykoptev/vaelor/issues/800)) ([c3d2659](https://github.com/anatolykoptev/vaelor/commit/c3d2659f963b676535e24a4ebf489e0890bde797))
+
 ## [1.65.1](https://github.com/anatolykoptev/vaelor/compare/v1.65.0...v1.65.1) (2026-09-24)
 
 
