@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.6](https://github.com/anatolykoptev/go-code/compare/v1.65.5...v1.65.6) (2026-09-28)
+
+
+### Fixed
+
+* **codegraph:** server-enforced read-only tx + shared Cypher helpers ([#808](https://github.com/anatolykoptev/go-code/issues/808)) ([#810](https://github.com/anatolykoptev/go-code/issues/810)) ([180e1a0](https://github.com/anatolykoptev/go-code/commit/180e1a0a317df608ab26180f89c49955eae865ae))
+
 ## [1.65.5](https://github.com/anatolykoptev/vaelor/compare/v1.65.4...v1.65.5) (2026-09-28)
 
 
