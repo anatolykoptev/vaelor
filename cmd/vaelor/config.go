@@ -153,6 +153,12 @@ type Config struct {
 	// Falls back to DATABASE_URL if unset.
 	LearningsDSN string
 
+	// LearningsDSNFallback records that LearningsDSN came from DATABASE_URL
+	// rather than an explicit LEARNINGS_DATABASE_URL — i.e. learnings are
+	// silently co-located with the graph DB. Startup warns once so the
+	// co-location is visible instead of silent (#594).
+	LearningsDSNFallback bool
+
 	// CodegraphSurpriseIndex enables per-edge and per-symbol surprise persistence
 	// at index time (CODEGRAPH_SURPRISE_INDEX=1). Default off.
 	CodegraphSurpriseIndex bool
@@ -619,6 +625,7 @@ func loadConfig() (Config, error) {
 		DesignEmbedURL:         env.Str("DESIGN_EMBED_URL", ""),
 		DesignEmbedModel:       env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
 		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
+		LearningsDSNFallback:   os.Getenv("LEARNINGS_DATABASE_URL") == "" && os.Getenv("DATABASE_URL") != "",
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
 		FlowsMax:               env.Int("FLOWS_MAX", 0),       // 0 → applyConfigDefaults uses flowsMax=50
 		FlowsDFSDepth:          env.Int("FLOWS_DFS_DEPTH", 0), // 0 → applyConfigDefaults uses flowsDFSDepth=8
