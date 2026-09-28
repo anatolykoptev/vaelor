@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand/v2"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,16 +37,9 @@ func graphName(repoPath string) string {
 }
 
 // escapeCypher escapes a string for safe use in a single-quoted Cypher literal.
-// Prevents Cypher injection by escaping backslash, quotes, backtick, and control characters.
-func escapeCypher(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `'`, `\'`)
-	s = strings.ReplaceAll(s, "\x00", "") // strip null bytes
-	s = strings.ReplaceAll(s, "\n", `\n`)
-	s = strings.ReplaceAll(s, "\r", `\r`)
-	s = strings.ReplaceAll(s, "\t", `\t`)
-	return s
-}
+// Delegate of strutil.EscapeCypher — the single implementation shared with
+// embeddings (#808).
+func escapeCypher(s string) string { return strutil.EscapeCypher(s) }
 
 // reWriteOp matches Cypher write keywords — used to reject writes in ExecCypher.
 var reWriteOp = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|DETACH)\b`)
@@ -128,16 +120,6 @@ func validateGraphName(name string) error {
 		return fmt.Errorf("invalid graph name %q: must match [a-z0-9_]+", name)
 	}
 	return nil
-}
-
-// cypherDollarQuote returns a dollar-quoting tag that does not appear in the
-// Cypher body. PostgreSQL dollar-quoting: $tag$...$tag$.
-func cypherDollarQuote(cypher string) string {
-	tag := "$cq$"
-	for strings.Contains(cypher, tag) {
-		tag = fmt.Sprintf("$cq%d$", rand.IntN(99999)) //nolint:mnd,gosec // random suffix, not crypto
-	}
-	return tag
 }
 
 // isReadOnly returns true if cypher contains no write operations.
