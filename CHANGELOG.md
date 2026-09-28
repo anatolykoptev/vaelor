@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.10](https://github.com/anatolykoptev/vaelor/compare/v1.65.9...v1.65.10) (2026-09-28)
+
+
+### Fixed
+
+* **review_pr:** dry-run path reuses startup learnings store, not DATABASE_URL ([#822](https://github.com/anatolykoptev/vaelor/issues/822)) ([2ddc71d](https://github.com/anatolykoptev/vaelor/commit/2ddc71dfdf1bdb68750d58d267b637575cd8a5c0))
+
 ## [1.65.9](https://github.com/anatolykoptev/go-code/compare/v1.65.8...v1.65.9) (2026-09-28)
 
 
