@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.7](https://github.com/anatolykoptev/vaelor/compare/v1.65.6...v1.65.7) (2026-09-28)
+
+
+### Fixed
+
+* **mcp:** read_output tool + server-local spill notices — remote clients stop losing large outputs ([#796](https://github.com/anatolykoptev/vaelor/issues/796)) ([#815](https://github.com/anatolykoptev/vaelor/issues/815)) ([6b5e19c](https://github.com/anatolykoptev/vaelor/commit/6b5e19c16155a91f187dbd795c126c311490b004))
+
 ## [1.65.6](https://github.com/anatolykoptev/go-code/compare/v1.65.5...v1.65.6) (2026-09-28)
 
 
