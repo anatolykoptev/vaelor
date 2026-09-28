@@ -90,6 +90,14 @@ type Pipeline struct {
 // stored alongside head_sha so that a model switch on next startup triggers a
 // full reindex. Pass "" to retain legacy behaviour (no model tracking).
 func NewPipeline(client *embed.Client, store *Store, model string, opts ...PipelineOpt) *Pipeline {
+	if model == "" {
+		// "" is the documented legacy/no-tracking mode — make it loud rather
+		// than silently trusted: with no model name, both semantic_search
+		// drift guards no-op and a stale embedding space is undetectable
+		// (#724). Production cannot reach this (config defaults EMBED_MODEL),
+		// so a WARN here always means a new caller chose no-tracking.
+		slog.Warn("embeddings: pipeline created with empty model — model-drift detection disabled")
+	}
 	p := &Pipeline{
 		client:             client,
 		store:              store,
