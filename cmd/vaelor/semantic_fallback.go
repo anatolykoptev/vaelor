@@ -104,6 +104,23 @@ var _ perRowModelChecker = (*embeddings.Store)(nil)
 var _ pipelineInvalidator = (*embeddings.Pipeline)(nil)
 var _ indexedStateReader = (*embeddings.Store)(nil)
 
+// scheduleIndexUnlessCurrent triggers a freshness re-index only when the repo
+// is not already indexed at the current main tip (#723). An unconditional
+// schedule queues a no-op pass on every call — wasted work that competes with
+// the PSI memory-pressure guard on a shared box. repoIsIndexed is fail-open:
+// any read error (no state row, no git repo, transient DB error) keeps the
+// scheduling, preserving the pre-#723 behavior for uncertain states.
+func scheduleIndexUnlessCurrent(ctx context.Context, deps SemanticDeps, tool, repoKey, root string) {
+	invalidator := deps.pipelineInvalidatorSeam
+	if invalidator == nil && deps.Pipeline != nil {
+		invalidator = deps.Pipeline
+	}
+	if invalidator != nil &&
+		!repoIsIndexed(ctx, deps, repoKey, root, invalidator.EmbedModel()) {
+		invalidator.IndexRepoAsyncWithTool(tool, repoKey, root)
+	}
+}
+
 // semanticSuggest runs a trigram fuzzy name match as fallback when the primary
 // tool found no symbol. Uses pg_trgm on code_embeddings.symbol_name (GIN
 // trigram index) — independent of the embed-server / jina worker availability.

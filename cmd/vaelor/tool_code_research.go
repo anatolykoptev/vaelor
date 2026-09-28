@@ -85,10 +85,9 @@ func handleCodeResearch(
 		resDeps.RepoKey = codegraph.GraphNameFor(root)
 		// Wire pg_trgm symbol search for Step 3.5 augmentation.
 		resDeps.SymbolSearcher = semDeps.Store
-		// Trigger background re-index for freshness.
-		if semDeps.Pipeline != nil {
-			semDeps.Pipeline.IndexRepoAsyncWithTool("code_research", resDeps.RepoKey, root)
-		}
+		// Trigger background re-index for freshness — skipped when the repo is
+		// already indexed at the current main tip (#723).
+		scheduleIndexUnlessCurrent(ctx, *semDeps, "code_research", resDeps.RepoKey, root)
 	}
 	if analyzeDeps.Graph != nil {
 		resDeps.Graph = analyzeDeps.Graph

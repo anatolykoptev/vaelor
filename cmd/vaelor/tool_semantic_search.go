@@ -397,10 +397,10 @@ func handleSemanticHits(
 	repoKey, root string, results []embeddings.SearchResult, topK int, maxDist float32,
 	outputDir string, t0 time.Time,
 ) (*mcp.CallToolResult, error) {
-	// Trigger background re-index for freshness.
-	if deps.Pipeline != nil {
-		deps.Pipeline.IndexRepoAsyncWithTool("semantic_search", repoKey, root)
-	}
+	// Trigger background re-index for freshness — skipped when the repo is
+	// already indexed at the current main tip (#723), same gate as the
+	// zero-results path.
+	scheduleIndexUnlessCurrent(ctx, deps, "semantic_search", repoKey, root)
 
 	// #691: Graph freshness gate for the retrieval path. The graph (0.25) +
 	// hotspot (0.15) arms — 40% of fused weight — read the AGE graph with no
