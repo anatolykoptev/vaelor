@@ -416,3 +416,85 @@ func TestHandleSemanticSearch_NoResults_CountEmbeddingsError_SchedulesIndex(t *t
 			"unreadable count left the repo un-indexed")
 	}
 }
+
+// --- #723: freshness re-index must not fire on an already-current repo ---
+
+// TestScheduleIndexUnlessCurrent_Indexed_NoSchedule verifies the #723 fix:
+// when the repo is genuinely indexed at the current main tip (matching
+// head_sha, matching embed model, non-zero embeddings), the freshness
+// re-index MUST NOT be scheduled — an unconditional schedule queued a no-op
+// pass on every code_research / semantic_search call, competing with the PSI
+// memory-pressure guard.
+//
+// Anti-tautology (red-on-revert): drop the !repoIsIndexed(...) gate inside
+// scheduleIndexUnlessCurrent → indexAsyncCalled=true → FAIL.
+func TestScheduleIndexUnlessCurrent_Indexed_NoSchedule(t *testing.T) {
+	const activeModel = "code-rank-embed"
+
+	dir, sha := noResultGitRepo(t)
+
+	state := &indexedStateSpy{
+		storedSHA:   sha,
+		storedModel: activeModel,
+		embCount:    12007,
+	}
+	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := noResultTestDeps(state, invalidator)
+
+	scheduleIndexUnlessCurrent(context.Background(), deps, "code_research", "code_test", dir)
+
+	if invalidator.indexAsyncCalled {
+		t.Error("IndexRepoAsyncWithTool was called on an already-current repo: " +
+			"the #723 gate is not applied — every call queues a no-op index pass")
+	}
+}
+
+// TestScheduleIndexUnlessCurrent_StaleSHA_Schedules verifies the gate keeps
+// scheduling when head_sha moved — the fall-through case repoIsIndexed
+// already distinguishes.
+func TestScheduleIndexUnlessCurrent_StaleSHA_Schedules(t *testing.T) {
+	const activeModel = "code-rank-embed"
+
+	dir, _ := noResultGitRepo(t)
+
+	state := &indexedStateSpy{
+		storedSHA:   "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", // ≠ live tip
+		storedModel: activeModel,
+		embCount:    12007,
+	}
+	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := noResultTestDeps(state, invalidator)
+
+	scheduleIndexUnlessCurrent(context.Background(), deps, "semantic_search", "code_test", dir)
+
+	if !invalidator.indexAsyncCalled {
+		t.Error("stale SHA: IndexRepoAsyncWithTool was NOT called — " +
+			"a moved main tip must still schedule the freshness pass")
+	}
+	if invalidator.indexAsyncTool != "semantic_search" {
+		t.Errorf("tool attribution lost: got %q, want semantic_search", invalidator.indexAsyncTool)
+	}
+}
+
+// TestScheduleIndexUnlessCurrent_ReadError_Schedules verifies the fail-open
+// arm: when the indexed-state read fails, the repo is treated as not indexed
+// and the freshness pass IS scheduled (pre-#723 behavior for uncertain state).
+func TestScheduleIndexUnlessCurrent_ReadError_Schedules(t *testing.T) {
+	const activeModel = "code-rank-embed"
+
+	dir, _ := noResultGitRepo(t)
+
+	state := &indexedStateSpy{
+		getRepoStateErr: errors.New("simulated SQLSTATE 42P01: relation code_repo_state does not exist"),
+		embCount:        12007,
+	}
+	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := noResultTestDeps(state, invalidator)
+
+	scheduleIndexUnlessCurrent(context.Background(), deps, "code_research", "code_test", dir)
+
+	if !invalidator.indexAsyncCalled {
+		t.Error("state-read error: IndexRepoAsyncWithTool was NOT called — " +
+			"fail-open must keep scheduling when indexed state is unreadable")
+	}
+}

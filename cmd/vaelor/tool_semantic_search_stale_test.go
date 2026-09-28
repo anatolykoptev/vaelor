@@ -230,7 +230,7 @@ func TestHandleSemanticSearch_StaleSpaceHit_AlreadyIndexing(t *testing.T) {
 func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 	const activeModel = "code-rank-embed"
 
-	repoDir := t.TempDir()
+	repoDir, sha := noResultGitRepo(t)
 
 	validHits := []embeddings.SearchResult{
 		{RepoKey: "testrepo/fresh", FilePath: "pkg/foo.go", SymbolName: "Foo", Distance: 0.1},
@@ -239,6 +239,14 @@ func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 	checker := &modelCheckerSpy{storedModel: activeModel} // same as active
 	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
 	deps := staleTestDeps(checker, invalidator, validHits)
+	// #723: the hits-path freshness schedule now consults repoIsIndexed via
+	// the seam union; a repo that returned hits IS indexed in production, so
+	// the fixture wires that state explicitly.
+	deps.indexedStateSeam = &indexedStateSpy{
+		storedSHA:   sha,
+		storedModel: activeModel,
+		embCount:    100,
+	}
 
 	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
 		Repo:  repoDir,
@@ -280,7 +288,7 @@ func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 func TestHandleSemanticSearch_NoStoredModel_PassesThrough(t *testing.T) {
 	const activeModel = "code-rank-embed"
 
-	repoDir := t.TempDir()
+	repoDir, sha := noResultGitRepo(t)
 
 	validHits := []embeddings.SearchResult{
 		{RepoKey: "testrepo/new", FilePath: "pkg/baz.go", SymbolName: "Baz", Distance: 0.15},
@@ -289,6 +297,13 @@ func TestHandleSemanticSearch_NoStoredModel_PassesThrough(t *testing.T) {
 	checker := &modelCheckerSpy{storedModel: ""} // no prior index row
 	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
 	deps := staleTestDeps(checker, invalidator, validHits)
+	// #723: same seam wiring as ModelMatch — hits imply an indexed repo;
+	// empty storedModel exercises the legacy no-model-tracking arm.
+	deps.indexedStateSeam = &indexedStateSpy{
+		storedSHA:   sha,
+		storedModel: "",
+		embCount:    100,
+	}
 
 	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
 		Repo:  repoDir,
