@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.11](https://github.com/anatolykoptev/go-code/compare/v1.65.10...v1.65.11) (2026-09-28)
+
+
+### Fixed
+
+* **mcpmeta:** partial results now carry retry_after_seconds uniformly ([#688](https://github.com/anatolykoptev/go-code/issues/688)) ([f253fbe](https://github.com/anatolykoptev/go-code/commit/f253fbef4c4ec470f9d531657ae3096f53b658b5))
+
 ## [1.65.10](https://github.com/anatolykoptev/vaelor/compare/v1.65.9...v1.65.10) (2026-09-28)
 
 
