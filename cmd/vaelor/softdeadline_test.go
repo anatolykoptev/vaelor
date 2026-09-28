@@ -13,34 +13,42 @@ import (
 // deadline returns a partial result instead of nothing. This is the core
 // #572 contract: never compute past the deadline to return nothing.
 //
-// The "slow fake" is a handler that sleeps past the deadline. We use a
-// very short deadline (50ms) so the test runs fast. The handler checks
-// ctx.Err() and returns a partial result.
+// The test itself plays the deadline: the handler signals when stage 1 is
+// done and parks in the expensive-stage select; the test then cancels the
+// context — the exact signal a firing deadline sends. No real-time margin is
+// involved, so machine load cannot let the "full result" arm win (#751: the
+// old 50ms-deadline vs 200ms-work race flipped under CI load).
 func TestSoftDeadline_SlowFake(t *testing.T) {
-	// Simulate a tool handler that respects the soft deadline.
+	stage1Done := make(chan struct{})
 	handler := func(ctx context.Context) string {
-		// Simulate some work.
-		time.Sleep(10 * time.Millisecond)
+		// Stage 1 completes; tell the test so it can "fire" the deadline
+		// while this handler is parked in the expensive stage below.
+		close(stage1Done)
 
-		// Check if deadline fired before the expensive stage.
+		// Check if the deadline fired before the expensive stage.
 		if ctx.Err() != nil {
 			return "partial: computed stage 1 only"
 		}
 
 		// Simulate the expensive stage (would be LLM call, DB query, etc).
 		select {
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(10 * time.Second):
 			return "full result"
 		case <-ctx.Done():
 			return "partial: computed stage 1 only"
 		}
 	}
 
-	// Run with a 50ms soft deadline.
-	ctx, cancel := mcpmeta.SoftDeadlineWith(context.Background(), 50*time.Millisecond)
+	ctx, cancel := mcpmeta.SoftDeadlineWith(context.Background(), time.Hour)
 	defer cancel()
 
-	result := handler(ctx)
+	done := make(chan string, 1)
+	go func() { done <- handler(ctx) }()
+
+	<-stage1Done // stage 1 complete; handler is at/past the ctx.Err() check
+	cancel()     // the deadline "fires" — deterministically, not via a real timer
+
+	result := <-done
 
 	if !strings.Contains(result, "partial") {
 		t.Fatalf("handler must return partial result on deadline, got: %q", result)

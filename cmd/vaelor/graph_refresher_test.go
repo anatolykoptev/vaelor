@@ -180,9 +180,15 @@ func TestGraphRefresh_FailureLoud(t *testing.T) {
 	refreshFailedBefore := testutil.ToFloat64(graphRefreshTotal.WithLabelValues(graphRefreshOutcomeFailed))
 
 	r.Trigger("test/fail", "/tmp/fail")
-	// Wait for the refresh to complete (it returns immediately on error).
-	awaitCount(t, new(atomic.Int64), 0, 500*time.Millisecond) // small settle
-	time.Sleep(60 * time.Millisecond)
+	// Poll the asserted counters themselves — a fixed sleep after Trigger
+	// races the debounce timer's delivery under load (#763: the timer fired
+	// late, the counters had not moved yet, and the 60ms settle elapsed).
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(codeGraphBuildFailures.WithLabelValues(codeGraphBuildReasonIndexError)) > failBefore &&
+			testutil.ToFloat64(graphRefreshTotal.WithLabelValues(graphRefreshOutcomeFailed)) > refreshFailedBefore
+	}, 5*time.Second, 5*time.Millisecond,
+		"a refresh failure must increment both failure counters — "+
+			"remove recordCodeGraphBuildFailure from fire → REDS (counter does not move)")
 
 	failAfter := testutil.ToFloat64(codeGraphBuildFailures.WithLabelValues(codeGraphBuildReasonIndexError))
 	refreshFailedAfter := testutil.ToFloat64(graphRefreshTotal.WithLabelValues(graphRefreshOutcomeFailed))

@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -142,6 +143,50 @@ func TestCloneRepo_ColdClone_SingleFlight_DistinctKeysCloneIndependently(t *test
 
 	if got := atomic.LoadInt64(&cloneCount); got != 2 {
 		t.Fatalf("runClone invoked %d times for 2 distinct keys, want 2 (false serialization)", got)
+	}
+}
+
+// TestCloneRepo_CancelledCtx_NeverStartsClone: a call made with an
+// already-cancelled ctx must return ctx.Err() WITHOUT launching the
+// single-flight clone. The shared clone runs on a decoupled ctx — once
+// started it keeps writing into DestDir for up to cloneOpTimeout after the
+// caller already returned, racing caller-owned DestDir cleanup (the
+// t.TempDir() RemoveAll flake, #798/#734).
+//
+// RED on the pre-fix code (no early ctx.Err() check): the DoChan fn launches
+// runCloneFn regardless of the caller's ctx; the counting fake records it →
+// cloneCount > 0 → REDS.
+func TestCloneRepo_CancelledCtx_NeverStartsClone(t *testing.T) {
+	tmp := t.TempDir()
+	dest := filepath.Join(tmp, "workspace")
+
+	var cloneCount int64
+	orig := runCloneFn
+	t.Cleanup(func() { runCloneFn = orig })
+	runCloneFn = func(_ context.Context, _, _ string, d string) error {
+		atomic.AddInt64(&cloneCount, 1)
+		return fakeCloneTree(d)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := CloneRepo(ctx, CloneOpts{Slug: "test/cancelled", DestDir: dest, CloneURL: "file:///unused"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+
+	// The DoChan fn runs on its own goroutine; give it a generous window to
+	// be scheduled. Under the fix cloneCount can NEVER become non-zero —
+	// the fn is never submitted. A poll (not a point check) so a late-scheduled
+	// fn under the broken code is still observed.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if got := atomic.LoadInt64(&cloneCount); got != 0 {
+			t.Fatalf("runCloneFn invoked %d times with a pre-cancelled ctx — "+
+				"the started clone would keep writing into DestDir after return (#798/#734)", got)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
