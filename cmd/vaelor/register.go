@@ -546,6 +546,11 @@ func buildLearningsStore(cfg Config) *learnings.Store {
 		setCapability("learnings_store", false)
 		return nil
 	}
+	if cfg.LearningsDSNFallback {
+		slog.Warn("config: learnings store co-located with the graph DB — LEARNINGS_DATABASE_URL unset, using DATABASE_URL; set LEARNINGS_DATABASE_URL to keep learnings separate",
+			slog.String("env_var", "LEARNINGS_DATABASE_URL"),
+		)
+	}
 	ls, err := learnings.New(context.Background(), cfg.LearningsDSN, nil)
 	if err != nil {
 		slog.Warn("learnings store disabled", "err", err)

@@ -70,7 +70,7 @@ func handleRememberGraphInsights(
 		return errResult("repo is required"), nil
 	}
 	if deps.Learnings == nil {
-		return errResult("learnings store not configured (LEARNINGS_DATABASE_URL unset)"), nil
+		return errResult("learnings store unavailable (no LEARNINGS_DATABASE_URL/DATABASE_URL, or connect failed at startup)"), nil
 	}
 
 	limit := input.MaxPerTemplate

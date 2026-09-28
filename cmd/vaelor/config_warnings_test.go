@@ -183,6 +183,72 @@ func TestBuildLearningsStore_DSNSetNoConfigWarn(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// #594 — LEARNINGS_DATABASE_URL unset + DATABASE_URL set must WARN that
+// learnings are co-located (the silent fallback this issue is about)
+// ---------------------------------------------------------------------------
+
+func TestBuildLearningsStore_FallbackWarns(t *testing.T) {
+	th, restore := captureSlog(t)
+	defer restore()
+
+	// DSN present but flagged as fallback — the operator never asked for
+	// co-location; the warning is the only place this becomes visible.
+	cfg := Config{LearningsDSN: "postgres://invalid@127.0.0.1:1/nodb", LearningsDSNFallback: true}
+	_ = buildLearningsStore(cfg)
+
+	if !warnContainsAttr(th.records, "co-located", "env_var", "LEARNINGS_DATABASE_URL") {
+		t.Errorf("expected WARN about co-located learnings on fallback, got records: %v", th.records)
+	}
+}
+
+func TestBuildLearningsStore_ExplicitDSNNoFallbackWarn(t *testing.T) {
+	th, restore := captureSlog(t)
+	defer restore()
+
+	cfg := Config{LearningsDSN: "postgres://invalid@127.0.0.1:1/nodb"}
+	_ = buildLearningsStore(cfg)
+
+	if warnContains(th.records, "co-located") {
+		t.Error("expected NO co-location warning for an explicit LEARNINGS_DATABASE_URL, got one")
+	}
+}
+
+// The flag itself must track the env combination — this is the load-time half
+// of the fix. Mutation that must go RED: drop LearningsDSNFallback from
+// loadConfig — all three cases keep passing on the flag's zero value only if
+// nobody asserts it.
+func TestLoadConfig_LearningsDSNFallbackFlag(t *testing.T) {
+	cases := []struct {
+		name         string
+		learningsDSN string
+		databaseURL  string
+		wantFallback bool
+		wantDSN      string
+	}{
+		{"fallback", "", "postgres://g:@db/gocode", true, "postgres://g:@db/gocode"},
+		{"explicit", "postgres://l:@db2/learn", "postgres://g:@db/gocode", false, "postgres://l:@db2/learn"},
+		{"both_unset", "", "", false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("LEARNINGS_DATABASE_URL", tc.learningsDSN)
+			t.Setenv("DATABASE_URL", tc.databaseURL)
+
+			cfg, err := loadConfig()
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			if cfg.LearningsDSN != tc.wantDSN {
+				t.Errorf("LearningsDSN = %q, want %q", cfg.LearningsDSN, tc.wantDSN)
+			}
+			if cfg.LearningsDSNFallback != tc.wantFallback {
+				t.Errorf("LearningsDSNFallback = %v, want %v", cfg.LearningsDSNFallback, tc.wantFallback)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // #602 — SPARSE_EMBED_URL unset + RRF_WEIGHT_SPARSE > 0 warns
 // ---------------------------------------------------------------------------
 

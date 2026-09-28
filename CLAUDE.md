@@ -99,7 +99,7 @@
 | `MAX_REPO_MB` | `250` | Total ingested-source cap for deep repo_analyze. Per-request override via the `max_repo_mb` tool arg (>0 wins; 0 uses this default). Truncation emits a WARN. |
 | `REDIS_URL` | optional | L2 cache, DB 6 |
 | `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
-| `LEARNINGS_DATABASE_URL` | optional | PostgreSQL DSN (pgvector) for the review learnings store; falls back to `DATABASE_URL` when unset. When both are empty, the learnings loop is silently disabled |
+| `LEARNINGS_DATABASE_URL` | optional | PostgreSQL DSN (pgvector) for the review learnings store; falls back to `DATABASE_URL` when unset — startup WARNs on the co-location and again when both are empty (loop disabled) |
 | `GRAPH_TTL_LOCAL` | `3600` | Seconds |
 | `GRAPH_TTL_REMOTE` | `86400` | Seconds |
 | `GRAPH_BATCH_SIZE` | `5` | Keep small — AGE limitation |

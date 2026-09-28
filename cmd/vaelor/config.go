@@ -153,6 +153,12 @@ type Config struct {
 	// Falls back to DATABASE_URL if unset.
 	LearningsDSN string
 
+	// LearningsDSNFallback records that LearningsDSN came from DATABASE_URL
+	// rather than an explicit LEARNINGS_DATABASE_URL — i.e. learnings are
+	// silently co-located with the graph DB. Startup warns once so the
+	// co-location is visible instead of silent (#594).
+	LearningsDSNFallback bool
+
 	// CodegraphSurpriseIndex enables per-edge and per-symbol surprise persistence
 	// at index time (CODEGRAPH_SURPRISE_INDEX=1). Default off.
 	CodegraphSurpriseIndex bool
@@ -580,6 +586,16 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	// Read the learnings/database env values once — the DSN field, the
+	// fallback flag, and the fallback gauge must all agree on a single
+	// derivation, or the warn and the metric can silently disagree (#594).
+	learningsURLEnv := env.Str("LEARNINGS_DATABASE_URL", "")
+	databaseURLEnv := env.Str("DATABASE_URL", "")
+	learningsDSN := learningsURLEnv
+	if learningsDSN == "" {
+		learningsDSN = databaseURLEnv
+	}
+
 	cfg := Config{
 		Port:                   env.Str("MCP_PORT", defaultPort),
 		LLMURL:                 env.Str("LLM_API_BASE", defaultLLMURL),
@@ -598,7 +614,7 @@ func loadConfig() (Config, error) {
 		PathMappings:           parsePathMappings(env.Str("PATH_MAPPINGS", "")),
 		MaxFileBytes:           int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
 		MaxRepoBytes:           int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
-		DatabaseURL:            env.Str("DATABASE_URL", ""),
+		DatabaseURL:            databaseURLEnv,
 		GraphTTLLocal:          env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
 		GraphTTLRemote:         env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
 		GraphBatchSize:         env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
@@ -618,7 +634,8 @@ func loadConfig() (Config, error) {
 		DesignMDDir:            env.Str("DESIGN_MD_DIR", ""),
 		DesignEmbedURL:         env.Str("DESIGN_EMBED_URL", ""),
 		DesignEmbedModel:       env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
-		LearningsDSN:           env.Str("LEARNINGS_DATABASE_URL", os.Getenv("DATABASE_URL")),
+		LearningsDSN:           learningsDSN,
+		LearningsDSNFallback:   learningsFallbackState(learningsURLEnv, databaseURLEnv) == 1,
 		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
 		FlowsMax:               env.Int("FLOWS_MAX", 0),       // 0 → applyConfigDefaults uses flowsMax=50
 		FlowsDFSDepth:          env.Int("FLOWS_DFS_DEPTH", 0), // 0 → applyConfigDefaults uses flowsDFSDepth=8
@@ -669,9 +686,9 @@ func loadConfig() (Config, error) {
 		// #664: symbol-kind expansion — dark-launched, default off.
 		ExpandSymbolKinds: env.Bool("EXPAND_SYMBOL_KINDS", false),
 	}
-	// Publish the learnings DB fallback gauge (#594) from the raw env values so
-	// the operator can see dedicated vs fallback vs disabled on /metrics.
-	publishLearningsDBFallback(env.Str("LEARNINGS_DATABASE_URL", ""), os.Getenv("DATABASE_URL"))
+	// Publish the learnings DB fallback gauge (#594) from the same raw env
+	// values used for the Config fields — one derivation for flag and gauge.
+	publishLearningsDBFallback(learningsURLEnv, databaseURLEnv)
 	return cfg, nil
 }
 
