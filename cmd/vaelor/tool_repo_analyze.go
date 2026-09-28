@@ -167,7 +167,7 @@ func saveAnalysisFile(content, format, outputDir string) (string, bool) {
 		return "", false
 	}
 
-	filename := fmt.Sprintf("repo_analyze_%d%s", time.Now().UnixMilli(), ext)
+	filename := fmt.Sprintf("repo_analyze_%d%s", time.Now().UnixNano(), ext)
 	path := filepath.Join(outputDir, filename)
 
 	// File must be world-readable so the consuming agent (running as a different user) can access it.
@@ -183,7 +183,7 @@ func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) str
 	var sb strings.Builder
 
 	fmt.Fprintf(&sb, "repo_analyze: %s | %d files | %s\n", r.RepoName, r.FileCount, r.Language)
-	fmt.Fprintf(&sb, "Full output (%d chars) saved to: %s\n\n", chars, path)
+	fmt.Fprintf(&sb, "Full output (%d chars) saved to: %s\n%s\n\n", chars, path, spillFetchHint(path))
 
 	sb.WriteString("Contents:\n")
 	fmt.Fprintf(&sb, "- %d packages\n", len(r.Packages))
@@ -199,8 +199,6 @@ func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) str
 	if r.FileTree != "" {
 		sb.WriteString("- Directory tree\n")
 	}
-
-	sb.WriteString("\nUse Read tool to access the file. Use Grep to search for specific symbols.")
 
 	return sb.String()
 }

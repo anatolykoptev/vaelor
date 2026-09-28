@@ -288,6 +288,7 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	registerCodeResearch(server, cfg, deps, &semDeps)
 	registerSiteAnalyze(server, cfg)
 	registerSiteCrawl(server, cfg)
+	registerReadOutput(server, cfg)
 	registerUnderstand(server, cfg, deps, &semDeps, graphStore)
 	registerPrepareChange(server, cfg, deps, &semDeps)
 	registerReviewDelta(server, cfg, deps, graphStore)

@@ -121,9 +121,11 @@ func HasTookFooter(text string) bool {
 
 // StripBudgetMarker removes the budget-applied sentinel from text if present.
 // Called by the addTool wrapper after IsShaped check so the marker is not
-// visible in the final agent-facing output (#582).
+// visible in the final agent-facing output (#582). TrimSuffix, not ReplaceAll:
+// the marker is only ever appended as a suffix — a payload that literally
+// contains the sentinel text must pass through intact (read_output fidelity).
 func StripBudgetMarker(text string) string {
-	return strings.ReplaceAll(text, budgetAppliedMarker, "")
+	return strings.TrimSuffix(text, budgetAppliedMarker)
 }
 
 // MarkBudgetApplied appends the budget-applied sentinel so the addTool wrapper

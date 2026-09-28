@@ -61,6 +61,7 @@
 | `semantic_search` | Vector similarity search via pgvector + hybrid RRF + graph expansion |
 | `sparse_backfill` | Maintenance/internal: populate `sparse_embedding` for existing `code_embeddings` rows where NULL. Operator-initiated |
 | `orphan_sweep` | Maintenance/internal: delete orphaned embedding/state rows. Operator-initiated. DRY-RUN BY DEFAULT (`dry_run` omitted/true ⇒ preview-only count; `dry_run=false` ⇒ real delete). `categories` omitted ⇒ `["embeddings_not_in_state"]` only (original behaviour — deletes embeddings, NEVER state rows). Opt in: `"path_missing"` (state rows whose `source_path` directory is gone — DELETES STATE ROWS, mount-blip guarded), `"pathless"` (state rows with empty `source_path` — DELETES STATE ROWS). Each category reported separately |
+| `read_output` | Read a large tool output spilled to a server-side file (the `saved to: …` notice). Pages one chunk per call via `offset`; confined to `OUTPUT_DIR` basenames — symlink/traversal escapes rejected. The remote-client path: the file itself is only readable on the server host |
 | `list_flows` | List precomputed named execution flows for a repo, ordered by priority (highest-PageRank chains first) |
 | `find_duplicates` | Find pairs of symbols in one repo that are semantically near-identical |
 | `code_research` | Deep repo research — AST traversal + LLM narrative + test linkage |
