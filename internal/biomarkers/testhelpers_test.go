@@ -15,6 +15,9 @@ var osWriteFile = os.WriteFile
 // could make commits fail or misbehave (#811 — the CI flake vector).
 // Commit dates are pinned to now — a fixed past date would age out of the
 // 90-day window and silently zero the churn stats.
+// gc.autoDetach=false stops git commit from forking a detached "gc --auto"
+// that keeps writing into .git after the test returns — that async writer
+// is what raced t.TempDir() cleanup ("unlinkat ... directory not empty").
 func gitTestEnv() []string {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return append(os.Environ(),
@@ -22,6 +25,9 @@ func gitTestEnv() []string {
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_AUTHOR_DATE="+now,
 		"GIT_COMMITTER_DATE="+now,
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=gc.autoDetach",
+		"GIT_CONFIG_VALUE_0=false",
 	)
 }
 

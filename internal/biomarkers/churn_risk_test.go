@@ -69,8 +69,10 @@ func TestChurnRisk_RewrittenFileHighScore(t *testing.T) {
 // the first observed failure's CI log was lost before capture).
 func dumpChurnDiag(t *testing.T, dir string) {
 	t.Helper()
-	out, _ := exec.Command("git", "-C", dir, "log", "--numstat",
-		"--pretty=format:%H %ad", "--no-merges").CombinedOutput()
+	cmd := exec.Command("git", "-C", dir, "log", "--numstat",
+		"--pretty=format:%H %ad", "--no-merges")
+	cmd.Env = gitTestEnv()
+	out, _ := cmd.CombinedOutput()
 	t.Logf("git log --numstat:\n%s", out)
 	stats, err := compare.CollectChurn(context.Background(), dir, 90*24*time.Hour)
 	t.Logf("CollectChurn err=%v stats=%+v", err, stats)
