@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.14](https://github.com/anatolykoptev/vaelor/compare/v1.65.13...v1.65.14) (2026-09-28)
+
+
+### Fixed
+
+* **embeddings:** filter dense-vector reads by per-row embed_model ([#837](https://github.com/anatolykoptev/vaelor/issues/837)) ([#838](https://github.com/anatolykoptev/vaelor/issues/838)) ([e4eb815](https://github.com/anatolykoptev/vaelor/commit/e4eb815a4ed88c66a7ceeaa8a24d8bb8fac051ba))
+
 ## [1.65.13](https://github.com/anatolykoptev/vaelor/compare/v1.65.12...v1.65.13) (2026-09-28)
 
 
