@@ -691,9 +691,10 @@ func loadConfig() (Config, error) {
 	publishLearningsDBFallback(learningsURLEnv, databaseURLEnv)
 	// EMBED_MODEL set-but-empty resolves to the default via env.Str — say so
 	// loudly, because an empty active model would silently disable the
-	// model-drift guards on both semantic_search paths (#724).
-	if v, ok := os.LookupEnv("EMBED_MODEL"); ok && v == "" {
-		slog.Warn("config: EMBED_MODEL is set but empty — using default; an empty model name disables model-drift detection",
+	// model-drift guards on both semantic_search paths (#724). env.Lookup
+	// reads the same source env.Str did, so warn and value cannot disagree.
+	if v, ok := env.Lookup("EMBED_MODEL"); ok && v == "" {
+		slog.Warn("config: EMBED_MODEL is set but empty — falling back to default (empty would disable model-drift detection)",
 			slog.String("default", defaultEmbedModel))
 	}
 	return cfg, nil
