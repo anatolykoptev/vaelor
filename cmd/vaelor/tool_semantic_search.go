@@ -89,10 +89,11 @@ type SemanticDeps struct {
 	// IndexRepoAsyncWithTool). Production leaves this nil and the guard uses
 	// deps.Pipeline directly.
 	pipelineInvalidatorSeam pipelineInvalidator
-	// indexedStateSeam is the no-results-branch test seam for the indexed-state
-	// check (#709): GetRepoState / GetStoredModel / CountEmbeddings. Production
-	// leaves this nil and the check falls back to deps.Store. Tests wire a fake
-	// to avoid a live Postgres pool.
+	// indexedStateSeam is the test seam for the indexed-state check shared by
+	// the no-results branch (#709) and the freshness schedule gate (#723):
+	// GetRepoState / GetStoredModel / CountEmbeddings. Production leaves this
+	// nil and the check falls back to deps.Store. Tests wire a fake to avoid
+	// a live Postgres pool.
 	indexedStateSeam indexedStateReader
 }
 

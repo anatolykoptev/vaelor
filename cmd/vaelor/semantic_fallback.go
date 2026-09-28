@@ -115,8 +115,10 @@ func scheduleIndexUnlessCurrent(ctx context.Context, deps SemanticDeps, tool, re
 	if invalidator == nil && deps.Pipeline != nil {
 		invalidator = deps.Pipeline
 	}
-	if invalidator != nil &&
-		!repoIsIndexed(ctx, deps, repoKey, root, invalidator.EmbedModel()) {
+	if invalidator == nil || invalidator.IsIndexing(repoKey) {
+		return
+	}
+	if !repoIsIndexed(ctx, deps, repoKey, root, invalidator.EmbedModel()) {
 		invalidator.IndexRepoAsyncWithTool(tool, repoKey, root)
 	}
 }
