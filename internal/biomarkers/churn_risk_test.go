@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/anatolykoptev/vaelor/internal/compare"
 )
 
 func mkRepoWithChurn(t *testing.T, lines int, churnCycles int) string {
@@ -13,6 +16,7 @@ func mkRepoWithChurn(t *testing.T, lines int, churnCycles int) string {
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = gitTestEnv()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -51,11 +55,39 @@ func TestChurnRisk_RewrittenFileHighScore(t *testing.T) {
 	dir := mkRepoWithChurn(t, 50, 6) // 6 cycles * 50 lines ≈ 300 line-changes / 50 LOC = 6
 	score, reason, err := ChurnRisk{}.Score(context.Background(), dir, "f.go")
 	if err != nil {
+		dumpChurnDiag(t, dir)
 		t.Fatal(err)
 	}
 	if score < 0.9 {
+		dumpChurnDiag(t, dir)
 		t.Fatalf("heavily-rewritten file → ≥0.9, got %v (%s)", score, reason)
 	}
+}
+
+// dumpChurnDiag dumps the git state and intermediate numbers behind a
+// ChurnRisk.Score failure, so the next flake is self-diagnosing (#811 —
+// the first observed failure's CI log was lost before capture).
+func dumpChurnDiag(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", dir, "log", "--numstat",
+		"--pretty=format:%H %ad", "--no-merges")
+	cmd.Env = gitTestEnv()
+	out, _ := cmd.CombinedOutput()
+	t.Logf("git log --numstat:\n%s", out)
+	stats, err := compare.CollectChurn(context.Background(), dir, 90*24*time.Hour)
+	t.Logf("CollectChurn err=%v stats=%+v", err, stats)
+	t.Logf("initialCreationLines=%d loc-check=%d",
+		initialCreationLines(context.Background(), dir, "f.go"),
+		mustCountLines(t, filepath.Join(dir, "f.go")))
+}
+
+func mustCountLines(t *testing.T, path string) int {
+	t.Helper()
+	n, err := countLines(path)
+	if err != nil {
+		t.Logf("countLines: %v", err)
+	}
+	return n
 }
 
 // TestChurnRisk_GrownFileScoresNonZero guards the growth blind spot: a
@@ -66,6 +98,7 @@ func TestChurnRisk_GrownFileScoresNonZero(t *testing.T) {
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = gitTestEnv()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
