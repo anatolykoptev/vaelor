@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.9](https://github.com/anatolykoptev/go-code/compare/v1.65.8...v1.65.9) (2026-09-28)
+
+
+### Changed
+
+* **age:** converge decode-side unquote helpers; close latent name-validation gaps ([#820](https://github.com/anatolykoptev/go-code/issues/820)) ([0918032](https://github.com/anatolykoptev/go-code/commit/0918032ddedd87b39d9aa745540025095bc3af53))
+
 ## [1.65.8](https://github.com/anatolykoptev/vaelor/compare/v1.65.7...v1.65.8) (2026-09-28)
 
 
