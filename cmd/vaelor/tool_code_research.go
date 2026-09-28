@@ -82,6 +82,12 @@ func handleCodeResearch(
 		// calls EmbedQuery, never Embed, so QueryEmbedder satisfies it.
 		resDeps.EmbedClient = semDeps.QueryClient
 		resDeps.EmbedStore = semDeps.Store
+		if semDeps.Pipeline != nil {
+			// newSemanticDeps builds Store+Pipeline atomically, so a nil
+			// Pipeline here is a test-seam SemanticDeps — leave EmbedModel ""
+			// (unfiltered, matches the legacy/test contract).
+			resDeps.EmbedModel = semDeps.Pipeline.EmbedModel()
+		}
 		resDeps.RepoKey = codegraph.GraphNameFor(root)
 		// Wire pg_trgm symbol search for Step 3.5 augmentation.
 		resDeps.SymbolSearcher = semDeps.Store

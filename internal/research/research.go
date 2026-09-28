@@ -30,6 +30,12 @@ type Deps struct {
 	// EmbedStore provides vector similarity search. Optional.
 	EmbedStore EmbedStore
 
+	// EmbedModel is the active embedding model name. When non-empty it is
+	// threaded into EmbedStore.Search so rows stamped by a different model
+	// (foreign vector space) are never returned. Empty = unfiltered
+	// (legacy/test pipelines).
+	EmbedModel string
+
 	// RepoKey is the embedding store key for this repository. Required when
 	// EmbedClient/EmbedStore are set.
 	RepoKey string
@@ -341,6 +347,7 @@ func runSemanticSeeds(ctx context.Context, input Input, deps Deps) ([]embeddings
 		RepoKey:  deps.RepoKey,
 		Language: input.Language,
 		TopK:     semanticTopK(input.MaxTokens),
+		Model:    deps.EmbedModel,
 	})
 	if err != nil || len(results) == 0 {
 		return nil, "keyword-only"

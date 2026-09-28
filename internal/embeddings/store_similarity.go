@@ -44,6 +44,7 @@ type nearDupSymbol struct {
 	symbolKind string
 	startLine  int
 	embedding  []float32
+	embedModel string
 }
 
 // NearDupResult is returned by FindNearDuplicates and carries both the
@@ -118,6 +119,7 @@ func (s *Store) FindSimilarPairs(ctx context.Context, opts SimilarPairOpts) ([]S
 	             1 - (a.embedding <=> b.embedding) AS similarity
 	      FROM public.code_embeddings a, public.code_embeddings b
 	      WHERE a.repo_key = $1 AND b.repo_key = $1
+	        AND a.embed_model = b.embed_model
 	        AND (a.file_path || ':' || a.symbol_name) < (b.file_path || ':' || b.symbol_name)
 	        AND (a.embedding <=> b.embedding) < $2
 	      ORDER BY similarity DESC
@@ -202,7 +204,7 @@ func nearDupCanonicalPair(
 // start_line, and embedding for every symbol in repoKey from code_embeddings.
 // The embedding is scanned as pgvector.Vector and converted to []float32 via .Slice().
 func (s *Store) loadSymbolsWithEmbeddings(ctx context.Context, repoKey string) ([]nearDupSymbol, error) {
-	const q = `SELECT file_path, symbol_name, symbol_kind, start_line, embedding
+	const q = `SELECT file_path, symbol_name, symbol_kind, start_line, embedding, embed_model
 	            FROM public.code_embeddings
 	            WHERE repo_key = $1`
 
@@ -216,7 +218,7 @@ func (s *Store) loadSymbolsWithEmbeddings(ctx context.Context, repoKey string) (
 	for rows.Next() {
 		var sym nearDupSymbol
 		var vec pgvector.Vector
-		if err := rows.Scan(&sym.filePath, &sym.symbolName, &sym.symbolKind, &sym.startLine, &vec); err != nil {
+		if err := rows.Scan(&sym.filePath, &sym.symbolName, &sym.symbolKind, &sym.startLine, &vec, &sym.embedModel); err != nil {
 			return nil, fmt.Errorf("load symbols for near-dup: scan: %w", err)
 		}
 		sym.embedding = vec.Slice()
@@ -262,10 +264,16 @@ func (s *Store) FindNearDuplicates(ctx context.Context, repoKey string, k int, m
 	searchErrors := 0
 
 	for _, sym := range syms {
+		if sym.embedModel == "" {
+			// ''-stamped rows have unknown vector space; an unscoped k-NN would
+			// span every model's space and report cross-space false positives.
+			continue
+		}
 		results, searchErr := s.Search(ctx, sym.embedding, SearchOpts{
 			RepoKey:     repoKey,
 			TopK:        k + 1, // +1 because self (distance 0) is always included
 			MaxDistance: maxDist,
+			Model:       sym.embedModel, // compare within the symbol's own vector space
 		})
 		if searchErr != nil {
 			var pgErr *pgconn.PgError

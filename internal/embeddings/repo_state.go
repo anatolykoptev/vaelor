@@ -329,8 +329,20 @@ func (s *Store) InvalidateRepoIfModelChanged(ctx context.Context, repoKey, activ
 		return false, err
 	}
 	if storedModel == activeModel {
-		_ = tx.Rollback(ctx)
-		return false, nil
+		// State agrees — but a partial wipe/reindex can still leave
+		// foreign-space rows behind (embed_model <> active). Purge them so the
+		// hash-diff treats them as missing and re-embeds them in the active
+		// space (#837). One repo_key-indexed DELETE; a no-op on healthy repos.
+		ct, err := tx.Exec(ctx,
+			`DELETE FROM public.code_embeddings WHERE repo_key = $1 AND embed_model <> $2`,
+			repoKey, activeModel)
+		if err != nil {
+			return false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return ct.RowsAffected() > 0, nil
 	}
 	// Model mismatch → purge all embeddings for this repo and reset state.
 	// Roll back the read-only probe transaction before delegating to WipeRepo,

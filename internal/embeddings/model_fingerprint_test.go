@@ -107,3 +107,47 @@ func TestSetRepoState_StoresModel(t *testing.T) {
 	assert.Equal(t, "code-rank-embed", storedModel,
 		"SetRepoState must write embed_model to code_repo_state")
 }
+
+// TestInvalidateRepoIfModelChanged_PurgesForeignRowsOnMatch covers the #837
+// split-brain: state row agrees with the active model, but a prior partial
+// wipe/reindex left rows stamped with a foreign model behind. Those rows are
+// invisible to filtered Search yet block hash-diff re-embedding (unchanged
+// files hash-match the stale rows and are skipped), so the invalidate must
+// delete them itself. Only foreign-space rows are removed — same-space rows
+// survive.
+func TestInvalidateRepoIfModelChanged_PurgesForeignRowsOnMatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires postgres")
+	}
+	store := testStore(t)
+	ctx := context.Background()
+	const repoKey = "test/invalidate-foreign-rows"
+	cleanRepoFull(t, store, repoKey)
+
+	require.NoError(t, store.SetRepoState(ctx, repoKey, "sha77", "code-rank-embed"))
+	require.NoError(t, store.Upsert(ctx, []EmbeddingRecord{
+		{RepoKey: repoKey, FilePath: "cur.go", SymbolName: "Cur", SymbolKind: "function",
+			EmbedModel: "code-rank-embed", Embedding: makeVec(1)},
+		{RepoKey: repoKey, FilePath: "stale.go", SymbolName: "Stale", SymbolKind: "function",
+			EmbedModel: "jina-code-v2", Embedding: makeVec(1)},
+	}))
+
+	purged, err := store.InvalidateRepoIfModelChanged(ctx, repoKey, "code-rank-embed")
+	require.NoError(t, err)
+	assert.True(t, purged, "foreign-space rows present → invalidate must report a purge")
+
+	// Foreign-space row deleted; current-space row and the state row survive.
+	var staleLeft, curLeft int
+	require.NoError(t, store.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM public.code_embeddings WHERE repo_key = $1 AND embed_model <> $2`,
+		repoKey, "code-rank-embed").Scan(&staleLeft))
+	require.NoError(t, store.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM public.code_embeddings WHERE repo_key = $1 AND embed_model = $2`,
+		repoKey, "code-rank-embed").Scan(&curLeft))
+	assert.Equal(t, 0, staleLeft, "foreign-space rows must be purged")
+	assert.Equal(t, 1, curLeft, "same-space rows must survive")
+
+	sha, err := store.GetRepoState(ctx, repoKey)
+	require.NoError(t, err)
+	assert.Equal(t, "sha77", sha, "state row must survive — only foreign rows are purged")
+}

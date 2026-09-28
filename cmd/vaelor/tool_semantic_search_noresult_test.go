@@ -22,6 +22,10 @@ type indexedStateSpy struct {
 	storedSHA   string
 	storedModel string
 	embCount    int
+	// embModelCount, when non-nil, is returned by CountEmbeddingsForModel
+	// instead of embCount — models a repo whose rows live outside the active
+	// embedding space (#837).
+	embModelCount *int
 	// Optional injected errors. nil ⇒ return the canned value above.
 	getRepoStateErr    error
 	countEmbeddingsErr error
@@ -55,6 +59,16 @@ func (s *indexedStateSpy) CountEmbeddings(_ context.Context, _ string) (int, err
 		return s.embCount, s.countEmbeddingsErr
 	}
 	return s.embCount, nil
+}
+
+// CountEmbeddingsForModel returns the active-space row count. A nil
+// embModelCount means "spy not configured for the scoped count" — fall back to
+// embCount so pre-existing fixtures behave as before (uniformly-stamped repo).
+func (s *indexedStateSpy) CountEmbeddingsForModel(_ context.Context, _ string, _ string) (int, error) {
+	if s.embModelCount != nil {
+		return *s.embModelCount, s.countEmbeddingsErr
+	}
+	return s.embCount, s.countEmbeddingsErr
 }
 
 // noResultGitRepo creates a throwaway git repo with one commit on main and
@@ -150,6 +164,47 @@ func TestHandleSemanticSearch_NoResults_Indexed_ReturnsNoMatch(t *testing.T) {
 	if invalidator.indexAsyncCalled {
 		t.Error("IndexRepoAsyncWithTool was called on an indexed repo with zero hits: " +
 			"wasted scheduling on a no-op pass (competes with the PSI memory-pressure guard)")
+	}
+}
+
+// TestHandleSemanticSearch_NoResults_ForeignSpaceRows_SchedulesIndex is the
+// #837 regression: a repo whose rows are all stamped ” (or a foreign model)
+// is INVISIBLE to the model-filtered Search — it returns zero hits — yet a
+// plain CountEmbeddings would still report them as populated. repoIsIndexed
+// must consult the model-scoped count, or the repo freezes in a permanent
+// confident "no_match" and the self-healing reindex never fires.
+//
+// Anti-tautology: reverting repoIsIndexed to CountEmbeddings makes the
+// unscoped count pass (100 > 0) → no_match + no schedule → both assertions RED.
+func TestHandleSemanticSearch_NoResults_ForeignSpaceRows_SchedulesIndex(t *testing.T) {
+	const activeModel = "code-rank-embed"
+
+	dir, sha := noResultGitRepo(t)
+
+	zero := 0
+	state := &indexedStateSpy{
+		storedSHA:     sha,
+		storedModel:   activeModel, // state row agrees — the ''-stamp lives only on rows
+		embCount:      100,         // rows exist in total…
+		embModelCount: &zero,       // …but NONE in the active space (split-brain)
+	}
+	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := noResultTestDeps(state, invalidator)
+
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  dir,
+		Query: "LLM retry loop budget accounting for an agent conversation turn",
+	}, deps, "")
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	text := resultText(res)
+	if strings.Contains(text, "<status>no_match</status>") {
+		t.Errorf("repo with zero active-space rows returned no_match — the invisible-row count lied: %s", text)
+	}
+	if !invalidator.indexAsyncCalled {
+		t.Error("IndexRepoAsyncWithTool not called for a repo with zero active-space rows — " +
+			"stale-space rows would stay invisible forever")
 	}
 }
 

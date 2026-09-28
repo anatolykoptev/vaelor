@@ -66,9 +66,11 @@ func (queryEmbedderStub) EmbedQuery(_ context.Context, _ string) ([]float32, err
 // handleSemanticSearch can run end-to-end without a live Postgres pool.
 type storeStub struct {
 	searchResults []embeddings.SearchResult
+	lastOpts      embeddings.SearchOpts
 }
 
-func (s *storeStub) Search(_ context.Context, _ []float32, _ embeddings.SearchOpts) ([]embeddings.SearchResult, error) {
+func (s *storeStub) Search(_ context.Context, _ []float32, opts embeddings.SearchOpts) ([]embeddings.SearchResult, error) {
+	s.lastOpts = opts
 	return s.searchResults, nil
 }
 
@@ -274,6 +276,45 @@ func TestHandleSemanticSearch_ModelMatch_DoesNotDiscard(t *testing.T) {
 	}
 	if !strings.Contains(text, "Foo") {
 		t.Errorf("valid search result 'Foo' not in response (should have been returned, not discarded): %s", text)
+	}
+}
+
+// TestHandleSemanticSearch_PassesActiveModelToVectorSearch pins the #837
+// plumbing: the pipeline's active embed model must reach Store.Search as
+// SearchOpts.Model so the per-row embed_model filter can reject foreign-space
+// rows. Red-on-revert: drop `Model: activeModel` in tool_semantic_search.go →
+// lastOpts.Model == "" → FAIL.
+func TestHandleSemanticSearch_PassesActiveModelToVectorSearch(t *testing.T) {
+	const activeModel = "code-rank-embed"
+
+	repoDir, sha := noResultGitRepo(t)
+
+	stub := &storeStub{searchResults: []embeddings.SearchResult{
+		{RepoKey: "testrepo/plumb", FilePath: "pkg/foo.go", SymbolName: "Foo", Distance: 0.1},
+	}}
+	checker := &modelCheckerSpy{storedModel: activeModel}
+	invalidator := &pipelineInvalidatorSpy{activeModel: activeModel}
+	deps := staleTestDeps(checker, invalidator, nil)
+	deps.storeSearcherSeam = stub
+	deps.indexedStateSeam = &indexedStateSpy{
+		storedSHA:   sha,
+		storedModel: activeModel,
+		embCount:    100,
+	}
+
+	res, err := handleSemanticSearch(context.Background(), SemanticSearchInput{
+		Repo:  repoDir,
+		Query: "function that validates JWT tokens",
+	}, deps, "")
+	if err != nil {
+		t.Fatalf("handleSemanticSearch returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("handleSemanticSearch returned nil result")
+	}
+	if stub.lastOpts.Model != activeModel {
+		t.Errorf("Search received Model=%q, want %q — per-row stale-space filter is not wired",
+			stub.lastOpts.Model, activeModel)
 	}
 }
 
