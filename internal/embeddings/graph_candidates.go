@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anatolykoptev/vaelor/internal/strutil"
+
 	"github.com/anatolykoptev/vaelor/internal/graphx"
 )
 
@@ -380,19 +382,7 @@ func mergeGraphHits(pr, calls, comm []GraphHit, limit int) []GraphHit {
 // input to [a-z0-9]+ before they reach here. escapeCypherName therefore only
 // covers the literal-quote/backslash class for direct symbol-name insertions.
 //
-// Escape order matters: backslash must be escaped first so the quote's added
-// backslash is not itself re-escaped. "foo\" → "foo\\" → 'foo\\' (safe);
-// "O'Brien" → "O\'Brien" → 'O\'Brien' (safe).
-//
-// Escape set mirrors codegraph.escapeCypher (store_helpers.go) — sibling
-// implementation; the packages cannot share it (codegraph imports
-// embeddings). Dollar-quote breakout needs no handling here: wrapCypherSQL
-// derives a tag absent from the assembled body (#802).
-func escapeCypherName(name string) string {
-	name = strings.ReplaceAll(name, `\`, `\\`)
-	name = strings.ReplaceAll(name, "'", "\\'")
-	name = strings.ReplaceAll(name, "\x00", "") // strip null bytes
-	name = strings.ReplaceAll(name, "\n", `\n`)
-	name = strings.ReplaceAll(name, "\r", `\r`)
-	return strings.ReplaceAll(name, "\t", `\t`)
-}
+// Delegate of strutil.EscapeCypher — the single implementation shared with
+// codegraph (#808). Dollar-quote breakout needs no handling here:
+// wrapCypherSQL derives a tag absent from the assembled body (#802).
+func escapeCypherName(name string) string { return strutil.EscapeCypher(name) }

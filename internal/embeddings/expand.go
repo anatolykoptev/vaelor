@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"strings"
 
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,27 +16,6 @@ import (
 // acquirer. Requires AGE in shared_preload_libraries (verified at startup by
 // codegraph.Store.CheckAGEPreloaded).
 const ageExpandSetup = `SET LOCAL search_path TO ag_catalog, "$user", public`
-
-// cypherDollarQuote returns a dollar-quoting tag that does not appear in the
-// Cypher body. PostgreSQL dollar-quoting: $tag$...$tag$. Deriving the tag
-// from the assembled query keeps the invariant at the point of SQL assembly —
-// a fixed tag would instead have to be stripped from every interpolated
-// value, and a single-pass strip can be reassembled by crafted input
-// ("$cq" + "$cq$" + "$" after non-overlapping removal). Adapted from
-// internal/codegraph/store_helpers.go — embeddings cannot import codegraph
-// (codegraph imports embeddings: semantic_rerank.go) — with a bounded re-roll:
-// a body containing every candidate tag would otherwise spin forever while
-// holding the pooled conn (#802 review).
-func cypherDollarQuote(cypher string) (string, bool) {
-	tag := "$cq$"
-	for i := 0; i < 64; i++ { //nolint:mnd // re-roll budget, not a domain constant
-		if !strings.Contains(cypher, tag) {
-			return tag, true
-		}
-		tag = fmt.Sprintf("$cq%d$", rand.Int64()) //nolint:gosec // random suffix, not crypto
-	}
-	return "", false
-}
 
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
 const graphRowCols = 3
@@ -232,25 +211,19 @@ func buildNameFilter(variable string, names []string) string {
 	return strings.Join(parts, " OR ")
 }
 
-// sqlLiteral escapes a value for a single-quoted SQL literal (the graph name
-// argument to ag_catalog.cypher). With standard_conforming_strings on, a
-// backslash is literal inside '...' — the only escape is a doubled quote.
-func sqlLiteral(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
-}
-
 // wrapCypherSQL renders the SQL that carries a Cypher statement to
-// ag_catalog.cypher: graph name as a '...' SQL literal, Cypher inside a
-// dollar quote whose tag is verified absent from the body. Returns ok=false
-// when no tag can be found — the caller must not run the query.
+// ag_catalog.cypher: graph name as a '...' SQL literal (strutil.SQLLiteral —
+// doubled quotes), Cypher inside a dollar quote whose tag is verified absent
+// from the body. Returns ok=false when no tag can be found — the caller must
+// not run the query.
 func wrapCypherSQL(graphName, cypher, colDefs string) (string, bool) {
-	tag, ok := cypherDollarQuote(cypher)
+	tag, ok := strutil.CypherDollarQuote(cypher)
 	if !ok {
 		return "", false
 	}
 	return fmt.Sprintf(
 		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
-		sqlLiteral(graphName), tag, cypher, tag, colDefs,
+		strutil.SQLLiteral(graphName), tag, cypher, tag, colDefs,
 	), true
 }
 

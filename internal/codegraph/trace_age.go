@@ -10,6 +10,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/langutil"
 	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // TraceFromAGE builds a call trace by querying CALLS edges directly from
@@ -241,8 +242,7 @@ func parseUint32(s string) uint32 {
 	return uint32(v)
 }
 
-// escapeCypherString escapes single quotes in a string for safe embedding
-// in a Cypher string literal.
-func escapeCypherString(s string) string {
-	return strings.ReplaceAll(s, "'", "\\'")
-}
+// escapeCypherString escapes a string for safe embedding in a Cypher string
+// literal. Delegate of strutil.EscapeCypher — the previous version escaped
+// only single quotes, leaving backslashes able to reopen the literal (#808).
+func escapeCypherString(s string) string { return strutil.EscapeCypher(s) }

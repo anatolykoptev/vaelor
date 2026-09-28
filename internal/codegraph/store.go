@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,6 +20,11 @@ const graphExistsCacheTTL = 30 * time.Second
 // Requires AGE to be in shared_preload_libraries (verified at startup by CheckAGEPreloaded).
 // Only sets the search path — LOAD is not needed when AGE is server-preloaded.
 const ageSetup = `SET search_path TO ag_catalog, "$user", public`
+
+// ageSetupLocal is the transaction-local variant for the read-only tx in
+// ExecCypher — a session-level SET inside a tx would leak search_path into
+// the pooled connection's next borrower (#808).
+const ageSetupLocal = `SET LOCAL search_path TO ag_catalog, "$user", public`
 
 // metaTableSQL defines the schema for tracking built code graphs.
 //
@@ -196,23 +202,41 @@ func (s *Store) ExecCypher(ctx context.Context, graph, cypher string, cols int) 
 	if !isReadOnly(cypher) {
 		return nil, errors.New("ExecCypher: write operation detected in Cypher — use ExecCypherWrite")
 	}
+	return s.execCypherReadTx(ctx, graph, cypher, cols)
+}
 
+// execCypherReadTx runs the assembled Cypher query inside a server-enforced
+// read-only transaction. isReadOnly upstream is the fast-fail lexical gate;
+// this tx is the backstop — PostgreSQL itself rejects a write that evaded the
+// scanner via a lexer divergence (#802/#808), so the guard can never become
+// the sole enforcement. Separated from ExecCypher so the DB-gated test can
+// probe the backstop directly.
+func (s *Store) execCypherReadTx(ctx context.Context, graph, cypher string, cols int) ([][]string, error) {
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire connection: %w", err)
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, ageSetup); err != nil {
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, fmt.Errorf("begin read tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, ageSetupLocal); err != nil {
 		return nil, fmt.Errorf("AGE setup: %w", err)
 	}
 
 	colDefs := buildColDefs(cols)
-	tag := cypherDollarQuote(cypher)
+	tag, ok := cypherDollarQuote(cypher)
+	if !ok {
+		return nil, errors.New("cypher body collides with every dollar-quote tag")
+	}
 	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (%s)`,
 		graph, tag, cypher, tag, colDefs)
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := tx.Query(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("cypher query: %w", err)
 	}
@@ -256,7 +280,10 @@ func (s *Store) ExecCypherWrite(ctx context.Context, graph, cypher string) error
 	}
 
 	// Write statements must project at least one column for cypher() to accept them.
-	tag := cypherDollarQuote(cypher)
+	tag, ok := cypherDollarQuote(cypher)
+	if !ok {
+		return errors.New("cypher body collides with every dollar-quote tag")
+	}
 	sql := fmt.Sprintf(`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (v ag_catalog.agtype)`,
 		graph, tag, cypher, tag)
 
@@ -328,7 +355,10 @@ func (bw *BulkWriter) ExecCypherWrite(ctx context.Context, graph, cypher string)
 	if _, err := bw.conn.Exec(ctx, ageSetup); err != nil {
 		return fmt.Errorf("AGE setup: %w", err)
 	}
-	tag := cypherDollarQuote(cypher)
+	tag, ok := cypherDollarQuote(cypher)
+	if !ok {
+		return errors.New("cypher body collides with every dollar-quote tag")
+	}
 	sql := fmt.Sprintf(
 		`SELECT * FROM ag_catalog.cypher('%s', %s %s %s) AS (v ag_catalog.agtype)`,
 		graph, tag, cypher, tag)
