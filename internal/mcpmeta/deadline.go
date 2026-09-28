@@ -59,12 +59,18 @@ func SoftDeadlineWith(ctx context.Context, d time.Duration) (context.Context, co
 // retry is likely to return complete results — the uniform contract from
 // #688, mirroring federated_cochange's retry_after_seconds field so agents
 // no longer have to guess whether retrying helps or worsens a cold start.
+
+// DefaultRetryAfterSeconds is the clamped retry hint for callers that have no
+// better estimate; explore's post-resolve partial uses a larger value because
+// the underlying index build is still in flight.
+const DefaultRetryAfterSeconds = 30
+
 func PartialFooter(what string, retryAfterSeconds int) string {
 	if what == "" {
 		what = "some stages skipped"
 	}
 	if retryAfterSeconds <= 0 {
-		retryAfterSeconds = 30
+		retryAfterSeconds = DefaultRetryAfterSeconds
 	}
 	return fmt.Sprintf("\npartial: true — %s — retry_after_seconds: %d", what, retryAfterSeconds)
 }

@@ -22,6 +22,11 @@ type ExploreInput struct {
 	MaxBytes int    `json:"max_bytes,omitempty" jsonschema:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
+// explorePartialRetryAfter is the retry hint on post-resolve partials: a
+// larger value than mcpmeta.DefaultRetryAfterSeconds because the index build
+// is still in flight after an 80s soft deadline.
+const explorePartialRetryAfter = 60
+
 // exploreFreshnessSummary is the trimmed freshness view surfaced on explore
 // output.
 type exploreFreshnessSummary struct {
@@ -153,10 +158,10 @@ func handleExplore(ctx context.Context, input ExploreInput, deps analyze.Deps) (
 	if mErr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", mErr)), nil
 	}
-	what := "community detection, recent commits, coupled files"
+	what := "community detection, recent commits, coupled files — soft deadline"
 	if output.Result != nil && output.PartialReason != "" {
 		what = output.PartialReason
 	}
-	text := string(data) + mcpmeta.PartialFooter(what+" (soft deadline)", 60)
+	text := string(data) + mcpmeta.PartialFooter(what, explorePartialRetryAfter)
 	return textResult(text), nil
 }
