@@ -383,7 +383,12 @@ func mergeGraphHits(pr, calls, comm []GraphHit, limit int) []GraphHit {
 // Escape order matters: backslash must be escaped first so the quote's added
 // backslash is not itself re-escaped. "foo\" → "foo\\" → 'foo\\' (safe);
 // "O'Brien" → "O\'Brien" → 'O\'Brien' (safe).
+//
+// The Cypher text is carried inside a cypherDollarTag dollar-quoted SQL
+// string — a value containing the tag would close that string early, so the
+// tag sequence is stripped (#802).
 func escapeCypherName(name string) string {
 	name = strings.ReplaceAll(name, `\`, `\\`)
-	return strings.ReplaceAll(name, "'", "\\'")
+	name = strings.ReplaceAll(name, "'", "\\'")
+	return strings.ReplaceAll(name, cypherDollarTag, "")
 }

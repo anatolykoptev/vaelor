@@ -6,12 +6,21 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ageExpandSetup sets the search path for AGE Cypher queries.
-// Requires AGE in shared_preload_libraries (verified at startup by codegraph.Store.CheckAGEPreloaded).
-const ageExpandSetup = `SET search_path TO ag_catalog, "$user", public`
+// ageExpandSetup sets the search path for AGE Cypher queries. LOCAL-scoped to
+// the enclosing transaction so nothing leaks into the pooled connection's next
+// acquirer. Requires AGE in shared_preload_libraries (verified at startup by
+// codegraph.Store.CheckAGEPreloaded).
+const ageExpandSetup = `SET LOCAL search_path TO ag_catalog, "$user", public`
+
+// cypherDollarTag is the PostgreSQL dollar-quote tag wrapping the Cypher text
+// inside ag_catalog.cypher() calls. A named tag (not bare $$) plus stripping
+// the tag inside escapeCypherName means a value containing "$$" — e.g. a PHP
+// $$var symbol — cannot close the SQL string early.
+const cypherDollarTag = "$vaelor$"
 
 // graphRowCols is the number of columns returned by graph neighbor queries (name, file, kind).
 const graphRowCols = 3
@@ -135,14 +144,26 @@ func (e *Expander) execCypherNPool(ctx context.Context, graphName, cypher, colDe
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, ageExpandSetup); err != nil {
+	// Read-only transaction: PostgreSQL enforces no-write server-side against
+	// the parsed statement, so even a Cypher literal that broke out of its
+	// quoting could not mutate the graph (#802). This guards every internally
+	// generated query without relying on a client-side lexical scan to stay in
+	// lock-step with AGE's lexer.
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		slog.Debug("graph expand: begin tx failed", slog.Any("error", err))
+		return nil
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // read-only — rollback is enough
+
+	if _, err := tx.Exec(ctx, ageExpandSetup); err != nil {
 		slog.Debug("graph expand: AGE setup failed", slog.Any("error", err))
 		return nil
 	}
 
 	// Check if graph exists before querying to avoid postgres ERROR logs.
 	var exists bool
-	err = conn.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1)`,
 		graphName,
 	).Scan(&exists)
@@ -151,11 +172,8 @@ func (e *Expander) execCypherNPool(ctx context.Context, graphName, cypher, colDe
 		return nil
 	}
 
-	sql := fmt.Sprintf(
-		`SELECT * FROM ag_catalog.cypher('%s', $$ %s $$) AS (%s)`,
-		graphName, cypher, colDefs,
-	)
-	rows, err := conn.Query(ctx, sql)
+	sql := wrapCypherSQL(graphName, cypher, colDefs)
+	rows, err := tx.Query(ctx, sql)
 	if err != nil {
 		slog.Debug("graph expand: cypher query failed",
 			slog.String("graph", graphName), slog.Any("error", err))
@@ -184,10 +202,26 @@ func (e *Expander) execCypherNPool(ctx context.Context, graphName, cypher, colDe
 func buildNameFilter(variable string, names []string) string {
 	parts := make([]string, 0, len(names))
 	for _, n := range names {
-		escaped := strings.ReplaceAll(n, "'", "\\'")
-		parts = append(parts, fmt.Sprintf("%s.name = '%s'", variable, escaped))
+		parts = append(parts, fmt.Sprintf("%s.name = '%s'", variable, escapeCypherName(n)))
 	}
 	return strings.Join(parts, " OR ")
+}
+
+// sqlLiteral escapes a value for a single-quoted SQL literal (the graph name
+// argument to ag_catalog.cypher). With standard_conforming_strings on, a
+// backslash is literal inside '...' — the only escape is a doubled quote.
+func sqlLiteral(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
+
+// wrapCypherSQL renders the SQL that carries a Cypher statement to
+// ag_catalog.cypher: graph name as a '...' SQL literal, Cypher inside the
+// cypherDollarTag dollar quote.
+func wrapCypherSQL(graphName, cypher, colDefs string) string {
+	return fmt.Sprintf(
+		`SELECT * FROM ag_catalog.cypher('%s', `+cypherDollarTag+` %s `+cypherDollarTag+`) AS (%s)`,
+		sqlLiteral(graphName), cypher, colDefs,
+	)
 }
 
 // stripAgtypeQuotes removes the surrounding double-quotes that AGE wraps string values in.
