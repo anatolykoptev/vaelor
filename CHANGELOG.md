@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.5](https://github.com/anatolykoptev/vaelor/compare/v1.65.4...v1.65.5) (2026-09-28)
+
+
+### Fixed
+
+* **embeddings:** enforce read-only on Expander Cypher path ([#807](https://github.com/anatolykoptev/vaelor/issues/807)) ([c2b28a9](https://github.com/anatolykoptev/vaelor/commit/c2b28a98fd672e37fdad32f0e08452a84a4a0a75))
+
 ## [1.65.4](https://github.com/anatolykoptev/vaelor/compare/v1.65.3...v1.65.4) (2026-09-28)
 
 
