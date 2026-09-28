@@ -202,6 +202,103 @@ func TestIsReadOnly(t *testing.T) {
 			cypher: "",
 			want:   true,
 		},
+		// #789: write keywords inside string literals are parameter values,
+		// not operations — common Go method names like Set/Delete/Create.
+		{
+			name:   "who_calls rendered with name=Set",
+			cypher: "MATCH (caller:Symbol)-[:CALLS]->(s:Symbol) WHERE s.name = 'Set' RETURN caller.name",
+			want:   true,
+		},
+		{
+			name:   "all write keywords as literal values",
+			cypher: "MATCH (s:Symbol) WHERE s.name IN ['Set', 'Delete', 'Create', 'Merge', 'Remove', 'Drop', 'Detach'] RETURN s.name",
+			want:   true,
+		},
+		{
+			name:   "symbols_in rendered with a create/ path",
+			cypher: "MATCH (s:Symbol) WHERE s.file STARTS WITH 'internal/create/' RETURN s.name",
+			want:   true,
+		},
+		{
+			name:   "double-quoted literal containing a write keyword",
+			cypher: `MATCH (s:Symbol) WHERE s.name = "Remove" RETURN s`,
+			want:   true,
+		},
+		{
+			name:   "backtick-quoted identifier containing a write keyword",
+			cypher: "MATCH (s:`Set`) RETURN s",
+			want:   true,
+		},
+		{
+			name:   "escaped quote keeps a write keyword inside the literal",
+			cypher: `MATCH (s:Symbol) WHERE s.name = 'a\' ; DELETE x' RETURN s`,
+			want:   true,
+		},
+		{
+			name:   "write keyword after a closed literal is still caught",
+			cypher: "MATCH (s:Symbol) WHERE s.name = 'x' DETACH DELETE s",
+			want:   false,
+		},
+		{
+			name:   "write keyword between literals is still caught",
+			cypher: "RETURN 'a' + 'b' DELETE n",
+			want:   false,
+		},
+		// Comment-state cases: a quote inside a comment must NOT open a
+		// literal — otherwise the write on the next line is swallowed with
+		// the phantom literal and the guard passes it (the bypass the
+		// pre-fix scanner had). All four must stay rejected.
+		{
+			name:   "write after a line comment containing a quote",
+			cypher: "MATCH (n) // x'\nDETACH DELETE n",
+			want:   false,
+		},
+		{
+			name:   "write after a block comment containing a quote",
+			cypher: "MATCH (n) /* x' */ DETACH DELETE n",
+			want:   false,
+		},
+		{
+			name:   "write after a backslash inside a backtick identifier",
+			cypher: "MATCH (n) WITH n.`x\\` AS p DETACH DELETE n",
+			want:   false,
+		},
+		{
+			name:   "write after a line comment ended by a bare CR",
+			cypher: "MATCH (n) // x\rDETACH DELETE n",
+			want:   false,
+		},
+		{
+			name:   "write after a line comment ended by CRLF",
+			cypher: "MATCH (n) // x'\r\nDETACH DELETE n",
+			want:   false,
+		},
+		{
+			name:   "unterminated literal fails closed",
+			cypher: "MATCH (s:Symbol) WHERE s.name = 'abc",
+			want:   false,
+		},
+		{
+			name:   "unterminated block comment fails closed",
+			cypher: "MATCH (n) /* DETACH DELETE n",
+			want:   false,
+		},
+		// ...and the reads that must still pass through the comment logic:
+		{
+			name:   "write keyword inside a line comment is not an operation",
+			cypher: "MATCH (s:Symbol) RETURN s.name // DELETE earlier attempt",
+			want:   true,
+		},
+		{
+			name:   "write keyword inside a block comment is not an operation",
+			cypher: "MATCH (s:Symbol) /* may DELETE later */ RETURN s",
+			want:   true,
+		},
+		{
+			name:   "doubled backtick inside an identifier stays inside",
+			cypher: "MATCH (s:`we``ird`) RETURN s",
+			want:   true,
+		},
 	}
 
 	for _, tc := range tests {
