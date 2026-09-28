@@ -67,3 +67,16 @@ func WrapCypherSQL(graphName, cypher, colDefs string) (string, bool) {
 		SQLLiteral(graphName), tag, cypher, tag, colDefs,
 	), true
 }
+
+// UnquoteAgtype decodes the text form of a string agtype: trims surrounding
+// padding and removes one matched pair of double quotes. AGE serialises string
+// values JSON-quoted ("foo"); non-string agtypes and malformed rows pass through
+// unchanged. Inner escape sequences are preserved verbatim — callers needing
+// JSON unescaping must apply it explicitly (no pre-convergence site did).
+func UnquoteAgtype(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}

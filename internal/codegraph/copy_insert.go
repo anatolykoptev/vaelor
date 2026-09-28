@@ -3,6 +3,7 @@ package codegraph
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -239,6 +240,9 @@ func queryLabelInfos(ctx context.Context, conn *pgxpool.Conn, gname string) (map
 // Critical: without this, subsequent Cypher MERGE/CREATE will generate IDs that
 // collide with those assigned via COPY.
 func advanceLabelSeqs(ctx context.Context, conn *pgxpool.Conn, gname string, labels map[string]labelInfo, seqs map[string]uint64) error {
+	if err := validateGraphName(gname); err != nil {
+		return err
+	}
 	for label, count := range seqs {
 		if count == 0 {
 			continue
@@ -262,46 +266,11 @@ func agtypeJSON(props map[string]string) (string, error) {
 	if len(props) == 0 {
 		return "{}", nil
 	}
-	var sb strings.Builder
-	sb.WriteByte('{')
-	first := true
-	for k, v := range props {
-		if !first {
-			sb.WriteByte(',')
-		}
-		first = false
-		sb.WriteByte('"')
-		writeJSONString(&sb, k)
-		sb.WriteString(`":"`)
-		writeJSONString(&sb, v)
-		sb.WriteByte('"')
+	b, err := json.Marshal(props)
+	if err != nil {
+		return "", fmt.Errorf("marshal props: %w", err)
 	}
-	sb.WriteByte('}')
-	return sb.String(), nil
-}
-
-// writeJSONString writes s into sb with JSON string escaping.
-// Escapes control characters, quotes, and backslashes.
-func writeJSONString(sb *strings.Builder, s string) {
-	for _, r := range s {
-		switch {
-		case r == '"':
-			sb.WriteString(`\"`)
-		case r == '\\':
-			sb.WriteString(`\\`)
-		case r == '\n':
-			sb.WriteString(`\n`)
-		case r == '\r':
-			sb.WriteString(`\r`)
-		case r == '\t':
-			sb.WriteString(`\t`)
-		case r < 0x20:
-			// Escape other control characters as \uXXXX.
-			fmt.Fprintf(sb, `\u%04x`, r)
-		default:
-			sb.WriteRune(r)
-		}
-	}
+	return string(b), nil
 }
 
 // copyEscape prepares a JSON string for COPY text-format transmission.

@@ -61,3 +61,26 @@ func TestCypherDollarQuote_DefaultAndCollision(t *testing.T) {
 		t.Fatalf("tag %q still collides with body", tag2)
 	}
 }
+
+func TestUnquoteAgtype(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{`"foo"`, "foo"},
+		{`"a b"`, "a b"},
+		{`  "padded"  `, "padded"},
+		{`" inner space "`, " inner space "},
+		{`42`, "42"},
+		{`true`, "true"},
+		{``, ""},
+		{`"`, `"`},
+		{`""`, ""},
+		// Matched-pair semantics, not run-strip: an interior quote survives.
+		{`""x""`, `"x"`},
+		{`"say \"hi\""`, `say \"hi\"`},
+	}
+	for _, c := range cases {
+		if got := UnquoteAgtype(c.in); got != c.want {
+			t.Errorf("UnquoteAgtype(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

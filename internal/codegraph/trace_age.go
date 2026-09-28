@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/langutil"
 	"github.com/anatolykoptev/vaelor/internal/parser"
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // TraceFromAGE builds a call trace by querying CALLS edges directly from
@@ -175,10 +175,10 @@ func queryDirectNeighbors(ctx context.Context, store *Store, graphName, symName,
 			continue
 		}
 		s := ageSymbol{
-			name:      stripAgtypeQuotes(row[0]),
-			kind:      stripAgtypeQuotes(row[1]),
-			file:      stripAgtypeQuotes(row[2]),
-			signature: stripAgtypeQuotes(row[5]),
+			name:      strutil.UnquoteAgtype(row[0]),
+			kind:      strutil.UnquoteAgtype(row[1]),
+			file:      strutil.UnquoteAgtype(row[2]),
+			signature: strutil.UnquoteAgtype(row[5]),
 			callLine:  parseUint32(row[6]),
 		}
 		s.startLine = parseUint32(row[3])
@@ -192,10 +192,10 @@ func queryDirectNeighbors(ctx context.Context, store *Store, graphName, symName,
 // to a parser.Symbol.
 func rowToSymbol(row []string) *parser.Symbol {
 	sym := &parser.Symbol{
-		Name:      stripAgtypeQuotes(row[0]),
-		Kind:      parser.NodeKind(stripAgtypeQuotes(row[1])),
-		File:      stripAgtypeQuotes(row[2]),
-		Signature: stripAgtypeQuotes(row[5]),
+		Name:      strutil.UnquoteAgtype(row[0]),
+		Kind:      parser.NodeKind(strutil.UnquoteAgtype(row[1])),
+		File:      strutil.UnquoteAgtype(row[2]),
+		Signature: strutil.UnquoteAgtype(row[5]),
 	}
 	sym.StartLine = parseUint32(row[3])
 	sym.EndLine = parseUint32(row[4])
@@ -222,18 +222,8 @@ func maxDepthOf(node callgraph.CallChainNode, depth int) int {
 	return maxD
 }
 
-// stripAgtypeQuotes removes the surrounding double quotes that AGE adds to
-// agtype string values in text-format query results.
-func stripAgtypeQuotes(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
 func parseUint32(s string) uint32 {
-	s = stripAgtypeQuotes(strings.TrimSpace(s))
+	s = strutil.UnquoteAgtype(s)
 	v, err := strconv.ParseUint(s, 10, 32)
 	if err != nil {
 		return 0

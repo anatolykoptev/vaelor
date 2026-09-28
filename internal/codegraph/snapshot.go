@@ -50,14 +50,6 @@ type Snapshot struct {
 	Edges      []SnapshotEdge   `json:"edges"`
 }
 
-// stripQuotes removes surrounding double-quotes from AGE agtype strings.
-func stripQuotes(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
 // buildSnapshot extracts Symbol vertices and semantic edges from in-memory graph data.
 // Only Symbol vertices are included; CONTAINS and IMPORTS edges are skipped.
 func buildSnapshot(vertices []vertexData, edges []edgeData) Snapshot {

@@ -5,6 +5,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // receiverIDSep separates the package directory from the type name in a qualified
@@ -133,9 +135,9 @@ func (e *Expander) resolveMethodEndpoints(ctx context.Context, graphName string,
 		if len(row) < methodRowCols {
 			continue
 		}
-		name := stripAgtypeQuotes(row[0])
-		file := stripAgtypeQuotes(row[1])
-		sig := parseSignature(stripAgtypeQuotes(row[2]))
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
+		sig := parseSignature(strutil.UnquoteAgtype(row[2]))
 		if name == "" || file == "" || !sig.isMethod || sig.receiver == "" {
 			continue
 		}
@@ -184,10 +186,10 @@ func (e *Expander) receiverPairsSharingInterface(ctx context.Context, graphName 
 		if len(row) < receiverPairCols {
 			continue
 		}
-		taName := stripAgtypeQuotes(row[0])
-		taFile := stripAgtypeQuotes(row[1])
-		tbName := stripAgtypeQuotes(row[2])
-		tbFile := stripAgtypeQuotes(row[3])
+		taName := strutil.UnquoteAgtype(row[0])
+		taFile := strutil.UnquoteAgtype(row[1])
+		tbName := strutil.UnquoteAgtype(row[2])
+		tbFile := strutil.UnquoteAgtype(row[3])
 		if taName == "" || taFile == "" || tbName == "" || tbFile == "" {
 			continue
 		}

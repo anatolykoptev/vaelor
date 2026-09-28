@@ -78,9 +78,9 @@ func (e *Expander) Expand(ctx context.Context, graphName string, results []Searc
 			if len(row) < graphRowCols {
 				continue
 			}
-			name := stripAgtypeQuotes(row[0])
-			file := stripAgtypeQuotes(row[1])
-			kind := stripAgtypeQuotes(row[2])
+			name := strutil.UnquoteAgtype(row[0])
+			file := strutil.UnquoteAgtype(row[1])
+			kind := strutil.UnquoteAgtype(row[2])
 			if name == "" || file == "" {
 				continue
 			}
@@ -216,13 +216,4 @@ func buildNameFilter(variable string, names []string) string {
 // shared with codegraph (#808).
 func wrapCypherSQL(graphName, cypher, colDefs string) (string, bool) {
 	return strutil.WrapCypherSQL(graphName, cypher, colDefs)
-}
-
-// stripAgtypeQuotes removes the surrounding double-quotes that AGE wraps string values in.
-// AGE returns string agtypes as "foo" (JSON-quoted). Returns the bare value.
-func stripAgtypeQuotes(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
 }

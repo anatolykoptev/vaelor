@@ -206,8 +206,8 @@ func (e *Expander) graphSubArmPageRank(
 		if len(row) < graphRowColsPR {
 			continue
 		}
-		name := stripAgtypeQuotes(row[0])
-		file := stripAgtypeQuotes(row[1])
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
 		if name == "" || file == "" {
 			continue
 		}
@@ -261,9 +261,9 @@ func (e *Expander) graphSubArmCalls(
 			if len(row) < graphRowColsBase {
 				continue
 			}
-			name := stripAgtypeQuotes(row[0])
-			file := stripAgtypeQuotes(row[1])
-			kind := stripAgtypeQuotes(row[2])
+			name := strutil.UnquoteAgtype(row[0])
+			file := strutil.UnquoteAgtype(row[1])
+			kind := strutil.UnquoteAgtype(row[2])
 			if name == "" || file == "" {
 				continue
 			}
@@ -314,7 +314,7 @@ func (e *Expander) graphSubArmCommunity(
 	if len(rows) == 0 || len(rows[0]) < graphRowColsExt {
 		return nil
 	}
-	community := stripAgtypeQuotes(rows[0][3])
+	community := strutil.UnquoteAgtype(rows[0][3])
 	if community == "" || community == "null" {
 		return nil
 	}
@@ -334,9 +334,9 @@ func (e *Expander) graphSubArmCommunity(
 		if len(row) < graphRowColsBase {
 			continue
 		}
-		name := stripAgtypeQuotes(row[0])
-		file := stripAgtypeQuotes(row[1])
-		kind := stripAgtypeQuotes(row[2])
+		name := strutil.UnquoteAgtype(row[0])
+		file := strutil.UnquoteAgtype(row[1])
+		kind := strutil.UnquoteAgtype(row[2])
 		if name == "" || file == "" {
 			continue
 		}
