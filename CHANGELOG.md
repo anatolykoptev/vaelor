@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.13](https://github.com/anatolykoptev/vaelor/compare/v1.65.12...v1.65.13) (2026-09-28)
+
+
+### Fixed
+
+* **embed:** empty EMBED_MODEL is loud, not silently trusted ([#724](https://github.com/anatolykoptev/vaelor/issues/724)) ([#831](https://github.com/anatolykoptev/vaelor/issues/831)) ([40edd19](https://github.com/anatolykoptev/vaelor/commit/40edd19910bdef2c3378844fc50026eeafbec37e))
+
 ## [1.65.12](https://github.com/anatolykoptev/vaelor/compare/v1.65.11...v1.65.12) (2026-09-28)
 
 
