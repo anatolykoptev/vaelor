@@ -330,7 +330,7 @@ func handleDataflow(ctx context.Context, input DataflowInput, deps analyze.Deps,
 	// both the partial data and what was truncated. Fast path (no deadline)
 	// is byte-identical (Partial/PartialReason are omitempty).
 	if partial {
-		text += mcpmeta.PartialFooter(resp.Dataflow.PartialReason)
+		text += mcpmeta.PartialFooter(resp.Dataflow.PartialReason, 30)
 	}
 
 	// Apply per-call budget override when max_bytes is set.

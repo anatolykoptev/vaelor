@@ -2,6 +2,7 @@ package mcpmeta
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -51,13 +52,19 @@ func SoftDeadlineWith(ctx context.Context, d time.Duration) (context.Context, co
 // PartialFooter returns the partial-result footer to append when a soft
 // deadline fires:
 //
-//	partial: true — <what>
+//	partial: true — <what> — retry_after_seconds: N
 //
 // what describes what was skipped (e.g. "LLM analysis, route diff, 3/5
-// enrichment stages").
-func PartialFooter(what string) string {
+// enrichment stages"). retryAfterSeconds is the caller's estimate of when a
+// retry is likely to return complete results — the uniform contract from
+// #688, mirroring federated_cochange's retry_after_seconds field so agents
+// no longer have to guess whether retrying helps or worsens a cold start.
+func PartialFooter(what string, retryAfterSeconds int) string {
 	if what == "" {
 		what = "some stages skipped"
 	}
-	return "\npartial: true — " + what
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 30
+	}
+	return fmt.Sprintf("\npartial: true — %s — retry_after_seconds: %d", what, retryAfterSeconds)
 }

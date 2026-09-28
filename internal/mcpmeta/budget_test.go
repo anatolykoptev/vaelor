@@ -200,20 +200,26 @@ func TestSoftDeadlineWith_ZeroReturnsParent(t *testing.T) {
 
 // TestPartialFooter verifies the partial-result footer format.
 func TestPartialFooter(t *testing.T) {
-	got := PartialFooter("LLM analysis skipped")
+	got := PartialFooter("LLM analysis skipped", 45)
 	if !strings.Contains(got, "partial: true") {
 		t.Fatalf("footer must contain 'partial: true', got %q", got)
 	}
 	if !strings.Contains(got, "LLM analysis skipped") {
 		t.Fatalf("footer must contain the description, got %q", got)
 	}
+	if !strings.Contains(got, "retry_after_seconds: 45") {
+		t.Fatalf("footer must carry the retry hint (#688), got %q", got)
+	}
 }
 
 // TestPartialFooter_EmptyUsesDefault verifies empty description falls back.
 func TestPartialFooter_EmptyUsesDefault(t *testing.T) {
-	got := PartialFooter("")
+	got := PartialFooter("", 0)
 	if !strings.Contains(got, "some stages skipped") {
 		t.Fatalf("empty description must use default, got %q", got)
+	}
+	if !strings.Contains(got, "retry_after_seconds: 30") {
+		t.Fatalf("non-positive retry must fall back to 30s, got %q", got)
 	}
 }
 

@@ -85,6 +85,9 @@ func TestSoftDeadlineResult_Format(t *testing.T) {
 	if !strings.Contains(got, "partial: true") {
 		t.Fatalf("partial result must contain 'partial: true' footer, got:\n%s", got)
 	}
+	if !strings.Contains(got, "retry_after_seconds:") {
+		t.Fatalf("partial result must carry a retry hint (#688), got:\n%s", got)
+	}
 	if !strings.Contains(got, "LLM analysis skipped") {
 		t.Fatalf("partial result must contain what was skipped, got:\n%s", got)
 	}

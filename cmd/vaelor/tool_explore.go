@@ -91,7 +91,9 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Returns file/symbol counts, language breakdown, top symbols by call frequency, " +
 			"dead code summary, package list, health score (A-F), dependency freshness, and vulnerability count. " +
 			"Use as a first step when encountering an unfamiliar codebase. " +
-			"Fast (no LLM calls) — purely static analysis.",
+			"Fast on a warm repo (no LLM calls) — purely static analysis. " +
+			"A first call on a cold repo may take up to ~90s while it is indexed; " +
+			"a 'partial: true' result carries retry_after_seconds — wait that long and re-call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ExploreInput) (*mcp.CallToolResult, error) {
 		return handleExplore(ctx, input, deps)
 	})
@@ -155,6 +157,6 @@ func handleExplore(ctx context.Context, input ExploreInput, deps analyze.Deps) (
 	if output.Result != nil && output.PartialReason != "" {
 		what = output.PartialReason
 	}
-	text := string(data) + mcpmeta.PartialFooter(what+" (soft deadline)")
+	text := string(data) + mcpmeta.PartialFooter(what+" (soft deadline)", 60)
 	return textResult(text), nil
 }
