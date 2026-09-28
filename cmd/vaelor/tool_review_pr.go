@@ -149,7 +149,7 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 	}
 
 	if dryRun {
-		return reviewPRDryRun(ctx, input, result)
+		return reviewPRDryRun(ctx, input, deps, result)
 	}
 	return reviewPRPost(ctx, input, deps, root, result, findings)
 }
@@ -157,29 +157,12 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 // reviewPRDryRun executes the dry-run path: persists risk-level learnings
 // (best-effort) and returns the review as XML. Byte-identical to the former
 // standalone review_pr behaviour.
-func reviewPRDryRun(ctx context.Context, input ReviewPRInput, result *review.DeltaResult) (*mcp.CallToolResult, error) {
-	// Persist learnings and look up prior findings.
-	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		store, err := learnings.New(ctx, dsn, nil)
-		if err == nil {
-			defer store.Close()
-			slug := input.Repo
-			for _, cs := range result.ChangedSymbols {
-				// Lookup hints.
-				prior, _ := store.Nearest(ctx, slug, cs.Symbol.Name, 3)
-				for _, p := range prior {
-					result.Risk.Suggestions = append(result.Risk.Suggestions,
-						fmt.Sprintf("prior review on %s: %s (%s)", p.Symbol, p.Flag, p.PRURL))
-				}
-				// Record current risk level from impact analysis.
-				_ = store.Upsert(ctx, learnings.Record{
-					Repo: slug, Symbol: cs.Symbol.Name,
-					RiskLevel: result.Risk.RiskLevel,
-					Flag:      strings.Join(result.Risk.Flags, ";"),
-					PRURL:     fmt.Sprintf("https://github.com/%s/pull/%d", slug, input.PR),
-				})
-			}
-		}
+func reviewPRDryRun(ctx context.Context, input ReviewPRInput, deps analyze.Deps, result *review.DeltaResult) (*mcp.CallToolResult, error) {
+	// Persist learnings and look up prior findings via the startup-built store —
+	// it carries the LEARNINGS_DATABASE_URL/DATABASE_URL provenance and the
+	// ownershipOnce-pooled connection (#818).
+	if deps.Learnings != nil {
+		recordDryRunLearnings(ctx, deps.Learnings, input, result)
 	}
 
 	resp := buildDeltaXML(result)
@@ -196,6 +179,38 @@ func reviewPRDryRun(ctx context.Context, input ReviewPRInput, result *review.Del
 	}
 
 	return textResult(string(data)), nil
+}
+
+// dryRunLearningsStore is the narrow read/write surface the dry-run learnings
+// loop needs — *learnings.Store satisfies it; tests inject a spy.
+type dryRunLearningsStore interface {
+	Nearest(ctx context.Context, repo, symbol string, k int) ([]learnings.Record, error)
+	Upsert(ctx context.Context, r learnings.Record) error
+}
+
+// recordDryRunLearnings records the current risk level for each changed symbol
+// and appends "prior review" suggestions for any matching earlier findings.
+// Best-effort: lookup and upsert errors are swallowed.
+func recordDryRunLearnings(ctx context.Context, store dryRunLearningsStore, input ReviewPRInput, result *review.DeltaResult) {
+	slug := input.Repo
+	for _, cs := range result.ChangedSymbols {
+		if cs.Symbol == nil {
+			continue
+		}
+		// Lookup hints.
+		prior, _ := store.Nearest(ctx, slug, cs.Symbol.Name, 3)
+		for _, p := range prior {
+			result.Risk.Suggestions = append(result.Risk.Suggestions,
+				fmt.Sprintf("prior review on %s: %s (%s)", p.Symbol, p.Flag, p.PRURL))
+		}
+		// Record current risk level from impact analysis.
+		_ = store.Upsert(ctx, learnings.Record{
+			Repo: slug, Symbol: cs.Symbol.Name,
+			RiskLevel: result.Risk.RiskLevel,
+			Flag:      strings.Join(result.Risk.Flags, ";"),
+			PRURL:     fmt.Sprintf("https://github.com/%s/pull/%d", slug, input.PR),
+		})
+	}
 }
 
 // deriveVerdict maps a delta review's risk guidance into a structured merge

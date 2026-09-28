@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/forge"
 	"github.com/anatolykoptev/vaelor/internal/learnings"
 	"github.com/anatolykoptev/vaelor/internal/parser"
@@ -192,14 +193,12 @@ func TestPersistChangedSymbols_UpsertErrorDoesNotPanic(t *testing.T) {
 }
 
 // dryRunBody runs reviewPRDryRun over a synthetic result and returns the
-// serialized response text. DATABASE_URL is cleared so the learnings loop
-// provably no-ops — CI DOES export it (preflight.yml), and without this a
-// fixture carrying ChangedSymbols would hit the ephemeral DB and have
-// "prior review" suggestions injected into the XML under test.
+// serialized response text. deps.Learnings is nil so the learnings loop
+// provably no-ops — otherwise a fixture carrying ChangedSymbols would hit
+// a real DB and have "prior review" suggestions injected into the XML.
 func dryRunBody(t *testing.T, input ReviewPRInput, r *review.DeltaResult) string {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "")
-	res, err := reviewPRDryRun(context.Background(), input, r)
+	res, err := reviewPRDryRun(context.Background(), input, analyze.Deps{}, r)
 	if err != nil {
 		t.Fatalf("reviewPRDryRun: %v", err)
 	}
@@ -269,5 +268,56 @@ func TestReviewPRDryRun_UntestedRiskPrecedeImpacted(t *testing.T) {
 	if idxUntested >= idxImpacted || idxRisk >= idxImpacted {
 		t.Errorf("order wrong: untested=%d risk=%d impacted=%d — untested/risk must precede impacted_symbols",
 			idxUntested, idxRisk, idxImpacted)
+	}
+}
+
+// spyDryRunStore records Nearest/Upsert calls and returns canned priors.
+type spyDryRunStore struct {
+	nearestCalls []string
+	upserts      []learnings.Record
+	priors       []learnings.Record
+}
+
+func (s *spyDryRunStore) Nearest(_ context.Context, _, symbol string, _ int) ([]learnings.Record, error) {
+	s.nearestCalls = append(s.nearestCalls, symbol)
+	return s.priors, nil
+}
+
+func (s *spyDryRunStore) Upsert(_ context.Context, r learnings.Record) error {
+	s.upserts = append(s.upserts, r)
+	return nil
+}
+
+// TestRecordDryRunLearnings exercises the loop the #818 fix routes through the
+// startup-built store: one Nearest+Upsert per changed symbol, prior findings
+// injected as suggestions, nil symbols skipped.
+func TestRecordDryRunLearnings(t *testing.T) {
+	spy := &spyDryRunStore{priors: []learnings.Record{
+		{Symbol: "Foo", Flag: "high_surprise", PRURL: "https://github.com/o/r/pull/7"},
+	}}
+	result := &review.DeltaResult{
+		ChangedSymbols: []review.ChangedSymbol{
+			{Symbol: &parser.Symbol{Name: "Foo"}},
+			{Symbol: &parser.Symbol{Name: "Bar"}},
+			{Symbol: nil},
+		},
+		Risk: review.RiskGuidance{RiskLevel: "high", Flags: []string{"x"}},
+	}
+	recordDryRunLearnings(context.Background(), spy, ReviewPRInput{Repo: "o/r", PR: 9}, result)
+
+	if len(spy.nearestCalls) != 2 || len(spy.upserts) != 2 {
+		t.Fatalf("want Nearest+Upsert per non-nil symbol, got nearest=%v upserts=%d", spy.nearestCalls, len(spy.upserts))
+	}
+	for _, u := range spy.upserts {
+		if u.RiskLevel != "high" || u.Repo != "o/r" {
+			t.Errorf("upsert missing risk/repo: %+v", u)
+		}
+	}
+	// Priors inject into suggestions for every symbol (2 symbols × 1 prior).
+	if len(result.Risk.Suggestions) != 2 {
+		t.Fatalf("want 2 suggestions, got %v", result.Risk.Suggestions)
+	}
+	if !strings.Contains(result.Risk.Suggestions[0], "high_surprise") {
+		t.Errorf("suggestion missing prior flag: %q", result.Risk.Suggestions[0])
 	}
 }
