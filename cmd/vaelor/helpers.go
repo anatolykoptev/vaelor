@@ -71,6 +71,17 @@ func appendMetaFooter(body string, env mcpmeta.Envelope) string {
 	return body + "\n\n<!-- meta: " + string(js) + " -->"
 }
 
+// spillFetchHint renders the retrieval instructions appended to every spill
+// notice. The spilled file lives on the MCP SERVER host — a remote client
+// cannot Read that path, so the notice must name the read_output tool (which
+// pages the file over MCP) alongside the same-host Read fallback. A bare
+// server-local path is exactly the silent data loss of #796.
+func spillFetchHint(path string) string {
+	return fmt.Sprintf("File is on the MCP server host — remote clients: call "+
+		"read_output(name=%q, offset=0) to page through it; same-host agents: use Read.",
+		filepath.Base(path))
+}
+
 // largeTextResult returns a text result, saving to file if content exceeds maxInlineCharsDefault.
 // When outputDir is empty or content is small, returns inline text.
 // When saved to file, returns a short summary with the file path.
@@ -82,8 +93,8 @@ func largeTextResult(text, toolName, outputDir string) *mcp.CallToolResult {
 	if !ok {
 		return textResult(text)
 	}
-	summary := fmt.Sprintf("%s: output %d chars saved to: %s\n\nUse Read tool to access the file.",
-		toolName, len(text), path)
+	summary := fmt.Sprintf("%s: output %d chars saved to: %s\n\n%s",
+		toolName, len(text), path, spillFetchHint(path))
 	return textResult(summary)
 }
 
@@ -120,8 +131,8 @@ func xmlMarshalFileResult(v any, toolName, outputDir string) *mcp.CallToolResult
 	if !ok {
 		return textResult(text)
 	}
-	summary := fmt.Sprintf("%s: output %d chars saved to: %s\n\nUse Read tool to access the file.",
-		toolName, len(text), path)
+	summary := fmt.Sprintf("%s: output %d chars saved to: %s\n\n%s",
+		toolName, len(text), path, spillFetchHint(path))
 	return textResult(summary)
 }
 

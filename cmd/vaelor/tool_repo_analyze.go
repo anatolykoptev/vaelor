@@ -183,7 +183,7 @@ func buildFileSummary(r *analyze.RepoAnalysisResult, path string, chars int) str
 	var sb strings.Builder
 
 	fmt.Fprintf(&sb, "repo_analyze: %s | %d files | %s\n", r.RepoName, r.FileCount, r.Language)
-	fmt.Fprintf(&sb, "Full output (%d chars) saved to: %s\n\n", chars, path)
+	fmt.Fprintf(&sb, "Full output (%d chars) saved to: %s\n%s\n\n", chars, path, spillFetchHint(path))
 
 	sb.WriteString("Contents:\n")
 	fmt.Fprintf(&sb, "- %d packages\n", len(r.Packages))

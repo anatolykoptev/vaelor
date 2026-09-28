@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"math"
+	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
@@ -85,18 +87,19 @@ func fileSavePointerUpperBound(toolName, outputDir string) int {
 	// filepath.Join can only shorten (collapsing slashes/trailing separators),
 	// so len(outputDir)+1+len(maxFilename) is a safe upper bound on the joined path.
 	maxPathLen := len(outputDir) + 1 + len(maxFilename)
-	// Build the pointer with max-length fields and measure its byte length.
-	// The em-dash and other non-ASCII chars are multi-byte in UTF-8; len()
-	// counts bytes, matching len(body) and budget (both byte measures).
-	return len(fmt.Sprintf("\n\n<!-- full-result: %s chars saved to: %s — Use Read tool to access the file. -->",
-		strings.Repeat("9", maxDigits), strings.Repeat("x", maxPathLen)))
+	// Measure the real pointer with max-length fields — the basename passed to
+	// read_output is bounded by maxFilename, and the path by maxPathLen. Using
+	// the same builder keeps the bound correct when the format changes.
+	return len(fileSavePointer(math.MaxInt64, strings.Repeat("x", maxPathLen)))
 }
 
 // fileSavePointer builds the XML-comment pointer appended to the inline body
 // when the full rendering is persisted to a file. It is an XML comment so the
 // envelope stays well-formed under a strict parser (same precedent as
-// appendMetaFooter). The sentinel prefix is greppable.
+// appendMetaFooter). The sentinel prefix is greppable. The hint must name
+// read_output: the path is local to the MCP server host, so a remote client
+// cannot Read it — it pages the file over MCP instead (#796).
 func fileSavePointer(charCount int, path string) string {
-	return fmt.Sprintf("\n\n<!-- full-result: %d chars saved to: %s — Use Read tool to access the file. -->",
-		charCount, path)
+	return fmt.Sprintf("\n\n<!-- full-result: %d chars saved to: %s — remote: read_output(name=%q, offset=0); same-host: Read -->",
+		charCount, path, filepath.Base(path))
 }
