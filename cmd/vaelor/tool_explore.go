@@ -22,6 +22,11 @@ type ExploreInput struct {
 	MaxBytes int    `json:"max_bytes,omitempty" jsonschema:"Response budget in bytes (default 8192). When the response exceeds this, the ranked head is returned with a continuation footer."`
 }
 
+// explorePartialRetryAfter is the retry hint on post-resolve partials: a
+// larger value than mcpmeta.DefaultRetryAfterSeconds because the index build
+// is still in flight after an 80s soft deadline.
+const explorePartialRetryAfter = 60
+
 // exploreFreshnessSummary is the trimmed freshness view surfaced on explore
 // output.
 type exploreFreshnessSummary struct {
@@ -91,7 +96,9 @@ func registerExplore(server *mcp.Server, _ Config, deps analyze.Deps) {
 			"Returns file/symbol counts, language breakdown, top symbols by call frequency, " +
 			"dead code summary, package list, health score (A-F), dependency freshness, and vulnerability count. " +
 			"Use as a first step when encountering an unfamiliar codebase. " +
-			"Fast (no LLM calls) — purely static analysis.",
+			"Fast on a warm repo (no LLM calls) — purely static analysis. " +
+			"A first call on a cold repo may take up to ~90s while it is indexed; " +
+			"a 'partial: true' result carries retry_after_seconds — wait that long and re-call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ExploreInput) (*mcp.CallToolResult, error) {
 		return handleExplore(ctx, input, deps)
 	})
@@ -151,10 +158,10 @@ func handleExplore(ctx context.Context, input ExploreInput, deps analyze.Deps) (
 	if mErr != nil {
 		return errResult(fmt.Sprintf("marshal: %s", mErr)), nil
 	}
-	what := "community detection, recent commits, coupled files"
+	what := "community detection, recent commits, coupled files — soft deadline"
 	if output.Result != nil && output.PartialReason != "" {
 		what = output.PartialReason
 	}
-	text := string(data) + mcpmeta.PartialFooter(what+" (soft deadline)")
+	text := string(data) + mcpmeta.PartialFooter(what, explorePartialRetryAfter)
 	return textResult(text), nil
 }

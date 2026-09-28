@@ -48,7 +48,7 @@ func TestClassifyPayload_Table(t *testing.T) {
 	}{
 		{
 			name:          "timeout text → ErrTransient",
-			payload:       "semantic_search: timed out during query embedding after 25s — retry with a simpler query.\npartial: true — query embedding\ntook_ms=25002",
+			payload:       "semantic_search: timed out during query embedding after 25s — retry with a simpler query.\npartial: true — query embedding — retry_after_seconds: 30\ntook_ms=25002",
 			wantTransient: true,
 			wantNilHits:   true,
 		},

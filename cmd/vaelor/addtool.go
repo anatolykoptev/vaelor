@@ -163,7 +163,7 @@ func shapedPartialResult(text string, budget int, hint, skipped string, elapsed 
 	if !mcpmeta.IsShaped(out) {
 		out = mcpmeta.Shape(out, budget, hint)
 	}
-	out += mcpmeta.PartialFooter(skipped)
+	out += mcpmeta.PartialFooter(skipped, mcpmeta.DefaultRetryAfterSeconds)
 	out = mcpmeta.AppendTook(out, elapsed)
 	return textResult(out)
 }
