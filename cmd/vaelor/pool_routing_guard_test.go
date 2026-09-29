@@ -130,7 +130,7 @@ func TestPoolRoutingInvariant(t *testing.T) {
 		"codegraph.NewStore(agePool)":     "AGE graph store must use agePool",
 		"embeddings.NewExpander(agePool)": "AGE cypher expander must use agePool",
 		"embeddings.NewStore(dataPool)":   "pgvector embeddings store must use dataPool",
-		"designmd.NewStore(dataPool)":     "design-doc store must use dataPool",
+		"designmd.NewStore(dataPool,":     "design-doc store must use dataPool",
 	}
 	for token, why := range mustContain {
 		if !strings.Contains(text, token) {
@@ -143,7 +143,7 @@ func TestPoolRoutingInvariant(t *testing.T) {
 	// hookless pool — AGE queries would dirty it with no reset).
 	mustNotContain := map[string]string{
 		"embeddings.NewStore(agePool)":     "embeddings data store must not use agePool",
-		"designmd.NewStore(agePool)":       "design store must not use agePool",
+		"designmd.NewStore(agePool,":       "design store must not use agePool",
 		"codegraph.NewStore(dataPool)":     "AGE store must not use the hookless dataPool",
 		"embeddings.NewExpander(dataPool)": "AGE expander must not use the hookless dataPool",
 	}

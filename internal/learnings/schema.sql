@@ -8,8 +8,11 @@ CREATE TABLE IF NOT EXISTS review_learnings (
     note        TEXT    NOT NULL DEFAULT '',
     pr_url      TEXT    NOT NULL DEFAULT '',
     embedding   vector(768),                       -- 768-dim (code-rank-embed / jina-code-v2 compatible; no schema change on model swap)
+    embed_model TEXT    NOT NULL DEFAULT '',       -- writer model; vector reads are scoped to it so a model swap can never serve foreign-space distances
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE review_learnings ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS review_learnings_repo_symbol_idx
     ON review_learnings (repo, symbol);

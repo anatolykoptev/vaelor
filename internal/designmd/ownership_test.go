@@ -39,7 +39,7 @@ func TestEnsureSchema_TransfersOwnershipAfterRestore(t *testing.T) {
 	}
 	defer appPool.Close()
 
-	s := NewStore(appPool)
+	s := NewStore(appPool, "")
 	if err := s.EnsureSchema(ctx); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}

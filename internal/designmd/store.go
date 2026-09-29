@@ -26,10 +26,12 @@ CREATE TABLE IF NOT EXISTS design_embeddings (
     file_path TEXT NOT NULL, start_line INT NOT NULL DEFAULT 0,
     body_hash BIGINT NOT NULL DEFAULT 0,
     embedding vector(1024) NOT NULL,
+    embed_model TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (brand, section));
 CREATE INDEX IF NOT EXISTS idx_design_emb_hnsw ON design_embeddings
-    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)`
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+ALTER TABLE design_embeddings ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT ''`
 
 // Record holds one design section embedding.
 type Record struct {
@@ -50,14 +52,20 @@ type SearchResult struct {
 }
 
 // Store manages design embeddings in PostgreSQL with pgvector (1024-dim).
+// model is the active embedding model: rows are stamped with it on Upsert and
+// reads are restricted to it, so a model swap can never serve foreign-space
+// distances. Empty model keeps the legacy unfiltered behaviour.
 type Store struct {
 	pool        *pgxpool.Pool
+	model       string
 	schema      schemaQuerier
 	schemaGroup singleflight.Group
 	schemaDone  atomic.Bool
 }
 
-func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool, schema: pool} }
+func NewStore(pool *pgxpool.Pool, model string) *Store {
+	return &Store{pool: pool, model: model, schema: pool}
+}
 
 // EnsureSchema creates the pgvector extension and design_embeddings table if
 // needed. After creating the table it attempts to transfer ownership to
@@ -111,19 +119,20 @@ func (s *Store) Upsert(ctx context.Context, records []Record) error {
 
 func (s *Store) upsertBatch(ctx context.Context, records []Record) error {
 	var b strings.Builder
-	b.WriteString(`INSERT INTO design_embeddings (brand,section,file_path,start_line,body_hash,embedding,updated_at) VALUES `)
-	args := make([]any, 0, len(records)*6)
+	b.WriteString(`INSERT INTO design_embeddings (brand,section,file_path,start_line,body_hash,embedding,embed_model,updated_at) VALUES `)
+	args := make([]any, 0, len(records)*7)
 	for i, r := range records {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		off := i * 6
-		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,NOW())", off+1, off+2, off+3, off+4, off+5, off+6)
-		args = append(args, r.Brand, r.Section, r.FilePath, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding))
+		off := i * 7
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,NOW())", off+1, off+2, off+3, off+4, off+5, off+6, off+7)
+		args = append(args, r.Brand, r.Section, r.FilePath, r.StartLine, int64(r.BodyHash), pgvector.NewVector(r.Embedding), s.model)
 	}
 	b.WriteString(` ON CONFLICT (brand, section) DO UPDATE SET
 		file_path=EXCLUDED.file_path, start_line=EXCLUDED.start_line,
-		body_hash=EXCLUDED.body_hash, embedding=EXCLUDED.embedding, updated_at=NOW()`)
+		body_hash=EXCLUDED.body_hash, embedding=EXCLUDED.embedding,
+		embed_model=EXCLUDED.embed_model, updated_at=NOW()`)
 	_, err := s.pool.Exec(ctx, b.String(), args...)
 	return err
 }
@@ -139,10 +148,16 @@ func (s *Store) Search(ctx context.Context, query []float32, topK int) ([]Search
 	if topK > maxK {
 		topK = maxK
 	}
-	rows, err := s.pool.Query(ctx,
-		`SELECT brand, section, file_path, embedding <=> $1 AS distance
-		 FROM design_embeddings ORDER BY distance LIMIT $2`,
-		pgvector.NewVector(query), topK)
+	q := `SELECT brand, section, file_path, embedding <=> $1 AS distance
+		 FROM design_embeddings`
+	args := []any{pgvector.NewVector(query)}
+	if s.model != "" {
+		q += ` WHERE embed_model = $2`
+		args = append(args, s.model)
+	}
+	q += ` ORDER BY distance LIMIT $` + fmt.Sprint(len(args)+1)
+	args = append(args, topK)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
@@ -158,12 +173,21 @@ func (s *Store) Search(ctx context.Context, query []float32, topK int) ([]Search
 	return results, rows.Err()
 }
 
-// GetHashes returns brand:section → body_hash for change detection.
+// GetHashes returns brand:section → body_hash for change detection. When the
+// store has a model, only same-space rows count — foreign/legacy rows are
+// invisible here so the indexer re-embeds and re-stamps them instead of
+// hash-skipping them forever.
 func (s *Store) GetHashes(ctx context.Context) (map[string]uint64, error) {
 	if err := s.EnsureSchema(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, "SELECT brand, section, body_hash FROM design_embeddings")
+	q := "SELECT brand, section, body_hash FROM design_embeddings"
+	var args []any
+	if s.model != "" {
+		q += " WHERE embed_model = $1"
+		args = append(args, s.model)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query hashes: %w", err)
 	}

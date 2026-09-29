@@ -18,9 +18,12 @@ import (
 var schemaSQL string
 
 // Embedder abstracts the embedding client; pass nil to disable vector updates
-// and fall back to exact (repo, symbol) lookups.
+// and fall back to exact (repo, symbol) lookups. Model is the embedding-space
+// identity: rows are stamped with it on Upsert and NearestVector only searches
+// inside that space, so a model swap can never serve foreign-space distances.
 type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
+	Model() string
 }
 
 // Record is a single learning.
@@ -124,16 +127,18 @@ func (s *Store) NearestByRepo(ctx context.Context, repo string, k int) ([]Record
 // embedded for future similarity search.
 func (s *Store) Upsert(ctx context.Context, r Record) error {
 	var emb []float32
+	model := ""
 	if s.emb != nil {
 		v, err := s.emb.Embed(ctx, r.Flag+": "+r.Note)
 		if err == nil {
 			emb = v
+			model = s.emb.Model()
 		}
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO review_learnings (repo, symbol, risk_level, review_outcome, flag, note, pr_url, embedding)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, r.Repo, r.Symbol, r.RiskLevel, r.ReviewOutcome, r.Flag, r.Note, r.PRURL, vectorArg(emb))
+		INSERT INTO review_learnings (repo, symbol, risk_level, review_outcome, flag, note, pr_url, embedding, embed_model)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, r.Repo, r.Symbol, r.RiskLevel, r.ReviewOutcome, r.Flag, r.Note, r.PRURL, vectorArg(emb), model)
 	return err
 }
 
@@ -188,10 +193,10 @@ func (s *Store) NearestVector(ctx context.Context, query string, k int) ([]Recor
 	rows, err := s.pool.Query(ctx, `
 		SELECT repo, symbol, risk_level, review_outcome, flag, note, pr_url
 		FROM review_learnings
-		WHERE embedding IS NOT NULL
+		WHERE embedding IS NOT NULL AND embed_model = $3
 		ORDER BY embedding <=> $1
 		LIMIT $2
-	`, arg, k)
+	`, arg, k, s.emb.Model())
 	if err != nil {
 		return nil, err
 	}

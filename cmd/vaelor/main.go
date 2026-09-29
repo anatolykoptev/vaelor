@@ -384,7 +384,7 @@ func runIndexDesigns(cfg Config, dir string) {
 		slog.Error("embed client failed", slog.Any("error", err))
 		os.Exit(1)
 	}
-	store := designmd.NewStore(pool)
+	store := designmd.NewStore(pool, cfg.DesignEmbedModel)
 
 	result, err := designmd.Index(context.Background(), dir, client, store)
 	if err != nil {
