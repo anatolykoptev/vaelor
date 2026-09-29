@@ -190,6 +190,41 @@ func TestMergeCallGraphs_PreservesTypeRels(t *testing.T) {
 	}
 }
 
+// TestMergeCallGraphs_MergesTypeRels exercises the union/dedup loop in
+// mergeTypeRels that existing coverage never reaches — no producer populates
+// TypeRels on the typed/SCIP side today, so mergeTypeRels early-returns on
+// len(secondary)==0 in production. When a typed backend does emit rels, a
+// blind append would duplicate the shared ones; this test pins the contract:
+// shared rel once, unique rels from both sides, primary first, and rels that
+// differ only in Line stay distinct (asserts Line is part of relKey).
+// Mutation check: append(primary, secondary...) → 5 rels → red; dropping
+// Line from relKey → 3 rels → red.
+func TestMergeCallGraphs_MergesTypeRels(t *testing.T) {
+	shared := parser.TypeRelationship{Subject: "S", Target: "T", Kind: parser.RelImplements, File: "/a.go", Line: 5}
+	tsOnly := parser.TypeRelationship{Subject: "TsOnly", Target: "X", Kind: parser.RelImplements, File: "/a.go", Line: 9}
+	typedOnly := parser.TypeRelationship{Subject: "TypedOnly", Target: "Y", Kind: parser.RelImplements, File: "/b.go", Line: 12}
+	// Identical to shared except Line — a distinct relationship, not a dup.
+	sameRelDiffLine := parser.TypeRelationship{Subject: "S", Target: "T", Kind: parser.RelImplements, File: "/a.go", Line: 99}
+
+	tsGraph := &callgraph.CallGraph{
+		Edges:    []callgraph.CallEdge{{CalleeName: "foo"}},
+		Symbols:  []*parser.Symbol{{Name: "A", Kind: parser.KindFunction, File: "/a.go"}},
+		TypeRels: []parser.TypeRelationship{shared, tsOnly},
+	}
+	typedGraph := &callgraph.CallGraph{
+		Edges:    []callgraph.CallEdge{{CalleeName: "bar"}},
+		Symbols:  []*parser.Symbol{{Name: "B", Kind: parser.KindFunction, File: "/b.go"}},
+		TypeRels: []parser.TypeRelationship{shared, sameRelDiffLine, typedOnly},
+	}
+
+	merged := callgraph.MergeCallGraphs(tsGraph, typedGraph)
+
+	want := []parser.TypeRelationship{shared, tsOnly, sameRelDiffLine, typedOnly}
+	if !slices.Equal(merged.TypeRels, want) {
+		t.Fatalf("expected merged TypeRels %v, got %v", want, merged.TypeRels)
+	}
+}
+
 func TestMergeCallGraphs_PreservesUsesIndex(t *testing.T) {
 	tsUses := map[string][]string{
 		"components/Foo.astro": {"pages/index.astro"},
