@@ -144,6 +144,17 @@ func (s *Store) runEnsureSchema(ctx context.Context) error {
 			if !exists {
 				queue = append(queue, schemaAction{sql: stmt, desc: "create index " + p.name, needsIdxTimeout: true})
 			}
+		case "column":
+			if st := tables[p.table]; st != nil && !st.existed {
+				continue // the queued CREATE TABLE already includes the column
+			}
+			exists, err := s.columnExists(ctx, p.table, p.extra)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				queue = append(queue, schemaAction{sql: stmt, desc: "add column " + p.table + "." + p.extra})
+			}
 		default:
 			return fmt.Errorf("unknown schema statement kind: %q", p.kind)
 		}
@@ -210,6 +221,12 @@ func (s *Store) extensionExists(ctx context.Context) (bool, error) {
 func (s *Store) tableExists(ctx context.Context, table string) (bool, error) {
 	var one int
 	err := s.schema.QueryRow(ctx, "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1", table).Scan(&one)
+	return rowExists(err)
+}
+
+func (s *Store) columnExists(ctx context.Context, table, column string) (bool, error) {
+	var one int
+	err := s.schema.QueryRow(ctx, "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2", table, column).Scan(&one)
 	return rowExists(err)
 }
 

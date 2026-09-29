@@ -304,7 +304,7 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 		} else {
 			designDeps = DesignDeps{
 				Client: dc,
-				Store:  designmd.NewStore(dataPool),
+				Store:  designmd.NewStore(dataPool, cfg.DesignEmbedModel),
 			}
 		}
 	}

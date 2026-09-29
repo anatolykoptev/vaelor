@@ -35,6 +35,7 @@ func TestStoreRoundtrip(t *testing.T) {
 type fakeEmbedder struct {
 	vecs       map[string][]float32
 	defaultVec []float32
+	model      string
 }
 
 func (f *fakeEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
@@ -43,6 +44,8 @@ func (f *fakeEmbedder) Embed(_ context.Context, text string) ([]float32, error) 
 	}
 	return f.defaultVec, nil
 }
+
+func (f *fakeEmbedder) Model() string { return f.model }
 
 // unitVector builds a 768-dim vector with 1.0 at the given index and zeros
 // elsewhere. Cosine distance between any two such vectors is 1 unless they
@@ -120,6 +123,79 @@ func TestStore_NearestByVector(t *testing.T) {
 	}
 	if ours[0].Symbol != "pkg.B" {
 		t.Fatalf("expected closest to be pkg.B, got %q (full: %+v)", ours[0].Symbol, ours)
+	}
+}
+
+// TestStore_NearestVector_ModelFilter pins the per-row embed_model read
+// contract (#839): rows stamped by a different embedding model occupy a
+// foreign vector space and must never be served. Mutation check: removing
+// `AND embed_model = $3` from NearestVector returns the foreign row → red.
+func TestStore_NearestVector_ModelFilter(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping pgvector integration test")
+	}
+
+	ctx := context.Background()
+	const tag = "__test_model_ns__"
+
+	embA := &fakeEmbedder{
+		vecs:       map[string][]float32{"flag-a: note-a": unitVector(0), "q": unitVector(0)},
+		defaultVec: unitVector(100),
+		model:      "model-a",
+	}
+	sA, err := New(ctx, dsn, embA)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(sA.Close)
+	cleanup := func() {
+		if _, err := sA.pool.Exec(ctx, "DELETE FROM review_learnings WHERE repo = $1", tag); err != nil {
+			t.Logf("cleanup delete: %v", err)
+		}
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	if err := sA.Upsert(ctx, Record{Repo: tag, Symbol: "pkg.A", Flag: "flag-a", Note: "note-a"}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// Same embedding space → row found.
+	got, err := sA.NearestVector(ctx, "q", 5)
+	if err != nil {
+		t.Fatalf("NearestVector same-model: %v", err)
+	}
+	found := false
+	for _, r := range got {
+		if r.Repo == tag {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("same-space row not returned")
+	}
+
+	// A store with a different active model must not see the row.
+	embB := &fakeEmbedder{
+		vecs:       map[string][]float32{"q": unitVector(0)},
+		defaultVec: unitVector(100),
+		model:      "model-b",
+	}
+	sB, err := New(ctx, dsn, embB)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(sB.Close)
+
+	got, err = sB.NearestVector(ctx, "q", 5)
+	if err != nil {
+		t.Fatalf("NearestVector foreign-model: %v", err)
+	}
+	for _, r := range got {
+		if r.Repo == tag {
+			t.Fatalf("foreign-space row returned by NearestVector: %+v", r)
+		}
 	}
 }
 

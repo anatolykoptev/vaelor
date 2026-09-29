@@ -56,6 +56,7 @@ type fakeDB struct {
 	ext     bool
 	tables  map[string]bool
 	indexes map[string]bool
+	columns map[string]bool
 	owners  map[string]string
 	curUser string
 
@@ -71,6 +72,7 @@ func newFakeDB() *fakeDB {
 	return &fakeDB{
 		tables:  make(map[string]bool),
 		indexes: make(map[string]bool),
+		columns: make(map[string]bool),
 		owners:  make(map[string]string),
 		curUser: "app",
 	}
@@ -117,6 +119,15 @@ func (f *fakeDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	case strings.Contains(sql, "information_schema.tables"):
 		if len(args) > 0 {
 			if tbl, ok := argString(args[0]); ok && f.tables[tbl] {
+				return &fakeRow{err: nil}
+			}
+		}
+		return &fakeRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "information_schema.columns"):
+		if len(args) > 1 {
+			tbl, tok := argString(args[0])
+			col, cok := argString(args[1])
+			if tok && cok && f.columns[tbl+"."+col] {
 				return &fakeRow{err: nil}
 			}
 		}
@@ -177,6 +188,9 @@ func (f *fakeDB) applyDDL(sql string) {
 			tbl := normalizeTable(m[1])
 			f.owners[tbl] = f.curUser
 		}
+		if m := reAlterTableCol.FindStringSubmatch(sql); m != nil {
+			f.columns[normalizeTable(m[1])+"."+m[2]] = true
+		}
 	}
 }
 
@@ -219,6 +233,7 @@ func TestEnsureSchema_Idempotent_Warm(t *testing.T) {
 	db.ext = true
 	db.tables["design_embeddings"] = true
 	db.indexes["design_embeddings.idx_design_emb_hnsw"] = true
+	db.columns["design_embeddings.embed_model"] = true
 	db.owners["design_embeddings"] = "app"
 
 	s := storeForTest(db)
@@ -238,6 +253,27 @@ func TestEnsureSchema_Idempotent_Warm(t *testing.T) {
 	}
 	if !s.schemaDone.Load() {
 		t.Fatal("schemaDone not latched after success")
+	}
+}
+
+// TestEnsureSchema_AddsMissingColumn covers the pre-migration warm path: the
+// table exists but lacks embed_model, so EnsureSchema must emit the ALTER.
+// Mutation check: dropping the "column" case in runEnsureSchema leaves this
+// test green (parseSchemaStmt still classifies) — it goes red via the default
+// branch returning "unknown schema statement kind".
+func TestEnsureSchema_AddsMissingColumn(t *testing.T) {
+	db := newFakeDB()
+	db.ext = true
+	db.tables["design_embeddings"] = true
+	db.indexes["design_embeddings.idx_design_emb_hnsw"] = true
+	db.owners["design_embeddings"] = "app"
+
+	s := storeForTest(db)
+	if err := s.EnsureSchema(context.Background()); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	if !db.hasExec("ALTER TABLE design_embeddings ADD COLUMN IF NOT EXISTS embed_model") {
+		t.Fatalf("expected embed_model column migration, got execs: %v", db.execs)
 	}
 }
 
