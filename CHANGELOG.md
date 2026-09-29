@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.15](https://github.com/anatolykoptev/vaelor/compare/v1.65.14...v1.65.15) (2026-09-29)
+
+
+### Fixed
+
+* **embeddings:** scope designmd + learnings vector reads to the writer's model ([#839](https://github.com/anatolykoptev/vaelor/issues/839)) ([#841](https://github.com/anatolykoptev/vaelor/issues/841)) ([b426ed2](https://github.com/anatolykoptev/vaelor/commit/b426ed2c96b47fb0a06e0bab850a5643bcc0efb6))
+
 ## [1.65.14](https://github.com/anatolykoptev/vaelor/compare/v1.65.13...v1.65.14) (2026-09-28)
 
 
