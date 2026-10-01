@@ -64,6 +64,9 @@ type RemoteSource struct {
 	TokenFunc func(ctx context.Context) (string, error)
 	// StaticToken is used when TokenFunc is nil. May be empty.
 	StaticToken string
+	// Host optionally overrides the forge base URL (e.g. a self-hosted GitLab
+	// "https://gitlab.example.com"). Empty uses the forge's canonical host.
+	Host string
 }
 
 // Root clones the remote repo and returns the clone directory.
@@ -82,12 +85,13 @@ func (s RemoteSource) Root(ctx context.Context) (string, func(), error) {
 		repoInput = s.Slug
 	}
 	kind := forge.DetectForge(repoInput)
-	cloneURL := forge.CloneURL(kind, s.Slug, "", token)
+	cloneURL := forge.CloneURL(kind, s.Slug, s.Host)
 	result, err := ingest.CloneRepo(ctx, ingest.CloneOpts{
 		Slug:        s.Slug,
 		Ref:         s.Ref,
 		DestDir:     s.DestDir,
 		GithubToken: token,
+		AuthUser:    forge.CloneAuthUser(kind),
 		CloneURL:    cloneURL,
 		TokenFunc:   s.TokenFunc,
 	})

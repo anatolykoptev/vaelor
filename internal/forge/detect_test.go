@@ -161,25 +161,31 @@ func TestIsRemote(t *testing.T) {
 func TestCloneURL(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		kind  ForgeKind
-		slug  string
-		host  string
-		token string
-		want  string
+		kind ForgeKind
+		slug string
+		host string
+		want string
 	}{
-		{GitHub, "foo/bar", "", "", "https://github.com/foo/bar.git"},
-		{GitLab, "foo/bar", "", "", "https://gitlab.com/foo/bar.git"},
-		{GitHub, "foo/bar", "", "mytoken", "https://mytoken@github.com/foo/bar.git"},
-		{GitLab, "foo/bar", "", "mytoken", "https://oauth2:mytoken@gitlab.com/foo/bar.git"},
-		{GitLab, "grp/sub/repo", "https://gitlab.example.com", "tok", "https://oauth2:tok@gitlab.example.com/grp/sub/repo.git"},
+		{GitHub, "foo/bar", "", "https://github.com/foo/bar.git"},
+		{GitLab, "foo/bar", "", "https://gitlab.com/foo/bar.git"},
+		{GitLab, "grp/sub/repo", "https://gitlab.example.com", "https://gitlab.example.com/grp/sub/repo.git"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.want, func(t *testing.T) {
-			got := CloneURL(tc.kind, tc.slug, tc.host, tc.token)
+			got := CloneURL(tc.kind, tc.slug, tc.host)
 			if got != tc.want {
-				t.Errorf("CloneURL(%v, %q, %q, %q) = %q, want %q",
-					tc.kind, tc.slug, tc.host, tc.token, got, tc.want)
+				t.Errorf("CloneURL(%v, %q, %q) = %q, want %q", tc.kind, tc.slug, tc.host, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCloneAuthUser(t *testing.T) {
+	t.Parallel()
+	if got := CloneAuthUser(GitLab); got != "oauth2" {
+		t.Errorf("GitLab = %q, want oauth2", got)
+	}
+	if got := CloneAuthUser(GitHub); got != "" {
+		t.Errorf("GitHub = %q, want empty (clone default)", got)
 	}
 }

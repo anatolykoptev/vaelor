@@ -116,14 +116,14 @@ func IsRemote(input string) bool {
 	return DetectForge(input) != Unknown
 }
 
-// CloneURL constructs the HTTPS clone URL for a repository.
+// CloneURL constructs the credential-free HTTPS clone URL for a repository.
 //
 //   - host: optional custom base URL (e.g. "https://gitlab.example.com").
 //     When empty the canonical host for the forge kind is used.
-//   - token: optional authentication token.
-//     GitHub → "https://{token}@{host}/{slug}.git"
-//     GitLab → "https://oauth2:{token}@{host}/{slug}.git"
-func CloneURL(kind ForgeKind, slug, host, token string) string {
+//
+// Credentials are never embedded in the URL (git echoes URLs in its error
+// output); callers pass the token separately, see CloneAuthUser.
+func CloneURL(kind ForgeKind, slug, host string) string {
 	if host == "" {
 		switch kind {
 		case GitHub:
@@ -132,23 +132,16 @@ func CloneURL(kind ForgeKind, slug, host, token string) string {
 			host = "https://gitlab.com"
 		}
 	}
+	return host + "/" + slug + ".git"
+}
 
-	if token == "" {
-		return host + "/" + slug + ".git"
+// CloneAuthUser returns the HTTP Basic username paired with an access token
+// for kind. Empty means the clone default (GitHub's "x-access-token").
+func CloneAuthUser(kind ForgeKind) string {
+	if kind == GitLab {
+		return "oauth2"
 	}
-
-	// Strip scheme so we can embed credentials in the authority.
-	hostNoScheme := strings.TrimPrefix(host, "https://")
-	hostNoScheme = strings.TrimPrefix(hostNoScheme, "http://")
-
-	switch kind {
-	case GitHub:
-		return "https://" + token + "@" + hostNoScheme + "/" + slug + ".git"
-	case GitLab:
-		return "https://oauth2:" + token + "@" + hostNoScheme + "/" + slug + ".git"
-	default:
-		return host + "/" + slug + ".git"
-	}
+	return ""
 }
 
 // isLocalPath reports whether input is a local file-system path.

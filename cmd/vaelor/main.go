@@ -277,6 +277,7 @@ func runMCPServe(cfg Config) {
 		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
 		MCPLogger:                  slog.Default(),
 		MCPReceivingMiddleware: []mcp.Middleware{
+			scrubErrorsMiddleware(),               // outermost: masks credentials in every error leaving the server
 			argnorm.Middleware(argnorm.Default()), // first (outermost): normalize args + tool names before metrics/tracing observe
 			tracemcpmw.Middleware(serviceName),
 			hooks.Middleware(),

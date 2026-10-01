@@ -193,7 +193,7 @@ func TestRefreshClone_TokenFuncError(t *testing.T) {
 	// Verify error message format from refreshClone directly.
 	sentinelErr := errors.New("sentinel error")
 	errFunc := func(_ context.Context) (string, error) { return "", sentinelErr }
-	err = refreshClone(context.Background(), res2.LocalPath, "main", errFunc)
+	err = refreshClone(context.Background(), res2.LocalPath, "main", opts.CloneURL, "", errFunc)
 	if err == nil {
 		t.Fatal("expected error from refreshClone when tokenFunc errors")
 	}
@@ -232,5 +232,35 @@ func TestSanitizeGitOutput(t *testing.T) {
 				t.Errorf("sanitizeGitOutput(%q):\n  got:  %q\n  want: %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSanitizeGitOutput_MasksURLUserinfoAndTokens(t *testing.T) {
+	t.Parallel()
+	in := "fatal: could not read Password for 'https://ghs_SENTINELSAN1@github.com': terminal prompts disabled\n" +
+		"remote: see https://user:SENTINELSAN2@host.example/x glpat-SENTINELSAN3"
+	got := sanitizeGitOutput(in)
+	for _, s := range []string{"SENTINELSAN1", "SENTINELSAN2", "SENTINELSAN3"} {
+		if strings.Contains(got, s) {
+			t.Errorf("%s survived: %q", s, got)
+		}
+	}
+	if !strings.Contains(got, "terminal prompts disabled") {
+		t.Errorf("context lost: %q", got)
+	}
+}
+
+func TestGitAuthEnv(t *testing.T) {
+	t.Parallel()
+	if got := gitAuthEnv("https://github.com/o/r.git", "", ""); got != nil {
+		t.Errorf("empty token must yield nil env, got %v", got)
+	}
+	if got := gitAuthEnv("file:///tmp/x", "", "tok"); got != nil {
+		t.Errorf("non-http remote must yield nil env, got %v", got)
+	}
+	env := strings.Join(gitAuthEnv("https://gitlab.example.com/g/r.git", "oauth2", "tok"), "\n")
+	want := "GIT_CONFIG_VALUE_0=Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("oauth2:tok"))
+	if !strings.Contains(env, want) || !strings.Contains(env, "GIT_CONFIG_KEY_0=http.https://gitlab.example.com/.extraheader") {
+		t.Errorf("unexpected env:\n%s", env)
 	}
 }
