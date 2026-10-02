@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +36,11 @@ type CloneOpts struct {
 	// rate limits). It is sent as an http.extraheader scoped to the clone URL's
 	// host and is never placed in a URL.
 	GithubToken string
+
+	// AuthHost is the host ("host[:port]") the token was issued by. The token
+	// is only ever sent to a clone URL on exactly this host. Empty means
+	// github.com.
+	AuthHost string
 
 	// AuthUser is the HTTP Basic username paired with the token.
 	// Empty means "x-access-token" (GitHub); GitLab uses "oauth2".
@@ -130,7 +136,7 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 
 	// Cache hit — refresh to remote HEAD instead of trusting on-disk state.
 	if _, statErr := os.Stat(localPath); statErr == nil {
-		if err := refreshClone(ctx, localPath, opts.Ref, buildCloneURL(opts, slug), opts.AuthUser, refreshTokenFunc(opts)); err == nil {
+		if err := refreshClone(ctx, localPath, opts.Ref, buildCloneURL(opts, slug), opts.AuthUser, opts.authHost(), refreshTokenFunc(opts)); err == nil {
 			return &CloneResult{LocalPath: localPath, Ref: opts.Ref}, nil
 		}
 		// Refresh failed (corrupt repo, network blip, missing ref) — perform
@@ -142,7 +148,7 @@ func CloneRepo(ctx context.Context, opts CloneOpts) (*CloneResult, error) {
 	}
 
 	cloneURL := buildCloneURL(opts, slug)
-	auth := gitAuthEnv(cloneURL, opts.AuthUser, opts.GithubToken)
+	auth := gitAuthEnv(cloneURL, opts.AuthUser, opts.GithubToken, opts.authHost())
 	// Single-flight per localPath on the cold-clone path: the first caller
 	// clones; concurrent callers for the SAME slug-deterministic localPath
 	// await its result instead of each launching their own git clone into the
@@ -205,7 +211,7 @@ func atomicReclone(ctx context.Context, opts CloneOpts, finalDest, repoName stri
 		strings.ReplaceAll(slug, "/", "_")+".tmp."+strconv.FormatInt(time.Now().UnixNano(), 36))
 
 	cloneURL := buildCloneURL(opts, slug)
-	auth := gitAuthEnv(cloneURL, opts.AuthUser, opts.GithubToken)
+	auth := gitAuthEnv(cloneURL, opts.AuthUser, opts.GithubToken, opts.authHost())
 	if err := runClone(ctx, cloneURL, opts.Ref, tmpDest, auth); err != nil {
 		// Clone failed — clean up the (possibly partial) tmp directory.
 		_ = os.RemoveAll(tmpDest)
@@ -218,9 +224,22 @@ func atomicReclone(ctx context.Context, opts CloneOpts, finalDest, repoName stri
 	return nil
 }
 
+// authHost returns the token issuer host, defaulting to github.com.
+func (o CloneOpts) authHost() string {
+	if o.AuthHost != "" {
+		return o.AuthHost
+	}
+	return defaultAuthHost
+}
+
 // buildCloneURL constructs the credential-free git clone URL from CloneOpts.
+// Userinfo on a caller-supplied CloneURL is stripped, not trusted away.
 func buildCloneURL(opts CloneOpts, slug string) string {
 	if opts.CloneURL != "" {
+		if u, err := url.Parse(opts.CloneURL); err == nil && u.User != nil {
+			u.User = nil
+			return u.String()
+		}
 		return opts.CloneURL
 	}
 	return fmt.Sprintf("https://github.com/%s.git", slug)
@@ -281,11 +300,11 @@ func runClone(ctx context.Context, cloneURL, ref, dest string, authEnv []string)
 // remote origin's tip of ref (or default HEAD when ref is empty).
 // When tokenFunc is non-nil it is called to obtain a fresh token; the token is
 // injected via GIT_CONFIG_COUNT env variables (see gitAuthEnv) so .git/config
-// is never modified. remoteURL (credential-free) scopes the credential to its
-// host; user is the Basic username ("" = x-access-token).
+// is never modified. The credential is only sent when remoteURL's host is
+// issuerHost; user is the Basic username ("" = x-access-token).
 // Returns an error if any git operation fails so the caller can wipe
 // and re-clone instead of trusting potentially stale state.
-func refreshClone(ctx context.Context, localPath, ref, remoteURL, user string, tokenFunc func(ctx context.Context) (string, error)) error {
+func refreshClone(ctx context.Context, localPath, ref, remoteURL, user, issuerHost string, tokenFunc func(ctx context.Context) (string, error)) error {
 	branch := ref
 	if branch == "" {
 		branch = "HEAD"
@@ -298,7 +317,7 @@ func refreshClone(ctx context.Context, localPath, ref, remoteURL, user string, t
 		if err != nil {
 			return fmt.Errorf("refresh token: %w", err)
 		}
-		env = append(env, gitAuthEnv(remoteURL, user, tok)...)
+		env = append(env, gitAuthEnv(remoteURL, user, tok, issuerHost)...)
 	}
 	fetch.Env = env
 	if out, err := fetch.CombinedOutput(); err != nil {

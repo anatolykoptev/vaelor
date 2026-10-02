@@ -67,24 +67,63 @@ type RemoteSource struct {
 	// Host optionally overrides the forge base URL (e.g. a self-hosted GitLab
 	// "https://gitlab.example.com"). Empty uses the forge's canonical host.
 	Host string
+	// TokenHost is the "host[:port]" the token was issued by. Credentials are
+	// sent only to that host. Empty means the canonical host of the forge, and
+	// only while Host is empty.
+	TokenHost string
+	// GitLabToken is the GitLab token, used for GitLab clones only (the
+	// GitHub TokenFunc/StaticToken is never sent to GitLab).
+	GitLabToken string
+}
+
+// canonicalHost returns the public host of a forge kind, "" if unknown.
+func canonicalHost(kind forge.ForgeKind) string {
+	switch kind {
+	case forge.GitHub:
+		return "github.com"
+	case forge.GitLab:
+		return "gitlab.com"
+	}
+	return ""
 }
 
 // Root clones the remote repo and returns the clone directory.
+//
+// A credential is bound to the host that issued it: the GitHub token (App
+// installation token or PAT) is used only for GitHub clones, GitLabToken only
+// for GitLab clones, and either only when the effective clone host equals the
+// issuer host (canonical by default, TokenHost when Host overrides it).
 func (s RemoteSource) Root(ctx context.Context) (string, func(), error) {
-	token := s.StaticToken
-	if s.TokenFunc != nil {
-		var err error
-		token, err = s.TokenFunc(ctx)
-		if err != nil {
-			return "", func() {}, fmt.Errorf("get clone token: %w", err)
-		}
-	}
 	// Use RepoInput for forge detection to correctly handle GitLab and other forges.
 	repoInput := s.RepoInput
 	if repoInput == "" {
 		repoInput = s.Slug
 	}
 	kind := forge.DetectForge(repoInput)
+
+	var token string
+	var tokenFunc func(ctx context.Context) (string, error)
+	switch kind {
+	case forge.GitHub:
+		token, tokenFunc = s.StaticToken, s.TokenFunc
+		if tokenFunc != nil {
+			var err error
+			token, err = tokenFunc(ctx)
+			if err != nil {
+				return "", func() {}, fmt.Errorf("get clone token: %w", err)
+			}
+		}
+	case forge.GitLab:
+		token = s.GitLabToken
+	}
+
+	authHost := s.TokenHost
+	if authHost == "" {
+		authHost = "invalid" // matches no host: a non-canonical Host gets no credential
+		if s.Host == "" {
+			authHost = canonicalHost(kind)
+		}
+	}
 	cloneURL := forge.CloneURL(kind, s.Slug, s.Host)
 	result, err := ingest.CloneRepo(ctx, ingest.CloneOpts{
 		Slug:        s.Slug,
@@ -92,8 +131,9 @@ func (s RemoteSource) Root(ctx context.Context) (string, func(), error) {
 		DestDir:     s.DestDir,
 		GithubToken: token,
 		AuthUser:    forge.CloneAuthUser(kind),
+		AuthHost:    authHost,
 		CloneURL:    cloneURL,
-		TokenFunc:   s.TokenFunc,
+		TokenFunc:   tokenFunc,
 	})
 	if err != nil {
 		return "", func() {}, fmt.Errorf("clone: %w", err)

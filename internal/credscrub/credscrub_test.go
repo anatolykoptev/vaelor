@@ -23,6 +23,15 @@ func TestScrub(t *testing.T) {
 		{"fine-grained", "github_pat_11AAA_bbbCCC end", "*** end"},
 		{"gitlab", "glpat-abc-DEF_123 end", "*** end"},
 		{"auth header", "Authorization: Basic eHRyYTpzZWNyZXQ=", "Authorization: Basic ***"},
+		{"auth token hex", "Authorization: token 0123456789abcdef0123456789abcdef01234567", "Authorization: token ***"},
+		{"bare basic x-access-token", "sent eC1hY2Nlc3MtdG9rZW46Z2hzX1NFQ1JFVA== ok", "sent *** ok"},
+		{"bare basic oauth2", "sent b2F1dGgyOnNlY3JldA== ok", "sent *** ok"},
+		{"jwt", "tok eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig_-x end", "tok *** end"},
+		{"gitlab families", "glrt-a1 gldt-b2 gloas-c3 glptt-d4", "*** *** *** ***"},
+		{"scp userpass", "fatal: user:SECRETSCP@host.example:o/r.git", "fatal: ***@host.example:o/r.git"},
+		{"percent-encoded userinfo", "https://us%40er:p%2Fss@host/x", "https://***@host/x"},
+		{"at sign in password", "https://u:p@ss@host/x", "https://***@host/x"},
+		{"no span across json strings", `{"a":"https://x","b":"mail me a@b"}`, `{"a":"https://x","b":"mail me a@b"}`},
 		{"bearer ci", "authorization: bearer abc.def", "authorization: bearer ***"},
 	}
 	for _, tc := range tests {

@@ -73,6 +73,7 @@ func resolveRoot(ctx context.Context, repo, ref string, deps analyze.Deps) (root
 				DestDir:     deps.WorkspaceDir,
 				TokenFunc:   deps.CloneTokenFunc,
 				StaticToken: deps.GithubToken,
+				GitLabToken: deps.GitLabToken,
 			}
 		}
 		outcome = resolveOutcomeRemote

@@ -193,7 +193,7 @@ func TestRefreshClone_TokenFuncError(t *testing.T) {
 	// Verify error message format from refreshClone directly.
 	sentinelErr := errors.New("sentinel error")
 	errFunc := func(_ context.Context) (string, error) { return "", sentinelErr }
-	err = refreshClone(context.Background(), res2.LocalPath, "main", opts.CloneURL, "", errFunc)
+	err = refreshClone(context.Background(), res2.LocalPath, "main", opts.CloneURL, "", "github.com", errFunc)
 	if err == nil {
 		t.Fatal("expected error from refreshClone when tokenFunc errors")
 	}
@@ -252,15 +252,44 @@ func TestSanitizeGitOutput_MasksURLUserinfoAndTokens(t *testing.T) {
 
 func TestGitAuthEnv(t *testing.T) {
 	t.Parallel()
-	if got := gitAuthEnv("https://github.com/o/r.git", "", ""); got != nil {
-		t.Errorf("empty token must yield nil env, got %v", got)
+	nilCases := []struct{ name, url, tok, issuer string }{
+		{"empty token", "https://github.com/o/r.git", "", "github.com"},
+		{"empty issuer", "https://github.com/o/r.git", "tok", ""},
+		{"file remote", "file:///tmp/x", "tok", "github.com"},
+		{"plain http", "http://github.com/o/r.git", "tok", "github.com"},
+		{"host != issuer", "https://gitlab.com/o/r.git", "tok", "github.com"},
+		{"lookalike host", "https://github.com.evil.example/o/r.git", "tok", "github.com"},
+		{"quote in host", "https://a'b/o/r.git", "tok", "a'b"},
 	}
-	if got := gitAuthEnv("file:///tmp/x", "", "tok"); got != nil {
-		t.Errorf("non-http remote must yield nil env, got %v", got)
+	for _, c := range nilCases {
+		if got := gitAuthEnv(c.url, "", c.tok, c.issuer); got != nil {
+			t.Errorf("%s: want nil env, got %v", c.name, got)
+		}
 	}
-	env := strings.Join(gitAuthEnv("https://gitlab.example.com/g/r.git", "oauth2", "tok"), "\n")
-	want := "GIT_CONFIG_VALUE_0=Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("oauth2:tok"))
-	if !strings.Contains(env, want) || !strings.Contains(env, "GIT_CONFIG_KEY_0=http.https://gitlab.example.com/.extraheader") {
-		t.Errorf("unexpected env:\n%s", env)
+	env := gitAuthEnv("https://gitlab.example.com/g/r.git", "oauth2", "tok", "gitlab.example.com")
+	joined := strings.Join(env, "\n")
+	for _, want := range []string{
+		"GIT_CONFIG_KEY_0=credential.helper\nGIT_CONFIG_VALUE_0=\n",
+		"GIT_CONFIG_KEY_1=credential.https://gitlab.example.com.helper",
+		"VAELOR_GIT_USER=oauth2",
+		"VAELOR_GIT_TOKEN=tok",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("env missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "extraheader") || strings.Contains(joined, "Authorization") {
+		t.Errorf("credential must not travel as a header:\n%s", joined)
+	}
+}
+
+func TestBuildCloneURL_StripsUserinfo(t *testing.T) {
+	t.Parallel()
+	got := buildCloneURL(CloneOpts{CloneURL: "https://ghs_SENTINELSTRIP:x@github.com/o/r.git"}, "o/r")
+	if strings.Contains(got, "SENTINELSTRIP") || got != "https://github.com/o/r.git" {
+		t.Errorf("userinfo not stripped: %q", got)
+	}
+	if got := buildCloneURL(CloneOpts{}, "o/r"); got != "https://github.com/o/r.git" {
+		t.Errorf("default url = %q", got)
 	}
 }

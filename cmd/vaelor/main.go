@@ -276,18 +276,12 @@ func runMCPServe(cfg Config) {
 		SessionTimeout:             10 * time.Minute,
 		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
 		MCPLogger:                  slog.Default(),
-		MCPReceivingMiddleware: []mcp.Middleware{
-			scrubErrorsMiddleware(),               // outermost: masks credentials in every error leaving the server
-			argnorm.Middleware(argnorm.Default()), // first (outermost): normalize args + tool names before metrics/tracing observe
-			tracemcpmw.Middleware(serviceName),
-			hooks.Middleware(),
-			mcpmw.Middleware(reg, "tool"),
-		},
-		Middleware:   []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
-		RESTBridge:   true,
-		Routes:       combinedRoutes,
-		LogSkipPaths: []string{"/health", "/health/live", "/health/ready", "/metrics"},
-		ToolTimeouts: runtimeTimeouts,
+		MCPReceivingMiddleware:     receivingMiddleware(reg, hooks),
+		Middleware:                 []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
+		RESTBridge:                 true,
+		Routes:                     combinedRoutes,
+		LogSkipPaths:               []string{"/health", "/health/live", "/health/ready", "/metrics"}, //nolint:goconst // route paths, not worth a shared constant
+		ToolTimeouts:               runtimeTimeouts,
 		// SSE (text/event-stream) mode. Long tool calls (code_research, debug_investigate,
 		// code_graph, etc.) emit no bytes until they finish; in stateless mode the
 		// server can't send ping requests, so a client/proxy idle-timeout would
@@ -398,4 +392,17 @@ func runIndexDesigns(cfg Config, dir string) {
 		slog.Int("indexed", result.Indexed),
 		slog.Int("skipped", result.Skipped),
 	)
+}
+
+// receivingMiddleware is the production MCP receiving-middleware chain,
+// outermost first. Kept as a function so tests can build a server with exactly
+// the chain main installs.
+func receivingMiddleware(reg *kitmetrics.Registry, hooks mcpserver.MCPHooks) []mcp.Middleware {
+	return []mcp.Middleware{
+		scrubErrorsMiddleware(),               // outermost: masks credentials in everything leaving a tool call
+		argnorm.Middleware(argnorm.Default()), // normalize args + tool names before metrics/tracing observe
+		tracemcpmw.Middleware(serviceName),
+		hooks.Middleware(),
+		mcpmw.Middleware(reg, "tool"),
+	}
 }

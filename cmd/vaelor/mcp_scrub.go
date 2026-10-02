@@ -11,8 +11,8 @@ import (
 )
 
 // scrubErrorsMiddleware masks credentials (URL userinfo, token-shaped strings,
-// Authorization values) in everything that reaches the caller as an error:
-// error CallToolResults (what every tool handler error becomes) and
+// Authorization values) in everything that leaves a tool call: every
+// CallToolResult (error results are what tool handler errors become) and
 // protocol-level errors returned by the method handler. It is the last line of
 // defence behind per-source sanitisation such as ingest.sanitizeGitOutput.
 func scrubErrorsMiddleware() mcp.Middleware {
@@ -22,7 +22,7 @@ func scrubErrorsMiddleware() mcp.Middleware {
 			if err != nil {
 				return res, scrubError(err)
 			}
-			if ctr, ok := res.(*mcp.CallToolResult); ok && ctr != nil && ctr.IsError {
+			if ctr, ok := res.(*mcp.CallToolResult); ok && ctr != nil {
 				scrubToolResult(ctr)
 			}
 			return res, nil
@@ -62,13 +62,20 @@ func scrubToolResult(r *mcp.CallToolResult) {
 			tc.Text = credscrub.Scrub(tc.Text)
 		}
 	}
-	if r.StructuredContent != nil {
-		if raw, err := json.Marshal(r.StructuredContent); err == nil {
-			masked := credscrub.Scrub(string(raw))
-			var v any
-			if json.Unmarshal([]byte(masked), &v) == nil {
-				r.StructuredContent = v
-			}
-		}
+	if r.StructuredContent == nil {
+		return
 	}
+	// Fail closed: if the structured payload cannot be re-encoded after
+	// masking, drop it rather than return it unscrubbed.
+	raw, err := json.Marshal(r.StructuredContent)
+	if err != nil {
+		r.StructuredContent = nil
+		return
+	}
+	var v any
+	if json.Unmarshal([]byte(credscrub.Scrub(string(raw))), &v) != nil {
+		r.StructuredContent = nil
+		return
+	}
+	r.StructuredContent = v
 }

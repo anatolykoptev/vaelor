@@ -54,6 +54,10 @@ type Deps struct {
 	// Kept for backwards-compat; CloneTokenFunc takes precedence when set.
 	GithubToken string
 
+	// GitLabToken is the optional GitLab token used for GitLab clones. The
+	// GitHub tokens above are never sent to GitLab.
+	GitLabToken string
+
 	// CloneTokenFunc returns a token for authenticated git clones.
 	// When set, it overrides GithubToken. Use forge.AppTokenSource.Token for
 	// GitHub App installation tokens (ghs_), or a static closure for PATs.
