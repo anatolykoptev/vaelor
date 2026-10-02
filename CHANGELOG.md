@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.65.16](https://github.com/anatolykoptev/vaelor/compare/v1.65.15...v1.65.16) (2026-10-02)
+
+
+### Fixed
+
+* **ingest:** deliver clone credentials via a host-scoped credential helper, never in the URL; scrub credentials from tool results ([#844](https://github.com/anatolykoptev/vaelor/issues/844)) ([4f0b95b](https://github.com/anatolykoptev/vaelor/commit/4f0b95b46bd548b3327c49bd5478ffe3407fdb12))
+
 ## [1.65.15](https://github.com/anatolykoptev/vaelor/compare/v1.65.14...v1.65.15) (2026-09-29)
 
 
