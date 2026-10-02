@@ -32,6 +32,8 @@ func TestScrub(t *testing.T) {
 		{"percent-encoded userinfo", "https://us%40er:p%2Fss@host/x", "https://***@host/x"},
 		{"at sign in password", "https://u:p@ss@host/x", "https://***@host/x"},
 		{"no span across json strings", `{"a":"https://x","b":"mail me a@b"}`, `{"a":"https://x","b":"mail me a@b"}`},
+		{"helper password line", "username=x-access-token\npassword=0123456789abcdef0123456789abcdef01234567\n", "username=x-access-token\npassword=***\n"},
+		{"env token", "VAELOR_GIT_TOKEN=0123456789abcdef0123456789abcdef01234567 x", "VAELOR_GIT_TOKEN=*** x"},
 		{"bearer ci", "authorization: bearer abc.def", "authorization: bearer ***"},
 	}
 	for _, tc := range tests {

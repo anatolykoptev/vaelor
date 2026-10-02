@@ -33,8 +33,8 @@ type CloneOpts struct {
 	DestDir string
 
 	// GithubToken authenticates clones and refreshes (private repos, higher
-	// rate limits). It is sent as an http.extraheader scoped to the clone URL's
-	// host and is never placed in a URL.
+	// rate limits). It is handed to git through a host-scoped credential
+	// helper (see gitAuthEnv) and is never placed in a URL.
 	GithubToken string
 
 	// AuthHost is the host ("host[:port]") the token was issued by. The token
@@ -287,7 +287,7 @@ func runClone(ctx context.Context, cloneURL, ref, dest string, authEnv []string)
 	args = append(args, cloneURL, dest)
 
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), authEnv...)
+	cmd.Env = gitChildEnv(os.Environ(), authEnv)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -311,15 +311,15 @@ func refreshClone(ctx context.Context, localPath, ref, remoteURL, user, issuerHo
 	}
 	fetch := exec.CommandContext(ctx, "git", "-C", localPath,
 		"fetch", "--depth=2", "origin", branch)
-	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var authEnv []string
 	if tokenFunc != nil {
 		tok, err := tokenFunc(ctx)
 		if err != nil {
 			return fmt.Errorf("refresh token: %w", err)
 		}
-		env = append(env, gitAuthEnv(remoteURL, user, tok, issuerHost)...)
+		authEnv = gitAuthEnv(remoteURL, user, tok, issuerHost)
 	}
-	fetch.Env = env
+	fetch.Env = gitChildEnv(os.Environ(), authEnv)
 	if out, err := fetch.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch: %w\n%s", err, sanitizeGitOutput(string(out)))
 	}
@@ -332,8 +332,8 @@ func refreshClone(ctx context.Context, localPath, ref, remoteURL, user, issuerHo
 }
 
 // sanitizeGitOutput removes credential material from git output before it is
-// wrapped into an error: lines carrying the Authorization header injected via
-// GIT_CONFIG_VALUE_0, then any URL userinfo or token-shaped string.
+// wrapped into an error: lines carrying an Authorization header or
+// extraheader, then any URL userinfo or token-shaped string.
 func sanitizeGitOutput(s string) string {
 	lines := strings.Split(s, "\n")
 	filtered := make([]string, 0, len(lines))

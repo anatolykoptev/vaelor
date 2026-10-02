@@ -36,8 +36,18 @@ func TestMain(m *testing.M) {
 	}
 	_ = f.Close()
 	_ = os.Setenv("GIT_SSL_CAINFO", f.Name())
+	// Sandbox git: no system config and an empty HOME, so no host credential
+	// helper (e.g. the macOS keychain) can see or store test credentials.
+	home, err := os.MkdirTemp("", "vaelor-home-*")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("HOME", home)
+	_ = os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	_ = os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	code := m.Run()
 	_ = os.Remove(f.Name())
+	_ = os.RemoveAll(home)
 	os.Exit(code)
 }
 
@@ -202,11 +212,14 @@ func TestRemoteSource_GitLabNeverGetsGitHubToken(t *testing.T) {
 }
 
 // TestRemoteSource_RedirectToOtherHostGetsNoCredential: a 302 from the issuer
-// host to another host that serves the repo (so git follows with further
-// requests) must not hand that host the credential (SEC-CR-002).
+// host to another host that CHALLENGES (401) must not make git hand that host
+// the credential (SEC-CR-002, SEC-CR-010). The challenge is what makes git ask
+// its credential helpers about the other host.
 func TestRemoteSource_RedirectToOtherHostGetsNoCredential(t *testing.T) {
 	t.Parallel()
-	other := newGitServer(t, "") // open server: serves the clone, records Authorization
+	recB := &recorder{}
+	other := rejecting(recB)
+	defer other.Close()
 
 	issuer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, other.URL+r.URL.RequestURI(), http.StatusFound)
@@ -218,16 +231,68 @@ func TestRemoteSource_RedirectToOtherHostGetsNoCredential(t *testing.T) {
 		Host: issuer.URL, TokenHost: hostOf(t, issuer.URL),
 	}
 	_, cleanup, err := src.Root(context.Background())
-	if err != nil {
-		t.Fatalf("clone through redirect failed (the open target rejects any credential it is sent; it saw %q): %v", other.rec.all(), err)
-	}
 	cleanup()
-	if len(other.rec.all()) < 2 {
-		t.Fatalf("redirect target saw %d requests; test did not exercise follow-up requests", len(other.rec.all()))
+	if err == nil {
+		t.Fatal("expected clone to fail: the redirect target challenges and must get no credential")
 	}
-	for _, a := range other.rec.all() {
+	if len(recB.all()) == 0 {
+		t.Fatal("redirect target saw no requests; test did not exercise the redirect")
+	}
+	for _, a := range recB.all() {
 		if a != "" {
 			t.Errorf("redirect target received a credential: %q", a)
+		}
+	}
+}
+
+// TestRemoteSource_ErrorHasNoCurlTrace: a failing clone's error must not carry
+// curl trace output even when the parent environment asks for it (git enables
+// GIT_CURL_VERBOSE on presence alone). Not parallel: it mutates the process env.
+func TestRemoteSource_ErrorHasNoCurlTrace(t *testing.T) {
+	t.Setenv("GIT_CURL_VERBOSE", "1")
+	t.Setenv("GIT_TRACE", "1")
+	t.Setenv("GIT_TRACE_REDACT", "0")
+	rec := &recorder{}
+	srv := rejecting(rec)
+	defer srv.Close()
+	src := RemoteSource{Slug: "o/r", DestDir: t.TempDir(), StaticToken: sentinelCloneToken, Host: srv.URL, TokenHost: hostOf(t, srv.URL)}
+	_, cleanup, err := src.Root(context.Background())
+	cleanup()
+	if err == nil {
+		t.Fatal("expected clone error")
+	}
+	for _, marker := range []string{"== Info:", "=> Send header", "Server auth using", sentinelCloneToken} {
+		if strings.Contains(err.Error(), marker) {
+			t.Errorf("error carries trace/credential material %q:\n%s", marker, err)
+		}
+	}
+}
+
+// TestRemoteSource_HostHelpersNeitherAnswerNorStore: with a generic and a
+// URL-scoped `store` helper in the user's gitconfig, an authenticated clone
+// must leave both store files empty (the helper list is reset, SEC-CR-011).
+// Not parallel: it mutates the process env.
+func TestRemoteSource_HostHelpersNeitherAnswerNorStore(t *testing.T) {
+	gs := newGitServer(t, basicFor("x-access-token", sentinelCloneToken))
+	tmp := t.TempDir()
+	generic, scoped := filepath.Join(tmp, "generic.store"), filepath.Join(tmp, "scoped.store")
+	gitconfig := filepath.Join(tmp, "gitconfig")
+	cfg := "[credential]\n\thelper = store --file=" + generic + "\n" +
+		"[credential \"https://" + hostOf(t, gs.URL) + "\"]\n\thelper = store --file=" + scoped + "\n"
+	if err := os.WriteFile(gitconfig, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
+
+	src := RemoteSource{Slug: "o/r", DestDir: t.TempDir(), StaticToken: sentinelCloneToken, Host: gs.URL, TokenHost: hostOf(t, gs.URL)}
+	_, cleanup, err := src.Root(context.Background())
+	if err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+	cleanup()
+	for _, f := range []string{generic, scoped} {
+		if b, err := os.ReadFile(f); err == nil && len(b) > 0 {
+			t.Errorf("host credential helper stored the token in %s", filepath.Base(f))
 		}
 	}
 }

@@ -26,6 +26,9 @@ var (
 	// Bare base64 Basic credentials as git builds them: base64 of
 	// "x-access-token:" and "oauth2:" (prefix of the latter is alignment-safe).
 	basicB64RE = regexp.MustCompile(`(?:eC1hY2Nlc3MtdG9rZW46|b2F1dGgyO)[A-Za-z0-9+/=_\-]*`)
+	// Secrets passed to a credential helper or the git child's environment:
+	// "password=<v>" (credential protocol) and "VAELOR_GIT_TOKEN=<v>".
+	kvSecretRE = regexp.MustCompile(`(?i)\b((?:password|VAELOR_GIT_TOKEN)=)\S+`)
 )
 
 // Scrub returns s with URL userinfo, token-shaped strings, JWTs and
@@ -38,6 +41,7 @@ func Scrub(s string) string {
 	s = scpRE.ReplaceAllString(s, "${1}"+mask+"@${2}")
 	s = authHeaderRE.ReplaceAllString(s, "${1}"+mask)
 	s = basicB64RE.ReplaceAllString(s, mask)
+	s = kvSecretRE.ReplaceAllString(s, "${1}"+mask)
 	s = jwtRE.ReplaceAllString(s, mask)
 	return tokenRE.ReplaceAllString(s, mask)
 }

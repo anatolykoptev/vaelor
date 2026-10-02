@@ -73,8 +73,21 @@ func gitAuthEnv(remoteURL, user, token, issuerHost string) []string {
 		"GIT_CONFIG_VALUE_1=" + credentialHelper(u.Host),
 		envAuthUser + "=" + user,
 		envAuthToken + "=" + token,
-		// Defence-in-depth: suppress git trace channels.
-		"GIT_TRACE=0",
-		"GIT_CURL_VERBOSE=0",
 	}
+}
+
+// gitChildEnv builds the environment for a git child process: parent with every
+// trace knob removed (git enables GIT_CURL_VERBOSE and the GIT_TRACE* channels
+// on mere presence, even set to 0, and the traces land in the output we wrap
+// into errors), then non-interactive mode, redacted tracing, and authEnv.
+func gitChildEnv(parent, authEnv []string) []string {
+	env := make([]string, 0, len(parent)+len(authEnv)+2)
+	for _, kv := range parent {
+		if strings.HasPrefix(kv, "GIT_TRACE") || strings.HasPrefix(kv, "GIT_CURL_VERBOSE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_TRACE_REDACT=1")
+	return append(env, authEnv...)
 }

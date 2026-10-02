@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -278,6 +279,9 @@ func TestGitAuthEnv(t *testing.T) {
 			t.Errorf("env missing %q:\n%s", want, joined)
 		}
 	}
+	if strings.Contains(joined, "GIT_CURL_VERBOSE") {
+		t.Errorf("GIT_CURL_VERBOSE must never be set (presence enables curl tracing):\n%s", joined)
+	}
 	if strings.Contains(joined, "extraheader") || strings.Contains(joined, "Authorization") {
 		t.Errorf("credential must not travel as a header:\n%s", joined)
 	}
@@ -291,5 +295,54 @@ func TestBuildCloneURL_StripsUserinfo(t *testing.T) {
 	}
 	if got := buildCloneURL(CloneOpts{}, "o/r"); got != "https://github.com/o/r.git" {
 		t.Errorf("default url = %q", got)
+	}
+}
+
+func TestGitChildEnv_StripsTraceAndForcesRedaction(t *testing.T) {
+	t.Parallel()
+	parent := []string{"PATH=/bin", "GIT_CURL_VERBOSE=1", "GIT_TRACE=1", "GIT_TRACE_CURL=1", "GIT_TRACE_REDACT=0", "HOME=/h"}
+	got := gitChildEnv(parent, []string{"X=1"})
+	joined := "\n" + strings.Join(got, "\n") + "\n"
+	for _, bad := range []string{"GIT_CURL_VERBOSE", "GIT_TRACE=", "GIT_TRACE_CURL", "GIT_TRACE_REDACT=0"} {
+		if strings.Contains(joined, bad) {
+			t.Errorf("child env still carries %q: %v", bad, got)
+		}
+	}
+	for _, want := range []string{"\nPATH=/bin\n", "\nHOME=/h\n", "\nGIT_TRACE_REDACT=1\n", "\nGIT_TERMINAL_PROMPT=0\n", "\nX=1\n"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("child env missing %q: %v", want, got)
+		}
+	}
+}
+
+// TestCredentialHelper_AnswersOnlyItsHost runs the helper script itself: git's
+// URL-scoped config already keeps other hosts away from it, so the script's own
+// protocol/host check is defence in depth that only a direct run can gate.
+func TestCredentialHelper_AnswersOnlyItsHost(t *testing.T) {
+	t.Parallel()
+	run := func(op, input string) string {
+		cmd := exec.CommandContext(context.Background(), "sh", "-c", strings.TrimPrefix(credentialHelper("good.example:8443"), "!")+` "$@"`, "sh", op)
+		cmd.Env = []string{envAuthUser + "=u", envAuthToken + "=SENTINELHELPER"}
+		cmd.Stdin = strings.NewReader(input)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("helper %s: %v", op, err)
+		}
+		return string(out)
+	}
+	if got := run("get", "protocol=https\nhost=good.example:8443\n\n"); got != "username=u\npassword=SENTINELHELPER\n" {
+		t.Errorf("matching host: got %q", got)
+	}
+	for name, in := range map[string]string{
+		"other host":    "protocol=https\nhost=evil.example:8443\n\n",
+		"other port":    "protocol=https\nhost=good.example:1\n\n",
+		"http protocol": "protocol=http\nhost=good.example:8443\n\n",
+	} {
+		if got := run("get", in); got != "" {
+			t.Errorf("%s: helper answered %q", name, got)
+		}
+	}
+	if got := run("store", "protocol=https\nhost=good.example:8443\n\n"); got != "" {
+		t.Errorf("store: helper answered %q", got)
 	}
 }
