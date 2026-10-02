@@ -157,6 +157,7 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 		MaxRepoBytes:      cfg.MaxRepoBytes,
 		GithubSearchRepos: cfg.GithubSearchRepos,
 		GithubToken:       cfg.GithubToken,
+		GitLabToken:       cfg.GitLabToken,
 		CloneTokenFunc:    buildCloneTokenFunc(cfg),
 		WorkspaceDir:      cfg.WorkspaceDir,
 		PathMappings:      cfg.PathMappings,

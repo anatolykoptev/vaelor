@@ -227,7 +227,7 @@ func TestAtomicDirectorySwap_FirstClone_FinalDestAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	tmpDest := filepath.Join(dest, "test_cold.tmp.first")
-	if err := runClone(context.Background(), opts.CloneURL, opts.Ref, tmpDest); err != nil {
+	if err := runClone(context.Background(), opts.CloneURL, opts.Ref, tmpDest, nil); err != nil {
 		t.Fatalf("runClone into tmp: %v", err)
 	}
 	finalDest := filepath.Join(dest, "test_cold")

@@ -54,7 +54,7 @@ func TestCloneRepo_ColdClone_SingleFlight_SameKeyClonesOnce(t *testing.T) {
 	firstEntry := make(chan struct{}, 1)
 	orig := runCloneFn
 	t.Cleanup(func() { runCloneFn = orig })
-	runCloneFn = func(_ context.Context, _, _ string, d string) error {
+	runCloneFn = func(_ context.Context, _, _ string, d string, _ []string) error {
 		n := atomic.AddInt64(&cloneCount, 1)
 		if n == 1 {
 			select {
@@ -127,7 +127,7 @@ func TestCloneRepo_ColdClone_SingleFlight_DistinctKeysCloneIndependently(t *test
 	var cloneCount int64
 	orig := runCloneFn
 	t.Cleanup(func() { runCloneFn = orig })
-	runCloneFn = func(_ context.Context, _, _ string, d string) error {
+	runCloneFn = func(_ context.Context, _, _ string, d string, _ []string) error {
 		atomic.AddInt64(&cloneCount, 1)
 		return fakeCloneTree(d)
 	}
@@ -163,7 +163,7 @@ func TestCloneRepo_CancelledCtx_NeverStartsClone(t *testing.T) {
 	var cloneCount int64
 	orig := runCloneFn
 	t.Cleanup(func() { runCloneFn = orig })
-	runCloneFn = func(_ context.Context, _, _ string, d string) error {
+	runCloneFn = func(_ context.Context, _, _ string, d string, _ []string) error {
 		atomic.AddInt64(&cloneCount, 1)
 		return fakeCloneTree(d)
 	}
@@ -202,7 +202,7 @@ func TestCloneRepo_ColdClone_SingleFlight_FlightReleasedForLaterCall(t *testing.
 	var cloneCount int64
 	orig := runCloneFn
 	t.Cleanup(func() { runCloneFn = orig })
-	runCloneFn = func(_ context.Context, _, _ string, d string) error {
+	runCloneFn = func(_ context.Context, _, _ string, d string, _ []string) error {
 		atomic.AddInt64(&cloneCount, 1)
 		return fakeCloneTree(d)
 	}

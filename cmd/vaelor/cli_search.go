@@ -87,6 +87,7 @@ func runSearch(cfg Config, args []string) {
 	// reuses the same forge/workspace machinery as the MCP serve path.
 	deps := analyze.Deps{
 		GithubToken:    cfg.GithubToken,
+		GitLabToken:    cfg.GitLabToken,
 		CloneTokenFunc: buildCloneTokenFunc(cfg),
 		WorkspaceDir:   cfg.WorkspaceDir,
 		PathMappings:   cfg.PathMappings,

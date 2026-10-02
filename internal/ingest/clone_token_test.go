@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -193,7 +194,7 @@ func TestRefreshClone_TokenFuncError(t *testing.T) {
 	// Verify error message format from refreshClone directly.
 	sentinelErr := errors.New("sentinel error")
 	errFunc := func(_ context.Context) (string, error) { return "", sentinelErr }
-	err = refreshClone(context.Background(), res2.LocalPath, "main", errFunc)
+	err = refreshClone(context.Background(), res2.LocalPath, "main", opts.CloneURL, "", "github.com", errFunc)
 	if err == nil {
 		t.Fatal("expected error from refreshClone when tokenFunc errors")
 	}
@@ -232,5 +233,116 @@ func TestSanitizeGitOutput(t *testing.T) {
 				t.Errorf("sanitizeGitOutput(%q):\n  got:  %q\n  want: %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSanitizeGitOutput_MasksURLUserinfoAndTokens(t *testing.T) {
+	t.Parallel()
+	in := "fatal: could not read Password for 'https://ghs_SENTINELSAN1@github.com': terminal prompts disabled\n" +
+		"remote: see https://user:SENTINELSAN2@host.example/x glpat-SENTINELSAN3"
+	got := sanitizeGitOutput(in)
+	for _, s := range []string{"SENTINELSAN1", "SENTINELSAN2", "SENTINELSAN3"} {
+		if strings.Contains(got, s) {
+			t.Errorf("%s survived: %q", s, got)
+		}
+	}
+	if !strings.Contains(got, "terminal prompts disabled") {
+		t.Errorf("context lost: %q", got)
+	}
+}
+
+func TestGitAuthEnv(t *testing.T) {
+	t.Parallel()
+	nilCases := []struct{ name, url, tok, issuer string }{
+		{"empty token", "https://github.com/o/r.git", "", "github.com"},
+		{"empty issuer", "https://github.com/o/r.git", "tok", ""},
+		{"file remote", "file:///tmp/x", "tok", "github.com"},
+		{"plain http", "http://github.com/o/r.git", "tok", "github.com"},
+		{"host != issuer", "https://gitlab.com/o/r.git", "tok", "github.com"},
+		{"lookalike host", "https://github.com.evil.example/o/r.git", "tok", "github.com"},
+		{"quote in host", "https://a'b/o/r.git", "tok", "a'b"},
+	}
+	for _, c := range nilCases {
+		if got := gitAuthEnv(c.url, "", c.tok, c.issuer); got != nil {
+			t.Errorf("%s: want nil env, got %v", c.name, got)
+		}
+	}
+	env := gitAuthEnv("https://gitlab.example.com/g/r.git", "oauth2", "tok", "gitlab.example.com")
+	joined := strings.Join(env, "\n")
+	for _, want := range []string{
+		"GIT_CONFIG_KEY_0=credential.helper\nGIT_CONFIG_VALUE_0=\n",
+		"GIT_CONFIG_KEY_1=credential.https://gitlab.example.com.helper",
+		"VAELOR_GIT_USER=oauth2",
+		"VAELOR_GIT_TOKEN=tok",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("env missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "GIT_CURL_VERBOSE") {
+		t.Errorf("GIT_CURL_VERBOSE must never be set (presence enables curl tracing):\n%s", joined)
+	}
+	if strings.Contains(joined, "extraheader") || strings.Contains(joined, "Authorization") {
+		t.Errorf("credential must not travel as a header:\n%s", joined)
+	}
+}
+
+func TestBuildCloneURL_StripsUserinfo(t *testing.T) {
+	t.Parallel()
+	got := buildCloneURL(CloneOpts{CloneURL: "https://ghs_SENTINELSTRIP:x@github.com/o/r.git"}, "o/r")
+	if strings.Contains(got, "SENTINELSTRIP") || got != "https://github.com/o/r.git" {
+		t.Errorf("userinfo not stripped: %q", got)
+	}
+	if got := buildCloneURL(CloneOpts{}, "o/r"); got != "https://github.com/o/r.git" {
+		t.Errorf("default url = %q", got)
+	}
+}
+
+func TestGitChildEnv_StripsTraceAndForcesRedaction(t *testing.T) {
+	t.Parallel()
+	parent := []string{"PATH=/bin", "GIT_CURL_VERBOSE=1", "GIT_TRACE=1", "GIT_TRACE_CURL=1", "GIT_TRACE_REDACT=0", "HOME=/h"}
+	got := gitChildEnv(parent, []string{"X=1"})
+	joined := "\n" + strings.Join(got, "\n") + "\n"
+	for _, bad := range []string{"GIT_CURL_VERBOSE", "GIT_TRACE=", "GIT_TRACE_CURL", "GIT_TRACE_REDACT=0"} {
+		if strings.Contains(joined, bad) {
+			t.Errorf("child env still carries %q: %v", bad, got)
+		}
+	}
+	for _, want := range []string{"\nPATH=/bin\n", "\nHOME=/h\n", "\nGIT_TRACE_REDACT=1\n", "\nGIT_TERMINAL_PROMPT=0\n", "\nX=1\n"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("child env missing %q: %v", want, got)
+		}
+	}
+}
+
+// TestCredentialHelper_AnswersOnlyItsHost runs the helper script itself: git's
+// URL-scoped config already keeps other hosts away from it, so the script's own
+// protocol/host check is defence in depth that only a direct run can gate.
+func TestCredentialHelper_AnswersOnlyItsHost(t *testing.T) {
+	t.Parallel()
+	run := func(op, input string) string {
+		cmd := exec.CommandContext(context.Background(), "sh", "-c", strings.TrimPrefix(credentialHelper("good.example:8443"), "!")+` "$@"`, "sh", op)
+		cmd.Env = []string{envAuthUser + "=u", envAuthToken + "=SENTINELHELPER"}
+		cmd.Stdin = strings.NewReader(input)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("helper %s: %v", op, err)
+		}
+		return string(out)
+	}
+	if got := run("get", "protocol=https\nhost=good.example:8443\n\n"); got != "username=u\npassword=SENTINELHELPER\n" {
+		t.Errorf("matching host: got %q", got)
+	}
+	for name, in := range map[string]string{
+		"other host":    "protocol=https\nhost=evil.example:8443\n\n",
+		"other port":    "protocol=https\nhost=good.example:1\n\n",
+		"http protocol": "protocol=http\nhost=good.example:8443\n\n",
+	} {
+		if got := run("get", in); got != "" {
+			t.Errorf("%s: helper answered %q", name, got)
+		}
+	}
+	if got := run("store", "protocol=https\nhost=good.example:8443\n\n"); got != "" {
+		t.Errorf("store: helper answered %q", got)
 	}
 }

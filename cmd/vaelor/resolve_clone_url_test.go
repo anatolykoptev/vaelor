@@ -58,7 +58,7 @@ func TestResolverCloneURL_GitLabSubgroup(t *testing.T) {
 				t.Fatalf("DetectForge(%q) = %v, want GitLab", tc.input, kind)
 			}
 
-			cloneURL := forge.CloneURL(kind, slug, "", "")
+			cloneURL := forge.CloneURL(kind, slug, "")
 			if cloneURL != tc.wantClone {
 				t.Fatalf("CloneURL = %q, want %q", cloneURL, tc.wantClone)
 			}
@@ -107,7 +107,7 @@ func TestResolverCloneURL(t *testing.T) {
 			}
 
 			// Step 4: CloneURL must produce the correct HTTPS URL.
-			cloneURL := forge.CloneURL(kind, slug, "", "")
+			cloneURL := forge.CloneURL(kind, slug, "")
 			if cloneURL != "https://github.com/anatolykoptev/go-code.git" {
 				t.Fatalf("CloneURL = %q, want %q", cloneURL, "https://github.com/anatolykoptev/go-code.git")
 			}
