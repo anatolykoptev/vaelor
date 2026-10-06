@@ -47,8 +47,10 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 
 	key := cache.Key("github:code:search", q, sort, order, strconv.Itoa(perPage), strconv.Itoa(page), strconv.Itoa(maxResults), strconv.Itoa(opt.MinStars), strconv.Itoa(opt.MaxFragmentChars), strconv.Itoa(opt.MaxTotalChars))
 
+	terms := searchQueryTerms(q)
+
 	result, err := cacheGetOrLoadJSONWithTTL(g.cache, ctx, key, codeSearchCacheTTL, func(ctx context.Context) (CodeSearchResult, error) {
-		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars, opt.MaxFragmentChars, opt.MaxTotalChars)
+		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars, terms, opt.MaxFragmentChars, opt.MaxTotalChars)
 	})
 	if err != nil {
 		return CodeSearchResult{}, err
@@ -71,14 +73,28 @@ type ghCodeSearchItem struct {
 	Repository struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
-	TextMatches []struct {
-		Fragment string `json:"fragment"`
-	} `json:"text_matches"`
+	TextMatches []ghCodeSearchTextMatch `json:"text_matches"`
+}
+
+// ghMatchSpan is one match GitHub reported inside a text-match fragment:
+// Text is the matched substring, Indices is [start, end) byte offsets into
+// the fragment.
+type ghMatchSpan struct {
+	Text    string `json:"text"`
+	Indices []int  `json:"indices"`
+}
+
+// ghCodeSearchTextMatch is a single text-match entry of a code-search item.
+type ghCodeSearchTextMatch struct {
+	Fragment string `json:"fragment"`
+	// Matches carries the exact match spans inside Fragment (byte offsets);
+	// used to protect matched lines from fragment cleanup.
+	Matches []ghMatchSpan `json:"matches"`
 }
 
 // collectCodeSearchResults fetches code search pages, applies min_stars
 // filtering, and stops when maxResults is reached or there are no more results.
-func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, order string, perPage, page, maxResults, minStars, maxFragmentChars, maxTotalChars int) (CodeSearchResult, error) {
+func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, order string, perPage, page, maxResults, minStars int, terms []string, maxFragmentChars, maxTotalChars int) (CodeSearchResult, error) {
 	var result CodeSearchResult
 	currentPage := page
 
@@ -103,7 +119,7 @@ func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, ord
 			break
 		}
 
-		pageResults, err := g.filterCodeSearchPage(ctx, data.Items, minStars, maxFragmentChars, maxTotalChars)
+		pageResults, err := g.filterCodeSearchPage(ctx, data.Items, minStars, terms, maxFragmentChars, maxTotalChars)
 		if err != nil {
 			return CodeSearchResult{}, err
 		}
@@ -158,8 +174,8 @@ func (g *GitHubForge) fetchCodeSearchPage(ctx context.Context, q, sort, order st
 }
 
 // filterCodeSearchPage converts API items into CodeResult and applies min_stars filtering.
-func (g *GitHubForge) filterCodeSearchPage(ctx context.Context, items []ghCodeSearchItem, minStars, maxFragmentChars, maxTotalChars int) ([]CodeResult, error) {
-	results := convertCodeSearchItems(items, maxFragmentChars, maxTotalChars)
+func (g *GitHubForge) filterCodeSearchPage(ctx context.Context, items []ghCodeSearchItem, minStars int, terms []string, maxFragmentChars, maxTotalChars int) ([]CodeResult, error) {
+	results := convertCodeSearchItems(items, terms, maxFragmentChars, maxTotalChars)
 	if minStars <= 0 {
 		return results, nil
 	}
@@ -169,10 +185,15 @@ func (g *GitHubForge) filterCodeSearchPage(ctx context.Context, items []ghCodeSe
 // buildCodeSearchContent joins text-match fragments into a snippet and optionally
 // limits per-fragment and total length. If maxFragmentChars or maxTotalChars is 0,
 // no limit is applied for that axis.
-func buildCodeSearchContent(item ghCodeSearchItem, maxFragmentChars, maxTotalChars int) string {
+func buildCodeSearchContent(item ghCodeSearchItem, terms []string, maxFragmentChars, maxTotalChars int) string {
+	mdPath := isMarkdownSearchPath(item.Path)
 	var fragments []string
 	for _, tm := range item.TextMatches {
-		frag := strings.TrimSpace(tm.Fragment)
+		raw := tm.Fragment
+		if mdPath {
+			raw = sanitizeSearchFragment(raw, tm.Matches, terms)
+		}
+		frag := strings.TrimSpace(raw)
 		if frag == "" {
 			continue
 		}
@@ -193,7 +214,7 @@ func buildCodeSearchContent(item ghCodeSearchItem, maxFragmentChars, maxTotalCha
 }
 
 // convertCodeSearchItems converts GitHub code search API items into CodeResult values.
-func convertCodeSearchItems(items []ghCodeSearchItem, maxFragmentChars, maxTotalChars int) []CodeResult {
+func convertCodeSearchItems(items []ghCodeSearchItem, terms []string, maxFragmentChars, maxTotalChars int) []CodeResult {
 	results := make([]CodeResult, 0, len(items))
 	for _, item := range items {
 		if item.HTMLURL == "" {
@@ -204,7 +225,7 @@ func convertCodeSearchItems(items []ghCodeSearchItem, maxFragmentChars, maxTotal
 			Path:    item.Path,
 			URL:     item.HTMLURL,
 			Repo:    item.Repository.FullName,
-			Content: buildCodeSearchContent(item, maxFragmentChars, maxTotalChars),
+			Content: buildCodeSearchContent(item, terms, maxFragmentChars, maxTotalChars),
 		})
 	}
 	return results
