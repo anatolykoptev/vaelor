@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.66.0](https://github.com/anatolykoptev/vaelor/compare/v1.65.16...v1.66.0) (2026-10-06)
+
+
+### Added
+
+* **forge:** strip markup furniture from github code search fragments ([#847](https://github.com/anatolykoptev/vaelor/issues/847)) ([edac4c1](https://github.com/anatolykoptev/vaelor/commit/edac4c14ce1c1f848c6c88e826375367510624a6))
+
 ## [1.65.16](https://github.com/anatolykoptev/vaelor/compare/v1.65.15...v1.65.16) (2026-10-02)
 
 
