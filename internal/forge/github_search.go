@@ -35,7 +35,7 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 	page := normalizePage(opt.Page)
 	perPage, maxResults := resolveSearchParams(opt.PerPage, opt)
 
-	q, err := buildGitHubCodeSearchQuery(query, repos, opt.ExcludeRepos, opt.FileExtensions, opt.Language)
+	q, err := buildGitHubCodeSearchQuery(query, repos, opt.ExcludeRepos, opt.FileExtensions, opt.Language, opt.ExcludePaths)
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
@@ -45,12 +45,12 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 		return CodeSearchResult{}, err
 	}
 
-	key := cache.Key("github:code:search", q, sort, order, strconv.Itoa(perPage), strconv.Itoa(page), strconv.Itoa(maxResults), strconv.Itoa(opt.MinStars), strconv.Itoa(opt.MaxFragmentChars), strconv.Itoa(opt.MaxTotalChars))
+	key := cache.Key("github:code:search", q, sort, order, strconv.Itoa(perPage), strconv.Itoa(page), strconv.Itoa(maxResults), strconv.Itoa(opt.MinStars), strconv.Itoa(opt.MaxFragmentChars), strconv.Itoa(opt.MaxTotalChars), strconv.Itoa(opt.ContextLines), strconv.Itoa(opt.ContextResults))
 
 	terms := searchQueryTerms(q)
 
 	result, err := cacheGetOrLoadJSONWithTTL(g.cache, ctx, key, codeSearchCacheTTL, func(ctx context.Context) (CodeSearchResult, error) {
-		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars, terms, opt.MaxFragmentChars, opt.MaxTotalChars)
+		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars, terms, opt.MaxFragmentChars, opt.MaxTotalChars, opt.ContextLines, opt.ContextResults)
 	})
 	if err != nil {
 		return CodeSearchResult{}, err
@@ -94,9 +94,10 @@ type ghCodeSearchTextMatch struct {
 
 // collectCodeSearchResults fetches code search pages, applies min_stars
 // filtering, and stops when maxResults is reached or there are no more results.
-func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, order string, perPage, page, maxResults, minStars int, terms []string, maxFragmentChars, maxTotalChars int) (CodeSearchResult, error) {
+func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, order string, perPage, page, maxResults, minStars int, terms []string, maxFragmentChars, maxTotalChars, contextLines, contextResults int) (CodeSearchResult, error) {
 	var result CodeSearchResult
 	currentPage := page
+	seen := make(map[uint64]struct{})
 
 	for {
 		if ctx.Err() != nil {
@@ -124,7 +125,16 @@ func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, ord
 			return CodeSearchResult{}, err
 		}
 
-		result.Results = append(result.Results, pageResults...)
+		// Dedupe results whose fragments are identical modulo whitespace —
+		// vendored/copied files surface the same snippet across repos.
+		for _, r := range pageResults {
+			h := contentFingerprint(r.Content)
+			if _, dup := seen[h]; dup {
+				continue
+			}
+			seen[h] = struct{}{}
+			result.Results = append(result.Results, r)
+		}
 
 		if maxResults > 0 && len(result.Results) >= maxResults {
 			result.Results = result.Results[:maxResults]
@@ -142,6 +152,7 @@ func (g *GitHubForge) collectCodeSearchResults(ctx context.Context, q, sort, ord
 		currentPage++
 	}
 
+	g.expandCodeSearchContext(ctx, result.Results, terms, contextLines, contextResults)
 	return result, nil
 }
 
@@ -226,9 +237,42 @@ func convertCodeSearchItems(items []ghCodeSearchItem, terms []string, maxFragmen
 			URL:     item.HTMLURL,
 			Repo:    item.Repository.FullName,
 			Content: buildCodeSearchContent(item, terms, maxFragmentChars, maxTotalChars),
+			Matched: collectMatchTexts(item),
+			rawFrag: rawFragmentProbe(item),
 		})
 	}
 	return results
+}
+
+// collectMatchTexts returns the distinct matched strings the API reported
+// across the item's text-match fragments.
+func collectMatchTexts(item ghCodeSearchItem) []string {
+	var out []string
+	seen := make(map[string]struct{})
+	for _, tm := range item.TextMatches {
+		for _, m := range tm.Matches {
+			if m.Text == "" {
+				continue
+			}
+			if _, ok := seen[m.Text]; ok {
+				continue
+			}
+			seen[m.Text] = struct{}{}
+			out = append(out, m.Text)
+		}
+	}
+	return out
+}
+
+// rawFragmentProbe returns the first non-empty raw fragment, used to locate
+// the match inside the fetched file for context expansion.
+func rawFragmentProbe(item ghCodeSearchItem) string {
+	for _, tm := range item.TextMatches {
+		if s := strings.TrimSpace(tm.Fragment); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // fetchRepoStars returns the stargazers count for a repo, using cache.

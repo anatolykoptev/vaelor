@@ -68,7 +68,15 @@ type CodeResult struct {
 	Path    string
 	URL     string
 	Repo    string
-	Content string // joined text-match fragments
+	Content string   // joined text-match fragments
+	Matched []string // distinct matched terms reported by the search API
+	// Context is a window of ContextLines lines around the first match in the
+	// full file, populated only when SearchCodeOptions.ContextLines > 0 and the
+	// file fetch succeeds. ContextStart is its 1-based line number in the file.
+	Context      string
+	ContextStart int
+
+	rawFrag string // unexported probe for locating the fragment inside the file
 }
 
 // CodeSearchResult is the full result of a code search.
@@ -81,7 +89,9 @@ type CodeSearchResult struct {
 
 // SearchCodeOptions holds optional server-side filters for code search.
 type SearchCodeOptions struct {
-	ExcludeRepos   []string
+	ExcludeRepos []string
+	// ExcludePaths adds -path: qualifiers (e.g. "vendor", "docs").
+	ExcludePaths   []string
 	FileExtensions []string
 	Language       string
 	Sort           string
@@ -94,6 +104,10 @@ type SearchCodeOptions struct {
 	MaxFragmentChars int
 	// MaxTotalChars limits the total joined content per result. 0 means no limit.
 	MaxTotalChars int
+	// ContextLines > 0 fetches the file around the first match for the top
+	// ContextResults results and populates CodeResult.Context.
+	ContextLines   int
+	ContextResults int
 }
 
 // IssueItem represents an issue or pull request from a forge search.

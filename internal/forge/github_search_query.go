@@ -18,6 +18,9 @@ const (
 // ownerRepoSegRe validates a single GitHub owner or repo path segment.
 var ownerRepoSegRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
+// pathQualRe validates a path: qualifier value (allows glob `*`).
+var pathQualRe = regexp.MustCompile(`^[A-Za-z0-9._*/-]+$`)
+
 // NormalizeGitHubRepo converts a variety of GitHub repository identifier forms
 // to the canonical "owner/repo" slug.
 func NormalizeGitHubRepo(input string) (string, error) {
@@ -91,7 +94,7 @@ func normalizeRepoSet(repos []string) (map[string]struct{}, error) {
 // buildGitHubCodeSearchQuery constructs the q parameter for the GitHub Code
 // Search API, appending repo:/language:/extension:/-repo: qualifiers only when
 // they are not already present.
-func buildGitHubCodeSearchQuery(query string, repos, excludeRepos, fileExtensions []string, language string) (string, error) {
+func buildGitHubCodeSearchQuery(query string, repos, excludeRepos, fileExtensions []string, language string, excludePaths []string) (string, error) {
 	excluded, err := normalizeRepoSet(excludeRepos)
 	if err != nil {
 		return "", err
@@ -105,7 +108,7 @@ func buildGitHubCodeSearchQuery(query string, repos, excludeRepos, fileExtension
 	q = addNegativeRepoQualifiers(q, excluded)
 	q = addExtensionQualifiers(q, fileExtensions)
 	q = addLanguageQualifier(q, language)
-	return q, nil
+	return addNegativePathQualifiers(q, excludePaths)
 }
 
 // addRepoQualifiers appends repo: qualifiers for included repos, skipping excluded ones.
@@ -135,6 +138,34 @@ func addNegativeRepoQualifiers(q string, excluded map[string]struct{}) string {
 		q = appendQualifier(q, "-repo", r)
 	}
 	return q
+}
+
+// addNegativePathQualifiers appends -path: qualifiers for excluded paths.
+// Values may use GitHub glob syntax (e.g. "vendor", "*.generated.go").
+func addNegativePathQualifiers(q string, excludePaths []string) (string, error) {
+	for _, p := range excludePaths {
+		p = strings.Trim(strings.TrimSpace(p), `"`)
+		if p == "" {
+			continue
+		}
+		if !pathQualRe.MatchString(p) {
+			return "", fmt.Errorf("invalid exclude path %q: only [A-Za-z0-9._*/-] allowed", p)
+		}
+		if hasNegativePathQualifier(q, p) {
+			continue
+		}
+		q = appendQualifier(q, "-path", p)
+	}
+	return q, nil
+}
+
+// hasNegativePathQualifier reports whether query already contains a -path:
+// qualifier for the given value.
+func hasNegativePathQualifier(query, p string) bool {
+	want := strings.ToLower(p)
+	q := " " + strings.ToLower(query) + " "
+	return strings.Contains(q, " -path:"+want+" ") ||
+		strings.Contains(q, " -path:\""+want+"\"")
 }
 
 // addExtensionQualifiers appends extension: qualifiers for file extensions.
