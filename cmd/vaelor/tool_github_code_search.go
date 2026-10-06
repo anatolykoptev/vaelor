@@ -14,6 +14,7 @@ type GithubCodeSearchInput struct {
 	Query          string   `json:"query" jsonschema:"Code search query. Supports GitHub syntax: 'func resize language:python', 'className path:src/', 'TODO language:go'. Without repo qualifier searches all public repos."`
 	Repo           string   `json:"repo,omitempty" jsonschema:"Repository to search (owner/repo or full GitHub URL). If empty, searches all public GitHub."`
 	ExcludeRepos   []string `json:"exclude_repos,omitempty" jsonschema:"Repositories to exclude (owner/repo or full URL). Added as -repo: qualifiers."`
+	ExcludePaths   []string `json:"exclude_paths,omitempty" jsonschema:"Path prefixes to exclude (e.g. vendor, docs, generated). Added as -path: qualifiers."`
 	Language       string   `json:"language,omitempty" jsonschema:"Filter results by language (e.g. go, python). Appended as language: qualifier if not already in query."`
 	FileExtensions []string `json:"file_extensions,omitempty" jsonschema:"Filter results by file extension (e.g. go, ts). Added as extension: qualifiers. Leading dots are stripped."`
 	Sort           string   `json:"sort,omitempty" jsonschema:"Sort field for code search. Only 'indexed' is supported by the GitHub API (default: best match)."`
@@ -26,14 +27,21 @@ type GithubCodeSearchInput struct {
 	MaxFragmentChars int `json:"max_fragment_chars,omitempty" jsonschema:"Max characters per code fragment. 0 or omitted means no limit."`
 	// MaxTotalChars limits the total joined content per result. 0 means no limit.
 	MaxTotalChars int `json:"max_total_chars,omitempty" jsonschema:"Max total characters of joined fragments per result. 0 or omitted means no limit."`
+	// ContextLines fetches the file around the first match for top results.
+	ContextLines int `json:"context_lines,omitempty" jsonschema:"Lines of file context around each match (0 = fragments only). Fetches the file for the top context_results hits."`
+	// ContextResults caps how many results get context fetched.
+	ContextResults int `json:"context_results,omitempty" jsonschema:"How many top results get context_lines fetched (default 5). Requires context_lines > 0."`
 }
 
 // githubCodeSearchResult is a single search result.
 type githubCodeSearchResult struct {
-	Path      string `json:"path"`
-	Repo      string `json:"repo"`
-	URL       string `json:"url"`
-	Fragments string `json:"fragments,omitempty"`
+	Path         string   `json:"path"`
+	Repo         string   `json:"repo"`
+	URL          string   `json:"url"`
+	Fragments    string   `json:"fragments,omitempty"`
+	Matched      []string `json:"matched,omitempty"`
+	Context      string   `json:"context,omitempty"`
+	ContextStart int      `json:"context_start,omitempty"`
 }
 
 // githubCodeSearchOutput is the tool output.
@@ -91,6 +99,9 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 		Page:             input.Page,
 		MaxFragmentChars: input.MaxFragmentChars,
 		MaxTotalChars:    input.MaxTotalChars,
+		ContextLines:     input.ContextLines,
+		ContextResults:   input.ContextResults,
+		ExcludePaths:     input.ExcludePaths,
 	}
 
 	result, err := gh.SearchCode(ctx, input.Query, repos, opts)
@@ -116,10 +127,13 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 
 	for _, r := range result.Results {
 		out.Results = append(out.Results, githubCodeSearchResult{
-			Path:      r.Path,
-			Repo:      r.Repo,
-			URL:       r.URL,
-			Fragments: r.Content,
+			Path:         r.Path,
+			Repo:         r.Repo,
+			URL:          r.URL,
+			Fragments:    r.Content,
+			Matched:      r.Matched,
+			Context:      r.Context,
+			ContextStart: r.ContextStart,
 		})
 	}
 

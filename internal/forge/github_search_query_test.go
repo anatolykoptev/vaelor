@@ -27,7 +27,7 @@ func TestBuildGitHubCodeSearchURL(t *testing.T) {
 
 func TestBuildGitHubCodeSearchQuery(t *testing.T) {
 	t.Parallel()
-	q, err := buildGitHubCodeSearchQuery("func main", []string{"foo/bar"}, []string{"baz/qux"}, []string{"go"}, "go")
+	q, err := buildGitHubCodeSearchQuery("func main", []string{"foo/bar"}, []string{"baz/qux"}, []string{"go"}, "go", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
