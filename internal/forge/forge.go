@@ -89,7 +89,7 @@ type CodeSearchResult struct {
 
 // SearchCodeOptions holds optional server-side filters for code search.
 type SearchCodeOptions struct {
-	ExcludeRepos   []string
+	ExcludeRepos []string
 	// ExcludePaths adds -path: qualifiers (e.g. "vendor", "docs").
 	ExcludePaths   []string
 	FileExtensions []string

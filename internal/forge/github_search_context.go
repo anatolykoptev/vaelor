@@ -152,4 +152,3 @@ func locateMatch(content, rawFrag string, matched []string) (string, int) {
 	}
 	return "", -1
 }
-

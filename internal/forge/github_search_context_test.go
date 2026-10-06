@@ -16,7 +16,7 @@ func TestSearchCode_DedupIdenticalFragments(t *testing.T) {
 			"items": []map[string]any{
 				{
 					"name": "README.md", "path": "README.md",
-					"html_url":  "https://github.com/a/one/blob/main/README.md",
+					"html_url":   "https://github.com/a/one/blob/main/README.md",
 					"repository": map[string]any{"full_name": "a/one"},
 					"text_matches": []map[string]any{
 						{"fragment": "use the thing\ninstall it", "matches": []map[string]any{{"text": "thing", "indices": []int{8, 13}}}},
@@ -25,7 +25,7 @@ func TestSearchCode_DedupIdenticalFragments(t *testing.T) {
 				{
 					// vendored copy — same fragment text, different whitespace
 					"name": "README.md", "path": "vendor/x/README.md",
-					"html_url":  "https://github.com/b/two/blob/main/vendor/x/README.md",
+					"html_url":   "https://github.com/b/two/blob/main/vendor/x/README.md",
 					"repository": map[string]any{"full_name": "b/two"},
 					"text_matches": []map[string]any{
 						{"fragment": "use the  thing\ninstall it", "matches": []map[string]any{{"text": "thing", "indices": []int{8, 13}}}},
@@ -33,7 +33,7 @@ func TestSearchCode_DedupIdenticalFragments(t *testing.T) {
 				},
 				{
 					"name": "main.go", "path": "main.go",
-					"html_url":  "https://github.com/c/three/blob/main/main.go",
+					"html_url":   "https://github.com/c/three/blob/main/main.go",
 					"repository": map[string]any{"full_name": "c/three"},
 					"text_matches": []map[string]any{
 						{"fragment": "thing := setup()", "matches": []map[string]any{{"text": "thing", "indices": []int{0, 5}}}},
@@ -73,7 +73,7 @@ func TestSearchCode_ContextExpansion(t *testing.T) {
 			"items": []map[string]any{
 				{
 					"name": "f.go", "path": "src/f.go",
-					"html_url":  "https://github.com/o/r/blob/main/src/f.go",
+					"html_url":   "https://github.com/o/r/blob/main/src/f.go",
 					"repository": map[string]any{"full_name": "o/r"},
 					"text_matches": []map[string]any{
 						{"fragment": frag, "matches": []map[string]any{{"text": "target", "indices": []int{5, 11}}}},
@@ -122,7 +122,7 @@ func TestSearchCode_ContextLocateByMatchedTerm(t *testing.T) {
 			"items": []map[string]any{
 				{
 					"name": "f.go", "path": "f.go",
-					"html_url":  "https://github.com/o/r/blob/main/f.go",
+					"html_url":   "https://github.com/o/r/blob/main/f.go",
 					"repository": map[string]any{"full_name": "o/r"},
 					"text_matches": []map[string]any{
 						{"fragment": "different rendering", "matches": []map[string]any{{"text": "needle-matched", "indices": []int{0, 14}}}},
