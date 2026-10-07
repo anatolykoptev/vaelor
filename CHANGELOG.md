@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.8](https://github.com/anatolykoptev/vaelor/compare/v1.72.7...v1.72.8) (2026-10-07)
+
+
+### Fixed
+
+* **callgraph:** bound the typed go/packages load (export-data deps, shared + budgeted) ([#880](https://github.com/anatolykoptev/vaelor/issues/880)) ([f8d8bcc](https://github.com/anatolykoptev/vaelor/commit/f8d8bcc9c4c3d1a8209ef7341cc65786ce9cd44b))
+
 ## [1.72.7](https://github.com/anatolykoptev/vaelor/compare/v1.72.6...v1.72.7) (2026-10-07)
 
 
