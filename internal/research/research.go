@@ -55,6 +55,11 @@ type Deps struct {
 
 	// GraphRepoKey is the repo root path passed to TopPageRank. Required when Graph is non-nil.
 	GraphRepoKey string
+
+	// JeffScorer arbitrates topical-vs-infrastructure per top seed file
+	// (issue #834: hub files like config.go/redis.go top every query on
+	// structural score alone). Optional — nil keeps the structural order.
+	JeffScorer JeffScorer
 }
 
 // Run executes the full code-research pipeline:
@@ -166,6 +171,17 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 		slog.String("root", input.Root),
 		slog.Int("seed_scores", len(seedScores)),
 		slog.Duration("elapsed", time.Since(t_trgm)))
+
+	// --- Step 3.7: jeff topicality arbitration (optional) ---
+	// Structural boosts (PageRank, import degree) are query-agnostic —
+	// hub files top every query (issue #834). Jeff judges each top seed's
+	// role against the query and penalizes generic infrastructure.
+	t_jeff := time.Now()
+	applyJeffArbitration(ctx, deps, input.Query, seedScores)
+	if deps.JeffScorer != nil {
+		slog.Info("research.run: jeff arbitration done",
+			slog.Duration("elapsed", time.Since(t_jeff)))
+	}
 
 	// --- Step 4: build seed set ---
 	seedFiles := make(map[string]bool)
