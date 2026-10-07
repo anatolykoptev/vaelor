@@ -70,6 +70,9 @@ func handleCodeResearch(
 
 	resDeps := research.Deps{
 		AnalyzeDeps: analyzeDeps,
+		// Jeff topicality arbitration for hub demotion (issue #834) — nil
+		// when JEFF_URL is unset; the pipeline degrades to structural order.
+		JeffScorer: researchJeffScorer(),
 		BuildCallGraph: func(ctx context.Context, root string) (*callgraph.CallGraph, error) {
 			cgCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
