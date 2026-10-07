@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.68.0](https://github.com/anatolykoptev/vaelor/compare/v1.67.0...v1.68.0) (2026-10-07)
+
+
+### Added
+
+* **forge:** sourcegraph fallback engine for github code search ([#851](https://github.com/anatolykoptev/vaelor/issues/851)) ([a9f3740](https://github.com/anatolykoptev/vaelor/commit/a9f374045fbadf502dbd574801f641ba2f4290e5))
+
 ## [1.67.0](https://github.com/anatolykoptev/vaelor/compare/v1.66.0...v1.67.0) (2026-10-06)
 
 
