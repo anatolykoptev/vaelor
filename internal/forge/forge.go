@@ -70,6 +70,16 @@ type CodeResult struct {
 	Repo    string
 	Content string   // joined text-match fragments
 	Matched []string // distinct matched terms reported by the search API
+	// Engine identifies which search engine produced the result:
+	// "github" or "sourcegraph".
+	Engine string
+	// Lines are the absolute 1-based line numbers of matches in the file,
+	// reported by engines that know them (Sourcegraph).
+	Lines []int
+	// Commit is the blob/commit the match was found on (Sourcegraph).
+	Commit string
+	// Stars is the repository stargazer count (Sourcegraph).
+	Stars int
 	// Context is a window of ContextLines lines around the first match in the
 	// full file, populated only when SearchCodeOptions.ContextLines > 0 and the
 	// file fetch succeeds. ContextStart is its 1-based line number in the file.
@@ -108,6 +118,10 @@ type SearchCodeOptions struct {
 	// ContextResults results and populates CodeResult.Context.
 	ContextLines   int
 	ContextResults int
+	// Engine selects the search backend: "auto" (default) queries GitHub and
+	// falls back to Sourcegraph when GitHub underfills or reports incomplete
+	// results; "github" and "sourcegraph" force a single engine.
+	Engine string
 }
 
 // IssueItem represents an issue or pull request from a forge search.

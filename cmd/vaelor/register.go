@@ -6,6 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
@@ -519,11 +520,27 @@ func buildOxCodesClient(cfg Config) *oxcodes.Client {
 // buildForgeRegistry creates a forge registry from config.
 func buildForgeRegistry(cfg Config, toolCache *kitcache.Cache) *forge.Registry {
 	reg := forge.NewRegistry()
-	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken, cfg.GithubAppConfig, forge.WithCache(toolCache)))
+	var ghOpts []forge.GitHubForgeOption
+	ghOpts = append(ghOpts, forge.WithCache(toolCache))
+	if sg := buildSourcegraphClient(cfg, toolCache); sg != nil {
+		ghOpts = append(ghOpts, forge.WithSourcegraph(sg))
+	}
+	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken, cfg.GithubAppConfig, ghOpts...))
 	if cfg.GitLabToken != "" || cfg.GitLabURL != "" {
 		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
 	}
 	return reg
+}
+
+// buildSourcegraphClient creates the Sourcegraph fallback engine unless it is
+// explicitly disabled via SOURCEGRAPH_URL=off. Defaults to the public
+// sourcegraph.com index when the env var is unset.
+func buildSourcegraphClient(cfg Config, toolCache *kitcache.Cache) *forge.SourcegraphClient {
+	switch strings.ToLower(strings.TrimSpace(cfg.SourcegraphURL)) {
+	case "off", "none", "disabled":
+		return nil
+	}
+	return forge.NewSourcegraphClient(cfg.SourcegraphURL, cfg.SourcegraphToken, forge.WithSourcegraphCache(toolCache))
 }
 
 // buildGraphDeps wires graphx.Analytics and graphx.CrossRefs from an optional

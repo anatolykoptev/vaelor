@@ -136,6 +136,15 @@ type Config struct {
 	// Set for self-hosted GitLab instances.
 	GitLabURL string
 
+	// SourcegraphURL is the Sourcegraph instance base URL used as a second
+	// code-search engine (default: https://sourcegraph.com). Set to "off" to
+	// disable the Sourcegraph supplement/fallback.
+	SourcegraphURL string
+
+	// SourcegraphToken is an optional Sourcegraph access token for higher
+	// rate limits. Empty means anonymous access to the public index.
+	SourcegraphToken string
+
 	// OxCodesURL is the base URL for the ox-codes search service (e.g. http://ox-codes:8902).
 	// When set, code_search uses ox-codes with fallback to Go codesearch.
 	OxCodesURL string
@@ -630,6 +639,8 @@ func loadConfig() (Config, error) {
 		GoSearchURL:            env.Str("GO_SEARCH_URL", ""),
 		GitLabToken:            env.Str("GITLAB_TOKEN", ""),
 		GitLabURL:              env.Str("GITLAB_URL", ""),
+		SourcegraphURL:         env.Str("SOURCEGRAPH_URL", ""),
+		SourcegraphToken:       env.Str("SOURCEGRAPH_TOKEN", ""),
 		OxCodesURL:             env.Str("OX_CODES_URL", ""),
 		DesignMDDir:            env.Str("DESIGN_MD_DIR", ""),
 		DesignEmbedURL:         env.Str("DESIGN_EMBED_URL", ""),

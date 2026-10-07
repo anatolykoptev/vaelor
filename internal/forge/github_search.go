@@ -47,6 +47,17 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 
 	key := cache.Key("github:code:search", q, sort, order, strconv.Itoa(perPage), strconv.Itoa(page), strconv.Itoa(maxResults), strconv.Itoa(opt.MinStars), strconv.Itoa(opt.MaxFragmentChars), strconv.Itoa(opt.MaxTotalChars), strconv.Itoa(opt.ContextLines), strconv.Itoa(opt.ContextResults))
 
+	engine := strings.ToLower(strings.TrimSpace(opt.Engine))
+	if engine == "" {
+		engine = "auto"
+	}
+	if engine == "sourcegraph" {
+		if g.sg == nil {
+			return CodeSearchResult{}, errors.New("sourcegraph engine not configured")
+		}
+		return g.searchCodeSourcegraph(ctx, query, repos, opt, 0)
+	}
+
 	terms := searchQueryTerms(q)
 
 	result, err := cacheGetOrLoadJSONWithTTL(g.cache, ctx, key, codeSearchCacheTTL, func(ctx context.Context) (CodeSearchResult, error) {
@@ -56,7 +67,62 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 		return CodeSearchResult{}, err
 	}
 	result.Query = q
+
+	if engine == "auto" && g.sg != nil {
+		result = g.supplementFromSourcegraph(ctx, result, query, repos, opt, maxResults, perPage)
+	}
 	return result, nil
+}
+
+// supplementFromSourcegraph fills an underfilled or incomplete GitHub result
+// with Sourcegraph matches. The GitHub result is returned untouched when the
+// Sourcegraph call fails — supplementation is best-effort.
+func (g *GitHubForge) supplementFromSourcegraph(ctx context.Context, result CodeSearchResult, query string, repos []string, opt SearchCodeOptions, maxResults, perPage int) CodeSearchResult {
+	want := maxResults
+	if want <= 0 {
+		want = perPage
+	}
+	if len(result.Results) >= want && !result.Incomplete {
+		return result
+	}
+
+	extra, err := g.searchCodeSourcegraph(ctx, query, repos, opt, want-len(result.Results))
+	if err != nil {
+		return result
+	}
+	if len(extra.Results) == 0 {
+		return result
+	}
+
+	existing := make(map[string]int, len(result.Results))
+	seen := make(map[uint64]struct{}, len(result.Results))
+	for i := range result.Results {
+		r := &result.Results[i]
+		existing[r.Repo+"\x00"+r.Path] = i
+		seen[contentFingerprint(r.Content)] = struct{}{}
+	}
+	for _, r := range extra.Results {
+		key := r.Repo + "\x00" + r.Path
+		if idx, ok := existing[key]; ok {
+			// Same file hit by both engines — merge SG-only fields into the
+			// GitHub result, which carries richer fragment data.
+			result.Results[idx].Lines = r.Lines
+			result.Results[idx].Commit = r.Commit
+			result.Results[idx].Stars = r.Stars
+			continue
+		}
+		if _, dup := seen[contentFingerprint(r.Content)]; dup {
+			continue
+		}
+		existing[key] = len(result.Results)
+		seen[contentFingerprint(r.Content)] = struct{}{}
+		result.Results = append(result.Results, r)
+		if want > 0 && len(result.Results) >= want {
+			break
+		}
+	}
+	result.Total += extra.Total
+	return result
 }
 
 // ghCodeSearchResponse is the GitHub Code Search API response.
@@ -238,6 +304,7 @@ func convertCodeSearchItems(items []ghCodeSearchItem, terms []string, maxFragmen
 			Repo:    item.Repository.FullName,
 			Content: buildCodeSearchContent(item, terms, maxFragmentChars, maxTotalChars),
 			Matched: collectMatchTexts(item),
+			Engine:  "github",
 			rawFrag: rawFragmentProbe(item),
 		})
 	}
