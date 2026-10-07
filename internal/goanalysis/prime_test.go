@@ -84,6 +84,25 @@ func TestPrimeAndLoad_AskForTheSameExportData(t *testing.T) {
 	if !strings.Contains(envOf(load), "-p=") {
 		t.Errorf("compile parallelism must be capped via GOFLAGS -p: %s", envOf(load))
 	}
+	if !strings.Contains(envOf(load), "-trimpath") {
+		t.Errorf("-trimpath must reach the load via GOFLAGS or a new checkout re-keys all compiles (issue #893): %s", envOf(load))
+	}
+}
+
+// -trimpath makes the compile cache content-keyed rather than path-keyed —
+// the fix for the per-checkout cold start (issue #893). It lives in GOFLAGS
+// because the packages.Load driver's internal `go list` reads the
+// environment, not ExportListArgs.
+//
+// Mutation that must turn it RED: drop "-trimpath" from the GOFLAGS format
+// string in GoEnv (loader.go).
+func TestGoEnv_IncludesTrimpath(t *testing.T) {
+	for _, kv := range goanalysis.GoEnv(t.TempDir()) {
+		if strings.HasPrefix(kv, "GOFLAGS=") && strings.Contains(kv, "-trimpath") {
+			return
+		}
+	}
+	t.Error("GOFLAGS must contain -trimpath")
 }
 
 func TestGoEnv_CapsCompileParallelismAtHalfTheCores(t *testing.T) {
