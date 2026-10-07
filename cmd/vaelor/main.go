@@ -160,7 +160,7 @@ func runMCPServe(cfg Config) {
 	slog.SetDefault(slog.New(slogh.NewHandler(slog.NewTextHandler(os.Stderr, nil))))
 
 	reg := kitmetrics.NewPrometheusRegistry(metricsNamespace)
-	startPrometheusScrape(ctx, slog.Default())
+	startPrometheusScrape(ctx, slog.Default(), cfg.InternalServiceSecret)
 
 	server := mcpserver.NewServer(&mcp.Implementation{
 		Name:    serviceName,
@@ -301,9 +301,14 @@ func runMCPServe(cfg Config) {
 // startPrometheusScrape runs an HTTP server exposing /metrics on PROM_PORT
 // (default 9897 = MCP_PORT+1000) for prometheus scrape. Separate port avoids
 // BearerAuth on scrape traffic; bound to all interfaces for container scrape.
-func startPrometheusScrape(ctx context.Context, logger *slog.Logger) {
+// serviceSecret (INTERNAL_SERVICE_SECRET) gates /debug/pprof/*; /metrics stays
+// open for the scraper.
+func startPrometheusScrape(ctx context.Context, logger *slog.Logger, serviceSecret string) {
 	promPort := env.Str("PROM_PORT", "9897")
-	mux := buildPromMux()
+	if serviceSecret == "" {
+		logger.Warn("pprof disabled: INTERNAL_SERVICE_SECRET is unset")
+	}
+	mux := buildPromMux(serviceSecret)
 	srv := &http.Server{
 		Addr:              ":" + promPort,
 		Handler:           mux,
@@ -330,23 +335,29 @@ func startPrometheusScrape(ctx context.Context, logger *slog.Logger) {
 //
 // pprof is registered unconditionally (issue #754): a flag that must be set
 // before a profile can be taken is a flag nobody sets during the incident, and
-// the incident is the only time it matters. Both ports are loopback-only
-// (docker port mapping), so this adds no external surface beyond /metrics.
+// the incident is the only time it matters. The listener is published on host
+// loopback but also reachable from every container on the docker backend
+// network, so /debug/pprof/* sits behind pprofGate (X-Service-Secret, fail
+// closed when serviceSecret is empty). /metrics stays open: Prometheus scrapes
+// it without credentials.
 // Handlers are wired explicitly rather than via `_ "net/http/pprof"` (whose
 // init registers on DefaultServeMux) to keep the debug surface on this mux
 // alone. allocs is registered alongside heap because a retention bug and a
 // churn bug are indistinguishable in inuse_space alone.
-func buildPromMux() *http.ServeMux {
+func buildPromMux(serviceSecret string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", kitmetrics.MetricsHandler())
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	mux.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
-	mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
-	mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+
+	pp := http.NewServeMux()
+	pp.HandleFunc("/debug/pprof/", pprof.Index)
+	pp.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	pp.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	pp.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	pp.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	pp.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+	pp.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	pp.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	mux.Handle("/debug/pprof/", pprofGate(serviceSecret, pp))
 	return mux
 }
 
