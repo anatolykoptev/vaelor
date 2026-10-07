@@ -86,10 +86,37 @@ func (h *goHandler) mapMethod(node *sitter.Node, source []byte) *Symbol {
 		Name:      nameNode.Content(source),
 		Kind:      KindMethod,
 		Language:  "go",
+		Receiver:  goReceiverType(node, source),
 		StartLine: node.StartPoint().Row + 1,
 		EndLine:   node.EndPoint().Row + 1,
 		Signature: extractSignature(node, source),
 	}
+}
+
+// goReceiverType extracts the receiver type name from a method_declaration
+// receiver parameter list — "(s *Store)" → "Store", "(s Store[T])" →
+// "Store". Empty when the receiver carries no type (grammar guarantees one
+// exists, but a nil-proof walk costs less than a panic on an exotic node).
+// Callers qualify methods as "Receiver.Name" (issue #867).
+func goReceiverType(node *sitter.Node, source []byte) string {
+	recv := node.ChildByFieldName("receiver")
+	if recv == nil {
+		return ""
+	}
+	decl := firstChildOfType(recv, "parameter_declaration")
+	if decl == nil {
+		return ""
+	}
+	typeNode := decl.ChildByFieldName("type")
+	if typeNode == nil {
+		return ""
+	}
+	t := typeNode.Content(source)
+	t = strings.TrimPrefix(t, "*")
+	if i := strings.IndexByte(t, '['); i >= 0 {
+		t = t[:i]
+	}
+	return t
 }
 
 func (h *goHandler) mapType(node *sitter.Node, source []byte) *Symbol {

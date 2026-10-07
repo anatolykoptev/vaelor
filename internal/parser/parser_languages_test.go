@@ -1407,3 +1407,45 @@ func TestParseSwiftFile_actor(t *testing.T) {
 		t.Errorf("expected symbol increment/KindMethod; got %v", symbolNames(result.Symbols))
 	}
 }
+
+// Issue #867: Go methods must populate Symbol.Receiver with the receiver
+// TYPE name so "Receiver.Name" qualified lookups (call_trace, understand)
+// can disambiguate same-named methods. Pointer and generic receivers
+// reduce to the bare type name.
+func TestParseGoFile_methodReceiverType(t *testing.T) {
+	t.Parallel()
+	src := []byte(`package store
+
+type Store struct{}
+type Repo[T any] struct{}
+
+func (s *Store) Close() error { return nil }
+func (r Repo[T]) Get() {}
+func bare() {}
+`)
+
+	result, err := parser.ParseFile("store.go", src, parser.ParseOpts{})
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	recvOf := func(name string) string {
+		for _, s := range result.Symbols {
+			if s.Name == name && s.Kind == parser.KindMethod {
+				return s.Receiver
+			}
+		}
+		return "<missing>"
+	}
+	if got := recvOf("Close"); got != "Store" {
+		t.Errorf("(*Store).Close receiver = %q, want Store", got)
+	}
+	if got := recvOf("Get"); got != "Repo" {
+		t.Errorf("(Repo[T]).Get receiver = %q, want Repo (generic args stripped)", got)
+	}
+	for _, s := range result.Symbols {
+		if s.Name == "bare" && s.Receiver != "" {
+			t.Errorf("function bare must have empty receiver, got %q", s.Receiver)
+		}
+	}
+}
