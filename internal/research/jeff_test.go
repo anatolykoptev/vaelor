@@ -21,9 +21,9 @@ func (s *stubJeffScorer) ScoreTopical(_ context.Context, query string, files []s
 	return s.probs, s.err
 }
 
-// Issue #834: a PageRank-boosted hub file (config.go, redis.go) whose only
-// score is structural must drop below topical seeds — the penalty erases
-// the artificial boost rather than the file itself.
+// Issue #834: PageRank-boosted hub files (config.go, redis.go) whose
+// score is structural must drop once jeff's choice distribution ranks
+// them below the uniform share. Topical seeds keep their score.
 func TestApplyJeffArbitration_DemotesInfra(t *testing.T) {
 	seedScores := map[string]float64{
 		"internal/config/config.go":   0.35, // hub — boost-only
@@ -32,18 +32,21 @@ func TestApplyJeffArbitration_DemotesInfra(t *testing.T) {
 		"internal/cache/redis.go":     0.33, // hub — boost-only
 		"internal/util/misc.go":       0.6,  // topical
 	}
+	// Choice shares over 5 candidates (uniform = 0.2): topical files
+	// absorb most of the mass; hubs sit far below uniform.
 	sc := &stubJeffScorer{probs: map[string]float64{
-		"internal/config/config.go":   0.1,
-		"internal/scheduler/reorg.go": 0.9,
-		"internal/search/merge.go":    0.85,
-		"internal/cache/redis.go":     0.15,
-		"internal/util/misc.go":       0.7,
+		"internal/config/config.go":   0.05,
+		"internal/scheduler/reorg.go": 0.4,
+		"internal/search/merge.go":    0.35,
+		"internal/cache/redis.go":     0.04,
+		"internal/util/misc.go":       0.16,
 	}}
 	applyJeffArbitration(context.Background(), Deps{JeffScorer: sc}, "consolidate dedup memories", seedScores)
 
 	if !sc.called {
 		t.Fatal("scorer was not called")
 	}
+	// config.go: penalty = 0.35*(0.2-0.05)/0.2 = 0.2625 → 0.35-0.2625 ≈ 0.09
 	if got := seedScores["internal/config/config.go"]; got >= 0.35 {
 		t.Fatalf("hub config.go must be penalized below its boost-only score, got %v", got)
 	}
@@ -52,6 +55,33 @@ func TestApplyJeffArbitration_DemotesInfra(t *testing.T) {
 	}
 	if got := seedScores["internal/scheduler/reorg.go"]; got != 0.9 {
 		t.Fatalf("topical file must keep its score, got %v", got)
+	}
+	// misc.go is mildly below uniform (0.16 < 0.2) → small penalty only:
+	// 0.35*(0.04)/0.2 = 0.07 → 0.53. Still a seed, still above the hubs.
+	if got := seedScores["internal/util/misc.go"]; got <= 0.5 || got >= 0.6 {
+		t.Fatalf("borderline file must get a proportional small penalty, got %v", got)
+	}
+}
+
+// The calibration guard: when jeff's choice answer is compressed around
+// uniform (no real signal), NOTHING may be demoted — uncertainty must not
+// reshuffle the structural order. noul probing showed all-≈uniform is
+// exactly what a no-signal response looks like.
+func TestApplyJeffArbitration_CompressedDistributionNoop(t *testing.T) {
+	seedScores := map[string]float64{
+		"a.go": 0.9, "b.go": 0.8, "c.go": 0.7, "d.go": 0.6, "e.go": 0.5,
+	}
+	sc := &stubJeffScorer{probs: map[string]float64{
+		"a.go": 0.21, "b.go": 0.20, "c.go": 0.20, "d.go": 0.20, "e.go": 0.19,
+	}}
+	applyJeffArbitration(context.Background(), Deps{JeffScorer: sc}, "q", seedScores)
+	// uniform = 0.2; a/b/c/d at-or-above, e.go 0.19 → penalty 0.35*0.01/0.2
+	// = 0.0175 — a hair below 0.5, NOT demoted out.
+	if got := seedScores["e.go"]; got < 0.48 {
+		t.Fatalf("compressed distribution must not demote, e.go got %v", got)
+	}
+	if seedScores["a.go"] != 0.9 {
+		t.Fatal("at-uniform file changed")
 	}
 }
 
@@ -63,7 +93,7 @@ func TestApplyJeffArbitration_ScorerErrorKeepsOrder(t *testing.T) {
 	}
 	sc := &stubJeffScorer{
 		err:   errors.New("jeff down"),
-		probs: map[string]float64{"a.go": 0.1, "b.go": 0.1, "c.go": 0.1, "d.go": 0.1},
+		probs: map[string]float64{"a.go": 0.01, "b.go": 0.01, "c.go": 0.01, "d.go": 0.01},
 	}
 	applyJeffArbitration(context.Background(), Deps{JeffScorer: sc}, "q", seedScores)
 

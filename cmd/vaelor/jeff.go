@@ -14,20 +14,23 @@ import (
 )
 
 // jeffScorer adapts the jeff System One service (gliformer) to
-// research.JeffScorer: one batched Ask with a noul question per candidate
-// file. One HTTP call for all files — latency grows ~linearly with label
-// count (≈0.24s/question edge→kisol). The caller's ctx is the real bound
-// (research caps at 5s); the client's timeout is transport headroom for
-// callers that forget a deadline.
+// research.JeffScorer: ONE batched Ask carrying a single choice question
+// whose options are the candidate file paths. The softmax over options
+// forces separation — live probes showed noul compresses to ~0.4-0.5
+// regardless of topicality (even inverting), while choice spreads
+// topical files at 0.3-0.45 and infra at ~0.04-0.09. Latency ≈0.8s at
+// 10 candidates edge→kisol. The caller's ctx is the real bound (research
+// caps at 5s); the client's timeout is transport headroom for callers
+// that forget a deadline.
 type jeffScorer struct {
 	client *jeff.Client
 }
 
 // newJeffScorer wires the scorer from JEFF_URL/JEFF_TOKEN — the same env
-// pair go-search uses for the shared kisol edge (https://jeff.krolik.tools),
-// and the same raw-read convention as EMBED_URL for shared services.
-// Returns nil when JEFF_URL is unset so the research pipeline keeps its
-// byte-identical cold path.
+// pair go-search/go-wowa/quarryn use for the shared kisol edge
+// (https://jeff.krolik.tools), and the same raw-read convention as
+// EMBED_URL for shared services. Returns nil when JEFF_URL is unset so
+// the research pipeline keeps its byte-identical cold path.
 func newJeffScorer() research.JeffScorer {
 	url := os.Getenv("JEFF_URL")
 	if url == "" {
@@ -59,22 +62,29 @@ func (s *jeffScorer) ScoreTopical(ctx context.Context, query string, files []str
 	if len(files) == 0 {
 		return nil, nil
 	}
-	questions := make(map[string]jeff.Question, len(files))
-	for i, f := range files {
-		questions[fmt.Sprintf("f%d", i)] = jeff.NoulQuestion(
-			fmt.Sprintf("File %q contains code implementing the query topic, not generic shared infrastructure (config, caches, wiring, utils, test helpers)", f))
+	options := make(map[string]any, len(files))
+	for _, f := range files {
+		options[f] = fmt.Sprintf("candidate seed file %s", f)
 	}
 	resp, err := s.client.Ask(ctx, jeff.Request{
-		State:     "Code research seed ranking. Query: " + strings.TrimSpace(query),
-		Questions: questions,
+		State: "Code research seed ranking. Query: " + strings.TrimSpace(query),
+		Questions: map[string]jeff.Question{
+			"pick": jeff.ChoiceQuestion(
+				"Which file most likely contains the primary implementation of the query topic (not generic shared infrastructure like config, caches, wiring, utils, test helpers)?",
+				options),
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
+	ans, ok := resp.Answers["pick"]
+	if !ok {
+		return nil, fmt.Errorf("jeff: response missing pick answer")
+	}
 	out := make(map[string]float64, len(files))
-	for i, f := range files {
-		if ans, ok := resp.Answers[fmt.Sprintf("f%d", i)]; ok {
-			out[f] = ans.Noul
+	for _, f := range files {
+		if p, ok := ans.Probabilities[f]; ok {
+			out[f] = p
 		}
 	}
 	return out, nil

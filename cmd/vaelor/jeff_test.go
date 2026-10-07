@@ -11,10 +11,11 @@ import (
 	"github.com/anatolykoptev/go-kit/jeff"
 )
 
-// The adapter must send ONE batched /v1/systemone request and map answer
-// IDs f0..fN back to the file at the same index — a mapping slip would
-// silently penalize the wrong files in production.
-func TestJeffScorer_BatchedMapping(t *testing.T) {
+// The adapter must send ONE batched /v1/systemone request with a single
+// choice question and map the per-option probabilities back to file
+// paths — a mapping slip would silently penalize the wrong files in
+// production.
+func TestJeffScorer_ChoiceMapping(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -27,17 +28,23 @@ func TestJeffScorer_BatchedMapping(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if len(req.Questions) != 3 {
-			t.Errorf("expected 3 batched questions, got %d", len(req.Questions))
+		q, ok := req.Questions["pick"]
+		if !ok || q.Type != "choice" {
+			t.Errorf("expected one choice question 'pick', got %+v", req.Questions)
+		}
+		opts, _ := q.Criteria.(map[string]any)
+		if len(opts) != 3 {
+			t.Errorf("expected 3 choice options, got %d", len(opts))
 		}
 		state, _ := req.State.(string)
-		if state == "" || !json.Valid([]byte(`"`+state+`"`)) {
-			t.Errorf("state must carry the query, got %v", req.State)
+		if state == "" {
+			t.Error("state must carry the query")
 		}
-		// f2 deliberately unanswered — partial response.
+		// c.go deliberately missing from probabilities — partial response.
 		_ = json.NewEncoder(w).Encode(jeff.Response{Answers: map[string]jeff.Answer{
-			"f0": {Type: "noul", Noul: 0.9},
-			"f1": {Type: "noul", Noul: 0.1},
+			"pick": {Type: "choice", Choice: "a.go", Probabilities: map[string]float64{
+				"a.go": 0.6, "b.go": 0.1,
+			}},
 		}})
 	}))
 	defer srv.Close()
@@ -54,11 +61,11 @@ func TestJeffScorer_BatchedMapping(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("expected 1 batched HTTP call, got %d", calls.Load())
 	}
-	if got["a.go"] != 0.9 || got["b.go"] != 0.1 {
-		t.Fatalf("answer IDs mapped to wrong files: %v", got)
+	if got["a.go"] != 0.6 || got["b.go"] != 0.1 {
+		t.Fatalf("probabilities mapped to wrong files: %v", got)
 	}
 	if _, ok := got["c.go"]; ok {
-		t.Fatalf("unanswered f2 must be absent, got %v", got["c.go"])
+		t.Fatalf("unscored option must be absent, got %v", got["c.go"])
 	}
 }
 
