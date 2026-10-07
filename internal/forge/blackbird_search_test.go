@@ -228,6 +228,54 @@ func TestAutoBlackbirdLastResort(t *testing.T) {
 	}
 }
 
+// TestAutoGitHubErrorEscalates: a GitHub failure (e.g. 422 on blackbird-only
+// syntax) in auto mode escalates to the fallback engine instead of failing.
+func TestAutoGitHubErrorEscalates(t *testing.T) {
+	bbSrv := newBlackbirdTestServer(t, bbFetchResult{
+		Status:  200,
+		Payload: `{"results":[{"repo_nwo":"only/bb","path":"only.go","commit_sha":"cafe","line_number":1,"snippets":[{"starting_line_number":1,"lines":["<mark>hit</mark>"]}]}],"result_count":1,"page_count":1,"logged_in":true}`,
+	}, nil)
+	defer bbSrv.Close()
+
+	ghSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer ghSrv.Close()
+
+	bb := NewBlackbirdClient(bbSrv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	g := newGitHubForgeWithBase("", AppConfig{}, ghSrv.URL, WithBlackbird(bb), WithCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+
+	res, err := g.SearchCode(context.Background(), "ServeHTTP NOT is:archived", nil, SearchCodeOptions{Engine: "auto"})
+	if err != nil {
+		t.Fatalf("auto search should survive a GitHub 422: %v", err)
+	}
+	if len(res.Results) != 1 || res.Results[0].Engine != "blackbird" {
+		t.Fatalf("expected blackbird result after GitHub error, got %+v", res.Results)
+	}
+}
+
+// TestAutoGitHubErrorAllEmpty: GitHub failed AND fallbacks produced nothing —
+// the original error surfaces rather than an ambiguous empty result.
+func TestAutoGitHubErrorAllEmpty(t *testing.T) {
+	bbSrv := newBlackbirdTestServer(t, bbFetchResult{
+		Status: 200, Payload: `{"results":[],"logged_in":true}`,
+	}, nil)
+	defer bbSrv.Close()
+
+	ghSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer ghSrv.Close()
+
+	bb := NewBlackbirdClient(bbSrv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	g := newGitHubForgeWithBase("", AppConfig{}, ghSrv.URL, WithBlackbird(bb), WithCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+
+	_, err := g.SearchCode(context.Background(), "x NOT y", nil, SearchCodeOptions{Engine: "auto"})
+	if err == nil {
+		t.Fatal("expected the GitHub error to surface when all engines return empty")
+	}
+}
+
 // TestAutoBlackbirdSkippedWhenFull: full GitHub page ⇒ zero browser calls.
 func TestAutoBlackbirdSkippedWhenFull(t *testing.T) {
 	var bbCalls atomic.Int32
