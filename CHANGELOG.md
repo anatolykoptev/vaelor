@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.69.2](https://github.com/anatolykoptev/vaelor/compare/v1.69.1...v1.69.2) (2026-10-07)
+
+
+### Fixed
+
+* **pprof:** gate /debug/pprof on INTERNAL_SERVICE_SECRET, fail closed ([#861](https://github.com/anatolykoptev/vaelor/issues/861)) ([9fa4d6c](https://github.com/anatolykoptev/vaelor/commit/9fa4d6cc0ad64a6bc59193bc0a839dcaea6276a1))
+
 ## [1.69.1](https://github.com/anatolykoptev/vaelor/compare/v1.69.0...v1.69.1) (2026-10-07)
 
 
