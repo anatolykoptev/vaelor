@@ -70,7 +70,13 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 		return g.collectCodeSearchResults(ctx, q, sort, order, perPage, page, maxResults, opt.MinStars, terms, opt.MaxFragmentChars, opt.MaxTotalChars, opt.ContextLines, opt.ContextResults)
 	})
 	if err != nil {
-		return CodeSearchResult{}, err
+		if engine != "auto" || (g.sg == nil && g.bb == nil) {
+			return CodeSearchResult{}, err
+		}
+		// auto with fallback engines configured: a GitHub failure (e.g. 422 on
+		// blackbird-only syntax like NOT/is:/symbol:) escalates instead of
+		// failing. The error is reported only if every engine comes back empty.
+		result = CodeSearchResult{}
 	}
 	result.Query = q
 
@@ -79,6 +85,11 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 	}
 	if engine == "auto" && g.bb != nil {
 		result = g.supplementFromBlackbird(ctx, result, query, repos, opt, maxResults, perPage)
+	}
+	if err != nil && len(result.Results) == 0 {
+		// GitHub failed AND no fallback produced anything — surface the
+		// original error rather than an ambiguous empty result.
+		return CodeSearchResult{}, err
 	}
 	return result, nil
 }
