@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.0](https://github.com/anatolykoptev/vaelor/compare/v1.71.0...v1.72.0) (2026-10-07)
+
+
+### Added
+
+* **cli:** stdio subcommand (canonical cobra MCP pattern) ([#871](https://github.com/anatolykoptev/vaelor/issues/871)) ([30d69b6](https://github.com/anatolykoptev/vaelor/commit/30d69b6b5f1b523dd07b3510633732e41fec3cc2))
+
 ## [1.71.0](https://github.com/anatolykoptev/vaelor/compare/v1.70.1...v1.71.0) (2026-10-07)
 
 
