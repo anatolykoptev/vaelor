@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.7](https://github.com/anatolykoptev/vaelor/compare/v1.72.6...v1.72.7) (2026-10-07)
+
+
+### Fixed
+
+* **research:** use jeff choice question — noul collapses on paths ([#888](https://github.com/anatolykoptev/vaelor/issues/888)) ([d7ddd26](https://github.com/anatolykoptev/vaelor/commit/d7ddd2678951cc851c0b9c307c7ec908f53413a3))
+
 ## [1.72.6](https://github.com/anatolykoptev/vaelor/compare/v1.72.5...v1.72.6) (2026-10-07)
 
 
