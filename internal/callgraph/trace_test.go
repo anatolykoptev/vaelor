@@ -167,3 +167,61 @@ func TestTrace_NotFound(t *testing.T) {
 func symName(i int) string {
 	return "f" + string(rune('0'+i))
 }
+
+// Issue #867: a bare name matching 2+ functions returns NO merged tree —
+// the old first-match pick merged the call trees of every `main`/`Close`
+// in the repo into an answer that is wrong for all of them.
+func TestTrace_AmbiguousRoot_NoTree(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/cmd/api/main.go", StartLine: 1, EndLine: 20},
+		{Name: "main", Kind: parser.KindFunction, File: "/src/cmd/worker/main.go", StartLine: 1, EndLine: 20},
+		{Name: "helper", Kind: parser.KindFunction, File: "/src/cmd/api/helper.go", StartLine: 1, EndLine: 10},
+	}
+	g := &CallGraph{Symbols: symbols}
+
+	res := Trace(context.Background(), g, "main", TraceOpts{Direction: "callees"})
+
+	if len(res.Ambiguous) != 2 {
+		t.Fatalf("expected 2 ambiguous matches, got %d", len(res.Ambiguous))
+	}
+	if res.Root != nil || len(res.Tree) != 0 {
+		t.Fatal("ambiguous root must not produce a merged tree")
+	}
+}
+
+// The "Receiver.Name" qualified input resolves to exactly the matching
+// method — a qualified query must not degrade to the bare-name merge.
+func TestTrace_QualifiedRoot_ResolvesReceiver(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "Serve", Kind: parser.KindMethod, Receiver: "Server", File: "/src/api/server.go", StartLine: 10, EndLine: 30},
+		{Name: "Serve", Kind: parser.KindMethod, Receiver: "Mux", File: "/src/mux/mux.go", StartLine: 5, EndLine: 15},
+	}
+	g := &CallGraph{Symbols: symbols}
+
+	res := Trace(context.Background(), g, "Server.Serve", TraceOpts{Direction: "callees"})
+
+	if len(res.Ambiguous) != 0 {
+		t.Fatalf("qualified query must not be ambiguous, got %d matches", len(res.Ambiguous))
+	}
+	if res.Root == nil || res.Root.File != "/src/api/server.go" {
+		t.Fatalf("qualified query must resolve to Server.Serve, got %v", res.Root)
+	}
+}
+
+// A qualified name whose receiver exists but points at the wrong method
+// still resolves exactly — qualified matching is exact, not fuzzy.
+func TestFindSymbols_QualifiedExactMatch(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "Close", Kind: parser.KindMethod, Receiver: "DB", File: "/src/db.go", StartLine: 1, EndLine: 5},
+		{Name: "Close", Kind: parser.KindMethod, Receiver: "Cache", File: "/src/cache.go", StartLine: 1, EndLine: 5},
+		{Name: "Close", Kind: parser.KindFunction, File: "/src/util.go", StartLine: 1, EndLine: 5},
+	}
+	matches := FindSymbols(symbols, "Cache.Close")
+	if len(matches) != 1 || matches[0].File != "/src/cache.go" {
+		t.Fatalf("Cache.Close must match exactly the Cache method, got %v", matches)
+	}
+	// Bare-name lookup still sees all three.
+	if got := len(FindSymbols(symbols, "Close")); got != 3 {
+		t.Fatalf("bare Close must match 3, got %d", got)
+	}
+}

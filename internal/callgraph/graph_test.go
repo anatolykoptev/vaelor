@@ -254,3 +254,110 @@ func TestBuildCallGraph_FindCaller(t *testing.T) {
 		t.Errorf("caller should be inner (narrowest), got %v", e2.Caller)
 	}
 }
+
+// Issue #793: an unqualified builtin call (len, append, ...) must NOT bind
+// to a repo symbol that happens to share the name — the observed poison
+// where every `len(x)` in the repo attached to one method named `len`.
+func TestBuildCallGraph_BuiltinNeverResolves(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/cmd/main.go", StartLine: 1, EndLine: 20},
+		{Name: "len", Kind: parser.KindMethod, Receiver: "Set", File: "/src/internal/set/set.go", StartLine: 30, EndLine: 40},
+	}
+	calls := []parser.CallSite{
+		{Name: "len", File: "/src/cmd/main.go", Line: 5}, // builtin len(items)
+	}
+
+	g := BuildCallGraph(symbols, calls)
+	if len(g.Edges) != 1 {
+		t.Fatalf("expected 1 edge record, got %d", len(g.Edges))
+	}
+	if g.Edges[0].Callee != nil {
+		t.Fatalf("builtin len() must not resolve to repo symbol %s:%d — this is the #793 poison", g.Edges[0].Callee.File, g.Edges[0].Callee.StartLine)
+	}
+}
+
+// Same builtin name but receiver-qualified (x.len()) is a real method call —
+// the guard only fires on unqualified sites.
+func TestBuildCallGraph_ReceiverQualifiedBuiltinStillResolves(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/cmd/main.go", StartLine: 1, EndLine: 20},
+		{Name: "len", Kind: parser.KindMethod, Receiver: "Set", File: "/src/internal/set/set.go", StartLine: 30, EndLine: 40},
+	}
+	calls := []parser.CallSite{
+		{Name: "len", Receiver: "s", File: "/src/cmd/main.go", Line: 5},
+	}
+
+	g := BuildCallGraph(symbols, calls)
+	if g.Edges[0].Callee == nil || g.Edges[0].Callee.Name != "len" {
+		t.Fatalf("x.len() must resolve to the unique len method, got %v", g.Edges[0].Callee)
+	}
+}
+
+// Issue #793: a bare/qualified call matching 2+ same-named repo symbols
+// resolves to NONE — the old closest-directory guess merged 8 `Close`
+// methods' callers into one answer.
+func TestBuildCallGraph_AmbiguousGlobalNameNoEdge(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "handler", Kind: parser.KindFunction, File: "/src/internal/api/handler.go", StartLine: 1, EndLine: 20},
+		{Name: "Close", Kind: parser.KindMethod, Receiver: "DB", File: "/src/internal/db/db.go", StartLine: 10, EndLine: 20},
+		{Name: "Close", Kind: parser.KindMethod, Receiver: "Cache", File: "/src/internal/cache/cache.go", StartLine: 10, EndLine: 20},
+	}
+	calls := []parser.CallSite{
+		{Name: "Close", Receiver: "x", File: "/src/internal/api/handler.go", Line: 5},
+	}
+
+	g := BuildCallGraph(symbols, calls)
+	if g.Edges[0].Callee != nil {
+		t.Fatalf("ambiguous Close must not guess — got %s:%d", g.Edges[0].Callee.File, g.Edges[0].Callee.StartLine)
+	}
+}
+
+// Unique global names still resolve — precision drops guessing, not linking.
+func TestBuildCallGraph_UniqueGlobalNameKeepsEdge(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "main", Kind: parser.KindFunction, File: "/src/cmd/main.go", StartLine: 1, EndLine: 20},
+		{Name: "Serve", Kind: parser.KindFunction, File: "/src/internal/server/server.go", StartLine: 1, EndLine: 30},
+	}
+	calls := []parser.CallSite{
+		{Name: "Serve", File: "/src/cmd/main.go", Line: 5},
+	}
+
+	g := BuildCallGraph(symbols, calls)
+	if g.Edges[0].Callee == nil || g.Edges[0].Callee.Name != "Serve" {
+		t.Fatalf("unique global name must resolve, got %v", g.Edges[0].Callee)
+	}
+}
+
+// A package that genuinely shadows a builtin keeps resolving — same-file and
+// same-dir tiers run before the builtin guard.
+func TestBuildCallGraph_SameDirShadowsBuiltin(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "process", Kind: parser.KindFunction, File: "/src/internal/names/names.go", StartLine: 1, EndLine: 15},
+		{Name: "len", Kind: parser.KindFunction, File: "/src/internal/names/util.go", StartLine: 5, EndLine: 12},
+	}
+	calls := []parser.CallSite{
+		{Name: "len", File: "/src/internal/names/names.go", Line: 3},
+	}
+
+	g := BuildCallGraph(symbols, calls)
+	if g.Edges[0].Callee == nil || g.Edges[0].Callee.File != "/src/internal/names/util.go" {
+		t.Fatalf("same-package func len must win over the builtin guard, got %v", g.Edges[0].Callee)
+	}
+}
+
+// The builtin guard is language-aware: len() in a Python file is also a
+// builtin, and must not bind either.
+func TestBuildCallGraph_BuiltinPythonDropped(t *testing.T) {
+	symbols := []*parser.Symbol{
+		{Name: "run", Kind: parser.KindFunction, File: "/src/app.py", StartLine: 1, EndLine: 10},
+		{Name: "len", Kind: parser.KindFunction, File: "/src/lib/util.py", StartLine: 1, EndLine: 5},
+	}
+	calls := []parser.CallSite{
+		{Name: "len", File: "/src/app.py", Line: 3},
+	}
+
+	g := BuildCallGraph(symbols, calls)
+	if g.Edges[0].Callee != nil {
+		t.Fatalf("python builtin len() must not resolve, got %s", g.Edges[0].Callee.File)
+	}
+}

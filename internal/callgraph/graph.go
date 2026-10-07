@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/anatolykoptev/vaelor/internal/parser"
-
-	"github.com/anatolykoptev/vaelor/internal/strutil"
 )
 
 // CallEdge is a resolved (or unresolved) call from one function to another.
@@ -127,7 +125,19 @@ func findCaller(fileSymbols []*parser.Symbol, line uint32) *parser.Symbol {
 	return best
 }
 
-// resolveCall finds the target symbol. Priority: same file -> same dir -> global.
+// resolveCall finds the target symbol. Priority: same file -> same dir ->
+// global UNIQUE name match.
+//
+// No edge over a wrong edge (issue #793): the global tier emits only an
+// unambiguous name. A bare `x.Close()`/`main()` matching 2+ same-named repo
+// symbols resolves to nil rather than the previous closest-directory guess —
+// the guess bound every caller to one arbitrary candidate, which is how 8
+// distinct `Close` methods merged 349 callers into one answer and poisoned
+// PageRank/who_calls/surprises. Unqualified calls to language builtins
+// (`len`, `append`, `print`, …) skip the global tier entirely: a repo
+// symbol that shares a builtin's name is not the call's target. Same-file
+// and same-package resolution still run first, so a package that genuinely
+// shadows a builtin keeps working.
 func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser.Symbol) *parser.Symbol {
 	name := cs.Name
 
@@ -144,9 +154,20 @@ func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser
 		}
 	}
 
-	if syms, ok := byName[name]; ok && len(syms) > 0 {
-		callerDir := filepath.Dir(cs.File)
-		return closestSymbol(syms, callerDir)
+	// Unqualified language builtins never resolve cross-package (issue
+	// #793): `len(x)` is not a call to the repo's own `len` — that edge is
+	// what gave a random set.go:len thousands of phantom callers.
+	if cs.Receiver == "" && isBuiltinCallName(parser.DetectLanguageFromPath(cs.File), name) {
+		return nil
+	}
+
+	// Global: only when the name is unique across the whole repo (issue
+	// #793). A closest-dir pick among 2+ same-named functions silently
+	// merges call sites of unrelated `Close`/`main`/`handle` symbols —
+	// the edge poisons PageRank, who_calls and surprises far more than a
+	// missing edge does.
+	if cands := byName[name]; len(cands) == 1 {
+		return cands[0]
 	}
 
 	return nil
@@ -159,20 +180,4 @@ func findByName(symbols []*parser.Symbol, name string) *parser.Symbol {
 		}
 	}
 	return nil
-}
-
-func closestSymbol(symbols []*parser.Symbol, dir string) *parser.Symbol {
-	if len(symbols) == 0 {
-		return nil
-	}
-	best := symbols[0]
-	bestLen := strutil.CommonPrefixLen(filepath.Dir(best.File), dir)
-	for _, sym := range symbols[1:] {
-		cl := strutil.CommonPrefixLen(filepath.Dir(sym.File), dir)
-		if cl > bestLen {
-			bestLen = cl
-			best = sym
-		}
-	}
-	return best
 }

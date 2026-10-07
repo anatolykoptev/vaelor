@@ -11,9 +11,11 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/codegraph"
+	"github.com/anatolykoptev/vaelor/internal/compound"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/langutil"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
+	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/anatolykoptev/vaelor/internal/prompts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -329,12 +331,23 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 	var result *callgraph.TraceResult
 	if store != nil && !input.Refresh {
 		graphName := codegraph.GraphNameFor(root)
-		if ageResult, ageErr := callTraceTraceFromAGE(ctx, store, graphName, input.Symbol, direction, depth); ageErr == nil && ageResult != nil && ageResult.Root != nil {
-			slog.Debug("call_trace: using AGE graph (fast path)",
-				slog.String("symbol", input.Symbol),
-				slog.String("direction", direction),
-				slog.Int("nodes", ageResult.TotalNodes))
-			result = ageResult
+		if ageResult, ageErr := callTraceTraceFromAGE(ctx, store, graphName, input.Symbol, direction, depth); ageErr == nil && ageResult != nil {
+			switch {
+			case ageResult.Root != nil:
+				slog.Debug("call_trace: using AGE graph (fast path)",
+					slog.String("symbol", input.Symbol),
+					slog.String("direction", direction),
+					slog.Int("nodes", ageResult.TotalNodes))
+				result = ageResult
+			case len(ageResult.Ambiguous) > 0 && input.Focus == "":
+				// Ambiguous across the whole graph — the tree-sitter path
+				// can only agree, so return candidates now and skip the
+				// re-parse. (Assigning to result would not work: the
+				// Root==nil gates below treat ambiguity as a miss and run
+				// the freshness gate + full reparse anyway.) With focus=
+				// the scoped build below may still disambiguate.
+				return callTraceAmbiguousResult(input.Symbol, ageResult.Ambiguous, deps.PathMappings), nil
+			}
 		}
 	}
 
@@ -370,6 +383,10 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 		if err != nil {
 			return errResult(fmt.Sprintf("trace: %s", err)), nil
 		}
+	}
+
+	if len(result.Ambiguous) > 0 {
+		return callTraceAmbiguousResult(input.Symbol, result.Ambiguous, deps.PathMappings), nil
 	}
 
 	if result.Root == nil {
@@ -498,6 +515,34 @@ func productionCallerKey(n callgraph.CallChainNode) string {
 		return "\x00\x00\x00\x00"
 	}
 	return n.Symbol.Name + "\x00" + n.Symbol.File + "\x00" + strconv.Itoa(int(n.Symbol.StartLine)) + "\x00" + n.Symbol.Receiver
+}
+
+// callTraceAmbiguousResult renders the ambiguity response for a bare-name
+// query matching >1 symbol — the same contract understand already exposes
+// (issue #867): no merged tree, candidates listed so the agent can narrow
+// via focus= or a "Receiver.Name" qualified symbol.
+func callTraceAmbiguousResult(name string, symbols []*parser.Symbol, mappings []analyze.PathMapping) *mcp.CallToolResult {
+	refs := make([]*compound.MatchRef, 0, len(symbols))
+	for _, sym := range symbols {
+		refs = append(refs, &compound.MatchRef{
+			Name:     sym.Name,
+			Kind:     string(sym.Kind),
+			File:     reverseToHost(sym.File, mappings),
+			Line:     sym.StartLine,
+			Receiver: sym.Receiver,
+		})
+	}
+
+	resp := struct {
+		Error   string               `json:"error"`
+		Matches []*compound.MatchRef `json:"matches"`
+	}{
+		Error: fmt.Sprintf(
+			"symbol %q is ambiguous (%d matches) — narrow via focus= or a qualified \"Receiver.Name\" symbol (e.g. \"%s.%s\")",
+			name, len(symbols), symbols[0].Receiver, symbols[0].Name),
+		Matches: refs,
+	}
+	return jsonMarshalResult(resp)
 }
 
 // warmingAttr converts the warm state to an XML attribute value: pending →

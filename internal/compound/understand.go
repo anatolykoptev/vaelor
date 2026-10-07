@@ -138,15 +138,11 @@ type MatchRef struct {
 	Receiver string `json:"receiver,omitempty"`
 }
 
-// FindSymbol returns all function/method symbols matching the given name.
+// FindSymbol returns all function/method symbols matching the given name —
+// bare name or a "Receiver.Name" qualified input (issue #867). Delegates to
+// callgraph.FindSymbols so symbol lookup shares one matcher across tools.
 func FindSymbol(symbols []*parser.Symbol, name string) []*parser.Symbol {
-	var matches []*parser.Symbol
-	for _, sym := range symbols {
-		if sym.Name == name && (sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod) {
-			matches = append(matches, sym)
-		}
-	}
-	return matches
+	return callgraph.FindSymbols(symbols, name)
 }
 
 // Understand performs a deep-dive analysis of a single symbol.

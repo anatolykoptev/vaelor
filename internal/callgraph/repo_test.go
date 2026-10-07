@@ -3,12 +3,14 @@ package callgraph
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1462,6 +1464,26 @@ func TestBuildFromRepo_OrphanedPendingStamp_KicksHealWarm(t *testing.T) {
 	}
 	cgCache.set(key, seed, dir)
 
+	// The kicked warm must be bounded: stub the loader and wait for it so
+	// the background goroutine does not outlive the test and race the next
+	// test's goTypesLoadFn stub.
+	old := goTypesLoadFn
+	loadCalled := make(chan struct{})
+	var once sync.Once
+	goTypesLoadFn = func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		once.Do(func() { close(loadCalled) })
+		return nil, errors.New("stub: no loader")
+	}
+	defer func() {
+		// Wait for the loader read before restoring the global — otherwise
+		// the background warm goroutine races the next test's stub.
+		select {
+		case <-loadCalled:
+		case <-time.After(10 * time.Second):
+		}
+		goTypesLoadFn = old
+	}()
+
 	// Cache hit with a pending stamp and NO registry record — an orphan
 	// (post-restart L2 import). Must kick a heal warm, not serve the lie
 	// with nothing in flight.
@@ -1472,17 +1494,25 @@ func TestBuildFromRepo_OrphanedPendingStamp_KicksHealWarm(t *testing.T) {
 	if cg != seed {
 		t.Fatalf("expected the cached entry returned as-is, got %p vs seed %p", cg, seed)
 	}
+	// The heal warm must be claimed and the stub loader invoked — with no
+	// kick the channel never closes and the stale "retry" note would lie
+	// for the full TTL.
+	select {
+	case <-loadCalled:
+	case <-time.After(30 * time.Second):
+		t.Fatal("no warm was claimed for the orphaned pending stamp")
+	}
 
-	// The kicked warm claims the root (pending), then fails fast on the
-	// broken go.mod → failed. Wait for the claim — with no kick the
-	// registry stays empty forever.
-	deadline := time.Now().Add(30 * time.Second)
+	// The loader's error then flips the record to failed — poll for the
+	// terminal write, which lands right after the invocation.
+	deadline := time.Now().Add(10 * time.Second)
 	for {
-		if phase, _ := warmStatus(dir); phase != WarmNone {
+		if phase, _ := warmStatus(dir); phase == WarmFailed {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("no warm was claimed for the orphaned pending stamp — the stale 'retry' note would lie for the full TTL")
+			phase, _ := warmStatus(dir)
+			t.Fatalf("warmStatus = %v, want WarmFailed after stub load error", phase)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
