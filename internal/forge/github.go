@@ -56,6 +56,8 @@ type GitHubForge struct {
 	cache   *kitcache.Cache
 	// sg is the optional Sourcegraph fallback engine for code search.
 	sg *SourcegraphClient
+	// bb is the optional Blackbird (github.com web search) last-resort engine.
+	bb *BlackbirdClient
 }
 
 // GitHubForgeOption configures a GitHubForge.

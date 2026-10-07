@@ -57,6 +57,12 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 		}
 		return g.searchCodeSourcegraph(ctx, query, repos, opt, 0)
 	}
+	if engine == "blackbird" {
+		if g.bb == nil {
+			return CodeSearchResult{}, errors.New("blackbird engine not configured")
+		}
+		return g.searchCodeBlackbird(ctx, query, repos, opt, 0)
+	}
 
 	terms := searchQueryTerms(q)
 
@@ -71,7 +77,73 @@ func (g *GitHubForge) SearchCode(ctx context.Context, query string, repos []stri
 	if engine == "auto" && g.sg != nil {
 		result = g.supplementFromSourcegraph(ctx, result, query, repos, opt, maxResults, perPage)
 	}
+	if engine == "auto" && g.bb != nil {
+		result = g.supplementFromBlackbird(ctx, result, query, repos, opt, maxResults, perPage)
+	}
 	return result, nil
+}
+
+// codeSearchNeedsMore reports whether the result still underfills the caller's
+// budget or was flagged incomplete — the gate for asking a fallback engine.
+func codeSearchNeedsMore(result CodeSearchResult, want int) bool {
+	return len(result.Results) < want || result.Incomplete
+}
+
+// mergeCodeSearchExtras merges supplemental engine results into dst: same
+// repo+path enriches the existing entry with engine-only fields; identical
+// content fingerprints are dropped; new hits append until want.
+func mergeCodeSearchExtras(dst CodeSearchResult, extras []CodeResult, want int) CodeSearchResult {
+	existing := make(map[string]int, len(dst.Results))
+	seen := make(map[uint64]struct{}, len(dst.Results))
+	for i := range dst.Results {
+		r := &dst.Results[i]
+		existing[r.Repo+"\x00"+r.Path] = i
+		seen[contentFingerprint(r.Content)] = struct{}{}
+	}
+	for _, r := range extras {
+		key := r.Repo + "\x00" + r.Path
+		if idx, ok := existing[key]; ok {
+			// Same file hit by both engines — merge engine-only fields into
+			// the earlier result, which carries richer fragment data.
+			dst.Results[idx].Lines = r.Lines
+			dst.Results[idx].Commit = r.Commit
+			dst.Results[idx].Stars = r.Stars
+			continue
+		}
+		if _, dup := seen[contentFingerprint(r.Content)]; dup {
+			continue
+		}
+		existing[key] = len(dst.Results)
+		seen[contentFingerprint(r.Content)] = struct{}{}
+		dst.Results = append(dst.Results, r)
+		if want > 0 && len(dst.Results) >= want {
+			break
+		}
+	}
+	return dst
+}
+
+// supplementFromBlackbird is the last-resort tier: when GitHub legacy and
+// Sourcegraph both underfill, ask the logged-in web session. Best-effort —
+// session errors (incl. errBlackbirdLoggedOut) never fail the search.
+func (g *GitHubForge) supplementFromBlackbird(ctx context.Context, result CodeSearchResult, query string, repos []string, opt SearchCodeOptions, maxResults, perPage int) CodeSearchResult {
+	want := maxResults
+	if want <= 0 {
+		want = perPage
+	}
+	if !codeSearchNeedsMore(result, want) {
+		return result
+	}
+
+	extra, err := g.searchCodeBlackbird(ctx, query, repos, opt, want-len(result.Results))
+	if err != nil {
+		return result
+	}
+	if len(extra.Results) == 0 {
+		return result
+	}
+	result.Total += extra.Total
+	return mergeCodeSearchExtras(result, extra.Results, want)
 }
 
 // supplementFromSourcegraph fills an underfilled or incomplete GitHub result
@@ -94,35 +166,8 @@ func (g *GitHubForge) supplementFromSourcegraph(ctx context.Context, result Code
 		return result
 	}
 
-	existing := make(map[string]int, len(result.Results))
-	seen := make(map[uint64]struct{}, len(result.Results))
-	for i := range result.Results {
-		r := &result.Results[i]
-		existing[r.Repo+"\x00"+r.Path] = i
-		seen[contentFingerprint(r.Content)] = struct{}{}
-	}
-	for _, r := range extra.Results {
-		key := r.Repo + "\x00" + r.Path
-		if idx, ok := existing[key]; ok {
-			// Same file hit by both engines — merge SG-only fields into the
-			// GitHub result, which carries richer fragment data.
-			result.Results[idx].Lines = r.Lines
-			result.Results[idx].Commit = r.Commit
-			result.Results[idx].Stars = r.Stars
-			continue
-		}
-		if _, dup := seen[contentFingerprint(r.Content)]; dup {
-			continue
-		}
-		existing[key] = len(result.Results)
-		seen[contentFingerprint(r.Content)] = struct{}{}
-		result.Results = append(result.Results, r)
-		if want > 0 && len(result.Results) >= want {
-			break
-		}
-	}
 	result.Total += extra.Total
-	return result
+	return mergeCodeSearchExtras(result, extra.Results, want)
 }
 
 // ghCodeSearchResponse is the GitHub Code Search API response.

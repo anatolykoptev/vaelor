@@ -108,6 +108,8 @@
 | `GO_SEARCH_URL` | optional | go-search MCP endpoint for web search (e.g. `http://go-search:8890/mcp`) |
 | `SOURCEGRAPH_URL` | `https://sourcegraph.com` | Sourcegraph instance for the `engine` fallback in `github_code_search`. `off`/`none`/`disabled` disables it. |
 | `SOURCEGRAPH_TOKEN` | optional | Sourcegraph access token; empty = anonymous public-index access |
+| `GO_WOWA_BASE_URL` | optional | go-wowa API base (e.g. `http://go-wowa:8906`). Enables the `blackbird` engine in `github_code_search` — github.com web search via a logged-in browser session (full coverage, `symbol:`/`is:`/`NOT`/regex). `off` disables. |
+| `GO_WOWA_GITHUB_SESSION` | `github-search` | Named go-wowa browser session holding the github.com login |
 | `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `code-rank-embed` | Model name for OpenAI-compatible embed API |
 | `AUTO_INDEX_DIRS` | optional | Comma-separated dirs eligible for auto-indexing (e.g. `/host/src`). Indexing is lazy per-repo on first semantic query, not eager at boot. Runtime compose sets `/host/src` |

@@ -145,6 +145,20 @@ type Config struct {
 	// rate limits. Empty means anonymous access to the public index.
 	SourcegraphToken string
 
+	// WowaBaseURL is the go-wowa API base (e.g. http://go-wowa:8906) used for
+	// the Blackbird (github.com web search) engine — a logged-in browser
+	// session gives full coverage + symbol:/is:/NOT/regex syntax. Empty or
+	// "off" disables it.
+	WowaBaseURL string
+
+	// WowaGithubSession is the go-wowa named browser session holding the
+	// github.com login. Default "github-search".
+	WowaGithubSession string
+
+	// InternalServiceSecret is forwarded to go-wowa as X-Internal-Secret
+	// (soft-auth middleware: absent is allowed, wrong is rejected).
+	InternalServiceSecret string
+
 	// OxCodesURL is the base URL for the ox-codes search service (e.g. http://ox-codes:8902).
 	// When set, code_search uses ox-codes with fallback to Go codesearch.
 	OxCodesURL string
@@ -641,6 +655,9 @@ func loadConfig() (Config, error) {
 		GitLabURL:              env.Str("GITLAB_URL", ""),
 		SourcegraphURL:         env.Str("SOURCEGRAPH_URL", ""),
 		SourcegraphToken:       env.Str("SOURCEGRAPH_TOKEN", ""),
+		WowaBaseURL:            env.Str("GO_WOWA_BASE_URL", ""),
+		WowaGithubSession:      env.Str("GO_WOWA_GITHUB_SESSION", ""),
+		InternalServiceSecret:  env.Str("INTERNAL_SERVICE_SECRET", ""),
 		OxCodesURL:             env.Str("OX_CODES_URL", ""),
 		DesignMDDir:            env.Str("DESIGN_MD_DIR", ""),
 		DesignEmbedURL:         env.Str("DESIGN_EMBED_URL", ""),

@@ -32,7 +32,7 @@ type GithubCodeSearchInput struct {
 	// ContextResults caps how many results get context fetched.
 	ContextResults int `json:"context_results,omitempty" jsonschema:"How many top results get context_lines fetched (default 5). Requires context_lines > 0."`
 	// Engine selects the search backend.
-	Engine string `json:"engine,omitempty" jsonschema:"Search engine: 'auto' (default) = GitHub with Sourcegraph fallback when GitHub underfills or is incomplete; 'github' = GitHub only; 'sourcegraph' = Sourcegraph public index only (different coverage, e.g. finds repos missing from the GitHub search index)."`
+	Engine string `json:"engine,omitempty" jsonschema:"Search engine: 'auto' (default) = GitHub → Sourcegraph → blackbird escalation on underfill; 'github'/'sourcegraph' = force one; 'blackbird' = github.com web search via a logged-in browser session — full coverage + symbol:/is:/NOT/regex syntax the REST API lacks."`
 }
 
 // githubCodeSearchResult is a single search result.
@@ -63,8 +63,9 @@ func registerGithubCodeSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 	addTool(server, &mcp.Tool{
 		Name: "github_code_search",
 		Description: "Search code on GitHub using the Code Search API, with automatic Sourcegraph fallback when GitHub " +
-			"underfills or reports incomplete results (the GitHub search index misses some large repos). " +
-			"Returns file paths with matching code fragments; sourcegraph results carry absolute line numbers, " +
+			"underfills or reports incomplete results, then a blackbird (github.com web search) last resort — " +
+			"the only tier covering symbol:/is:/NOT/regex syntax and repos missing from both indexes. " +
+			"Returns file paths with matching code fragments; fallback results carry absolute line numbers, " +
 			"commit-pinned URLs and repo stars. " +
 			"Use this instead of web_url_read for GitHub search URLs. " +
 			"Supports GitHub search syntax: 'func resize language:python', 'className path:src/'. " +
