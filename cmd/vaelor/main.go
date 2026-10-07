@@ -340,10 +340,12 @@ func startPrometheusScrape(ctx context.Context, logger *slog.Logger, serviceSecr
 // network, so /debug/pprof/* sits behind pprofGate (X-Service-Secret, fail
 // closed when serviceSecret is empty). /metrics stays open: Prometheus scrapes
 // it without credentials.
-// Handlers are wired explicitly rather than via `_ "net/http/pprof"` (whose
-// init registers on DefaultServeMux) to keep the debug surface on this mux
-// alone. allocs is registered alongside heap because a retention bug and a
-// churn bug are indistinguishable in inuse_space alone.
+// The named net/http/pprof import also registers its handlers on
+// http.DefaultServeMux via init; that is harmless only because no listener in
+// go-code serves DefaultServeMux (the MCP listener is a private http.Server in
+// go-mcpserver, probed live: 8897 answers 404 on /debug/pprof/). Do not add one
+// without gating it. allocs is registered alongside heap because a retention
+// bug and a churn bug are indistinguishable in inuse_space alone.
 func buildPromMux(serviceSecret string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", kitmetrics.MetricsHandler())
