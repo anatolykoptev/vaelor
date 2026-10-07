@@ -31,6 +31,7 @@ func TestCLI_AllSubcommandsRegistered(t *testing.T) {
 		"init",
 		"search",
 		"wipe",
+		"stdio",
 	}
 
 	for _, name := range expectedSubcommands {
