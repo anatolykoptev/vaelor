@@ -3,6 +3,7 @@ package callgraph
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -78,8 +79,7 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 		}
 	}
 
-	// Add vendor/ to each repo so the EagerWarmRepos caller passes the vendor
-	// check and dispatches warmGoBuildFn (the prewarm stub below).
+	// Add vendor/ to each repo so the dispatch selects -mod=vendor.
 	for _, name := range repoNames {
 		if err := os.MkdirAll(filepath.Join(tmp, name, "vendor"), 0o755); err != nil {
 			t.Fatalf("mkdir vendor %s: %v", name, err)
@@ -89,15 +89,17 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 	var (
 		mu            sync.Mutex
 		called        []string
+		modFlags      []string
 		count         atomic.Int64
 		concurrent    atomic.Int32
 		maxConcurrent atomic.Int32
 	)
-	orig := warmGoBuildFn
-	warmGoBuildFn = func(_ context.Context, root string) error {
+	orig := prewarmRepoFn
+	prewarmRepoFn = func(_ context.Context, root, modFlag string) ([]string, error) {
 		count.Add(1)
 		mu.Lock()
 		called = append(called, root)
+		modFlags = append(modFlags, modFlag)
 		mu.Unlock()
 
 		// Track peak concurrency.
@@ -111,14 +113,14 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 		}
 
 		time.Sleep(20 * time.Millisecond)
-		return nil
+		return nil, nil
 	}
-	t.Cleanup(func() { warmGoBuildFn = orig })
+	t.Cleanup(func() { prewarmRepoFn = orig })
 
 	EagerWarmRepos(context.Background(), []string{tmp})
 
 	if got := count.Load(); got != int64(len(repoNames)) {
-		t.Fatalf("warmGoBuildFn calls = %d; want %d", got, len(repoNames))
+		t.Fatalf("prewarmRepoFn calls = %d; want %d", got, len(repoNames))
 	}
 	sort.Strings(called)
 	want := make([]string, len(repoNames))
@@ -133,16 +135,21 @@ func TestEagerWarmRepos_DispatchesPerRepo(t *testing.T) {
 	if got := maxConcurrent.Load(); got > eagerWarmParallelism {
 		t.Fatalf("parallelism cap violated: max concurrent = %d, want <= %d", got, eagerWarmParallelism)
 	}
+	for _, mf := range modFlags {
+		if mf != "-mod=vendor" {
+			t.Fatalf("vendored repo got modFlag %q; want -mod=vendor", mf)
+		}
+	}
 }
 
-// TestEagerWarmRepos_SkippedVsFailedCounterSemantics verifies that when two
-// repos are discovered — one without vendor/ and one with — the skipped repo
-// does NOT increment the "started" or "completed" counters, so the
-// started/completed ratio accurately reflects actual build attempts.
-func TestEagerWarmRepos_SkippedVsFailedCounterSemantics(t *testing.T) {
+// TestEagerWarmRepos_ModFlagSelection verifies the per-repo -mod selection:
+// a vendored repo is warmed with -mod=vendor, a non-vendored repo is ATTEMPTED
+// with -mod=mod (module proxy) instead of being skipped — the redesign of
+// issue #736 removed the skipped_no_vendor gate that left 23/39 repos cold.
+func TestEagerWarmRepos_ModFlagSelection(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Repo A: has vendor/ → will be dispatched to warmGoBuildFn.
+	// Repo A: has vendor/ → -mod=vendor.
 	repoA := filepath.Join(tmp, "with-vendor")
 	if err := os.MkdirAll(filepath.Join(repoA, "vendor"), 0o755); err != nil {
 		t.Fatalf("mkdir vendor: %v", err)
@@ -151,7 +158,7 @@ func TestEagerWarmRepos_SkippedVsFailedCounterSemantics(t *testing.T) {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	// Repo B: no vendor/ → must emit skipped_no_vendor, NOT started/completed.
+	// Repo B: no vendor/ → attempted with -mod=mod (no longer skipped).
 	repoB := filepath.Join(tmp, "no-vendor")
 	if err := os.MkdirAll(repoB, 0o755); err != nil {
 		t.Fatalf("mkdir repoB: %v", err)
@@ -171,9 +178,16 @@ func TestEagerWarmRepos_SkippedVsFailedCounterSemantics(t *testing.T) {
 	}
 	t.Cleanup(func() { recordEagerWarmFn = origRecord })
 
-	origWarm := warmGoBuildFn
-	warmGoBuildFn = func(_ context.Context, _ string) error { return nil }
-	t.Cleanup(func() { warmGoBuildFn = origWarm })
+	var flagsMu sync.Mutex
+	flags := map[string]string{}
+	origWarm := prewarmRepoFn
+	prewarmRepoFn = func(_ context.Context, root, modFlag string) ([]string, error) {
+		flagsMu.Lock()
+		flags[root] = modFlag
+		flagsMu.Unlock()
+		return nil, nil
+	}
+	t.Cleanup(func() { prewarmRepoFn = origWarm })
 
 	EagerWarmRepos(context.Background(), []string{tmp})
 
@@ -181,32 +195,75 @@ func TestEagerWarmRepos_SkippedVsFailedCounterSemantics(t *testing.T) {
 	got := append([]string(nil), outcomes...)
 	mu.Unlock()
 
-	// Repo B must produce skipped_no_vendor.
-	skipped := 0
+	// Both repos attempt: 2× started + 2× completed, no skipped/failed.
+	if len(got) != 4 {
+		t.Fatalf("expected 4 outcomes (2× started + 2× completed); got %v", got)
+	}
 	for _, o := range got {
-		if o == "skipped_no_vendor" {
-			skipped++
+		if o == "failed" || o == "skipped_no_vendor" {
+			t.Fatalf("unexpected outcome %q; both repos must be attempted (issue #736)", o)
 		}
 	}
-	if skipped != 1 {
-		t.Fatalf("expected 1 skipped_no_vendor outcome; got %v", got)
+	flagsMu.Lock()
+	defer flagsMu.Unlock()
+	if flags[repoA] != "-mod=vendor" {
+		t.Fatalf("vendored repo got %q; want -mod=vendor", flags[repoA])
 	}
-	// Repo A must produce started + completed.
-	started, completed := 0, 0
+	if flags[repoB] != "-mod=mod" {
+		t.Fatalf("non-vendored repo got %q; want -mod=mod (module proxy warm, issue #736)", flags[repoB])
+	}
+}
+
+// TestEagerWarmRepos_PartialOutcome asserts that a prewarm returning errored
+// packages (tolerated -e failures: cgo, broken deps) records "partial" — NOT
+// "completed" — and emits a WARN naming the repo, so an operator can tell a
+// silently-cold repo apart from a fully warm one (issue #736).
+func TestEagerWarmRepos_PartialOutcome(t *testing.T) {
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "cgo-repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module cgo\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	var outcomes []string
+	var mu sync.Mutex
+	origRecord := recordEagerWarmFn
+	recordEagerWarmFn = func(outcome string) {
+		mu.Lock()
+		outcomes = append(outcomes, outcome)
+		mu.Unlock()
+		eagerWarmTotal.WithLabelValues(outcome).Inc()
+	}
+	t.Cleanup(func() { recordEagerWarmFn = origRecord })
+
+	origWarm := prewarmRepoFn
+	prewarmRepoFn = func(_ context.Context, _ string, _ string) ([]string, error) { return []string{"a", "b", "c"}, nil }
+	t.Cleanup(func() { prewarmRepoFn = origWarm })
+
+	buf := captureDefaultSlog(t)
+	EagerWarmRepos(context.Background(), []string{tmp})
+
+	mu.Lock()
+	got := append([]string(nil), outcomes...)
+	mu.Unlock()
+
+	found := false
 	for _, o := range got {
-		switch o {
-		case "started":
-			started++
-		case "completed":
-			completed++
+		if o == "partial" {
+			found = true
+		}
+		if o == "completed" {
+			t.Fatalf("partial warm recorded as completed; outcomes=%v", got)
 		}
 	}
-	if started != 1 || completed != 1 {
-		t.Fatalf("expected 1 started + 1 completed for vendor repo; got %v", got)
+	if !found {
+		t.Fatalf("expected partial outcome for 3 errored packages; got %v", got)
 	}
-	// Total outcomes = 3 (skipped + started + completed); no "failed".
-	if len(got) != 3 {
-		t.Fatalf("expected 3 total outcomes; got %v", got)
+	if !strings.Contains(buf.String(), "level=WARN") || !strings.Contains(buf.String(), repo) {
+		t.Fatalf("expected WARN naming the repo for a partial warm; log:\n%s", buf.String())
 	}
 }
 
@@ -215,18 +272,18 @@ func TestEagerWarmRepos_SkippedVsFailedCounterSemantics(t *testing.T) {
 // dispatched, no metric increment.
 func TestEagerWarmRepos_EmptyDirsNoOp(t *testing.T) {
 	var calls atomic.Int64
-	orig := warmGoBuildFn
-	warmGoBuildFn = func(_ context.Context, _ string) error {
+	orig := prewarmRepoFn
+	prewarmRepoFn = func(_ context.Context, _ string, _ string) ([]string, error) {
 		calls.Add(1)
-		return nil
+		return nil, nil
 	}
-	t.Cleanup(func() { warmGoBuildFn = orig })
+	t.Cleanup(func() { prewarmRepoFn = orig })
 
 	EagerWarmRepos(context.Background(), nil)
 	EagerWarmRepos(context.Background(), []string{"", "  "})
 
 	if got := calls.Load(); got != 0 {
-		t.Fatalf("warmGoBuildFn called %d times on empty dirs; want 0", got)
+		t.Fatalf("prewarmRepoFn called %d times on empty dirs; want 0", got)
 	}
 }
 
@@ -243,44 +300,73 @@ func captureDefaultSlog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestRunGoBuildPrewarm_NoVendorNoWarnLog asserts that runGoBuildPrewarm emits
-// zero WARN-level log lines regardless of outcome. runGoBuildPrewarm is a pure
-// build executor — it does not log warnings; it returns errors for the caller
-// to handle. The no-vendor path no longer produces a WARN because the vendor
-// check has moved to the EagerWarmRepos caller goroutine. This test guards
-// against WARN being re-introduced inside runGoBuildPrewarm.
-func TestRunGoBuildPrewarm_NoVendorNoWarnLog(t *testing.T) {
+// TestRunGoListPrewarm_NoWarnLog asserts that runGoListPrewarm emits zero
+// WARN-level log lines regardless of outcome: it is a pure executor — the
+// EagerWarmRepos caller owns operator-visible logging.
+func TestRunGoListPrewarm_NoWarnLog(t *testing.T) {
 	buf := captureDefaultSlog(t)
 
 	tmp := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	// No vendor/ directory: build fails but must not emit WARN.
-	// Ignore the error — this test only asserts on log output.
-	_ = runGoBuildPrewarm(context.Background(), tmp)
+	if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	// Real `go list` — returns errored-package count, must not log.
+	_, _ = runGoListPrewarm(context.Background(), tmp, "-mod=mod")
 
 	if got := buf.String(); strings.Contains(got, "level=WARN") {
-		t.Fatalf("runGoBuildPrewarm emitted WARN; log output:\n%s", got)
+		t.Fatalf("runGoListPrewarm emitted WARN; log output:\n%s", got)
 	}
 }
 
-// TestEagerWarmRepos_NoVendorEmitsSkippedOutcome asserts that when runGoBuildPrewarm
-// signals that a repo has no vendor/ directory, the EagerWarmRepos caller records
-// "skipped_no_vendor" and does NOT record "completed". Under the old code the
-// warmGoBuildFn stub returns nil unconditionally, making no-vendor repos
-// indistinguishable from successful builds in the counter.
-func TestEagerWarmRepos_NoVendorEmitsSkippedOutcome(t *testing.T) {
+// TestRunGoListPrewarm_ToleratesBrokenDeps is the -e contract test: a module
+// whose dependency cannot resolve must NOT fail the whole run — the other
+// packages still get export data. Before -e this was a hard failure for the
+// entire repo (issue #736: one cgo package froze vaelor's warm forever).
+func TestRunGoListPrewarm_ToleratesBrokenDeps(t *testing.T) {
 	tmp := t.TempDir()
-	// One repo without vendor/.
-	repo := filepath.Join(tmp, "nv")
+	gomod := "module example.com/broken\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(gomod), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	// A package importing a module that does not resolve offline →
+	// per-package .Error with -e, tolerated; main package still exports.
+	if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	sub := filepath.Join(tmp, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	broken := "package sub\n\nimport _ \"example.com/definitely-missing-module/pkg\"\n"
+	if err := os.WriteFile(filepath.Join(sub, "sub.go"), []byte(broken), 0o600); err != nil {
+		t.Fatalf("write sub.go: %v", err)
+	}
+
+	errored, err := runGoListPrewarm(context.Background(), tmp, "-mod=mod")
+	if err != nil {
+		t.Fatalf("go list -e must not fail the run on a per-package error: %v", err)
+	}
+	if len(errored) == 0 {
+		t.Fatal("expected >=1 errored package (the broken import); -e may be missing, turning per-package failures silent")
+	}
+}
+
+// TestEagerWarmRepos_FailedWarmLogsWarn asserts the operator-visible contract
+// of issue #736: a repo whose prewarm fails records "failed" AND logs WARN
+// naming the repo — the previous Debug-level logging is exactly how a repo
+// silently stayed cold across every deploy.
+func TestEagerWarmRepos_FailedWarmLogsWarn(t *testing.T) {
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "will-fail")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module nv\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module f\n"), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	// No vendor/ directory.
 
 	var outcomes []string
 	var mu sync.Mutex
@@ -293,39 +379,39 @@ func TestEagerWarmRepos_NoVendorEmitsSkippedOutcome(t *testing.T) {
 	}
 	t.Cleanup(func() { recordEagerWarmFn = origRecord })
 
-	// Wire warmGoBuildFn to the real runGoBuildPrewarm so the vendor check fires.
-	orig := warmGoBuildFn
-	warmGoBuildFn = runGoBuildPrewarm
-	t.Cleanup(func() { warmGoBuildFn = orig })
+	origWarm := prewarmRepoFn
+	prewarmRepoFn = func(_ context.Context, _ string, _ string) ([]string, error) {
+		return nil, fmt.Errorf("go list exploded")
+	}
+	t.Cleanup(func() { prewarmRepoFn = origWarm })
 
+	buf := captureDefaultSlog(t)
 	EagerWarmRepos(context.Background(), []string{tmp})
 
 	mu.Lock()
 	got := append([]string(nil), outcomes...)
 	mu.Unlock()
 
+	failed := 0
 	for _, o := range got {
-		if o == "completed" {
-			t.Fatalf("recorded outcome %q for no-vendor repo; want skipped_no_vendor, not completed", o)
+		if o == "failed" {
+			failed++
 		}
 	}
-	found := false
-	for _, o := range got {
-		if o == "skipped_no_vendor" {
-			found = true
-			break
-		}
+	if failed != 1 {
+		t.Fatalf("expected 1 failed outcome; got %v", got)
 	}
-	if !found {
-		t.Fatalf("no skipped_no_vendor outcome recorded; got %v", got)
+	if !strings.Contains(buf.String(), "level=WARN") || !strings.Contains(buf.String(), repo) {
+		t.Fatalf("expected WARN naming the failing repo; log:\n%s", buf.String())
 	}
 }
 
 // TestEagerWarmRepos_BrokenVendorSymlinkEmitsFailed asserts that a broken
 // symlink at vendor/ is NOT treated the same as a missing directory. os.Stat
 // follows symlinks; a dangling symlink returns an error that is NOT os.IsNotExist,
-// so the EagerWarmRepos goroutine must NOT record "skipped_no_vendor" — it must
-// record "failed" and emit a WARN so the operator can investigate.
+// so the EagerWarmRepos goroutine must record "failed" and emit a WARN so the
+// operator can investigate — it must NOT warm with -mod=mod over a broken
+// vendor.
 func TestEagerWarmRepos_BrokenVendorSymlinkEmitsFailed(t *testing.T) {
 	tmp := t.TempDir()
 	repo := filepath.Join(tmp, "broken-vendor")
@@ -352,6 +438,17 @@ func TestEagerWarmRepos_BrokenVendorSymlinkEmitsFailed(t *testing.T) {
 	}
 	t.Cleanup(func() { recordEagerWarmFn = origRecord })
 
+	var calls atomic.Int64
+	origWarm := prewarmRepoFn
+	prewarmRepoFn = func(_ context.Context, _ string, modFlag string) ([]string, error) {
+		calls.Add(1)
+		if modFlag == "-mod=vendor" {
+			t.Error("broken vendor symlink must NOT warm with -mod=vendor")
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { prewarmRepoFn = origWarm })
+
 	buf := captureDefaultSlog(t)
 	EagerWarmRepos(context.Background(), []string{tmp})
 
@@ -359,11 +456,9 @@ func TestEagerWarmRepos_BrokenVendorSymlinkEmitsFailed(t *testing.T) {
 	got := append([]string(nil), outcomes...)
 	mu.Unlock()
 
-	// Must record "failed", not "skipped_no_vendor".
-	for _, o := range got {
-		if o == "skipped_no_vendor" {
-			t.Fatalf("broken vendor symlink incorrectly recorded as skipped_no_vendor; outcomes=%v", got)
-		}
+	// Must record "failed" and never dispatch the prewarm.
+	if calls.Load() != 0 {
+		t.Fatalf("prewarm dispatched %d times on broken vendor symlink; want 0", calls.Load())
 	}
 	found := false
 	for _, o := range got {

@@ -27,14 +27,24 @@ type CallGraph struct {
 	HookCallbacks []string                  // function names registered as hook callbacks
 	Tier          string                    // "basic" (tree-sitter), "enhanced" (go/types merged), "full" (future)
 	Backend       string                    // resolution backend: "tree-sitter", "tree-sitter+go/types", "tree-sitter+scip"
-	// Warming is set when go/types enrichment was skipped because the
-	// go/packages load was cold (tryGoTypesResolution returned nil). The
-	// background warm (warmGoTypesCache) is running and will upgrade the
-	// cached entry; a retry will return the enhanced tier. Callers should
-	// surface a "type-aware enrichment is warming, retry for the enhanced
-	// tier" note so the agent knows to retry instead of treating the
-	// tree-sitter-only result as final.
-	Warming bool
+	// Warm records the go/types warm state this graph was built under
+	// (issue #746). It is stamped ONCE before the graph enters cgCache and
+	// is never mutated on a cached entry — when the per-root registry
+	// (goTypesWarm) disagrees with the stamp, callers get a shallow copy
+	// with the live state instead. The authority is the registry; this
+	// field is the rendered note's payload so consumers never consult the
+	// registry themselves.
+	//
+	//   - ""         (WarmNone)    — no warm pending: enhanced, or the
+	//     synchronous load succeeded with zero typed edges (basic-final)
+	//   - "warming"  (WarmPending) — a background go/types load is in
+	//     flight; a retry will return the enhanced tier
+	//   - "failed"   (WarmFailed)  — the last warm failed durably; a retry
+	//     returns the same basic-tier graph until the failed record
+	//     expires (cgCacheTTL)
+	//
+	// Use WarmNote to render the agent-facing string for a state.
+	Warm WarmState
 	// UsesIndex maps a target file's relative path to a list of relative paths
 	// of Astro files that render it as a component (<Foo />). Populated by
 	// ResolveTemplateRefs during BuildFromRepo. Enables impact_analysis to

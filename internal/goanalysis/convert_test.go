@@ -148,11 +148,11 @@ func TestMergeCallGraphs(t *testing.T) {
 	}
 }
 
-func TestMergeCallGraphs_PreservesWarming(t *testing.T) {
+func TestMergeCallGraphs_PreservesWarm(t *testing.T) {
 	tsGraph := &callgraph.CallGraph{
 		Edges:   []callgraph.CallEdge{{CalleeName: "foo"}},
 		Symbols: []*parser.Symbol{{Name: "A", Kind: parser.KindFunction, File: "/a.go"}},
-		Warming: true,
+		Warm:    callgraph.WarmPending,
 	}
 	typedGraph := &callgraph.CallGraph{
 		Edges:   []callgraph.CallEdge{{CalleeName: "bar"}},
@@ -161,8 +161,8 @@ func TestMergeCallGraphs_PreservesWarming(t *testing.T) {
 
 	merged := callgraph.MergeCallGraphs(tsGraph, typedGraph)
 
-	if !merged.Warming {
-		t.Error("expected Warming=true carried from tsGraph, got false")
+	if merged.Warm != callgraph.WarmPending {
+		t.Errorf("expected Warm=WarmPending carried from tsGraph, got %q", merged.Warm)
 	}
 }
 

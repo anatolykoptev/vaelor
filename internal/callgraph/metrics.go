@@ -131,18 +131,20 @@ func isKilledErr(err error) bool {
 // tier=enhanced from request #1 (instead of tier=basic on cold-cache miss).
 //
 // Outcomes (cardinality 4, no repo label to keep cardinality bounded):
-//   - started          — vendor/ present; goroutine kicked off the go build
-//   - completed        — go build returned without error
-//   - failed           — go build returned an error, OR vendor/ stat returned
-//     a non-ENOENT IO error (broken symlink, EPERM, etc.)
-//   - skipped_no_vendor — vendor/ directory absent (ENOENT); repo uses the
-//     module proxy workflow; -mod=vendor would always fail with "inconsistent
-//     vendoring" so no build is attempted. This is distinct from completed so
-//     the started/completed ratio remains meaningful for repos that do build.
+//   - started   — goroutine kicked off `go list -e -export -deps`
+//   - completed — every package produced export data
+//   - partial   — the run tolerated per-package failures (-e): cgo packages
+//     under CGO_ENABLED=0 or broken deps left no export data for some
+//     packages; the rest warmed (issue #736)
+//   - failed    — the go command itself failed, OR vendor/ stat returned a
+//     non-ENOENT IO error (broken symlink, EPERM, etc.)
+//
+// Non-vendored repos are warmed via -mod=mod (module proxy) since the
+// redesign — the former skipped_no_vendor outcome no longer exists.
 var eagerWarmTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_callgraph_eager_warm_total",
-		Help: "Eager startup GOCACHE pre-warm outcomes per repo, labelled by outcome (started, completed, failed, skipped_no_vendor).",
+		Help: "Eager startup GOCACHE pre-warm outcomes per repo, labelled by outcome (started, completed, partial, failed).",
 	},
 	[]string{"outcome"},
 )
@@ -157,23 +159,25 @@ func recordEagerWarm(outcome string) {
 // upgrades a cold tree-sitter-only CallGraph to the enhanced tier after the
 // request has already returned the degraded result.
 //
-// Outcomes (cardinality 3, no repo label to keep cardinality bounded):
-//   - completed — packages.Load succeeded, cache upgraded to enhanced
-//   - failed    — packages.Load failed (cold GOCACHE, unbuildable deps,
-//     timeout); the cache stays at basic tier
-//   - skipped   — already warming (duplicate goroutine suppressed by
-//     goTypesWarmingSet)
+// Outcomes (cardinality 4, no repo label to keep cardinality bounded):
+//   - completed — packages.Load succeeded AND the cache entry was upgraded
+//     to the enhanced tier (recorded only at the point the upgrade lands —
+//     issue #738.2)
+//   - evicted   — the load succeeded but the LRU had already dropped the
+//     entry; the root is still warm, the next cold call rebuilds enhanced
+//   - failed    — packages.Load failed durably (unbuildable deps, no
+//     network, timeout) OR the goroutine panicked; the per-root registry
+//     records WarmFailed until backoff expiry (issue #738.1)
+//   - skipped   — already warming or still in failure backoff (duplicate
+//     goroutine suppressed by claimWarm)
 //
 // Operators should alert on a sustained non-zero `failed` rate: it means the
 // background warm never succeeds for a repo, so every cold request returns
-// tree-sitter-only and the enhanced tier is never reached. Before this
-// counter, the only signal was a WARN log swallowed as "non-fatal" — the
-// pre-warm `go build` step that failed on every cgo repo (issue #735) was
-// invisible to operators.
+// tree-sitter-only and the enhanced tier is never reached.
 var backgroundWarmTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_callgraph_background_warm_total",
-		Help: "On-demand background go/types warm outcomes, labelled by outcome (completed, failed, skipped).",
+		Help: "On-demand background go/types warm outcomes, labelled by outcome (completed, evicted, failed, skipped).",
 	},
 	[]string{"outcome"},
 )

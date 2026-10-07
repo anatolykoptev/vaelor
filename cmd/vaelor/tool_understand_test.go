@@ -236,21 +236,22 @@ func TestUnderstand_ColdLocalGraph_DoesNotGate(t *testing.T) {
 }
 
 // TestUnderstand_ColdGoTypes_WarmingNoteInResponse verifies that when
-// BuildFromRepo returns a CallGraph with Warming=true (go/types enrichment
+// BuildFromRepo returns a CallGraph with Warm=WarmPending (go/types enrichment
 // is warming in the background), the understand response carries a
 // "type-aware enrichment is warming, retry" note so the agent knows to retry
-// for the enhanced tier. On the warm path (Warming=false), the note must NOT
-// appear.
+// for the enhanced tier. On the warm path (Warm=WarmNone), the note must NOT
+// appear — and on WarmFailed it must be the honest "unavailable" note,
+// not "retry" (issue #738.1).
 func TestUnderstand_WarmingNote_DegradedPathOnly(t *testing.T) {
 	origBuildFromRepo := understandBuildFromRepo
 	defer func() { understandBuildFromRepo = origBuildFromRepo }()
 
-	// Degraded path: Warming=true — the note MUST appear.
+	// Degraded path: WarmPending — the retry note MUST appear.
 	understandBuildFromRepo = func(_ context.Context, input callgraph.TraceRepoInput) (*callgraph.CallGraph, error) {
 		return &callgraph.CallGraph{
 			Symbols: []*parser.Symbol{makeTestSym("Foo", filepath.Join(input.Root, "foo.go"))},
 			Tier:    "basic",
-			Warming: true,
+			Warm:    callgraph.WarmPending,
 		}, nil
 	}
 
@@ -271,12 +272,11 @@ func TestUnderstand_WarmingNote_DegradedPathOnly(t *testing.T) {
 		t.Errorf("degraded path: expected warming+retry note in response, got: %s", text)
 	}
 
-	// Warm path: Warming=false — the note must NOT appear.
+	// Warm path: WarmNone — the note must NOT appear.
 	understandBuildFromRepo = func(_ context.Context, input callgraph.TraceRepoInput) (*callgraph.CallGraph, error) {
 		return &callgraph.CallGraph{
 			Symbols: []*parser.Symbol{makeTestSym("Foo", filepath.Join(input.Root, "foo.go"))},
 			Tier:    "enhanced",
-			Warming: false,
 		}, nil
 	}
 
@@ -289,7 +289,32 @@ func TestUnderstand_WarmingNote_DegradedPathOnly(t *testing.T) {
 	}
 
 	textWarm := textContentOf(t, resWarm)
-	if strings.Contains(textWarm, "type-aware enrichment is warming") {
-		t.Errorf("warm path: expected NO warming note, got: %s", textWarm)
+	if strings.Contains(textWarm, "type-aware enrichment") {
+		t.Errorf("warm path: expected NO warm note, got: %s", textWarm)
+	}
+
+	// Failed path: WarmFailed — honest "unavailable" note, NO retry hint.
+	understandBuildFromRepo = func(_ context.Context, input callgraph.TraceRepoInput) (*callgraph.CallGraph, error) {
+		return &callgraph.CallGraph{
+			Symbols: []*parser.Symbol{makeTestSym("Foo", filepath.Join(input.Root, "foo.go"))},
+			Tier:    "basic",
+			Warm:    callgraph.WarmFailed,
+		}, nil
+	}
+
+	resFailed, err := handleUnderstand(context.Background(), input, deps, nil, nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resFailed == nil || resFailed.IsError {
+		t.Fatalf("expected non-error result, got: %+v", resFailed)
+	}
+
+	textFailed := textContentOf(t, resFailed)
+	if !strings.Contains(textFailed, "type-aware enrichment is unavailable") {
+		t.Errorf("failed path: expected the unavailable note, got: %s", textFailed)
+	}
+	if strings.Contains(textFailed, "retry for the enhanced tier") {
+		t.Errorf("failed path: retry hint must NOT appear — the warm failed durably, got: %s", textFailed)
 	}
 }

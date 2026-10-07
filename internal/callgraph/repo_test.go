@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 	sciplib "github.com/sourcegraph/scip/bindings/go/scip"
@@ -361,8 +362,8 @@ func TestEnrichWithTypedResolution_LoadFailWarn(t *testing.T) {
 		&CallGraph{Tier: "basic", Backend: BackendTreeSitter},
 		[]*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
 		nil)
-	if !cg.Warming {
-		t.Error("expected Warming=true on failing packages.Load")
+	if cg.Warm != WarmPending {
+		t.Errorf("expected Warm=WarmPending on failing packages.Load, got %q", cg.Warm)
 	}
 
 	got := buf.String()
@@ -490,8 +491,8 @@ func main() {}
 
 	cg := EnrichWithTypedResolution(context.Background(), dir, base, base.Symbols, nil)
 
-	if !cg.Warming {
-		t.Error("expected Warming=true on cold cache (tryGoTypesResolution returned nil)")
+	if cg.Warm != WarmPending {
+		t.Errorf("expected Warm=WarmPending on cold cache (load failed), got %q", cg.Warm)
 	}
 	if cg.Tier != "basic" {
 		t.Errorf("expected Tier=basic on cold path, got %q", cg.Tier)
@@ -548,8 +549,8 @@ func main() {
 
 	cg := EnrichWithTypedResolution(context.Background(), dir, base, base.Symbols, nil)
 
-	if cg.Warming {
-		t.Error("expected Warming=false on warm cache (tryGoTypesResolution succeeded)")
+	if cg.Warm != WarmNone {
+		t.Errorf("expected Warm=WarmNone on warm cache (tryGoTypesResolution succeeded), got %q", cg.Warm)
 	}
 }
 
@@ -608,8 +609,8 @@ func main() {}
 
 	cg := EnrichWithTypedResolution(context.Background(), dir, base, base.Symbols, nil)
 
-	if cg.Warming {
-		t.Error("expected Warming=false on warm load with zero typed call edges (load succeeded, nothing is warming)")
+	if cg.Warm != WarmNone {
+		t.Errorf("expected Warm=WarmNone on warm load with zero typed call edges (load succeeded, nothing is warming), got %q", cg.Warm)
 	}
 
 	var hasImplements bool
@@ -726,19 +727,19 @@ func main() {}
 	key := cgCacheKey(TraceRepoInput{Root: dir})
 
 	// Seed state 1: the synchronous path failed (cold load), so the cached
-	// entry has Warming=true and NO IMPLEMENTS edges. This is exactly what
+	// entry has Warm=WarmPending and NO IMPLEMENTS edges. This is exactly what
 	// BuildFromRepo would have cached before kicking off the background warm.
 	seeded := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
 		Tier:    "basic",
 		Backend: BackendTreeSitter,
-		Warming: true,
+		Warm:    WarmPending,
 	}
 	cgCache.set(key, seeded, dir)
 
 	// Run the background warm synchronously. The retry re-runs packages.Load
 	// (now succeeds on the tiny module), gets zero typed call edges, and must
-	// refresh the cached entry: clear Warming and restore IMPLEMENTS.
+	// refresh the cached entry: clear the warm stamp and restore IMPLEMENTS.
 	warmGoTypesCache(dir, seeded.Symbols, key)
 
 	got, ok := cgCache.get(key, dir)
@@ -747,8 +748,8 @@ func main() {}
 	}
 
 	// Assertion A (independent): Warming must be cleared — the warm is done.
-	if got.Warming {
-		t.Error("expected Warming=false after successful zero-edge background warm; the warm completed and recordBackgroundWarm(\"completed\") fired, but the cached entry was never refreshed (round-4 defect)")
+	if got.Warm != WarmNone {
+		t.Errorf("expected Warm=WarmNone after successful zero-edge background warm, got %q; the warm completed and recordBackgroundWarm(\"completed\") fired, but the cached entry was never refreshed (round-4 defect)", got.Warm)
 	}
 
 	// Assertion B (independent): at least one IMPLEMENTS edge must be present
@@ -771,8 +772,9 @@ func main() {}
 // it. When the patient background retry FAILS (err != nil), warmGoTypesCache
 // must log, record outcome="failed", and return WITHOUT touching the cached
 // entry — the cache stays at whatever the synchronous path left (state 1:
-// Warming=true, no IMPLEMENTS). This is correct: nothing was warmed, so the
-// warming note stays honest and a later retry can still upgrade the entry.
+// Warm=WarmPending, no IMPLEMENTS). The registry then carries WarmFailed, so
+// the next cache hit reconciles the stale pending stamp to the honest
+// "unavailable" note (issue #738.1).
 func TestWarmGoTypesCache_ColdFailThenFailedWarm_PreservesCacheAndRecordsFailed(t *testing.T) {
 	dir := t.TempDir()
 
@@ -791,13 +793,13 @@ func TestWarmGoTypesCache_ColdFailThenFailedWarm_PreservesCacheAndRecordsFailed(
 
 	key := cgCacheKey(TraceRepoInput{Root: dir})
 
-	// Seed state 1: Warming=true, no IMPLEMENTS — what the cold sync path
+	// Seed state 1: Warm=WarmPending, no IMPLEMENTS — what the cold sync path
 	// cached before kicking off the background warm.
 	seeded := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
 		Tier:    "basic",
 		Backend: BackendTreeSitter,
-		Warming: true,
+		Warm:    WarmPending,
 	}
 	cgCache.set(key, seeded, dir)
 
@@ -817,10 +819,15 @@ func TestWarmGoTypesCache_ColdFailThenFailedWarm_PreservesCacheAndRecordsFailed(
 		t.Fatal("expected cached entry to still be present after a FAILED warm (cache must not be evicted on failure)")
 	}
 
-	// Cache must be unchanged: Warming still true (nothing was warmed), no
-	// IMPLEMENTS (ExtractGoImplements must not run on the failure path).
-	if !got.Warming {
-		t.Error("expected Warming=true to be PRESERVED after a failed background warm (nothing was warmed; the warming note must stay honest for a later retry)")
+	// Cache must be unchanged: Warm still WarmPending on the stored entry
+	// (the registry now carries the failed record — the read path
+	// reconciles), and no IMPLEMENTS (ExtractGoImplements must not run on
+	// the failure path).
+	if got.Warm != WarmPending {
+		t.Errorf("expected Warm=WarmPending on the STORED entry after a failed background warm (the entry is write-once; the registry carries the failure), got %q", got.Warm)
+	}
+	if phase, _ := warmStatus(dir); phase != WarmFailed {
+		t.Errorf("expected registry phase WarmFailed after a failed background warm, got %q", phase)
 	}
 	for _, rel := range got.TypeRels {
 		if rel.Kind == parser.RelImplements {
@@ -833,8 +840,8 @@ func TestWarmGoTypesCache_ColdFailThenFailedWarm_PreservesCacheAndRecordsFailed(
 // round-5 fix: warmGoTypesCache's zero-edge branch (typedCG == nil, err == nil)
 // must NOT mutate the *CallGraph pointer returned by cgCache.get in place.
 // That pointer is shared with any concurrent BuildFromRepo cache hit
-// (repo.go:76) reading the same object, and warmGoTypesCache runs in a
-// background goroutine (repo.go:109) — in-place writes to Warming and
+// reading the same object, and warmGoTypesCache runs in a
+// background goroutine — in-place writes to Warm and
 // TypeRels are a data race.
 //
 // The test seeds the cache, grabs the shared pointer the way a cache hit
@@ -875,7 +882,7 @@ func main() {}`
 
 	key := cgCacheKey(TraceRepoInput{Root: dir})
 
-	// Seed state 1 (cold sync load failed): Warming=true, no IMPLEMENTS.
+	// Seed state 1 (cold sync load failed): Warm=WarmPending, no IMPLEMENTS.
 	// Pre-allocate TypeRels with capacity so the in-place append under the
 	// bug writes into the shared backing array (the race is on both the
 	// slice header AND the backing array); without capacity append would
@@ -884,7 +891,7 @@ func main() {}`
 		Symbols:  []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
 		Tier:     "basic",
 		Backend:  BackendTreeSitter,
-		Warming:  true,
+		Warm:     WarmPending,
 		TypeRels: make([]parser.TypeRelationship, 0, 8),
 	}
 	cgCache.set(key, seeded, dir)
@@ -897,7 +904,7 @@ func main() {}`
 		t.Fatal("expected seeded cache hit")
 	}
 
-	// Reader goroutine: continuously read Warming and range TypeRels on the
+	// Reader goroutine: continuously read Warm and range TypeRels on the
 	// shared pointer for the entire duration of the warm. No sleep — the
 	// loop runs until the writer signals completion, guaranteeing genuine
 	// overlap with the writer's mutation.
@@ -910,7 +917,7 @@ func main() {}`
 			case <-writerDone:
 				return
 			default:
-				_ = sharedCg.Warming
+				_ = sharedCg.Warm
 				for range sharedCg.TypeRels {
 				}
 				runtime.Gosched()
@@ -919,7 +926,7 @@ func main() {}`
 	}()
 
 	// Writer: the real zero-edge warm path. Under the bug it writes
-	// sharedCg.Warming = false and appends to sharedCg.TypeRels in place
+	// sharedCg.Warm = WarmNone and appends to sharedCg.TypeRels in place
 	// while the reader reads them → DATA RACE. After the fix it builds a
 	// fresh *CallGraph and writes there → no race.
 	warmGoTypesCache(dir, seeded.Symbols, key)
@@ -1084,8 +1091,8 @@ func TestEnrichWithTypedResolution_ColdGo_SCIPSucceeds_PreservesWarming(t *testi
 
 	cg := EnrichWithTypedResolution(context.Background(), dir, base, base.Symbols, files)
 
-	if !cg.Warming {
-		t.Error("expected Warming=true preserved through SCIP merge on cold Go path, got false")
+	if cg.Warm != WarmPending {
+		t.Errorf("expected Warm=WarmPending preserved through SCIP merge on cold Go path, got %q", cg.Warm)
 	}
 	if cg.Tier != "enhanced" {
 		t.Errorf("expected Tier=enhanced (SCIP succeeded), got %q", cg.Tier)
@@ -1097,21 +1104,20 @@ func TestEnrichWithTypedResolution_ColdGo_SCIPSucceeds_PreservesWarming(t *testi
 
 // TestBuildFromRepo_SiblingKey_StaleWarmingClearedAfterSuccessfulWarm is the
 // RED test for the round-7 defect on issue #735: the background warm's
-// single-flight guard is root-keyed (goTypesWarmingSet, repo.go:288), so on a
-// cold repo only ONE warm runs and only the warm's OWN key gets its Warming
-// flag cleared in place (repo.go:344-379). Sibling keys — same root, different
-// Focus/Language/IncludeFieldAccess scope — keep Warming=true for the full
+// single-flight guard is root-keyed (claimWarm on the goTypesWarm registry),
+// so on a cold repo only ONE warm runs and only the warm's OWN key gets its
+// entry replaced. Sibling keys — same root, different
+// Focus/Language/IncludeFieldAccess scope — keep a pending stamp for the full
 // 5-minute cgCacheTTL because their warm was suppressed as `skipped` and their
 // entry was never touched. A cache hit on such a sibling returns a stale
-// Warming=true graph whose "retry for the enhanced tier" note can never
+// pending-stamped graph whose "retry for the enhanced tier" note can never
 // resolve — the retry hits the same stale cache.
 //
 // This test seeds TWO sibling cache keys (differ by IncludeFieldAccess) on one
 // cold root, runs the warm for keyA only, then calls BuildFromRepo for keyB's
-// scope. The fix detects root in goTypesWarmedSet + cached.Warming=true and
-// treats the hit as a miss → rebuilds at the enhanced tier honestly. On
-// 6b5a435b (without the fix) the cache hit returns the stale Warming=true
-// entry directly → both assertions RED.
+// scope. The registry (goTypesWarm) holds WarmDone after the warm; the hit on
+// keyB sees its entry's pending stamp predating the done instant and diverts
+// to a rebuild → the enhanced tier is returned honestly.
 func TestBuildFromRepo_SiblingKey_StaleWarmingClearedAfterSuccessfulWarm(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1139,43 +1145,50 @@ func main() {}`
 
 	InvalidateBuildCache()
 	// Clean package-level state from prior tests.
-	goTypesWarmingSet.Delete(dir)
-	goTypesWarmedSet.Delete(dir)
-	t.Cleanup(func() { goTypesWarmedSet.Delete(dir) })
+	goTypesWarm.Delete(dir)
+	t.Cleanup(func() { goTypesWarm.Delete(dir) })
+
+	// The sibling divert rebuilds via the request-path sync load, which is
+	// bounded by syncLoadBudget (10s in prod). On a loaded CI box a
+	// packages.Load can exceed that even on a warm GOCACHE — the rebuild
+	// would stamp pending and this test would assert on timing, not on the
+	// divert. Give the test a patient budget so it checks semantics.
+	oldBudget := syncLoadBudget
+	syncLoadBudget = 2 * time.Minute
+	t.Cleanup(func() { syncLoadBudget = oldBudget })
 
 	// Two sibling cache keys — same root, different IncludeFieldAccess scope.
 	keyA := cgCacheKey(TraceRepoInput{Root: dir, IncludeFieldAccess: false})
 	keyB := cgCacheKey(TraceRepoInput{Root: dir, IncludeFieldAccess: true})
 
-	// Seed BOTH as state 1 (cold sync load failed): Warming=true, no IMPLEMENTS.
+	// Seed BOTH as state 1 (cold sync load failed): WarmPending, no IMPLEMENTS.
 	seedA := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	seedB := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	cgCache.set(keyA, seedA, dir)
 	cgCache.set(keyB, seedB, dir)
 
-	// Run the warm for keyA only (the warm's own key). It succeeds, stores
-	// root in goTypesWarmedSet, and refreshes keyA in place. keyB is never
-	// touched — its warm was suppressed as `skipped`.
+	// Run the warm for keyA only (the warm's own key). It succeeds, records
+	// WarmDone in the registry, and replaces keyA's entry. keyB's entry is
+	// never touched — write-once.
 	warmGoTypesCache(dir, seedA.Symbols, keyA)
 
-	// Call BuildFromRepo for keyB's scope. The cache hit returns the stale
-	// entry (Warming=true). The fix detects root in goTypesWarmedSet and
-	// treats it as a miss → rebuilds.
+	// Call BuildFromRepo for keyB's scope. The cache hit sees registry=done
+	// with the entry's stamp predating it → divert → rebuild.
 	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir, IncludeFieldAccess: true})
 	if err != nil {
 		t.Fatalf("BuildFromRepo: %v", err)
 	}
 
-	// Assertion A: Warming must be false — the rebuild ran the real path
-	// against a now-warm GOCACHE, which does not set Warming.
-	if cg.Warming {
-		t.Error("expected Warming=false on sibling key after successful warm; the cache hit returned a stale Warming=true entry (round-7: warm's single-flight guard is root-keyed, so sibling scopes never got their flag cleared)")
+	// Assertion A: Warm must be none — the rebuild ran the real path
+	// against a now-warm GOCACHE, which does not stamp pending.
+	if cg.Warm != WarmNone {
+		t.Errorf("expected Warm=WarmNone on sibling key after successful warm, got %q; the cache hit returned a stale pending-stamped entry", cg.Warm)
 	}
 
 	// Assertion B: IMPLEMENTS must be present — proves the rebuild actually
@@ -1193,17 +1206,18 @@ func main() {}`
 	}
 }
 
-// TestBuildFromRepo_SiblingKey_FailedWarm_PreservesHonestWarmingNote pins the
-// honest-failure path: when the background warm FAILS, goTypesWarmedSet is NOT
-// stored, so sibling keys keep their honest "retry for the enhanced tier"
-// note. The fix must NOT divert on a failed warm — the cache hit is returned
-// as-is with Warming=true, so a later retry can still upgrade the entry.
-func TestBuildFromRepo_SiblingKey_FailedWarm_PreservesHonestWarmingNote(t *testing.T) {
+// TestBuildFromRepo_SiblingKey_FailedWarm_ReturnsHonestFailedNote pins the
+// honest-failure path under the registry redesign: when the background warm
+// FAILS, the root registry records WarmFailed, so a hit on a pending-stamped
+// sibling entry returns a copy stamped WarmFailed — the agent gets the
+// honest "unavailable, retry cannot help" note (issue #738.1) instead of a
+// "retry will help" lie that can never resolve for the full cache TTL.
+// The stored entry itself is untouched (write-once).
+func TestBuildFromRepo_SiblingKey_FailedWarm_ReturnsHonestFailedNote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Broken go.mod — packages.Load fails at parse time on both the sync and
-	// background paths. warmGoTypesCache records "failed" and does NOT store
-	// root in goTypesWarmedSet.
+	// background paths. warmGoTypesCache records "failed" in the registry.
 	gomod := "module example.com/siblingfail\n\ngo 1.21\n\nthis is not valid go.mod syntax\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
 		t.Fatal(err)
@@ -1213,54 +1227,60 @@ func TestBuildFromRepo_SiblingKey_FailedWarm_PreservesHonestWarmingNote(t *testi
 	}
 
 	InvalidateBuildCache()
-	goTypesWarmingSet.Delete(dir)
-	goTypesWarmedSet.Delete(dir)
-	t.Cleanup(func() { goTypesWarmedSet.Delete(dir) })
+	goTypesWarm.Delete(dir)
+	t.Cleanup(func() { goTypesWarm.Delete(dir) })
 
 	keyA := cgCacheKey(TraceRepoInput{Root: dir, IncludeFieldAccess: false})
 	keyB := cgCacheKey(TraceRepoInput{Root: dir, IncludeFieldAccess: true})
 
 	seedA := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	seedB := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	cgCache.set(keyA, seedA, dir)
 	cgCache.set(keyB, seedB, dir)
 
-	// Run the warm for keyA — it FAILS (broken go.mod), records "failed",
-	// does NOT store root in goTypesWarmedSet.
+	// Run the warm for keyA — it FAILS (broken go.mod), records "failed"
+	// in the registry (claim succeeds — fresh root).
 	warmGoTypesCache(dir, seedA.Symbols, keyA)
 
-	// Root must NOT be in goTypesWarmedSet after a failed warm.
-	if _, warmed := goTypesWarmedSet.Load(dir); warmed {
-		t.Fatal("goTypesWarmedSet must NOT contain root after a failed warm (only successful warms store)")
+	// The registry must carry WarmFailed — that is what makes the next hit
+	// stop advising a useless retry.
+	if phase, _ := warmStatus(dir); phase != WarmFailed {
+		t.Fatalf("expected registry phase WarmFailed after a failed warm, got %q", phase)
 	}
 
-	// Call BuildFromRepo for keyB's scope. The cache hit returns the stale
-	// entry (Warming=true). Root is NOT in goTypesWarmedSet, so the fix does
-	// NOT divert — returns the stale entry as-is.
+	// Call BuildFromRepo for keyB's scope. The cache hit reconciles the
+	// stale pending stamp against the failed record → WarmFailed copy.
 	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir, IncludeFieldAccess: true})
 	if err != nil {
 		t.Fatalf("BuildFromRepo: %v", err)
 	}
 
-	// Warming must STILL be true — nothing was warmed, so the note stays
-	// honest and a later retry can still upgrade the entry.
-	if !cg.Warming {
-		t.Error("expected Warming=true PRESERVED on sibling key after a FAILED warm (nothing was warmed; the note must stay honest for a later retry)")
+	if cg.Warm != WarmFailed {
+		t.Errorf("expected Warm=WarmFailed on sibling key after a FAILED warm, got %q (the note must say 'unavailable', not 'retry will help')", cg.Warm)
+	}
+	// The stored entry keeps its write-once pending stamp — only the
+	// returned copy carries the reconciled state.
+	if stored, _ := cgCache.get(keyB, dir); stored.Warm != WarmPending {
+		t.Errorf("stored entry must keep its write-once pending stamp, got %q", stored.Warm)
+	}
+	// Backoff: a fresh cold-path attempt on the same root is denied while
+	// the failed record is fresh (claimWarm rejects), so no warm re-spawns.
+	if claimWarm(dir) {
+		t.Error("claimWarm must deny a re-claim while the failed record is fresh (backoff)")
 	}
 }
 
 // TestBuildFromRepo_WarmOwnKey_NotDivertedByWarmedSet is the regression guard
-// for rounds 3-6: the warm's OWN key is refreshed in place by warmGoTypesCache
-// (Warming cleared, Tier/Backend set, IMPLEMENTS present), and the round-7 fix
-// must NOT divert it — cached.Warming is false after the refresh, so the
-// fix's condition (cached.Warming && root in goTypesWarmedSet) is false and
-// the cache hit is returned as-is.
+// for the divert: the warm's OWN key is REPLACED by warmGoTypesCache
+// (Warm=WarmNone stamp, Tier/Backend set, IMPLEMENTS present), and a later
+// hit must NOT divert it — the entry's stamp is none, so the stale-divert
+// condition is false and the cache hit is returned as-is.
 func TestBuildFromRepo_WarmOwnKey_NotDivertedByWarmedSet(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1290,34 +1310,33 @@ func main() {
 	}
 
 	InvalidateBuildCache()
-	goTypesWarmingSet.Delete(dir)
-	goTypesWarmedSet.Delete(dir)
-	t.Cleanup(func() { goTypesWarmedSet.Delete(dir) })
+	goTypesWarm.Delete(dir)
+	t.Cleanup(func() { goTypesWarm.Delete(dir) })
 
 	keyA := cgCacheKey(TraceRepoInput{Root: dir})
 
-	// Seed state 1: Warming=true, no IMPLEMENTS, basic tier.
+	// Seed state 1: WarmPending, no IMPLEMENTS, basic tier.
 	seedA := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	cgCache.set(keyA, seedA, dir)
 
-	// Run the warm for keyA. It succeeds with typedCG != nil, refreshes keyA
-	// in place: Warming=false, Tier="enhanced", Backend=BackendGoTypes,
-	// IMPLEMENTS present. Root is stored in goTypesWarmedSet.
+	// Run the warm for keyA. It succeeds with typedCG != nil and REPLACES
+	// keyA's entry (write-once): Warm=WarmNone, Tier="enhanced",
+	// Backend=BackendGoTypes, IMPLEMENTS present. Root records WarmDone.
 	warmGoTypesCache(dir, seedA.Symbols, keyA)
 
-	// Call BuildFromRepo for keyA's scope. Cache hit returns the refreshed
-	// entry (Warming=false). Root IS in goTypesWarmedSet, but cached.Warming
-	// is false → fix condition is false → NOT diverted. Returns as-is.
+	// Call BuildFromRepo for keyA's scope. Cache hit returns the replaced
+	// entry (Warm=none). Root IS WarmDone, but the stamp carries none →
+	// divert condition is false → NOT diverted. Returns as-is.
 	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
 	if err != nil {
 		t.Fatalf("BuildFromRepo: %v", err)
 	}
 
-	if cg.Warming {
-		t.Error("expected Warming=false on warm's own key (refreshed in place by warmGoTypesCache)")
+	if cg.Warm != WarmNone {
+		t.Errorf("expected Warm=WarmNone on warm's own key (entry replaced by warmGoTypesCache), got %q", cg.Warm)
 	}
 	if cg.Tier != "enhanced" {
 		t.Errorf("expected Tier=enhanced on warm's own key (typedCG != nil), got %q", cg.Tier)
@@ -1338,28 +1357,20 @@ func main() {
 }
 
 // TestBuildFromRepo_DivertTerminatesAfterFailedRebuild is the loop-guard
-// RED test for the round-8 fix on issue #735. Round 7 diverts a cache hit to
-// a full rebuild when the entry has Warming=true and the root is in
-// goTypesWarmedSet. Its three tests all cover the case where the rebuild
-// SUCCEEDS, so Warming comes back false and the next request is a normal
-// hit. The untested branch: the rebuild FAILS typed resolution again. Then
-// Warming=true is re-cached, the root is still in goTypesWarmedSet (which
-// never evicts), and the next request diverts again — forever. Round 7
-// turns a bounded 5-minute stale note into an unbounded full rebuild on
-// EVERY request for that scope, for the process lifetime.
+// test: a stale pending-stamped entry diverts to a rebuild ONCE. If the
+// rebuild's typed resolution fails again (broken go.mod), the re-cached
+// entry must not keep diverting — an unbounded full rebuild on every
+// request would burn the request path forever.
 //
-// This test seeds a Warming=true entry whose at predates the warm
-// completion, with a broken go.mod so typed resolution keeps failing. Two
-// BuildFromRepo calls: the first must rebuild (divert), the second must be
-// a cache hit (not diverted). Discriminate on pointer identity — a rebuild
-// produces a fresh *CallGraph, a cache hit returns the same pointer. On
-// 0584b60f the second call diverts again → different pointer → RED.
+// Under the registry design the discriminator is the STORED cache-entry
+// pointer: a rebuild calls cgCache.set (new entry pointer), a cache hit —
+// including a cloneWithWarm reconciliation — leaves it untouched.
 func TestBuildFromRepo_DivertTerminatesAfterFailedRebuild(t *testing.T) {
 	dir := t.TempDir()
 
 	// Broken go.mod — packages.Load fails on both sync and background paths,
-	// so the rebuild's typed resolution fails and the re-cached entry keeps
-	// Warming=true. Round 7's FailedWarm test uses the same shape.
+	// so the diverted rebuild's typed resolution fails and the re-cached
+	// entry carries a fresh timestamp.
 	gomod := "module example.com/loopguard\n\ngo 1.21\n\nthis is not valid go.mod syntax\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
 		t.Fatal(err)
@@ -1369,58 +1380,120 @@ func TestBuildFromRepo_DivertTerminatesAfterFailedRebuild(t *testing.T) {
 	}
 
 	InvalidateBuildCache()
-	goTypesWarmingSet.Delete(dir)
-	goTypesWarmedSet.Delete(dir)
-	t.Cleanup(func() {
-		goTypesWarmedSet.Delete(dir)
-		goTypesWarmingSet.Delete(dir)
-	})
+	goTypesWarm.Delete(dir)
+	t.Cleanup(func() { goTypesWarm.Delete(dir) })
 
 	key := cgCacheKey(TraceRepoInput{Root: dir})
 
-	// Seed a Warming=true entry (at = t0). This is the "stale" entry —
-	// cached before the warm completed.
+	// Seed a pending-stamped entry (at = t0), then mark the warm done at
+	// t1 > t0. The entry predates the warm → stale → first hit diverts.
 	seed := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	cgCache.set(key, seed, dir)
+	setWarmDone(dir)
 
-	// Mark the root as warmed (warmedAt = t1 > t0). Simulates a successful
-	// warm that completed at some earlier point — the root is genuinely warm
-	// even though this scope's typed resolution will fail (e.g. request-path
-	// timeout under load, issue #735).
-	goTypesWarmedSet.Store(dir, time.Now())
-
-	// Call 1: entry at (t0) predates warmedAt (t1) → divert → rebuild.
-	// The rebuild fails typed resolution (broken go.mod) → re-caches with
-	// Warming=true and a fresh at (t2 > t1).
-	first, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
-	if err != nil {
+	// Call 1: stale stamp → divert → rebuild. The rebuild fails typed
+	// resolution (broken go.mod) and re-caches a fresh entry.
+	if _, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir}); err != nil {
 		t.Fatalf("BuildFromRepo call 1: %v", err)
 	}
+	// The failed sync load on the rebuild restamps pending and kicks a
+	// background warm, which fails fast on the broken go.mod → WarmFailed.
+	// Wait for that terminal state so the second call's outcome is
+	// deterministic.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if phase, _ := warmStatus(dir); phase == WarmFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("warm did not reach WarmFailed within 30s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
-	// Call 2: entry at (t2) is AFTER warmedAt (t1) → NOT diverted → cache
-	// hit. On 0584b60f this diverts again → rebuild → different pointer.
+	entryBefore, _, ok := cgCache.getWithAt(key, dir)
+	if !ok {
+		t.Fatal("expected cache entry after call 1 rebuild")
+	}
+
+	// Call 2: the registry says failed — the answer is a reconciled copy,
+	// NOT another ingest+parse+load cycle.
 	second, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
 	if err != nil {
 		t.Fatalf("BuildFromRepo call 2: %v", err)
 	}
-
-	// Pointer identity: a cache hit returns the same *CallGraph; a rebuild
-	// produces a fresh one. This is the only reliable discriminator — a
-	// rebuild can produce an equal-looking graph.
-	if first != second {
-		t.Errorf("expected call 2 to be a cache hit (same pointer as call 1); got different pointers — first=%p second=%p (round-8 loop guard: the divert must terminate after one rebuild, not repeat forever)", first, second)
+	if second.Warm != WarmFailed {
+		t.Errorf("expected Warm=WarmFailed on call 2 (registry failed), got %q", second.Warm)
+	}
+	entryAfter, _, _ := cgCache.getWithAt(key, dir)
+	if entryAfter != entryBefore {
+		t.Errorf("call 2 replaced the cache entry (%p → %p): the divert must terminate after one rebuild, not re-ingest on every hit", entryBefore, entryAfter)
 	}
 }
 
-// TestBuildFromRepo_EntryCachedAfterWarm_NotDiverted pins the round-8
+// TestBuildFromRepo_OrphanedPendingStamp_KicksHealWarm covers the L2-import
+// case: a pending-stamped entry survives in the cache while the warm registry
+// lost its record (process restart behind Redis L2, or an expired failed
+// record). Without the heal kick the entry would advise "retry" for the whole
+// TTL while NO warm runs — the stamp lies. The hit must claim a fresh warm for
+// the root (registry → WarmPending).
+func TestBuildFromRepo_OrphanedPendingStamp_KicksHealWarm(t *testing.T) {
+	dir := t.TempDir()
+
+	gomod := "module example.com/orphanstamp\n\ngo 1.21\n\nthis is not valid go.mod syntax\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	InvalidateBuildCache()
+	goTypesWarm.Delete(dir)
+	t.Cleanup(func() { goTypesWarm.Delete(dir) })
+
+	key := cgCacheKey(TraceRepoInput{Root: dir})
+	seed := &CallGraph{
+		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
+	}
+	cgCache.set(key, seed, dir)
+
+	// Cache hit with a pending stamp and NO registry record — an orphan
+	// (post-restart L2 import). Must kick a heal warm, not serve the lie
+	// with nothing in flight.
+	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
+	if err != nil {
+		t.Fatalf("BuildFromRepo: %v", err)
+	}
+	if cg != seed {
+		t.Fatalf("expected the cached entry returned as-is, got %p vs seed %p", cg, seed)
+	}
+
+	// The kicked warm claims the root (pending), then fails fast on the
+	// broken go.mod → failed. Wait for the claim — with no kick the
+	// registry stays empty forever.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if phase, _ := warmStatus(dir); phase != WarmNone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no warm was claimed for the orphaned pending stamp — the stale 'retry' note would lie for the full TTL")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestBuildFromRepo_EntryCachedAfterWarm_NotDiverted pins the loop-guard
 // invariant in its own right: an entry cached AFTER the warm completed is
-// never diverted, even with Warming=true. The "stale" predicate is "cached
-// before the warm completed" (entry.at predates warmedAt), not "Warming
-// flag is set". An entry re-cached after a failed rebuild carries a fresh
-// at — it is not stale, and diverting it would loop forever.
+// never diverted, even carrying a stale-looking stamp. The "stale" predicate
+// is "cached before the warm completed" (entry.at predates the done
+// instant), not "stamp is set". An entry re-cached after a failed rebuild
+// carries a fresh at — it is not stale, and diverting it would loop.
 func TestBuildFromRepo_EntryCachedAfterWarm_NotDiverted(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1433,29 +1506,25 @@ func TestBuildFromRepo_EntryCachedAfterWarm_NotDiverted(t *testing.T) {
 	}
 
 	InvalidateBuildCache()
-	goTypesWarmingSet.Delete(dir)
-	goTypesWarmedSet.Delete(dir)
-	t.Cleanup(func() {
-		goTypesWarmedSet.Delete(dir)
-		goTypesWarmingSet.Delete(dir)
-	})
+	goTypesWarm.Delete(dir)
+	t.Cleanup(func() { goTypesWarm.Delete(dir) })
 
-	// Mark the root as warmed FIRST (warmedAt = t_warm).
-	goTypesWarmedSet.Store(dir, time.Now())
+	// Mark the root as warm-done FIRST (doneAt = t_warm).
+	setWarmDone(dir)
 
 	key := cgCacheKey(TraceRepoInput{Root: dir})
 
-	// Seed a Warming=true entry AFTER the warm (at = t_entry > t_warm).
+	// Seed a pending-stamped entry AFTER the warm (at = t_entry > t_warm).
 	// This is the post-rebuild state: typed resolution failed again, the
-	// entry was re-cached with Warming=true and a fresh at.
+	// entry was re-cached with the pending stamp and a fresh at.
 	seed := &CallGraph{
 		Symbols: []*parser.Symbol{{Name: "main", Kind: parser.KindFunction, File: filepath.Join(dir, "main.go")}},
-		Tier:    "basic", Backend: BackendTreeSitter, Warming: true,
+		Tier:    "basic", Backend: BackendTreeSitter, Warm: WarmPending,
 	}
 	cgCache.set(key, seed, dir)
 
-	// BuildFromRepo: cache hit with Warming=true, but entry.at is AFTER
-	// warmedAt → not stale → NOT diverted → returned as-is.
+	// BuildFromRepo: cache hit with a pending stamp, but entry.at is AFTER
+	// doneAt → not stale → NOT diverted → returned as-is.
 	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir})
 	if err != nil {
 		t.Fatalf("BuildFromRepo: %v", err)
@@ -1464,10 +1533,41 @@ func TestBuildFromRepo_EntryCachedAfterWarm_NotDiverted(t *testing.T) {
 	// Pointer identity: the cache hit must return the seeded *CallGraph,
 	// not a rebuilt one.
 	if cg != seed {
-		t.Errorf("expected cache hit (same pointer as seed %p); got %p — entry cached AFTER warm was diverted (round-8 invariant: only entries cached BEFORE the warm are stale)", seed, cg)
+		t.Errorf("expected cache hit (same pointer as seed %p); got %p — entry cached AFTER warm was diverted (invariant: only entries cached BEFORE the warm are stale)", seed, cg)
 	}
-	// Warming must still be true — the entry is returned as-is.
-	if !cg.Warming {
-		t.Error("expected Warming=true preserved (entry cached after warm is not diverted)")
+	// The pending stamp is preserved — the entry is returned as-is.
+	if cg.Warm != WarmPending {
+		t.Errorf("expected Warm=WarmPending preserved (entry cached after warm is not diverted), got %q", cg.Warm)
+	}
+}
+
+// Issue #746: a panic inside packages.Load must not leave the registry pinned
+// at WarmPending — claimWarm would deny every future warm and entries would
+// keep advising a retry that never resolves.
+func TestWarmGoTypesCache_Panic_RecordsFailed(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"),
+		[]byte("module example.com/panictest\n\ngo 1.21\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goTypesWarm.Delete(dir)
+	old := goTypesLoadFn
+	goTypesLoadFn = func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		panic("boom")
+	}
+	defer func() { goTypesLoadFn = old }()
+
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("expected panic to propagate")
+			}
+		}()
+		warmGoTypesCache(dir, nil, cgCacheKey(TraceRepoInput{Root: dir}))
+	}()
+
+	phase, _ := warmStatus(dir)
+	if phase != WarmFailed {
+		t.Fatalf("warmStatus = %v, want WarmFailed after panic", phase)
 	}
 }

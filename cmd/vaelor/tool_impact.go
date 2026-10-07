@@ -165,9 +165,8 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	if directCallersTruncNote != "" {
 		notes = append(notes, directCallersTruncNote)
 	}
-	if cg.Warming {
-		notes = append(notes,
-			"type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)")
+	if n := callgraph.WarmNote(cg.Warm); n != "" {
+		notes = append(notes, n)
 	}
 	output := impactOutput{Result: result, Tier: cg.Tier, HotspotCallers: hotspotCallers, Notes: notes}
 

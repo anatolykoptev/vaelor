@@ -29,20 +29,20 @@ import (
 func TestWarmingSignal_AllTools_SurfaceInOutput(t *testing.T) {
 	const target = "Foo"
 
-	// makeWarmingCG builds a minimal CallGraph with Warming=true and a single
-	// target symbol so impact/understand/prepare_change can find it.
+	// makeWarmingCG builds a minimal CallGraph with Warm=WarmPending and a
+	// single target symbol so impact/understand/prepare_change can find it.
 	makeWarmingCG := func(root string) *callgraph.CallGraph {
 		return &callgraph.CallGraph{
 			Symbols: []*parser.Symbol{
 				{Name: target, Kind: parser.KindFunction, File: filepath.Join(root, "foo.go"), StartLine: 1},
 			},
-			Tier:    "basic",
-			Warming: true,
+			Tier: "basic",
+			Warm: callgraph.WarmPending,
 		}
 	}
 
-	// makeWarmingTraceResult builds a minimal TraceResult with Warming=true for
-	// call_trace's AGE seam.
+	// makeWarmingTraceResult builds a minimal TraceResult with Warm=WarmPending
+	// for call_trace's AGE seam.
 	makeWarmingTraceResult := func() *callgraph.TraceResult {
 		root := &parser.Symbol{Name: target, Kind: parser.KindFunction, File: "foo.go", StartLine: 1}
 		return &callgraph.TraceResult{
@@ -51,7 +51,7 @@ func TestWarmingSignal_AllTools_SurfaceInOutput(t *testing.T) {
 			TotalNodes: 1,
 			MaxDepth:   0,
 			Resolved:   1,
-			Warming:    true,
+			Warm:       callgraph.WarmPending,
 		}
 	}
 
@@ -241,8 +241,7 @@ func TestWarmingSignal_WarmPath_NoNote(t *testing.T) {
 			Symbols: []*parser.Symbol{
 				{Name: target, Kind: parser.KindFunction, File: filepath.Join(root, "foo.go"), StartLine: 1},
 			},
-			Tier:    "enhanced",
-			Warming: false,
+			Tier: "enhanced",
 		}
 	}
 
@@ -347,7 +346,7 @@ func TestCallTrace_Rung3Counts_CarriesWarmingNote(t *testing.T) {
 			TotalNodes: 201,
 			MaxDepth:   1,
 			Resolved:   201,
-			Warming:    true,
+			Warm:       callgraph.WarmPending,
 		}, nil
 	}
 

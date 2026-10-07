@@ -127,12 +127,11 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	}
 	result := understandCompound(ctx, matches[0], cg, opts)
 
-	// Surface the warming note when go/types enrichment was skipped on a cold
-	// cache (issue #735). The background warm is running; a retry will return
-	// the enhanced tier with type-aware call resolution.
-	if cg.Warming {
-		result.Warnings = append(result.Warnings,
-			"type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)")
+	// Surface the warm-state note (issue #746): pending → "retry will
+	// return the enhanced tier", failed → "retry cannot help". WarmNote
+	// returns "" when no warm state applies.
+	if n := callgraph.WarmNote(cg.Warm); n != "" {
+		result.Warnings = append(result.Warnings, n)
 	}
 
 	// Reverse-map container-internal paths back to host-side paths so callers
