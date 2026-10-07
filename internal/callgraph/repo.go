@@ -205,7 +205,10 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 // days. A value shared between two sequential steps of one request is a
 // parameter, not process-global state; passing it makes the arena's lifetime
 // the request's, so it becomes collectable the moment the request ends, with
-// no TTL, no LRU, and no way for eight arenas to coexist.
+// no TTL, no LRU, and no way for eight arenas to coexist. Concurrent requests
+// and the background warm for one module now also share ONE load, and loads of
+// different modules are admitted against a process-wide memory budget
+// (typed_load.go); this seam releases its share once both consumers are done.
 //
 // Both passes are bounded and non-fatal: on any failure (no go.mod, cold
 // GOCACHE, no indexer, timeout) base is returned with Tier/Backend
@@ -218,7 +221,7 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 
 	if goanalysis.HasGoModule(root) {
 		warmCtx, warmCancel := context.WithTimeout(context.Background(), syncLoadBudget)
-		lr, loadErr := goanalysis.LoadPackages(warmCtx, root, goanalysis.LoadOpts{Tests: true})
+		lr, release, loadErr := loadTypedShared(warmCtx, root, goanalysis.LoadOpts{Tests: true})
 		warmCancel()
 		if loadErr != nil {
 			// Cold cache: the go/packages LOAD failed. Stamp the graph
@@ -250,6 +253,9 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 			// edges — Tier stays "basic" for CALLS (honest), and IMPLEMENTS
 			// enrichment still runs below.
 			cg.TypeRels = append(cg.TypeRels, ExtractGoImplements(ctx, root, lr)...)
+			// Both consumers are done: nothing reads lr any more, so the
+			// arena (and its share of the typed-load budget) can go.
+			release()
 		}
 	}
 
@@ -363,9 +369,11 @@ func buildPrewarmEnv() []string {
 // path (issue #747): the arena is collectable when the warm returns.
 // goTypesLoadFn is the packages.Load seam for the background warm. Tests
 // swap it to simulate load failures/panics without a real 15-minute load.
-var goTypesLoadFn = func(ctx context.Context, root string, opts goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
-	return goanalysis.LoadPackages(ctx, root, opts)
-}
+//
+// The default is the shared, budget-admitted load (typed_load.go): the warm
+// joins the probe's still-running load instead of building a second arena. The
+// returned release func must be called once the result is no longer read.
+var goTypesLoadFn = loadTypedShared
 
 // syncLoadBudget bounds the request-path packages.Load probe in
 // EnrichWithTypedResolution. 10s is the production contract — a request
@@ -404,7 +412,10 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 	// this same root; this retry re-attempts with a now-warm GOCACHE and a
 	// much longer budget. No cache eviction is needed — there is no
 	// process-global load cache anymore (issue #747).
-	lr, loadErr := goTypesLoadFn(ctx, root, goanalysis.LoadOpts{Tests: true})
+	lr, release, loadErr := goTypesLoadFn(ctx, root, goanalysis.LoadOpts{Tests: true})
+	if loadErr == nil {
+		defer release()
+	}
 	if loadErr != nil {
 		recordGotypesFallback(loadErr)
 		warmErr = loadErr

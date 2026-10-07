@@ -65,6 +65,9 @@ var callgraphGotypesFallbackTotal = promauto.NewCounterVec(
 
 // recordGotypesFallback bumps the go/types fallback counter with the appropriate reason.
 func recordGotypesFallback(err error) {
+	if errors.Is(err, errTypedBudget) {
+		return // counted as gocode_callgraph_gotypes_load_degraded_total{reason="budget_wait"}
+	}
 	reason := "load_error"
 	if isDeadlineErr(err) {
 		reason = "deadline"
@@ -104,6 +107,36 @@ var scipFallbackTotal = promauto.NewCounterVec(
 func recordSCIPFallback(indexer, reason string) {
 	scipFallbackTotal.WithLabelValues(indexer, reason).Inc()
 }
+
+// gocode_callgraph_gotypes_load_peak_heap_bytes is the peak process heap
+// (live objects, sampled every 50 ms) while one shared typed go/packages load
+// ran. It includes whatever else the process held at the time, so read it as
+// "heap the server needed to serve a typed load", the number to compare with
+// the container limit and typedBudget.
+var gotypesLoadPeakHeapBytes = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "gocode_callgraph_gotypes_load_peak_heap_bytes",
+	Help:    "Peak process heap in bytes during one shared typed go/packages load.",
+	Buckets: prometheus.ExponentialBuckets(64<<20, 2, 8), // 64 MiB .. 8 GiB
+})
+
+func observeTypedLoadPeak(peak uint64) { gotypesLoadPeakHeapBytes.Observe(float64(peak)) }
+
+// gocode_callgraph_gotypes_load_degraded_total counts typed loads a request
+// gave up on instead of adding to memory pressure.
+//
+// Labels:
+//   - reason: "budget_wait" — the memory budget was exhausted for the whole
+//     wait, so the request stayed on the tree-sitter tier (the background load
+//     keeps waiting its turn and upgrades the cache entry).
+var gotypesLoadDegradedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_callgraph_gotypes_load_degraded_total",
+		Help: "Typed go/packages loads not run for a request because of the memory budget, by reason (budget_wait).",
+	},
+	[]string{"reason"},
+)
+
+func recordTypedLoadDegraded(reason string) { gotypesLoadDegradedTotal.WithLabelValues(reason).Inc() }
 
 // isDeadlineErr reports whether err wraps context.DeadlineExceeded.
 // context.Canceled is NOT a deadline — it is a deliberate cancellation

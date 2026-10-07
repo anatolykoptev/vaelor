@@ -1470,9 +1470,9 @@ func TestBuildFromRepo_OrphanedPendingStamp_KicksHealWarm(t *testing.T) {
 	old := goTypesLoadFn
 	loadCalled := make(chan struct{})
 	var once sync.Once
-	goTypesLoadFn = func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+	goTypesLoadFn = func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, func(), error) {
 		once.Do(func() { close(loadCalled) })
-		return nil, errors.New("stub: no loader")
+		return nil, nil, errors.New("stub: no loader")
 	}
 	defer func() {
 		// Wait for the loader read before restoring the global — otherwise
@@ -1582,7 +1582,7 @@ func TestWarmGoTypesCache_Panic_RecordsFailed(t *testing.T) {
 	}
 	goTypesWarm.Delete(dir)
 	old := goTypesLoadFn
-	goTypesLoadFn = func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+	goTypesLoadFn = func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, func(), error) {
 		panic("boom")
 	}
 	defer func() { goTypesLoadFn = old }()

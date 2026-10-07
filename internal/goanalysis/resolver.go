@@ -32,7 +32,6 @@ type concreteTypes = *implIndex
 type implIndex struct {
 	named []*types.Named                      // every named non-interface type in the set
 	impls map[*types.Interface][]*types.Named // memoised implementers per interface
-	fset  *token.FileSet                      // when set, implementers are deduplicated by declaration site
 	meths map[methodKey]*types.Func           // memoised method lookups (promoted methods included)
 }
 
@@ -70,22 +69,10 @@ func (ix *implIndex) implementers(iface *types.Interface) []*types.Named {
 		return impls
 	}
 	var out []*types.Named
-	var seen map[token.Position]struct{}
-	if ix.fset != nil {
-		seen = make(map[token.Position]struct{})
-	}
 	for _, cn := range ix.named {
-		if !types.Implements(cn, iface) && !types.Implements(types.NewPointer(cn), iface) {
-			continue
+		if types.Implements(cn, iface) || types.Implements(types.NewPointer(cn), iface) {
+			out = append(out, cn)
 		}
-		if seen != nil {
-			site := ix.fset.Position(cn.Obj().Pos())
-			if _, dup := seen[site]; dup {
-				continue
-			}
-			seen[site] = struct{}{}
-		}
-		out = append(out, cn)
 	}
 	ix.impls[iface] = out
 	return out
@@ -118,13 +105,12 @@ func Resolve(pkgs []*packages.Package) []TypedEdge {
 // Two type universes are involved: "p" and its variant "p [p.test]" are
 // separate type-checks of the same source, so every *types.Named of p exists
 // twice (plus once more in each "q [p.test]" recompile of a dependent). Naively
-// pooling them would emit each interface-dispatch edge once per universe and
-// would let production code dispatch to test fakes. So:
+// pooling them would let production code dispatch to test fakes. So:
 //   - production files walk pkgs only and dispatch over pkgs' types only;
 //   - only the _test.go files of a variant are walked (its non-test files are
 //     the same files pkgs already covers) and they dispatch over the pooled
-//     types, deduplicated by declaration site so a type is one implementation
-//     however many universes contain it.
+//     types. A type present in several universes resolves to one declaration,
+//     and resolveInterfaceDispatch emits one edge per declaration.
 func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
 	concrete := collectConcreteTypes(pkgs)
 	aliases := collectFuncValueAliases(pkgs)
@@ -144,7 +130,7 @@ func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
 
 	all := make([]*packages.Package, 0, len(pkgs)+len(testPkgs))
 	all = append(append(all, pkgs...), testPkgs...)
-	testConcrete := collectConcreteTypes(all).dedupeBySite(all)
+	testConcrete := collectConcreteTypes(all)
 	testAliases := collectFuncValueAliases(all)
 	for _, pkg := range testPkgs {
 		if pkg.TypesInfo == nil {
@@ -158,35 +144,6 @@ func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
 		}
 	}
 	return edges
-}
-
-// dedupeBySite collapses implementations of each interface that are the same
-// declaration seen through different type universes, for the interfaces already
-// indexed and for any resolved later.
-func (ix *implIndex) dedupeBySite(pkgs []*packages.Package) *implIndex {
-	for _, p := range pkgs {
-		if p.Fset != nil {
-			ix.fset = p.Fset
-			break
-		}
-	}
-	if ix.fset == nil {
-		return ix
-	}
-	for iface, impls := range ix.impls {
-		seen := make(map[token.Position]struct{}, len(impls))
-		var out []*types.Named
-		for _, n := range impls {
-			site := ix.fset.Position(n.Obj().Pos())
-			if _, dup := seen[site]; dup {
-				continue
-			}
-			seen[site] = struct{}{}
-			out = append(out, n)
-		}
-		ix.impls[iface] = out
-	}
-	return ix
 }
 
 // funcValueAliases maps a *types.Var with a single static function-valued

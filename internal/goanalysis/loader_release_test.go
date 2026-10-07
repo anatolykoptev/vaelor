@@ -125,28 +125,25 @@ func TestLoadPackages_ReleasesUnreadTypeInfoMaps(t *testing.T) {
 	}
 }
 
-// The release must reach DEPENDENCY packages, not just the roots.
+// A dependency type-checked from source (SourceDeps) must be reduced to its
+// *types.Package: its ASTs and per-expression info are most of the arena, and
+// the resolver only ever reads the roots'.
 //
-// This is where the memory actually is: NeedDeps gives every dependency its own
-// fully-populated types.Info, and the roots are a small fraction of the total.
-// A roots-only loop passes the test above while freeing almost nothing, so the
-// saving would look delivered and not be.
+// "strings" is a STDLIB dependency: the "./..." pattern never makes it a root,
+// which is what separates a graph walk from a roots-only loop (the module's own
+// "greet" package IS a root and would be cleaned by either).
 //
-// Mutation that must turn it RED: replace the packages.Visit walk in
-// releaseUnreadTypeInfo with `for _, p := range pkgs`.
-func TestLoadPackages_ReleasesAcrossDependencyGraph(t *testing.T) {
+// Mutation that must turn it RED: in releaseUnreadTypeInfo
+// (internal/goanalysis/loader.go) delete the `p.Syntax = nil; p.TypesInfo = nil`
+// branch for non-roots.
+func TestLoadPackages_SourceDepsReleaseNonRootArena(t *testing.T) {
 	dir := makeTwoPackageModule(t)
 
-	result, err := goanalysis.LoadPackages(context.Background(), dir, goanalysis.LoadOpts{})
+	result, err := goanalysis.LoadPackages(context.Background(), dir, goanalysis.LoadOpts{SourceDeps: true})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 
-	// "strings" is a STDLIB dependency: NeedDeps loads it with its own
-	// types.Info, but the "./..." pattern never makes it a root. That is what
-	// separates a graph walk from a roots-only loop — the module's own "greet"
-	// package would NOT, because "./..." returns it as a root too, and a
-	// roots-only loop cleans it just fine.
 	var dep *packages.Package
 	for _, root := range result.Packages {
 		if imp, ok := root.Imports["strings"]; ok {
@@ -154,18 +151,53 @@ func TestLoadPackages_ReleasesAcrossDependencyGraph(t *testing.T) {
 		}
 	}
 	if dep == nil {
-		t.Fatal("fixture is inert: the stdlib dependency was not loaded, so this " +
-			"test cannot tell a graph walk from a roots-only loop")
+		t.Fatal("fixture is inert: the stdlib dependency was not loaded")
 	}
-	if dep.TypesInfo == nil {
-		t.Fatal("fixture is inert: the dependency carries no TypesInfo to release")
+	if dep.Types == nil || !dep.Types.Complete() {
+		t.Fatal("the dependency's *types.Package must survive: roots import it")
 	}
+	if dep.Syntax != nil {
+		t.Errorf("a non-root dependency's Syntax must be released, got %d files", len(dep.Syntax))
+	}
+	if dep.TypesInfo != nil {
+		t.Error("a non-root dependency's TypesInfo must be released")
+	}
+	// The roots keep what the resolver reads.
+	if len(result.Packages) == 0 || result.Packages[0].Syntax == nil || result.Packages[0].TypesInfo == nil {
+		t.Error("a root must keep Syntax and TypesInfo")
+	}
+}
 
-	if len(dep.TypesInfo.Defs) == 0 {
-		t.Error("the dependency's Defs must survive: the resolver reads it")
+// By default dependencies come from export data: they are never type-checked
+// from source, so no ASTs or type info exist to release, and the roots still
+// type-check identically.
+//
+// Mutation that must turn it RED: in loadPackages (loader.go) make the mode
+// unconditionally include packages.NeedDeps.
+func TestLoadPackages_DefaultReadsDepsFromExportData(t *testing.T) {
+	dir := makeTwoPackageModule(t)
+
+	result, err := goanalysis.LoadPackages(context.Background(), dir, goanalysis.LoadOpts{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if dep.TypesInfo.Types != nil {
-		t.Errorf("the dependency's Types must be released too, got %d entries — "+
-			"a roots-only walk frees almost nothing", len(dep.TypesInfo.Types))
+	var dep *packages.Package
+	for _, root := range result.Packages {
+		if imp, ok := root.Imports["strings"]; ok {
+			dep = imp
+		}
+	}
+	if dep == nil || dep.Types == nil {
+		t.Fatal("fixture is inert: the stdlib dependency has no types")
+	}
+	if dep.ExportFile == "" {
+		t.Error("default load must read dependencies from compiler export data (ExportFile empty: the dependency was type-checked from source)")
+	}
+	if dep.Syntax != nil || dep.TypesInfo != nil {
+		t.Errorf("default load type-checked a dependency from source (Syntax=%d, TypesInfo=%v)",
+			len(dep.Syntax), dep.TypesInfo != nil)
+	}
+	if len(goanalysis.Resolve(result.Packages)) == 0 {
+		t.Error("roots must still resolve typed edges against export-data dependencies")
 	}
 }

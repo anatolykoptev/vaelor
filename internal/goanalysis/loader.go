@@ -22,6 +22,16 @@ type LoadOpts struct {
 	// them test files are never type-checked, so every call made from a _test.go
 	// file has to be resolved by name alone.
 	Tests bool
+	// SourceDeps type-checks every dependency from source too (NeedDeps). The
+	// default type-checks only the matched packages from source and reads each
+	// dependency from compiler export data, which holds the dependency's types
+	// but not its ASTs or per-expression type info: on v1.65.16 with tests that
+	// is 311 MB peak RSS instead of 1.29 GB, on a 172-package module 0.9 GB
+	// instead of 2.1 GB, with an identical typed edge set. A dependency whose
+	// export data cannot be built (does not compile) is type-checked from
+	// source by go/packages itself; SourceDeps forces that for all of them and
+	// reproduces the old behaviour.
+	SourceDeps bool
 }
 
 // LoadResult contains loaded packages with full type information.
@@ -72,14 +82,19 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 		patterns = []string{"./..."}
 	}
 
+	mode := packages.NeedName |
+		packages.NeedTypes |
+		packages.NeedSyntax |
+		packages.NeedTypesInfo |
+		packages.NeedImports |
+		packages.NeedForTest
+	if opts.SourceDeps {
+		mode |= packages.NeedDeps
+	} else {
+		mode |= packages.NeedExportFile
+	}
 	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedTypes |
-			packages.NeedSyntax |
-			packages.NeedTypesInfo |
-			packages.NeedImports |
-			packages.NeedDeps |
-			packages.NeedForTest,
+		Mode:    mode,
 		Dir:     dir,
 		Tests:   opts.Tests,
 		Context: ctx,
@@ -163,7 +178,19 @@ func isSyntheticTestMain(pkg *packages.Package) bool {
 // silent "no entry" for every expression rather than a crash — which is why
 // the kept set is pinned by a test instead of left to a comment.
 func releaseUnreadTypeInfo(pkgs []*packages.Package) {
+	roots := make(map[*packages.Package]bool, len(pkgs))
+	for _, p := range pkgs {
+		roots[p] = true
+	}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if !roots[p] {
+			// A dependency type-checked from source (SourceDeps): only its
+			// *types.Package is ever read (as an import of a root). Its ASTs
+			// and per-expression info are the bulk of the arena.
+			p.Syntax = nil
+			p.TypesInfo = nil
+			return
+		}
 		if p.TypesInfo == nil {
 			return
 		}
