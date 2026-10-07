@@ -106,6 +106,8 @@
 | `GITLAB_TOKEN` | optional | GitLab API token (`PRIVATE-TOKEN` header) |
 | `GITLAB_URL` | optional | Self-hosted GitLab base URL (default: `https://gitlab.com`) |
 | `GO_SEARCH_URL` | optional | go-search MCP endpoint for web search (e.g. `http://go-search:8890/mcp`) |
+| `SOURCEGRAPH_URL` | `https://sourcegraph.com` | Sourcegraph instance for the `engine` fallback in `github_code_search`. `off`/`none`/`disabled` disables it. |
+| `SOURCEGRAPH_TOKEN` | optional | Sourcegraph access token; empty = anonymous public-index access |
 | `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `code-rank-embed` | Model name for OpenAI-compatible embed API |
 | `AUTO_INDEX_DIRS` | optional | Comma-separated dirs eligible for auto-indexing (e.g. `/host/src`). Indexing is lazy per-repo on first semantic query, not eager at boot. Runtime compose sets `/host/src` |

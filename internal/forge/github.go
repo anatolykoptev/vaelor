@@ -54,6 +54,8 @@ type GitHubForge struct {
 	apiBase string
 	http    *http.Client
 	cache   *kitcache.Cache
+	// sg is the optional Sourcegraph fallback engine for code search.
+	sg *SourcegraphClient
 }
 
 // GitHubForgeOption configures a GitHubForge.

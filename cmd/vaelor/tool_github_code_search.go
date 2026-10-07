@@ -31,6 +31,8 @@ type GithubCodeSearchInput struct {
 	ContextLines int `json:"context_lines,omitempty" jsonschema:"Lines of file context around each match (0 = fragments only). Fetches the file for the top context_results hits."`
 	// ContextResults caps how many results get context fetched.
 	ContextResults int `json:"context_results,omitempty" jsonschema:"How many top results get context_lines fetched (default 5). Requires context_lines > 0."`
+	// Engine selects the search backend.
+	Engine string `json:"engine,omitempty" jsonschema:"Search engine: 'auto' (default) = GitHub with Sourcegraph fallback when GitHub underfills or is incomplete; 'github' = GitHub only; 'sourcegraph' = Sourcegraph public index only (different coverage, e.g. finds repos missing from the GitHub search index)."`
 }
 
 // githubCodeSearchResult is a single search result.
@@ -38,8 +40,12 @@ type githubCodeSearchResult struct {
 	Path         string   `json:"path"`
 	Repo         string   `json:"repo"`
 	URL          string   `json:"url"`
+	Engine       string   `json:"engine"`
 	Fragments    string   `json:"fragments,omitempty"`
 	Matched      []string `json:"matched,omitempty"`
+	Lines        []int    `json:"lines,omitempty"`
+	Commit       string   `json:"commit,omitempty"`
+	Stars        int      `json:"stars,omitempty"`
 	Context      string   `json:"context,omitempty"`
 	ContextStart int      `json:"context_start,omitempty"`
 }
@@ -56,7 +62,10 @@ type githubCodeSearchOutput struct {
 func registerGithubCodeSearch(server *mcp.Server, _ Config, deps analyze.Deps) {
 	addTool(server, &mcp.Tool{
 		Name: "github_code_search",
-		Description: "Search code on GitHub using the Code Search API. Returns file paths with matching code fragments. " +
+		Description: "Search code on GitHub using the Code Search API, with automatic Sourcegraph fallback when GitHub " +
+			"underfills or reports incomplete results (the GitHub search index misses some large repos). " +
+			"Returns file paths with matching code fragments; sourcegraph results carry absolute line numbers, " +
+			"commit-pinned URLs and repo stars. " +
 			"Use this instead of web_url_read for GitHub search URLs. " +
 			"Supports GitHub search syntax: 'func resize language:python', 'className path:src/'. " +
 			"Requires GITHUB_TOKEN for higher rate limits.",
@@ -102,6 +111,7 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 		ContextLines:     input.ContextLines,
 		ContextResults:   input.ContextResults,
 		ExcludePaths:     input.ExcludePaths,
+		Engine:           input.Engine,
 	}
 
 	result, err := gh.SearchCode(ctx, input.Query, repos, opts)
@@ -130,8 +140,12 @@ func handleGithubCodeSearch(ctx context.Context, input GithubCodeSearchInput, de
 			Path:         r.Path,
 			Repo:         r.Repo,
 			URL:          r.URL,
+			Engine:       r.Engine,
 			Fragments:    r.Content,
 			Matched:      r.Matched,
+			Lines:        r.Lines,
+			Commit:       r.Commit,
+			Stars:        r.Stars,
 			Context:      r.Context,
 			ContextStart: r.ContextStart,
 		})
