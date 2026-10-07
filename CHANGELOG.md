@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.1](https://github.com/anatolykoptev/vaelor/compare/v1.72.0...v1.72.1) (2026-10-07)
+
+
+### Fixed
+
+* **impact:** resolve typed call edges by definition site; type-check test files ([#868](https://github.com/anatolykoptev/vaelor/issues/868)) ([7eec162](https://github.com/anatolykoptev/vaelor/commit/7eec162558fb2a6335fc81226e4d84ec7149e3d4))
+
 ## [1.72.0](https://github.com/anatolykoptev/vaelor/compare/v1.71.0...v1.72.0) (2026-10-07)
 
 
