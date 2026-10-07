@@ -281,7 +281,10 @@ func runSymbolsPhase(
 				funcName := investigate.OperationToFuncName(op)
 				if cg != nil && funcName != "" {
 					matches := compound.FindSymbol(cg.Symbols, funcName)
-					if len(matches) > 0 {
+					// Attribute only an unambiguous match — picking the
+					// first of several same-named symbols pins the wrong
+					// file/line on the hypothesis (issue #867).
+					if len(matches) == 1 {
 						sym := matches[0]
 						h.File = reverseToHost(sym.File, deps.PathMappings)
 						h.Line = int(sym.StartLine)

@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"context"
+	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/graphx"
 	"github.com/anatolykoptev/vaelor/internal/langutil"
@@ -62,6 +63,13 @@ type TraceResult struct {
 	// will return the enhanced tier, "failed" means it durably cannot
 	// (issue #746). Empty when no warm state applies.
 	Warm WarmState `json:"warming,omitempty"`
+	// Ambiguous lists every Function/Method symbol matching the query's
+	// bare name when there is more than one (issue #867): the trace is NOT
+	// built — silently picking the first match merged the call trees of N
+	// same-named functions (every `main` in the repo, every `Close`). The
+	// caller should narrow via focus= or a "Receiver.Name" qualified
+	// symbol instead of acting on the merged answer.
+	Ambiguous []*parser.Symbol `json:"ambiguous,omitempty"`
 }
 
 // Trace walks the call graph from the named symbol, building a tree of call chains.
@@ -84,10 +92,17 @@ func Trace(ctx context.Context, g *CallGraph, symbolName string, opts TraceOpts)
 		opts.Direction = "callees"
 	}
 
-	root := findSymbol(g.Symbols, symbolName)
-	if root == nil {
+	matches := FindSymbols(g.Symbols, symbolName)
+	if len(matches) == 0 {
 		return TraceResult{}
 	}
+	if len(matches) > 1 {
+		// Ambiguous bare name — do NOT pick one. Tracing the first match
+		// would merge the call trees of every same-named function into an
+		// answer that is wrong for all of them (issue #867).
+		return TraceResult{Ambiguous: matches}
+	}
+	root := matches[0]
 
 	var adjacency map[*parser.Symbol][]CallEdge
 	if opts.Direction == "callers" {
@@ -181,13 +196,30 @@ func nodeCallerKind(sym *parser.Symbol) string {
 	return langutil.CallerKind(sym.Name, sym.File)
 }
 
-func findSymbol(symbols []*parser.Symbol, name string) *parser.Symbol {
+// FindSymbols returns every Function/Method symbol matching name — a bare
+// name matches sym.Name, a "Receiver.Name" qualified input matches
+// sym.Receiver+"."+sym.Name exactly and nothing else (issue #867: a
+// qualified query must not silently degrade to the bare-name merge).
+// compound.FindSymbol delegates here so every symbol-lookup tool shares
+// one matcher.
+func FindSymbols(symbols []*parser.Symbol, name string) []*parser.Symbol {
+	qualified := strings.Contains(name, ".")
+	var matches []*parser.Symbol
 	for _, sym := range symbols {
-		if sym.Name == name && (sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod) {
-			return sym
+		if sym.Kind != parser.KindFunction && sym.Kind != parser.KindMethod {
+			continue
+		}
+		if qualified {
+			if sym.Receiver != "" && sym.Receiver+"."+sym.Name == name {
+				matches = append(matches, sym)
+			}
+			continue
+		}
+		if sym.Name == name {
+			matches = append(matches, sym)
 		}
 	}
-	return nil
+	return matches
 }
 
 func buildCalleeIndex(edges []CallEdge) map[*parser.Symbol][]CallEdge {

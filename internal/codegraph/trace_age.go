@@ -39,21 +39,27 @@ func TraceFromAGE(ctx context.Context, store *Store, graphName, symbolName, dire
 		direction = "callees"
 	}
 
-	// Find the root symbol(s). There may be multiple symbols with the same
-	// name in different files — we pick the first (highest pagerank if available).
+	// Find the root symbol(s). A bare name matching multiple vertices is
+	// AMBIGUOUS, not "pick the highest pagerank" — silently tracing one
+	// merges the call trees of every same-named function into an answer
+	// that is wrong for all of them (issue #867: 8 `Close` symbols, every
+	// `main` in the repo). We return the candidates as Ambiguous instead;
+	// the tree-sitter path does the same via callgraph.FindSymbols.
 	rootCypher := fmt.Sprintf(
-		`MATCH (s:Symbol {name: '%s'}) RETURN s.name, s.kind, s.file, s.start_line, s.end_line, s.signature ORDER BY s.pagerank DESC LIMIT 1`,
+		`MATCH (s:Symbol {name: '%s'}) RETURN s.name, s.kind, s.file, s.start_line, s.end_line, s.signature ORDER BY s.pagerank DESC LIMIT 11`,
 		escapeCypher(symbolName),
 	)
 	rootRows, err := store.ExecCypher(ctx, graphName, rootCypher, 6)
 	if err != nil {
 		return nil, fmt.Errorf("trace from AGE: root query: %w", err)
 	}
-	if len(rootRows) == 0 {
-		return nil, fmt.Errorf("trace from AGE: symbol %q not found", symbolName)
+	rootSym, ambiguous, err := resolveTraceRoot(rootRows, symbolName)
+	if err != nil {
+		return nil, err
 	}
-
-	rootSym := rowToSymbol(rootRows[0])
+	if len(ambiguous) > 0 {
+		return &callgraph.TraceResult{Ambiguous: ambiguous}, nil
+	}
 	result := &callgraph.TraceResult{
 		Root: rootSym,
 		Tier: "age-graph",
@@ -186,6 +192,24 @@ func queryDirectNeighbors(ctx context.Context, store *Store, graphName, symName,
 		symbols = append(symbols, s)
 	}
 	return symbols, nil
+}
+
+// resolveTraceRoot decides the trace root from the AGE root-query rows:
+// 0 rows → not-found error; >1 rows → the candidates (a bare name must not
+// collapse to the first row — that silently merges same-named functions,
+// issue #867); exactly 1 → the root symbol.
+func resolveTraceRoot(rows [][]string, symbolName string) (*parser.Symbol, []*parser.Symbol, error) {
+	if len(rows) == 0 {
+		return nil, nil, fmt.Errorf("trace from AGE: symbol %q not found", symbolName)
+	}
+	if len(rows) > 1 {
+		matches := make([]*parser.Symbol, 0, len(rows))
+		for _, row := range rows {
+			matches = append(matches, rowToSymbol(row))
+		}
+		return nil, matches, nil
+	}
+	return rowToSymbol(rows[0]), nil, nil
 }
 
 // rowToSymbol converts a Cypher row [name, kind, file, start_line, end_line, signature]
