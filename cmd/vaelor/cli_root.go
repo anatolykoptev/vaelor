@@ -25,6 +25,12 @@ func newRootCmd(cfg Config) *cobra.Command {
 		},
 	})
 
+	// --stdio is consumed by go-mcpserver's isStdio() os.Args scan inside
+	// mcpserver.Run — the flag must be declared here so cobra does not reject
+	// it before the server starts (#857). The value itself is read there, not
+	// by this command.
+	root.Flags().Bool("stdio", false, "serve MCP over stdio transport (pipe/SSH access)")
+
 	// index-designs: primary cobra path. The legacy os.Args fallback in main()
 	// still intercepts "vaelor index-designs <dir>" for one release; both call
 	// the same runIndexDesigns(cfg, dir) so behavior is identical.
