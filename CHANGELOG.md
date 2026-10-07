@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.2](https://github.com/anatolykoptev/vaelor/compare/v1.72.1...v1.72.2) (2026-10-07)
+
+
+### Fixed
+
+* **callgraph:** redesign go/types warm lifecycle around a per-root registry ([#875](https://github.com/anatolykoptev/vaelor/issues/875)) ([4d1974a](https://github.com/anatolykoptev/vaelor/commit/4d1974a28f55c4c19ba8b32502f763b87b898ce6))
+
 ## [1.72.1](https://github.com/anatolykoptev/vaelor/compare/v1.72.0...v1.72.1) (2026-10-07)
 
 
