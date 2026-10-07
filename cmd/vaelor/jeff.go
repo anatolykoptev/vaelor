@@ -15,10 +15,10 @@ import (
 
 // jeffScorer adapts the jeff System One service (gliformer) to
 // research.JeffScorer: one batched Ask with a noul question per candidate
-// file. One HTTP call for all files — latency grows with the label count
-// (≈0.9s at 8 files, ≈2-3s at 15 on 2 ARM vCPUs). The caller's ctx is the
-// real bound (research caps at 3s); the client's 5s is transport headroom
-// for callers that forget a deadline.
+// file. One HTTP call for all files — latency grows ~linearly with label
+// count (≈0.24s/question edge→kisol). The caller's ctx is the real bound
+// (research caps at 5s); the client's timeout is transport headroom for
+// callers that forget a deadline.
 type jeffScorer struct {
 	client *jeff.Client
 }

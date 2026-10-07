@@ -19,8 +19,10 @@ import (
 
 const (
 	// jeffTopFiles bounds the noul question count in one Ask — latency
-	// grows with label count (≈0.9s @ 8 files on 2 ARM vCPUs).
-	jeffTopFiles = 15
+	// grows ~linearly with label count (measured 3.58s at 15 files
+	// edge→kisol, ≈0.24s/file). 10 keeps the call ≈2.4s typical with
+	// headroom inside jeffCallTimeout when the shared model box is busy.
+	jeffTopFiles = 10
 	// jeffMinSeeds skips arbitration when the seed set is too small to
 	// hide a hub inside.
 	jeffMinSeeds = 4
@@ -32,9 +34,10 @@ const (
 	// jeffTopicalThreshold is the noul boundary: below 0.5 the scorer
 	// judges the file generic infrastructure for this query.
 	jeffTopicalThreshold = 0.5
-	// jeffCallTimeout bounds the single batched Ask — research runs a ~7s
-	// per-call budget and a slow jeff must never push past it.
-	jeffCallTimeout = 3 * time.Second
+	// jeffCallTimeout bounds the single batched Ask — 10 files take ≈2.4s
+	// typical; 5s leaves margin for a busy kisol and matches the client's
+	// transport headroom.
+	jeffCallTimeout = 5 * time.Second
 )
 
 // JeffScorer is the minimal interface the research pipeline needs from a
