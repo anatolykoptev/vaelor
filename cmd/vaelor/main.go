@@ -122,7 +122,8 @@ func main() {
 // runMCPServe starts the MCP server — byte-identical to the legacy main() body.
 // Extracted so the cobra root command's default path (no subcommand) can call
 // it without duplicating the startup sequence (ADR-3 strangler-fig).
-func runMCPServe(cfg Config) {
+// stdio is the parsed --stdio flag value, forwarded to mcpserver.Config.
+func runMCPServe(cfg Config, stdio bool) {
 	if err := os.MkdirAll(cfg.WorkspaceDir, workspaceDirPerm); err != nil {
 		slog.Error("failed to create workspace dir", slog.Any("error", err))
 		os.Exit(1)
@@ -270,6 +271,7 @@ func runMCPServe(cfg Config) {
 		Name:                       serviceName,
 		Version:                    version,
 		Port:                       cfg.Port,
+		Transport:                  mcpTransport(stdio),
 		Context:                    ctx,
 		SchemaCache:                mcp.NewSchemaCache(),
 		DisableLocalhostProtection: true,
@@ -296,6 +298,14 @@ func runMCPServe(cfg Config) {
 	}); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
+}
+
+// mcpTransport maps the parsed --stdio flag onto the mcpserver transport name.
+func mcpTransport(stdio bool) string {
+	if stdio {
+		return mcpserver.TransportStdio
+	}
+	return ""
 }
 
 // startPrometheusScrape runs an HTTP server exposing /metrics on PROM_PORT

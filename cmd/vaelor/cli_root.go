@@ -21,14 +21,14 @@ func newRootCmd(cfg Config) *cobra.Command {
 		Long:    "vaelor runs as an MCP server by default. Subcommands provide standalone CLI tools (index-designs, status, init, search, wipe).",
 		Version: version,
 		Run: func(cmd *cobra.Command, args []string) {
-			runMCPServe(cfg)
+			stdio, _ := cmd.Flags().GetBool("stdio")
+			runMCPServe(cfg, stdio)
 		},
 	})
 
-	// --stdio is consumed by go-mcpserver's isStdio() os.Args scan inside
-	// mcpserver.Run — the flag must be declared here so cobra does not reject
-	// it before the server starts (#857). The value itself is read there, not
-	// by this command.
+	// --stdio selects the stdio transport. The parsed value is passed to
+	// runMCPServe → mcpserver.Config.Transport; the os.Args scan inside
+	// go-mcpserver is only a backward-compat fallback now (#857, go-mcpserver#31).
 	root.Flags().Bool("stdio", false, "serve MCP over stdio transport (pipe/SSH access)")
 
 	// index-designs: primary cobra path. The legacy os.Args fallback in main()

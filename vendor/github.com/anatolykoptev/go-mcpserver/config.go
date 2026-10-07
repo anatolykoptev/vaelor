@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -115,13 +116,16 @@ type Config struct {
 
 	// KeepAlive sets the interval for periodic ping requests. If the peer
 	// fails to respond, the session is automatically closed. 0 = disabled.
-	// Recommended for stateful mode: 30s. Applied via ConfigureServer.
+	// Recommended for stateful mode: 30s. Applied only at server creation by
+	// NewServer/Serve; a value set on a Config passed to Run/Build is ignored
+	// (see the startup warning).
 	KeepAlive time.Duration
 
 	// SchemaCache caches JSON schemas to avoid repeated reflection. Useful
 	// for stateless deployments where a new Server is created per request.
-	// Create once with mcp.NewSchemaCache() and share across servers.
-	// Applied via ConfigureServer.
+	// Create once with mcp.NewSchemaCache() and share across servers. Applied
+	// only at server creation by NewServer/Serve; a value set on a Config
+	// passed to Run/Build is ignored (see the startup warning).
 	SchemaCache *mcp.SchemaCache
 
 	BearerAuth *BearerAuth // nil = no auth; wraps /mcp only (see auth.go)
@@ -131,6 +135,13 @@ type Config struct {
 	Context    context.Context // nil → internal signal.NotifyContext(SIGINT, SIGTERM)
 	Logger     *slog.Logger    // nil → auto (stdout HTTP / stderr stdio, LevelInfo)
 	OnShutdown func()          // called before HTTP shutdown
+
+	// Transport selects the MCP transport. TransportStdio ("stdio") runs over
+	// stdin/stdout; "" (empty) or TransportHTTP ("http") = HTTP. Prefer
+	// passing a parsed flag value over relying on the legacy --stdio os.Args
+	// scan — a cobra/pflag layer would reject the flag before Run ever sees
+	// it (vaelor #857).
+	Transport string
 
 	// onRESTBridgeCleanup is set internally by Run() to receive the REST bridge
 	// cleanup function from buildHandler, so it can be called AFTER srv.Shutdown()
@@ -144,6 +155,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.Version == "" {
 		return errors.New("mcpserver: Config.Version is required")
+	}
+	if cfg.Transport != "" && cfg.Transport != TransportStdio && cfg.Transport != TransportHTTP {
+		return fmt.Errorf("mcpserver: unknown transport %q", cfg.Transport)
 	}
 	return nil
 }
@@ -172,6 +186,23 @@ func withDefaults(cfg Config) Config {
 		slog.Warn("Config.Stateless=false with SessionTimeout=0 — sessions never expire and memory grows unbounded. Set SessionTimeout (e.g. 30m) for stateful mode.")
 	}
 	return cfg
+}
+
+// withoutServerOpts returns a copy with the server-creation-only options
+// cleared, so Run/Build (which ignore them) don't warn about them.
+func (c Config) withoutServerOpts() Config {
+	c.KeepAlive = 0
+	c.SchemaCache = nil
+	return c
+}
+
+// warnIgnoredServerOpts warns when server-creation-only options are set on a
+// Config passed to Run/Build, since those options are only honoured by
+// NewServer/Serve.
+func warnIgnoredServerOpts(cfg Config, logger *slog.Logger) {
+	if cfg.KeepAlive != 0 || cfg.SchemaCache != nil {
+		logger.Warn("mcpserver: Config.KeepAlive/SchemaCache set on Run/Build are ignored — server options apply only via NewServer/Serve; set them there or remove them from the Run/Build Config")
+	}
 }
 
 // applyTimeoutDefaults fills in zero-valued timeout/concurrency fields with
