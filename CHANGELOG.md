@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.71.0](https://github.com/anatolykoptev/vaelor/compare/v1.70.1...v1.71.0) (2026-10-07)
+
+
+### Added
+
+* **cli:** parsed --stdio → mcpserver.Config.Transport ([#869](https://github.com/anatolykoptev/vaelor/issues/869)) ([5ff0d4d](https://github.com/anatolykoptev/vaelor/commit/5ff0d4dbd4ec0cc782c23543ecfe97bd4bde0802))
+
 ## [1.70.1](https://github.com/anatolykoptev/vaelor/compare/v1.70.0...v1.70.1) (2026-10-07)
 
 
