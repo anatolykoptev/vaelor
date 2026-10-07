@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.4](https://github.com/anatolykoptev/vaelor/compare/v1.72.3...v1.72.4) (2026-10-07)
+
+
+### Fixed
+
+* **parser:** populate Symbol.Receiver for Go methods ([#881](https://github.com/anatolykoptev/vaelor/issues/881)) ([7d0b028](https://github.com/anatolykoptev/vaelor/commit/7d0b0285abb17a8e750721b645f46b07e776ffdd))
+
 ## [1.72.3](https://github.com/anatolykoptev/vaelor/compare/v1.72.2...v1.72.3) (2026-10-07)
 
 
