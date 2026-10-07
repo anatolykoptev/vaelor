@@ -525,6 +525,9 @@ func buildForgeRegistry(cfg Config, toolCache *kitcache.Cache) *forge.Registry {
 	if sg := buildSourcegraphClient(cfg, toolCache); sg != nil {
 		ghOpts = append(ghOpts, forge.WithSourcegraph(sg))
 	}
+	if bb := buildBlackbirdClient(cfg, toolCache); bb != nil {
+		ghOpts = append(ghOpts, forge.WithBlackbird(bb))
+	}
 	reg.Register(forge.GitHub, forge.NewGitHubForge(cfg.GithubToken, cfg.GithubAppConfig, ghOpts...))
 	if cfg.GitLabToken != "" || cfg.GitLabURL != "" {
 		reg.Register(forge.GitLab, forge.NewGitLabForge(cfg.GitLabToken, cfg.GitLabURL))
@@ -541,6 +544,18 @@ func buildSourcegraphClient(cfg Config, toolCache *kitcache.Cache) *forge.Source
 		return nil
 	}
 	return forge.NewSourcegraphClient(cfg.SourcegraphURL, cfg.SourcegraphToken, forge.WithSourcegraphCache(toolCache))
+}
+
+// buildBlackbirdClient creates the Blackbird (github.com web search) engine
+// when GO_WOWA_BASE_URL points at a go-wowa instance with a logged-in
+// github.com browser session. Disabled unless configured — this tier needs an
+// operator-provisioned session.
+func buildBlackbirdClient(cfg Config, toolCache *kitcache.Cache) *forge.BlackbirdClient {
+	switch strings.ToLower(strings.TrimSpace(cfg.WowaBaseURL)) {
+	case "", "off", "none", "disabled":
+		return nil
+	}
+	return forge.NewBlackbirdClient(cfg.WowaBaseURL, cfg.WowaGithubSession, cfg.InternalServiceSecret, forge.WithBlackbirdCache(toolCache))
 }
 
 // buildGraphDeps wires graphx.Analytics and graphx.CrossRefs from an optional
