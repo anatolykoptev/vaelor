@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.3](https://github.com/anatolykoptev/vaelor/compare/v1.72.2...v1.72.3) (2026-10-07)
+
+
+### Fixed
+
+* **callgraph:** no edge over a wrong edge — bare-name ambiguity and builtin guard ([#878](https://github.com/anatolykoptev/vaelor/issues/878)) ([fdebbbe](https://github.com/anatolykoptev/vaelor/commit/fdebbbe7d87221975e146fe0719fbcd83d2f0091))
+
 ## [1.72.2](https://github.com/anatolykoptev/vaelor/compare/v1.72.1...v1.72.2) (2026-10-07)
 
 
