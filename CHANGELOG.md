@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.69.1](https://github.com/anatolykoptev/vaelor/compare/v1.69.0...v1.69.1) (2026-10-07)
+
+
+### Fixed
+
+* **forge:** auto mode escalates past a GitHub error, not just underfill ([#856](https://github.com/anatolykoptev/vaelor/issues/856)) ([f1ae88d](https://github.com/anatolykoptev/vaelor/commit/f1ae88de7222aa6c8499a080b706937462ec1b2d))
+
 ## [1.69.0](https://github.com/anatolykoptev/vaelor/compare/v1.68.0...v1.69.0) (2026-10-07)
 
 
