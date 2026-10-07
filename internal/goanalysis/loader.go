@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/tools/go/packages"
@@ -136,14 +137,11 @@ func isTestVariant(pkg *packages.Package) bool {
 }
 
 // isSyntheticTestMain reports whether pkg is the generated test main
-// ("p.test"), recognised by its generated _testmain.go (build-cache) source.
+// ("p.test": package main, not itself rebuilt for a test, path ending ".test").
+// Its CompiledGoFiles are empty or build-cache paths in this load mode, so the
+// generated _testmain.go cannot be used to recognise it.
 func isSyntheticTestMain(pkg *packages.Package) bool {
-	for _, f := range pkg.CompiledGoFiles {
-		if filepath.Base(f) == "_testmain.go" {
-			return true
-		}
-	}
-	return false
+	return pkg.Name == "main" && pkg.ForTest == "" && strings.HasSuffix(pkg.PkgPath, ".test")
 }
 
 // releaseUnreadTypeInfo drops the types.Info maps this repo never reads, across

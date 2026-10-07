@@ -208,3 +208,90 @@ func OnlyB(b B) { b.Do() }
 		t.Errorf("OnlyB -> B.Do -> TargetB missing: %+v", allCallers(b))
 	}
 }
+
+// Calls through interfaces declared outside the module (error, http.Handler)
+// must reach the repo types that implement them.
+func TestAnalyze_CallThroughExternalInterface_ReachesImplementer(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/fx\n\ngo 1.22\n",
+		"lib/lib.go": `package lib
+
+import "net/http"
+
+func Target() {}
+
+type H struct{}
+
+func (H) ServeHTTP(http.ResponseWriter, *http.Request) { Target() }
+
+type E struct{}
+
+func (E) Error() string { Target(); return "" }
+
+func Serve(h http.Handler) { h.ServeHTTP(nil, nil) }
+
+func Fail(err error) { _ = err.Error() }
+`,
+	})
+	res := typedImpact(t, root, "Target")
+	got := map[string]int{}
+	for _, c := range allCallers(res) {
+		got[c.Name] = c.Distance
+	}
+	for _, name := range []string{"Serve", "Fail"} {
+		if got[name] != 2 {
+			t.Errorf("%s calls Target through an external interface (distance 2), got %v", name, got)
+		}
+	}
+}
+
+// A package-level function and a method with the same name share one file; each
+// call form (bare ident, qualified pkg.F, method selection) must bind to its own
+// declaration by position.
+func TestAnalyze_SameFileFuncAndMethodSameName_ResolvedByPosition(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/fx\n\ngo 1.22\n",
+		"lib/lib.go": `package lib
+
+func TargetF() {}
+func TargetM() {}
+
+type T struct{}
+
+func (T) Do() { TargetM() }
+
+func Do() { TargetF() }
+
+func Local() { Do() }
+`,
+		"app/app.go": `package app
+
+import "example.com/fx/lib"
+
+func Qualified() { lib.Do() }
+
+func Method(t lib.T) { t.Do() }
+`,
+	})
+	has := func(r *impact.Result, name string) bool {
+		for _, c := range allCallers(r) {
+			if c.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	f, m := typedImpact(t, root, "TargetF"), typedImpact(t, root, "TargetM")
+	for _, c := range []struct {
+		r    *impact.Result
+		name string
+		want bool
+	}{
+		{f, "Local", true}, {f, "Qualified", true}, {f, "Method", false},
+		{m, "Method", true}, {m, "Local", false}, {m, "Qualified", false},
+	} {
+		if has(c.r, c.name) != c.want {
+			t.Errorf("%s as caller of %s = %v, want %v", c.name, c.r.Symbol, !c.want, c.want)
+		}
+	}
+}

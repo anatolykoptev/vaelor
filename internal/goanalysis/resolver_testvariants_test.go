@@ -40,11 +40,29 @@ func (T) M() {}
 
 func Use(i I) { i.M() }
 `,
+	"lib/ext.go": `package lib
+
+import "net/http"
+
+type H struct{}
+
+func (H) ServeHTTP(http.ResponseWriter, *http.Request) {}
+
+type E struct{}
+
+func (E) Error() string { return "" }
+
+func CallH(h http.Handler) { h.ServeHTTP(nil, nil) }
+
+func CallE(e error) { _ = e.Error() }
+`,
 	"lib/fake_test.go": `package lib
 
 type fake struct{}
 
 func (fake) M() {}
+
+func (fake) Error() string { return "" }
 `,
 	"lib/lib_test.go": `package lib
 
@@ -90,11 +108,12 @@ func TestLoadPackages_TestVariantsAreSeparate(t *testing.T) {
 		if p.ForTest != "" {
 			t.Errorf("test variant %q leaked into Packages", p.ID)
 		}
-		for _, f := range p.CompiledGoFiles {
-			if filepath.Base(f) == "_testmain.go" {
-				t.Errorf("synthetic test main %q leaked into Packages", p.ID)
-			}
+		if strings.HasSuffix(p.PkgPath, ".test") {
+			t.Errorf("synthetic test main %q leaked into Packages", p.ID)
 		}
+	}
+	if len(lr.Packages) != 1 { // example.com/fx/lib and nothing else
+		t.Errorf("Packages = %d, want 1 (lib)", len(lr.Packages))
 	}
 	var sats int
 	for _, s := range goanalysis.ComputeSatisfactions(lr.Packages) {
@@ -167,6 +186,32 @@ func TestResolve_CalleeLineIsDeclarationLine(t *testing.T) {
 	for _, e := range edges {
 		if e.CallerName == "Use" && e.CalleeName == "M" && e.CalleeLine != 7 {
 			t.Errorf("Use -> M CalleeLine = %d, want 7 (func (T) M() in lib.go)", e.CalleeLine)
+		}
+	}
+}
+
+// A call through an interface declared OUTSIDE the loaded packages (error,
+// http.Handler, io.Writer ...) must still reach the repo types implementing it:
+// implementers come from types.Implements, not from a table of in-repo
+// interfaces. Production code must not reach test-only implementers.
+func TestResolve_ExternalInterfaceDispatchReachesRepoImplementers(t *testing.T) {
+	_, edges := loadVariants(t)
+	find := func(caller, callee string) []goanalysis.TypedEdge {
+		var out []goanalysis.TypedEdge
+		for _, e := range edges {
+			if e.CallerName == caller && e.CalleeName == callee {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	for _, c := range []struct{ caller, callee, recv string }{
+		{"CallH", "ServeHTTP", "H"},
+		{"CallE", "Error", "E"},
+	} {
+		got := find(c.caller, c.callee)
+		if len(got) != 1 || got[0].ReceiverType != c.recv || !strings.HasSuffix(got[0].CalleeFile, "ext.go") {
+			t.Errorf("%s -> %s: want exactly one edge to %s in ext.go, got %+v", c.caller, c.callee, c.recv, got)
 		}
 	}
 }

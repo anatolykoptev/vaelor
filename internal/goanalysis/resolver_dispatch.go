@@ -127,8 +127,8 @@ func resolveMethodSelection(info *types.Info, fset *token.FileSet, pkg *packages
 }
 
 func resolveInterfaceDispatch(_ *types.Info, fset *token.FileSet, _ *packages.Package, _ *ast.SelectorExpr, iface *types.Interface, methodName, callerName, callerFile string, callerLine, callLine uint32, recvType string, concrete concreteTypes) []TypedEdge {
-	impls, ok := concrete[iface]
-	if !ok {
+	impls := concrete.implementers(iface)
+	if len(impls) == 0 {
 		return []TypedEdge{{
 			CallerName:   callerName,
 			CallerFile:   callerFile,
@@ -141,21 +141,31 @@ func resolveInterfaceDispatch(_ *types.Info, fset *token.FileSet, _ *packages.Pa
 	}
 
 	edges := make([]TypedEdge, 0, len(impls))
+	// Implementers that share one promoted method (several types embedding the
+	// same base) resolve to the same declaration: one edge, not one per type.
+	type decl struct {
+		file string
+		line uint32
+	}
+	seen := make(map[decl]struct{}, len(impls))
 	for _, impl := range impls {
 		calleeFile := ""
 		var calleeLine uint32
 		pkgPath := ""
-		// Find the method on the concrete type.
-		for i := range impl.NumMethods() {
-			m := impl.Method(i)
-			if m.Name() == methodName {
-				calleeFile = posFile(fset, m.Pos())
-				calleeLine = posLine(fset, m.Pos())
-				if m.Pkg() != nil {
-					pkgPath = m.Pkg().Path()
-				}
-				break
+		// Promoted methods included: the declaration may be on an embedded type.
+		if m := concrete.method(impl, methodName); m != nil {
+			calleeFile = posFile(fset, m.Pos())
+			calleeLine = posLine(fset, m.Pos())
+			if m.Pkg() != nil {
+				pkgPath = m.Pkg().Path()
 			}
+		}
+		if calleeFile != "" {
+			d := decl{calleeFile, calleeLine}
+			if _, dup := seen[d]; dup {
+				continue
+			}
+			seen[d] = struct{}{}
 		}
 		edges = append(edges, TypedEdge{
 			CallerName:   callerName,
