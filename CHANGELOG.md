@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.5](https://github.com/anatolykoptev/vaelor/compare/v1.72.4...v1.72.5) (2026-10-07)
+
+
+### Fixed
+
+* **research:** jeff topicality arbitration against hub-file domination ([#883](https://github.com/anatolykoptev/vaelor/issues/883)) ([e2752cf](https://github.com/anatolykoptev/vaelor/commit/e2752cf03f27f63af928f0b4ceac014c26d76e1a))
+
 ## [1.72.4](https://github.com/anatolykoptev/vaelor/compare/v1.72.3...v1.72.4) (2026-10-07)
 
 
