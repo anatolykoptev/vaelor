@@ -6,7 +6,7 @@ toolchain go1.26.6
 
 require (
 	github.com/anatolykoptev/go-kit v0.97.7
-	github.com/anatolykoptev/go-mcpserver v0.17.0
+	github.com/anatolykoptev/go-mcpserver v0.19.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible
 	github.com/google/jsonschema-go v0.4.3

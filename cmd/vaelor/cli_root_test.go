@@ -73,11 +73,11 @@ func TestCLI_SearchHelp(t *testing.T) {
 	}
 }
 
-// TestCLI_StdioFlagAccepted guards #857: go-mcpserver detects the stdio
-// transport by scanning os.Args for --stdio, so the flag never reaches a
-// declared flag value — cobra must merely ACCEPT it. Removing the declaration
-// silently breaks `./vaelor --stdio` with "unknown flag" while README still
-// documents it.
+// TestCLI_StdioFlagAccepted guards #857: the cobra root command must declare
+// --stdio and the parsed value must propagate to mcpserver.Config.Transport.
+// Removing the declaration silently breaks `./vaelor --stdio` with
+// "unknown flag"; dropping the propagation leaves the flag decorative and
+// silently starts the HTTP server instead.
 func TestCLI_StdioFlagAccepted(t *testing.T) {
 	t.Parallel()
 
@@ -85,12 +85,22 @@ func TestCLI_StdioFlagAccepted(t *testing.T) {
 
 	f := root.Flags().Lookup("stdio")
 	if f == nil {
-		t.Fatal("--stdio flag not declared on root command — cobra rejects it before go-mcpserver sees os.Args")
+		t.Fatal("--stdio flag not declared on root command — cobra rejects it before the server sees it")
 	}
 	if f.Value.Type() != "bool" {
 		t.Errorf("--stdio flag type = %q, want bool", f.Value.Type())
 	}
 	if err := root.ParseFlags([]string{"--stdio"}); err != nil {
-		t.Errorf("ParseFlags(--stdio) = %v, want nil", err)
+		t.Fatalf("ParseFlags(--stdio) = %v, want nil", err)
+	}
+	stdio, err := root.Flags().GetBool("stdio")
+	if err != nil || !stdio {
+		t.Fatalf("GetBool(stdio) = %v, %v — want true", stdio, err)
+	}
+	if got := mcpTransport(stdio); got != "stdio" {
+		t.Errorf("mcpTransport(true) = %q, want stdio", got)
+	}
+	if got := mcpTransport(false); got != "" {
+		t.Errorf("mcpTransport(false) = %q, want empty (HTTP default)", got)
 	}
 }
