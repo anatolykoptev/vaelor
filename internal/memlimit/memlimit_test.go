@@ -43,21 +43,19 @@ func TestDetect(t *testing.T) {
 	}
 }
 
-func TestApply(t *testing.T) {
-	var set []int64
-	rec := func(n int64) int64 { set = append(set, n); return 0 }
-
-	if got := fakeEnv(nil, map[string]string{cgroupV2Max: "1000000000"}).apply(rec); got != 850000000 || len(set) != 1 || set[0] != 850000000 {
-		t.Errorf("limit 1e9: applied %d, set calls %v; want 85%% = 850000000 exactly once", got, set)
+func TestParseSize(t *testing.T) {
+	cases := map[string]int64{
+		"1048576": 1 << 20, "1KiB": 1 << 10, "2MiB": 2 << 20, "3GiB": 3 << 30,
+		"4K": 4 << 10, "5M": 5 << 20, "6G": 6 << 30, " 7 MiB ": 7 << 20,
 	}
-
-	set = nil
-	if got := fakeEnv(map[string]string{"GOMEMLIMIT": "1GiB"}, map[string]string{cgroupV2Max: "1000000000"}).apply(rec); got != 0 || len(set) != 0 {
-		t.Errorf("explicit GOMEMLIMIT must be honoured (no override): applied %d, calls %v", got, set)
+	for in, want := range cases {
+		if got, err := ParseSize(in); err != nil || got != want {
+			t.Errorf("ParseSize(%q) = %d, %v; want %d", in, got, err, want)
+		}
 	}
-
-	set = nil
-	if got := fakeEnv(nil, nil).apply(rec); got != 0 || len(set) != 0 {
-		t.Errorf("no detectable limit must set nothing: applied %d, calls %v", got, set)
+	for _, bad := range []string{"", "lots", "1GB", "1MB", "1KB", "1.5GiB", "-"} {
+		if got, err := ParseSize(bad); err == nil {
+			t.Errorf("ParseSize(%q) = %d, want an error (decimal and fractional sizes are rejected)", bad, got)
+		}
 	}
 }

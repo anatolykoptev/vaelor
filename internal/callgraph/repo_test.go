@@ -374,22 +374,6 @@ func TestEnrichWithTypedResolution_LoadFailWarn(t *testing.T) {
 	}
 }
 
-// TestBuildPrewarmEnv_ContainsCGODisabled verifies that buildPrewarmEnv includes
-// CGO_ENABLED=0, which is required to prevent the prewarm go build from failing
-// on missing tree-sitter C headers.
-func TestBuildPrewarmEnv_ContainsCGODisabled(t *testing.T) {
-	env := buildPrewarmEnv()
-	if !slices.Contains(env, "CGO_ENABLED=0") {
-		t.Errorf("buildPrewarmEnv() missing CGO_ENABLED=0; got: %v", env)
-	}
-	if !slices.Contains(env, "GOWORK=off") {
-		t.Errorf("buildPrewarmEnv() missing GOWORK=off; got: %v", env)
-	}
-	if !slices.Contains(env, "GIT_TERMINAL_PROMPT=0") {
-		t.Errorf("buildPrewarmEnv() missing GIT_TERMINAL_PROMPT=0; got: %v", env)
-	}
-}
-
 // TestTrySCIPResolution_GoIsNoop asserts that trySCIPResolution returns nil for
 // a Go-dominant file set. Go analysis is handled by go/types (goanalysis package)
 // so scip-go was removed from the indexer registry. DetectIndexer("go") now

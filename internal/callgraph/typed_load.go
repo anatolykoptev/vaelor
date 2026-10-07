@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/metrics"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -123,13 +125,24 @@ func (b *budget) weight(files int) int64 {
 	return w
 }
 
-// countGoFiles counts .go files under root, skipping directories the typed
-// load never matches (vendor, VCS, dependency caches).
-func countGoFiles(root string) int {
+// moduleScan is what one walk of a module tells the typed load: how many Go
+// files it has (the budget weight) and a fingerprint of their identity.
+type moduleScan struct {
+	files       int
+	fingerprint string
+}
+
+// scanModule walks root once, skipping directories the typed load never matches
+// (vendor, VCS, dependency caches). The fingerprint hashes every .go file's
+// path, size and mtime plus go.mod/go.sum, so it changes when the code the load
+// would read changes — it is part of the flight key, so a request made after a
+// `git pull` never joins a load that started before it.
+func scanModule(root string) moduleScan {
+	h := fnv.New64a()
 	n := 0
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil //nolint:nilerr // best-effort estimate; unreadable subtrees count as empty
+			return nil //nolint:nilerr // best-effort; unreadable subtrees count as empty
 		}
 		if d.IsDir() {
 			switch d.Name() {
@@ -138,12 +151,21 @@ func countGoFiles(root string) int {
 			}
 			return nil
 		}
-		if strings.HasSuffix(d.Name(), ".go") {
+		name := d.Name()
+		isGo := strings.HasSuffix(name, ".go")
+		if !isGo && name != "go.mod" && name != "go.sum" {
+			return nil
+		}
+		if isGo {
 			n++
+		}
+		if info, ierr := d.Info(); ierr == nil {
+			rel, _ := filepath.Rel(root, path)
+			fmt.Fprintf(h, "%s|%d|%d\n", rel, info.Size(), info.ModTime().UnixNano())
 		}
 		return nil
 	})
-	return n
+	return moduleScan{files: n, fingerprint: strconv.FormatUint(h.Sum64(), 36)}
 }
 
 // sharedLoad is one in-flight or completed typed load, shared by every caller
@@ -179,14 +201,15 @@ var (
 // A caller whose ctx expires first gets ctx's error; if the load had not yet
 // been admitted by the memory budget the error is errTypedBudget.
 func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts) (*goanalysis.LoadResult, func(), error) {
-	key := fmt.Sprintf("%s|tests=%t|src=%t", root, opts.Tests, opts.SourceDeps)
+	scan := scanModule(root)
+	key := fmt.Sprintf("%s|%s|tests=%t|src=%t", root, scan.fingerprint, opts.Tests, opts.SourceDeps)
 
 	flightsMu.Lock()
 	f := flights[key]
 	if f == nil {
 		f = &sharedLoad{key: key, done: make(chan struct{})}
 		flights[key] = f
-		go f.run(root, opts)
+		go f.run(root, opts, scan)
 	}
 	f.refs++
 	flightsMu.Unlock()
@@ -194,12 +217,16 @@ func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts)
 	select {
 	case <-f.done:
 	case <-ctx.Done():
-		f.drop()
-		if !f.admitted.Load() {
-			recordTypedLoadDegraded("budget_wait")
-			return nil, nil, fmt.Errorf("%w: %w", errTypedBudget, ctx.Err())
+		select {
+		case <-f.done: // finished at the same instant: the result wins over the deadline
+		default:
+			f.drop()
+			if !f.admitted.Load() {
+				recordTypedLoadDegraded("budget_wait")
+				return nil, nil, fmt.Errorf("%w: %w", errTypedBudget, ctx.Err())
+			}
+			return nil, nil, ctx.Err()
 		}
-		return nil, nil, ctx.Err()
 	}
 	if f.panicVal != nil {
 		f.drop()
@@ -234,11 +261,12 @@ func (f *sharedLoad) drop() {
 
 func (f *sharedLoad) releaseBudget() {
 	if f.admitted.Swap(false) {
+		budgetInUse.Sub(float64(f.weight))
 		f.sem.Release(f.weight)
 	}
 }
 
-func (f *sharedLoad) run(root string, opts goanalysis.LoadOpts) {
+func (f *sharedLoad) run(root string, opts goanalysis.LoadOpts, scan moduleScan) {
 	defer func() {
 		if r := recover(); r != nil {
 			f.panicVal = r
@@ -261,17 +289,87 @@ func (f *sharedLoad) run(root string, opts goanalysis.LoadOpts) {
 	defer cancel()
 
 	b := typedBudget.Load()
-	f.sem = b.sem
-	f.weight = b.weight(countGoFiles(root))
-	if err := b.sem.Acquire(ctx, f.weight); err != nil {
+	if err := primeExportData(ctx, b, root, scan); err != nil {
 		f.err = fmt.Errorf("%w: %w", errTypedBudget, err)
 		return
 	}
+
+	f.sem = b.sem
+	f.weight = b.weight(scan.files)
+	loadsQueued.Inc()
+	err := b.sem.Acquire(ctx, f.weight)
+	loadsQueued.Dec()
+	if err != nil {
+		f.err = fmt.Errorf("%w: %w", errTypedBudget, err)
+		return
+	}
+	budgetInUse.Add(float64(f.weight))
 	f.admitted.Store(true)
 
 	stop := trackHeapPeak()
 	f.lr, f.err = (*typedLoadFn.Load())(ctx, root, opts)
 	observeTypedLoadPeak(stop())
+}
+
+// primeReserveBytes is what a cold export-data build is charged against the
+// budget while it runs. `go list -export` compiles in child processes
+// (cmd/compile, cgo) that live in the server's cgroup but outside the Go heap,
+// so neither GOMEMLIMIT nor the heap weight of the load sees them; measured on
+// v1.65.16 they reached ~1.5 GB above the server's own RSS at -p=NumCPU. With
+// -p capped at NumCPU/2 and one build at a time (goanalysis.exportGate) 1 GiB is
+// the charge; it is clamped to the budget so a small budget still admits one.
+const primeReserveBytes = int64(1) << 30
+
+// primed remembers modules whose export data this process already built, keyed
+// by root+fingerprint, so only the first load of a module (or the first after it
+// changed) pays for the extra `go list`.
+var primed sync.Map
+
+// primeExportData builds dir's export data before the load, so the load itself
+// only reads it: cold builds are then serialised by the gate and charged to the
+// budget, instead of happening inside go/packages where nothing bounds them.
+// A build failure is not an error — go/packages falls back to source for
+// whatever has no export data — only not being admitted in time is.
+func primeExportData(ctx context.Context, b *budget, root string, scan moduleScan) error {
+	key := root + "|" + scan.fingerprint
+	if _, ok := primed.Load(key); ok {
+		return nil
+	}
+	w := min(primeReserveBytes, b.capacity)
+	if err := b.sem.Acquire(ctx, w); err != nil {
+		return err
+	}
+	budgetInUse.Add(float64(w))
+	defer func() {
+		budgetInUse.Sub(float64(w))
+		b.sem.Release(w)
+	}()
+	errored, err := primeFn.Load().prime(ctx, root)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		slog.Warn("go/types: export-data priming failed; the load will build what it needs itself",
+			"root", root, "err", err)
+		return nil
+	}
+	if len(errored) > 0 {
+		slog.Debug("go/types: packages without export data (type-checked from source)",
+			"root", root, "count", len(errored))
+	}
+	primed.Store(key, struct{}{})
+	return nil
+}
+
+// primer is the seam over goanalysis.PrimeExportData.
+type primer struct {
+	prime func(ctx context.Context, root string) ([]string, error)
+}
+
+var primeFn atomic.Pointer[primer]
+
+func init() {
+	primeFn.Store(&primer{prime: goanalysis.PrimeExportData})
 }
 
 // trackHeapPeak samples the process heap until the returned func is called and

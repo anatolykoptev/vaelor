@@ -1,16 +1,15 @@
-// Package memlimit derives the process memory limit from the container and
-// applies it as the Go runtime's soft memory limit.
+// Package memlimit detects the container memory limit (VAELOR_MEMORY_LIMIT, else
+// the cgroup) so memory budgets can be derived from it.
 //
-// Without a soft limit the GC lets the heap grow to GOGC-times the live set
-// regardless of how close the cgroup limit is, so a transient spike (a typed
-// go/packages load) is killed by the kernel instead of triggering a collection.
+// It deliberately does NOT set the Go runtime soft limit (GOMEMLIMIT): the
+// deployment already does, explicitly, and a limit derived here would be a
+// second, silently different source of truth.
 package memlimit
 
 import (
 	"fmt"
 	"log/slog"
 	"os"
-	"runtime/debug"
 	"strconv"
 	"strings"
 )
@@ -18,10 +17,6 @@ import (
 const (
 	// EnvLimit overrides cgroup detection (bytes, or a number with a KiB/MiB/GiB suffix).
 	EnvLimit = "VAELOR_MEMORY_LIMIT"
-
-	// headroomPercent is the share of the limit given to the Go heap; the rest
-	// covers non-heap memory (stacks, cgo, child processes such as `go list`).
-	headroomPercent = 85
 
 	cgroupV2Max = "/sys/fs/cgroup/memory.max"
 	cgroupV1Max = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
@@ -65,7 +60,9 @@ func (e env) detect() (int64, string) {
 	return 0, ""
 }
 
-// ParseSize parses a byte count with an optional binary or decimal suffix.
+// ParseSize parses a byte count with an optional binary suffix (KiB, MiB, GiB,
+// or K, M, G for the same). Decimal KB/MB/GB are rejected rather than silently
+// read as powers of two.
 func ParseSize(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	mult := int64(1)
@@ -74,7 +71,6 @@ func ParseSize(s string) (int64, error) {
 		mult   int64
 	}{
 		{"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10},
-		{"GB", 1 << 30}, {"MB", 1 << 20}, {"KB", 1 << 10},
 		{"G", 1 << 30}, {"M", 1 << 20}, {"K", 1 << 10},
 	} {
 		if strings.HasSuffix(s, u.suffix) {
@@ -88,27 +84,4 @@ func ParseSize(s string) (int64, error) {
 		return 0, fmt.Errorf("memlimit: parse %q: %w", s, err)
 	}
 	return n * mult, nil
-}
-
-// Apply sets the runtime soft memory limit to 85% of the detected limit and logs
-// it once. It does nothing — and says so — when GOMEMLIMIT is set explicitly
-// (the operator already chose) or when no limit is detectable (a soft limit
-// derived from nothing would throttle the GC against an imaginary ceiling).
-// It returns the limit applied, or 0.
-func Apply() int64 { return osEnv.apply(debug.SetMemoryLimit) }
-
-func (e env) apply(set func(int64) int64) int64 {
-	if v := e.getenv("GOMEMLIMIT"); v != "" {
-		slog.Info("memlimit: GOMEMLIMIT set explicitly, leaving the runtime limit alone", "GOMEMLIMIT", v)
-		return 0
-	}
-	limit, source := e.detect()
-	if limit == 0 {
-		return 0
-	}
-	soft := limit / 100 * headroomPercent
-	set(soft)
-	slog.Info("memlimit: runtime soft memory limit set",
-		"limit_bytes", limit, "source", source, "soft_limit_bytes", soft)
-	return soft
 }

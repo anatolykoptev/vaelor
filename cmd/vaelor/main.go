@@ -33,7 +33,6 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/argnorm"
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/designmd"
-	"github.com/anatolykoptev/vaelor/internal/memlimit"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
@@ -88,11 +87,6 @@ func main() {
 		slog.Error("failed to load config", slog.Any("error", err))
 		os.Exit(1)
 	}
-
-	// Derive the Go runtime soft memory limit from the container limit so a
-	// typed go/packages spike triggers a collection instead of an OOM kill.
-	// A no-op without a detectable limit or with an explicit GOMEMLIMIT.
-	memlimit.Apply()
 
 	// Surface ANALYZE_RANK_WEIGHT_* knobs that are set but inert in the default
 	// minmax mode (weights only apply to the rrf path). Makes the no-op

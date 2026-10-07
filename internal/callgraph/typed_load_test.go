@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,9 +23,10 @@ const mib = int64(1) << 20
 // withBudget swaps the process-wide typed-load budget and loader for one test.
 func withBudget(t *testing.T, capacity int64, fn func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error)) {
 	t.Helper()
-	oldB, oldFn := typedBudget.Load(), typedLoadFn.Load()
+	oldB, oldFn, oldPrime := typedBudget.Load(), typedLoadFn.Load(), primeFn.Load()
 	typedBudget.Store(newBudget(capacity))
 	typedLoadFn.Store(&fn)
+	primeFn.Store(&primer{prime: func(context.Context, string) ([]string, error) { return nil, nil }})
 	t.Cleanup(func() {
 		// Detached flights read typedBudget/typedLoadFn: let them drain before
 		// the globals are restored.
@@ -40,6 +42,8 @@ func withBudget(t *testing.T, capacity int64, fn func(context.Context, string, g
 		}
 		typedBudget.Store(oldB)
 		typedLoadFn.Store(oldFn)
+		primeFn.Store(oldPrime)
+		primed.Clear()
 	})
 }
 
@@ -98,8 +102,12 @@ func TestLoadTypedShared_ConcurrentCallersShareOneLoad(t *testing.T) {
 	eventually(t, func() bool {
 		flightsMu.Lock()
 		defer flightsMu.Unlock()
-		f := flights[dir+"|tests=true|src=false"]
-		return f != nil && f.refs == n
+		for k, f := range flights {
+			if strings.HasPrefix(k, dir+"|") {
+				return f.refs == n
+			}
+		}
+		return false
 	}, "all callers must join the same flight")
 	close(release)
 	wg.Wait()
@@ -311,14 +319,28 @@ func TestBudgetWeight(t *testing.T) {
 	assert.Equal(t, 1024*mib, b.weight(100000), "an oversize module is clamped so it can still run, alone")
 }
 
-func TestCountGoFiles_SkipsVendorAndVCS(t *testing.T) {
+func TestScanModule_CountsFilesAndFingerprintsContent(t *testing.T) {
 	dir := t.TempDir()
-	for _, f := range []string{"a.go", "sub/b.go", "sub/b_test.go", "vendor/x/c.go", ".git/d.go", "README.md"} {
-		p := filepath.Join(dir, f)
+	write := func(rel, body string) {
+		p := filepath.Join(dir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
-		require.NoError(t, os.WriteFile(p, []byte("package x\n"), 0o600))
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o600))
 	}
-	assert.Equal(t, 3, countGoFiles(dir))
+	for _, f := range []string{"a.go", "sub/b.go", "sub/b_test.go", "vendor/x/c.go", ".git/d.go", "README.md"} {
+		write(f, "package x\n")
+	}
+	write("go.mod", "module x\n")
+
+	first := scanModule(dir)
+	assert.Equal(t, 3, first.files, "vendor, VCS and non-Go files are not counted")
+	assert.Equal(t, first.fingerprint, scanModule(dir).fingerprint, "an untouched module keeps its fingerprint")
+
+	write("sub/b.go", "package x\n\nfunc Changed() {}\n")
+	assert.NotEqual(t, first.fingerprint, scanModule(dir).fingerprint, "a changed Go file changes it")
+
+	second := scanModule(dir)
+	write("vendor/x/c.go", "package x\n\nfunc V() {}\n")
+	assert.Equal(t, second.fingerprint, scanModule(dir).fingerprint, "vendor is not part of the module's identity")
 }
 
 // The peak-heap histogram must actually be fed by a load, and the sampler must

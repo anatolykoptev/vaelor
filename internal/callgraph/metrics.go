@@ -136,6 +136,22 @@ var gotypesLoadDegradedTotal = promauto.NewCounterVec(
 	[]string{"reason"},
 )
 
+// gocode_callgraph_gotypes_budget_in_use_bytes is the typed-load budget currently
+// held (loads running or still read, plus cold export builds), and
+// gocode_callgraph_gotypes_loads_queued the loads waiting for budget. A leak —
+// a holder that never releases — shows up as in_use stuck at the capacity with
+// queued growing, long before requests start degrading.
+var (
+	budgetInUse = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "gocode_callgraph_gotypes_budget_in_use_bytes",
+		Help: "Typed-load memory budget currently held, in bytes.",
+	})
+	loadsQueued = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "gocode_callgraph_gotypes_loads_queued",
+		Help: "Typed loads waiting for memory budget.",
+	})
+)
+
 func recordTypedLoadDegraded(reason string) { gotypesLoadDegradedTotal.WithLabelValues(reason).Inc() }
 
 // isDeadlineErr reports whether err wraps context.DeadlineExceeded.

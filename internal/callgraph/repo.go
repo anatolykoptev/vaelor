@@ -3,7 +3,6 @@ package callgraph
 import (
 	"context"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/goanalysis"
@@ -220,43 +219,7 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 	cg := base
 
 	if goanalysis.HasGoModule(root) {
-		warmCtx, warmCancel := context.WithTimeout(context.Background(), syncLoadBudget)
-		lr, release, loadErr := loadTypedShared(warmCtx, root, goanalysis.LoadOpts{Tests: true})
-		warmCancel()
-		if loadErr != nil {
-			// Cold cache: the go/packages LOAD failed. Stamp the graph
-			// WarmPending — BuildFromRepo reconciles it against the warm
-			// registry before caching (a warm may already be running, or a
-			// durable failure may be in backoff — issue #746). Do NOT call
-			// ExtractGoImplements here — it would block on the same slow
-			// packages.Load that already failed, burning the request's
-			// remaining deadline (issue #735).
-			recordGotypesFallback(loadErr)
-			slog.Warn("go/packages load failed; falling back to tree-sitter", "err", loadErr)
-			cg.Warm = WarmPending
-		} else {
-			// Load succeeded (with or without typed call edges). In either case
-			// ExtractGoImplements reuses the SAME *LoadResult the load just
-			// produced — passed through the seam, not re-loaded — so it cannot
-			// block on a cold NeedDeps load here. Running it unconditionally on
-			// the success path restores the pre-round-1 behaviour for the
-			// zero-edge case (a Go module with only type declarations and no
-			// function calls) — round 1's single nil-return silently dropped
-			// IMPLEMENTS on that case, regressing issue #467's whole feature.
-			typedCG := tryGoTypesResolution(lr, symbols)
-			if typedCG != nil {
-				cg = MergeCallGraphs(cg, typedCG)
-				cg.Tier = "enhanced"
-				cg.Backend = BackendGoTypes
-			}
-			// When typedCG is nil, the load succeeded with zero typed CALL
-			// edges — Tier stays "basic" for CALLS (honest), and IMPLEMENTS
-			// enrichment still runs below.
-			cg.TypeRels = append(cg.TypeRels, ExtractGoImplements(ctx, root, lr)...)
-			// Both consumers are done: nothing reads lr any more, so the
-			// arena (and its share of the typed-load budget) can go.
-			release()
-		}
+		cg = enrichWithGoTypes(ctx, root, cg, symbols)
 	}
 
 	// Attempt SCIP resolution for non-Go languages (or when go/types failed).
@@ -268,6 +231,49 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 		}
 	}
 
+	return cg
+}
+
+// enrichWithGoTypes is the go/types leg of EnrichWithTypedResolution. It owns
+// the shared load's release: deferred here, so a panic in either consumer cannot
+// leave the flight held (its budget never returned, its arena pinned, every
+// later request for the module joining the stale result), and so the arena is
+// dropped before the SCIP leg — which can run for minutes — starts.
+func enrichWithGoTypes(ctx context.Context, root string, cg *CallGraph, symbols []*parser.Symbol) *CallGraph {
+	warmCtx, warmCancel := context.WithTimeout(context.Background(), syncLoadBudget)
+	lr, release, loadErr := loadTypedShared(warmCtx, root, goanalysis.LoadOpts{Tests: true})
+	warmCancel()
+	if loadErr != nil {
+		// Cold cache: the go/packages LOAD failed. Stamp the graph
+		// WarmPending — BuildFromRepo reconciles it against the warm
+		// registry before caching (a warm may already be running, or a
+		// durable failure may be in backoff — issue #746). Do NOT call
+		// ExtractGoImplements here — it would block on the same slow
+		// packages.Load that already failed, burning the request's
+		// remaining deadline (issue #735).
+		recordGotypesFallback(loadErr)
+		slog.Warn("go/packages load failed; falling back to tree-sitter", "err", loadErr)
+		cg.Warm = WarmPending
+		return cg
+	}
+	defer release()
+
+	// Load succeeded (with or without typed call edges). In either case
+	// ExtractGoImplements reuses the SAME *LoadResult the load just produced —
+	// passed through the seam, not re-loaded — so it cannot block on a cold load
+	// here. Running it unconditionally restores the pre-round-1 behaviour for the
+	// zero-edge case (a Go module with only type declarations and no function
+	// calls) — round 1's single nil-return silently dropped IMPLEMENTS on that
+	// case, regressing issue #467's whole feature.
+	typedCG := tryGoTypesResolution(lr, symbols)
+	if typedCG != nil {
+		cg = MergeCallGraphs(cg, typedCG)
+		cg.Tier = "enhanced"
+		cg.Backend = BackendGoTypes
+	}
+	// When typedCG is nil, the load succeeded with zero typed CALL edges — Tier
+	// stays "basic" for CALLS (honest), and IMPLEMENTS enrichment still runs.
+	cg.TypeRels = append(cg.TypeRels, ExtractGoImplements(ctx, root, lr)...)
 	return cg
 }
 
@@ -324,29 +330,6 @@ func buildUsesIndex(results []parseResult, root string) map[string][]string {
 		return nil
 	}
 	return idx
-}
-
-// buildPrewarmEnv returns the environment for the `go list` pre-warm
-// subprocess (eager_warm.go). CGO_ENABLED=0 is pinned because tree-sitter
-// grammars need C headers that are absent in the runtime image; with cgo
-// off, pure-Go packages still produce export data — exactly what
-// packages.Load needs to skip its cold-start work. cgo packages survive as
-// per-package errors thanks to `-e` on the command line (issue #736).
-//
-// The -mod flag is NOT set here: it is per-repo (-mod=vendor when
-// vendor/modules.txt exists, -mod=mod otherwise) and passed as an argv
-// flag by runGoListPrewarm.
-func buildPrewarmEnv() []string {
-	// CGO_ENABLED=0 must come AFTER os.Environ() — append order matters in
-	// exec.Cmd.Env (later entries win), and ambient CGO_ENABLED=1 must be
-	// shadowed so the prewarm builds without the missing tree_sitter headers.
-	return append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOCACHE=/tmp/go-build-cache",
-		"GOPATH=/tmp/gopath",
-		"GOWORK=off",
-		"GIT_TERMINAL_PROMPT=0",
-	)
 }
 
 // warmGoTypesCache runs go/types analysis in background to warm GOCACHE.
