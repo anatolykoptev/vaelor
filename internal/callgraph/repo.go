@@ -212,7 +212,7 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 
 	if goanalysis.HasGoModule(root) {
 		warmCtx, warmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		lr, loadErr := goanalysis.LoadPackages(warmCtx, root, goanalysis.LoadOpts{})
+		lr, loadErr := goanalysis.LoadPackages(warmCtx, root, goanalysis.LoadOpts{Tests: true})
 		warmCancel()
 		if loadErr != nil {
 			// Cold cache: the go/packages LOAD failed. The background warm
@@ -288,7 +288,7 @@ func tryGoTypesResolution(lr *goanalysis.LoadResult, tsSymbols []*parser.Symbol)
 	if lr == nil {
 		return nil
 	}
-	typedEdges := goanalysis.Resolve(lr.Packages)
+	typedEdges := goanalysis.ResolveWithTests(lr.Packages, lr.TestPackages)
 	if len(typedEdges) == 0 {
 		recordGotypesNoEdges()
 		return nil
@@ -398,7 +398,7 @@ func warmGoTypesCache(root string, symbols []*parser.Symbol, cacheKey string) {
 	// this same root; this retry re-attempts with a now-warm GOCACHE and a
 	// much longer budget. No cache eviction is needed — there is no
 	// process-global load cache anymore (issue #747).
-	lr, loadErr := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{})
+	lr, loadErr := goanalysis.LoadPackages(ctx, root, goanalysis.LoadOpts{Tests: true})
 	if loadErr != nil {
 		recordGotypesFallback(loadErr)
 		slog.Error("go/types: background warm failed — cache stays at basic tier", "root", root, "err", loadErr)

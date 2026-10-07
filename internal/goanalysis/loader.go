@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/tools/go/packages"
@@ -16,12 +17,22 @@ const defaultTimeout = 10 * time.Minute
 type LoadOpts struct {
 	Patterns []string      // package patterns to load (default: "./...")
 	Timeout  time.Duration // override default 60s timeout
+	// Tests also loads each package's test variants ("p [p.test]" and the
+	// external "p_test [p.test]"), exposed as LoadResult.TestPackages. Without
+	// them test files are never type-checked, so every call made from a _test.go
+	// file has to be resolved by name alone.
+	Tests bool
 }
 
 // LoadResult contains loaded packages with full type information.
 type LoadResult struct {
 	Packages []*packages.Package
-	Errors   []string // non-fatal errors
+	// TestPackages are the test variants of Packages (only with LoadOpts.Tests).
+	// They are kept apart on purpose: a variant re-contains every non-test file
+	// of its base package, so folding them into Packages would double every
+	// consumer that iterates it (call edges, IMPLEMENTS satisfaction).
+	TestPackages []*packages.Package
+	Errors       []string // non-fatal errors
 }
 
 // HasGoModule checks if dir contains a go.mod file.
@@ -69,6 +80,7 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 			packages.NeedImports |
 			packages.NeedDeps,
 		Dir:     dir,
+		Tests:   opts.Tests,
 		Context: ctx,
 		Env:     goEnv(dir),
 	}
@@ -93,7 +105,15 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 		for _, e := range pkg.Errors {
 			result.Errors = append(result.Errors, e.Error())
 		}
-		if pkg.TypesInfo != nil {
+		if pkg.TypesInfo == nil {
+			continue
+		}
+		switch {
+		case isSyntheticTestMain(pkg):
+			// go-generated "p.test" main package: files live in the build cache.
+		case isTestVariant(pkg):
+			result.TestPackages = append(result.TestPackages, pkg)
+		default:
 			result.Packages = append(result.Packages, pkg)
 		}
 	}
@@ -106,6 +126,17 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 	}
 
 	return result, nil
+}
+
+// isTestVariant reports whether pkg is "p [p.test]" or "p_test [p.test]": the
+// ID of a package rebuilt for its tests carries a bracketed suffix.
+func isTestVariant(pkg *packages.Package) bool {
+	return strings.HasSuffix(pkg.ID, ".test]")
+}
+
+// isSyntheticTestMain reports whether pkg is the generated "p.test" main.
+func isSyntheticTestMain(pkg *packages.Package) bool {
+	return strings.HasSuffix(pkg.ID, ".test") && !strings.Contains(pkg.ID, " ")
 }
 
 // releaseUnreadTypeInfo drops the types.Info maps this repo never reads, across

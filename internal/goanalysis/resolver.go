@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -44,8 +45,20 @@ var funcValueAliasEdgesTotal = promauto.NewCounter(prometheus.CounterOpts{
 
 // Resolve walks loaded packages and extracts type-aware call edges.
 func Resolve(pkgs []*packages.Package) []TypedEdge {
-	concrete := collectConcreteTypes(pkgs)
-	aliases := collectFuncValueAliases(pkgs)
+	return ResolveWithTests(pkgs, nil)
+}
+
+// ResolveWithTests is Resolve plus the call edges of every _test.go file in
+// testPkgs (LoadResult.TestPackages). Only the _test.go files of a variant are
+// walked: its non-test files are the same files pkgs already covers, so walking
+// them again would emit every edge twice. Types and aliases are collected over
+// both sets, so a call in a test file dispatches through the variant's own
+// interfaces and sees test-only implementations (fakes).
+func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
+	all := make([]*packages.Package, 0, len(pkgs)+len(testPkgs))
+	all = append(append(all, pkgs...), testPkgs...)
+	concrete := collectConcreteTypes(all)
+	aliases := collectFuncValueAliases(all)
 	var edges []TypedEdge
 
 	for _, pkg := range pkgs {
@@ -53,6 +66,17 @@ func Resolve(pkgs []*packages.Package) []TypedEdge {
 			continue
 		}
 		for _, file := range pkg.Syntax {
+			edges = append(edges, extractFileEdges(pkg, file, concrete, aliases)...)
+		}
+	}
+	for _, pkg := range testPkgs {
+		if pkg.TypesInfo == nil {
+			continue
+		}
+		for _, file := range pkg.Syntax {
+			if !strings.HasSuffix(pkg.Fset.Position(file.Pos()).Filename, "_test.go") {
+				continue
+			}
 			edges = append(edges, extractFileEdges(pkg, file, concrete, aliases)...)
 		}
 	}
