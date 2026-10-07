@@ -31,6 +31,17 @@ func newRootCmd(cfg Config) *cobra.Command {
 	// go-mcpserver is only a backward-compat fallback now (#857, go-mcpserver#31).
 	root.Flags().Bool("stdio", false, "serve MCP over stdio transport (pipe/SSH access)")
 
+	// `vaelor stdio` is the discoverable subcommand form — the pattern used by
+	// github-mcp-server, skywalking-mcp, streamnative-mcp. Same code path as
+	// the --stdio flag (kept for the documented invocation).
+	cli.RegisterSubcommand(root, cli.SubcommandConfig{
+		Name:  "stdio",
+		Short: "Start the MCP server on stdio (pipe/SSH transport)",
+		Run: func(cmd *cobra.Command, args []string) {
+			runMCPServe(cfg, true)
+		},
+	})
+
 	// index-designs: primary cobra path. The legacy os.Args fallback in main()
 	// still intercepts "vaelor index-designs <dir>" for one release; both call
 	// the same runIndexDesigns(cfg, dir) so behavior is identical.
