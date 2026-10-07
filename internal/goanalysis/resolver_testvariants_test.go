@@ -215,3 +215,73 @@ func TestResolve_ExternalInterfaceDispatchReachesRepoImplementers(t *testing.T) 
 		}
 	}
 }
+
+// Dispatch through an interface reaches the method each implementer really has,
+// promoted ones included: two types embedding Base share Base.M (one edge, not
+// two), a type shadowing it contributes its own, and a type that embeds two
+// types both defining M is ambiguous, so it does not implement the interface
+// and gets no edge.
+//
+// Mutation that must turn it RED: in implIndex.method (resolver.go) look the
+// method up only among the type's declared methods instead of calling
+// types.LookupFieldOrMethod.
+func TestResolve_PromotedMethodDispatch(t *testing.T) {
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/fx\n\ngo 1.22\n",
+		"p/p.go": `package p
+
+type I interface{ M() }
+
+type Base struct{}
+
+func (Base) M() {}
+
+type A struct{ Base }
+
+type B struct{ Base }
+
+type C struct{ Base }
+
+func (C) M() {}
+
+type X struct{}
+
+func (X) M() {}
+
+type Y struct{}
+
+func (Y) M() {}
+
+type D struct {
+	X
+	Y
+}
+
+func UseM(i I) { i.M() }
+`,
+	})
+	lr, err := goanalysis.LoadPackages(context.Background(), dir, goanalysis.LoadOpts{})
+	if err != nil {
+		t.Fatalf("LoadPackages: %v", err)
+	}
+	type decl struct {
+		file string
+		line uint32
+	}
+	got := map[decl]int{}
+	for _, e := range goanalysis.Resolve(lr.Packages) {
+		if e.CallerName == "UseM" && e.CalleeName == "M" {
+			got[decl{filepath.Base(e.CalleeFile), e.CalleeLine}]++
+		}
+	}
+	// Base.M line 7, C.M line 15, X.M line 19, Y.M line 23; D is ambiguous.
+	want := map[decl]int{{"p.go", 7}: 1, {"p.go", 15}: 1, {"p.go", 19}: 1, {"p.go", 23}: 1}
+	for d, n := range want {
+		if got[d] != n {
+			t.Errorf("UseM -> M at %s:%d: %d edges, want %d (got %v)", d.file, d.line, got[d], n, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("UseM reaches %d declarations, want %d: %v", len(got), len(want), got)
+	}
+}

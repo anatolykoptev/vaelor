@@ -1,12 +1,9 @@
 package callgraph
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -141,7 +138,13 @@ func discoverGoRepos(dirs []string) []string {
 // runGoListPrewarm warms GOCACHE for root by generating export data for
 // every package `go list` can reach:
 //
-//	go list -e -export -deps -f '{{if or .Error .DepsErrors}}ERR{{end}}' -mod=<flag> ./...
+//	go list -e -export -deps -test -f '{{if or .Error .DepsErrors}}ERR{{end}}' -mod=<flag> ./...
+//
+// The command and its environment come from goanalysis.ExportListArgs /
+// GoEnv, the same ones the typed load primes with, and the same charged,
+// one-at-a-time build (primeCharged): -test and CGO_ENABLED are
+// part of the build-cache key, and a prewarm that differs from the load
+// warms nothing the load reuses.
 //
 // Flag rationale (issue #736):
 //
@@ -163,26 +166,10 @@ func discoverGoRepos(dirs []string) []string {
 //
 // Returns (errored import paths, nil) on tolerated-failure runs and
 // (nil, err) only when the go command itself fails (timeout, tool missing).
-func runGoListPrewarm(ctx context.Context, root, modFlag string) ([]string, error) {
+func runGoListPrewarm(ctx context.Context, root, _ string) ([]string, error) {
 	warmCtx, cancel := context.WithTimeout(ctx, eagerWarmTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(warmCtx, "go", "list",
-		"-e", "-export", "-deps",
-		"-f", "{{if or .Error .DepsErrors}}ERR {{.ImportPath}}{{end}}",
-		modFlag, "./...")
-	cmd.Dir = root
-	cmd.Env = buildPrewarmEnv()
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("go list -export: %w", err)
-	}
-	var errored []string
-	for _, line := range bytes.Split(out, []byte("\n")) {
-		if path, ok := bytes.CutPrefix(line, []byte("ERR ")); ok {
-			errored = append(errored, string(path))
-		}
-	}
-	return errored, nil
+	return primeCharged(warmCtx, root)
 }
 
 // first returns up to n elements of s — for compact WARN logs.

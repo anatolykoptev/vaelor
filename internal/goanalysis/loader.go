@@ -3,8 +3,12 @@ package goanalysis
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +26,16 @@ type LoadOpts struct {
 	// them test files are never type-checked, so every call made from a _test.go
 	// file has to be resolved by name alone.
 	Tests bool
+	// SourceDeps type-checks every dependency from source too (NeedDeps). The
+	// default type-checks only the matched packages from source and reads each
+	// dependency from compiler export data, which holds the dependency's types
+	// but not its ASTs or per-expression type info: on v1.65.16 with tests that
+	// is 311 MB peak RSS instead of 1.29 GB, on a 172-package module 0.9 GB
+	// instead of 2.1 GB, with an identical typed edge set. A dependency whose
+	// export data cannot be built (does not compile) is type-checked from
+	// source by go/packages itself; SourceDeps forces that for all of them and
+	// reproduces the old behaviour.
+	SourceDeps bool
 }
 
 // LoadResult contains loaded packages with full type information.
@@ -44,14 +58,59 @@ func HasGoModule(dir string) bool {
 // LoadPackages loads Go packages from dir with full type info.
 // Returns error if go.mod missing or context expires.
 
-// goEnv returns env vars for go/packages.Load.
-// Uses -mod=vendor when vendor/ dir exists (read-only mounts), else -mod=mod.
-func goEnv(dir string) []string {
-	flag := "-mod=mod"
+// ModFlag is the -mod flag for dir: -mod=vendor when vendor/ exists (read-only
+// mounts), else -mod=mod.
+func ModFlag(dir string) string {
 	if _, err := os.Stat(filepath.Join(dir, "vendor")); err == nil {
-		flag = "-mod=vendor"
+		return "-mod=vendor"
 	}
-	return append(os.Environ(), "GOFLAGS="+flag, "GONOSUMCHECK=*", "GONOSUMDB=*", "GOCACHE=/tmp/go-build-cache", "GOPATH=/tmp/gopath", "GOWORK=off")
+	return "-mod=mod"
+}
+
+// haveCCompiler reports whether a C compiler is on PATH (or named by $CC).
+// Without one cgo cannot work, whatever CGO_ENABLED says. A handful of stats per
+// load, so not cached (it must follow PATH).
+func haveCCompiler() bool {
+	for _, cc := range []string{os.Getenv("CC"), "gcc", "clang", "cc"} {
+		if cc == "" {
+			continue
+		}
+		if _, err := exec.LookPath(cc); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// buildParallelism caps the compiler fan-out of a cold `go list -export`: half
+// the cores, at least one. Unbounded, go starts NumCPU compiles at once, which
+// on the 4-core deploy box starves request handling and (with each compile and
+// cgo child living in the server's cgroup, outside the Go heap) is what
+// actually pushes a cold load towards the memory limit.
+func buildParallelism() int { return max(1, runtime.NumCPU()/2) }
+
+// GoEnv is the environment of EVERY go command run for analysis — the
+// packages.Load driver and the export-data prewarm alike. They must agree on it
+// byte for byte: GOFLAGS, CGO_ENABLED and the toolchain are inputs of the build
+// cache key, so a prewarm built under a different environment warms nothing the
+// load can reuse (measured: a prewarm with CGO_ENABLED=0 followed by a load with
+// CGO_ENABLED=1 rebuilt the std packages that depend on cgo).
+//
+// CGO_ENABLED is pinned to 0 only when no C compiler is on PATH (a minimal
+// image): cgo is impossible there, and an explicit CGO_ENABLED=1 without a
+// compiler makes net, os/user and every importer fail to build. With a compiler
+// the ambient setting stands — that is the production container (gcc present,
+// CGO_ENABLED=1), where the prime and the prewarm compile cgo packages too.
+func GoEnv(dir string) []string {
+	env := append(os.Environ(),
+		fmt.Sprintf("GOFLAGS=%s -p=%d", ModFlag(dir), buildParallelism()),
+		"GONOSUMCHECK=*", "GONOSUMDB=*",
+		"GOCACHE=/tmp/go-build-cache", "GOPATH=/tmp/gopath", "GOWORK=off",
+		"GIT_TERMINAL_PROMPT=0")
+	if !haveCCompiler() {
+		env = append(env, "CGO_ENABLED=0")
+	}
+	return env
 }
 
 func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, error) {
@@ -72,23 +131,46 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 		patterns = []string{"./..."}
 	}
 
+	mode := packages.NeedName |
+		packages.NeedTypes |
+		packages.NeedSyntax |
+		packages.NeedTypesInfo |
+		packages.NeedImports |
+		packages.NeedForTest |
+		packages.NeedFiles
+	if opts.SourceDeps {
+		mode |= packages.NeedDeps
+	} else {
+		mode |= packages.NeedExportFile
+	}
 	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedTypes |
-			packages.NeedSyntax |
-			packages.NeedTypesInfo |
-			packages.NeedImports |
-			packages.NeedDeps |
-			packages.NeedForTest,
+		Mode:    mode,
 		Dir:     dir,
 		Tests:   opts.Tests,
 		Context: ctx,
-		Env:     goEnv(dir),
+		Env:     GoEnv(dir),
 	}
 
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("packages.Load: %w", err)
+	}
+
+	// Export data is not a faithful source of DECLARATION POSITIONS for a cgo
+	// package (the compiler positions its cgo-rewritten file, shifting every
+	// line), and a callee is identified by (name, file, line). So a dependency
+	// that lives inside this repository (a `replace => ./libs/x` module outside
+	// ./..., a nested module) must be type-checked from source like the roots:
+	// reload once with those packages added to the patterns. Vendored and
+	// module-cache dependencies are not ingested, so their positions never
+	// matter.
+	if !opts.SourceDeps {
+		if extra := inRootDependencies(pkgs, dir); len(extra) > 0 {
+			slog.Debug("go/packages: reloading with in-repository dependencies as roots", "packages", extra)
+			if pkgs, err = packages.Load(cfg, append(append([]string{}, patterns...), extra...)...); err != nil {
+				return nil, fmt.Errorf("packages.Load: %w", err)
+			}
+		}
 	}
 
 	// packages.Load materialises the ENTIRE types.Info for every package it
@@ -129,6 +211,32 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 	return result, nil
 }
 
+// inRootDependencies returns the import paths of the dependencies of pkgs whose
+// files live under dir (outside vendor/) but which were not themselves loaded as
+// roots.
+func inRootDependencies(pkgs []*packages.Package, dir string) []string {
+	roots := make(map[string]bool, len(pkgs))
+	for _, p := range pkgs {
+		roots[p.PkgPath] = true
+	}
+	vendor := filepath.Join(dir, "vendor") + string(filepath.Separator)
+	prefix := dir + string(filepath.Separator)
+	var out []string
+	seen := map[string]bool{}
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if roots[p.PkgPath] || seen[p.PkgPath] || len(p.GoFiles) == 0 {
+			return
+		}
+		f := p.GoFiles[0]
+		if strings.HasPrefix(f, prefix) && !strings.HasPrefix(f, vendor) {
+			seen[p.PkgPath] = true
+			out = append(out, p.PkgPath)
+		}
+	})
+	sort.Strings(out)
+	return out
+}
+
 // isTestVariant reports whether pkg was rebuilt for a test ("p [p.test]" or
 // the external "p_test [p.test]"). go/packages states this in ForTest rather
 // than leaving callers to parse the build-system ID.
@@ -163,7 +271,19 @@ func isSyntheticTestMain(pkg *packages.Package) bool {
 // silent "no entry" for every expression rather than a crash — which is why
 // the kept set is pinned by a test instead of left to a comment.
 func releaseUnreadTypeInfo(pkgs []*packages.Package) {
+	roots := make(map[*packages.Package]bool, len(pkgs))
+	for _, p := range pkgs {
+		roots[p] = true
+	}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if !roots[p] {
+			// A dependency type-checked from source (SourceDeps): only its
+			// *types.Package is ever read (as an import of a root). Its ASTs
+			// and per-expression info are the bulk of the arena.
+			p.Syntax = nil
+			p.TypesInfo = nil
+			return
+		}
 		if p.TypesInfo == nil {
 			return
 		}
