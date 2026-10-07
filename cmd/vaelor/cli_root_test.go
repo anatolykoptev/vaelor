@@ -72,3 +72,25 @@ func TestCLI_SearchHelp(t *testing.T) {
 		t.Errorf("search subcommand Long help does not mention 'semantic'; got: %s", cmd.Long)
 	}
 }
+
+// TestCLI_StdioFlagAccepted guards #857: go-mcpserver detects the stdio
+// transport by scanning os.Args for --stdio, so the flag never reaches a
+// declared flag value — cobra must merely ACCEPT it. Removing the declaration
+// silently breaks `./vaelor --stdio` with "unknown flag" while README still
+// documents it.
+func TestCLI_StdioFlagAccepted(t *testing.T) {
+	t.Parallel()
+
+	root := newRootCmd(Config{})
+
+	f := root.Flags().Lookup("stdio")
+	if f == nil {
+		t.Fatal("--stdio flag not declared on root command — cobra rejects it before go-mcpserver sees os.Args")
+	}
+	if f.Value.Type() != "bool" {
+		t.Errorf("--stdio flag type = %q, want bool", f.Value.Type())
+	}
+	if err := root.ParseFlags([]string{"--stdio"}); err != nil {
+		t.Errorf("ParseFlags(--stdio) = %v, want nil", err)
+	}
+}
