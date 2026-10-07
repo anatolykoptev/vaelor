@@ -101,21 +101,45 @@ func TestConvertBBResult(t *testing.T) {
 	}
 }
 
-// newBlackbirdTestServer emulates the go-wowa interact endpoint.
+// newBlackbirdTestServer emulates the go-wowa interact endpoint. Requests
+// carrying a get_cookies action get the profile jar + UA; evaluate actions get
+// fr (the embeddedData extraction result).
 func newBlackbirdTestServer(t *testing.T, fr bbFetchResult, reqs *atomic.Int32) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if reqs != nil {
 			reqs.Add(1)
 		}
-		var body map[string]any
+		var body struct {
+			Mode    string           `json:"mode"`
+			Session string           `json:"session"`
+			URL     string           `json:"url"`
+			Actions []map[string]any `json:"actions"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		// Assert the load-bearing transport fields.
-		if body["mode"] != "default" {
-			t.Errorf("mode = %v, want default (incognito context = empty cookie jar)", body["mode"])
+		if body.Mode != "default" {
+			t.Errorf("mode = %v, want default (incognito context = empty cookie jar)", body.Mode)
 		}
-		if body["session"] == "" {
+		if body.Session == "" {
 			t.Error("session missing")
+		}
+		for _, a := range body.Actions {
+			if a["type"] != "get_cookies" {
+				continue
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"actions": []map[string]any{
+					{"ok": true, "data": []map[string]any{
+						{"name": "user_session", "value": "testsession", "domain": ".github.com", "http_only": true},
+						{"name": "logged_in", "value": "yes", "domain": ".github.com"},
+						{"name": "other", "value": "x", "domain": ".example.com"},
+					}},
+					{"ok": true, "data": "Mozilla/5.0 Test"},
+				},
+			})
+			return
 		}
 		resp := map[string]any{
 			"status": "ok",
@@ -127,11 +151,165 @@ func newBlackbirdTestServer(t *testing.T, fr bbFetchResult, reqs *atomic.Int32) 
 	}))
 }
 
+// newBBClient builds a client pointed at the wowa mock with ghBase set to the
+// github.com mock.
+func newBBClient(wowaURL, ghURL string, opts ...BlackbirdOption) *BlackbirdClient {
+	b := NewBlackbirdClient(wowaURL, "", "", opts...)
+	b.ghBase = ghURL
+	return b
+}
+
+// rejectGithub is a github.com mock that refuses the bare-cookie request —
+// driving the wowa-evaluate fallback in tests that exercise the browser path.
+func rejectGithub(t *testing.T, status int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+	}))
+}
+
 func testRouteJSON() string {
 	return `{"results":[{"repo_nwo":"a/b","path":"x.go","language_name":"Go","ref_name":"refs/heads/main","commit_sha":"deadbeef","line_number":5,"snippets":[{"format":"SNIPPET_FORMAT_HTML","starting_line_number":5,"ending_line_number":5,"lines":["<mark>hit</mark>"]}]}],"result_count":1,"page_count":1,"logged_in":true}`
 }
 
-// TestBlackbirdSearchHappyPath: one interact call → parsed route → CodeResult.
+// TestBlackbirdHTTPFastPath: the bare-cookie GET is the primary transport —
+// a good JSON answer must resolve the search with zero evaluate navigations
+// (only the one get_cookies pull).
+func TestBlackbirdHTTPFastPath(t *testing.T) {
+	var wowaReqs atomic.Int32
+	var evalNavs atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wowaReqs.Add(1)
+		var body struct {
+			URL     string           `json:"url"`
+			Actions []map[string]any `json:"actions"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if strings.Contains(body.URL, "type=code") {
+			evalNavs.Add(1)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"actions": []map[string]any{
+				{"ok": true, "data": []map[string]any{
+					{"name": "user_session", "value": "testsession", "domain": ".github.com"},
+				}},
+				{"ok": true, "data": "Mozilla/5.0 Test"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	var ghReqs atomic.Int32
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ghReqs.Add(1)
+		if r.Header.Get("Accept") != "application/json" {
+			t.Error("missing Accept: application/json")
+		}
+		if !strings.Contains(r.Header.Get("Cookie"), "user_session=testsession") {
+			t.Error("missing user_session cookie")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"payload": map[string]any{
+				"blackbirdSearchRoute": json.RawMessage(testRouteJSON()),
+			},
+		})
+	}))
+	defer gh.Close()
+
+	bb := newBBClient(srv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	g := newGitHubForgeWithBase("", AppConfig{}, "http://127.0.0.1:1", WithBlackbird(bb))
+
+	res, err := g.searchCodeBlackbird(context.Background(), "ServeHTTP", nil, SearchCodeOptions{}, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(res.Results) != 1 {
+		t.Fatalf("got %d results, want 1", len(res.Results))
+	}
+	if evalNavs.Load() != 0 {
+		t.Errorf("fast path used the browser %d times — must be plain HTTP only", evalNavs.Load())
+	}
+	if ghReqs.Load() != 1 {
+		t.Errorf("github mock hits = %d, want 1", ghReqs.Load())
+	}
+}
+
+// TestBlackbirdCookieRefresh: a logged_in:false answer triggers one cookie
+// re-pull from the profile + one retry — a silently-skipped refresh would
+// surface a stale-cookie error instead.
+func TestBlackbirdCookieRefresh(t *testing.T) {
+	var wowaReqs atomic.Int32
+	srv := newBlackbirdTestServer(t, bbFetchResult{Status: 200, Payload: testRouteJSON()}, &wowaReqs)
+	defer srv.Close()
+
+	var ghReqs atomic.Int32
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := ghReqs.Add(1)
+		if n == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"payload": map[string]any{"blackbirdSearchRoute": map[string]any{
+					"results": []any{}, "logged_in": false,
+				}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"payload": map[string]any{
+				"blackbirdSearchRoute": json.RawMessage(testRouteJSON()),
+			},
+		})
+	}))
+	defer gh.Close()
+
+	bb := newBBClient(srv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	g := newGitHubForgeWithBase("", AppConfig{}, "http://127.0.0.1:1", WithBlackbird(bb))
+
+	res, err := g.searchCodeBlackbird(context.Background(), "x", nil, SearchCodeOptions{}, 0)
+	if err != nil {
+		t.Fatalf("search after refresh: %v", err)
+	}
+	if len(res.Results) != 1 {
+		t.Fatalf("got %d results, want 1", len(res.Results))
+	}
+	if ghReqs.Load() != 2 {
+		t.Errorf("github hits = %d, want 2 (logged_out → retry)", ghReqs.Load())
+	}
+	if wowaReqs.Load() != 2 {
+		t.Errorf("wowa calls = %d, want 2 (initial + refresh cookie pulls)", wowaReqs.Load())
+	}
+}
+
+// TestBlackbirdHTTPLoggedOutStays: refresh didn't help — the error must
+// surface, not an empty result.
+func TestBlackbirdHTTPLoggedOutStays(t *testing.T) {
+	var ghReqs atomic.Int32
+	srv := newBlackbirdTestServer(t, bbFetchResult{Status: 200}, nil)
+	defer srv.Close()
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ghReqs.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"payload": map[string]any{"blackbirdSearchRoute": map[string]any{
+				"results": []any{}, "logged_in": false,
+			}},
+		})
+	}))
+	defer gh.Close()
+
+	bb := newBBClient(srv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	g := newGitHubForgeWithBase("", AppConfig{}, "http://127.0.0.1:1", WithBlackbird(bb))
+
+	_, err := g.searchCodeBlackbird(context.Background(), "x", nil, SearchCodeOptions{}, 0)
+	if !errors.Is(err, errBlackbirdLoggedOut) {
+		t.Fatalf("err = %v, want errBlackbirdLoggedOut", err)
+	}
+	if ghReqs.Load() != 2 {
+		t.Errorf("github hits = %d, want 2 (one retry after refresh)", ghReqs.Load())
+	}
+}
+
+// TestBlackbirdSearchHappyPath: the browser-evaluate fallback still works
+// when the bare-cookie request is rejected (transport-level fingerprint).
 func TestBlackbirdSearchHappyPath(t *testing.T) {
 	var reqs atomic.Int32
 	srv := newBlackbirdTestServer(t, bbFetchResult{
@@ -139,8 +317,10 @@ func TestBlackbirdSearchHappyPath(t *testing.T) {
 		Payload: testRouteJSON(),
 	}, &reqs)
 	defer srv.Close()
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
 
-	bb := NewBlackbirdClient(srv.URL, "test-session", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	bb := newBBClient(srv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, "http://127.0.0.1:1", WithBlackbird(bb))
 
 	res, err := g.searchCodeBlackbird(context.Background(), "ServeHTTP", nil, SearchCodeOptions{}, 0)
@@ -168,8 +348,10 @@ func TestBlackbirdLoggedOut(t *testing.T) {
 		Payload: `{"results":[],"logged_in":false}`,
 	}, nil)
 	defer srv.Close()
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
 
-	bb := NewBlackbirdClient(srv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	bb := newBBClient(srv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, "http://127.0.0.1:1", WithBlackbird(bb))
 
 	_, err := g.searchCodeBlackbird(context.Background(), "x", nil, SearchCodeOptions{}, 0)
@@ -186,8 +368,10 @@ func TestBlackbirdLoginRedirect(t *testing.T) {
 		Payload:   `{"results":[]}`,
 	}, nil)
 	defer srv.Close()
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
 
-	bb := NewBlackbirdClient(srv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	bb := newBBClient(srv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, "http://127.0.0.1:1", WithBlackbird(bb))
 
 	_, err := g.searchCodeBlackbird(context.Background(), "x", nil, SearchCodeOptions{}, 0)
@@ -213,7 +397,10 @@ func TestAutoBlackbirdLastResort(t *testing.T) {
 	}))
 	defer ghSrv.Close()
 
-	bb := NewBlackbirdClient(bbSrv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
+
+	bb := newBBClient(bbSrv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, ghSrv.URL, WithBlackbird(bb), WithCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 
 	res, err := g.SearchCode(context.Background(), "uniqueterm", nil, SearchCodeOptions{Engine: "auto"})
@@ -242,7 +429,10 @@ func TestAutoGitHubErrorEscalates(t *testing.T) {
 	}))
 	defer ghSrv.Close()
 
-	bb := NewBlackbirdClient(bbSrv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
+
+	bb := newBBClient(bbSrv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, ghSrv.URL, WithBlackbird(bb), WithCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 
 	res, err := g.SearchCode(context.Background(), "ServeHTTP NOT is:archived", nil, SearchCodeOptions{Engine: "auto"})
@@ -267,7 +457,10 @@ func TestAutoGitHubErrorAllEmpty(t *testing.T) {
 	}))
 	defer ghSrv.Close()
 
-	bb := NewBlackbirdClient(bbSrv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
+
+	bb := newBBClient(bbSrv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, ghSrv.URL, WithBlackbird(bb), WithCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 
 	_, err := g.SearchCode(context.Background(), "x NOT y", nil, SearchCodeOptions{Engine: "auto"})
@@ -295,7 +488,10 @@ func TestAutoBlackbirdSkippedWhenFull(t *testing.T) {
 	}))
 	defer ghSrv.Close()
 
-	bb := NewBlackbirdClient(bbSrv.URL, "", "", WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
+	gh := rejectGithub(t, http.StatusForbidden)
+	defer gh.Close()
+
+	bb := newBBClient(bbSrv.URL, gh.URL, WithBlackbirdCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 	g := newGitHubForgeWithBase("", AppConfig{}, ghSrv.URL, WithBlackbird(bb), WithCache(kitcache.New(kitcache.Config{L1MaxItems: 64})))
 
 	res, err := g.SearchCode(context.Background(), "q", nil, SearchCodeOptions{Engine: "auto", MaxResults: 3})
