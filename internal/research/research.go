@@ -188,9 +188,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 		} else if cg != nil {
 			cgExpanded := expandFromCallGraph(seedFiles, cg, input.ExpandHops)
 			expanded = mergeExpandResults(expanded, cgExpanded)
-			if cg.Warming {
-				warmingNote = "type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)"
-			}
+			warmingNote = callgraph.WarmNote(cg.Warm)
 		}
 	}
 	slog.Info("research.run: DAG + callgraph expansion done",

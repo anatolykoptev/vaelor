@@ -64,14 +64,16 @@ func SetL2(redisURL string) {
 }
 
 // getWithAt is the primary cache lookup: it returns the cached *CallGraph
-// and the entry's at timestamp (when it was cached). The timestamp lets
-// BuildFromRepo's cache-hit path decide whether a Warming=true entry is
-// stale (cached before the root's warm completed) or fresh (cached after a
-// failed rebuild) — the round-8 loop guard, repo.go:76.
+// and the entry's at timestamp (when it was cached). BuildFromRepo's
+// cache-hit path compares at against the per-root warm registry
+// (goTypesWarm, warm_registry.go) to decide whether a pending/failed stamp
+// is stale (cached before the root's warm completed) or fresh — the
+// round-8 loop guard.
 //
 // The existing contract stands: c.mu is released before returning, so
-// callers may read the graph but must never write it (round-5 defect,
-// repo_cache.go:66-72). at is a time.Time value, not a pointer — callers
+// callers may read the graph but must never write it — the write-once rule
+// (issue #746) holds: state corrections happen on shallow copies, never on
+// the cached pointer. at is a time.Time value, not a pointer — callers
 // cannot mutate the LRU entry through it.
 func (c *callGraphCache) getWithAt(key, root string) (*CallGraph, time.Time, bool) {
 	c.mu.Lock()

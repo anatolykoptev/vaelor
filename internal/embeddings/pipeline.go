@@ -70,6 +70,7 @@ type Pipeline struct {
 	writeRepoState     func(ctx context.Context, repoKey, sha, sourcePath string) error                             // defaults to a closure over store.SetRepoStateWithPath + embedModel; injectable for testing
 	writeSparsesBatch  func(ctx context.Context, rows []SparseUpdate) error                                         // defaults to store.UpdateSparseEmbeddingsBatch; injectable for testing
 	deleteRepo         func(ctx context.Context, repoKey string) error                                              // defaults to store.DeleteRepo; injectable for testing (compensating rollback)
+	repoStateExists    func(ctx context.Context, repoKey string) (bool, error)                                      // defaults to store.RepoStateExists; injectable for testing (#739)
 	reconcilePaths     func(ctx context.Context, repoKey, sourcePath string, dryRun bool) (*ReconcileResult, error) // defaults to store.ReconcileRepoPaths; injectable for testing (#708 path-existence reconciliation hook)
 	backfillSourcePath func(ctx context.Context, repoKey, sourcePath string) error                                  // defaults to store.BackfillRepoSourcePath; injectable for testing (#714 round 2 self-heal of pathless keys)
 	progress           sync.Map                                                                                     // repoKey -> *indexProgress
@@ -104,6 +105,7 @@ func NewPipeline(client *embed.Client, store *Store, model string, opts ...Pipel
 		embedModel:         model,
 		writeSparsesBatch:  store.UpdateSparseEmbeddingsBatch,
 		deleteRepo:         store.DeleteRepo,
+		repoStateExists:    store.RepoStateExists,
 		reconcilePaths:     store.ReconcileRepoPaths,
 		backfillSourcePath: store.BackfillRepoSourcePath,
 	}
@@ -200,6 +202,12 @@ func withWriteSparsesBatchFn(fn func(ctx context.Context, rows []SparseUpdate) e
 // log-string matching.
 func withDeleteRepoFn(fn func(ctx context.Context, repoKey string) error) PipelineOpt {
 	return func(p *Pipeline) { p.deleteRepo = fn }
+}
+
+// withRepoStateExistsFn overrides the RepoStateExists probe used by the
+// compensating-rollback re-check. For testing only (issue #739).
+func withRepoStateExistsFn(fn func(ctx context.Context, repoKey string) (bool, error)) PipelineOpt {
+	return func(p *Pipeline) { p.repoStateExists = fn }
 }
 
 // InvalidateIfModelChanged purges code_embeddings for repoKey when the stored
@@ -597,6 +605,19 @@ func firstIndexVerdict(prevErr error, stateExists bool, existErr error) bool {
 	return prevErr == nil && existErr == nil && !stateExists
 }
 
+// orphanCompensation is the outcome of compensateFirstIndexOrphan, embedded
+// verbatim in the caller's error message (issue #739): the log/error text now
+// reports what the compensation actually did instead of unconditionally
+// claiming "rolled back" — which it previously asserted even when the delete
+// had never run (the inherited ctx was already dead).
+type orphanCompensation string
+
+const (
+	orphanRolledBack  orphanCompensation = "partial embeddings rolled back"
+	orphanSuperseded  orphanCompensation = "embeddings kept — a concurrent indexer committed the state row"
+	orphanLeftInPlace orphanCompensation = "partial embeddings left in place — compensation failed"
+)
+
 // compensateFirstIndexOrphan rolls back the just-written embeddings for a first
 // index whose state-row write (or embedChunks) failed — UNLESS a concurrent
 // indexer for the same repoKey has meanwhile committed the state row. A
@@ -606,16 +627,34 @@ func firstIndexVerdict(prevErr error, stateExists bool, existErr error) bool {
 // re-check narrows that window: if a state row now exists, our embeddings are
 // no longer orphaned, so we do NOT delete. orphanPreventedTotal counts only a
 // successful rollback (a failed delete leaves the orphan intact — not prevented).
-func (p *Pipeline) compensateFirstIndexOrphan(ctx context.Context, repoKey, stage string) {
-	if exists, err := p.store.RepoStateExists(ctx, repoKey); err == nil && exists {
-		return // a concurrent indexer wrote the state row — our rows are backed, not orphans
+//
+// The compensation runs on its OWN budget (issue #739): the triggering ctx is
+// typically already expired — a deadline mid-embed is exactly the case that
+// needs the rollback, so inheriting the dead ctx made the guard a no-op
+// precisely when it mattered. context.WithoutCancel detaches the deadline;
+// a tight 30s timeout bounds the probe + delete.
+func (p *Pipeline) compensateFirstIndexOrphan(ctx context.Context, repoKey, stage string) orphanCompensation {
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	exists, err := p.repoStateExists(cctx, repoKey)
+	switch {
+	case err != nil:
+		// Fail closed: cannot prove orphanhood — the rows may belong to a
+		// concurrent indexer's committed state row. Deleting on a broken
+		// probe would destroy another writer's embeddings (issue #739).
+		slog.Warn("indexRepo: state-existence probe failed; skipping compensating delete",
+			slog.String("repo", repoKey), slog.String("stage", stage), slog.Any("error", err))
+		return orphanLeftInPlace
+	case exists:
+		return orphanSuperseded // a concurrent indexer wrote the state row — our rows are backed, not orphans
 	}
-	if delErr := p.deleteRepo(ctx, repoKey); delErr != nil {
+	if delErr := p.deleteRepo(cctx, repoKey); delErr != nil {
 		slog.Warn("indexRepo: compensating DeleteRepo failed",
 			slog.String("repo", repoKey), slog.String("stage", stage), slog.Any("error", delErr))
-		return
+		return orphanLeftInPlace
 	}
 	orphanPreventedTotal.Inc()
+	return orphanRolledBack
 }
 
 // indexRepoWithTool is the internal implementation that optionally reports progress.
@@ -804,8 +843,8 @@ func (p *Pipeline) indexRepoWithTool(
 		// return the error so the caller retries. On re-index the prior state
 		// row means partial rows are not an orphan — leave as-is.
 		if firstIndex {
-			p.compensateFirstIndexOrphan(ctx, repoKey, "embedChunks")
-			return nil, fmt.Errorf("first-index embedChunks failed; partial embeddings rolled back: %w", err)
+			outcome := p.compensateFirstIndexOrphan(ctx, repoKey, "embedChunks")
+			return nil, fmt.Errorf("first-index embedChunks failed; %s: %w", outcome, err)
 		}
 		return nil, err
 	}
@@ -833,8 +872,8 @@ func (p *Pipeline) indexRepoWithTool(
 				// the caller (AutoIndex/IndexRepoAsync) sees the failure and
 				// can retry. Net: no orphan — either state is written, or the
 				// embeddings are rolled back.
-				p.compensateFirstIndexOrphan(ctx, repoKey, "writeRepoState")
-				return nil, fmt.Errorf("first-index repo_state write failed; embeddings rolled back: %w", err)
+				outcome := p.compensateFirstIndexOrphan(ctx, repoKey, "writeRepoState")
+				return nil, fmt.Errorf("first-index repo_state write failed; %s: %w", outcome, err)
 			}
 			// Re-index: a state row already exists, so a swallowed failure
 			// leaves a stale row — NOT an orphan. Preserve current behavior.

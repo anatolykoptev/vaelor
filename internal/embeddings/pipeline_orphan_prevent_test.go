@@ -252,6 +252,78 @@ func TestFirstIndexOrphan_EmbedChunksPartialFail_Compensates(t *testing.T) {
 	assert.Equal(t, "", stored, "no state row must be written when embedChunks fails on first index")
 }
 
+// TestCompensate_DeadParentCtx_StillRollsBack is the issue #739 fix test —
+// DB-free (both store seams are injected). The compensation was previously
+// invoked with the ALREADY-EXPIRED parent ctx, so RepoStateExists and
+// deleteRepo failed on contact precisely when they were needed (a deadline
+// mid-embed is the trigger case). The fix must run the probe + delete on a
+// detached, short-budgeted ctx: injected fakes honor ctx.Err() like the real
+// pgx store does, so a regression back to the inherited ctx fails the delete
+// and yields orphanLeftInPlace → both assertions RED.
+func TestCompensate_DeadParentCtx_StillRollsBack(t *testing.T) {
+	var probed, deleted int64
+	p := NewPipeline(nil, NewStore(nil), "",
+		withRepoStateExistsFn(func(ctx context.Context, _ string) (bool, error) {
+			atomic.AddInt64(&probed, 1)
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			return false, nil
+		}),
+		withDeleteRepoFn(func(ctx context.Context, _ string) error {
+			atomic.AddInt64(&deleted, 1)
+			return ctx.Err()
+		}),
+	)
+
+	// The trigger case: parent ctx is already dead when compensate runs.
+	dead, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	got := p.compensateFirstIndexOrphan(dead, "r/739", "embedChunks")
+
+	if got != orphanRolledBack {
+		t.Errorf("outcome = %q, want %q — the compensation must run on its own budget even when the parent ctx is expired (issue #739)", got, orphanRolledBack)
+	}
+	if atomic.LoadInt64(&probed) == 0 || atomic.LoadInt64(&deleted) == 0 {
+		t.Errorf("probe=%d delete=%d — both must fire on a detached live ctx", probed, deleted)
+	}
+}
+
+// TestCompensate_DeleteFails_OutcomeSaysLeftInPlace pins the honest-outcome
+// contract: when the rollback delete fails, the outcome is left-in-place, so
+// the caller's error can no longer claim "rolled back" for a failure it did
+// not observe (issue #739 part 2 — message/counter disagreement).
+func TestCompensate_DeleteFails_OutcomeSaysLeftInPlace(t *testing.T) {
+	p := NewPipeline(nil, NewStore(nil), "",
+		withRepoStateExistsFn(func(context.Context, string) (bool, error) { return false, nil }),
+		withDeleteRepoFn(func(context.Context, string) error { return errors.New("delete blew up") }),
+	)
+	if got := p.compensateFirstIndexOrphan(context.Background(), "r/739", "embedChunks"); got != orphanLeftInPlace {
+		t.Errorf("outcome = %q, want %q — a failed delete must NOT report rolled back", got, orphanLeftInPlace)
+	}
+}
+
+// TestCompensate_ConcurrentIndexer_Superseded pins the race-guard outcome:
+// when the re-check sees a state row (a concurrent indexer won), the
+// embeddings are kept and the outcome says so — no delete, no "rolled back".
+func TestCompensate_ConcurrentIndexer_Superseded(t *testing.T) {
+	var deleted int64
+	p := NewPipeline(nil, NewStore(nil), "",
+		withRepoStateExistsFn(func(context.Context, string) (bool, error) { return true, nil }),
+		withDeleteRepoFn(func(context.Context, string) error {
+			atomic.AddInt64(&deleted, 1)
+			return nil
+		}),
+	)
+	if got := p.compensateFirstIndexOrphan(context.Background(), "r/739", "embedChunks"); got != orphanSuperseded {
+		t.Errorf("outcome = %q, want %q", got, orphanSuperseded)
+	}
+	if atomic.LoadInt64(&deleted) != 0 {
+		t.Error("delete must NOT fire when a concurrent indexer committed the state row")
+	}
+}
+
 // TestFirstIndexVerdict covers the fail-closed classification WITHOUT a DB —
 // the dangerous branches (lookup error, empty-SHA re-index surfacing as a
 // present row) that a compensating delete must never treat as a first index.
@@ -277,5 +349,28 @@ func TestFirstIndexVerdict(t *testing.T) {
 					c.prevErr, c.stateExist, c.existErr, got, c.want)
 			}
 		})
+	}
+}
+
+// TestCompensate_ProbeFails_NoDelete pins the fail-closed contract: when the
+// state-existence PROBE itself errors, the rows may belong to a concurrent
+// indexer's committed state — the delete must NOT fire and the outcome must
+// say left-in-place, not rolled back (issue #739).
+func TestCompensate_ProbeFails_NoDelete(t *testing.T) {
+	var deleted int64
+	p := NewPipeline(nil, NewStore(nil), "",
+		withRepoStateExistsFn(func(context.Context, string) (bool, error) {
+			return false, errors.New("probe exploded")
+		}),
+		withDeleteRepoFn(func(context.Context, string) error {
+			atomic.AddInt64(&deleted, 1)
+			return nil
+		}),
+	)
+	if got := p.compensateFirstIndexOrphan(context.Background(), "r/739", "embedChunks"); got != orphanLeftInPlace {
+		t.Errorf("outcome = %q, want %q", got, orphanLeftInPlace)
+	}
+	if atomic.LoadInt64(&deleted) != 0 {
+		t.Error("delete must NOT fire when the existence probe cannot prove orphanhood")
 	}
 }

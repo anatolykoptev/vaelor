@@ -156,7 +156,7 @@ func handleDeadCode(ctx context.Context, input DeadCodeInput, deps analyze.Deps,
 			Dead:    result.DeadCount,
 			Ratio:   result.DeadRatio,
 			Tier:    cg.Tier,
-			Warming: warmingAttr(cg.Warming),
+			Warming: warmingAttr(cg.Warm),
 			Symbols: symbols,
 		},
 	}

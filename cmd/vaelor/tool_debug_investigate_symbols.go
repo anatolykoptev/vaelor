@@ -260,12 +260,12 @@ func runSymbolsPhase(
 			// partially populated and still usable for upstream walking.
 			retCG = cg
 
-			// Surface the warming note when go/types enrichment was skipped on a
-			// cold cache (issue #735). The background warm is running; a retry
-			// will return the enhanced tier with type-aware call resolution.
-			if cg != nil && cg.Warming {
-				res.Diagnostics.Warnings = append(res.Diagnostics.Warnings,
-					"type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)")
+			// Surface the warm-state note (issue #746): pending → "retry
+			// will return the enhanced tier", failed → "retry cannot help".
+			if cg != nil {
+				if n := callgraph.WarmNote(cg.Warm); n != "" {
+					res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, n)
+				}
 			}
 
 			for op, info := range ops {

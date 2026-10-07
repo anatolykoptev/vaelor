@@ -80,7 +80,7 @@ func runDeadFunctionAnalysis(ctx context.Context, root, language string, deps an
 			Total:   result.TotalFunctions,
 			Dead:    result.DeadCount,
 			Ratio:   result.DeadRatio,
-			Warming: warmingAttr(cg.Warming),
+			Warming: warmingAttr(cg.Warm),
 			Symbols: symbols,
 		},
 		durationMS: time.Since(start).Milliseconds(),

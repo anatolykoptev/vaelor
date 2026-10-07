@@ -1,7 +1,9 @@
 package callgraph
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -11,19 +13,22 @@ import (
 	"time"
 )
 
-// eagerWarmParallelism caps concurrent `go build` prewarm subprocesses.
+// eagerWarmParallelism caps concurrent `go list` prewarm subprocesses.
 // The deploy box is 4-core; each prewarm uses 1-2 cores at peak. Cap=2
 // keeps total CPU under 50% during the burst so MCP serve stays responsive.
 const eagerWarmParallelism = 2
 
 // eagerWarmTimeout bounds a single repo's prewarm. 5 minutes is generous
-// for the largest in-house repo with CGO_ENABLED=0 (vendor builds <1m typical).
+// for the largest in-house repo (vendor export listings complete <1m
+// typical; non-vendored repos may additionally download modules).
 const eagerWarmTimeout = 5 * time.Minute
 
-// warmGoBuildFn is the unit of work executed per repo. Production wires it
-// to runGoBuildPrewarm; tests swap it for a stub to assert dispatch behavior
-// without paying the packages.Load cost.
-var warmGoBuildFn = runGoBuildPrewarm
+// prewarmRepoFn is the unit of work executed per repo: it returns the
+// import paths of the packages that produced no export data (cgo-requiring,
+// broken replace targets, missing deps) — a nonempty list with a nil error
+// is a PARTIAL warm, visible as outcome="partial". Production wires it to
+// runGoListPrewarm; tests swap it for a stub.
+var prewarmRepoFn = runGoListPrewarm
 
 // recordEagerWarmFn is the metric-bump hook for eager-warm outcomes.
 // Tests may replace it to intercept recorded outcomes without relying on
@@ -54,47 +59,50 @@ func EagerWarmRepos(ctx context.Context, dirs []string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			// Check for vendor/ before dispatching: repos without vendor/ use
-			// the module proxy workflow and -mod=vendor would always fail with
-			// "inconsistent vendoring". Skip them with a distinct counter outcome
-			// so started/completed ratios remain meaningful.
-			//
-			// We use Lstat (not Stat) first to detect the path's own existence
-			// without following symlinks. If vendor/ is a dangling symlink, Lstat
-			// succeeds but Stat returns ENOENT for the target — that is a broken
-			// configuration the operator should fix, not a silent skip.
+			// vendor/modules.txt decides the -mod flag; it is no longer a
+			// skip gate — non-vendored repos warm via the module proxy
+			// (-mod=mod). Lstat+Stat distinguish a healthy vendor/ from a
+			// dangling symlink (Lstat succeeds, Stat ENOENTs the target) —
+			// a broken configuration the operator should fix, logged WARN.
+			modFlag := "-mod=mod"
 			vendorPath := filepath.Join(r, "vendor")
-			if _, lstatErr := os.Lstat(vendorPath); lstatErr != nil {
-				if os.IsNotExist(lstatErr) {
-					recordEagerWarmFn("skipped_no_vendor")
-					slog.Debug("eager warm: skipping repo without vendor/", "root", r)
+			if _, lstatErr := os.Lstat(vendorPath); lstatErr == nil {
+				if _, statErr := os.Stat(vendorPath); statErr != nil {
+					recordEagerWarmFn("failed")
+					slog.Warn("eager warm: vendor/ is a broken symlink or unreadable", "root", r, "stat_err", statErr)
 					return
 				}
+				modFlag = "-mod=vendor"
+			} else if !os.IsNotExist(lstatErr) {
 				// Non-ENOENT Lstat error (EPERM, etc.) — real IO problem.
 				recordEagerWarmFn("failed")
 				slog.Warn("eager warm: stat vendor/ failed", "root", r, "stat_err", lstatErr)
 				return
 			}
-			// vendor/ exists as a filesystem entry. Verify it resolves (detects
-			// dangling symlinks: Lstat succeeds but Stat returns ENOENT for target).
-			if _, statErr := os.Stat(vendorPath); statErr != nil {
-				recordEagerWarmFn("failed")
-				slog.Warn("eager warm: vendor/ is a broken symlink or unreadable", "root", r, "stat_err", statErr)
-				return
-			}
 
 			recordEagerWarmFn("started")
-			if err := warmGoBuildFn(ctx, r); err != nil {
-				// recordEagerWarmFn (f20d840): testable outcome hook. slog.Debug (main
-				// a487fbe): build-failure noise was deliberately demoted. f20d840's WARN
-				// contract governs the broken-symlink path (line ~82, kept Warn), NOT this
-				// build-failure path — so both intents are preserved.
+			errored, err := prewarmRepoFn(ctx, r, modFlag)
+			switch {
+			case err != nil:
+				// WARN, not Debug: a repo that never warms is invisible
+				// otherwise — that is how vaelor itself stayed cold across
+				// every deploy while only the counter knew (issue #736).
 				recordEagerWarmFn("failed")
-				slog.Debug("eager warm: prewarm failed", "root", r, "err", err)
-				return
+				slog.Warn("eager warm: prewarm failed", "root", r, "err", err)
+			case len(errored) > 0:
+				// The run tolerated per-package failures (-e): export data
+				// exists for the rest, but those packages will never
+				// resolve typed edges until fixed — name the repo and the
+				// packages so the operator can tell "cgo repo, expected"
+				// from "vendor drift, fix it".
+				recordEagerWarmFn("partial")
+				slog.Warn("eager warm: prewarm partial — some packages produced no export data",
+					"root", r, "errored_packages", len(errored),
+					"first", first(errored, 3))
+			default:
+				recordEagerWarmFn("completed")
+				slog.Info("eager warm: prewarm complete", "root", r)
 			}
-			recordEagerWarmFn("completed")
-			slog.Info("eager warm: prewarm complete", "root", r)
 		}(root)
 	}
 	wg.Wait()
@@ -130,20 +138,57 @@ func discoverGoRepos(dirs []string) []string {
 	return roots
 }
 
-// runGoBuildPrewarm runs `go build -mod=vendor ./...` against root with the
-// same env as the on-demand warm path (CGO_ENABLED=0, GOWORK=off, dedicated
-// GOCACHE). Bounded by eagerWarmTimeout to avoid hung builds blocking the
-// startup goroutine indefinitely.
+// runGoListPrewarm warms GOCACHE for root by generating export data for
+// every package `go list` can reach:
 //
-// The caller (EagerWarmRepos goroutine) is responsible for checking whether
-// vendor/ exists before calling this function. runGoBuildPrewarm assumes vendor/
-// is present and simply executes the build. If vendor/ is absent or broken the
-// build command will fail and the error is returned to the caller.
-func runGoBuildPrewarm(ctx context.Context, root string) error {
+//	go list -e -export -deps -f '{{if or .Error .DepsErrors}}ERR{{end}}' -mod=<flag> ./...
+//
+// Flag rationale (issue #736):
+//
+//   - -export forces export-data generation — the exact build-cache keys
+//     packages.Load's NeedDeps driver consumes on the request path.
+//   - -deps covers the transitive import set, not just the repo's own
+//     packages — a dep without export data is just as slow on first load.
+//   - -e makes per-package failures NON-FATAL: cgo packages under
+//     CGO_ENABLED=0 (tree-sitter repos — vaelor itself was the repo never
+//     warming, since `go build -mod=vendor` exited 1 on it) and broken
+//     replace targets land in .Error/.DepsErrors while every other package
+//     still warms. This is the canonical "prime the export cache" recipe —
+//     gopls-style warmers use the same shape.
+//   - -f prints "ERR" for exactly the packages that produced no export
+//     data; the count is returned for the partial outcome.
+//   - -mod is per-repo: vendor/modules.txt → -mod=vendor, otherwise
+//     -mod=mod (module proxy; previously those repos were skipped
+//     entirely — 23 of 39).
+//
+// Returns (errored import paths, nil) on tolerated-failure runs and
+// (nil, err) only when the go command itself fails (timeout, tool missing).
+func runGoListPrewarm(ctx context.Context, root, modFlag string) ([]string, error) {
 	warmCtx, cancel := context.WithTimeout(ctx, eagerWarmTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(warmCtx, "go", "build", "-mod=vendor", "./...")
+	cmd := exec.CommandContext(warmCtx, "go", "list",
+		"-e", "-export", "-deps",
+		"-f", "{{if or .Error .DepsErrors}}ERR {{.ImportPath}}{{end}}",
+		modFlag, "./...")
 	cmd.Dir = root
 	cmd.Env = buildPrewarmEnv()
-	return cmd.Run()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list -export: %w", err)
+	}
+	var errored []string
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		if path, ok := bytes.CutPrefix(line, []byte("ERR ")); ok {
+			errored = append(errored, string(path))
+		}
+	}
+	return errored, nil
+}
+
+// first returns up to n elements of s — for compact WARN logs.
+func first(s []string, n int) []string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
