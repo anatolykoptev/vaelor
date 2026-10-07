@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.69.0](https://github.com/anatolykoptev/vaelor/compare/v1.68.0...v1.69.0) (2026-10-07)
+
+
+### Added
+
+* **forge:** blackbird engine — github.com web search via go-wowa session ([#854](https://github.com/anatolykoptev/vaelor/issues/854)) ([10f4034](https://github.com/anatolykoptev/vaelor/commit/10f4034e02a4e43a679915d36bb0ef26618f8a1a))
+
 ## [1.68.0](https://github.com/anatolykoptev/vaelor/compare/v1.67.0...v1.68.0) (2026-10-07)
 
 
