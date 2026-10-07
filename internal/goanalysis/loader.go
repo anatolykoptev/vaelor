@@ -96,6 +96,16 @@ func buildParallelism() int { return max(1, runtime.NumCPU()/2) }
 // load can reuse (measured: a prewarm with CGO_ENABLED=0 followed by a load with
 // CGO_ENABLED=1 rebuilt the std packages that depend on cgo).
 //
+// -trimpath keys the compile cache on CONTENT rather than checkout path: a
+// new worktree of an already-built repo reuses all ~800 package compiles
+// instead of redoing them per path (measured 41 s → 1.8 s on a second
+// checkout — issue #893). It must live in the shared env, not the
+// ExportListArgs argv: the driver's internal `go list` reads GOFLAGS only,
+// so argv-side flags would still leave the load path-keyed. Export-data
+// positions of dep packages become module-relative — harmless: under-root
+// packages are loaded from source and dep callees are external to the
+// edge set either way.
+//
 // CGO_ENABLED is pinned to 0 only when no C compiler is on PATH (a minimal
 // image): cgo is impossible there, and an explicit CGO_ENABLED=1 without a
 // compiler makes net, os/user and every importer fail to build. With a compiler
@@ -103,7 +113,7 @@ func buildParallelism() int { return max(1, runtime.NumCPU()/2) }
 // CGO_ENABLED=1), where the prime and the prewarm compile cgo packages too.
 func GoEnv(dir string) []string {
 	env := append(os.Environ(),
-		fmt.Sprintf("GOFLAGS=%s -p=%d", ModFlag(dir), buildParallelism()),
+		fmt.Sprintf("GOFLAGS=%s -p=%d -trimpath", ModFlag(dir), buildParallelism()),
 		"GONOSUMCHECK=*", "GONOSUMDB=*",
 		"GOCACHE=/tmp/go-build-cache", "GOPATH=/tmp/gopath", "GOWORK=off",
 		"GIT_TERMINAL_PROMPT=0")
