@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -16,15 +17,79 @@ type TypedEdge struct {
 	CallerFile   string // absolute path
 	CallerLine   uint32 // line of the caller function definition
 	CalleeName   string // called function/method name
-	CalleeFile   string // absolute path (empty if external)
+	CalleeFile   string // absolute path of the callee's declaration (empty only for an invalid position)
+	CalleeLine   uint32 // line of the callee's declaration; with CalleeFile it identifies the callee
 	CalleePkg    string // package path of callee
 	ReceiverType string // receiver type for method calls (empty for functions)
 	Line         uint32 // line of the call site
 	IsInterface  bool   // true if this is interface dispatch
 }
 
-// concreteTypes maps interface types to their concrete implementations.
-type concreteTypes map[*types.Interface][]*types.Named
+// concreteTypes indexes the implementations of interfaces over one set of
+// loaded packages.
+type concreteTypes = *implIndex
+
+type implIndex struct {
+	named []*types.Named                      // every named non-interface type in the set
+	impls map[*types.Interface][]*types.Named // memoised implementers per interface
+	fset  *token.FileSet                      // when set, implementers are deduplicated by declaration site
+	meths map[methodKey]*types.Func           // memoised method lookups (promoted methods included)
+}
+
+type methodKey struct {
+	recv *types.Named
+	name string
+}
+
+// method returns the method name of impl, promoted ones included (the
+// declaration may be on an embedded type), or nil.
+func (ix *implIndex) method(impl *types.Named, name string) *types.Func {
+	k := methodKey{impl, name}
+	if m, ok := ix.meths[k]; ok {
+		return m
+	}
+	var m *types.Func
+	if obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(impl), true, impl.Obj().Pkg(), name); obj != nil {
+		m, _ = obj.(*types.Func)
+	}
+	if ix.meths == nil {
+		ix.meths = make(map[methodKey]*types.Func)
+	}
+	ix.meths[k] = m
+	return m
+}
+
+// implementers returns the named types of the set that implement iface (by
+// value or pointer). Interfaces declared in the loaded packages are
+// precomputed; any other (error, http.Handler, io.Writer, ...) is resolved here
+// on first use with types.Implements and memoised, so a call through an
+// out-of-module interface still reaches the repo types implementing it. The
+// answer always comes from the type checker, never from a name match.
+func (ix *implIndex) implementers(iface *types.Interface) []*types.Named {
+	if impls, ok := ix.impls[iface]; ok {
+		return impls
+	}
+	var out []*types.Named
+	var seen map[token.Position]struct{}
+	if ix.fset != nil {
+		seen = make(map[token.Position]struct{})
+	}
+	for _, cn := range ix.named {
+		if !types.Implements(cn, iface) && !types.Implements(types.NewPointer(cn), iface) {
+			continue
+		}
+		if seen != nil {
+			site := ix.fset.Position(cn.Obj().Pos())
+			if _, dup := seen[site]; dup {
+				continue
+			}
+			seen[site] = struct{}{}
+		}
+		out = append(out, cn)
+	}
+	ix.impls[iface] = out
+	return out
+}
 
 // funcValueAliasEdgesTotal is a burn-in counter for the func-value-alias
 // shape-class below: every CALLS edge resolveIdent/resolveSelector produce
@@ -44,6 +109,23 @@ var funcValueAliasEdgesTotal = promauto.NewCounter(prometheus.CounterOpts{
 
 // Resolve walks loaded packages and extracts type-aware call edges.
 func Resolve(pkgs []*packages.Package) []TypedEdge {
+	return ResolveWithTests(pkgs, nil)
+}
+
+// ResolveWithTests is Resolve plus the call edges of every _test.go file in
+// testPkgs (LoadResult.TestPackages).
+//
+// Two type universes are involved: "p" and its variant "p [p.test]" are
+// separate type-checks of the same source, so every *types.Named of p exists
+// twice (plus once more in each "q [p.test]" recompile of a dependent). Naively
+// pooling them would emit each interface-dispatch edge once per universe and
+// would let production code dispatch to test fakes. So:
+//   - production files walk pkgs only and dispatch over pkgs' types only;
+//   - only the _test.go files of a variant are walked (its non-test files are
+//     the same files pkgs already covers) and they dispatch over the pooled
+//     types, deduplicated by declaration site so a type is one implementation
+//     however many universes contain it.
+func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
 	concrete := collectConcreteTypes(pkgs)
 	aliases := collectFuncValueAliases(pkgs)
 	var edges []TypedEdge
@@ -56,7 +138,55 @@ func Resolve(pkgs []*packages.Package) []TypedEdge {
 			edges = append(edges, extractFileEdges(pkg, file, concrete, aliases)...)
 		}
 	}
+	if len(testPkgs) == 0 {
+		return edges
+	}
+
+	all := make([]*packages.Package, 0, len(pkgs)+len(testPkgs))
+	all = append(append(all, pkgs...), testPkgs...)
+	testConcrete := collectConcreteTypes(all).dedupeBySite(all)
+	testAliases := collectFuncValueAliases(all)
+	for _, pkg := range testPkgs {
+		if pkg.TypesInfo == nil {
+			continue
+		}
+		for _, file := range pkg.Syntax {
+			if !strings.HasSuffix(pkg.Fset.Position(file.Pos()).Filename, "_test.go") {
+				continue
+			}
+			edges = append(edges, extractFileEdges(pkg, file, testConcrete, testAliases)...)
+		}
+	}
 	return edges
+}
+
+// dedupeBySite collapses implementations of each interface that are the same
+// declaration seen through different type universes, for the interfaces already
+// indexed and for any resolved later.
+func (ix *implIndex) dedupeBySite(pkgs []*packages.Package) *implIndex {
+	for _, p := range pkgs {
+		if p.Fset != nil {
+			ix.fset = p.Fset
+			break
+		}
+	}
+	if ix.fset == nil {
+		return ix
+	}
+	for iface, impls := range ix.impls {
+		seen := make(map[token.Position]struct{}, len(impls))
+		var out []*types.Named
+		for _, n := range impls {
+			site := ix.fset.Position(n.Obj().Pos())
+			if _, dup := seen[site]; dup {
+				continue
+			}
+			seen[site] = struct{}{}
+			out = append(out, n)
+		}
+		ix.impls[iface] = out
+	}
+	return ix
 }
 
 // funcValueAliases maps a *types.Var with a single static function-valued
@@ -239,11 +369,11 @@ func reassignedVar(info *types.Info, lhs ast.Expr) *types.Var {
 // that implement it, across all loaded packages.
 func collectConcreteTypes(pkgs []*packages.Package) concreteTypes {
 	named := gatherNamedNonInterface(pkgs)
-	result := make(concreteTypes)
+	ix := &implIndex{named: named, impls: make(map[*types.Interface][]*types.Named)}
 	for _, pkg := range pkgs {
-		mapInterfaceImpls(pkg, named, result)
+		mapInterfaceImpls(pkg, named, ix.impls)
 	}
-	return result
+	return ix
 }
 
 // gatherNamedNonInterface collects all named non-interface types from all packages.
@@ -273,7 +403,7 @@ func gatherNamedNonInterface(pkgs []*packages.Package) []*types.Named {
 }
 
 // mapInterfaceImpls finds all interfaces in pkg and maps them to implementing types.
-func mapInterfaceImpls(pkg *packages.Package, named []*types.Named, result concreteTypes) {
+func mapInterfaceImpls(pkg *packages.Package, named []*types.Named, result map[*types.Interface][]*types.Named) {
 	if pkg.Types == nil {
 		return
 	}

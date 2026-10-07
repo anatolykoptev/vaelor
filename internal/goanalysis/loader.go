@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/tools/go/packages"
@@ -16,12 +17,22 @@ const defaultTimeout = 10 * time.Minute
 type LoadOpts struct {
 	Patterns []string      // package patterns to load (default: "./...")
 	Timeout  time.Duration // override default 60s timeout
+	// Tests also loads each package's test variants ("p [p.test]" and the
+	// external "p_test [p.test]"), exposed as LoadResult.TestPackages. Without
+	// them test files are never type-checked, so every call made from a _test.go
+	// file has to be resolved by name alone.
+	Tests bool
 }
 
 // LoadResult contains loaded packages with full type information.
 type LoadResult struct {
 	Packages []*packages.Package
-	Errors   []string // non-fatal errors
+	// TestPackages are the test variants of Packages (only with LoadOpts.Tests).
+	// They are kept apart on purpose: a variant re-contains every non-test file
+	// of its base package, so folding them into Packages would double every
+	// consumer that iterates it (call edges, IMPLEMENTS satisfaction).
+	TestPackages []*packages.Package
+	Errors       []string // non-fatal errors
 }
 
 // HasGoModule checks if dir contains a go.mod file.
@@ -67,8 +78,10 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 			packages.NeedSyntax |
 			packages.NeedTypesInfo |
 			packages.NeedImports |
-			packages.NeedDeps,
+			packages.NeedDeps |
+			packages.NeedForTest,
 		Dir:     dir,
+		Tests:   opts.Tests,
 		Context: ctx,
 		Env:     goEnv(dir),
 	}
@@ -93,7 +106,15 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 		for _, e := range pkg.Errors {
 			result.Errors = append(result.Errors, e.Error())
 		}
-		if pkg.TypesInfo != nil {
+		if pkg.TypesInfo == nil {
+			continue
+		}
+		switch {
+		case isSyntheticTestMain(pkg):
+			// go-generated "p.test" main package: files live in the build cache.
+		case isTestVariant(pkg):
+			result.TestPackages = append(result.TestPackages, pkg)
+		default:
 			result.Packages = append(result.Packages, pkg)
 		}
 	}
@@ -106,6 +127,21 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 	}
 
 	return result, nil
+}
+
+// isTestVariant reports whether pkg was rebuilt for a test ("p [p.test]" or
+// the external "p_test [p.test]"). go/packages states this in ForTest rather
+// than leaving callers to parse the build-system ID.
+func isTestVariant(pkg *packages.Package) bool {
+	return pkg.ForTest != ""
+}
+
+// isSyntheticTestMain reports whether pkg is the generated test main
+// ("p.test": package main, not itself rebuilt for a test, path ending ".test").
+// Its CompiledGoFiles are empty or build-cache paths in this load mode, so the
+// generated _testmain.go cannot be used to recognise it.
+func isSyntheticTestMain(pkg *packages.Package) bool {
+	return pkg.Name == "main" && pkg.ForTest == "" && strings.HasSuffix(pkg.PkgPath, ".test")
 }
 
 // releaseUnreadTypeInfo drops the types.Info maps this repo never reads, across
