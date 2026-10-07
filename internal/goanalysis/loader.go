@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"golang.org/x/tools/go/packages"
@@ -78,7 +77,8 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 			packages.NeedSyntax |
 			packages.NeedTypesInfo |
 			packages.NeedImports |
-			packages.NeedDeps,
+			packages.NeedDeps |
+			packages.NeedForTest,
 		Dir:     dir,
 		Tests:   opts.Tests,
 		Context: ctx,
@@ -128,15 +128,22 @@ func LoadPackages(ctx context.Context, dir string, opts LoadOpts) (*LoadResult, 
 	return result, nil
 }
 
-// isTestVariant reports whether pkg is "p [p.test]" or "p_test [p.test]": the
-// ID of a package rebuilt for its tests carries a bracketed suffix.
+// isTestVariant reports whether pkg was rebuilt for a test ("p [p.test]" or
+// the external "p_test [p.test]"). go/packages states this in ForTest rather
+// than leaving callers to parse the build-system ID.
 func isTestVariant(pkg *packages.Package) bool {
-	return strings.HasSuffix(pkg.ID, ".test]")
+	return pkg.ForTest != ""
 }
 
-// isSyntheticTestMain reports whether pkg is the generated "p.test" main.
+// isSyntheticTestMain reports whether pkg is the generated test main
+// ("p.test"), recognised by its generated _testmain.go (build-cache) source.
 func isSyntheticTestMain(pkg *packages.Package) bool {
-	return strings.HasSuffix(pkg.ID, ".test") && !strings.Contains(pkg.ID, " ")
+	for _, f := range pkg.CompiledGoFiles {
+		if filepath.Base(f) == "_testmain.go" {
+			return true
+		}
+	}
+	return false
 }
 
 // releaseUnreadTypeInfo drops the types.Info maps this repo never reads, across

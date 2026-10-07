@@ -17,7 +17,8 @@ type TypedEdge struct {
 	CallerFile   string // absolute path
 	CallerLine   uint32 // line of the caller function definition
 	CalleeName   string // called function/method name
-	CalleeFile   string // absolute path (empty if external)
+	CalleeFile   string // absolute path of the callee's declaration (empty only for an invalid position)
+	CalleeLine   uint32 // line of the callee's declaration; with CalleeFile it identifies the callee
 	CalleePkg    string // package path of callee
 	ReceiverType string // receiver type for method calls (empty for functions)
 	Line         uint32 // line of the call site
@@ -49,16 +50,21 @@ func Resolve(pkgs []*packages.Package) []TypedEdge {
 }
 
 // ResolveWithTests is Resolve plus the call edges of every _test.go file in
-// testPkgs (LoadResult.TestPackages). Only the _test.go files of a variant are
-// walked: its non-test files are the same files pkgs already covers, so walking
-// them again would emit every edge twice. Types and aliases are collected over
-// both sets, so a call in a test file dispatches through the variant's own
-// interfaces and sees test-only implementations (fakes).
+// testPkgs (LoadResult.TestPackages).
+//
+// Two type universes are involved: "p" and its variant "p [p.test]" are
+// separate type-checks of the same source, so every *types.Named of p exists
+// twice (plus once more in each "q [p.test]" recompile of a dependent). Naively
+// pooling them would emit each interface-dispatch edge once per universe and
+// would let production code dispatch to test fakes. So:
+//   - production files walk pkgs only and dispatch over pkgs' types only;
+//   - only the _test.go files of a variant are walked (its non-test files are
+//     the same files pkgs already covers) and they dispatch over the pooled
+//     types, deduplicated by declaration site so a type is one implementation
+//     however many universes contain it.
 func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
-	all := make([]*packages.Package, 0, len(pkgs)+len(testPkgs))
-	all = append(append(all, pkgs...), testPkgs...)
-	concrete := collectConcreteTypes(all)
-	aliases := collectFuncValueAliases(all)
+	concrete := collectConcreteTypes(pkgs)
+	aliases := collectFuncValueAliases(pkgs)
 	var edges []TypedEdge
 
 	for _, pkg := range pkgs {
@@ -69,6 +75,14 @@ func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
 			edges = append(edges, extractFileEdges(pkg, file, concrete, aliases)...)
 		}
 	}
+	if len(testPkgs) == 0 {
+		return edges
+	}
+
+	all := make([]*packages.Package, 0, len(pkgs)+len(testPkgs))
+	all = append(append(all, pkgs...), testPkgs...)
+	testConcrete := dedupeImplsBySite(collectConcreteTypes(all), all)
+	testAliases := collectFuncValueAliases(all)
 	for _, pkg := range testPkgs {
 		if pkg.TypesInfo == nil {
 			continue
@@ -77,10 +91,38 @@ func ResolveWithTests(pkgs, testPkgs []*packages.Package) []TypedEdge {
 			if !strings.HasSuffix(pkg.Fset.Position(file.Pos()).Filename, "_test.go") {
 				continue
 			}
-			edges = append(edges, extractFileEdges(pkg, file, concrete, aliases)...)
+			edges = append(edges, extractFileEdges(pkg, file, testConcrete, testAliases)...)
 		}
 	}
 	return edges
+}
+
+// dedupeImplsBySite collapses implementations of each interface that are the
+// same declaration seen through different type universes.
+func dedupeImplsBySite(in concreteTypes, pkgs []*packages.Package) concreteTypes {
+	var fset *token.FileSet
+	for _, p := range pkgs {
+		if p.Fset != nil {
+			fset = p.Fset
+			break
+		}
+	}
+	if fset == nil {
+		return in
+	}
+	out := make(concreteTypes, len(in))
+	for iface, impls := range in {
+		seen := make(map[token.Position]struct{}, len(impls))
+		for _, n := range impls {
+			site := fset.Position(n.Obj().Pos())
+			if _, dup := seen[site]; dup {
+				continue
+			}
+			seen[site] = struct{}{}
+			out[iface] = append(out[iface], n)
+		}
+	}
+	return out
 }
 
 // funcValueAliases maps a *types.Var with a single static function-valued

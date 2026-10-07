@@ -17,7 +17,7 @@ func ConvertToCallGraph(typedEdges []goanalysis.TypedEdge, tsSymbols []*parser.S
 	edges := make([]CallEdge, 0, len(typedEdges))
 	for _, te := range typedEdges {
 		caller := idx.resolve(te.CallerName, te.CallerFile, te.CallerLine)
-		callee := idx.resolve(te.CalleeName, te.CalleeFile, 0)
+		callee := idx.resolve(te.CalleeName, te.CalleeFile, te.CalleeLine)
 		edges = append(edges, CallEdge{
 			Caller:      caller,
 			Callee:      callee,
@@ -139,26 +139,29 @@ func buildConvertIndexes(symbols []*parser.Symbol) convertIndex {
 	return idx
 }
 
-// pathSuffixComponents is how many trailing path elements a non-exact file
-// match must agree on. Typed paths normally equal tree-sitter paths exactly;
-// the suffix fallback only tolerates a differing root prefix (symlinked or
-// relative roots), and three components keep a GOROOT/module-cache file from
-// matching a repo file that merely shares a basename.
+// pathSuffixComponents is how many trailing path elements a RELATIVE typed
+// path must agree on with a symbol path (SCIP emits repo-relative paths).
 const pathSuffixComponents = 3
 
-// resolve returns the symbol named name defined in file, or nil.
+// resolve returns the symbol named name whose declaration is at file:line, or
+// nil. It never guesses.
 //
-// An empty file means the callee is external (stdlib / dependency): nil. A
-// file that matches no repo symbol is also nil, not a name-only guess: a
-// missing edge is a recall gap, a wrong edge puts an unrelated function into
-// every blast radius that crosses it. line, when non-zero, disambiguates
-// several same-named symbols in one file (methods of different types).
+// An absolute file must match a symbol's path exactly: go/packages reports
+// stdlib, module-cache and vendored callees by their real absolute paths, and
+// those must stay unresolved rather than be matched to a repo file by suffix.
+// A relative file (SCIP) falls back to a unique suffix match. line, when
+// non-zero, selects among same-named symbols by declaration span (methods of
+// different types in one file); when several share the file and none spans the
+// line, there is no answer rather than the first one.
 func (ix convertIndex) resolve(name, file string, line uint32) *parser.Symbol {
 	if name == "" || file == "" {
 		return nil
 	}
 	if syms := ix.byNameFile[name+"\x00"+filepath.Clean(file)]; len(syms) > 0 {
 		return pickByLine(syms, line)
+	}
+	if filepath.IsAbs(file) {
+		return nil
 	}
 	var match []*parser.Symbol
 	for _, sym := range ix.byName[name] {
@@ -172,31 +175,29 @@ func (ix convertIndex) resolve(name, file string, line uint32) *parser.Symbol {
 	return nil
 }
 
-// pickByLine prefers the symbol whose definition spans line; otherwise the
-// first one (stable, matches the historical first-wins behaviour within a
-// single file).
+// pickByLine returns the symbol whose span contains line. With no line, or a
+// single candidate, the first/only symbol is returned; with several candidates
+// and no span containing line, nil.
 func pickByLine(syms []*parser.Symbol, line uint32) *parser.Symbol {
-	if line != 0 {
-		for _, s := range syms {
-			if line >= s.StartLine && line <= s.EndLine {
-				return s
-			}
+	if len(syms) == 1 || line == 0 {
+		return syms[0]
+	}
+	for _, s := range syms {
+		if line >= s.StartLine && line <= s.EndLine {
+			return s
 		}
 	}
-	return syms[0]
+	return nil
 }
 
-func sharesPathSuffix(a, b string) bool {
-	as := strings.Split(filepath.ToSlash(filepath.Clean(a)), "/")
-	bs := strings.Split(filepath.ToSlash(filepath.Clean(b)), "/")
-	n := min(pathSuffixComponents, len(as), len(bs))
-	// Two absolute paths that differ within the suffix window are different
-	// files; only a relative path may legitimately be shorter than the window.
-	if n < pathSuffixComponents && filepath.IsAbs(a) && filepath.IsAbs(b) {
-		return false
-	}
+// sharesPathSuffix reports whether the relative path rel is a path-element
+// suffix of abs (at most pathSuffixComponents elements compared).
+func sharesPathSuffix(abs, rel string) bool {
+	as := strings.Split(filepath.ToSlash(filepath.Clean(abs)), "/")
+	rs := strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/")
+	n := min(pathSuffixComponents, len(as), len(rs))
 	for i := 1; i <= n; i++ {
-		if as[len(as)-i] != bs[len(bs)-i] {
+		if as[len(as)-i] != rs[len(rs)-i] {
 			return false
 		}
 	}
@@ -205,13 +206,14 @@ func sharesPathSuffix(a, b string) bool {
 
 // edgeKey returns a deduplication key for a CallEdge.
 //
-// The caller is identified by file AND name: several `main` / `init` / TestMain
-// functions coexist in one repo, and keying on the bare name let a typed edge
-// from one of them suppress a different function's tree-sitter edge.
+// The caller is identified by file, name AND declaration line: several `main` /
+// `init` / TestMain functions coexist in one repo, and same-named methods of
+// different types share a file, so a coarser key let a typed edge from one of
+// them suppress a different function's tree-sitter edge.
 func edgeKey(e CallEdge) string {
 	caller := ""
 	if e.Caller != nil {
-		caller = e.Caller.File + "\x00" + e.Caller.Name
+		caller = e.Caller.File + "\x00" + e.Caller.Name + "\x00" + strconv.FormatUint(uint64(e.Caller.StartLine), 10)
 	}
 	return caller + "->" + e.CalleeName
 }

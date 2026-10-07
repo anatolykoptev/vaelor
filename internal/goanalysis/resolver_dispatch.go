@@ -49,6 +49,7 @@ func resolveIdent(info *types.Info, fset *token.FileSet, id *ast.Ident, callerNa
 		CallerLine: callerLine,
 		CalleeName: fn.Name(),
 		CalleeFile: calleeFile,
+		CalleeLine: posLine(fset, fn.Pos()),
 		CalleePkg:  fn.Pkg().Path(),
 		Line:       callLine,
 	}}
@@ -84,6 +85,7 @@ func resolveSelector(info *types.Info, fset *token.FileSet, pkg *packages.Packag
 		CallerLine: callerLine,
 		CalleeName: fn.Name(),
 		CalleeFile: calleeFile,
+		CalleeLine: posLine(fset, fn.Pos()),
 		CalleePkg:  pkgPath,
 		Line:       callLine,
 	}}
@@ -117,6 +119,7 @@ func resolveMethodSelection(info *types.Info, fset *token.FileSet, pkg *packages
 		CallerLine:   callerLine,
 		CalleeName:   fn.Name(),
 		CalleeFile:   calleeFile,
+		CalleeLine:   posLine(fset, fn.Pos()),
 		CalleePkg:    pkgPath,
 		ReceiverType: recvType,
 		Line:         callLine,
@@ -140,12 +143,14 @@ func resolveInterfaceDispatch(_ *types.Info, fset *token.FileSet, _ *packages.Pa
 	edges := make([]TypedEdge, 0, len(impls))
 	for _, impl := range impls {
 		calleeFile := ""
+		var calleeLine uint32
 		pkgPath := ""
 		// Find the method on the concrete type.
 		for i := range impl.NumMethods() {
 			m := impl.Method(i)
 			if m.Name() == methodName {
 				calleeFile = posFile(fset, m.Pos())
+				calleeLine = posLine(fset, m.Pos())
 				if m.Pkg() != nil {
 					pkgPath = m.Pkg().Path()
 				}
@@ -158,6 +163,7 @@ func resolveInterfaceDispatch(_ *types.Info, fset *token.FileSet, _ *packages.Pa
 			CallerLine:   callerLine,
 			CalleeName:   methodName,
 			CalleeFile:   calleeFile,
+			CalleeLine:   calleeLine,
 			CalleePkg:    pkgPath,
 			ReceiverType: typeName(impl),
 			Line:         callLine,
@@ -189,4 +195,12 @@ func posFile(fset *token.FileSet, pos token.Pos) string {
 		return ""
 	}
 	return fset.Position(pos).Filename
+}
+
+// posLine returns the 1-based line of a token position, 0 when invalid.
+func posLine(fset *token.FileSet, pos token.Pos) uint32 {
+	if !pos.IsValid() {
+		return 0
+	}
+	return uint32(fset.Position(pos).Line) //nolint:gosec // line numbers are always positive
 }

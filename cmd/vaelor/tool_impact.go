@@ -136,7 +136,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		totalDirect := len(result.DirectCallers)
 		omitted := result.DirectCallers[maxDirectCallersForProcessing:]
 		result.DirectCallers = result.DirectCallers[:maxDirectCallersForProcessing]
-		directCallersTruncNote = directCallersTruncationNote(maxDirectCallersForProcessing, totalDirect, omitted, input.Symbol)
+		directCallersTruncNote = directCallersTruncationNote(maxDirectCallersForProcessing, totalDirect, omitted, input.Repo, input.Symbol)
 	}
 
 	// Sort callers within each tier by PageRank (most architecturally important first).
@@ -419,7 +419,7 @@ const maxOmittedNamesInNote = 10
 // out, which ones, that they ARE still reflected in total_affected, the
 // transitive callers and blast_radius (the BFS ran before the cap), and how to
 // list them.
-func directCallersTruncationNote(shown, total int, omitted []impact.AffectedSymbol, symbol string) string {
+func directCallersTruncationNote(shown, total int, omitted []impact.AffectedSymbol, repo, symbol string) string {
 	names := make([]string, 0, maxOmittedNamesInNote+1)
 	for i, c := range omitted {
 		if i == maxOmittedNamesInNote {
@@ -430,7 +430,8 @@ func directCallersTruncationNote(shown, total int, omitted []impact.AffectedSymb
 	}
 	return fmt.Sprintf(
 		"direct_callers lists %d of %d (cap on per-caller post-processing); %d omitted: %s. "+
-			"The omitted callers and their transitive callers are still counted in total_affected, "+
-			"affected_packages and blast_radius; list them with call_trace symbol=%q direction=callers depth=1",
-		shown, total, len(omitted), strings.Join(names, ", "), symbol)
+			"total_affected includes the omitted callers and their transitive callers, so it exceeds "+
+			"direct_callers_count + transitive_callers_count by the omitted amount; affected_packages and "+
+			"blast_radius include them too. List them with call_trace repo=%q symbol=%q direction=callers depth=1",
+		shown, total, len(omitted), strings.Join(names, ", "), repo, symbol)
 }

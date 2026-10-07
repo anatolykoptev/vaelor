@@ -169,3 +169,42 @@ func TestSync(t *testing.T) {
 		t.Errorf("TestSync distance = %d, want 2", found.Distance)
 	}
 }
+
+// Same-named methods of two types in ONE file. OnlyB calls B.Do, which reaches
+// TargetB; A.Do reaches TargetA. A callee resolved by name inside the file binds
+// every `.Do()` to the first one: OnlyB then shows up under TargetA and is
+// missing under TargetB.
+func TestAnalyze_SameFileSameNameMethods_BothEndpointsResolvedByPosition(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/fx\n\ngo 1.22\n",
+		"lib/two.go": `package lib
+
+func TargetA() {}
+func TargetB() {}
+
+type A struct{}
+
+func (A) Do() { TargetA() }
+
+type B struct{}
+
+func (B) Do() { TargetB() }
+
+func OnlyB(b B) { b.Do() }
+`,
+	})
+	has := func(r *impact.Result, name string) bool {
+		for _, c := range allCallers(r) {
+			if c.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if a := typedImpact(t, root, "TargetA"); has(a, "OnlyB") {
+		t.Errorf("OnlyB calls B.Do, not A.Do, but is reported as a caller of TargetA: %+v", allCallers(a))
+	}
+	if b := typedImpact(t, root, "TargetB"); !has(b, "OnlyB") {
+		t.Errorf("OnlyB -> B.Do -> TargetB missing: %+v", allCallers(b))
+	}
+}
