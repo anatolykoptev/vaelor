@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.72.6](https://github.com/anatolykoptev/vaelor/compare/v1.72.5...v1.72.6) (2026-10-07)
+
+
+### Fixed
+
+* **research:** size jeff batch to the measured latency budget ([#885](https://github.com/anatolykoptev/vaelor/issues/885)) ([5f3fcf8](https://github.com/anatolykoptev/vaelor/commit/5f3fcf88ac7cb004d98ada38e49227fc50210fe0))
+
 ## [1.72.5](https://github.com/anatolykoptev/vaelor/compare/v1.72.4...v1.72.5) (2026-10-07)
 
 
