@@ -25,15 +25,30 @@ func ExportListArgs(modFlag string) []string {
 		modFlag, "./..."}
 }
 
+// BuildCharge reserves whatever the caller accounts a running build against
+// (a memory budget) and returns the function that gives it back.
+type BuildCharge func(ctx context.Context) (release func(), err error)
+
 // PrimeExportData builds the export data of dir's import graph under the
 // process-wide gate and GoEnv, returning the import paths that produced none.
 // It waits for the gate until ctx ends.
-func PrimeExportData(ctx context.Context, dir string) (errored []string, err error) {
+//
+// charge, when non-nil, is taken AFTER the gate and held only while the build
+// runs: a caller queued behind another build must hold nothing, or the idle
+// reservations of the queue starve loads that would fit.
+func PrimeExportData(ctx context.Context, dir string, charge BuildCharge) (errored []string, err error) {
 	select {
 	case exportGate <- struct{}{}:
 		defer func() { <-exportGate }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+	if charge != nil {
+		release, cerr := charge(ctx)
+		if cerr != nil {
+			return nil, cerr
+		}
+		defer release()
 	}
 	cmd := exec.CommandContext(ctx, "go", ExportListArgs(ModFlag(dir))...)
 	cmd.Dir = dir

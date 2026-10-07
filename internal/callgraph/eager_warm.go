@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 )
 
 // eagerWarmParallelism caps concurrent `go list` prewarm subprocesses.
@@ -143,7 +141,8 @@ func discoverGoRepos(dirs []string) []string {
 //	go list -e -export -deps -test -f '{{if or .Error .DepsErrors}}ERR{{end}}' -mod=<flag> ./...
 //
 // The command and its environment come from goanalysis.ExportListArgs /
-// GoEnv, the same ones the typed load primes with: -test and CGO_ENABLED are
+// GoEnv, the same ones the typed load primes with, and the same charged,
+// one-at-a-time build (primeCharged): -test and CGO_ENABLED are
 // part of the build-cache key, and a prewarm that differs from the load
 // warms nothing the load reuses.
 //
@@ -170,7 +169,7 @@ func discoverGoRepos(dirs []string) []string {
 func runGoListPrewarm(ctx context.Context, root, _ string) ([]string, error) {
 	warmCtx, cancel := context.WithTimeout(ctx, eagerWarmTimeout)
 	defer cancel()
-	return goanalysis.PrimeExportData(warmCtx, root)
+	return primeCharged(warmCtx, root)
 }
 
 // first returns up to n elements of s — for compact WARN logs.

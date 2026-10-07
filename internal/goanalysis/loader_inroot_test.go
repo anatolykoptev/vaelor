@@ -119,3 +119,33 @@ func (*Tree) Close() {
 		t.Errorf("callee lines = %v, want UseParser:10 UseTree:14 (source positions)", lines)
 	}
 }
+
+// Under -mod=vendor a vendored dependency lives inside the repository too, but it
+// is never ingested and must NOT be reloaded as a root: that would type-check
+// every vendored dependency from source (the memory shape this package exists to
+// avoid).
+//
+// Mutation that must turn it RED: in inRootDependencies (loader.go) delete the
+// `!strings.HasPrefix(f, vendor)` condition.
+func TestLoadPackages_VendoredDependencyStaysExportData(t *testing.T) {
+	dir := writeFixture(t, map[string]string{
+		"go.mod":                    "module example.com/fx\n\ngo 1.22\n\nrequire example.com/v v1.0.0\n",
+		"vendor/modules.txt":        "# example.com/v v1.0.0\n## explicit; go 1.22\nexample.com/v\n",
+		"vendor/example.com/v/v.go": "package v\n\nfunc V() {}\n",
+		"app/app.go":                "package app\n\nimport \"example.com/v\"\n\nfunc A() { v.V() }\n",
+	})
+	lr, err := goanalysis.LoadPackages(context.Background(), dir, goanalysis.LoadOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app bool
+	for _, p := range lr.Packages {
+		if p.PkgPath == "example.com/v" {
+			t.Error("a vendored dependency was reloaded as a source-typechecked root")
+		}
+		app = app || p.PkgPath == "example.com/fx/app"
+	}
+	if !app {
+		t.Fatalf("fixture is inert: the app package did not load (errors: %v)", lr.Errors)
+	}
+}

@@ -3,7 +3,9 @@ package callgraph
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -205,43 +207,151 @@ func TestLoadTypedShared_ChangedModuleDoesNotJoinStaleLoad(t *testing.T) {
 	assert.EqualValues(t, 2, calls.Load(), "an unchanged module still shares")
 }
 
-// Cold export builds are charged to the budget and happen once per module state.
+// An export-data prime is skipped once the module state was primed.
 //
 // Mutation that must turn it RED: delete `primed.Store(key, struct{}{})`
-// (primeExportData, typed_load.go) for the memo; delete the b.sem.Acquire(ctx, w)
-// there for the charge.
-func TestPrimeExportData_ChargedToBudgetAndMemoised(t *testing.T) {
+// (primeExportData, typed_load.go).
+func TestPrimeExportData_Memoised(t *testing.T) {
 	var primes atomic.Int32
-	inPrime := make(chan struct{})
-	finish := make(chan struct{})
 	withBudget(t, 2048*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
 		return &goanalysis.LoadResult{}, nil
 	})
 	primeFn.Store(&primer{prime: func(context.Context, string) ([]string, error) {
-		if primes.Add(1) == 1 {
-			close(inPrime)
-			<-finish
-		}
+		primes.Add(1)
 		return nil, nil
 	}})
 	dir := oneRealPackage(t)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
+	for range 2 {
 		_, rel, err := loadTypedShared(context.Background(), dir, goanalysis.LoadOpts{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		rel()
-	}()
-	<-inPrime
-	assert.False(t, budgetFree(), "a running cold build must be charged to the budget (its compile children are invisible to the heap)")
-	close(finish)
-	<-done
-
-	_, rel, err := loadTypedShared(context.Background(), dir, goanalysis.LoadOpts{})
-	require.NoError(t, err)
-	rel()
+	}
 	assert.EqualValues(t, 1, primes.Load(), "an unchanged module is primed once")
+}
+
+// blockingGo puts a `go` on PATH whose `list -deps` build blocks until
+// release() is called (and records that it started); every other go invocation
+// goes to the real toolchain. It stands in for a long cold export build holding
+// the build gate.
+func blockingGo(t *testing.T) (started func() bool, release func()) {
+	t.Helper()
+	dir := t.TempDir()
+	startedFile, releaseFile := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	realGo, err := exec.LookPath("go")
+	require.NoError(t, err)
+	script := "#!/bin/sh\ncase \" $* \" in *\" -deps \"*) touch " + startedFile +
+		"; while [ ! -e " + releaseFile + " ]; do sleep 0.05; done; exit 0;; esac\nexec " + realGo + " \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o700)) //nolint:gosec // test helper script must be executable
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var once sync.Once
+	rel := func() { once.Do(func() { _ = os.WriteFile(releaseFile, nil, 0o600) }) }
+	t.Cleanup(rel)
+	return func() bool { _, err := os.Stat(startedFile); return err == nil }, rel
+}
+
+// A cold build is charged to the budget, inside the build gate and only while it
+// runs; a request that gives up while it is still building is a prime_wait, not
+// budget exhaustion.
+//
+// Mutation that must turn it RED: in primeCharged (typed_load.go) pass nil
+// instead of buildCharge (charge never taken); in degradeReason return
+// "budget_wait" unconditionally (reason).
+func TestPrimeExportData_ChargedWhileBuilding_PrimeWaitIsNotBudgetWait(t *testing.T) {
+	withBudget(t, 2048*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		return &goanalysis.LoadResult{}, nil
+	})
+	primeFn.Store(&primer{prime: primeCharged})
+	started, release := blockingGo(t)
+	dir := oneRealPackage(t)
+
+	reason := func(r string) float64 {
+		return gatherCounterSum(t, "gocode_callgraph_gotypes_load_degraded_total", map[string]string{"reason": r})
+	}
+	b0, p0 := reason("budget_wait"), reason("prime_wait")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _, err := loadTypedShared(ctx, dir, goanalysis.LoadOpts{})
+	require.Error(t, err, "the request gives up while the cold build runs")
+	require.True(t, started(), "the build was running when the request gave up")
+	assert.EqualValues(t, p0+1, reason("prime_wait"), "giving up mid-build is a prime_wait")
+	assert.EqualValues(t, b0, reason("budget_wait"), "…and is not counted as budget exhaustion")
+
+	assert.False(t, budgetFree(), "a running cold build is charged to the budget")
+	assert.EqualValues(t, primeReserveBytes, int64(gaugeValue(t, "gocode_callgraph_gotypes_budget_in_use_bytes")), "exactly the build charge is in use")
+	release()
+	eventually(t, budgetFree, "the charge is returned when the build ends")
+}
+
+// The budget must not be parked behind the build gate. With the gate held by one
+// long build (1 GiB charged inside it), a second module's prime waits at the gate
+// holding NOTHING, so a third, already-primed module whose load fits is admitted
+// at once — instead of FIFO-queuing behind a reservation that cannot be granted.
+//
+// Mutation that must turn it RED: in primeExportData (typed_load.go) take
+// typedBudget.Load().sem.Acquire(ctx, primeReserveBytes) before calling prime.
+func TestPrimeQueue_DoesNotParkBudgetBehindTheGate(t *testing.T) {
+	withBudget(t, 1536*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		return &goanalysis.LoadResult{}, nil
+	})
+	primeFn.Store(&primer{prime: primeCharged})
+	started, release := blockingGo(t)
+	a, b, c := oneRealPackage(t), oneRealPackage(t), oneRealPackage(t)
+	primed.Store(c+"|"+scanModule(c).fingerprint, struct{}{})
+
+	var wg sync.WaitGroup
+	for _, dir := range []string{a, b} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, rel, err := loadTypedShared(context.Background(), dir, goanalysis.LoadOpts{})
+			assert.NoError(t, err)
+			if rel != nil {
+				rel()
+			}
+		}()
+		if dir == a {
+			eventually(t, started, "module A's build must hold the gate before B queues")
+		}
+	}
+	time.Sleep(200 * time.Millisecond) // B is now waiting at the gate
+
+	budgetWaits := func() float64 {
+		return gatherCounterSum(t, "gocode_callgraph_gotypes_load_degraded_total", nil)
+	}
+	d0 := budgetWaits()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, rel, err := loadTypedShared(ctx, c, goanalysis.LoadOpts{})
+	require.NoError(t, err, "a load that fits (64 MiB free of 512 MiB) must be admitted while a build holds the gate")
+	rel()
+	assert.EqualValues(t, d0, budgetWaits(), "and nothing is counted as degraded")
+
+	release()
+	wg.Wait()
+}
+
+// The boot-time prewarm goes through the same charged, gated build as a request:
+// while it builds, its charge is visible to admission.
+//
+// Mutation that must turn it RED: in primeCharged pass nil instead of buildCharge.
+func TestEagerPrewarm_IsChargedLikeARequestPrime(t *testing.T) {
+	withBudget(t, 2048*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		return &goanalysis.LoadResult{}, nil
+	})
+	started, release := blockingGo(t)
+	dir := oneRealPackage(t)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := runGoListPrewarm(context.Background(), dir, "-mod=mod")
+		done <- err
+	}()
+	eventually(t, started, "the prewarm build must start")
+	assert.False(t, budgetFree(), "a running prewarm build is charged to the budget")
+	release()
+	require.NoError(t, <-done)
+	eventually(t, budgetFree, "the prewarm's charge is returned")
 }
 
 // The in-use gauge must return to baseline: a holder that never releases is

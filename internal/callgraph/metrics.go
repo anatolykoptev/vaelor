@@ -127,11 +127,13 @@ func observeTypedLoadPeak(peak uint64) { gotypesLoadPeakHeapBytes.Observe(float6
 // Labels:
 //   - reason: "budget_wait" — the memory budget was exhausted for the whole
 //     wait, so the request stayed on the tree-sitter tier (the background load
-//     keeps waiting its turn and upgrades the cache entry).
+//     keeps waiting its turn and upgrades the cache entry);
+//     "prime_wait" — the request gave up while the module's export-data build
+//     (cold cache) was still queued for the build gate or running.
 var gotypesLoadDegradedTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gocode_callgraph_gotypes_load_degraded_total",
-		Help: "Typed go/packages loads not run for a request because of the memory budget, by reason (budget_wait).",
+		Help: "Typed go/packages loads not run for a request because of the memory budget, by reason (budget_wait, prime_wait).",
 	},
 	[]string{"reason"},
 )

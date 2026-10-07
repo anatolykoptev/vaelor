@@ -67,6 +67,24 @@ const (
 // errTypedBudget is returned to a caller whose deadline expired while the load
 // was still queued for budget (as opposed to loading). It wraps the context
 // error so deadline checks keep working.
+// Where a load is: building export data (waiting for the build gate or running
+// the build), queued for its heap budget, or running.
+const (
+	phasePriming int32 = iota
+	phaseQueued
+	phaseAdmitted
+)
+
+// degradeReason names why a caller that gave up on f did: waiting on the memory
+// budget itself, or still priming (waiting for / running the export-data build).
+// Keeping them apart stops a cold cache from reading as budget exhaustion.
+func (f *sharedLoad) degradeReason() string {
+	if f.phase.Load() == phasePriming {
+		return "prime_wait"
+	}
+	return "budget_wait"
+}
+
 var errTypedBudget = errors.New("typed load not admitted within the deadline (memory budget exhausted)")
 
 // typedLoadFn is the raw loader the shared load runs and typedBudget the
@@ -182,6 +200,7 @@ type sharedLoad struct {
 	refs     int
 	finished bool
 
+	phase    atomic.Int32        // phasePriming -> phaseQueued -> phaseAdmitted
 	admitted atomic.Bool         // budget acquired (the load is actually running)
 	weight   int64               // held budget, released when the last ref drops
 	sem      *semaphore.Weighted // the semaphore the budget was taken from
@@ -222,7 +241,7 @@ func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts)
 		default:
 			f.drop()
 			if !f.admitted.Load() {
-				recordTypedLoadDegraded("budget_wait")
+				recordTypedLoadDegraded(f.degradeReason())
 				return nil, nil, fmt.Errorf("%w: %w", errTypedBudget, ctx.Err())
 			}
 			return nil, nil, ctx.Err()
@@ -235,7 +254,7 @@ func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts)
 	if f.err != nil {
 		f.drop()
 		if errors.Is(f.err, errTypedBudget) {
-			recordTypedLoadDegraded("budget_wait")
+			recordTypedLoadDegraded(f.degradeReason())
 		}
 		return nil, nil, f.err
 	}
@@ -288,12 +307,13 @@ func (f *sharedLoad) run(root string, opts goanalysis.LoadOpts, scan moduleScan)
 	ctx, cancel := context.WithTimeout(context.Background(), typedLoadTimeout)
 	defer cancel()
 
-	b := typedBudget.Load()
-	if err := primeExportData(ctx, b, root, scan); err != nil {
+	if err := primeExportData(ctx, root, scan); err != nil {
 		f.err = fmt.Errorf("%w: %w", errTypedBudget, err)
 		return
 	}
 
+	b := typedBudget.Load()
+	f.phase.Store(phaseQueued)
 	f.sem = b.sem
 	f.weight = b.weight(scan.files)
 	loadsQueued.Inc()
@@ -304,6 +324,7 @@ func (f *sharedLoad) run(root string, opts goanalysis.LoadOpts, scan moduleScan)
 		return
 	}
 	budgetInUse.Add(float64(f.weight))
+	f.phase.Store(phaseAdmitted)
 	f.admitted.Store(true)
 
 	stop := trackHeapPeak()
@@ -330,20 +351,14 @@ var primed sync.Map
 // budget, instead of happening inside go/packages where nothing bounds them.
 // A build failure is not an error — go/packages falls back to source for
 // whatever has no export data — only not being admitted in time is.
-func primeExportData(ctx context.Context, b *budget, root string, scan moduleScan) error {
+func primeExportData(ctx context.Context, root string, scan moduleScan) error {
 	key := root + "|" + scan.fingerprint
 	if _, ok := primed.Load(key); ok {
 		return nil
 	}
-	w := min(primeReserveBytes, b.capacity)
-	if err := b.sem.Acquire(ctx, w); err != nil {
-		return err
-	}
-	budgetInUse.Add(float64(w))
-	defer func() {
-		budgetInUse.Sub(float64(w))
-		b.sem.Release(w)
-	}()
+	// No budget is taken here: the build charges itself inside the gate (see
+	// buildCharge). Reserving first would park a gibibyte per queued module
+	// behind whatever build holds the gate.
 	errored, err := primeFn.Load().prime(ctx, root)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -361,6 +376,30 @@ func primeExportData(ctx context.Context, b *budget, root string, scan moduleSca
 	return nil
 }
 
+// buildCharge charges a running export-data build (primeReserveBytes, clamped to
+// the budget) against the typed-load budget. goanalysis.PrimeExportData calls it
+// with the build gate already held, for the build's duration only. The eager
+// prewarm and the request-path prime both go through primeCharged, so the two
+// cannot drift: a boot-time build is as visible to admission as a request's.
+func buildCharge(ctx context.Context) (func(), error) {
+	b := typedBudget.Load()
+	w := min(primeReserveBytes, b.capacity)
+	if err := b.sem.Acquire(ctx, w); err != nil {
+		return nil, err
+	}
+	budgetInUse.Add(float64(w))
+	return func() {
+		budgetInUse.Sub(float64(w))
+		b.sem.Release(w)
+	}, nil
+}
+
+// primeCharged is the one way export data is built: one build at a time,
+// charged against the budget while it runs.
+func primeCharged(ctx context.Context, root string) ([]string, error) {
+	return goanalysis.PrimeExportData(ctx, root, buildCharge)
+}
+
 // primer is the seam over goanalysis.PrimeExportData.
 type primer struct {
 	prime func(ctx context.Context, root string) ([]string, error)
@@ -369,7 +408,7 @@ type primer struct {
 var primeFn atomic.Pointer[primer]
 
 func init() {
-	primeFn.Store(&primer{prime: goanalysis.PrimeExportData})
+	primeFn.Store(&primer{prime: primeCharged})
 }
 
 // trackHeapPeak samples the process heap until the returned func is called and

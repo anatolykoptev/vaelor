@@ -96,10 +96,11 @@ func buildParallelism() int { return max(1, runtime.NumCPU()/2) }
 // load can reuse (measured: a prewarm with CGO_ENABLED=0 followed by a load with
 // CGO_ENABLED=1 rebuilt the std packages that depend on cgo).
 //
-// CGO_ENABLED is pinned to 0 when no C compiler exists (the runtime image has
-// none): cgo is impossible there anyway, and an explicit CGO_ENABLED=1 without a
+// CGO_ENABLED is pinned to 0 only when no C compiler is on PATH (a minimal
+// image): cgo is impossible there, and an explicit CGO_ENABLED=1 without a
 // compiler makes net, os/user and every importer fail to build. With a compiler
-// the ambient setting stands.
+// the ambient setting stands — that is the production container (gcc present,
+// CGO_ENABLED=1), where the prime and the prewarm compile cgo packages too.
 func GoEnv(dir string) []string {
 	env := append(os.Environ(),
 		fmt.Sprintf("GOFLAGS=%s -p=%d", ModFlag(dir), buildParallelism()),
