@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.70.0](https://github.com/anatolykoptev/vaelor/compare/v1.69.2...v1.70.0) (2026-10-07)
+
+
+### Added
+
+* **forge:** bare-cookie HTTP fast path for blackbird search ([#862](https://github.com/anatolykoptev/vaelor/issues/862)) ([7bc60fb](https://github.com/anatolykoptev/vaelor/commit/7bc60fbaaa3c38a23d8623c524f225950dd32f46))
+
 ## [1.69.2](https://github.com/anatolykoptev/vaelor/compare/v1.69.1...v1.69.2) (2026-10-07)
 
 
