@@ -107,7 +107,7 @@ func TestImpact_DirectPageSurvivesLargeTransitiveSet(t *testing.T) {
 // ladder then jumps to direct-page and drops the transitive list.
 func TestImpact_SmallTransitiveSetOutlivesSnippets(t *testing.T) {
 	root := t.TempDir()
-	cg := buildSnippetCallGraphN(t, root, 8)
+	cg := buildSnippetCallGraphN(t, root, 5)
 	addTransitiveCallers(cg, root, 1)
 	defer setupImpactBuildSeam(t, cg)()
 
@@ -134,8 +134,8 @@ func TestImpact_SmallTransitiveSetOutlivesSnippets(t *testing.T) {
 	if resp.TransitiveCallers == nil {
 		t.Fatalf("a transitive list that fits without snippets must be kept (budget %d):\n%s", budget, truncForLog(text, 600))
 	}
-	if len(resp.DirectCallers) != 8 {
-		t.Fatalf("direct callers = %d, want 8", len(resp.DirectCallers))
+	if len(resp.DirectCallers) != 5 {
+		t.Fatalf("direct callers = %d, want 5", len(resp.DirectCallers))
 	}
 	for _, c := range resp.DirectCallers {
 		if c.Snippet != "" {

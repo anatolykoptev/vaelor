@@ -12,6 +12,7 @@ import (
 
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/impact"
+	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
@@ -133,23 +134,35 @@ func TestImpact_Paging_StableAcrossEdgeOrder(t *testing.T) {
 // With snippets on and a response over the inline budget, the ladder sheds the
 // snippets (keeping the caller list) before it falls back to counts.
 //
-// RED-on-mutation: remove the "direct-page-no-snippets" rung in handleImpact
-// (and the "no-snippets" one); the response then drops to the counts rung and
-// carries no direct_callers list.
+// The budget is sized from the fixture itself: t.TempDir's random suffix
+// varies in length, and with a fixed budget the full rendering fitted on a
+// short suffix (CI, 2026-10-08), so no shedding happened at all.
+//
+// RED-on-mutation: remove the "no-snippets" rung append in handleImpact; with
+// no transitive callers there is no direct-page rung, so the response drops
+// to the counts rung and carries no direct_callers list.
 func TestImpact_IncludeSnippets_ShedBeforeCallersDrop(t *testing.T) {
 	root := t.TempDir()
-	cg := buildSnippetCallGraphN(t, root, 20)
+	cg := buildSnippetCallGraphN(t, root, 12)
 	defer setupImpactBuildSeam(t, cg)()
 
-	res, err := handleImpact(context.Background(), ImpactInput{
-		Repo: root, Symbol: "Foo", IncludeSnippets: true,
-	}, impactLadderDeps(), nil, "")
-	if err != nil {
-		t.Fatalf("handleImpact: %v", err)
+	run := func(snippets bool, maxBytes int) string {
+		t.Helper()
+		res, err := handleImpact(context.Background(), ImpactInput{
+			Repo: root, Symbol: "Foo", IncludeSnippets: snippets, MaxBytes: maxBytes,
+		}, impactLadderDeps(), nil, "")
+		if err != nil {
+			t.Fatalf("handleImpact: %v", err)
+		}
+		return mcpmeta.StripBudgetMarker(impactResultText(t, res))
 	}
-	text := impactResultText(t, res)
+	withSnippets, without := run(true, mcpmeta.MaxBudget), run(false, mcpmeta.MaxBudget)
+	if strings.Contains(withSnippets, "condensed") || strings.Contains(without, "condensed") {
+		t.Fatalf("fixture must fit MaxBudget uncondensed (%d / %d bytes)", len(withSnippets), len(without))
+	}
+	text := run(true, (len(withSnippets)+len(without))/2)
 	callers := impactDirectCallers(t, text)
-	if len(callers) != 20 {
+	if len(callers) != 12 {
 		t.Fatalf("callers must survive snippet shedding, got %d:\n%s", len(callers), truncForLog(text, 500))
 	}
 	for _, c := range callers {
