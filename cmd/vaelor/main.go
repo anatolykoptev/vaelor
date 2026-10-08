@@ -276,14 +276,21 @@ func runMCPServe(cfg Config, stdio bool) {
 		SchemaCache:                mcp.NewSchemaCache(),
 		DisableLocalhostProtection: true,
 		SessionTimeout:             10 * time.Minute,
-		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
-		MCPLogger:                  slog.Default(),
-		MCPReceivingMiddleware:     receivingMiddleware(reg, hooks),
-		Middleware:                 []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
-		RESTBridge:                 true,
-		Routes:                     combinedRoutes,
-		LogSkipPaths:               []string{"/health", "/health/live", "/health/ready", "/metrics"}, //nolint:goconst // route paths, not worth a shared constant
-		ToolTimeouts:               runtimeTimeouts,
+		// Stateful sessions (new(bool) == *false): the standalone GET SSE
+		// stream must actually work — rmcp-based clients open it after
+		// initialize, and a 405 surfaces client-side as a stream decode
+		// error on a ~60s reconnect loop (issue #906). SessionTimeout
+		// reaps idle sessions; the SDK pauses the idle timer while a POST
+		// request is in flight, so long tool calls are unaffected.
+		Stateless:              new(bool),
+		Logger:                 slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
+		MCPLogger:              slog.Default(),
+		MCPReceivingMiddleware: receivingMiddleware(reg, hooks),
+		Middleware:             []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
+		RESTBridge:             true,
+		Routes:                 combinedRoutes,
+		LogSkipPaths:           []string{"/health", "/health/live", "/health/ready", "/metrics"}, //nolint:goconst // route paths, not worth a shared constant
+		ToolTimeouts:           runtimeTimeouts,
 		// SSE (text/event-stream) mode. Long tool calls (code_research, debug_investigate,
 		// code_graph, etc.) emit no bytes until they finish; in stateless mode the
 		// server can't send ping requests, so a client/proxy idle-timeout would
