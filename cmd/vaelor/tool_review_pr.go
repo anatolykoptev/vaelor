@@ -110,6 +110,10 @@ func handleReviewPR(ctx context.Context, input ReviewPRInput, deps analyze.Deps,
 		depth = maxReviewDepth
 	}
 
+	if status := gateDeltaCallGraph("review_pr", input.Repo, root, analysisRoot, input.Language); status != nil {
+		return status, nil
+	}
+
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
 		Root:     analysisRoot,
 		Base:     base,

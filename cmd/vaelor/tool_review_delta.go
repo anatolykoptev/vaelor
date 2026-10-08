@@ -162,6 +162,10 @@ func handleReviewDelta(ctx context.Context, input ReviewDeltaInput, deps analyze
 		}
 	}
 
+	if status := gateDeltaCallGraph("review_delta", input.Repo, root, analysisRoot, input.Language); status != nil {
+		return status, nil
+	}
+
 	result, err := review.DeltaReview(ctx, review.DeltaInput{
 		Root:            root,
 		AnalysisRoot:    analysisRoot,
