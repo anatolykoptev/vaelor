@@ -2,6 +2,14 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.2](https://github.com/anatolykoptev/vaelor/compare/v1.73.1...v1.73.2) (2026-10-08)
+
+
+### Fixed
+
+* **impact:** keep the direct-caller page inline when the transitive list overflows ([#907](https://github.com/anatolykoptev/vaelor/issues/907)) ([0aaa4ee](https://github.com/anatolykoptev/vaelor/commit/0aaa4ee3dcb3b9c46c768d69d529cb7ac128ca18))
+* **impact:** size snippet-shedding fixtures from themselves; gate direct-page on something to drop ([#910](https://github.com/anatolykoptev/vaelor/issues/910)) ([a401bdb](https://github.com/anatolykoptev/vaelor/commit/a401bdbe63ce1a6c005450a030c908f7dbe6560d))
+
 ## [1.73.1](https://github.com/anatolykoptev/vaelor/compare/v1.73.0...v1.73.1) (2026-10-08)
 
 
