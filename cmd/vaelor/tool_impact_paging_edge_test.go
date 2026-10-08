@@ -133,8 +133,9 @@ func TestImpact_Paging_StableAcrossEdgeOrder(t *testing.T) {
 // With snippets on and a response over the inline budget, the ladder sheds the
 // snippets (keeping the caller list) before it falls back to counts.
 //
-// RED-on-mutation: remove the "no-snippets" rung in handleImpact; the response
-// then drops to the counts rung and carries no direct_callers list.
+// RED-on-mutation: remove the "direct-page-no-snippets" rung in handleImpact
+// (and the "no-snippets" one); the response then drops to the counts rung and
+// carries no direct_callers list.
 func TestImpact_IncludeSnippets_ShedBeforeCallersDrop(t *testing.T) {
 	root := t.TempDir()
 	cg := buildSnippetCallGraphN(t, root, 20)
