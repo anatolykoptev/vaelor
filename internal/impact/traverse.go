@@ -58,7 +58,7 @@ func traverseCallers(target *parser.Symbol, callerIndex map[*parser.Symbol][]cal
 			visited[caller] = true
 
 			distance := item.depth + 1
-			affected := makeAffected(caller, distance, communityMap)
+			affected := makeAffected(caller, distance, communityMap, edge.Line)
 			pkgSet[affected.Package] = true
 
 			if distance == 1 {
@@ -75,7 +75,9 @@ func traverseCallers(target *parser.Symbol, callerIndex map[*parser.Symbol][]cal
 }
 
 // makeAffected creates an AffectedSymbol with confidence decaying by distance.
-func makeAffected(sym *parser.Symbol, distance int, communityMap map[*parser.Symbol]int) AffectedSymbol {
+// callLine is the 1-based line of the discovering edge — for a direct caller
+// the call site of the target inside the caller's file.
+func makeAffected(sym *parser.Symbol, distance int, communityMap map[*parser.Symbol]int, callLine uint32) AffectedSymbol {
 	confidence := 1.0 - float64(distance-1)*confidenceDecayPerHop
 	if confidence < minConfidence {
 		confidence = minConfidence
@@ -91,6 +93,7 @@ func makeAffected(sym *parser.Symbol, distance int, communityMap map[*parser.Sym
 		Distance:   distance,
 		Confidence: confidence,
 		Community:  comm,
+		CallLine:   callLine,
 	}
 }
 

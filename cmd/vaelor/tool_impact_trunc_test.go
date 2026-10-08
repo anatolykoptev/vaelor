@@ -17,11 +17,13 @@ func TestDirectCallersTruncationNote_NamesOmittedAndSaysTheyAreCounted(t *testin
 	for i := range 13 {
 		omitted = append(omitted, impact.AffectedSymbol{Name: fmt.Sprintf("Caller%02d", i)})
 	}
-	note := directCallersTruncationNote(100, 113, omitted, "owner/repo", "ParseFile")
+	note := directCallersTruncationNote(100, 113, 0, 100, omitted, "owner/repo", "ParseFile")
 
 	for _, want := range []string{
 		"lists 100 of 113", "13 omitted", "Caller00", "Caller09", "+3 more",
-		"total_affected includes the omitted", `call_trace repo="owner/repo" symbol="ParseFile"`,
+		"total_affected includes the omitted",
+		// #892: the note names the paging params, not call_trace.
+		`impact_analysis repo="owner/repo" symbol="ParseFile"`, "offset=100", "max_callers=100",
 	} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note missing %q:\n%s", want, note)
@@ -50,7 +52,7 @@ func TestImpact_DirectCapNote_EmittedByHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := impactResultText(t, res)
-	for _, want := range []string{"lists 100 of 105", "5 omitted", "total_affected includes the omitted", "call_trace repo="} {
+	for _, want := range []string{"lists 100 of 105", "5 omitted", "total_affected includes the omitted", "impact_analysis repo=", "offset="} {
 		if !strings.Contains(text, want) {
 			t.Errorf("handler output missing %q", want)
 		}

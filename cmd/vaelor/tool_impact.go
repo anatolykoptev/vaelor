@@ -28,11 +28,25 @@ type ImpactInput struct {
 	Focus    string `json:"focus,omitempty" jsonschema:"Subdirectory path to limit scope (e.g. internal/auth), or space-separated keywords (e.g. 'auth handler')"`
 	Language string `json:"language,omitempty" jsonschema:"Limit to files of this language (e.g. go, python)"`
 	MaxBytes int    `json:"max_bytes,omitempty" jsonschema:"Response budget in bytes (default 8192). When the response exceeds this, a progressively condensed rendering is returned with a note saying how it was shortened."`
+	// MaxCallers caps how many direct callers are listed per page (default
+	// 100). The omitted tail is named in a note; raise it or page with offset.
+	MaxCallers int `json:"max_callers,omitempty" jsonschema:"Max direct callers listed per page (default 100). Page the remainder with offset."`
+	// Offset skips the first N direct callers — pagination, same idiom as
+	// dataflow_analyze / find_duplicates / read_output.
+	Offset int `json:"offset,omitempty" jsonschema:"Skip the first N direct callers (for pagination). Use with max_callers to page through large caller sets."`
+	// IncludeSnippets opts in to a few numbered source lines around each
+	// listed direct caller's call site (snippet field). Off by default to
+	// keep the answer small; bounded by max_callers and max_bytes.
+	IncludeSnippets bool `json:"include_snippets,omitempty" jsonschema:"When true, attach a few source lines around each listed direct caller's call site as a snippet field. Default false."`
 }
 
 const (
 	defaultImpactDepth = 5
 	maxImpactDepth     = 10
+	// defaultImpactMaxCallers is the default page size for direct callers —
+	// the pre-#892 hard cap, kept as the default so an unpaginated call is
+	// byte-identical.
+	defaultImpactMaxCallers = 100
 	// maxHotspotFiles caps how many top churn-weighted files are treated as
 	// hotspots when reordering impact callers. Ten is the rule-of-thumb top-N.
 	maxHotspotFiles = 10
@@ -128,16 +142,9 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		result.TransitiveCallers = partitionByHotspot(result.TransitiveCallers, root, hotspotSet)
 	}
 
-	// Cap direct callers passed to expensive post-processing.
-	// Symbols like "new" can have 289+ callers; sort+churn analysis on all would be slow.
-	const maxDirectCallersForProcessing = 100
-	var directCallersTruncNote string
-	if len(result.DirectCallers) > maxDirectCallersForProcessing {
-		totalDirect := len(result.DirectCallers)
-		omitted := result.DirectCallers[maxDirectCallersForProcessing:]
-		result.DirectCallers = result.DirectCallers[:maxDirectCallersForProcessing]
-		directCallersTruncNote = directCallersTruncationNote(maxDirectCallersForProcessing, totalDirect, omitted, input.Repo, input.Symbol)
-	}
+	// Page direct callers passed to expensive post-processing (#892).
+	page, directCallersTruncNote := pageDirectCallers(result.DirectCallers, input)
+	result.DirectCallers = page
 
 	// Sort callers within each tier by PageRank (most architecturally important first).
 	// Applied after hotspot partition so hotspot/non-hotspot tiers are preserved.
@@ -145,6 +152,12 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	result.DirectCallers = sortCallersByPageRank(ctx, result.DirectCallers, deps.Graph, repoKey)
 	if len(result.TransitiveCallers) > 0 {
 		result.TransitiveCallers = sortCallersByPageRank(ctx, result.TransitiveCallers, deps.Graph, repoKey)
+	}
+
+	// #896: opt-in call-site snippets on the LISTED direct callers only —
+	// bounded by max_callers (the page) and, downstream, max_bytes.
+	if input.IncludeSnippets {
+		impact.AttachCallSnippets(result.DirectCallers, root)
 	}
 
 	// Collect deduplicated hotspot caller names (Name field) in reordered order.
@@ -413,12 +426,33 @@ func formatImpactCounts(output impactOutput) string {
 // note spells out; the rest are summarised as a count.
 const maxOmittedNamesInNote = 10
 
-// directCallersTruncationNote says exactly what the direct-caller cap hid, so
-// the listed callers are never mistaken for the full set: how many were left
-// out, which ones, that they ARE still reflected in total_affected, the
-// transitive callers and blast_radius (the BFS ran before the cap), and how to
-// list them.
-func directCallersTruncationNote(shown, total int, omitted []impact.AffectedSymbol, repo, symbol string) string {
+// pageDirectCallers applies the max_callers+offset paging window (#892) to
+// the direct-caller list, returning the page plus the truncation note for
+// the tail it leaves out ("" when the page reaches the end). It generalises
+// the pre-#892 hard cap of 100 — the default window (max_callers=100,
+// offset=0) is identical to it — and runs in the same position the cap did:
+// after hotspot partition, before the PageRank sort.
+func pageDirectCallers(callers []impact.AffectedSymbol, input ImpactInput) ([]impact.AffectedSymbol, string) {
+	maxCallers := defaultImpactMaxCallers
+	if input.MaxCallers > 0 {
+		maxCallers = input.MaxCallers
+	}
+	offset := min(max(input.Offset, 0), len(callers))
+	end := min(offset+maxCallers, len(callers))
+	page := callers[offset:end]
+	if omitted := callers[end:]; len(omitted) > 0 {
+		return page, directCallersTruncationNote(len(page), len(callers), offset, maxCallers, omitted, input.Repo, input.Symbol)
+	}
+	return page, ""
+}
+
+// directCallersTruncationNote says exactly what the direct-caller page left
+// out, so the listed callers are never mistaken for the full set: how many
+// were left out, which ones, that they ARE still reflected in total_affected,
+// the transitive callers and blast_radius (the BFS ran before the cap), and
+// how to list them — the next page via offset, or a wider page via
+// max_callers (#892).
+func directCallersTruncationNote(shown, total, pageOffset, maxCallers int, omitted []impact.AffectedSymbol, repo, symbol string) string {
 	names := make([]string, 0, maxOmittedNamesInNote+1)
 	for i, c := range omitted {
 		if i == maxOmittedNamesInNote {
@@ -431,6 +465,8 @@ func directCallersTruncationNote(shown, total int, omitted []impact.AffectedSymb
 		"direct_callers lists %d of %d (cap on per-caller post-processing); %d omitted: %s. "+
 			"total_affected includes the omitted callers and their transitive callers, so it exceeds "+
 			"direct_callers_count + transitive_callers_count by the omitted amount; affected_packages and "+
-			"blast_radius include them too. List them with call_trace repo=%q symbol=%q direction=callers depth=1",
-		shown, total, len(omitted), strings.Join(names, ", "), repo, symbol)
+			"blast_radius include them too. List them by paging impact_analysis repo=%q symbol=%q "+
+			"offset=%d (next page) or by raising max_callers (this page used max_callers=%d offset=%d)",
+		shown, total, len(omitted), strings.Join(names, ", "), repo, symbol,
+		pageOffset+shown, maxCallers, pageOffset)
 }
