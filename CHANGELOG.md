@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.1](https://github.com/anatolykoptev/vaelor/compare/v1.73.0...v1.73.1) (2026-10-08)
+
+
+### Fixed
+
+* **callgraph:** say which wait a typed-load degrade is in ([#894](https://github.com/anatolykoptev/vaelor/issues/894)) ([#903](https://github.com/anatolykoptev/vaelor/issues/903)) ([736e90c](https://github.com/anatolykoptev/vaelor/commit/736e90c0fc8f8ba1b6f3049c48e0bec67cca6de3))
+
 ## [1.73.0](https://github.com/anatolykoptev/go-code/compare/v1.72.9...v1.73.0) (2026-10-08)
 
 
