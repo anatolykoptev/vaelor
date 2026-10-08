@@ -1,10 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -47,6 +49,10 @@ const (
 	// the pre-#892 hard cap, kept as the default so an unpaginated call is
 	// byte-identical.
 	defaultImpactMaxCallers = 100
+	// maxImpactMaxCallers bounds max_callers: the old 100 was a performance
+	// cap on per-caller post-processing, so an unbounded page would drop it,
+	// and offset+max_callers must never overflow.
+	maxImpactMaxCallers = 1000
 	// maxHotspotFiles caps how many top churn-weighted files are treated as
 	// hotspots when reordering impact callers. Ten is the rule-of-thumb top-N.
 	maxHotspotFiles = 10
@@ -64,7 +70,9 @@ func registerImpact(server *mcp.Server, cfg Config, deps analyze.Deps, sem *Sema
 			"Shows direct callers, transitive callers, affected packages, " +
 			"and risk classification (low/medium/high). " +
 			"Useful before refactoring to understand what might break. " +
-			"Suggests semantically similar symbols when the target is not found.",
+			"Suggests semantically similar symbols when the target is not found. " +
+			"Lists up to max_callers (default 100) direct callers per page; page on with offset. " +
+			"include_snippets adds the source lines around each listed call site.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ImpactInput) (*mcp.CallToolResult, error) {
 		return handleImpact(ctx, input, deps, sem, outputDir)
 	})
@@ -135,6 +143,11 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		hotspotSet = topHotspotSet(hotspots, maxHotspotFiles)
 	}
 
+	// A windowed page (offset>0, or more callers than fit one page) is cut from
+	// a deterministic order so page N+1 continues exactly where page N ended,
+	// whatever order the call graph happened to produce this time.
+	result.DirectCallers = orderForWindow(result.DirectCallers, input)
+
 	// Reorder direct and transitive callers so hotspot-file callers come first,
 	// preserving relative order within each group (stable partition).
 	if hotspotSet != nil {
@@ -143,7 +156,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	}
 
 	// Page direct callers passed to expensive post-processing (#892).
-	page, directCallersTruncNote := pageDirectCallers(result.DirectCallers, input)
+	page, directCallersTruncNote := pageDirectCallers(result.DirectCallers, input, cg.Tier)
 	result.DirectCallers = page
 
 	// Sort callers within each tier by PageRank (most architecturally important first).
@@ -156,8 +169,12 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 
 	// #896: opt-in call-site snippets on the LISTED direct callers only —
 	// bounded by max_callers (the page) and, downstream, max_bytes.
+	var snippetNote string
 	if input.IncludeSnippets {
-		impact.AttachCallSnippets(result.DirectCallers, root)
+		if missed := impact.AttachCallSnippets(result.DirectCallers, root); missed > 0 {
+			snippetNote = fmt.Sprintf("%d of %d listed direct callers have no snippet (no recorded call line, or the file is unreadable, binary or over 1 MiB)",
+				missed, len(result.DirectCallers))
+		}
 	}
 
 	// Collect deduplicated hotspot caller names (Name field) in reordered order.
@@ -177,6 +194,9 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	var notes []string
 	if directCallersTruncNote != "" {
 		notes = append(notes, directCallersTruncNote)
+	}
+	if snippetNote != "" {
+		notes = append(notes, snippetNote)
 	}
 	if n := callgraph.WarmNote(cg.Warm); n != "" {
 		notes = append(notes, n)
@@ -212,8 +232,15 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	ladder := mcpmeta.Ladder{
 		{Name: "full", Render: func() string { return formatImpactFull(output) }},
 		{Name: "no-narrative", Render: func() string { return formatImpactNoNarrative(output) }},
-		{Name: "counts", Render: func() string { return formatImpactCounts(output) }},
 	}
+	if input.IncludeSnippets {
+		// Snippets are the bulkiest per-caller field: shed them before the
+		// caller lists themselves, which are the core payload.
+		ladder = append(ladder, mcpmeta.Rung{Name: "no-snippets", Render: func() string {
+			return formatImpactNoNarrative(withoutSnippets(output))
+		}})
+	}
+	ladder = append(ladder, mcpmeta.Rung{Name: "counts", Render: func() string { return formatImpactCounts(output) }})
 	budget := mcpmeta.ResolveBudget(input.MaxBytes, mcpmeta.DefaultBudget)
 	body := renderLadder(ladder, "impact_analysis", outputDir, budget)
 	if input.MaxBytes > 0 {
@@ -426,47 +453,101 @@ func formatImpactCounts(output impactOutput) string {
 // note spells out; the rest are summarised as a count.
 const maxOmittedNamesInNote = 10
 
-// pageDirectCallers applies the max_callers+offset paging window (#892) to
-// the direct-caller list, returning the page plus the truncation note for
-// the tail it leaves out ("" when the page reaches the end). It generalises
-// the pre-#892 hard cap of 100 — the default window (max_callers=100,
-// offset=0) is identical to it — and runs in the same position the cap did:
-// after hotspot partition, before the PageRank sort.
-func pageDirectCallers(callers []impact.AffectedSymbol, input ImpactInput) ([]impact.AffectedSymbol, string) {
-	maxCallers := defaultImpactMaxCallers
+// pageWindow resolves the paging window against n direct callers: the page
+// size (max_callers, default 100, clamped to maxImpactMaxCallers), the start
+// (offset, clamped into [0, n]) and whether the list is actually windowed.
+func pageWindow(n int, input ImpactInput) (offset, size int, windowed bool) {
+	size = defaultImpactMaxCallers
 	if input.MaxCallers > 0 {
-		maxCallers = input.MaxCallers
+		size = min(input.MaxCallers, maxImpactMaxCallers)
 	}
-	offset := min(max(input.Offset, 0), len(callers))
-	end := min(offset+maxCallers, len(callers))
+	offset = min(max(input.Offset, 0), n)
+	return offset, size, offset > 0 || n > size
+}
+
+// orderForWindow sorts the full direct-caller list by (file, name, call line)
+// when it is windowed, so consecutive pages are cut from one stable order. A
+// list that fits one page is left in graph order, as before.
+func orderForWindow(callers []impact.AffectedSymbol, input ImpactInput) []impact.AffectedSymbol {
+	if _, _, windowed := pageWindow(len(callers), input); !windowed {
+		return callers
+	}
+	slices.SortStableFunc(callers, func(a, b impact.AffectedSymbol) int {
+		return cmp.Or(strings.Compare(a.File, b.File), strings.Compare(a.Name, b.Name), cmp.Compare(a.CallLine, b.CallLine))
+	})
+	return callers
+}
+
+// pageDirectCallers applies the max_callers+offset paging window (#892) to
+// the direct-caller list, returning the page plus a note describing what the
+// window left out ("" when the page is the whole list). It generalises the
+// pre-#892 hard cap of 100 — the default window (max_callers=100, offset=0)
+// is the same cut — and runs in the same position the cap did: after hotspot
+// partition, before the PageRank sort.
+func pageDirectCallers(callers []impact.AffectedSymbol, input ImpactInput, tier string) ([]impact.AffectedSymbol, string) {
+	offset, size, _ := pageWindow(len(callers), input)
+	end := offset + min(size, len(callers)-offset)
 	page := callers[offset:end]
-	if omitted := callers[end:]; len(omitted) > 0 {
-		return page, directCallersTruncationNote(len(page), len(callers), offset, maxCallers, omitted, input.Repo, input.Symbol)
+	tail := callers[end:]
+	if offset == 0 && len(tail) == 0 {
+		return page, ""
 	}
-	return page, ""
+	return page, directCallersTruncationNote(len(page), len(callers), offset, size, tail, input.Repo, input.Symbol, tier)
+}
+
+// withoutSnippets returns a copy of the output whose direct callers carry no
+// snippet; the original (and its backing slice) is left untouched.
+func withoutSnippets(o impactOutput) impactOutput {
+	callers := slices.Clone(o.Result.DirectCallers)
+	for i := range callers {
+		callers[i].Snippet = ""
+	}
+	o.Result.DirectCallers = callers
+	return o
 }
 
 // directCallersTruncationNote says exactly what the direct-caller page left
 // out, so the listed callers are never mistaken for the full set: how many
-// were left out, which ones, that they ARE still reflected in total_affected,
-// the transitive callers and blast_radius (the BFS ran before the cap), and
-// how to list them — the next page via offset, or a wider page via
-// max_callers (#892).
-func directCallersTruncationNote(shown, total, pageOffset, maxCallers int, omitted []impact.AffectedSymbol, repo, symbol string) string {
+// were left out before and after this page, which ones come next, that they
+// ARE still reflected in total_affected, the transitive callers and
+// blast_radius (the BFS ran before the window), and how to list them — the
+// next page via offset, or a wider page via max_callers (#892).
+func directCallersTruncationNote(shown, total, head, size int, tail []impact.AffectedSymbol, repo, symbol, tier string) string {
+	if shown == 0 {
+		return fmt.Sprintf("offset skips all %d direct callers: direct_callers is empty because of the offset, "+
+			"not because the symbol has no callers. Page from offset=0 of impact_analysis repo=%q symbol=%q",
+			total, repo, symbol)
+	}
 	names := make([]string, 0, maxOmittedNamesInNote+1)
-	for i, c := range omitted {
+	for i, c := range tail {
 		if i == maxOmittedNamesInNote {
-			names = append(names, fmt.Sprintf("... +%d more", len(omitted)-maxOmittedNamesInNote))
+			names = append(names, fmt.Sprintf("... +%d more", len(tail)-maxOmittedNamesInNote))
 			break
 		}
 		names = append(names, c.Name)
 	}
-	return fmt.Sprintf(
-		"direct_callers lists %d of %d (cap on per-caller post-processing); %d omitted: %s. "+
+	var omitted string
+	switch {
+	case head > 0 && len(tail) > 0:
+		omitted = fmt.Sprintf("%d omitted (%d before this page, %d after: %s)", head+len(tail), head, len(tail), strings.Join(names, ", "))
+	case head > 0:
+		omitted = fmt.Sprintf("%d omitted before this page (skipped by offset)", head)
+	default:
+		omitted = fmt.Sprintf("%d omitted: %s", len(tail), strings.Join(names, ", "))
+	}
+	where := fmt.Sprintf("this is the last page; earlier callers: offset=0 (this page used max_callers=%d offset=%d)", size, head)
+	if len(tail) > 0 {
+		where = fmt.Sprintf("List them by paging impact_analysis repo=%q symbol=%q offset=%d (next page) or by raising max_callers (this page used max_callers=%d offset=%d)",
+			repo, symbol, head+shown, size, head)
+	}
+	note := fmt.Sprintf(
+		"direct_callers lists %d of %d (cap on per-caller post-processing); %s. "+
 			"total_affected includes the omitted callers and their transitive callers, so it exceeds "+
 			"direct_callers_count + transitive_callers_count by the omitted amount; affected_packages and "+
-			"blast_radius include them too. List them by paging impact_analysis repo=%q symbol=%q "+
-			"offset=%d (next page) or by raising max_callers (this page used max_callers=%d offset=%d)",
-		shown, total, len(omitted), strings.Join(names, ", "), repo, symbol,
-		pageOffset+shown, maxCallers, pageOffset)
+			"blast_radius include them too. %s",
+		shown, total, omitted, where)
+	if tier != "enhanced" {
+		note += fmt.Sprintf(". Page order is stable within one tier only (this response: tier=%q); if the tier changes between pages, page again from offset=0", tier)
+	}
+	return note
 }

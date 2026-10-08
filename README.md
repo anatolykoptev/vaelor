@@ -110,7 +110,7 @@ The stable, documented set. The server exposes a few more; `tools/list` on a run
 | `debug_investigate` | 7-phase prod incident root cause: Prom spikes + Jaeger failed traces + symbol resolution + callgraph walks + LLM fusion + runtime binary drift, ranked to `file:function` |
 | `semantic_search` | Hybrid RRF: BM25F + pgvector + 1-hop AGE graph expansion. Find by concept, not keyword |
 | `understand` | Type-aware symbol deep-dive. Aggregates call_trace + symbol_search + complexity + tested_by + dead_code_score + prior learnings |
-| `impact_analysis` | Configurable blast-radius depth (default 5). Direct callers, transitive callers, hotspot reordering by churn. `max_callers`+`offset` page the direct-caller list (default 100); `include_snippets` attaches numbered call-site source lines to listed direct callers |
+| `impact_analysis` | Configurable blast-radius depth (default 5). Direct callers, transitive callers, hotspot reordering by churn. `max_callers` (default 100, max 1000) + `offset` page the direct-caller list in a stable order; `include_snippets` attaches numbered call-site source lines to listed direct callers (a large page spills to `OUTPUT_DIR`; inline, snippets are shed before the caller list) |
 | `prepare_change` | Pre-change risk: impact analysis + dead-code check combined |
 | `dead_code` | Confidence-scored unused-symbol detection, not a flat list |
 | `dataflow` | IL/CFG taint tracking, dead stores, SQL/command-injection sinks |

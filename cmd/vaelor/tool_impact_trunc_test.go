@@ -17,7 +17,7 @@ func TestDirectCallersTruncationNote_NamesOmittedAndSaysTheyAreCounted(t *testin
 	for i := range 13 {
 		omitted = append(omitted, impact.AffectedSymbol{Name: fmt.Sprintf("Caller%02d", i)})
 	}
-	note := directCallersTruncationNote(100, 113, 0, 100, omitted, "owner/repo", "ParseFile")
+	note := directCallersTruncationNote(100, 113, 0, 100, omitted, "owner/repo", "ParseFile", "enhanced")
 
 	for _, want := range []string{
 		"lists 100 of 113", "13 omitted", "Caller00", "Caller09", "+3 more",

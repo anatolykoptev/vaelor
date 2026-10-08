@@ -1,10 +1,13 @@
 package impact
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -28,37 +31,55 @@ const (
 // 2*callSnippetContext+1 lines per caller, each line capped at
 // maxSnippetLineChars. Unreadable or oversized files and callers without a
 // call line keep an empty Snippet — a snippet miss is never fatal.
-func AttachCallSnippets(callers []AffectedSymbol, repoRoot string) {
+func AttachCallSnippets(callers []AffectedSymbol, repoRoot string) (missed int) {
 	cache := make(map[string][]string) // path → lines; nil = skipped/unreadable
 	for i := range callers {
 		if callers[i].CallLine == 0 {
+			missed++
 			continue
 		}
 		path := callers[i].File
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(repoRoot, path)
 		}
+		if !withinRoot(repoRoot, path) {
+			missed++
+			continue
+		}
 		lines, seen := cache[path]
 		if !seen {
 			lines = readSnippetLines(path)
 			cache[path] = lines
 		}
-		callers[i].Snippet = snippetAround(lines, callers[i].CallLine)
+		if callers[i].Snippet = snippetAround(lines, callers[i].CallLine); callers[i].Snippet == "" {
+			missed++
+		}
 	}
+	return missed
+}
+
+// withinRoot reports whether path stays under repoRoot, so a graph entry with
+// a "../" path cannot make the tool read outside the checkout.
+func withinRoot(repoRoot, path string) bool {
+	rel, err := filepath.Rel(repoRoot, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // readSnippetLines splits a source file into lines, returning nil when the
-// file is unreadable or exceeds maxSnippetFileBytes.
+// file is unreadable, binary, or exceeds maxSnippetFileBytes. The size bound
+// is enforced on the bytes actually read, not on a prior Stat, so a file that
+// grows between the two cannot slip past it.
 func readSnippetLines(path string) []string {
-	info, err := os.Stat(path)
-	if err != nil || info.Size() > maxSnippetFileBytes {
-		return nil
-	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
-	return strings.Split(string(data), "\n")
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxSnippetFileBytes+1))
+	if err != nil || len(data) > maxSnippetFileBytes || bytes.IndexByte(data, 0) >= 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
 
 // snippetAround renders at most 2*callSnippetContext+1 numbered lines centred
@@ -73,7 +94,7 @@ func snippetAround(lines []string, callLine uint32) string {
 	end := min(line+callSnippetContext, len(lines))
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		fmt.Fprintf(&b, "%4d│ %s\n", i+1, truncateSnippetLine(lines[i]))
+		fmt.Fprintf(&b, "%4d│ %s\n", i+1, truncateSnippetLine(strings.TrimSuffix(lines[i], "\r")))
 	}
 	return b.String()
 }
@@ -82,5 +103,9 @@ func truncateSnippetLine(s string) string {
 	if len(s) <= maxSnippetLineChars {
 		return s
 	}
-	return s[:maxSnippetLineChars] + "…"
+	cut := maxSnippetLineChars
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut-- // never split a multi-byte rune
+	}
+	return s[:cut] + "…"
 }

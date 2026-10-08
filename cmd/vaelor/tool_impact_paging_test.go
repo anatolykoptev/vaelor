@@ -193,9 +193,10 @@ func TestImpact_Offset_PageTwoIsExactlyTheOmittedNames(t *testing.T) {
 	if len(want) > 0 {
 		t.Fatalf("page two missed omitted callers: %v", want)
 	}
-	// Nothing left beyond page two → no cap note.
-	if strings.Contains(saved2, "omitted") {
-		t.Fatalf("last page must not carry the cap note:\n%s", truncForLog(saved2, 400))
+	// Nothing left beyond page two → the note says it is the last page and
+	// that 100 callers sit before it, instead of going silent.
+	if !strings.Contains(saved2, "this is the last page") || !strings.Contains(saved2, "100 omitted before this page") {
+		t.Fatalf("last page must say it is the last page and count the skipped head:\n%s", truncForLog(saved2, 600))
 	}
 }
 
