@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.0](https://github.com/anatolykoptev/go-code/compare/v1.72.9...v1.73.0) (2026-10-08)
+
+
+### Added
+
+* **impact:** max_callers/offset paging and opt-in call snippets ([#892](https://github.com/anatolykoptev/go-code/issues/892), [#896](https://github.com/anatolykoptev/go-code/issues/896)) ([#901](https://github.com/anatolykoptev/go-code/issues/901)) ([5f43c97](https://github.com/anatolykoptev/go-code/commit/5f43c97835fd69b6b158d3823ac3578bc7114101))
+
 ## [1.72.9](https://github.com/anatolykoptev/vaelor/compare/v1.72.8...v1.72.9) (2026-10-07)
 
 
