@@ -138,3 +138,11 @@ func TestDidYouMeanResult_MessageFormat(t *testing.T) {
 		t.Errorf("message must suggest github_code_search: %q", txt)
 	}
 }
+
+func TestAliasTargetsFor_LimitMapsToMaxCallersOnImpactAnalysis(t *testing.T) {
+	accepted := map[string]struct{}{"repo": {}, "symbol": {}, "max_callers": {}}
+	got := aliasTargetsFor("impact_analysis", accepted)
+	if got["limit"] != "max_callers" {
+		t.Fatalf("limit must alias to max_callers on impact_analysis, got %v", got)
+	}
+}

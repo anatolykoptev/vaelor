@@ -143,21 +143,18 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 		hotspotSet = topHotspotSet(hotspots, maxHotspotFiles)
 	}
 
-	// A windowed page (offset>0, or more callers than fit one page) is cut from
-	// a deterministic order so page N+1 continues exactly where page N ended,
-	// whatever order the call graph happened to produce this time.
-	result.DirectCallers = orderForWindow(result.DirectCallers, input)
+	// Window the direct callers (#892) from a deterministic order, then put
+	// hotspot-file callers first WITHIN the page. The hotspot set can differ
+	// between calls (churn/snapshot share a 15 s deadline), so it must never
+	// decide where a page starts.
+	page, directCallersTruncNote := windowDirectCallers(result.DirectCallers, input, root, hotspotSet, cg.Tier)
+	result.DirectCallers = page
 
-	// Reorder direct and transitive callers so hotspot-file callers come first,
+	// Reorder transitive callers so hotspot-file callers come first,
 	// preserving relative order within each group (stable partition).
 	if hotspotSet != nil {
-		result.DirectCallers = partitionByHotspot(result.DirectCallers, root, hotspotSet)
 		result.TransitiveCallers = partitionByHotspot(result.TransitiveCallers, root, hotspotSet)
 	}
-
-	// Page direct callers passed to expensive post-processing (#892).
-	page, directCallersTruncNote := pageDirectCallers(result.DirectCallers, input, cg.Tier)
-	result.DirectCallers = page
 
 	// Sort callers within each tier by PageRank (most architecturally important first).
 	// Applied after hotspot partition so hotspot/non-hotspot tiers are preserved.
@@ -478,12 +475,23 @@ func orderForWindow(callers []impact.AffectedSymbol, input ImpactInput) []impact
 	return callers
 }
 
+// windowDirectCallers cuts the max_callers+offset page (#892) out of the
+// deterministic order, then partitions the page by hotspot file. Order →
+// cut → partition, never partition → cut: the cut must not depend on the
+// hotspot set, which is recomputed (and can time out) on every call.
+func windowDirectCallers(callers []impact.AffectedSymbol, input ImpactInput, root string, hotspotSet map[string]bool, tier string) ([]impact.AffectedSymbol, string) {
+	page, note := pageDirectCallers(orderForWindow(callers, input), input, tier)
+	if hotspotSet != nil {
+		page = partitionByHotspot(page, root, hotspotSet)
+	}
+	return page, note
+}
+
 // pageDirectCallers applies the max_callers+offset paging window (#892) to
 // the direct-caller list, returning the page plus a note describing what the
 // window left out ("" when the page is the whole list). It generalises the
-// pre-#892 hard cap of 100 — the default window (max_callers=100, offset=0)
-// is the same cut — and runs in the same position the cap did: after hotspot
-// partition, before the PageRank sort.
+// pre-#892 hard cap of 100: the default window (max_callers=100, offset=0)
+// is the same cut, taken before the PageRank sort.
 func pageDirectCallers(callers []impact.AffectedSymbol, input ImpactInput, tier string) ([]impact.AffectedSymbol, string) {
 	offset, size, _ := pageWindow(len(callers), input)
 	end := offset + min(size, len(callers)-offset)
@@ -502,7 +510,9 @@ func withoutSnippets(o impactOutput) impactOutput {
 	for i := range callers {
 		callers[i].Snippet = ""
 	}
-	o.Result.DirectCallers = callers
+	r := *o.Result
+	r.DirectCallers = callers
+	o.Result = &r
 	return o
 }
 
