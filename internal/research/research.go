@@ -204,7 +204,7 @@ func Run(ctx context.Context, input Input, deps Deps) (*Result, error) {
 		} else if cg != nil {
 			cgExpanded := expandFromCallGraph(seedFiles, cg, input.ExpandHops)
 			expanded = mergeExpandResults(expanded, cgExpanded)
-			warmingNote = callgraph.WarmNote(cg.Warm)
+			warmingNote = callgraph.WarmNote(cg.Warm, cg.WarmCause)
 		}
 	}
 	slog.Info("research.run: DAG + callgraph expansion done",

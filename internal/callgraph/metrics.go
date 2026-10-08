@@ -65,8 +65,8 @@ var callgraphGotypesFallbackTotal = promauto.NewCounterVec(
 
 // recordGotypesFallback bumps the go/types fallback counter with the appropriate reason.
 func recordGotypesFallback(err error) {
-	if errors.Is(err, errTypedBudget) {
-		return // counted as gocode_callgraph_gotypes_load_degraded_total{reason="budget_wait"}
+	if isTypedLoadDegraded(err) {
+		return // counted as gocode_callgraph_gotypes_load_degraded_total{reason="budget_wait"|"prime_wait"}
 	}
 	reason := "load_error"
 	if isDeadlineErr(err) {

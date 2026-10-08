@@ -43,6 +43,12 @@ type CallGraph struct {
 	//
 	// Use WarmNote to render the agent-facing string for a state.
 	Warm WarmState
+	// WarmCause is stamped alongside Warm when the stamp is WarmPending:
+	// which wait (priming export data vs queued for the memory budget)
+	// degraded this graph, so WarmNote can say the real reason (issue
+	// #894). Same write-once rules as Warm; empty when the degrade was
+	// neither wait or the entry predates the cause field.
+	WarmCause WarmCause
 	// UsesIndex maps a target file's relative path to a list of relative paths
 	// of Astro files that render it as a component (<Foo />). Populated by
 	// ResolveTemplateRefs during BuildFromRepo. Enables impact_analysis to

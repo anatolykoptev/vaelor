@@ -181,6 +181,7 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 	result := Trace(ctx, g, input.Symbol, input.Opts)
 	result.Tier = g.Tier
 	result.Warm = g.Warm
+	result.WarmCause = g.WarmCause
 
 	return &result, nil
 }
@@ -254,6 +255,7 @@ func enrichWithGoTypes(ctx context.Context, root string, cg *CallGraph, symbols 
 		recordGotypesFallback(loadErr)
 		slog.Warn("go/packages load failed; falling back to tree-sitter", "err", loadErr)
 		cg.Warm = WarmPending
+		cg.WarmCause = warmCauseOf(loadErr)
 		return cg
 	}
 	defer release()

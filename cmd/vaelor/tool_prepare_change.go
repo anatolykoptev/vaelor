@@ -88,7 +88,7 @@ func handlePrepareChange(ctx context.Context, input PrepareChangeInput, deps ana
 	// Surface the warm-state note (issue #746): pending → "retry will
 	// return the enhanced tier", failed → "retry cannot help". WarmNote
 	// returns "" when no warm state applies.
-	if n := callgraph.WarmNote(cg.Warm); n != "" {
+	if n := callgraph.WarmNote(cg.Warm, cg.WarmCause); n != "" {
 		result.Warnings = append(result.Warnings, n)
 	}
 
