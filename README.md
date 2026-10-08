@@ -75,7 +75,7 @@ No `LLM_API_KEY` yet? Most tools still run: they skip only the narrative and ran
 `explore`: fast, no-clone overview for remote repos. `understand`: symbol deep-dive covering callers, callees, complexity, dead-code score, and any prior review verdicts on that symbol. `code_research`: BM25F plus embeddings plus graph expansion for 10k+ file monorepos.
 
 ### Know what a change will break
-`impact_analysis`: configurable blast-radius depth (default 5), hotspots reordered by churn. `prepare_change`: impact analysis and dead-code check in one call. `call_trace`: bidirectional call chains with cycle detection and an LLM narrative.
+`impact_analysis`: configurable blast-radius depth (default 5), hotspots reordered by churn, direct callers paged via `max_callers`+`offset` (default 100) with optional `include_snippets` call-site lines. `prepare_change`: impact analysis and dead-code check in one call. `call_trace`: bidirectional call chains with cycle detection and an LLM narrative.
 
 ### Search by meaning, not keyword
 `semantic_search`: pgvector plus hybrid RRF plus 1-hop graph expansion. `symbol_search`, `code_search`, `github_code_search` (no clone required).
@@ -110,7 +110,7 @@ The stable, documented set. The server exposes a few more; `tools/list` on a run
 | `debug_investigate` | 7-phase prod incident root cause: Prom spikes + Jaeger failed traces + symbol resolution + callgraph walks + LLM fusion + runtime binary drift, ranked to `file:function` |
 | `semantic_search` | Hybrid RRF: BM25F + pgvector + 1-hop AGE graph expansion. Find by concept, not keyword |
 | `understand` | Type-aware symbol deep-dive. Aggregates call_trace + symbol_search + complexity + tested_by + dead_code_score + prior learnings |
-| `impact_analysis` | Configurable blast-radius depth (default 5). Direct callers, transitive callers, hotspot reordering by churn |
+| `impact_analysis` | Configurable blast-radius depth (default 5). Direct callers, transitive callers, hotspot reordering by churn. `max_callers` (default 100, max 1000) + `offset` page the direct-caller list in a stable order; `include_snippets` attaches numbered call-site source lines to listed direct callers (a large page spills to `OUTPUT_DIR`; inline, snippets are shed before the caller list) |
 | `prepare_change` | Pre-change risk: impact analysis + dead-code check combined |
 | `dead_code` | Confidence-scored unused-symbol detection, not a flat list |
 | `dataflow` | IL/CFG taint tracking, dead stores, SQL/command-injection sinks |

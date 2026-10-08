@@ -37,6 +37,15 @@ type AffectedSymbol struct {
 	Distance   int     `json:"distance"`
 	Confidence float64 `json:"confidence"`
 	Community  int     `json:"community"`
+	// CallLine is the 1-based line of the edge that discovered this caller.
+	// For direct callers (Distance == 1) it is the call site of the target
+	// inside the caller's file; for transitive callers it is the call site
+	// of the intermediate callee. Never serialized — it backs the opt-in
+	// Snippet field only.
+	CallLine uint32 `json:"-"`
+	// Snippet is a few numbered source lines around the call site, populated
+	// only when the caller opts in (impact_analysis include_snippets).
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // Result is the output of an impact analysis.

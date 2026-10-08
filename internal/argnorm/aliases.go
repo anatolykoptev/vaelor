@@ -54,6 +54,7 @@ func DidYouMeanHint(name string) string {
 // Rules (issue #568):
 //   - limit → max_results  (every tool that declares max_results)
 //   - limit → top_k        (semantic_search declares top_k, not max_results)
+//   - limit → max_callers  (impact_analysis pages direct callers with max_callers+offset)
 func aliasTargetsFor(toolName string, accepted map[string]struct{}) map[string]string {
 	out := map[string]string{}
 	has := func(k string) bool { _, ok := accepted[k]; return ok }
@@ -65,6 +66,8 @@ func aliasTargetsFor(toolName string, accepted map[string]struct{}) map[string]s
 			out["limit"] = "max_results"
 		case toolName == "semantic_search" && has("top_k"):
 			out["limit"] = "top_k"
+		case toolName == "impact_analysis" && has("max_callers"):
+			out["limit"] = "max_callers"
 		}
 	}
 
