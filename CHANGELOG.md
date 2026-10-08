@@ -2,6 +2,14 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.3](https://github.com/anatolykoptev/vaelor/compare/v1.73.2...v1.73.3) (2026-10-08)
+
+
+### Fixed
+
+* **mcp:** enable stateful sessions so the standalone GET SSE stream works ([#912](https://github.com/anatolykoptev/vaelor/issues/912)) ([9c238a2](https://github.com/anatolykoptev/vaelor/commit/9c238a2bc6ebb21c8907f644dcdd709b1edd4e1d))
+* **review:** review_delta/review_pr return building status on cold call graph ([#911](https://github.com/anatolykoptev/vaelor/issues/911)) ([ed36033](https://github.com/anatolykoptev/vaelor/commit/ed360337d44e8d99588175e6746fed4ce0f53f6a))
+
 ## [1.73.2](https://github.com/anatolykoptev/vaelor/compare/v1.73.1...v1.73.2) (2026-10-08)
 
 
