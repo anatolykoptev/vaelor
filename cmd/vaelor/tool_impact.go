@@ -249,11 +249,16 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 			return formatImpactNoNarrative(withoutSnippets(output))
 		}})
 	}
-	ladder = append(ladder, mcpmeta.Rung{Name: "direct-page", Render: func() string { return formatImpactDirectPage(output) }})
-	if input.IncludeSnippets {
-		ladder = append(ladder, mcpmeta.Rung{Name: "direct-page-no-snippets", Render: func() string {
-			return formatImpactDirectPage(withoutSnippets(output))
-		}})
+	// The direct-page rungs exist only when there is a list for them to drop:
+	// without one they are no-narrative minus tests_covering, a rung that
+	// could win by a few bytes while dropping nothing worth its note.
+	if len(output.TransitiveCallers)+len(output.HiddenCallers) > 0 {
+		ladder = append(ladder, mcpmeta.Rung{Name: "direct-page", Render: func() string { return formatImpactDirectPage(output) }})
+		if input.IncludeSnippets {
+			ladder = append(ladder, mcpmeta.Rung{Name: "direct-page-no-snippets", Render: func() string {
+				return formatImpactDirectPage(withoutSnippets(output))
+			}})
+		}
 	}
 	ladder = append(ladder, mcpmeta.Rung{Name: "counts", Render: func() string { return formatImpactCounts(output) }})
 	budget := mcpmeta.ResolveBudget(input.MaxBytes, mcpmeta.DefaultBudget)
