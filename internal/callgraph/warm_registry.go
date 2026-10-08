@@ -36,13 +36,42 @@ const (
 	WarmFailed WarmState = "failed"
 )
 
+// WarmCause names which wait degraded the load behind a WarmPending stamp
+// (issue #894): still priming the module's export data, or still queued for
+// the typed-load memory budget. Empty when the load failure was neither wait
+// (a plain post-admission deadline, an L2-imported stamp) — the note then
+// stays generic rather than guessing.
+type WarmCause string
+
+const (
+	// WarmCausePriming means the give-up happened while the module's
+	// export-data build was queued for the build gate or running
+	// (`go list -export` on a cold GOCACHE). Not a memory problem — the
+	// note must not say "memory budget".
+	WarmCausePriming WarmCause = "priming"
+	// WarmCauseBudget means the give-up happened while the load was queued
+	// for the process-wide typed-load memory budget — a real capacity
+	// wait, so the note names the budget.
+	WarmCauseBudget WarmCause = "budget"
+)
+
 // WarmNote renders the agent-facing note for a warm state — the single
-// place the two sentences live, so every tool surfaces the same wording
-// and the failed state cannot silently reuse the "retry" text.
-func WarmNote(s WarmState) string {
+// place the sentences live, so every tool surfaces the same wording
+// and the failed state cannot silently reuse the "retry" text. For
+// WarmPending the cause picks which wait is described (issue #894): the
+// export-data build still running, or the memory budget busy — each says
+// the real reason and that a retry lands once it clears.
+func WarmNote(s WarmState, cause WarmCause) string {
 	switch s {
 	case WarmPending:
-		return "type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)"
+		switch cause {
+		case WarmCausePriming:
+			return "type-aware enrichment is warming in the background: the repo's export data is still being built (cold GOCACHE prime, not a memory problem); retry for the enhanced tier (go/types interface dispatch resolution)"
+		case WarmCauseBudget:
+			return "type-aware enrichment is warming in the background: the typed-load memory budget is busy with other module loads; retry for the enhanced tier (go/types interface dispatch resolution)"
+		default:
+			return "type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)"
+		}
 	case WarmFailed:
 		return "type-aware enrichment is unavailable for this repo (go/types load failed); the tree-sitter tier shown is final for the warm backoff window"
 	default:

@@ -63,6 +63,9 @@ type TraceResult struct {
 	// will return the enhanced tier, "failed" means it durably cannot
 	// (issue #746). Empty when no warm state applies.
 	Warm WarmState `json:"warming,omitempty"`
+	// WarmCause carries which wait degraded the graph when Warm is
+	// "warming" (issue #894) so the rendered note can name the phase.
+	WarmCause WarmCause `json:"warming_cause,omitempty"`
 	// Ambiguous lists every Function/Method symbol matching the query's
 	// bare name when there is more than one (issue #867): the trace is NOT
 	// built — silently picking the first match merged the call trees of N

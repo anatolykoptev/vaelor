@@ -195,7 +195,7 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	if snippetNote != "" {
 		notes = append(notes, snippetNote)
 	}
-	if n := callgraph.WarmNote(cg.Warm); n != "" {
+	if n := callgraph.WarmNote(cg.Warm, cg.WarmCause); n != "" {
 		notes = append(notes, n)
 	}
 	output := impactOutput{Result: result, Tier: cg.Tier, HotspotCallers: hotspotCallers, Notes: notes}

@@ -85,7 +85,50 @@ func (f *sharedLoad) degradeReason() string {
 	return "budget_wait"
 }
 
+// degradeErr is the error text matching degradeReason's phase: a give-up while
+// the export-data build is still queued or running says so, not "memory budget
+// exhausted" — the same wording for both sends operators hunting a memory
+// problem that does not exist (issue #894). Both sentinels satisfy
+// isTypedLoadDegraded.
+func (f *sharedLoad) degradeErr() error {
+	if f.phase.Load() == phasePriming {
+		return errTypedPriming
+	}
+	return errTypedBudget
+}
+
+// errTypedBudget is returned to a caller whose deadline expired while the load
+// was still queued for budget (as opposed to loading or priming). It wraps the
+// context error so deadline checks keep working.
 var errTypedBudget = errors.New("typed load not admitted within the deadline (memory budget exhausted)")
+
+// errTypedPriming is the same give-up while the load was still in the prime
+// phase — queued for the export-data build gate or running `go list -export`.
+// The build keeps running detached, so a retry lands on a warm cache.
+var errTypedPriming = errors.New("typed load not ready within the deadline (export data is still being built)")
+
+// isTypedLoadDegraded reports whether err is either not-admitted sentinel —
+// budget wait or prime wait. Both are counted under
+// gocode_callgraph_gotypes_load_degraded_total, never under the generic
+// go/types fallback counter.
+func isTypedLoadDegraded(err error) bool {
+	return errors.Is(err, errTypedBudget) || errors.Is(err, errTypedPriming)
+}
+
+// warmCauseOf maps a load error to the WarmCause stamped on the degraded graph,
+// so the WarmPending note can say which wait it was and what to do. A load
+// failure that was neither wait (e.g. a plain post-admission deadline) carries
+// no cause and keeps the generic pending note.
+func warmCauseOf(err error) WarmCause {
+	switch {
+	case errors.Is(err, errTypedPriming):
+		return WarmCausePriming
+	case errors.Is(err, errTypedBudget):
+		return WarmCauseBudget
+	default:
+		return ""
+	}
+}
 
 // typedLoadFn is the raw loader the shared load runs and typedBudget the
 // process-wide admission budget. Detached loads outlive the request (and the
@@ -218,7 +261,8 @@ var (
 // warm — joins it instead of building a second arena.
 //
 // A caller whose ctx expires first gets ctx's error; if the load had not yet
-// been admitted by the memory budget the error is errTypedBudget.
+// been admitted by the memory budget the error is f.degradeErr() — priming or
+// budget wording matching the phase it gave up in (issue #894).
 func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts) (*goanalysis.LoadResult, func(), error) {
 	scan := scanModule(root)
 	key := fmt.Sprintf("%s|%s|tests=%t|src=%t", root, scan.fingerprint, opts.Tests, opts.SourceDeps)
@@ -242,7 +286,7 @@ func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts)
 			f.drop()
 			if !f.admitted.Load() {
 				recordTypedLoadDegraded(f.degradeReason())
-				return nil, nil, fmt.Errorf("%w: %w", errTypedBudget, ctx.Err())
+				return nil, nil, fmt.Errorf("%w: %w", f.degradeErr(), ctx.Err())
 			}
 			return nil, nil, ctx.Err()
 		}
@@ -253,7 +297,7 @@ func loadTypedShared(ctx context.Context, root string, opts goanalysis.LoadOpts)
 	}
 	if f.err != nil {
 		f.drop()
-		if errors.Is(f.err, errTypedBudget) {
+		if isTypedLoadDegraded(f.err) {
 			recordTypedLoadDegraded(f.degradeReason())
 		}
 		return nil, nil, f.err
@@ -308,7 +352,7 @@ func (f *sharedLoad) run(root string, opts goanalysis.LoadOpts, scan moduleScan)
 	defer cancel()
 
 	if err := primeExportData(ctx, root, scan); err != nil {
-		f.err = fmt.Errorf("%w: %w", errTypedBudget, err)
+		f.err = fmt.Errorf("%w: %w", errTypedPriming, err)
 		return
 	}
 

@@ -196,6 +196,169 @@ func TestLoadTypedShared_DegradesWhenBudgetExhausted(t *testing.T) {
 	assert.EqualValues(t, 2, started.Load(), "the queued load runs once budget frees, so a warm can join it")
 }
 
+// A caller that gives up while the load is still priming export data gets the
+// priming error text — "memory budget exhausted" would send the operator
+// hunting a memory problem that does not exist (issue #894). The metric
+// reason stays prime_wait.
+//
+// Mutation that must turn it RED: in sharedLoad.degradeErr (typed_load.go)
+// return errTypedBudget for the phasePriming branch (swap the sentinels).
+func TestLoadTypedShared_PrimeWait_SaysPrimingNotBudget(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	withBudget(t, 1024*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		return &goanalysis.LoadResult{}, nil
+	})
+	primeFn.Store(&primer{prime: func(context.Context, string) ([]string, error) {
+		<-block
+		return nil, nil
+	}})
+	dir := goModDir(t)
+
+	reason := func(r string) float64 {
+		return gatherCounterSum(t, "gocode_callgraph_gotypes_load_degraded_total", map[string]string{"reason": r})
+	}
+	p0, b0 := reason("prime_wait"), reason("budget_wait")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, rel, err := loadTypedShared(ctx, dir, goanalysis.LoadOpts{})
+	require.Error(t, err)
+	assert.Nil(t, rel)
+	assert.True(t, errors.Is(err, errTypedPriming), "gave up while priming: %v", err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded), "must still wrap the deadline: %v", err)
+	assert.False(t, errors.Is(err, errTypedBudget), "a prime wait is not budget exhaustion: %v", err)
+	assert.Contains(t, err.Error(), "export data is still being built")
+	assert.NotContains(t, err.Error(), "memory budget exhausted")
+	assert.EqualValues(t, p0+1, reason("prime_wait"), "the degrade is still counted as prime_wait")
+	assert.EqualValues(t, b0, reason("budget_wait"))
+}
+
+// A caller that gives up queued on the memory budget keeps the budget wording —
+// the priming text would hide a real capacity problem (issue #894).
+//
+// Mutation that must turn it RED: in sharedLoad.degradeErr (typed_load.go)
+// return errTypedPriming for the non-priming branch (swap the sentinels).
+func TestLoadTypedShared_BudgetWait_SaysBudgetNotPriming(t *testing.T) {
+	var started atomic.Int32
+	gate := make(chan struct{})
+	defer close(gate)
+	withBudget(t, 64*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		if started.Add(1) > 1 {
+			<-gate // the queued load, once admitted
+		}
+		return &goanalysis.LoadResult{}, nil
+	})
+	holder, other := goModDir(t), goModDir(t)
+
+	_, relHolder, err := loadTypedShared(context.Background(), holder, goanalysis.LoadOpts{})
+	require.NoError(t, err)
+	defer relHolder()
+
+	reason := func(r string) float64 {
+		return gatherCounterSum(t, "gocode_callgraph_gotypes_load_degraded_total", map[string]string{"reason": r})
+	}
+	b0, p0 := reason("budget_wait"), reason("prime_wait")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, rel, err := loadTypedShared(ctx, other, goanalysis.LoadOpts{})
+	require.Error(t, err)
+	assert.Nil(t, rel)
+	assert.True(t, errors.Is(err, errTypedBudget), "queued for budget: %v", err)
+	assert.False(t, errors.Is(err, errTypedPriming), "a budget wait is not priming: %v", err)
+	assert.Contains(t, err.Error(), "memory budget exhausted")
+	assert.NotContains(t, err.Error(), "export data is still being built")
+	assert.EqualValues(t, b0+1, reason("budget_wait"))
+	assert.EqualValues(t, p0, reason("prime_wait"))
+}
+
+// The degrade cause is stamped on the graph so the agent-facing note can say
+// WHY it degraded and what to do: priming → export data building, retry
+// shortly; budget → the server is busy (issue #894).
+//
+// Mutation that must turn it RED: in enrichWithGoTypes (repo.go) drop the
+// WarmCause stamp, or in warmCauseOf map errTypedPriming to WarmCauseBudget.
+func TestEnrichWithTypedResolution_PrimeWait_StampsPrimingCause(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	withBudget(t, 1024*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		return &goanalysis.LoadResult{}, nil
+	})
+	primeFn.Store(&primer{prime: func(context.Context, string) ([]string, error) {
+		<-block
+		return nil, nil
+	}})
+
+	old := syncLoadBudget
+	syncLoadBudget = 100 * time.Millisecond
+	defer func() { syncLoadBudget = old }()
+
+	cg := EnrichWithTypedResolution(context.Background(), goModDir(t), &CallGraph{Tier: "basic"}, nil, nil)
+	assert.Equal(t, "basic", cg.Tier)
+	assert.Equal(t, WarmPending, cg.Warm)
+	assert.Equal(t, WarmCausePriming, cg.WarmCause, "the note must know the load is still priming export data")
+	note := WarmNote(cg.Warm, cg.WarmCause)
+	assert.Contains(t, note, "export data")
+	assert.Contains(t, note, "retry")
+	assert.NotContains(t, note, "memory budget")
+}
+
+// Mutation that must turn it RED: in warmCauseOf (typed_load.go) map
+// errTypedBudget to WarmCausePriming (swap the mapping).
+func TestEnrichWithTypedResolution_BudgetWait_StampsBudgetCause(t *testing.T) {
+	block := make(chan struct{})
+	withBudget(t, 64*mib, func(context.Context, string, goanalysis.LoadOpts) (*goanalysis.LoadResult, error) {
+		<-block
+		return &goanalysis.LoadResult{}, nil
+	})
+	// Hold the whole budget with another module's load.
+	holder := goModDir(t)
+	holderRel := make(chan func(), 1)
+	go func() {
+		_, rel, _ := loadTypedShared(context.Background(), holder, goanalysis.LoadOpts{})
+		holderRel <- rel
+	}()
+	eventually(t, func() bool { return !budgetFree() }, "holder must be admitted")
+	defer func() {
+		close(block)
+		(<-holderRel)()
+	}()
+
+	old := syncLoadBudget
+	syncLoadBudget = 100 * time.Millisecond
+	defer func() { syncLoadBudget = old }()
+
+	cg := EnrichWithTypedResolution(context.Background(), goModDir(t), &CallGraph{Tier: "basic"}, nil, nil)
+	assert.Equal(t, "basic", cg.Tier)
+	assert.Equal(t, WarmPending, cg.Warm)
+	assert.Equal(t, WarmCauseBudget, cg.WarmCause, "the note must know the memory budget was the blocker")
+	note := WarmNote(cg.Warm, cg.WarmCause)
+	assert.Contains(t, note, "busy")
+	assert.NotContains(t, note, "export data")
+}
+
+// The pending note is the one place the agent reads the difference between
+// the two waits; the generic pending text stays for non-degrade load failures.
+func TestWarmNote_PendingCauseDistinguishesPrimeFromBudget(t *testing.T) {
+	priming := WarmNote(WarmPending, WarmCausePriming)
+	budget := WarmNote(WarmPending, WarmCauseBudget)
+	generic := WarmNote(WarmPending, "")
+
+	assert.Contains(t, priming, "export data")
+	assert.Contains(t, priming, "retry")
+	assert.NotContains(t, priming, "memory budget")
+
+	assert.Contains(t, budget, "memory budget")
+	assert.Contains(t, budget, "busy")
+	assert.NotContains(t, budget, "export data")
+
+	assert.Equal(t, "type-aware enrichment is warming in the background; retry for the enhanced tier (go/types interface dispatch resolution)", generic)
+	assert.NotEqual(t, priming, budget)
+	assert.Equal(t, "", WarmNote(WarmNone, WarmCausePriming), "a cause without a pending state renders no note")
+	assert.Equal(t, "type-aware enrichment is unavailable for this repo (go/types load failed); the tree-sitter tier shown is final for the warm backoff window", WarmNote(WarmFailed, WarmCauseBudget), "failed ignores the cause")
+}
+
 // The request-path probe gives up at its deadline but the load keeps running;
 // the background warm that follows must JOIN it, not build a second arena.
 //

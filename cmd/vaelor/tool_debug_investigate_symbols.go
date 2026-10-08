@@ -263,7 +263,7 @@ func runSymbolsPhase(
 			// Surface the warm-state note (issue #746): pending → "retry
 			// will return the enhanced tier", failed → "retry cannot help".
 			if cg != nil {
-				if n := callgraph.WarmNote(cg.Warm); n != "" {
+				if n := callgraph.WarmNote(cg.Warm, cg.WarmCause); n != "" {
 					res.Diagnostics.Warnings = append(res.Diagnostics.Warnings, n)
 				}
 			}
