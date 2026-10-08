@@ -406,7 +406,7 @@ func TestImpact_LargeResultWithOutputDir_FileSaved(t *testing.T) {
 
 // TestImpact_Rung1Fits_RendersExactlyOne proves laziness at the adoption
 // site: when the result fits rung 1 (the common case), EXACTLY ONE rung
-// rendering is computed — not all three. The spy (impactFormatCount) is
+// rendering is computed — not every rung. The spy (impactFormatCount) is
 // incremented inside each formatImpact* function; if the eager-render form
 // comes back (pre-computing all three renderings before the ladder runs),
 // the count is 3 and this test goes RED.

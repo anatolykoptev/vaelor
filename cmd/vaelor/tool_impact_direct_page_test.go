@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
+	"github.com/anatolykoptev/vaelor/internal/impact"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 )
@@ -99,22 +100,92 @@ func TestImpact_DirectPageSurvivesLargeTransitiveSet(t *testing.T) {
 	}
 }
 
-// Without an output dir there is no saved file to point at, so the note must
-// not claim one.
+// A small transitive set must survive snippet shedding: snippets go before
+// either caller list, so when the lists fit without snippets both arrive.
+//
+// RED-on-mutation: in handleImpact delete the "no-snippets" rung append; the
+// ladder then jumps to direct-page and drops the transitive list.
+func TestImpact_SmallTransitiveSetOutlivesSnippets(t *testing.T) {
+	root := t.TempDir()
+	cg := buildSnippetCallGraphN(t, root, 8)
+	addTransitiveCallers(cg, root, 1)
+	defer setupImpactBuildSeam(t, cg)()
+
+	run := func(snippets bool, maxBytes int) string {
+		t.Helper()
+		res, err := handleImpact(context.Background(), ImpactInput{
+			Repo: root, Symbol: "Foo", IncludeSnippets: snippets, MaxBytes: maxBytes,
+		}, impactLadderDeps(), nil, "")
+		if err != nil {
+			t.Fatalf("handleImpact: %v", err)
+		}
+		return mcpmeta.StripBudgetMarker(impactResultText(t, res))
+	}
+	// Size the budget from the fixture itself, so path lengths cannot move
+	// it: both lists without snippets fit, the full rendering does not.
+	withSnippets, without := run(true, mcpmeta.MaxBudget), run(false, mcpmeta.MaxBudget)
+	if strings.Contains(withSnippets, "condensed") || strings.Contains(without, "condensed") {
+		t.Fatalf("fixture must fit MaxBudget uncondensed (%d / %d bytes)", len(withSnippets), len(without))
+	}
+	budget := (len(withSnippets) + len(without)) / 2
+
+	text := run(true, budget)
+	resp := parseDirectPage(t, text)
+	if resp.TransitiveCallers == nil {
+		t.Fatalf("a transitive list that fits without snippets must be kept (budget %d):\n%s", budget, truncForLog(text, 600))
+	}
+	if len(resp.DirectCallers) != 8 {
+		t.Fatalf("direct callers = %d, want 8", len(resp.DirectCallers))
+	}
+	for _, c := range resp.DirectCallers {
+		if c.Snippet != "" {
+			t.Fatalf("snippets must be shed before the transitive list, %s has one", c.Name)
+		}
+	}
+}
+
+// The hotspot list spans both tiers; the direct-page rung keeps only the names
+// it carries.
+//
+// RED-on-mutation: in formatImpactDirectPage (cmd/vaelor/tool_impact.go) set
+// HotspotCallers to output.HotspotCallers; the rendered rung then names T1.
+func TestImpact_DirectPageHotspotsStayOnPage(t *testing.T) {
+	out := impactOutput{
+		Result: &impact.Result{
+			Symbol:            "Foo",
+			Found:             true,
+			DirectCallers:     []impact.AffectedSymbol{{Name: "A"}, {Name: "B"}},
+			TransitiveCallers: []impact.AffectedSymbol{{Name: "T1"}, {Name: "T2"}},
+		},
+		HotspotCallers: []string{"T1", "B", "T2", "A"},
+	}
+	var resp struct {
+		HotspotCallers      []string `json:"hotspot_callers"`
+		HotspotCallersCount int      `json:"hotspot_callers_count"`
+	}
+	if err := json.Unmarshal([]byte(formatImpactDirectPage(out)), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(resp.HotspotCallers, ",") != "B,A" {
+		t.Fatalf("hotspot_callers = %v, want [B A]: the rung must not name callers it does not carry", resp.HotspotCallers)
+	}
+	if resp.HotspotCallersCount != 4 {
+		t.Fatalf("hotspot_callers_count = %d, want 4 (both tiers)", resp.HotspotCallersCount)
+	}
+}
+
 func TestOmittedCallerListsNote(t *testing.T) {
-	if got := omittedCallerListsNote(0, 0, true); got != "" {
+	if got := omittedCallerListsNote(0, 0); got != "" {
 		t.Fatalf("nothing left out must give no note, got %q", got)
 	}
-	got := omittedCallerListsNote(151, 11, false)
-	for _, want := range []string{"transitive_callers (151) and hidden_callers (11)", "depth=1"} {
+	got := omittedCallerListsNote(151, 11)
+	for _, want := range []string{"transitive_callers (151) and hidden_callers (11)", "full-result pointer", "depth=1 drops the transitive walk"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("note %q lacks %q", got, want)
 		}
 	}
-	if strings.Contains(got, "saved") {
-		t.Fatalf("unsaved note must not point at a file: %q", got)
-	}
-	if got := omittedCallerListsNote(3, 0, true); !strings.Contains(got, "saved to the file") || strings.Contains(got, "hidden") {
-		t.Fatalf("saved note = %q", got)
+	// depth=1 does not touch hidden callers, so it must not be offered for them.
+	if got := omittedCallerListsNote(0, 5); strings.Contains(got, "depth=1") {
+		t.Fatalf("hidden-only note must not suggest depth=1: %q", got)
 	}
 }

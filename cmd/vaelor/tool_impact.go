@@ -207,21 +207,24 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 
 	// Progressive result-shortening ladder (#685 part 3): full →
 	// no-narrative (drop the LLM prose — the "surrounding context" around
-	// the structured caller data) → direct-page (drop the transitive and
-	// hidden caller lists, keep the direct-caller page) → direct-page
-	// without snippets (only when they were requested) → counts (drop every
-	// per-caller list, keep counts + blast_radius + risk_score +
-	// affected_packages). renderLadder owns the five invariants so this tool
-	// cannot forget one.
+	// the structured caller data) → [no-snippets: both caller lists, no
+	// snippets] → direct-page (drop the transitive and hidden caller lists,
+	// keep the direct-caller page) → [direct-page-no-snippets] → counts
+	// (drop every per-caller list, keep counts + blast_radius + risk_score +
+	// affected_packages). The bracketed rungs exist only when snippets were
+	// requested. renderLadder owns the five invariants so this tool cannot
+	// forget one.
 	//
 	// Rung choice reasoning: impact's primary value is the caller lists
 	// (the actionable blast-radius data). The narrative is LLM prose
 	// "surrounding context" — dropped first. The transitive and hidden lists
 	// are not paged, so on a widely used symbol they alone overflow the
-	// budget (ParseFile: 151 transitive callers, ~35 KB); they go next, so
-	// the direct-caller page the agent sized with max_callers/offset (#892)
-	// still arrives inline instead of collapsing to counts. Snippets were
-	// asked for that page explicitly, so they outlive the transitive list.
+	// budget (ParseFile: 151 transitive callers, ~35 KB); dropping them
+	// keeps the direct-caller page the agent sized with max_callers/offset
+	// (#892) inline instead of collapsing to counts. Snippets go before the
+	// transitive list, so a small transitive set still arrives whole; when
+	// the lists overflow even without snippets, direct-page brings the
+	// snippets back for the page alone, since they were asked for it.
 	// The direct-caller page is the core payload — dropped last, leaving
 	// counts so the agent still knows "changing X affects N callers across
 	// M packages, blast_radius=high".
@@ -235,19 +238,21 @@ func handleImpact(ctx context.Context, input ImpactInput, deps analyze.Deps, sem
 	// Budget ownership: the LADDER owns the budget. When max_bytes > 0,
 	// MarkBudgetApplied appends the sentinel so the wrapper skips
 	// re-shaping at DefaultBudget (matches semantic_search's behaviour).
-	// saved mirrors renderLadder's file-save gate: a condensed rung is only
-	// ever backed by a saved full result when an output dir is configured.
-	saved := outputDir != ""
 	ladder := mcpmeta.Ladder{
 		{Name: "full", Render: func() string { return formatImpactFull(output) }},
 		{Name: "no-narrative", Render: func() string { return formatImpactNoNarrative(output) }},
-		{Name: "direct-page", Render: func() string { return formatImpactDirectPage(output, saved) }},
 	}
 	if input.IncludeSnippets {
-		// Snippets are the bulkiest per-caller field: shed them before the
-		// direct-caller page itself, the core payload.
+		// Snippets are the bulkiest per-caller field: shed them before
+		// either caller list.
+		ladder = append(ladder, mcpmeta.Rung{Name: "no-snippets", Render: func() string {
+			return formatImpactNoNarrative(withoutSnippets(output))
+		}})
+	}
+	ladder = append(ladder, mcpmeta.Rung{Name: "direct-page", Render: func() string { return formatImpactDirectPage(output) }})
+	if input.IncludeSnippets {
 		ladder = append(ladder, mcpmeta.Rung{Name: "direct-page-no-snippets", Render: func() string {
-			return formatImpactDirectPage(withoutSnippets(output), saved)
+			return formatImpactDirectPage(withoutSnippets(output))
 		}})
 	}
 	ladder = append(ladder, mcpmeta.Rung{Name: "counts", Render: func() string { return formatImpactCounts(output) }})
@@ -466,27 +471,26 @@ func impactCounts(output impactOutput) impactCountsOutput {
 }
 
 // impactDirectPageOutput is the ladder rung between the full caller lists
-// and counts: every count, plus the direct-caller page and its hotspot
-// names, with the transitive and hidden caller lists left out.
+// and counts: every count, plus the direct-caller page and the hotspot
+// names on that page, with the transitive and hidden caller lists left out.
+// hotspot_callers_count still counts hotspot callers across both tiers.
 type impactDirectPageOutput struct {
 	impactCountsOutput
 	DirectCallers  []impact.AffectedSymbol `json:"direct_callers"`
 	HotspotCallers []string                `json:"hotspot_callers,omitempty"`
 }
 
-// formatImpactDirectPage renders the direct-page rung. saved reports
-// whether the full result is saved to a file, so the note points at the
-// file only when there is one.
-func formatImpactDirectPage(output impactOutput, saved bool) string {
+// formatImpactDirectPage renders the direct-page rung.
+func formatImpactDirectPage(output impactOutput) string {
 	if impactFormatCount != nil {
 		atomic.AddInt64(impactFormatCount, 1)
 	}
 	page := impactDirectPageOutput{
 		impactCountsOutput: impactCounts(output),
 		DirectCallers:      output.DirectCallers,
-		HotspotCallers:     output.HotspotCallers,
+		HotspotCallers:     hotspotsOnPage(output.HotspotCallers, output.DirectCallers),
 	}
-	if note := omittedCallerListsNote(len(output.TransitiveCallers), len(output.HiddenCallers), saved); note != "" {
+	if note := omittedCallerListsNote(len(output.TransitiveCallers), len(output.HiddenCallers)); note != "" {
 		page.Notes = append(slices.Clone(page.Notes), note)
 	}
 	data, err := json.Marshal(&page)
@@ -496,10 +500,29 @@ func formatImpactDirectPage(output impactOutput, saved bool) string {
 	return string(data)
 }
 
+// hotspotsOnPage keeps the hotspot caller names that are on the direct-caller
+// page: the hotspot list spans both tiers, and a rung without the transitive
+// list must not name callers it does not carry.
+func hotspotsOnPage(hotspots []string, page []impact.AffectedSymbol) []string {
+	onPage := make(map[string]bool, len(page))
+	for _, c := range page {
+		onPage[c.Name] = true
+	}
+	var out []string
+	for _, h := range hotspots {
+		if onPage[h] {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // omittedCallerListsNote says which caller lists the direct-page rung left
 // out and where they are, so an absent transitive_callers is never read as
-// "no transitive callers". "" when nothing was left out.
-func omittedCallerListsNote(transitive, hidden int, saved bool) string {
+// "no transitive callers". "" when nothing was left out. The rung renders
+// before renderLadder tries the file save, so the note cannot know whether
+// the save succeeded and points at the pointer only conditionally.
+func omittedCallerListsNote(transitive, hidden int) string {
 	var lists []string
 	if transitive > 0 {
 		lists = append(lists, fmt.Sprintf("transitive_callers (%d)", transitive))
@@ -510,13 +533,13 @@ func omittedCallerListsNote(transitive, hidden int, saved bool) string {
 	if len(lists) == 0 {
 		return ""
 	}
-	where := "the full result, which lists them, is saved to the file named at the end of this response"
-	if !saved {
-		where = "pass depth=1 to walk the direct callers alone"
+	note := fmt.Sprintf("%s left out of this response so the direct-caller page fits the size budget; "+
+		"they are still counted in total_affected and the *_count fields, and listed in the full result "+
+		"when a full-result pointer ends this response", strings.Join(lists, " and "))
+	if transitive > 0 {
+		note += "; depth=1 drops the transitive walk"
 	}
-	return fmt.Sprintf("%s left out of this response so the direct-caller page fits the size budget; "+
-		"they are still counted in total_affected and the *_count fields; %s",
-		strings.Join(lists, " and "), where)
+	return note
 }
 
 // maxOmittedNamesInNote bounds how many omitted caller names the truncation
