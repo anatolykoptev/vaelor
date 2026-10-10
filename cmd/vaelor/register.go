@@ -23,6 +23,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/designmd"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/learnings"
@@ -156,6 +157,9 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	// execute repo code (rust-analyzer, scip-python, scip-java). Clones, PR
 	// worktrees and arbitrary paths stay on the tree-sitter tier.
 	gocodescip.SetTrustedRoots(scipTrustedRoots(cfg))
+	// The same trust decides the Go typed-load environment: untrusted roots get
+	// an allowlisted env with cgo off and no direct module fetch (#930).
+	goanalysis.SetRootTrust(gocodescip.IsTrustedRoot)
 
 	deps := analyze.Deps{
 		LLM:               llmClient,
