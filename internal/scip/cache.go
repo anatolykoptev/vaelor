@@ -2,12 +2,15 @@ package scip
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
-	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 // Cache stores SCIP index files keyed by a content hash.
@@ -84,7 +87,7 @@ func CacheKey(dir string) string {
 			if err != nil {
 				continue
 			}
-			digest := hashFileContent(full)
+			digest := hashFileContent(dir, rel)
 			entries = append(entries, entry{rel: rel, digest: digest})
 		}
 	}
@@ -105,20 +108,20 @@ func CacheKey(dir string) string {
 }
 
 // hashFileContent returns a SHA256 digest of the first contentHashChunk bytes
-// of the file at path. Returns a zero digest on read error (the file is
-// effectively skipped — its rel path still contributes to the cache key).
-func hashFileContent(path string) [sha256.Size]byte {
-	f, err := os.Open(path)
-	if err != nil {
-		return [sha256.Size]byte{}
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	_, _ = io.CopyN(h, f, contentHashChunk)
+// of rel under root. Returns a zero digest on read error (the file is
+// effectively skipped — its rel path still contributes to the cache key). The
+// name comes from the checkout, so the read goes through fsutil: symlinks and
+// special files are refused (and counted quietly) instead of being opened.
+func hashFileContent(root, rel string) [sha256.Size]byte {
 	var digest [sha256.Size]byte
-	copy(digest[:], h.Sum(nil))
-	return digest
+	data, err := fsutil.ReadRepoFilePrefix(root, rel, contentHashChunk)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			fsutil.CountRefusal("scip.hash", fsutil.Reason(err))
+		}
+		return digest
+	}
+	return sha256.Sum256(data)
 }
 
 // entryPath returns the filesystem path for a cache entry.

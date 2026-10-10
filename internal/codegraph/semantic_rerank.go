@@ -2,16 +2,16 @@ package codegraph
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-kit/rerank"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 const (
@@ -29,18 +29,21 @@ func init() {
 
 // readCodeSignature reads the first nLines lines from a source file starting
 // at startLine. Returns empty string on any error — CE falls back gracefully.
+// signatureScanMaxBytes bounds how much of a file readCodeSignature reads.
+const signatureScanMaxBytes = 2 << 20
+
 func readCodeSignature(root, relFilePath string, startLine, nLines int) string {
 	if root == "" || relFilePath == "" || startLine <= 0 {
 		return ""
 	}
-	fullPath := filepath.Join(root, relFilePath)
-	f, err := os.Open(fullPath)
+	// Graph-fed name from an untrusted checkout: bounded prefix of a regular file.
+	head, err := fsutil.ReadRepoFilePrefix(root, relFilePath, signatureScanMaxBytes)
 	if err != nil {
+		fsutil.ReportRefusal("codegraph.rerank_signature", relFilePath, err)
 		return ""
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(head))
 	lineNum := 0
 	var lines []string
 	for scanner.Scan() {

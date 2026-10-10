@@ -3,11 +3,11 @@ package impact
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 const (
@@ -48,7 +48,7 @@ func AttachCallSnippets(callers []AffectedSymbol, repoRoot string) (missed int) 
 		}
 		lines, seen := cache[path]
 		if !seen {
-			lines = readSnippetLines(path)
+			lines = readSnippetLines(repoRoot, path)
 			cache[path] = lines
 		}
 		if callers[i].Snippet = snippetAround(lines, callers[i].CallLine); callers[i].Snippet == "" {
@@ -69,14 +69,19 @@ func withinRoot(repoRoot, path string) bool {
 // file is unreadable, binary, or exceeds maxSnippetFileBytes. The size bound
 // is enforced on the bytes actually read, not on a prior Stat, so a file that
 // grows between the two cannot slip past it.
-func readSnippetLines(path string) []string {
-	f, err := os.Open(path)
+func readSnippetLines(root, path string) []string {
+	// These lines are echoed to the caller, and withinRoot is only lexical, so
+	// read through fsutil: no symlinks, special files or escapes from root.
+	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxSnippetFileBytes+1))
-	if err != nil || len(data) > maxSnippetFileBytes || bytes.IndexByte(data, 0) >= 0 {
+	data, err := fsutil.ReadRepoFile(root, rel, maxSnippetFileBytes)
+	if err != nil {
+		fsutil.ReportRefusal("impact.call_snippets", rel, err)
+		return nil
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
 		return nil
 	}
 	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")

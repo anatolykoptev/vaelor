@@ -2,12 +2,14 @@ package ingest
 
 import (
 	"bufio"
+	"bytes"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -241,20 +243,21 @@ func isBinaryData(data []byte) bool {
 
 // parseGitignore reads the .gitignore in root and returns its non-empty,
 // non-comment lines as patterns.
+// gitignoreMaxBytes bounds a .gitignore read.
+const gitignoreMaxBytes = 1 << 20
+
 func parseGitignore(root string) []string {
-	path := filepath.Join(root, ".gitignore")
-	f, err := os.Open(path)
+	const rel = ".gitignore"
+	// The file is chosen by the checkout: read it as a bounded regular file.
+	data, err := fsutil.ReadRepoFile(root, rel, gitignoreMaxBytes)
 	if err != nil {
+		fsutil.ReportRefusal("ingest.gitignore", rel, err)
 		return nil
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			slog.Warn("gitignore: close failed", slog.String("path", path), slog.Any("error", cerr))
-		}
-	}()
+	path := filepath.Join(root, rel)
 
 	var patterns []string
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {

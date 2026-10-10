@@ -1,9 +1,7 @@
 package coupling
 
 import (
-	"os"
-	"path/filepath"
-
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 )
 
@@ -19,13 +17,11 @@ const maxVerifyFileBytes = 512 * 1024
 // lockfiles, VERSION — i.e. the release-noise that must never verify). The
 // empty-lang return is the canonical "skip this file" signal both verifiers use.
 func readVerifyFile(root, rel string) (src []byte, lang string) {
-	full := filepath.Join(root, rel)
-	info, err := os.Stat(full)
-	if err != nil || info.IsDir() || info.Size() > maxVerifyFileBytes {
-		return nil, ""
-	}
-	b, err := os.ReadFile(full) //nolint:gosec // root+rel are trusted local paths from ResolveRepos
+	// rel comes from git history of a checkout we do not control: read through
+	// fsutil so symlinks / special files are refused and the read is bounded.
+	b, err := fsutil.ReadRepoFile(root, rel, maxVerifyFileBytes)
 	if err != nil {
+		fsutil.ReportRefusal("coupling.verify", rel, err)
 		return nil, ""
 	}
 	lang = parser.DetectLanguageFromPath(rel)

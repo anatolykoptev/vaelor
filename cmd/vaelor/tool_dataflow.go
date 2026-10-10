@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/oxcodes"
@@ -408,6 +409,10 @@ func detectDominantLanguage(root string) string {
 // exceeding maxLines, capped at 5 entries. Used to flag the dominant cause of
 // dataflow timeouts (#565: a 6130-line file) so the agent can narrow with
 // exclude_glob. Returns nil when no file exceeds the threshold.
+// oversizedScanMaxBytes bounds the read used to count lines of a candidate file;
+// a file larger than this is reported as oversized without being read.
+const oversizedScanMaxBytes = 8 << 20
+
 func findOversizedFiles(root, language string, maxLines int) []string {
 	var oversized []string
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -427,13 +432,23 @@ func findOversizedFiles(root, language string, maxLines int) []string {
 		if info.Size() < int64(maxLines)*2 {
 			return nil
 		}
-		data, rErr := os.ReadFile(path)
-		if rErr != nil {
+		// d.Info() is an lstat: for a symlink it reports the link length, not
+		// the target size, so the gate above proves nothing about it. The read
+		// itself refuses links and special files and is bounded.
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
 			return nil
 		}
-		lines := strings.Count(string(data), "\n") + 1
-		if lines > maxLines {
-			rel, _ := filepath.Rel(root, path)
+		data, rErr := fsutil.ReadRepoFile(root, rel, oversizedScanMaxBytes)
+		if errors.Is(rErr, fsutil.ErrTooLarge) {
+			oversized = append(oversized, rel) // far past any line threshold
+			return nil
+		}
+		if rErr != nil {
+			fsutil.ReportRefusal("dataflow.oversized", rel, rErr)
+			return nil
+		}
+		if strings.Count(string(data), "\n")+1 > maxLines {
 			oversized = append(oversized, rel)
 		}
 		return nil

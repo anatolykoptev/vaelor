@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 // skipDirs contains directory names to skip during manifest discovery.
@@ -14,6 +16,10 @@ var skipDirs = map[string]bool{
 	"testdata":     true,
 	"target":       true,
 }
+
+// manifestMaxBytes bounds a manifest or lockfile read. Real ones are well under
+// this; Cargo.lock of a large workspace is the biggest at a few MiB.
+const manifestMaxBytes = 8 << 20
 
 // manifestParsers maps manifest filenames to their parsers.
 var manifestParsers = map[string]func([]byte) ManifestInfo{
@@ -41,7 +47,6 @@ func DiscoverManifests(root string) []ManifestInfo {
 			}
 			return nil
 		}
-
 		parser := findParser(d.Name())
 		if parser == nil {
 			return nil
@@ -71,8 +76,13 @@ func findParser(name string) func([]byte) ManifestInfo {
 
 // parseManifestFile reads and parses a single manifest file.
 func parseManifestFile(path, root string, parser func([]byte) ManifestInfo) *ManifestInfo {
-	data, err := os.ReadFile(path)
+	rel, err := filepath.Rel(root, path)
 	if err != nil {
+		return nil
+	}
+	data, err := fsutil.ReadRepoFile(root, rel, manifestMaxBytes)
+	if err != nil {
+		fsutil.ReportRefusal("freshness.manifest", rel, err)
 		return nil
 	}
 
@@ -80,13 +90,9 @@ func parseManifestFile(path, root string, parser func([]byte) ManifestInfo) *Man
 
 	// For Cargo.toml, enrich dependency versions from Cargo.lock if present.
 	if filepath.Base(path) == "Cargo.toml" {
-		enrichFromCargoLock(path, info.Dependencies)
+		enrichFromCargoLock(root, path, info.Dependencies)
 	}
 
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		rel = path
-	}
 	info.ManifestPath = rel
 
 	return &info
@@ -94,25 +100,35 @@ func parseManifestFile(path, root string, parser func([]byte) ManifestInfo) *Man
 
 // enrichFromCargoLock finds Cargo.lock by walking up from Cargo.toml directory
 // (Cargo workspaces place Cargo.lock at the workspace root, not next to members).
-func enrichFromCargoLock(cargoTomlPath string, deps []Dependency) {
-	lockPath := findCargoLock(filepath.Dir(cargoTomlPath))
-	if lockPath == "" {
+func enrichFromCargoLock(root, cargoTomlPath string, deps []Dependency) {
+	lockRel := findCargoLock(root, filepath.Dir(cargoTomlPath))
+	if lockRel == "" {
 		return
 	}
-	lockData, err := os.ReadFile(lockPath)
+	lockData, err := fsutil.ReadRepoFile(root, lockRel, manifestMaxBytes)
 	if err != nil {
+		fsutil.ReportRefusal("freshness.cargo_lock", lockRel, err)
 		return
 	}
 	resolved := ParseCargoLock(lockData)
 	EnrichWithCargoLock(deps, resolved)
 }
 
-// findCargoLock walks up from dir looking for Cargo.lock (max 5 levels).
-func findCargoLock(dir string) string {
+// findCargoLock walks up from dir looking for Cargo.lock (max 5 levels) and
+// returns its path relative to root. The walk never leaves root: a lockfile
+// above the repo belongs to something else. Only a regular file counts (a
+// symlinked Cargo.lock is ignored, matching ReadRepoFile).
+func findCargoLock(root, dir string) string {
 	for range 5 {
-		p := filepath.Join(dir, "Cargo.lock")
-		if _, err := os.Stat(p); err == nil {
-			return p
+		rel, err := filepath.Rel(root, filepath.Join(dir, "Cargo.lock"))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return ""
+		}
+		if fi, err := os.Lstat(filepath.Join(root, rel)); err == nil && fi.Mode().IsRegular() {
+			return rel
+		}
+		if filepath.Clean(dir) == filepath.Clean(root) {
+			break
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

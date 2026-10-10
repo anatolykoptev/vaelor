@@ -2,13 +2,13 @@ package semhealth
 
 import (
 	"bufio"
+	"bytes"
 	"go/build/constraint"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 // maxConstraintHeaderBytes bounds how far into a file we scan for the build
@@ -45,7 +45,7 @@ func filterBuildTagVariants(root string, pairs []embeddings.SimilarPair) (kept [
 		if e, ok := cache[file]; ok {
 			return e
 		}
-		e := readBuildConstraint(filepath.Join(root, file))
+		e := readBuildConstraint(root, file)
 		cache[file] = e
 		return e
 	}
@@ -79,16 +79,18 @@ func isGoFile(path string) bool {
 // and the only signal that this happened is the absence of platform-split
 // suppression. The keep-on-error semantics are unchanged — keep is the safe
 // direction — but the Debug line makes the misconfiguration observable.
-func readBuildConstraint(absPath string) constraint.Expr {
-	f, err := os.Open(absPath) //nolint:gosec // path is repo-root-joined, operator-supplied repo
+func readBuildConstraint(root, rel string) constraint.Expr {
+	// Only the header is needed; the name comes from the graph of an untrusted
+	// checkout, so read a bounded prefix of a regular file.
+	head, err := fsutil.ReadRepoFilePrefix(root, rel, maxConstraintHeaderBytes)
 	if err != nil {
-		slog.Debug("dupfilter buildtag: open failed, treating file as unconstrained",
-			slog.String("path", absPath), slog.Any("error", err))
+		slog.Debug("dupfilter buildtag: read refused, treating file as unconstrained",
+			slog.String("path", rel), slog.Any("error", err))
+		fsutil.ReportRefusal("semhealth.buildtag", rel, err)
 		return nil
 	}
-	defer f.Close()
 
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(head))
 	sc.Buffer(make([]byte, 0, constraintScanBufBytes), maxConstraintHeaderBytes)
 	read := 0
 	for sc.Scan() {
