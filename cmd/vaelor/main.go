@@ -201,6 +201,14 @@ func runMCPServe(cfg Config, stdio bool) {
 		go startFileWatcher(ctx, cfg, pipeline, reg, graphStore)
 	}
 
+	// Bound the Go build cache every analysis path fills — goanalysis.GoEnv
+	// pins GOCACHE to the same dir for the eager pre-warm, packages.Load and
+	// the go/types warm, on a persistent volume in prod. Go's own trim (5-day
+	// cutoff, at most daily, fired only from inside go commands) let it grow
+	// to 21.6GB in two days and trip the disk alert. Runs 1min after startup
+	// then every 24h, until ctx cancel.
+	go startGoCacheTrimLoop(ctx)
+
 	// Webhook handler registered via mcpserver.Config.Routes below so it shares
 	// the server's mux (http.DefaultServeMux is unused by mcpserver).
 	var webhookHandler http.Handler
