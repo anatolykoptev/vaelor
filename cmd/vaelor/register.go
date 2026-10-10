@@ -27,6 +27,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/learnings"
 	"github.com/anatolykoptev/vaelor/internal/oxcodes"
+	gocodescip "github.com/anatolykoptev/vaelor/internal/scip"
 	"github.com/anatolykoptev/vaelor/internal/websearch"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -150,6 +151,11 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	if !hasKey {
 		slog.Warn("llm: disabled (LLM_API_KEY unset) — code_graph/repo_search/debug_investigate will error; narratives in call_trace/dead_code/impact omitted")
 	}
+
+	// Only operator-managed local checkouts may be indexed by SCIP indexers that
+	// execute repo code (rust-analyzer, scip-python, scip-java). Clones, PR
+	// worktrees and arbitrary paths stay on the tree-sitter tier.
+	gocodescip.SetTrustedRoots(autoIndexDirs(cfg))
 
 	deps := analyze.Deps{
 		LLM:               llmClient,

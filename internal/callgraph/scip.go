@@ -80,6 +80,12 @@ func trySCIPResolution(ctx context.Context, root string, files []*ingest.File, t
 			slog.Debug("scip: indexer not in PATH", "indexer", cfg.Name, "lang", lang)
 			continue
 		}
+		// Indexers that run repo-controlled code (build.rs, proc-macros,
+		// gradle, the Python interpreter) never touch untrusted repos; the
+		// call graph stays at tree-sitter tier for them.
+		if !gocodescip.AllowIndexer(lang, root) {
+			continue
+		}
 		jobs = append(jobs, langJob{cfg: cfg, lang: lang})
 	}
 	if len(jobs) == 0 {
