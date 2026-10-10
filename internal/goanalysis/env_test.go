@@ -139,8 +139,8 @@ func TestUntrustedGoEnv_GoproxyHasNoDirect(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"default with direct", "https://proxy.golang.org,direct", "https://proxy.golang.org"},
 		{"pipe separated", "https://a.example|https://b.example|direct", "https://a.example,https://b.example"},
-		{"direct only", "direct", "off"},
-		{"unset", "", "off"},
+		{"direct only", "direct", "https://proxy.golang.org"},
+		{"unset", "", "https://proxy.golang.org"},
 		{"off stays off", "off", "off"},
 		{"direct first", "direct,https://p.example", "https://p.example"},
 	}
@@ -160,6 +160,19 @@ func TestUntrustedGoEnv_GoproxyHasNoDirect(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A custom CA bundle must still reach go in the hardened env, or the proxy fetch
+// fails on hosts that need one; GONOSUMCHECK (not a real go variable) is gone.
+func TestUntrustedGoEnv_PassesCABundleVars(t *testing.T) {
+	t.Setenv("SSL_CERT_FILE", "/etc/custom/ca.pem")
+	env := goanalysis.GoEnv(t.TempDir())
+	if v, _ := envValue(env, "SSL_CERT_FILE"); v != "/etc/custom/ca.pem" {
+		t.Errorf("SSL_CERT_FILE = %q, want it passed through", v)
+	}
+	if _, ok := envValue(env, "GONOSUMCHECK"); ok {
+		t.Error("GONOSUMCHECK is not a go variable and must not be set")
 	}
 }
 
@@ -255,14 +268,26 @@ func loadFixture(t *testing.T, files map[string]string) *goanalysis.LoadResult {
 // untrustedGoEnv (env.go).
 func TestUntrustedGoEnv_IsCounted(t *testing.T) {
 	const name = "vaelor_goanalysis_untrusted_env_total"
-	before := gatherCounterSum(t, name, nil)
+	unset := map[string]string{"reason": "trust_unset"}
+	rejected := map[string]string{"reason": "untrusted_root"}
+	beforeUnset := gatherCounterSum(t, name, unset)
 	_ = goanalysis.GoEnv(t.TempDir())
-	if after := gatherCounterSum(t, name, nil); after != before+1 {
-		t.Errorf("%s moved %v -> %v, want +1", name, before, after)
+	if after := gatherCounterSum(t, name, unset); after != beforeUnset+1 {
+		t.Errorf("%s{trust_unset} moved %v -> %v, want +1", name, beforeUnset, after)
 	}
-	trustAll(t)
+
+	goanalysis.SetRootTrust(func(string) bool { return false })
+	t.Cleanup(func() { goanalysis.SetRootTrust(nil) })
+	beforeRej := gatherCounterSum(t, name, rejected)
 	_ = goanalysis.GoEnv(t.TempDir())
-	if after := gatherCounterSum(t, name, nil); after != before+1 {
-		t.Errorf("trusted root must not bump %s (now %v)", name, after)
+	if after := gatherCounterSum(t, name, rejected); after != beforeRej+1 {
+		t.Errorf("%s{untrusted_root} moved %v -> %v, want +1", name, beforeRej, after)
+	}
+
+	trustAll(t)
+	total := gatherCounterSum(t, name, nil)
+	_ = goanalysis.GoEnv(t.TempDir())
+	if after := gatherCounterSum(t, name, nil); after != total {
+		t.Errorf("trusted root must not bump %s (%v -> %v)", name, total, after)
 	}
 }

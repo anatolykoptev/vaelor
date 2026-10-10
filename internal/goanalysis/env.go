@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,10 +18,20 @@ import (
 // packages are type-checked without their C-backed files, and module resolution
 // is proxy-only: the typed tier is degraded on purpose, and this is how an
 // operator sees it.
-var untrustedEnvTotal = promauto.NewCounter(prometheus.CounterOpts{
+//
+// reason: untrusted_root (a trust predicate is installed and rejected the root)
+// | trust_unset (no predicate installed: every root is untrusted, a wiring bug
+// in production).
+var untrustedEnvTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "vaelor_goanalysis_untrusted_env_total",
-	Help: "go commands run with the hardened env (allowlisted vars, CGO_ENABLED=0, GOPROXY without direct) because the repo root is not trusted.",
-})
+	Help: "go commands run with the hardened env (allowlisted vars, CGO_ENABLED=0, GOPROXY without direct) because the repo root is not trusted, by reason (untrusted_root, trust_unset).",
+}, []string{"reason"})
+
+// Reasons for untrustedEnvTotal.
+const (
+	reasonUntrustedRoot = "untrusted_root"
+	reasonTrustUnset    = "trust_unset"
+)
 
 // rootTrust decides whether a repo root is an operator-managed checkout. It is
 // injected rather than imported: internal/scip owns the trust list and already
@@ -37,9 +48,18 @@ func SetRootTrust(f func(root string) bool) {
 	rootTrust.Store(&f)
 }
 
-func isTrustedRoot(dir string) bool {
+// untrustedReason returns why dir gets the hardened env, or "" when it is
+// trusted.
+func untrustedReason(dir string) string {
 	f := rootTrust.Load()
-	return f != nil && (*f)(dir)
+	switch {
+	case f == nil:
+		return reasonTrustUnset
+	case (*f)(dir):
+		return ""
+	default:
+		return reasonUntrustedRoot
+	}
 }
 
 // Cache and GOPATH locations shared by the trusted and the hardened env: both
@@ -54,15 +74,17 @@ var (
 	scrubHomeDir  string
 )
 
-// scrubHome is an empty per-process HOME for children of untrusted repos, so
-// no ~/.netrc, ~/.gitconfig, ~/.config/go or ssh keys of the server user are
-// visible to the go command, git or the compiler. If it cannot be created the
-// path is a non-existent one, which is just as empty.
+// scrubHome is an empty HOME for children of untrusted repos, so no ~/.netrc,
+// ~/.gitconfig, ~/.config/go or ssh keys of the server user are visible to the
+// go command, git or the compiler. It is one fixed per-uid directory, reused
+// across loads and restarts, so nothing accumulates and nothing needs a
+// shutdown hook. If it cannot be created the path is a non-existent one, which
+// is just as empty.
 func scrubHome() string {
 	scrubHomeOnce.Do(func() {
-		d, err := os.MkdirTemp("", "vaelor-gohome-")
-		if err != nil {
-			slog.Warn("goanalysis: cannot create scrub HOME; using a non-existent one", "err", err)
+		d := filepath.Join(os.TempDir(), fmt.Sprintf("vaelor-gohome-%d", os.Getuid()))
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			slog.Warn("goanalysis: cannot create scrub HOME; using a non-existent one", "dir", d, "err", err)
 			d = "/nonexistent-vaelor-home"
 		}
 		scrubHomeDir = d
@@ -70,10 +92,15 @@ func scrubHome() string {
 	return scrubHomeDir
 }
 
+// defaultProxy is the GOPROXY of an untrusted root when the operator set none.
+const defaultProxy = "https://proxy.golang.org"
+
 // proxyWithoutDirect returns raw (a GOPROXY value) with every "direct" entry
-// removed, "off" when nothing is left or raw is empty. "direct" is what lets a
-// repo-chosen module path make the server dial an arbitrary host (git/https to
-// internal addresses); a configured proxy host is operator-chosen and stays.
+// removed. "direct" is what lets a repo-chosen module path make the server dial
+// an arbitrary host (git/https to internal addresses); a configured proxy host
+// is operator-chosen and stays. When nothing is left (unset, or direct-only) the
+// fixed public proxy is used: one well-known host, not an SSRF vector, so
+// untrusted repos with cold dependencies still load.
 func proxyWithoutDirect(raw string) string {
 	var keep []string
 	for _, p := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '|' }) {
@@ -84,7 +111,7 @@ func proxyWithoutDirect(raw string) string {
 		keep = append(keep, p)
 	}
 	if len(keep) == 0 {
-		return "off"
+		return defaultProxy
 	}
 	return strings.Join(keep, ",")
 }
@@ -100,7 +127,10 @@ func proxyWithoutDirect(raw string) string {
 //     the operator set it; otherwise it derives from GOPATH).
 //   - GOFLAGS: ours only; -buildvcs=false keeps go from running git inside the
 //     repo (a repo .git/config can name commands, e.g. core.fsmonitor).
-//   - GOPROXY: the operator's proxy without the "direct" fallback, else off.
+//   - GOPROXY: the operator's proxy without the "direct" fallback, else the
+//     fixed public proxy.
+//   - SSL_CERT_FILE/SSL_CERT_DIR (when set): the proxy fetch must work on hosts
+//     with a custom CA bundle.
 //   - GOVCS=*:off: no VCS fetch even if a direct source slipped through.
 //   - GOTOOLCHAIN=local: never download a toolchain a repo go.mod names.
 //   - CGO_ENABLED=0: gcc never sees repo C code (#include / .incbin can read any
@@ -111,7 +141,7 @@ func proxyWithoutDirect(raw string) string {
 //     file outside the repo, no prompt, no system git config.
 //
 // GOAUTH, GOPRIVATE, GONOPROXY, GOINSECURE and every other variable are absent.
-func untrustedGoEnv(dir string) []string {
+func untrustedGoEnv(dir, reason string) []string {
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + scrubHome(),
@@ -123,14 +153,16 @@ func untrustedGoEnv(dir string) []string {
 		"GOVCS=*:off",
 		"GOTOOLCHAIN=local",
 		"CGO_ENABLED=0",
-		"GONOSUMCHECK=*", "GONOSUMDB=*",
+		"GONOSUMDB=*",
 		"GOWORK=off",
 		"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1",
 	}
-	if mc := os.Getenv("GOMODCACHE"); mc != "" {
-		env = append(env, "GOMODCACHE="+mc)
+	for _, k := range []string{"GOMODCACHE", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
 	}
-	untrustedEnvTotal.Inc()
+	untrustedEnvTotal.WithLabelValues(reason).Inc()
 	slog.Debug("goanalysis: hardened go env for untrusted root", "root", dir)
 	return env
 }

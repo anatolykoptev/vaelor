@@ -116,8 +116,8 @@ func buildParallelism() int { return max(1, runtime.NumCPU()/2) }
 // allowlist with cgo off and no direct module fetch (issue #930). The prewarm
 // and the load still agree: both ask GoEnv about the same dir.
 func GoEnv(dir string) []string {
-	if !isTrustedRoot(dir) {
-		return untrustedGoEnv(dir)
+	if reason := untrustedReason(dir); reason != "" {
+		return untrustedGoEnv(dir, reason)
 	}
 	env := append(os.Environ(),
 		fmt.Sprintf("GOFLAGS=%s -p=%d -trimpath", ModFlag(dir), buildParallelism()),
