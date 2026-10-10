@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.74.0](https://github.com/anatolykoptev/vaelor/compare/v1.73.6...v1.74.0) (2026-10-10)
+
+
+### Added
+
+* **gocache:** trim stale Go build-cache entries in the background ([#937](https://github.com/anatolykoptev/vaelor/issues/937)) ([f8d8d0c](https://github.com/anatolykoptev/vaelor/commit/f8d8d0c387e01be87a675541b944236c6801e995))
+
 ## [1.73.6](https://github.com/anatolykoptev/vaelor/compare/v1.73.5...v1.73.6) (2026-10-10)
 
 
