@@ -43,3 +43,20 @@ func TestAccumulatePython_RefusedPyprojectDegrades(t *testing.T) {
 		t.Fatalf("scripts parsed from a refused file: %v", acc.scriptNames)
 	}
 }
+
+// TestParseMakefileTargets_RefusesSymlink: the Makefile is read by name from
+// the checkout, so a link must neither supply targets nor block.
+func TestParseMakefileTargets_RefusesSymlink(t *testing.T) {
+	outside := fsutiltest.WriteOutside(t, "build:\n\techo "+fsutiltest.Marker+"\n")
+	root := t.TempDir()
+	fsutiltest.Symlink(t, root, "Makefile", outside)
+	fsutiltest.Symlink(t, root, "sub/Makefile", fsutiltest.EndlessDevice)
+	for _, rel := range []string{"Makefile", "sub/Makefile"} {
+		fsutiltest.Within(t, func() {
+			targets, err := parseMakefileTargets(root, rel)
+			if err != nil || len(targets) != 0 {
+				t.Errorf("%s: targets from a refused file: %v, %v", rel, targets, err)
+			}
+		})
+	}
+}

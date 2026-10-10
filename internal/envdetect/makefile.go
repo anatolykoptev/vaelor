@@ -2,12 +2,15 @@ package envdetect
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 const (
@@ -67,7 +70,7 @@ func applyMakefiles(root string, toolchains []Toolchain) ([]Toolchain, error) {
 	sort.Strings(dirs)
 
 	for _, dir := range dirs {
-		targets, err := parseMakefileTargets(makefiles[dir])
+		targets, err := parseMakefileTargets(root, filepath.Join(dir, makefileName))
 		if err != nil {
 			return nil, err
 		}
@@ -106,8 +109,8 @@ func discoverMakefiles(root string) (map[string]string, error) {
 			}
 			return nil
 		}
-		if d.Name() != makefileName || !d.Type().IsRegular() {
-			return nil // symlinked/special Makefiles from an untrusted checkout are skipped
+		if d.Name() != makefileName {
+			return nil
 		}
 
 		rel, relErr := filepath.Rel(root, filepath.Dir(path))
@@ -126,15 +129,18 @@ func discoverMakefiles(root string) (map[string]string, error) {
 
 // parseMakefileTargets scans a Makefile for the first occurrence of each
 // recognized target name, returning the CommandKind -> target name mapping.
-func parseMakefileTargets(path string) (map[CommandKind]string, error) {
-	f, err := os.Open(path) //nolint:gosec // path comes from our own directory walk, not user input
-	if err != nil {
-		return nil, fmt.Errorf("envdetect: open %s: %w", path, err)
-	}
-	defer f.Close()
-
+//
+// rel is the Makefile path relative to root. The name comes from the checkout,
+// so it is read through fsutil: a symlinked, special or oversized Makefile is
+// refused and logged, and yields no targets rather than failing detection.
+func parseMakefileTargets(root, rel string) (map[CommandKind]string, error) {
 	targets := map[CommandKind]string{}
-	scanner := bufio.NewScanner(f)
+	data, err := fsutil.ReadRepoFile(root, rel, manifestMaxBytes)
+	if err != nil {
+		fsutil.ReportRefusal("envdetect.makefile", rel, err)
+		return targets, nil
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		name, ok := parseMakefileTargetLine(scanner.Text())
 		if !ok {
@@ -149,7 +155,7 @@ func parseMakefileTargets(path string) (map[CommandKind]string, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("envdetect: scan %s: %w", path, err)
+		return nil, fmt.Errorf("envdetect: scan %s: %w", rel, err)
 	}
 
 	return targets, nil

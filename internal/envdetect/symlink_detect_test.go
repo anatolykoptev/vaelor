@@ -16,11 +16,12 @@ import (
 func TestDetect_RefusesSymlinkedFiles(t *testing.T) {
 	outside := fsutiltest.WriteOutside(t,
 		fmt.Sprintf(`{"scripts":{"build":"%s"}}`, fsutiltest.Marker))
+	makefileOutside := fsutiltest.WriteOutside(t, "build:\n\techo "+fsutiltest.Marker+"\n")
 	root := t.TempDir()
 	fsutiltest.Symlink(t, root, "package.json", fsutiltest.EndlessDevice)
 	fsutiltest.Symlink(t, root, "web/package.json", outside)
 	fsutiltest.Symlink(t, root, "pyproject.toml", fsutiltest.EndlessDevice)
-	fsutiltest.Symlink(t, root, "Makefile", outside)
+	fsutiltest.Symlink(t, root, "Makefile", makefileOutside)
 
 	var env *envdetect.Environment
 	var err error

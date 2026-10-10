@@ -2,7 +2,8 @@ package pinned
 
 import (
 	"bufio"
-	"os"
+	"bytes"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -36,12 +37,20 @@ import (
 //   - Multi-stage final stage without AS: Service = ""
 //   - Multi-stage non-final with AS <name>: Service = "<name>:builder"
 //   - Multi-stage non-final without AS: Service = "stage<N>:builder"
+//
+// The file must be a regular file directly named by path (a symlinked
+// Dockerfile is refused). Use parseDockerfileIn when a repo root is known.
 func ParseDockerfile(path string) ([]PinnedImage, error) {
-	f, err := os.Open(path)
+	return parseDockerfileIn(filepath.Dir(path), path)
+}
+
+// parseDockerfileIn parses the Dockerfile at path, which must lie under root.
+// Images' Source keeps path as given.
+func parseDockerfileIn(root, path string) ([]PinnedImage, error) { //nolint:gocognit,cyclop // pre-existing parser body, only the read changed
+	data, err := readConfinedFile(root, path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
 	// Collect logical lines from physical lines by collapsing \ continuations.
 	// Each entry is (logicalLine, firstPhysicalLineNumber).
@@ -51,7 +60,7 @@ func ParseDockerfile(path string) ([]PinnedImage, error) {
 	}
 	var logLines []logLine
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	var pending strings.Builder
 	startLine := 1
 	physLine := 0

@@ -40,7 +40,8 @@ func Within(t *testing.T, fn func()) {
 	select {
 	case <-done:
 	case <-time.After(Deadline):
-		fmt.Fprintf(os.Stderr, "FAIL %s: call did not return within %s (unbounded read of a special file?)\n", t.Name(), Deadline)
+		fmt.Fprintf(os.Stderr, "--- FAIL: %s\n    call did not return within %s (unbounded read of a special file?); exiting so the runaway read cannot exhaust memory\n", t.Name(), Deadline)
+		fmt.Fprintln(os.Stderr, "FAIL")
 		os.Exit(1)
 	}
 }

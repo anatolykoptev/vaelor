@@ -133,6 +133,7 @@ func BuildConfig(root string) Config {
 		// Only the repo's own regular files: symlinks (to files, devices or
 		// directories) and other special entries are skipped, as ingest does.
 		if !d.Type().IsRegular() {
+			fsutil.CountRefusal("importresolve.walk", fsutil.ReasonNotRegular)
 			return nil
 		}
 

@@ -2,11 +2,12 @@ package main
 
 import (
 	"bufio"
-	"os"
+	"bytes"
 	"path/filepath"
 	"strings"
 	"unicode"
 
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/semhealth"
 )
 
@@ -167,18 +168,21 @@ func languageOfFile(file string) string {
 // against large bodies still pass).
 const dupMinLinesScanCap = 5000
 
+// dupScanMaxBytes bounds how much of a file symbolLineCount reads.
+const dupScanMaxBytes = 4 << 20
+
 func symbolLineCount(root, file string, startLine int) int {
 	if root == "" || file == "" || startLine <= 0 {
 		return 0
 	}
-	path := filepath.Join(root, filepath.FromSlash(file))
-	f, err := os.Open(path)
+	// Graph-fed name from an untrusted checkout: bounded prefix of a regular file.
+	head, err := fsutil.ReadRepoFilePrefix(root, filepath.FromSlash(file), dupScanMaxBytes)
 	if err != nil {
+		fsutil.ReportRefusal("dup_filters.line_count", file, err)
 		return 0
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(head))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	// Position the scanner at startLine (1-indexed).

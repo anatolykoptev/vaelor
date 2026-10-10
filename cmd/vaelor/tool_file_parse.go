@@ -33,6 +33,46 @@ type FileParseInput struct {
 	OutputFormat string `json:"output_format,omitempty" jsonschema:"Output format: ast (raw tree) | symbols (functions types vars) (default: symbols)"`
 }
 
+// loadParseSource resolves the file named by input and reads it, bounded by
+// maxBytes. cleanup is always non-nil. In repo mode the path is chosen by the
+// checkout, so it is read through readRepoParseSource (no symlinks, special
+// files or escapes); local mode reads an operator-named absolute path.
+func loadParseSource(ctx context.Context, input FileParseInput, cfg Config, deps analyze.Deps, maxBytes int64,
+) (filePath string, source []byte, cleanup func(), err error) {
+	cleanup = func() {}
+	if input.Repo == "" {
+		filePath = rewritePath(input.Path, cfg.PathMappings)
+		fi, statErr := os.Stat(filePath)
+		if statErr != nil {
+			return "", nil, cleanup, fmt.Errorf("stat file: %w", statErr)
+		}
+		if fi.Size() > maxBytes {
+			return "", nil, cleanup, fmt.Errorf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)
+		}
+		source, err = os.ReadFile(filePath)
+		if err != nil {
+			return "", nil, cleanup, fmt.Errorf("read file: %w", err)
+		}
+		return filePath, source, cleanup, nil
+	}
+	root, rootCleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
+	if err != nil {
+		return "", nil, cleanup, fmt.Errorf("resolve repo: %w", err)
+	}
+	source, err = readRepoParseSource(root, input.Path, maxBytes)
+	return filepath.Join(root, input.Path), source, rootCleanup, err
+}
+
+// readRepoParseSource reads rel under root for file_parse in repo mode.
+func readRepoParseSource(root, rel string, maxBytes int64) ([]byte, error) {
+	source, err := fsutil.ReadRepoFile(root, rel, maxBytes)
+	if err != nil {
+		fsutil.ReportRefusal("file_parse.repo", rel, err)
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	return source, nil
+}
+
 func registerFileParse(server *mcp.Server, cfg Config, deps analyze.Deps) {
 	maxBytes := cfg.MaxFileBytes
 
@@ -48,37 +88,10 @@ func registerFileParse(server *mcp.Server, cfg Config, deps analyze.Deps) {
 			return errResult("path is required"), nil
 		}
 
-		var filePath string
-		var source []byte
-		if input.Repo != "" {
-			// Remote or local repo — resolve root, then read path under it. The
-			// path is chosen by the checkout, so the read refuses symlinks,
-			// special files and escapes, and is bounded by maxBytes.
-			root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
-			if err != nil {
-				return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
-			}
-			defer cleanup()
-			filePath = filepath.Join(root, input.Path)
-			source, err = fsutil.ReadRepoFile(root, input.Path, maxBytes)
-			if err != nil {
-				fsutil.ReportRefusal("file_parse.repo", input.Path, err)
-				return errResult(fmt.Sprintf("read file: %s", err)), nil
-			}
-		} else {
-			// Local file path — apply path mappings.
-			filePath = rewritePath(input.Path, cfg.PathMappings)
-			fi, err := os.Stat(filePath)
-			if err != nil {
-				return errResult(fmt.Sprintf("stat file: %s", err)), nil
-			}
-			if fi.Size() > maxBytes {
-				return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), nil
-			}
-			source, err = os.ReadFile(filePath)
-			if err != nil {
-				return errResult(fmt.Sprintf("read file: %s", err)), nil
-			}
+		filePath, source, cleanup, err := loadParseSource(ctx, input, cfg, deps, maxBytes)
+		defer cleanup()
+		if err != nil {
+			return errResult(err.Error()), nil
 		}
 
 		includeBody := input.OutputFormat == outputFormatAST

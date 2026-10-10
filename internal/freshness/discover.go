@@ -47,12 +47,6 @@ func DiscoverManifests(root string) []ManifestInfo {
 			}
 			return nil
 		}
-		// Regular files only: symlinks and special entries chosen by an
-		// untrusted checkout are skipped, as ingest does.
-		if !d.Type().IsRegular() {
-			return nil
-		}
-
 		parser := findParser(d.Name())
 		if parser == nil {
 			return nil
