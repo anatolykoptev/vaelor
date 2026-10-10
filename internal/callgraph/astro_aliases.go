@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -84,6 +85,10 @@ func loadTSConfigAliases(repoRoot string) aliasMap {
 	return m
 }
 
+// aliasConfigMaxBytes bounds a tsconfig / astro.config read. Real configs are
+// a few KiB.
+const aliasConfigMaxBytes = 1 << 20
+
 // buildAliasMap does the actual filesystem reads and JSON parsing.
 // Returns the alias map, the list of all config files read (for mtime
 // tracking), and the max mtime across those files.
@@ -137,7 +142,7 @@ func parseTSConfigFile(path, repoRoot string, m aliasMap, visited map[string]boo
 	}
 	visited[absPath] = true
 
-	ts, ok := readTSConfigShape(absPath)
+	ts, ok := readTSConfigShape(repoRoot, absPath)
 	if !ok {
 		return
 	}
@@ -160,10 +165,17 @@ func parseTSConfigFile(path, repoRoot string, m aliasMap, visited map[string]boo
 //
 // Note: block comments /* */ are not handled — tsconfig files rarely use them,
 // but if needed add block-comment stripping before the json.Unmarshal call.
-func readTSConfigShape(absPath string) (tsconfigShape, bool) {
-	data, err := os.ReadFile(absPath)
+func readTSConfigShape(repoRoot, absPath string) (tsconfigShape, bool) {
+	rel, relErr := filepath.Rel(repoRoot, absPath)
+	if relErr != nil {
+		return tsconfigShape{}, false
+	}
+	// Absent is normal and silent; symlinked, special, oversized or
+	// out-of-root configs are refused and logged.
+	data, err := fsutil.ReadRepoFile(repoRoot, rel, aliasConfigMaxBytes)
 	if err != nil {
-		return tsconfigShape{}, false // file absent — not an error
+		fsutil.ReportRefusal("callgraph.tsconfig", rel, err)
+		return tsconfigShape{}, false
 	}
 	data = stripJSONComments(data)
 	data = trailingCommaRe.ReplaceAll(data, []byte("$1"))
@@ -261,8 +273,9 @@ func normaliseTSTarget(target, baseURL string) string {
 func parseAstroConfigAliases(repoRoot string, m aliasMap, files *[]string) {
 	for _, name := range []string{"astro.config.mjs", "astro.config.ts", "astro.config.js"} {
 		p := filepath.Join(repoRoot, name)
-		data, err := os.ReadFile(p)
+		data, err := fsutil.ReadRepoFile(repoRoot, name, aliasConfigMaxBytes)
 		if err != nil {
+			fsutil.ReportRefusal("callgraph.astro_config", name, err)
 			continue
 		}
 		absP, _ := filepath.Abs(p)

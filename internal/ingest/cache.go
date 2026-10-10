@@ -6,8 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/gob"
+	"errors"
 	"fmt"
-	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	kitcache "github.com/anatolykoptev/go-kit/cache"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 // ingestCacheTTL is how long a cached IngestResult stays valid before a
@@ -369,7 +371,7 @@ func RepoContentHash(root string) string {
 			}
 			entries = append(entries, entry{
 				rel:    rel,
-				digest: hashFileChunk(full, chunkSize),
+				digest: hashFileChunk(root, rel, chunkSize),
 				size:   size,
 			})
 		}
@@ -394,20 +396,21 @@ func RepoContentHash(root string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))[:32]
 }
 
-// hashFileChunk returns a SHA256 digest of the first n bytes of path.
-// Returns a zero digest on read error (the rel path still contributes).
-func hashFileChunk(path string, n int64) [sha256.Size]byte {
-	f, err := os.Open(path)
-	if err != nil {
-		return [sha256.Size]byte{}
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	_, _ = io.CopyN(h, f, n)
+// hashFileChunk returns a SHA256 digest of the first n bytes of rel under root.
+// Returns a zero digest on read error (the rel path still contributes). The
+// name comes from the checkout, so the read goes through fsutil: a symlink or
+// special file (which could otherwise block the open) is refused and counted
+// quietly, since this runs on every ingest.
+func hashFileChunk(root, rel string, n int64) [sha256.Size]byte {
 	var digest [sha256.Size]byte
-	copy(digest[:], h.Sum(nil))
-	return digest
+	data, err := fsutil.ReadRepoFilePrefix(root, rel, n)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			fsutil.CountRefusal("ingest.hash", fsutil.Reason(err))
+		}
+		return digest
+	}
+	return sha256.Sum256(data)
 }
 
 // encodeIngestEntry serializes an ingest cache entry to []byte using gob.

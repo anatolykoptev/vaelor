@@ -3,16 +3,30 @@ package policy
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
 // Load reads .go-code.yaml from root. Returns (nil, nil) when the file is
 // absent — policy is opt-in.
+//
+// The file is chosen by the checkout, so it is read through fsutil: a symlinked,
+// special, oversized or out-of-root .go-code.yaml is refused and treated as
+// absent (policy stays opt-in) rather than failing the review.
 func Load(root string) (*Policy, error) {
-	return loadFile(filepath.Join(root, ".go-code.yaml"))
+	data, err := fsutil.ReadRepoFile(root, localPolicyName, policyMaxBytes)
+	if err != nil {
+		fsutil.ReportRefusal("policy.load", localPolicyName, err)
+		return nil, nil //nolint:nilerr,nilnil // refused or absent policy file == no policy
+	}
+	return parsePolicy(data, localPolicyName)
 }
+
+const (
+	localPolicyName = ".go-code.yaml"
+	policyMaxBytes  = 1 << 20
+)
 
 // LoadWithDefaults reads a server-wide defaults file (may be empty path),
 // then overlays the repo-local .go-code.yaml on top. Repo rules take
@@ -43,6 +57,10 @@ func loadFile(path string) (*Policy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+	return parsePolicy(data, path)
+}
+
+func parsePolicy(data []byte, path string) (*Policy, error) {
 	var p Policy
 	if err := yaml.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)

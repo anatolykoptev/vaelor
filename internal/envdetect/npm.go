@@ -3,11 +3,14 @@ package envdetect
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/anatolykoptev/vaelor/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
+
+// manifestMaxBytes bounds a package.json / pyproject.toml read.
+const manifestMaxBytes = 1 << 20
 
 // npm/yarn/pnpm binary names, selected by lockfile presence in the manifest's
 // own directory.
@@ -34,14 +37,14 @@ type npmPackageJSON struct {
 // key with no matching script is never fabricated (no command is better than
 // a wrong guess).
 func buildNPMToolchain(root, dir string, m freshness.ManifestInfo) (Toolchain, error) {
-	manifestAbs := filepath.Join(root, m.ManifestPath)
-	data, err := os.ReadFile(manifestAbs)
-	if err != nil {
-		return Toolchain{}, fmt.Errorf("envdetect: read %s: %w", m.ManifestPath, err)
-	}
-
 	var pkg npmPackageJSON
-	if err := json.Unmarshal(data, &pkg); err != nil {
+	data, err := fsutil.ReadRepoFile(root, m.ManifestPath, manifestMaxBytes)
+	if err != nil {
+		// A refused manifest (symlink, special file, oversized, vanished)
+		// degrades to the convention-only install command; it must not abort
+		// detection for the whole repo.
+		fsutil.ReportRefusal("envdetect.npm", m.ManifestPath, err)
+	} else if err := json.Unmarshal(data, &pkg); err != nil {
 		return Toolchain{}, fmt.Errorf("envdetect: parse %s: %w", m.ManifestPath, err)
 	}
 

@@ -69,6 +69,12 @@ const (
 	goPathDir  = "/tmp/gopath"
 )
 
+// GoCacheDir returns the build cache GoEnv pins every analysis go command to
+// (appended after os.Environ, so it wins for trusted and untrusted roots
+// alike). The background gocache trimmer reads it so it bounds the cache the
+// server actually fills, even when the ambient GOCACHE points elsewhere.
+func GoCacheDir() string { return goCacheDir }
+
 var (
 	scrubHomeOnce sync.Once
 	scrubHomeDir  string

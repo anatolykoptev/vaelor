@@ -2,10 +2,11 @@ package pinned
 
 import (
 	"fmt"
-	"os"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,8 +22,36 @@ import (
 // Map-form items ({path: foo, env_file: bar}) are skipped silently per spec.
 // Cycle detection is based on absolute paths; each file is parsed at most once.
 // Recursion is capped at 10 levels.
+//
+// The file must be a regular file named by path, and include: entries must stay
+// under path's directory (absolute and escaping entries are refused). Use
+// parseComposeIn when a wider repo root is known.
 func ParseCompose(path string) ([]PinnedImage, error) {
-	return parseComposeImpl(path, map[string]bool{}, 0)
+	return parseComposeIn(filepath.Dir(path), path)
+}
+
+// parseComposeIn parses the compose file at path, confining it and every
+// include: entry to root.
+func parseComposeIn(root, path string) ([]PinnedImage, error) {
+	return parseComposeImpl(root, path, map[string]bool{}, 0)
+}
+
+// composeMaxBytes bounds a Dockerfile or compose file read.
+const composeMaxBytes = 1 << 20
+
+// readConfinedFile reads path (which must lie under root) through fsutil:
+// regular files only, no escape from root, bounded size.
+func readConfinedFile(root, path string) ([]byte, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := fsutil.ReadRepoFile(root, rel, composeMaxBytes)
+	if err != nil {
+		fsutil.ReportRefusal("pinned.read", rel, err)
+		return nil, err
+	}
+	return data, nil
 }
 
 // parseComposeImpl is the recursive inner implementation of ParseCompose.
@@ -34,7 +63,7 @@ func ParseCompose(path string) ([]PinnedImage, error) {
 // This preserves backward compatibility with Collect's filepath.Rel rewriting.
 const maxIncludeDepth = 10
 
-func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedImage, error) {
+func parseComposeImpl(repoRoot, path string, seen map[string]bool, depth int) ([]PinnedImage, error) {
 	if depth > maxIncludeDepth {
 		// Silent skip — too deeply nested.
 		return nil, nil
@@ -51,7 +80,7 @@ func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedIma
 	}
 	seen[absPath] = true
 
-	data, err := os.ReadFile(path)
+	data, err := readConfinedFile(repoRoot, path)
 	if err != nil {
 		return nil, err
 	}
@@ -72,9 +101,29 @@ func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedIma
 		return nil, nil
 	}
 
-	var result []PinnedImage
+	result := composeServices(docNode, path)
 
-	// --- 1. Walk services: block for this file ---
+	// --- 2. Follow include: directives ---
+	// Compose spec allows top-level include: to reference other compose files.
+	// String items are followed recursively; map items (with path:/env_file:)
+	// are skipped silently (MVP: string form only).
+	//
+	// Include paths are resolved relative to the directory of the *original*
+	// path parameter (not its absolute form) so that relative paths stay
+	// relative in the returned PinnedImages' Source field. This keeps backward
+	// compatibility with Collect's filepath.Rel rewriting.
+	//
+	// Known limitation: if a sub-file's basename also matches the walker glob
+	// AND it is referenced via include:, it may be parsed twice. Dedup at the
+	// Collect level is deferred.
+	result = append(result, followIncludes(docNode, repoRoot, path, seen, depth)...)
+	return result, nil
+}
+
+// composeServices returns one PinnedImage per service of docNode that
+// declares an "image", sourced from path.
+func composeServices(docNode *yaml.Node, path string) []PinnedImage {
+	var result []PinnedImage
 	servicesNode := mappingLookup(docNode, "services")
 	if servicesNode != nil && servicesNode.Kind == yaml.MappingNode {
 		// servicesNode is a mapping: key1, val1, key2, val2, ...
@@ -122,19 +171,13 @@ func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedIma
 		}
 	}
 
-	// --- 2. Follow include: directives ---
-	// Compose spec allows top-level include: to reference other compose files.
-	// String items are followed recursively; map items (with path:/env_file:)
-	// are skipped silently (MVP: string form only).
-	//
-	// Include paths are resolved relative to the directory of the *original*
-	// path parameter (not its absolute form) so that relative paths stay
-	// relative in the returned PinnedImages' Source field. This keeps backward
-	// compatibility with Collect's filepath.Rel rewriting.
-	//
-	// Known limitation: if a sub-file's basename also matches the walker glob
-	// AND it is referenced via include:, it may be parsed twice. Dedup at the
-	// Collect level is deferred.
+	return result
+}
+
+// followIncludes parses the string-form include: entries of docNode, confined
+// to repoRoot; see the notes on include handling in parseComposeImpl.
+func followIncludes(docNode *yaml.Node, repoRoot, path string, seen map[string]bool, depth int) []PinnedImage {
+	var result []PinnedImage
 	includeNode := mappingLookup(docNode, "include")
 	if includeNode != nil && includeNode.Kind == yaml.SequenceNode {
 		// Use the original path's directory (may be relative) for constructing
@@ -146,10 +189,16 @@ func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedIma
 				continue
 			}
 			includePath := item.Value
-			if !filepath.IsAbs(includePath) {
-				includePath = filepath.Join(baseDir, includePath)
+			if filepath.IsAbs(includePath) {
+				// Includes are chosen by the checkout: never follow an
+				// absolute path out of the repo.
+				fsutil.CountRefusal("pinned.include", fsutil.ReasonEscape)
+				slog.Warn("repo file read refused", slog.String("component", "pinned.include"),
+					slog.String("path", includePath), slog.String("reason", "absolute include"))
+				continue
 			}
-			sub, err := parseComposeImpl(includePath, seen, depth+1)
+			includePath = filepath.Join(baseDir, includePath)
+			sub, err := parseComposeImpl(repoRoot, includePath, seen, depth+1)
 			if err != nil {
 				// Non-fatal: include file unreadable/malformed — skip.
 				continue
@@ -158,7 +207,7 @@ func parseComposeImpl(path string, seen map[string]bool, depth int) ([]PinnedIma
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // mappingLookup finds the value node for a given key in a yaml MappingNode.

@@ -1,10 +1,10 @@
 package explore
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 const (
@@ -18,17 +18,18 @@ func readmeExcerpt(root string) string {
 	names := []string{"README.md", "readme.md", "Readme.md"}
 	var data []byte
 	for _, name := range names {
-		var err error
-		data, err = os.ReadFile(filepath.Join(root, name))
+		// Prefix read: only the head is used. Symlinked, special or
+		// out-of-root READMEs are refused, so the feature degrades to "no
+		// excerpt" instead of echoing an arbitrary host file.
+		d, err := fsutil.ReadRepoFilePrefix(root, name, readmeMaxBytes)
 		if err == nil {
+			data = d
 			break
 		}
+		fsutil.ReportRefusal("explore.readme", name, err)
 	}
 	if len(data) == 0 {
 		return ""
-	}
-	if len(data) > readmeMaxBytes {
-		data = data[:readmeMaxBytes]
 	}
 
 	var lines []string

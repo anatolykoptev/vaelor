@@ -63,7 +63,7 @@ func Collect(repoRoot string) ([]PinnedImage, error) {
 		base := filepath.Base(path)
 		switch {
 		case isDockerfile(base):
-			images, parseErr := ParseDockerfile(path)
+			images, parseErr := parseDockerfileIn(repoRoot, path)
 			if parseErr != nil {
 				slog.Warn("pinned.Collect: ParseDockerfile failed",
 					"path", path, "err", parseErr)
@@ -72,7 +72,7 @@ func Collect(repoRoot string) ([]PinnedImage, error) {
 			result = append(result, images...)
 
 		case isComposeFile(base):
-			images, parseErr := ParseCompose(path)
+			images, parseErr := parseComposeIn(repoRoot, path)
 			if parseErr != nil {
 				slog.Warn("pinned.Collect: ParseCompose failed",
 					"path", path, "err", parseErr)
