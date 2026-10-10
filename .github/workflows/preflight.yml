@@ -61,12 +61,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # Fleet policy: CI runs the latest patched toolchain (go.mod is the
-          # minimum, not the pin). govulncheck below gates on stdlib CVEs that
-          # are fixed in patch releases — pinning go.mod's version fails the
-          # gate the day a stdlib CVE lands (seen live: GO-2026-4970/5856,
-          # fixed in go1.26.5 while go.mod pinned 1.26.4).
-          go-version: stable
+          # Pin to go.mod (setup-go honours the `toolchain` line). Floating
+          # `stable` broke main when go1.27.2 became stable (two analysis
+          # tests fail on 1.27; tracked as a followup). Stdlib CVEs fixed in
+          # patch releases are picked up by bumping the `toolchain` line.
+          go-version-file: go.mod
 
 
       - name: Start ephemeral postgres+age
