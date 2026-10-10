@@ -129,6 +129,17 @@ func runMCPServe(cfg Config, stdio bool) {
 		os.Exit(1)
 	}
 
+	// Fail fast, before any other startup work: a security knob that is
+	// misconfigured must refuse to boot rather than silently run open.
+	httpGate, err := newHTTPAuthFromEnv()
+	if err != nil {
+		slog.Error("http auth misconfigured", slog.Any("error", err))
+		os.Exit(1)
+	}
+	if httpGate != nil {
+		slog.Info("http auth active", slog.String("mode", httpGate.mode))
+	}
+
 	slog.Info("starting "+serviceName,
 		slog.String("llm_model", cfg.LLMModel),
 		slog.String("llm_url", cfg.LLMURL),
@@ -286,11 +297,14 @@ func runMCPServe(cfg Config, stdio bool) {
 		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
 		MCPLogger:                  slog.Default(),
 		MCPReceivingMiddleware:     receivingMiddleware(reg, hooks),
-		Middleware:                 []mcpserver.Middleware{func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) }},
-		RESTBridge:                 true,
-		Routes:                     combinedRoutes,
-		LogSkipPaths:               []string{"/health", "/health/live", "/health/ready", "/metrics"}, //nolint:goconst // route paths, not worth a shared constant
-		ToolTimeouts:               runtimeTimeouts,
+		Middleware: []mcpserver.Middleware{
+			httpGate.Middleware(), // outermost: gate /mcp + /api before tracing/handlers
+			func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) },
+		},
+		RESTBridge:   true,
+		Routes:       combinedRoutes,
+		LogSkipPaths: []string{"/health", "/health/live", "/health/ready", "/metrics"}, //nolint:goconst // route paths, not worth a shared constant
+		ToolTimeouts: runtimeTimeouts,
 		// SSE (text/event-stream) mode. Long tool calls (code_research, debug_investigate,
 		// code_graph, etc.) emit no bytes until they finish; in stateless mode the
 		// server can't send ping requests, so a client/proxy idle-timeout would
