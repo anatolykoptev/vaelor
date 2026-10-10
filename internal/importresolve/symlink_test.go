@@ -13,9 +13,9 @@ import (
 // any of their content reaching the Config.
 func TestBuildConfig_RefusesSymlinkedFiles(t *testing.T) {
 	outsideJSON := fsutiltest.WriteOutside(t,
-		fmt.Sprintf(`{"name":"%s","exports":{".":"./%s"}}`, fsutiltest.Token, fsutiltest.Token))
+		fmt.Sprintf(`{"name":"%s","exports":{".":"./%s"}}`, fsutiltest.Marker, fsutiltest.Marker))
 	outsideTS := fsutiltest.WriteOutside(t,
-		fmt.Sprintf("const id = \"virtual:canary/%s\"\n", fsutiltest.Token))
+		fmt.Sprintf("const id = \"virtual:canary/%s\"\n", fsutiltest.Marker))
 
 	root := t.TempDir()
 	fsutiltest.Symlink(t, root, "package.json", fsutiltest.EndlessDevice)
@@ -29,7 +29,7 @@ func TestBuildConfig_RefusesSymlinkedFiles(t *testing.T) {
 	var cfg Config
 	fsutiltest.Within(t, func() { cfg = BuildConfig(root) })
 
-	if got := fmt.Sprintf("%+v", cfg); strings.Contains(got, fsutiltest.Token) || strings.Contains(got, "canary") {
+	if got := fmt.Sprintf("%+v", cfg); strings.Contains(got, fsutiltest.Marker) || strings.Contains(got, "canary") {
 		t.Fatalf("symlinked content reached Config: %s", got)
 	}
 	if len(cfg.Workspace) != 0 || len(cfg.VirtualModules) != 0 || len(cfg.LibDirs) != 0 {
@@ -52,7 +52,7 @@ func TestBuildConfig_RealFilesStillRead(t *testing.T) {
 // TestReadPackageManifest_RefusesNonRegular pins the read site itself, so it
 // stays safe even if a caller other than the BuildConfig walk reaches it.
 func TestReadPackageManifest_RefusesNonRegular(t *testing.T) {
-	outside := fsutiltest.WriteOutside(t, fmt.Sprintf(`{"name":"%s"}`, fsutiltest.Token))
+	outside := fsutiltest.WriteOutside(t, fmt.Sprintf(`{"name":"%s"}`, fsutiltest.Marker))
 	root := t.TempDir()
 	fsutiltest.Symlink(t, root, "zero/package.json", fsutiltest.EndlessDevice)
 	fsutiltest.Symlink(t, root, "out/package.json", outside)

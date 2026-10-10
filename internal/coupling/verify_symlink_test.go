@@ -7,7 +7,7 @@ import (
 )
 
 func TestReadVerifyFile_RefusesSymlink(t *testing.T) {
-	outside := fsutiltest.WriteOutside(t, "package x // "+fsutiltest.Token+"\n")
+	outside := fsutiltest.WriteOutside(t, "package x // "+fsutiltest.Marker+"\n")
 	root := t.TempDir()
 	fsutiltest.Symlink(t, root, "zero.go", fsutiltest.EndlessDevice)
 	fsutiltest.Symlink(t, root, "leak.go", outside)

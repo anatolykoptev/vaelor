@@ -14,7 +14,7 @@ import (
 // convention-only install command.
 func TestBuildNPMToolchain_RefusedManifestDegrades(t *testing.T) {
 	outside := fsutiltest.WriteOutside(t,
-		fmt.Sprintf(`{"scripts":{"build":"echo %s"}}`, fsutiltest.Token))
+		fmt.Sprintf(`{"scripts":{"build":"echo %s"}}`, fsutiltest.Marker))
 	for name, target := range map[string]string{"canary": outside, "device": fsutiltest.EndlessDevice} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
@@ -26,7 +26,7 @@ func TestBuildNPMToolchain_RefusedManifestDegrades(t *testing.T) {
 			if err != nil {
 				t.Fatalf("refused manifest must degrade, got error %v", err)
 			}
-			if len(tc.Commands) != 1 || strings.Contains(fmt.Sprintf("%+v", tc), fsutiltest.Token) {
+			if len(tc.Commands) != 1 || strings.Contains(fmt.Sprintf("%+v", tc), fsutiltest.Marker) {
 				t.Fatalf("expected install-only toolchain without content, got %+v", tc)
 			}
 		})

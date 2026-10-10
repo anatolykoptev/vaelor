@@ -10,7 +10,7 @@ import (
 
 func TestDiscoverManifests_RefusesSymlinkedManifests(t *testing.T) {
 	outside := fsutiltest.WriteOutside(t,
-		fmt.Sprintf(`{"name":"%s","dependencies":{"%s":"1.0.0"}}`, fsutiltest.Token, fsutiltest.Token))
+		fmt.Sprintf(`{"name":"%s","dependencies":{"%s":"1.0.0"}}`, fsutiltest.Marker, fsutiltest.Marker))
 	root := t.TempDir()
 	fsutiltest.Symlink(t, root, "package.json", fsutiltest.EndlessDevice)
 	fsutiltest.Symlink(t, root, "sub/package.json", outside)
@@ -18,7 +18,7 @@ func TestDiscoverManifests_RefusesSymlinkedManifests(t *testing.T) {
 
 	var got []ManifestInfo
 	fsutiltest.Within(t, func() { got = DiscoverManifests(root) })
-	if len(got) != 0 || strings.Contains(fmt.Sprintf("%+v", got), fsutiltest.Token) {
+	if len(got) != 0 || strings.Contains(fmt.Sprintf("%+v", got), fsutiltest.Marker) {
 		t.Fatalf("symlinked manifests must be ignored, got %+v", got)
 	}
 }

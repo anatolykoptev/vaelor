@@ -11,9 +11,12 @@ import (
 )
 
 const (
-	// Token is a unique string placed in canary files outside the repo under
+	filePerm = 0o600
+	dirPerm  = 0o750
+
+	// Marker is a unique string placed in canary files outside the repo under
 	// test. It must appear in no output of the code under test.
-	Token = "CANARY-7f3a91c2"
+	Marker = "CANARY-7f3a91c2"
 
 	// Deadline is how long a call may take before the test fails. An unbounded
 	// read of an endless device would otherwise OOM or hang the whole package.
@@ -47,7 +50,7 @@ func Within(t *testing.T, fn func()) {
 func WriteOutside(t *testing.T, content string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "outside-canary")
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(content), filePerm); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -57,7 +60,7 @@ func WriteOutside(t *testing.T, content string) string {
 func Symlink(t *testing.T, root, rel, target string) {
 	t.Helper()
 	p := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), dirPerm); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(target, p); err != nil {
@@ -69,10 +72,10 @@ func Symlink(t *testing.T, root, rel, target string) {
 func WriteFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	p := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), dirPerm); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(content), filePerm); err != nil {
 		t.Fatal(err)
 	}
 }

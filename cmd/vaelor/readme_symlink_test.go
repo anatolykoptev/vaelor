@@ -8,7 +8,7 @@ import (
 )
 
 func TestReadREADME_RefusesSymlinkedReadme(t *testing.T) {
-	outside := fsutiltest.WriteOutside(t, "Secret value is "+fsutiltest.Token)
+	outside := fsutiltest.WriteOutside(t, "Secret value is "+fsutiltest.Marker)
 	for name, target := range map[string]string{
 		"canary outside the repo": outside,
 		"endless device":          fsutiltest.EndlessDevice,
@@ -18,7 +18,7 @@ func TestReadREADME_RefusesSymlinkedReadme(t *testing.T) {
 			fsutiltest.Symlink(t, root, "README.md", target)
 			var got string
 			fsutiltest.Within(t, func() { got = readREADME(root) })
-			if got != "" || strings.Contains(got, fsutiltest.Token) {
+			if got != "" || strings.Contains(got, fsutiltest.Marker) {
 				t.Fatalf("symlinked README must yield nothing, got %q", got)
 			}
 		})

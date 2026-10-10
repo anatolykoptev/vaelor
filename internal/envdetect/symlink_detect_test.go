@@ -15,7 +15,7 @@ import (
 // yields no toolchain, promptly, with none of the outside content.
 func TestDetect_RefusesSymlinkedFiles(t *testing.T) {
 	outside := fsutiltest.WriteOutside(t,
-		fmt.Sprintf(`{"scripts":{"build":"%s"}}`, fsutiltest.Token))
+		fmt.Sprintf(`{"scripts":{"build":"%s"}}`, fsutiltest.Marker))
 	root := t.TempDir()
 	fsutiltest.Symlink(t, root, "package.json", fsutiltest.EndlessDevice)
 	fsutiltest.Symlink(t, root, "web/package.json", outside)
@@ -28,7 +28,7 @@ func TestDetect_RefusesSymlinkedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect must degrade, not fail: %v", err)
 	}
-	if len(env.Toolchains) != 0 || strings.Contains(fmt.Sprintf("%+v", env), fsutiltest.Token) {
+	if len(env.Toolchains) != 0 || strings.Contains(fmt.Sprintf("%+v", env), fsutiltest.Marker) {
 		t.Fatalf("symlinked files must yield nothing, got %+v", env)
 	}
 }
