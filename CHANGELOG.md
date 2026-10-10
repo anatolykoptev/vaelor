@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.4](https://github.com/anatolykoptev/go-code/compare/v1.73.3...v1.73.4) (2026-10-10)
+
+
+### Fixed
+
+* **oxbrowser:** authenticate every ox-browser call via go-kit svcauth (ox-browser[#173](https://github.com/anatolykoptev/go-code/issues/173)) ([#916](https://github.com/anatolykoptev/go-code/issues/916)) ([2a8b645](https://github.com/anatolykoptev/go-code/commit/2a8b645edea1f9456a738ffd76bc713928995134))
+
 ## [1.73.3](https://github.com/anatolykoptev/vaelor/compare/v1.73.2...v1.73.3) (2026-10-08)
 
 
