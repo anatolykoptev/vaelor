@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.5](https://github.com/anatolykoptev/vaelor/compare/v1.73.4...v1.73.5) (2026-10-10)
+
+
+### Fixed
+
+* **security:** harden SCIP indexing and PR webhook against untrusted repos ([#928](https://github.com/anatolykoptev/vaelor/issues/928)) ([53ef5ab](https://github.com/anatolykoptev/vaelor/commit/53ef5abb83353878a3b7fcb4c555f742a436abfa))
+
 ## [1.73.4](https://github.com/anatolykoptev/go-code/compare/v1.73.3...v1.73.4) (2026-10-10)
 
 
