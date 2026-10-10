@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.74.2](https://github.com/anatolykoptev/go-code/compare/v1.74.1...v1.74.2) (2026-10-10)
+
+
+### Fixed
+
+* **mcp:** 6h session idle TTL + vaelor_mcp_session_expired_total ([#925](https://github.com/anatolykoptev/go-code/issues/925)) ([#938](https://github.com/anatolykoptev/go-code/issues/938)) ([96a24fb](https://github.com/anatolykoptev/go-code/commit/96a24fb415d4b58cb27d2baafa2dd5d5deb18590))
+
 ## [1.74.1](https://github.com/anatolykoptev/go-code/compare/v1.74.0...v1.74.1) (2026-10-10)
 
 
