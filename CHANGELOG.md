@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.74.1](https://github.com/anatolykoptev/go-code/compare/v1.74.0...v1.74.1) (2026-10-10)
+
+
+### Fixed
+
+* **security:** harden repo file reads against symlinks and oversized files ([#942](https://github.com/anatolykoptev/go-code/issues/942)) ([97bbd07](https://github.com/anatolykoptev/go-code/commit/97bbd078bf7336bc964f5f1bc9d827f5040459e4))
+
 ## [1.74.0](https://github.com/anatolykoptev/vaelor/compare/v1.73.6...v1.74.0) (2026-10-10)
 
 
