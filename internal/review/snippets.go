@@ -2,9 +2,10 @@ package review
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 // Snippet is a source code excerpt around a changed symbol.
@@ -34,7 +35,7 @@ func ExtractSnippets(changed []ChangedSymbol, repoRoot string) []Snippet {
 
 	var snippets []Snippet
 	for absPath, syms := range byFile {
-		lines, err := readLines(absPath)
+		lines, err := readLines(repoRoot, absPath)
 		if err != nil {
 			continue
 		}
@@ -78,9 +79,17 @@ func extractOne(lines []string, cs ChangedSymbol, absPath, root string) Snippet 
 	}
 }
 
-func readLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+// snippetFileMaxBytes bounds a source file read for snippet extraction.
+const snippetFileMaxBytes = 2 << 20
+
+func readLines(root, path string) ([]string, error) {
+	rel, err := filepath.Rel(root, path)
 	if err != nil {
+		return nil, err
+	}
+	data, err := fsutil.ReadRepoFile(root, rel, snippetFileMaxBytes)
+	if err != nil {
+		fsutil.ReportRefusal("review.snippets", rel, err)
 		return nil, err
 	}
 	return strings.Split(string(data), "\n"), nil

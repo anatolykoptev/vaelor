@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/anatolykoptev/vaelor/internal/strutil"
@@ -77,7 +78,7 @@ func (p *Pipeline) IndexFile(ctx context.Context, repoKey, root, relPath string)
 	}
 
 	// Parse the file, collect current symbols, and compute the diff vs DB.
-	toEmbed, currentNames, result, err := p.parseAndDiff(ctx, repoKey, relPath, absPath)
+	toEmbed, currentNames, result, err := p.parseAndDiff(ctx, repoKey, root, relPath)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,7 @@ func (p *Pipeline) IndexFile(ctx context.Context, repoKey, root, relPath string)
 	return result, nil
 }
 
-// parseAndDiff reads and parses absPath, fetches existing DB symbols for relPath,
+// parseAndDiff reads and parses relPath under root, fetches existing DB symbols for relPath,
 // and computes which symbols need embedding vs skipping. Extracted to reduce
 // cyclomatic complexity of IndexFile.
 //
@@ -119,7 +120,7 @@ func (p *Pipeline) IndexFile(ctx context.Context, repoKey, root, relPath string)
 //   - err: first error encountered
 func (p *Pipeline) parseAndDiff(
 	ctx context.Context,
-	repoKey, relPath, absPath string,
+	repoKey, root, relPath string,
 ) (toEmbed []symbolEntry, currentNames []string, result *FileIndexResult, err error) {
 	result = &FileIndexResult{}
 
@@ -139,7 +140,11 @@ func (p *Pipeline) parseAndDiff(
 		return nil, nil, result, nil
 	}
 
-	source, readErr := os.ReadFile(absPath)
+	// Bounded, regular-file-only read: relPath comes from a git diff or a
+	// watcher event on a checkout we do not control, so a symlink (to a device
+	// or a host file) must be refused, not followed.
+	absPath := filepath.Join(root, relPath)
+	source, readErr := fsutil.ReadRepoFile(root, relPath, maxIndexFileBytes)
 	if readErr != nil {
 		// Permanent IO error (permission denied, unreadable mount, etc).
 		// This error is not transient: retrying the same commit will hit the

@@ -393,8 +393,8 @@ func runQualityAnalysis(ctx context.Context, client *oxcodes.Client, root string
 func detectDominantLanguage(root string) string {
 	counts := make(map[string]int)
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
+		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+			return nil // symlinks and special files from the checkout are never read
 		}
 		if lang := ingest.DetectLanguage(path); lang != "" {
 			counts[lang]++

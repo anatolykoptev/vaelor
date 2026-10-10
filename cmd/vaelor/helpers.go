@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/anatolykoptev/go-kit/llm"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/mcpmeta"
 	"github.com/anatolykoptev/vaelor/internal/policy"
 	"github.com/anatolykoptev/vaelor/internal/review"
@@ -228,14 +229,18 @@ func capitalizeFirst(s string) string {
 	return string(r)
 }
 
+// policyFileMaxBytes bounds a source file read for policy evaluation.
+const policyFileMaxBytes = 2 << 20
+
 func applyPolicy(_ context.Context, root string, r *review.DeltaResult) []policy.Finding {
 	p, err := policy.LoadWithDefaults(root, os.Getenv("GOCODE_DEFAULT_POLICY"))
 	if err != nil || p == nil {
 		return nil
 	}
 	return p.Apply(r, func(path string) string {
-		b, err := os.ReadFile(filepath.Join(root, path))
+		b, err := fsutil.ReadRepoFile(root, path, policyFileMaxBytes)
 		if err != nil {
+			fsutil.ReportRefusal("review.policy_file", path, err)
 			return ""
 		}
 		return string(b)

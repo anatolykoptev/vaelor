@@ -123,9 +123,7 @@ func buildToolchains(root string, manifests []freshness.ManifestInfo) ([]Toolcha
 				pyAccums[dir] = acc
 				pyOrder = append(pyOrder, dir)
 			}
-			if err := accumulatePython(acc, root, base, m); err != nil {
-				return nil, err
-			}
+			accumulatePython(acc, root, base, m)
 		}
 	}
 

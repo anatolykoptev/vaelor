@@ -106,8 +106,8 @@ func discoverMakefiles(root string) (map[string]string, error) {
 			}
 			return nil
 		}
-		if d.Name() != makefileName {
-			return nil
+		if d.Name() != makefileName || !d.Type().IsRegular() {
+			return nil // symlinked/special Makefiles from an untrusted checkout are skipped
 		}
 
 		rel, relErr := filepath.Rel(root, filepath.Dir(path))

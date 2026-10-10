@@ -1,12 +1,10 @@
 package envdetect
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/freshness"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 const (
@@ -35,7 +33,7 @@ type pythonAccum struct {
 
 // accumulatePython folds one manifest (pyproject.toml or requirements.txt)
 // found in a directory into acc.
-func accumulatePython(acc *pythonAccum, root, base string, m freshness.ManifestInfo) error {
+func accumulatePython(acc *pythonAccum, root, base string, m freshness.ManifestInfo) {
 	if acc.runtimeVersion == "" {
 		acc.runtimeVersion = m.RuntimeVersion
 	}
@@ -45,9 +43,11 @@ func accumulatePython(acc *pythonAccum, root, base string, m freshness.ManifestI
 		acc.hasPyproject = true
 		acc.manifestPath = m.ManifestPath
 
-		data, err := os.ReadFile(filepath.Join(root, m.ManifestPath))
+		data, err := fsutil.ReadRepoFile(root, m.ManifestPath, manifestMaxBytes)
 		if err != nil {
-			return fmt.Errorf("envdetect: read %s: %w", m.ManifestPath, err)
+			// Degrade: keep the toolchain, just without declared scripts.
+			fsutil.ReportRefusal("envdetect.python", m.ManifestPath, err)
+			return
 		}
 		parsePyprojectScripts(string(data), acc)
 	case manifestRequirementsTxt:
@@ -56,7 +56,6 @@ func accumulatePython(acc *pythonAccum, root, base string, m freshness.ManifestI
 			acc.manifestPath = m.ManifestPath
 		}
 	}
-	return nil
 }
 
 // parsePyprojectScripts scans pyproject.toml content (line-based, matching

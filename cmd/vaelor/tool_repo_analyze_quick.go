@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
 	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/prompts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -133,16 +133,20 @@ func formatQuickLocal(repoName, tree, readme string) string {
 
 // readREADME tries to read README.md from root, returning empty string on failure.
 func readREADME(root string) string {
+	const maxReadmeLen = 8000
 	for _, name := range []string{"README.md", "readme.md", "Readme.md"} {
-		data, err := os.ReadFile(filepath.Join(root, name))
-		if err == nil {
-			const maxReadmeLen = 8000
-			s := string(data)
-			if len(s) > maxReadmeLen {
-				return s[:maxReadmeLen] + "\n...(truncated)"
-			}
-			return s
+		// Read one byte past the cap so truncation can be reported. Symlinked,
+		// special or out-of-root READMEs are refused (no content, no error).
+		data, err := fsutil.ReadRepoFilePrefix(root, name, maxReadmeLen+1)
+		if err != nil {
+			fsutil.ReportRefusal("repo_analyze.quick_readme", name, err)
+			continue
 		}
+		s := string(data)
+		if len(s) > maxReadmeLen {
+			return s[:maxReadmeLen] + "\n...(truncated)"
+		}
+		return s
 	}
 	return ""
 }

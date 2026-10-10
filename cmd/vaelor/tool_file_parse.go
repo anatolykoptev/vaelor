@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/analyze"
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 	"github.com/anatolykoptev/vaelor/internal/parser"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -48,30 +49,36 @@ func registerFileParse(server *mcp.Server, cfg Config, deps analyze.Deps) {
 		}
 
 		var filePath string
+		var source []byte
 		if input.Repo != "" {
-			// Remote or local repo — resolve root, then join with path.
+			// Remote or local repo — resolve root, then read path under it. The
+			// path is chosen by the checkout, so the read refuses symlinks,
+			// special files and escapes, and is bounded by maxBytes.
 			root, cleanup, err := resolveRoot(ctx, input.Repo, input.Ref, deps)
 			if err != nil {
 				return errResult(fmt.Sprintf("resolve repo: %s", err)), nil
 			}
 			defer cleanup()
 			filePath = filepath.Join(root, input.Path)
+			source, err = fsutil.ReadRepoFile(root, input.Path, maxBytes)
+			if err != nil {
+				fsutil.ReportRefusal("file_parse.repo", input.Path, err)
+				return errResult(fmt.Sprintf("read file: %s", err)), nil
+			}
 		} else {
 			// Local file path — apply path mappings.
 			filePath = rewritePath(input.Path, cfg.PathMappings)
-		}
-
-		fi, err := os.Stat(filePath)
-		if err != nil {
-			return errResult(fmt.Sprintf("stat file: %s", err)), nil
-		}
-		if fi.Size() > maxBytes {
-			return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), nil
-		}
-
-		source, err := os.ReadFile(filePath)
-		if err != nil {
-			return errResult(fmt.Sprintf("read file: %s", err)), nil
+			fi, err := os.Stat(filePath)
+			if err != nil {
+				return errResult(fmt.Sprintf("stat file: %s", err)), nil
+			}
+			if fi.Size() > maxBytes {
+				return errResult(fmt.Sprintf("file too large: %d bytes (max %d)", fi.Size(), maxBytes)), nil
+			}
+			source, err = os.ReadFile(filePath)
+			if err != nil {
+				return errResult(fmt.Sprintf("read file: %s", err)), nil
+			}
 		}
 
 		includeBody := input.OutputFormat == outputFormatAST

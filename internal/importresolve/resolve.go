@@ -1,5 +1,5 @@
 // Package importresolve provides a unified import resolver shared by codegraph
-// and analyze. It is a leaf package (path/filepath, strings, os, encoding/json)
+// and analyze. It is a leaf package (path/filepath, strings, encoding/json, internal/fsutil)
 // so both callers can import it without introducing dependency cycles.
 //
 // Resolution strategy (in dispatch order):
@@ -17,10 +17,11 @@ package importresolve
 import (
 	"encoding/json"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/anatolykoptev/vaelor/internal/fsutil"
 )
 
 // importExts are source extensions a relative TS/JS/Svelte import may resolve to
@@ -129,6 +130,11 @@ func BuildConfig(root string) Config {
 			}
 			return nil
 		}
+		// Only the repo's own regular files: symlinks (to files, devices or
+		// directories) and other special entries are skipped, as ingest does.
+		if !d.Type().IsRegular() {
+			return nil
+		}
 
 		base := d.Name()
 		rel, relErr := filepath.Rel(root, path)
@@ -140,7 +146,7 @@ func BuildConfig(root string) Config {
 		case "svelte.config.js", "svelte.config.ts":
 			libDirs = append(libDirs, filepath.Dir(rel))
 		case "package.json":
-			name, exp, ok := readPackageManifest(path)
+			name, exp, ok := readPackageManifest(root, rel)
 			if !ok || name == "" {
 				return nil
 			}
@@ -153,7 +159,7 @@ func BuildConfig(root string) Config {
 		// Scan TS/JS source files (not .astro/.svelte/.vue — those are consumers)
 		// for project-local virtual module definitions. See scanVirtualModules.
 		if isVirtualScanTarget(base) {
-			scanVirtualModules(path, rel, virtualModules)
+			scanVirtualModules(root, rel, virtualModules)
 		}
 		return nil
 	})
@@ -161,8 +167,8 @@ func BuildConfig(root string) Config {
 	return Config{LibDirs: libDirs, Workspace: workspace, WorkspaceExports: workspaceExports, VirtualModules: virtualModules}
 }
 
-// readPackageManifest reads the "name" and "exports" fields from a package.json
-// at absPath. Returns (name, normalizedExports, ok). ok is false on any read or
+// readPackageManifest reads the "name" and "exports" fields from the package.json
+// at rel (repo-relative to root). Returns (name, normalizedExports, ok). ok is false on any read or
 // parse error. exports is nil when the field is absent or unparseable; non-nil
 // (possibly empty) only when "exports" is present.
 //
@@ -175,9 +181,10 @@ func BuildConfig(root string) Config {
 // "default", then the first string-valued condition. This is a static-analysis
 // approximation of Node's resolution algorithm — sufficient for the fleet's
 // packages, none of which use conditional-only or array-form-only exports.
-func readPackageManifest(absPath string) (string, map[string]string, bool) {
-	data, err := os.ReadFile(absPath) //nolint:gosec // path comes from the indexed file set
+func readPackageManifest(root, rel string) (string, map[string]string, bool) {
+	data, err := fsutil.ReadRepoFile(root, rel, manifestMaxBytes)
 	if err != nil {
+		fsutil.ReportRefusal("importresolve.manifest", rel, err)
 		return "", nil, false
 	}
 	// Decode into raw json.RawMessage so we can inspect "exports" shape without
@@ -342,20 +349,21 @@ func isVirtualScanTarget(name string) bool {
 // const blocks), so 16KB is ample for any real-world Vite plugin.
 const virtualScanMaxBytes = 16 * 1024
 
-// scanVirtualModules reads the first virtualScanMaxBytes of absPath, finds all
+// manifestMaxBytes bounds a package.json read. Real manifests are a few KiB.
+const manifestMaxBytes = 1 << 20
+
+// scanVirtualModules reads the first virtualScanMaxBytes of rel (under root), finds all
 // virtual module id string literals, and records each in out mapped to the
 // repo-relative directory of the file (filepath.Dir(rel)). If the same virtual
 // id is already in out (from a prior file), it is NOT overwritten — the first
 // file wins. This is a stopgap: it does not distinguish the definer (resolveId/
 // load code) from a type declaration file, but both live in the same package,
 // so the recorded dir is correct for the package-to-package edge.
-func scanVirtualModules(absPath, rel string, out map[string]string) {
-	data, err := os.ReadFile(absPath) //nolint:gosec // path comes from the repo walk
+func scanVirtualModules(root, rel string, out map[string]string) {
+	data, err := fsutil.ReadRepoFilePrefix(root, rel, virtualScanMaxBytes)
 	if err != nil {
+		fsutil.ReportRefusal("importresolve.virtual_modules", rel, err)
 		return
-	}
-	if len(data) > virtualScanMaxBytes {
-		data = data[:virtualScanMaxBytes]
 	}
 	dir := filepath.Dir(rel)
 	for _, m := range virtualModuleRe.FindAllSubmatch(data, -1) {
