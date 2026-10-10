@@ -123,13 +123,20 @@ func isReadOnly(dir string) bool {
 // copyForIndexing recursively copies source files from src to dst up to maxDepth=10.
 // Only files with sourceExts extensions or manifest filenames are copied.
 // .git, node_modules, vendor directories are skipped.
+//
+// Symlinks are never followed out of src: a repo link to /etc or a credentials
+// dir would otherwise be copied into the index dir and read by the indexer.
 func copyForIndexing(src, dst string) error {
-	return copyDir(src, dst, 0)
+	realRoot, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", src, err)
+	}
+	return copyDir(realRoot, src, dst, 0)
 }
 
 const maxCopyDepth = 10
 
-func copyDir(src, dst string, depth int) error {
+func copyDir(realRoot, src, dst string, depth int) error {
 	if depth > maxCopyDepth {
 		return nil
 	}
@@ -142,6 +149,23 @@ func copyDir(src, dst string, depth int) error {
 		srcPath := filepath.Join(src, name)
 		dstPath := filepath.Join(dst, name)
 
+		if de.Type()&os.ModeSymlink != 0 {
+			ext := strings.ToLower(filepath.Ext(name))
+			if !sourceExts[ext] && !manifestFiles[name] {
+				continue // would not be copied anyway
+			}
+			target, ok := safeSymlinkTarget(realRoot, srcPath)
+			if !ok {
+				continue
+			}
+			// Open the resolved target, not the link, so a swap between the
+			// check and the open cannot redirect the read.
+			if err := copyFilePath(target, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+
 		if de.IsDir() {
 			if skipDirs[name] {
 				continue
@@ -149,7 +173,7 @@ func copyDir(src, dst string, depth int) error {
 			if err := os.MkdirAll(dstPath, 0o755); err != nil {
 				return fmt.Errorf("mkdir %s: %w", dstPath, err)
 			}
-			if err := copyDir(srcPath, dstPath, depth+1); err != nil {
+			if err := copyDir(realRoot, srcPath, dstPath, depth+1); err != nil {
 				return err
 			}
 			continue
@@ -183,4 +207,26 @@ func copyFilePath(src, dst string) error {
 		return fmt.Errorf("copy %s → %s: %w", src, dst, err)
 	}
 	return out.Close()
+}
+
+// safeSymlinkTarget resolves the symlink at path and reports whether it is a
+// regular file inside realRoot. Links that leave the root, dangle, loop or
+// point at directories are skipped; escapes are logged and counted.
+func safeSymlinkTarget(realRoot, path string) (string, bool) {
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		slog.Debug("scip: skipping unresolvable symlink", "path", path, "err", err)
+		return "", false
+	}
+	if !within(realRoot, target) {
+		RecordSkipped("-", SkipReasonSymlinkEscape)
+		slog.Warn("scip: skipping symlink that leaves the repo root",
+			"path", path, "reason", SkipReasonSymlinkEscape)
+		return "", false
+	}
+	fi, err := os.Stat(target)
+	if err != nil || !fi.Mode().IsRegular() {
+		return "", false
+	}
+	return target, true
 }
