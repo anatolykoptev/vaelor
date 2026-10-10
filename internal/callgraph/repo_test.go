@@ -1042,7 +1042,11 @@ func TestEnrichWithTypedResolution_ColdGo_SCIPSucceeds_PreservesWarming(t *testi
 	// copies the pre-built index there.
 	binDir := t.TempDir()
 	fakeIndexer := filepath.Join(binDir, "scip-typescript")
-	script := "#!/bin/sh\ncp \"" + indexBytesPath + "\" ./index.scip\n"
+	// Honours `--output <path>` like the real scip-typescript (untrusted roots
+	// are indexed in a copy with an explicit output), defaulting to ./index.scip.
+	script := "#!/bin/sh\nout=./index.scip\n" +
+		"while [ $# -gt 0 ]; do\n  if [ \"$1\" = \"--output\" ]; then out=\"$2\"; shift; fi\n  shift\ndone\n" +
+		"cp \"" + indexBytesPath + "\" \"$out\"\n"
 	if err := os.WriteFile(fakeIndexer, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

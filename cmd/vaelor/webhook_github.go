@@ -9,6 +9,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // githubWebhookHandler validates the signature and enqueues events on a
@@ -74,6 +77,7 @@ func DispatchGitHubEvent(event string, payload []byte, deps dispatchDeps) {
 				User struct {
 					Login string `json:"login"`
 				} `json:"user"`
+				AuthorAssociation string `json:"author_association"`
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(payload, &p); err != nil {
@@ -84,6 +88,16 @@ func DispatchGitHubEvent(event string, payload []byte, deps dispatchDeps) {
 			return
 		}
 		if deps.botUser != "" && p.PullRequest.User.Login == deps.botUser {
+			return
+		}
+		// The review path fetches pull/N/head and builds a worktree from it, so
+		// the PR head is attacker-controlled input. Review only PRs authored by
+		// people the repo already trusts; everyone else (including a missing
+		// field) is ignored. The 202 was already sent, so this is log + metric.
+		if !trustedPRAuthor(p.PullRequest.AuthorAssociation) {
+			webhookIgnoredTotal.WithLabelValues(webhookIgnoreUntrustedAuthor).Inc()
+			log.Printf("webhook: ignoring %s#%d: author_association=%q not in OWNER/MEMBER/COLLABORATOR",
+				p.Repo.FullName, p.Number, p.PullRequest.AuthorAssociation)
 			return
 		}
 		if err := deps.postReview(p.Repo.FullName, p.Number); err != nil {
@@ -133,4 +147,32 @@ type dispatchDeps struct {
 	botUser        string
 	postReview     func(slug string, pr int) error
 	postPushReview func(slug, before, after string) error
+}
+
+// webhookIgnoreUntrustedAuthor is the webhookIgnoredTotal reason for a
+// pull_request whose author is not an owner, member or collaborator.
+const webhookIgnoreUntrustedAuthor = "untrusted_author"
+
+// webhookReasonLabel is the label name on webhookIgnoredTotal.
+const webhookReasonLabel = "reason"
+
+// webhookIgnoredTotal counts verified webhook events dropped by policy, by
+// reason (untrusted_author). Dropping is silent to GitHub (the delivery got
+// 202), so this counter is how an operator sees it happening.
+var webhookIgnoredTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "vaelor_webhook_ignored_total",
+		Help: "Verified GitHub webhook events ignored by policy, by reason (untrusted_author).",
+	},
+	[]string{webhookReasonLabel},
+)
+
+// trustedPRAuthor reports whether a pull_request author_association is one
+// the repo vouches for. Anything else, including empty, is untrusted.
+func trustedPRAuthor(association string) bool {
+	switch association {
+	case "OWNER", "MEMBER", "COLLABORATOR":
+		return true
+	}
+	return false
 }

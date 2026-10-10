@@ -143,7 +143,7 @@ Two graph representations cooperate through `internal/graphx/` interfaces (`Anal
 ### GitHub webhook
 - Endpoint: `POST /webhook/github` on MCP port (:8897)
 - Headers required: `X-GitHub-Event`, `X-Hub-Signature-256`
-- Events handled: `pull_request` (opened/synchronize/reopened)
+- Events handled: `pull_request` (opened/synchronize/reopened) — only when `author_association` is OWNER, MEMBER or COLLABORATOR; others are ignored (logged, `vaelor_webhook_ignored_total{reason="untrusted_author"}`)
 - Setup: expose via your existing tunnel (e.g. dozor/Cloudflare) and register in GitHub repo settings
 
 ## Build

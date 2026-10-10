@@ -8,6 +8,9 @@ type IndexerConfig struct {
 	Args []string // default args to pass after the binary name
 }
 
+// subcmdIndex is the `index` subcommand shared by the scip-* indexers.
+const subcmdIndex = "index"
+
 // indexerRegistry maps language names to their SCIP indexer configurations.
 //
 // Notes on what is and isn't shipped in the runtime image (Dockerfile is the source of truth):
@@ -19,11 +22,11 @@ type IndexerConfig struct {
 //     scip-dotnet has no release-asset binary at all (Docker-image-only). At runtime,
 //     IndexerAvailable() returns false for these and callers fall back to the basic tier.
 var indexerRegistry = map[string]IndexerConfig{
-	"typescript": {Name: "scip-typescript", Args: []string{"index"}},
-	"javascript": {Name: "scip-typescript", Args: []string{"index", "--infer-tsconfig"}},
-	"python":     {Name: "scip-python", Args: []string{"index", "."}},
-	"java":       {Name: "scip-java", Args: []string{"index"}},
-	"rust":       {Name: "rust-analyzer", Args: []string{"scip", "."}},
+	"typescript": {Name: indexerScipTypescript, Args: []string{subcmdIndex}},
+	"javascript": {Name: indexerScipTypescript, Args: []string{subcmdIndex, "--infer-tsconfig"}},
+	"python":     {Name: "scip-python", Args: []string{subcmdIndex, "."}},
+	"java":       {Name: indexerScipJava, Args: []string{subcmdIndex}},
+	"rust":       {Name: indexerRustAnalyzer, Args: []string{"scip", "."}},
 	"ruby":       {Name: "scip-ruby"},
 	"csharp":     {Name: "scip-dotnet"},
 	"c":          {Name: "scip-clang"},
