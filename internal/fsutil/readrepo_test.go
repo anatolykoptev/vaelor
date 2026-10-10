@@ -3,6 +3,7 @@ package fsutil
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,7 +13,7 @@ import (
 )
 
 const (
-	testDeadline = 2 * time.Second
+	testDeadline = time.Second
 	testMax      = 64
 )
 
@@ -28,7 +29,8 @@ func within(t *testing.T, fn func()) {
 	select {
 	case <-done:
 	case <-time.After(testDeadline):
-		t.Fatalf("call did not return within %s", testDeadline)
+		fmt.Fprintf(os.Stderr, "FAIL %s: call did not return within %s\n", t.Name(), testDeadline)
+		os.Exit(1)
 	}
 }
 

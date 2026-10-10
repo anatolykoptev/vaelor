@@ -3,6 +3,7 @@
 package fsutiltest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,14 +17,16 @@ const (
 
 	// Deadline is how long a call may take before the test fails. An unbounded
 	// read of an endless device would otherwise OOM or hang the whole package.
-	Deadline = 3 * time.Second
+	Deadline = time.Second
 
 	// EndlessDevice is a device that yields bytes forever.
 	EndlessDevice = "/dev/zero"
 )
 
-// Within runs fn and fails the test, rather than hanging the package, when it
-// does not return within Deadline.
+// Within runs fn and, when it does not return within Deadline, reports the
+// regression on stderr and exits the test binary. A plain t.Fatalf is not
+// enough here: the stuck call is usually an unbounded read still allocating in
+// its goroutine, and letting the rest of the package run would exhaust memory.
 func Within(t *testing.T, fn func()) {
 	t.Helper()
 	done := make(chan struct{})
@@ -34,7 +37,8 @@ func Within(t *testing.T, fn func()) {
 	select {
 	case <-done:
 	case <-time.After(Deadline):
-		t.Fatalf("call did not return within %s (unbounded read of a special file?)", Deadline)
+		fmt.Fprintf(os.Stderr, "FAIL %s: call did not return within %s (unbounded read of a special file?)\n", t.Name(), Deadline)
+		os.Exit(1)
 	}
 }
 
