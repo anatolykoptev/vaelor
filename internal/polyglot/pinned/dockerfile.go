@@ -46,7 +46,7 @@ func ParseDockerfile(path string) ([]PinnedImage, error) {
 
 // parseDockerfileIn parses the Dockerfile at path, which must lie under root.
 // Images' Source keeps path as given.
-func parseDockerfileIn(root, path string) ([]PinnedImage, error) { //nolint:gocognit,cyclop // pre-existing parser body, only the read changed
+func parseDockerfileIn(root, path string) ([]PinnedImage, error) { //nolint:gocognit,cyclop,funlen // pre-existing parser body, only the read changed
 	data, err := readConfinedFile(root, path)
 	if err != nil {
 		return nil, err
