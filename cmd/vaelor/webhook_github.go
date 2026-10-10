@@ -153,6 +153,9 @@ type dispatchDeps struct {
 // pull_request whose author is not an owner, member or collaborator.
 const webhookIgnoreUntrustedAuthor = "untrusted_author"
 
+// webhookReasonLabel is the label name on webhookIgnoredTotal.
+const webhookReasonLabel = "reason"
+
 // webhookIgnoredTotal counts verified webhook events dropped by policy, by
 // reason (untrusted_author). Dropping is silent to GitHub (the delivery got
 // 202), so this counter is how an operator sees it happening.
@@ -161,7 +164,7 @@ var webhookIgnoredTotal = promauto.NewCounterVec(
 		Name: "vaelor_webhook_ignored_total",
 		Help: "Verified GitHub webhook events ignored by policy, by reason (untrusted_author).",
 	},
-	[]string{"reason"},
+	[]string{webhookReasonLabel},
 )
 
 // trustedPRAuthor reports whether a pull_request author_association is one

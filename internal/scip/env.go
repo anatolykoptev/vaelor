@@ -5,6 +5,12 @@ import (
 	"path/filepath"
 )
 
+// Indexer binary names shared by the registry (detect.go) and the env rules.
+const (
+	indexerRustAnalyzer = "rust-analyzer"
+	indexerScipJava     = "scip-java"
+)
+
 // envPassthrough lists the only variables an indexer child inherits from the
 // parent for every indexer. Everything else — tokens, DSNs, service secrets,
 // API keys — is dropped: the indexer (and anything it spawns, such as build
@@ -27,8 +33,8 @@ var envPassthrough = []string{
 // envPerIndexer lists extra variables a specific indexer needs for toolchain
 // discovery and caches. Only paths and toolchain selectors, never credentials.
 var envPerIndexer = map[string][]string{
-	"rust-analyzer": {"CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"},
-	"scip-java":     {"JAVA_HOME", "COURSIER_CACHE"},
+	indexerRustAnalyzer: {"CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"},
+	indexerScipJava:     {"JAVA_HOME", "COURSIER_CACHE"},
 }
 
 // indexerEnv builds the minimal environment for the named indexer. home is a
@@ -48,7 +54,7 @@ func indexerEnv(name, home, realHome string, getenv func(string) string) []strin
 	add(envPassthrough)
 	add(envPerIndexer[name])
 
-	if name == "rust-analyzer" && realHome != "" {
+	if name == indexerRustAnalyzer && realHome != "" {
 		for _, c := range []struct{ key, dir string }{
 			{"CARGO_HOME", ".cargo"},
 			{"RUSTUP_HOME", ".rustup"},

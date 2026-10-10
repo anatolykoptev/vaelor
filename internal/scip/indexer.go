@@ -134,7 +134,11 @@ func copyForIndexing(src, dst string) error {
 	return copyDir(realRoot, src, dst, 0)
 }
 
-const maxCopyDepth = 10
+const (
+	maxCopyDepth = 10
+	// copyDirPerm is the mode of directories created in the indexing copy.
+	copyDirPerm = 0o750
+)
 
 func copyDir(realRoot, src, dst string, depth int) error {
 	if depth > maxCopyDepth {
@@ -145,49 +149,55 @@ func copyDir(realRoot, src, dst string, depth int) error {
 		return fmt.Errorf("read dir %s: %w", src, err)
 	}
 	for _, de := range des {
-		name := de.Name()
-		srcPath := filepath.Join(src, name)
-		dstPath := filepath.Join(dst, name)
-
-		if de.Type()&os.ModeSymlink != 0 {
-			ext := strings.ToLower(filepath.Ext(name))
-			if !sourceExts[ext] && !manifestFiles[name] {
-				continue // would not be copied anyway
-			}
-			target, ok := safeSymlinkTarget(realRoot, srcPath)
-			if !ok {
-				continue
-			}
-			// Open the resolved target, not the link, so a swap between the
-			// check and the open cannot redirect the read.
-			if err := copyFilePath(target, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if de.IsDir() {
-			if skipDirs[name] {
-				continue
-			}
-			if err := os.MkdirAll(dstPath, 0o755); err != nil {
-				return fmt.Errorf("mkdir %s: %w", dstPath, err)
-			}
-			if err := copyDir(realRoot, srcPath, dstPath, depth+1); err != nil {
-				return err
-			}
-			continue
-		}
-
-		ext := strings.ToLower(filepath.Ext(name))
-		if !sourceExts[ext] && !manifestFiles[name] {
-			continue
-		}
-		if err := copyFilePath(srcPath, dstPath); err != nil {
+		if err := copyEntry(realRoot, src, dst, de, depth); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// copyEntry copies one directory entry: recursing into directories, resolving
+// symlinks safely, and copying wanted source files.
+func copyEntry(realRoot, src, dst string, de os.DirEntry, depth int) error {
+	name := de.Name()
+	srcPath := filepath.Join(src, name)
+	dstPath := filepath.Join(dst, name)
+
+	switch {
+	case de.Type()&os.ModeSymlink != 0:
+		return copySymlink(realRoot, srcPath, dstPath, name)
+	case de.IsDir():
+		if skipDirs[name] {
+			return nil
+		}
+		if err := os.MkdirAll(dstPath, copyDirPerm); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dstPath, err)
+		}
+		return copyDir(realRoot, srcPath, dstPath, depth+1)
+	case wantedFile(name):
+		return copyFilePath(srcPath, dstPath)
+	}
+	return nil
+}
+
+// wantedFile reports whether a file name is copied for indexing.
+func wantedFile(name string) bool {
+	return sourceExts[strings.ToLower(filepath.Ext(name))] || manifestFiles[name]
+}
+
+// copySymlink copies the file behind the symlink at srcPath when it is a
+// copyable source file whose resolved target stays inside realRoot.
+func copySymlink(realRoot, srcPath, dstPath, name string) error {
+	if !wantedFile(name) {
+		return nil // would not be copied anyway
+	}
+	target, ok := safeSymlinkTarget(realRoot, srcPath)
+	if !ok {
+		return nil
+	}
+	// Open the resolved target, not the link, so a swap between the check and
+	// the open cannot redirect the read.
+	return copyFilePath(target, dstPath)
 }
 
 func copyFilePath(src, dst string) error {
