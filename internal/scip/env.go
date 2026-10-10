@@ -7,8 +7,9 @@ import (
 
 // Indexer binary names shared by the registry (detect.go) and the env rules.
 const (
-	indexerRustAnalyzer = "rust-analyzer"
-	indexerScipJava     = "scip-java"
+	indexerRustAnalyzer   = "rust-analyzer"
+	indexerScipJava       = "scip-java"
+	indexerScipTypescript = "scip-typescript"
 )
 
 // envPassthrough lists the only variables an indexer child inherits from the
@@ -59,6 +60,13 @@ func indexerEnv(name, home, realHome string, getenv func(string) string) []strin
 	// These indexers only run on trusted roots (see AllowIndexer), so pointing
 	// them at the server's shared caches is safe; the dirs are created on first
 	// use by cargo/coursier.
+	if name == indexerRustAnalyzer || name == indexerScipJava {
+		// The image sets `safe.directory *` in the real HOME's .gitconfig, which
+		// the throwaway HOME hides; restore it for these trusted-only runs via
+		// command-scope config so git CLI calls on bind-mounted checkouts owned
+		// by another uid do not fail with "dubious ownership".
+		env = append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*")
+	}
 	if realHome != "" {
 		switch name {
 		case indexerRustAnalyzer:

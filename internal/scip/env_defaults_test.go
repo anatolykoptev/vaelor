@@ -24,6 +24,10 @@ func TestIndexerEnv_StableCachesSurviveThrowawayHome(t *testing.T) {
 		t.Errorf("scip-java env lacks stable COURSIER_CACHE: %v", java)
 	}
 
+	if !slices.Contains(rust, "GIT_CONFIG_KEY_0=safe.directory") {
+		t.Errorf("rust-analyzer env lacks safe.directory override: %v", rust)
+	}
+
 	// An explicit value from the parent wins and is not duplicated.
 	set := func(k string) string {
 		if k == "CARGO_HOME" {
@@ -71,6 +75,10 @@ func TestTrustedRootsExcluding(t *testing.T) {
 	got := TrustedRootsExcluding([]string{trusted, clean}, nested)
 	if !slices.Equal(got, []string{clean}) {
 		t.Errorf("TrustedRootsExcluding = %v, want only %v", got, clean)
+	}
+	// Reverse overlap: the trusted dir sits INSIDE the untrusted location.
+	if got := TrustedRootsExcluding([]string{nested}, trusted); len(got) != 0 {
+		t.Errorf("trusted dir nested inside an untrusted one was kept: %v", got)
 	}
 	// Disjoint workspace: nothing dropped.
 	if got := TrustedRootsExcluding([]string{trusted, clean}, t.TempDir()); len(got) != 2 {

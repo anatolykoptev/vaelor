@@ -16,6 +16,17 @@ import (
 // stdout and stderr from the subprocess are discarded.
 // Returns an error if the binary is not found or the process exits non-zero.
 func RunIndexer(ctx context.Context, cfg IndexerConfig, dir string) (string, error) {
+	return runIndexer(ctx, cfg, dir, "")
+}
+
+// outputFlagIndexers accept `--output <path>`, verified for scip-typescript
+// (CommandLineOptions.js). Others write <cwd>/index.scip.
+var outputFlagIndexers = map[string]bool{indexerScipTypescript: true}
+
+// runIndexer is RunIndexer with an optional explicit output path. A non-empty
+// outPath is passed via --output to indexers that support it and returned as
+// the index location; otherwise the index is <dir>/index.scip.
+func runIndexer(ctx context.Context, cfg IndexerConfig, dir, outPath string) (string, error) {
 	binPath, err := exec.LookPath(cfg.Name)
 	if err != nil {
 		return "", fmt.Errorf("scip indexer %q not found in PATH: %w", cfg.Name, err)
@@ -36,8 +47,14 @@ func RunIndexer(ctx context.Context, cfg IndexerConfig, dir string) (string, err
 	}()
 	realHome, _ := os.UserHomeDir()
 
+	args := cfg.Args
+	indexPath := filepath.Join(dir, "index.scip")
+	if outPath != "" && outputFlagIndexers[cfg.Name] {
+		args = append(append([]string{}, cfg.Args...), "--output", outPath)
+		indexPath = outPath
+	}
 	//nolint:gosec // cfg.Name and cfg.Args are from a controlled registry, not user input.
-	cmd := exec.CommandContext(ctx, binPath, cfg.Args...)
+	cmd := exec.CommandContext(ctx, binPath, args...)
 	cmd.Dir = dir
 	cmd.Env = indexerEnv(cfg.Name, home, realHome, os.Getenv)
 
@@ -46,7 +63,7 @@ func RunIndexer(ctx context.Context, cfg IndexerConfig, dir string) (string, err
 		return "", fmt.Errorf("scip indexer %q failed: %w (output: %s)", cfg.Name, err, string(output))
 	}
 
-	return filepath.Join(dir, "index.scip"), nil
+	return indexPath, nil
 }
 
 // sourceExts is the set of file extensions copied by copyForIndexing.
@@ -79,30 +96,56 @@ type IndexResult struct {
 	Cleanup   func() // removes temp dir if one was created; nil if dir was writable
 }
 
-// RunIndexerSafe runs the indexer in dir, copying to a temp dir first if dir
-// is read-only. Caller MUST call result.Cleanup() when done with the index.
+// RunIndexerSafe runs the indexer against dir. Trusted roots that are writable
+// are indexed in place. Everything else — read-only roots AND every untrusted
+// root, writable or not — is indexed in a fresh symlink-safe copy: indexers
+// write <cwd>/index.scip (and scip-typescript --infer-tsconfig writes
+// tsconfig.json), and those writes follow repo symlinks, so running in place
+// on attacker content is an arbitrary file write. For untrusted roots the
+// index is also directed to a separate temp dir via --output where supported.
+// Caller MUST call result.Cleanup() when done with the index.
 func RunIndexerSafe(ctx context.Context, cfg IndexerConfig, dir string) (*IndexResult, error) {
-	workDir := dir
-	var cleanup func()
-
-	if isReadOnly(dir) {
-		tmp, err := os.MkdirTemp("", "go-code-scip-*")
+	if IsTrustedRoot(dir) && !isReadOnly(dir) {
+		indexPath, err := RunIndexer(ctx, cfg, dir)
 		if err != nil {
-			return nil, fmt.Errorf("scip: create temp dir: %w", err)
+			return nil, err
 		}
-		cleanup = func() { os.RemoveAll(tmp) }
-		if err := copyForIndexing(dir, tmp); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("scip: copy sources to temp: %w", err)
-		}
-		workDir = tmp
+		return &IndexResult{IndexPath: indexPath}, nil
 	}
 
-	indexPath, err := RunIndexer(ctx, cfg, workDir)
-	if err != nil {
-		if cleanup != nil {
-			cleanup()
+	var tmps []string
+	cleanup := func() {
+		for _, t := range tmps {
+			if err := os.RemoveAll(t); err != nil {
+				slog.Warn("scip: remove temp dir failed", "path", t, "err", err)
+			}
 		}
+	}
+	mk := func(pattern string) (string, error) {
+		t, err := os.MkdirTemp("", pattern)
+		if err == nil {
+			tmps = append(tmps, t)
+		}
+		return t, err
+	}
+
+	workDir, err := mk("go-code-scip-*")
+	if err != nil {
+		return nil, fmt.Errorf("scip: create temp dir: %w", err)
+	}
+	if err := copyForIndexing(dir, workDir); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("scip: copy sources to temp: %w", err)
+	}
+	outDir, err := mk("go-code-scip-out-*")
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("scip: create output dir: %w", err)
+	}
+
+	indexPath, err := runIndexer(ctx, cfg, workDir, filepath.Join(outDir, "index.scip"))
+	if err != nil {
+		cleanup()
 		return nil, err
 	}
 	return &IndexResult{IndexPath: indexPath, Cleanup: cleanup}, nil
