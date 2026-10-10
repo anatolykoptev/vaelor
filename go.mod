@@ -6,12 +6,12 @@ toolchain go1.26.9
 
 require (
 	github.com/anatolykoptev/go-kit v0.97.18
-	github.com/anatolykoptev/go-mcpserver v0.19.0
+	github.com/anatolykoptev/go-mcpserver v0.21.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2

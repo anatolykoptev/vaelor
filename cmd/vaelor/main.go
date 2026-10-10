@@ -303,8 +303,11 @@ func runMCPServe(cfg Config, stdio bool) {
 		JSONResponse:          false,
 		ToolKeepaliveInterval: 10 * time.Second,
 	}
-	// Session policy (stateful + idle TTL + expiry counter) — see mcp_session.go.
-	applyMCPSessionConfig(&mcpCfg, newSessionGuard(time.Now, mcpSessionIdleTimeout))
+	// Stateless on purpose (the go-mcpserver default; Stateless is left nil).
+	// GET /mcp answers 405 + Allow: POST, which rmcp-based clients treat as "no
+	// standalone stream". The premise of #912/#938 (stateful mode + session TTL to
+	// stop the rmcp SSE error loop) was disproved: the loop rate never changed,
+	// and sessions only introduced "session expired" errors.
 	if err := mcpserver.Run(server, mcpCfg); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
