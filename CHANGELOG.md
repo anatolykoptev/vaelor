@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.73.6](https://github.com/anatolykoptev/vaelor/compare/v1.73.5...v1.73.6) (2026-10-10)
+
+
+### Fixed
+
+* **goanalysis:** allowlist env, no cgo, no direct fetch for untrusted Go roots ([#932](https://github.com/anatolykoptev/vaelor/issues/932)) ([b5d2fd7](https://github.com/anatolykoptev/vaelor/commit/b5d2fd7deb34c4c6e543eaf5cb069e8b4082b941))
+
 ## [1.73.5](https://github.com/anatolykoptev/vaelor/compare/v1.73.4...v1.73.5) (2026-10-10)
 
 
