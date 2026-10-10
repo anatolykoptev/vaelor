@@ -7,8 +7,8 @@ github.com/Masterminds/semver/v3 v3.5.0 h1:kQceYJfbupGfZOKZQg0kou0DgAKhzDg2NZPAw
 github.com/Masterminds/semver/v3 v3.5.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/alicebob/miniredis/v2 v2.38.0 h1:nZAzCR+Lj+Vxk4ZXzm2NuKq2O33RXj1XxJ2e2uP9jiw=
 github.com/alicebob/miniredis/v2 v2.38.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
-github.com/anatolykoptev/go-kit v0.97.17 h1:+em/AxgvqZmOqUIu+U2g1xqtmy8mPkgraItuy87Wm+U=
-github.com/anatolykoptev/go-kit v0.97.17/go.mod h1:YzADfXVpzihE6j+v4WuiQYU4EuCPI8sXxrZdhexTaH0=
+github.com/anatolykoptev/go-kit v0.97.18 h1:ohhljqPLNhdz0CZHss+hLHS0j8A5cWZqQLLRrrHUOP8=
+github.com/anatolykoptev/go-kit v0.97.18/go.mod h1:YzADfXVpzihE6j+v4WuiQYU4EuCPI8sXxrZdhexTaH0=
 github.com/anatolykoptev/go-mcpserver v0.19.0 h1:8TV3iv6wxrwWnaw1F33PzNfpvIuuvQ/7vPYTMzcH68Y=
 github.com/anatolykoptev/go-mcpserver v0.19.0/go.mod h1:tLjcm6ftgBQoiz7b2AdL5B7EVlrdYe0uehmfk3TiPjU=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

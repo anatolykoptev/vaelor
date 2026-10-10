@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,11 @@ func registerSiteAnalyze(server *mcp.Server, cfg Config) {
 	if cfg.OxBrowserURL == "" {
 		return
 	}
-	client := webanalyze.NewClient(cfg.OxBrowserURL)
+	client, err := webanalyze.NewClient(cfg.OxBrowserURL, cfg.InternalServiceSecret)
+	if err != nil {
+		slog.Warn("site_analyze disabled: invalid OX_BROWSER_URL", slog.Any("error", err))
+		return
+	}
 	workDir := cfg.WorkspaceDir
 
 	addTool(server, &mcp.Tool{

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/anatolykoptev/vaelor/internal/webanalyze"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,7 +27,11 @@ func registerSiteCrawl(server *mcp.Server, cfg Config) {
 	if cfg.OxBrowserURL == "" {
 		return
 	}
-	client := webanalyze.NewClient(cfg.OxBrowserURL)
+	client, err := webanalyze.NewClient(cfg.OxBrowserURL, cfg.InternalServiceSecret)
+	if err != nil {
+		slog.Warn("site_crawl disabled: invalid OX_BROWSER_URL", slog.Any("error", err))
+		return
+	}
 
 	addTool(server, &mcp.Tool{
 		Name: "site_crawl",
