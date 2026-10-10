@@ -22,11 +22,13 @@ type resolveRequest struct {
 // resolveHTTPHandler returns an http.HandlerFunc that resolves a minified JS
 // stack frame to its original source location using the provided Resolver.
 //
-// Security assumption: the runtime compose binds go-code's MCP port to
-// 127.0.0.1, so POST /resolve is only reachable from the local host. The
-// endpoint is not authenticated; it relies on the SOURCEMAP_ALLOWED_HOSTS
-// allowlist and the optional per-IP rate limiter. If /resolve is ever exposed
-// beyond loopback, add authentication and configure SOURCEMAP_RATE_LIMIT.
+// Security assumption: the host publishes go-code's port on 127.0.0.1, but every
+// container on the docker backend network (e.g. oxpulse-chat) reaches it
+// directly, so POST /resolve is reachable from that whole network. The
+// endpoint is not authenticated and is deliberately exempt from the HTTP bearer
+// gate (see httpAuthExempt); it relies on the SOURCEMAP_ALLOWED_HOSTS allowlist
+// and the optional per-IP rate limiter. If /resolve is ever exposed beyond the
+// backend network, add authentication and configure SOURCEMAP_RATE_LIMIT.
 //
 // Only POST is accepted; the request URL must match one of allowedHosts.
 // Response codes: 200 OK, 400 bad JSON, 403 disallowed host, 405 wrong method,

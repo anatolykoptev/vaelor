@@ -129,17 +129,6 @@ func runMCPServe(cfg Config, stdio bool) {
 		os.Exit(1)
 	}
 
-	// Fail fast, before any other startup work: a security knob that is
-	// misconfigured must refuse to boot rather than silently run open.
-	httpGate, err := newHTTPAuthFromEnv()
-	if err != nil {
-		slog.Error("http auth misconfigured", slog.Any("error", err))
-		os.Exit(1)
-	}
-	if httpGate != nil {
-		slog.Info("http auth active", slog.String("mode", httpGate.mode))
-	}
-
 	slog.Info("starting "+serviceName,
 		slog.String("llm_model", cfg.LLMModel),
 		slog.String("llm_url", cfg.LLMURL),
@@ -286,42 +275,22 @@ func runMCPServe(cfg Config, stdio bool) {
 	}
 	runtimeTimeouts["sparse_backfill"] = cfg.SparseBackfillDeadline
 
-	mcpCfg := mcpserver.Config{
-		Name:                       serviceName,
-		Version:                    version,
-		Port:                       cfg.Port,
-		Transport:                  mcpTransport(stdio),
-		Context:                    ctx,
-		SchemaCache:                mcp.NewSchemaCache(),
-		DisableLocalhostProtection: true,
-		Logger:                     slog.Default(), // preserve slogh wrapper; mcpserver would otherwise replace it
-		MCPLogger:                  slog.Default(),
-		MCPReceivingMiddleware:     receivingMiddleware(reg, hooks),
-		Middleware: []mcpserver.Middleware{
-			httpGate.Middleware(), // outermost: gate /mcp + /api before tracing/handlers
-			func(next http.Handler) http.Handler { return httpmw.Handler(serviceName, next) },
-		},
-		RESTBridge:   true,
-		Routes:       combinedRoutes,
-		LogSkipPaths: []string{"/health", "/health/live", "/health/ready", "/metrics"}, //nolint:goconst // route paths, not worth a shared constant
-		ToolTimeouts: runtimeTimeouts,
-		// SSE (text/event-stream) mode. Long tool calls (code_research, debug_investigate,
-		// code_graph, etc.) emit no bytes until they finish; in stateless mode the
-		// server can't send ping requests, so a client/proxy idle-timeout would
-		// abandon the call while the server keeps working. Instead,
-		// ToolKeepaliveInterval emits a progress notification on the request
-		// stream every 10s to keep it warm. (The old KeepAlive:30s ping was
-		// inert in stateless mode — rejected, then closed the session at 30s and
-		// truncated the response; removed.) Caddy forces HTTP/1.1 to the
-		// upstream, fixing the h2 stream-reset that originally motivated JSON.
-		JSONResponse:          false,
-		ToolKeepaliveInterval: 10 * time.Second,
+	mcpCfg, err := buildMCPConfig(mcpConfigDeps{
+		ctx:      ctx,
+		port:     cfg.Port,
+		stdio:    stdio,
+		reg:      reg,
+		hooks:    hooks,
+		routes:   combinedRoutes,
+		timeouts: runtimeTimeouts,
+	})
+	if err != nil {
+		// A security knob that is misconfigured must refuse to boot rather than
+		// silently run open. stop() is called explicitly because os.Exit skips defers.
+		slog.Error("server config invalid", slog.Any("error", err))
+		stop()
+		os.Exit(1) //nolint:gocritic // exitAfterDefer: stop() runs just above
 	}
-	// Stateless on purpose (the go-mcpserver default; Stateless is left nil).
-	// GET /mcp answers 405 + Allow: POST, which rmcp-based clients treat as "no
-	// standalone stream". The premise of #912/#938 (stateful mode + session TTL to
-	// stop the rmcp SSE error loop) was disproved: the loop rate never changed,
-	// and sessions only introduced "session expired" errors.
 	if err := mcpserver.Run(server, mcpCfg); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 	}
