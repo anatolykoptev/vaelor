@@ -34,6 +34,7 @@ type xmlTrace struct {
 	Unresolved            int            `xml:"unresolved,attr"`
 	ResolvedRatio         float64        `xml:"resolvedRatio,attr"`
 	Tier                  string         `xml:"tier,attr,omitempty"`
+	TierNote              string         `xml:"tier_note,attr,omitempty"`
 	ProductionCallerCount int            `xml:"production_caller_count,attr,omitempty"`
 	Condensed             string         `xml:"condensed,attr,omitempty"`
 	Elided                int            `xml:"elided,attr,omitempty"`
@@ -99,6 +100,7 @@ type xmlTraceCounts struct {
 	Total     int            `xml:"total,attr"`
 	Files     int            `xml:"files,attr"`
 	Warming   string         `xml:"warming,attr,omitempty"`
+	TierNote  string         `xml:"tier_note,attr,omitempty"`
 	Nodes     []xmlTraceNode `xml:"node"`
 }
 
@@ -257,6 +259,7 @@ type callTraceOutput struct {
 	CallTree              []callgraph.CallChainNode `json:"call_tree"`
 	Stats                 traceStats                `json:"stats"`
 	Tier                  string                    `json:"tier,omitempty"`
+	TierNote              string                    `json:"tier_note,omitempty"`
 	Warm                  callgraph.WarmState       `json:"warming,omitempty"`
 	WarmCause             callgraph.WarmCause       `json:"warming_cause,omitempty"`
 	Narrative             string                    `json:"narrative,omitempty"`
@@ -430,6 +433,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 					Unresolved:            output.Stats.Unresolved,
 					ResolvedRatio:         output.Stats.ResolvedRatio,
 					Tier:                  output.Tier,
+					TierNote:              output.TierNote,
 					ProductionCallerCount: output.ProductionCallerCount,
 					Warming:               warmingAttr(output.Warm, output.WarmCause),
 					Nodes:                 convertTraceNodes(output.CallTree),
@@ -456,6 +460,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 					Unresolved:            output.Stats.Unresolved,
 					ResolvedRatio:         output.Stats.ResolvedRatio,
 					Tier:                  output.Tier,
+					TierNote:              output.TierNote,
 					ProductionCallerCount: output.ProductionCallerCount,
 					Condensed:             "depth-1",
 					Elided:                elided,
@@ -475,6 +480,7 @@ func handleCallTrace(ctx context.Context, input CallTraceInput, deps analyze.Dep
 					Total:     total,
 					Files:     fileCount,
 					Warming:   warmingAttr(output.Warm, output.WarmCause),
+					TierNote:  output.TierNote,
 					Nodes:     immediateNodes,
 				},
 			}
@@ -573,6 +579,7 @@ func buildCallTraceOutput(ctx context.Context, symbol, direction string, result 
 			ResolvedRatio: ratio,
 		},
 		Tier:      result.Tier,
+		TierNote:  result.TierNote,
 		Warm:      result.Warm,
 		WarmCause: result.WarmCause,
 	}

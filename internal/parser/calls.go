@@ -19,6 +19,15 @@ type CallSite struct {
 	// the call graph drops unresolved IsArgRef sites unless the caller opts in
 	// via the MCP field_access=true flag (filtered in the callgraph layer).
 	IsArgRef bool
+	// RecvType and RecvModule type the receiver of a method call when the
+	// language handler can decide it from syntax alone (Python:
+	// `x = Cls(); x.m()`, `self.attr = Cls()` … `self.attr.m()`). RecvType is
+	// the class name; RecvModule is the dotted module it was imported from
+	// (leading dots for a relative import), or "" for a class defined in the
+	// same file. Both are empty when the receiver is untyped — the call graph
+	// then falls back to name resolution.
+	RecvType   string
+	RecvModule string
 }
 
 // scriptCallSource is implemented by preprocessor-language handlers (Astro,
@@ -84,6 +93,9 @@ func ExtractCalls(path string, source []byte, opts ParseOpts) ([]CallSite, error
 		defer closeTree()
 
 		calls = runCallQuery(caps.CallsQuery, root, source, path)
+		if caps.AnnotateCalls != nil {
+			caps.AnnotateCalls(calls, root, source)
+		}
 	}
 
 	// Template-body calls (Astro, Svelte). For scriptCallSource handlers this is

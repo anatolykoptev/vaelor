@@ -98,12 +98,19 @@ func IsTrustedRoot(root string) bool {
 	return false
 }
 
+// IndexerTrusted reports whether the indexer for lang may run against root,
+// without recording a skip. AllowIndexer is the call that gates a run; this is
+// for explaining afterwards why one did not happen.
+func IndexerTrusted(lang, root string) bool {
+	return readOnlyLangs[lang] || IsTrustedRoot(root)
+}
+
 // AllowIndexer reports whether the indexer for lang may run against root.
 // Indexers that execute repo-controlled code run only on trusted roots; on
 // anything else the caller must degrade to tree-sitter. A refusal is logged
 // and counted here so no caller can forget to.
 func AllowIndexer(lang, root string) bool {
-	if readOnlyLangs[lang] || IsTrustedRoot(root) {
+	if IndexerTrusted(lang, root) {
 		return true
 	}
 	RecordSkipped(lang, SkipReasonUntrustedRepo)

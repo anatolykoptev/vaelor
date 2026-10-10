@@ -37,6 +37,7 @@ func init() {
 			CallsQuery:         mustCompileQuery(pythonCallsQueryBytes, lang, "python_calls.scm"),
 			RelationshipsQuery: mustCompileQuery(pythonRelsQueryBytes, lang, "python_rels.scm"),
 			MapCapture:         pyLang.MapCapture,
+			AnnotateCalls:      annotatePythonReceivers,
 		},
 	}
 	registerHandler(pyLang)
@@ -108,6 +109,7 @@ func (h *pythonHandler) mapMethod(node *sitter.Node, source []byte) *Symbol {
 		StartLine:  node.StartPoint().Row + 1,
 		EndLine:    node.EndPoint().Row + 1,
 		Signature:  extractSignature(node, source),
+		Receiver:   enclosingPythonClass(node, source),
 		IsPublic:   isPythonPublic(name),
 		Attributes: extractPythonDecorators(node, source),
 	}
@@ -133,6 +135,30 @@ func (h *pythonHandler) mapVariable(node *sitter.Node, source []byte) *Symbol {
 		Signature: extractSignature(node, source),
 		IsPublic:  isPythonPublic(name),
 	}
+}
+
+// enclosingPythonClass returns the name of the class whose body directly holds
+// the method node (through an optional decorated_definition), or "" when the
+// node is not a direct class member. Recording it as Symbol.Receiver is what
+// lets a qualified "Class.method" query match a Python method, the way
+// "Type.Method" matches a Go one.
+func enclosingPythonClass(node *sitter.Node, source []byte) string {
+	parent := node.Parent()
+	if parent != nil && parent.Type() == "decorated_definition" {
+		parent = parent.Parent()
+	}
+	if parent == nil || parent.Type() != "block" {
+		return ""
+	}
+	class := parent.Parent()
+	if class == nil || class.Type() != "class_definition" {
+		return ""
+	}
+	nameNode := class.ChildByFieldName("name")
+	if nameNode == nil {
+		return ""
+	}
+	return nameNode.Content(source)
 }
 
 // extractPythonDecorators extracts decorator names from a decorated_definition parent node.

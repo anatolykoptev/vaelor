@@ -59,6 +59,9 @@ type TraceResult struct {
 	Resolved   int             `json:"resolved"`
 	Unresolved int             `json:"unresolved"`
 	Tier       string          `json:"tier,omitempty"`
+	// TierNote says why a basic-tier answer has no typed resolution behind it
+	// (see TierNote); empty when it does or nothing applies.
+	TierNote string `json:"tier_note,omitempty"`
 	// Warm carries the repo's go/types warm state: "warming" means a retry
 	// will return the enhanced tier, "failed" means it durably cannot
 	// (issue #746). Empty when no warm state applies.

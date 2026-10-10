@@ -49,6 +49,12 @@ type CallGraph struct {
 	// #894). Same write-once rules as Warm; empty when the degrade was
 	// neither wait or the entry predates the cause field.
 	WarmCause WarmCause
+	// TypedSkipped lists, per language, why typed call resolution did not run
+	// when the graph stayed at the tree-sitter ("basic") tier — e.g.
+	// "python: scip-python skipped, repo is not an operator-trusted checkout".
+	// Empty when the tier is enhanced or nothing typed was applicable. Use
+	// TierNote to render it; see tier_note.go.
+	TypedSkipped []string
 	// UsesIndex maps a target file's relative path to a list of relative paths
 	// of Astro files that render it as a component (<Foo />). Populated by
 	// ResolveTemplateRefs during BuildFromRepo. Enables impact_analysis to
@@ -64,6 +70,12 @@ type BuildOpts struct {
 	// unresolved CallSite.IsArgRef entries are dropped to avoid reporting
 	// vars (`ctx`, `localPath`) and member access (`opts.Slug`) as callees.
 	IncludeFieldAccess bool
+
+	// TypeRels are the repository's type relationships. Python inheritance
+	// (INHERITS) is read from them to find a method on a base class when a
+	// typed receiver's own class lacks it. Optional: without it only methods
+	// defined directly on the receiver's class resolve.
+	TypeRels []parser.TypeRelationship
 }
 
 // BuildCallGraph resolves call sites against the symbol table.
@@ -83,11 +95,19 @@ func BuildCallGraphWithOpts(symbols []*parser.Symbol, calls []parser.CallSite, o
 	byFile := indexByFile(symbols)
 	byDir := indexByDir(symbols)
 
+	pyTyped := newPyTypedResolver(symbols, calls, opts.TypeRels)
+
 	edges := make([]CallEdge, 0, len(calls))
 	for i := range calls {
 		cs := &calls[i]
 		caller := findCaller(byFile[cs.File], cs.Line)
-		callee := resolveCall(cs, byFile, byDir, byName)
+		callee, typedHit := (*parser.Symbol)(nil), false
+		if pyTyped != nil && cs.RecvType != "" {
+			callee, typedHit = pyTyped.resolve(cs)
+		}
+		if !typedHit {
+			callee = resolveCall(cs, byFile, byDir, byName)
+		}
 
 		if cs.IsArgRef {
 			if callee != nil {

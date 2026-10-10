@@ -115,6 +115,7 @@ func BuildAndEnrich(ctx context.Context, opts PipelineOpts) (*PipelineResult, er
 
 	cg := BuildCallGraphWithOpts(allSymbols, allCalls, BuildOpts{
 		IncludeFieldAccess: opts.IncludeFieldAccess,
+		TypeRels:           allRels,
 	})
 	cg.TypeRels = allRels
 	cg.Tier = "basic"

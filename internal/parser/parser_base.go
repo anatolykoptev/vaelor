@@ -33,6 +33,12 @@ type Capabilities struct {
 	// capture a zero-value copy and miss any subsequent field writes on the
 	// singleton.
 	MapCapture func(captureName string, node *sitter.Node, src []byte) *Symbol
+
+	// AnnotateCalls, when non-nil, post-processes the call sites extracted from
+	// the SAME parsed tree (it fills CallSite.RecvType/RecvModule). It runs on
+	// both call-extraction paths — ExtractCalls and ParseWithCalls — so the
+	// single-parse and separate-parse results stay identical.
+	AnnotateCalls func(calls []CallSite, root *sitter.Node, src []byte)
 }
 
 // parserBase is a composable base for LanguageHandler implementations.
