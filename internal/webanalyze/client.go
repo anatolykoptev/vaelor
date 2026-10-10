@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/anatolykoptev/go-kit/svcauth"
 )
 
 const clientTimeout = 30 * time.Second
@@ -21,14 +23,27 @@ const crawlTimeout = 10 * time.Minute
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	sseClient  *http.Client // no Timeout — SSE streams are long-lived
 }
 
-// NewClient creates an ox-browser client.
-func NewClient(baseURL string) *Client {
+// NewClient creates an ox-browser client. secret is sent to the ox-browser
+// origin as X-Internal-Secret via go-kit svcauth (ox-browser#173); requests
+// to any other origin — including redirect hops — never carry it.
+func NewClient(baseURL, secret string) (*Client, error) {
+	route := svcauth.Route{BaseURL: baseURL, Secret: secret}
+	httpClient, err := svcauth.WrapClient(&http.Client{Timeout: clientTimeout}, route)
+	if err != nil {
+		return nil, fmt.Errorf("ox-browser auth transport: %w", err)
+	}
+	sseClient, err := svcauth.WrapClient(&http.Client{}, route)
+	if err != nil {
+		return nil, fmt.Errorf("ox-browser auth transport: %w", err)
+	}
 	return &Client{
 		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: clientTimeout},
-	}
+		httpClient: httpClient,
+		sseClient:  sseClient,
+	}, nil
 }
 
 // Technology is a detected web technology.
@@ -159,9 +174,8 @@ func (c *Client) Crawl(ctx context.Context, input CrawlInput) (*CrawlResponse, e
 	req.Header.Set("Accept", "text/event-stream")
 
 	// Use a client without the default Timeout — SSE streams are long-lived.
-	// Context timeout handles cancellation; Transport is shared via DefaultTransport.
-	sseClient := &http.Client{}
-	resp, err := sseClient.Do(req)
+	// Context timeout handles cancellation.
+	resp, err := c.sseClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("crawl request: %w", err)
 	}

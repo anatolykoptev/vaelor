@@ -725,6 +725,14 @@ func loadConfig() (Config, error) {
 		slog.Warn("config: EMBED_MODEL is set but empty — falling back to default (empty would disable model-drift detection)",
 			slog.String("default", defaultEmbedModel))
 	}
+	// ox-browser#173: site_analyze/site_crawl send X-Internal-Secret from
+	// INTERNAL_SERVICE_SECRET. With OX_BROWSER_URL set but the secret unset,
+	// calls go out unauthenticated — invisible until ox-browser's auth gate
+	// flips soft→enforce and every call starts returning 401.
+	if cfg.OxBrowserURL != "" && cfg.InternalServiceSecret == "" {
+		slog.Warn("config: INTERNAL_SERVICE_SECRET is unset — site_analyze/site_crawl requests to ox-browser will be unauthenticated",
+			slog.String("env_var", "INTERNAL_SERVICE_SECRET"))
+	}
 	return cfg, nil
 }
 
