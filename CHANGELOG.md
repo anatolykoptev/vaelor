@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.74.3](https://github.com/anatolykoptev/vaelor/compare/v1.74.2...v1.74.3) (2026-10-10)
+
+
+### Fixed
+
+* **mcp:** back to stateless + go-mcpserver v0.21.0 (supersedes [#912](https://github.com/anatolykoptev/vaelor/issues/912)/[#938](https://github.com/anatolykoptev/vaelor/issues/938)) ([#949](https://github.com/anatolykoptev/vaelor/issues/949)) ([9e2473a](https://github.com/anatolykoptev/vaelor/commit/9e2473ad22161f0deecbdd9252c45ca12f5d0f07))
+
 ## [1.74.2](https://github.com/anatolykoptev/go-code/compare/v1.74.1...v1.74.2) (2026-10-10)
 
 
