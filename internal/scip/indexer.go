@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,9 +21,25 @@ func RunIndexer(ctx context.Context, cfg IndexerConfig, dir string) (string, err
 		return "", fmt.Errorf("scip indexer %q not found in PATH: %w", cfg.Name, err)
 	}
 
+	// The indexer reads (and for rust-analyzer/scip-java may execute) content of
+	// a repo we do not control, so it gets a minimal allowlisted environment and
+	// a throwaway HOME — never the server's own environment (tokens, DSNs,
+	// service secrets). See indexerEnv.
+	home, err := os.MkdirTemp("", "go-code-scip-home-*")
+	if err != nil {
+		return "", fmt.Errorf("scip: create indexer home: %w", err)
+	}
+	defer func() {
+		if rerr := os.RemoveAll(home); rerr != nil {
+			slog.Warn("scip: remove indexer home failed", "path", home, "err", rerr)
+		}
+	}()
+	realHome, _ := os.UserHomeDir()
+
 	//nolint:gosec // cfg.Name and cfg.Args are from a controlled registry, not user input.
 	cmd := exec.CommandContext(ctx, binPath, cfg.Args...)
 	cmd.Dir = dir
+	cmd.Env = indexerEnv(cfg.Name, home, realHome, os.Getenv)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
