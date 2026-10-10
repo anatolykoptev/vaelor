@@ -133,6 +133,11 @@ func handleUnderstand(ctx context.Context, input UnderstandInput, deps analyze.D
 	if n := callgraph.WarmNote(cg.Warm, cg.WarmCause); n != "" {
 		result.Warnings = append(result.Warnings, n)
 	}
+	// A basic-tier answer whose typed pass did not run must say so: a short
+	// caller list is otherwise indistinguishable from "no callers".
+	if n := callgraph.TierNote(cg); n != "" {
+		result.Warnings = append(result.Warnings, n)
+	}
 
 	// Reverse-map container-internal paths back to host-side paths so callers
 	// see clickable file locations matching their local checkout.

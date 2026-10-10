@@ -59,6 +59,9 @@ func (p *parserBase) ParseWithCalls(path string, src []byte, opts ParseOpts) (*P
 	var calls []CallSite
 	if p.caps.CallsQuery != nil {
 		calls = runCallQuery(p.caps.CallsQuery, root, src, path)
+		if p.caps.AnnotateCalls != nil {
+			p.caps.AnnotateCalls(calls, root, src)
+		}
 	}
 	return result, calls, true, nil
 }

@@ -180,6 +180,7 @@ func TraceRepo(ctx context.Context, input TraceRepoInput) (*TraceResult, error) 
 
 	result := Trace(ctx, g, input.Symbol, input.Opts)
 	result.Tier = g.Tier
+	result.TierNote = TierNote(g)
 	result.Warm = g.Warm
 	result.WarmCause = g.WarmCause
 
@@ -230,6 +231,9 @@ func EnrichWithTypedResolution(ctx context.Context, root string, base *CallGraph
 			cg.Tier = "enhanced"
 			cg.Backend = BackendSCIP
 		}
+	}
+	if cg.Tier == "basic" {
+		cg.TypedSkipped = typedSkipReasons(root, files)
 	}
 
 	return cg

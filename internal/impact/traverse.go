@@ -2,6 +2,7 @@ package impact
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/parser"
@@ -9,6 +10,15 @@ import (
 
 // findTarget returns the first function/method with the given name.
 func findTarget(symbols []*parser.Symbol, name string) *parser.Symbol {
+	// A "Receiver.Name" query matches by receiver too, through the matcher
+	// call_trace and understand share, so "OpenAi.transcribe" works the same
+	// way "Type.Method" does for Go.
+	if strings.Contains(name, ".") {
+		if matches := callgraph.FindSymbols(symbols, name); len(matches) > 0 {
+			return matches[0]
+		}
+		return nil
+	}
 	for _, sym := range symbols {
 		if sym.Name == name && (sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod) {
 			return sym

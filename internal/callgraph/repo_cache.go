@@ -22,7 +22,7 @@ const (
 
 // cgL2KeyVersion is embedded in the Redis key prefix so a wire-format or
 // struct-shape change can invalidate stale L2 entries by bumping it.
-const cgL2KeyVersion = "v1"
+const cgL2KeyVersion = "v2"
 const cgL2Prefix = "gc:callgraph:" + cgL2KeyVersion + ":"
 
 // cgCacheEntry holds a cached CallGraph and when it was computed.
