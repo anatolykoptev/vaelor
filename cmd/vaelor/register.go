@@ -23,6 +23,7 @@ import (
 	"github.com/anatolykoptev/vaelor/internal/designmd"
 	"github.com/anatolykoptev/vaelor/internal/embeddings"
 	"github.com/anatolykoptev/vaelor/internal/forge"
+	"github.com/anatolykoptev/vaelor/internal/goanalysis"
 	"github.com/anatolykoptev/vaelor/internal/graphx"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/learnings"
@@ -152,10 +153,7 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 		slog.Warn("llm: disabled (LLM_API_KEY unset) — code_graph/repo_search/debug_investigate will error; narratives in call_trace/dead_code/impact omitted")
 	}
 
-	// Only operator-managed local checkouts may be indexed by SCIP indexers that
-	// execute repo code (rust-analyzer, scip-python, scip-java). Clones, PR
-	// worktrees and arbitrary paths stay on the tree-sitter tier.
-	gocodescip.SetTrustedRoots(scipTrustedRoots(cfg))
+	installRootTrust(cfg)
 
 	deps := analyze.Deps{
 		LLM:               llmClient,
@@ -708,6 +706,16 @@ func buildCloneTokenFunc(cfg Config) func(ctx context.Context) (string, error) {
 	return func(_ context.Context) (string, error) {
 		return pat, nil
 	}
+}
+
+// installRootTrust declares which repo roots are operator-managed. Only those
+// may be indexed by SCIP indexers that execute repo code (rust-analyzer,
+// scip-python, scip-java) and only those keep the inherited environment for the
+// Go typed load (#930); clones, PR worktrees and arbitrary paths stay on the
+// tree-sitter tier / the allowlisted, cgo-off env.
+func installRootTrust(cfg Config) {
+	gocodescip.SetTrustedRoots(scipTrustedRoots(cfg))
+	goanalysis.SetRootTrust(gocodescip.IsTrustedRoot)
 }
 
 // scipTrustedRoots returns the directories whose repos may be indexed by

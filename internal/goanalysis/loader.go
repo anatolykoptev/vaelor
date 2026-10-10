@@ -111,11 +111,18 @@ func buildParallelism() int { return max(1, runtime.NumCPU()/2) }
 // compiler makes net, os/user and every importer fail to build. With a compiler
 // the ambient setting stands — that is the production container (gcc present,
 // CGO_ENABLED=1), where the prime and the prewarm compile cgo packages too.
+//
+// A root that SetRootTrust does not vouch for gets untrustedGoEnv instead — an
+// allowlist with cgo off and no direct module fetch (issue #930). The prewarm
+// and the load still agree: both ask GoEnv about the same dir.
 func GoEnv(dir string) []string {
+	if reason := untrustedReason(dir); reason != "" {
+		return untrustedGoEnv(dir, reason)
+	}
 	env := append(os.Environ(),
 		fmt.Sprintf("GOFLAGS=%s -p=%d -trimpath", ModFlag(dir), buildParallelism()),
 		"GONOSUMCHECK=*", "GONOSUMDB=*",
-		"GOCACHE=/tmp/go-build-cache", "GOPATH=/tmp/gopath", "GOWORK=off",
+		"GOCACHE="+goCacheDir, "GOPATH="+goPathDir, "GOWORK=off",
 		"GIT_TERMINAL_PROMPT=0")
 	if !haveCCompiler() {
 		env = append(env, "CGO_ENABLED=0")

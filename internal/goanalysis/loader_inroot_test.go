@@ -78,6 +78,7 @@ func TestLoadPackages_InRepoDependencyIsLoadedFromSource(t *testing.T) {
 //
 // Skipped only when cgo cannot work on this machine (no C compiler).
 func TestLoadPackages_InRepoCgoDependencyKeepsSourceLines(t *testing.T) {
+	trustAll(t) // needs cgo, which untrusted roots never get
 	if _, err := exec.LookPath("gcc"); err != nil {
 		if _, err2 := exec.LookPath("clang"); err2 != nil {
 			t.Skip("no C compiler: cgo cannot be exercised here")

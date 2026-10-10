@@ -116,6 +116,7 @@ func TestGoEnv_CapsCompileParallelismAtHalfTheCores(t *testing.T) {
 }
 
 func TestGoEnv_DisablesCgoWithoutACompiler(t *testing.T) {
+	trustAll(t)                   // the trusted branch is the one that decides on a compiler
 	t.Setenv("PATH", t.TempDir()) // no gcc, clang, cc
 	t.Setenv("CC", "")
 	var found bool
@@ -134,6 +135,7 @@ func TestGoEnv_DisablesCgoWithoutACompiler(t *testing.T) {
 //
 // Mutation that must turn it RED: make GoEnv append CGO_ENABLED=0 unconditionally.
 func TestGoEnv_KeepsAmbientCgoWithACompiler(t *testing.T) {
+	trustAll(t) // untrusted roots pin CGO_ENABLED=0 regardless
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "gcc"), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // test helper must be executable
 		t.Fatal(err)
