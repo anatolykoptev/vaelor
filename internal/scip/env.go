@@ -41,7 +41,7 @@ var envPerIndexer = map[string][]string{
 // per-run temporary directory used as HOME so nothing under the server's real
 // home (credential helpers, ~/.netrc, ~/.ssh, ~/.config) is reachable via
 // $HOME. realHome is the server's real home, used only to locate the shared
-// cargo/rustup caches when CARGO_HOME / RUSTUP_HOME are not set explicitly.
+// cargo/rustup/coursier caches when their *_HOME / *_CACHE vars are not set.
 func indexerEnv(name, home, realHome string, getenv func(string) string) []string {
 	env := []string{"HOME=" + home}
 	add := func(keys []string) {
@@ -54,20 +54,31 @@ func indexerEnv(name, home, realHome string, getenv func(string) string) []strin
 	add(envPassthrough)
 	add(envPerIndexer[name])
 
-	if name == indexerRustAnalyzer && realHome != "" {
-		for _, c := range []struct{ key, dir string }{
-			{"CARGO_HOME", ".cargo"},
-			{"RUSTUP_HOME", ".rustup"},
-		} {
-			if getenv(c.key) != "" {
-				continue
+	// The throwaway HOME hides ~/.cargo and ~/.cache/coursier, so without an
+	// explicit location every run would re-download the registry / jars.
+	// These indexers only run on trusted roots (see AllowIndexer), so pointing
+	// them at the server's shared caches is safe; the dirs are created on first
+	// use by cargo/coursier.
+	if realHome != "" {
+		switch name {
+		case indexerRustAnalyzer:
+			setDefault(&env, getenv, "CARGO_HOME", filepath.Join(realHome, ".cargo"))
+			if p := filepath.Join(realHome, ".rustup"); dirExists(p) {
+				setDefault(&env, getenv, "RUSTUP_HOME", p)
 			}
-			if p := filepath.Join(realHome, c.dir); dirExists(p) {
-				env = append(env, c.key+"="+p)
-			}
+		case indexerScipJava:
+			setDefault(&env, getenv, "COURSIER_CACHE", filepath.Join(realHome, ".cache", "coursier"))
 		}
 	}
 	return env
+}
+
+// setDefault appends key=fallback unless the parent already set key (in which
+// case add() already copied it).
+func setDefault(env *[]string, getenv func(string) string, key, fallback string) {
+	if getenv(key) == "" {
+		*env = append(*env, key+"="+fallback)
+	}
 }
 
 func dirExists(p string) bool {

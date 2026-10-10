@@ -155,7 +155,7 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	// Only operator-managed local checkouts may be indexed by SCIP indexers that
 	// execute repo code (rust-analyzer, scip-python, scip-java). Clones, PR
 	// worktrees and arbitrary paths stay on the tree-sitter tier.
-	gocodescip.SetTrustedRoots(autoIndexDirs(cfg))
+	gocodescip.SetTrustedRoots(gocodescip.TrustedRootsExcluding(autoIndexDirs(cfg), cfg.WorkspaceDir, os.TempDir()))
 
 	deps := analyze.Deps{
 		LLM:               llmClient,

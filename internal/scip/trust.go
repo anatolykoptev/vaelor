@@ -120,3 +120,38 @@ func within(dir, path string) bool {
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
+
+// TrustedRootsExcluding returns dirs minus any that overlap an untrusted
+// location (the clone workspace, the temp dir PR worktrees live in): a clone
+// directory nested in a trusted dir would otherwise inherit its trust, and a
+// trusted dir nested in the clone directory would trust fetched content.
+// Overlaps fail closed: the whole trusted dir is dropped, and logged.
+func TrustedRootsExcluding(dirs []string, untrusted ...string) []string {
+	resolve := func(d string) string {
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			d = r
+		}
+		return filepath.Clean(d)
+	}
+	var out []string
+outer:
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		rd := resolve(d)
+		for _, u := range untrusted {
+			if u == "" {
+				continue
+			}
+			ru := resolve(u)
+			if within(rd, ru) || within(ru, rd) {
+				slog.Error("scip: trusted dir overlaps an untrusted location; not trusting it",
+					"trusted", d, "untrusted", u)
+				continue outer
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
