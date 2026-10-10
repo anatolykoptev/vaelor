@@ -9,8 +9,8 @@ github.com/alicebob/miniredis/v2 v2.38.0 h1:nZAzCR+Lj+Vxk4ZXzm2NuKq2O33RXj1XxJ2e
 github.com/alicebob/miniredis/v2 v2.38.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/anatolykoptev/go-kit v0.97.18 h1:ohhljqPLNhdz0CZHss+hLHS0j8A5cWZqQLLRrrHUOP8=
 github.com/anatolykoptev/go-kit v0.97.18/go.mod h1:YzADfXVpzihE6j+v4WuiQYU4EuCPI8sXxrZdhexTaH0=
-github.com/anatolykoptev/go-mcpserver v0.19.0 h1:8TV3iv6wxrwWnaw1F33PzNfpvIuuvQ/7vPYTMzcH68Y=
-github.com/anatolykoptev/go-mcpserver v0.19.0/go.mod h1:tLjcm6ftgBQoiz7b2AdL5B7EVlrdYe0uehmfk3TiPjU=
+github.com/anatolykoptev/go-mcpserver v0.21.0 h1:1LZ+pFTnjSDFvcb6O6e0SawBevzt/jDEi/3vg6RlN84=
+github.com/anatolykoptev/go-mcpserver v0.21.0/go.mod h1:4KB3DrB9+4pLCXslJFoVx6Q8+67a/R8OcbZ3XM8dcw4=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/bmatcuk/doublestar/v4 v4.10.0 h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=
@@ -104,8 +104,8 @@ github.com/larsartmann/go-filewatcher/v2 v2.2.0/go.mod h1:dhPwB3blzacTtXn6Z5PEA+
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
 github.com/mattn/go-sqlite3 v1.14.22/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
-github.com/modelcontextprotocol/go-sdk v1.6.1 h1:0zOSupjKUxPKSocPT1Wtago+mUHU2/uZ4xSOY0FGReU=
-github.com/modelcontextprotocol/go-sdk v1.6.1/go.mod h1:kzm3kzFL1/+AziGOE0nUs3gvPoNxMCvkxokMkuFapXQ=
+github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
+github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/onsi/ginkgo/v2 v2.29.0 h1:rfh+ZFjgJhYWRoIqVf3Uwx/W20yLrcrE2h2GmYVRaag=

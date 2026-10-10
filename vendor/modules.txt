@@ -23,7 +23,7 @@ github.com/anatolykoptev/go-kit/tracing/httpmw
 github.com/anatolykoptev/go-kit/tracing/mcpmw
 github.com/anatolykoptev/go-kit/tracing/slogh
 github.com/anatolykoptev/go-kit/watcher
-# github.com/anatolykoptev/go-mcpserver v0.19.0
+# github.com/anatolykoptev/go-mcpserver v0.21.0
 ## explicit; go 1.26
 github.com/anatolykoptev/go-mcpserver
 # github.com/beorn7/perks v1.0.1
@@ -117,9 +117,10 @@ github.com/kylelemons/godebug/diff
 # github.com/larsartmann/go-filewatcher/v2 v2.2.0
 ## explicit; go 1.26.3
 github.com/larsartmann/go-filewatcher/v2
-# github.com/modelcontextprotocol/go-sdk v1.6.1
+# github.com/modelcontextprotocol/go-sdk v1.8.0
 ## explicit; go 1.25.0
 github.com/modelcontextprotocol/go-sdk/auth
+github.com/modelcontextprotocol/go-sdk/internal/authutil
 github.com/modelcontextprotocol/go-sdk/internal/json
 github.com/modelcontextprotocol/go-sdk/internal/jsonrpc2
 github.com/modelcontextprotocol/go-sdk/internal/mcpgodebug
