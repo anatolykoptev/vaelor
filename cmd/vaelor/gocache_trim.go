@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -22,6 +26,15 @@ import (
 // boundary cmd/go's cache.Trim uses. Root files (README, trim.txt, locked,
 // lastverify) and anything deeper than xx/<file> are never eligible.
 var goCacheSubdirPattern = regexp.MustCompile(`^[0-9a-f]{2}$`)
+
+// goCacheEntryPattern is the shape of a cache entry file: a 64-hex-char key
+// plus "-a" (action) or "-d" (data). Go's own trimSubdir only deletes these
+// suffixes; anything else in a hex-named dir (e.g. de/messages.po in a tree
+// that is not a cache) is not ours.
+var goCacheEntryPattern = regexp.MustCompile(`^[0-9a-f]{64}-[ad]$`)
+
+// goCacheReadmePrefix starts the README the go tool writes at the cache root.
+const goCacheReadmePrefix = "This directory holds cached build artifacts from the Go build system."
 
 const (
 	// defaultGoCacheTrimMaxAge bounds how long an unused cache entry may sit.
@@ -96,9 +109,14 @@ func startGoCacheTrimLoop(ctx context.Context) {
 // zero/negative bound must never disable the limit or nuke the whole cache.
 func goCacheTrimMaxAge() time.Duration {
 	d, err := env.DurationE("VAELOR_GOCACHE_MAX_AGE", defaultGoCacheTrimMaxAge)
-	if err != nil || d <= 0 {
+	if err != nil {
 		slog.Warn("gocache trim: invalid VAELOR_GOCACHE_MAX_AGE, using default",
 			slog.Duration("default", defaultGoCacheTrimMaxAge), slog.Any("error", err))
+		return defaultGoCacheTrimMaxAge
+	}
+	if d <= 0 {
+		slog.Warn("gocache trim: non-positive VAELOR_GOCACHE_MAX_AGE, using default",
+			slog.Duration("default", defaultGoCacheTrimMaxAge), slog.Duration("value", d))
 		return defaultGoCacheTrimMaxAge
 	}
 	return d
@@ -114,17 +132,17 @@ func runGoCacheTrim(ctx context.Context, maxAge time.Duration) {
 		})
 		return
 	}
-	trimGoCacheDirs(dirs, maxAge)
+	trimGoCacheDirs(ctx, dirs, maxAge)
 }
 
 // trimGoCacheDirs runs one pass over every resolved cache dir and reports the
 // aggregate: one INFO line per run plus the counters, with the first per-file
 // error logged — a write failure must never be silent.
-func trimGoCacheDirs(dirs []string, maxAge time.Duration) {
+func trimGoCacheDirs(ctx context.Context, dirs []string, maxAge time.Duration) {
 	start := time.Now()
 	var total goCacheTrimStats
 	for _, dir := range dirs {
-		st := trimGoCacheDir(dir, maxAge, start)
+		st := trimGoCacheDir(ctx, dir, maxAge, start)
 		total.files += st.files
 		total.bytes += st.bytes
 		total.errs += st.errs
@@ -212,65 +230,135 @@ func filterGoCacheDirs(candidates []string) []string {
 	return dirs
 }
 
-// trimGoCacheDir deletes regular files inside dir's two-hex subdirectories
+// trimGoCacheDir deletes cache entries inside dir's two-hex subdirectories
 // whose mtime predates now-maxAge — the same rule as Go's cache.Trim (mtime
-// is last-use; a delete is a cache miss). Root files, non-hex entries,
-// symlinks and nested directories are never touched: DirEntry.Type() reports
-// lstat mode, so a symlinked "ab" is neither a dir nor a regular file and a
-// symlinked entry is never followed to its target.
-func trimGoCacheDir(dir string, maxAge time.Duration, now time.Time) goCacheTrimStats {
+// is last use; a delete is a cache miss). Only regular files named like a
+// cache entry (64 hex + "-a"/"-d", see goCacheEntryPattern) are removed;
+// directories — including "-d" executable-output dirs — are skipped, never
+// deleted recursively. Root files, non-hex dirs, symlinks and nested dirs
+// are never touched.
+//
+// The dir is opened as an os.Root and every list/remove goes through it, so
+// a subdir swapped for a symlink mid-run cannot make a delete escape the
+// cache. A dir failing validateGoCacheRoot is warned about once and skipped.
+func trimGoCacheDir(ctx context.Context, dir string, maxAge time.Duration, now time.Time) goCacheTrimStats {
 	var st goCacheTrimStats
-	entries, err := os.ReadDir(dir)
+	if err := validateGoCacheRoot(dir); err != nil {
+		warnGoCacheSkippedOnce(dir, err)
+		return st
+	}
+	root, err := os.OpenRoot(dir)
 	if err != nil {
-		st.errs++
-		st.firstErr = err
+		st.fail(err)
+		return st
+	}
+	defer root.Close()
+	entries, err := readRootDir(root, ".")
+	if err != nil {
+		st.fail(err)
 		return st
 	}
 	cutoff := now.Add(-maxAge)
 	for _, e := range entries {
+		if ctx.Err() != nil {
+			return st
+		}
 		if !e.IsDir() || !goCacheSubdirPattern.MatchString(e.Name()) {
 			continue
 		}
-		trimGoCacheSubdir(filepath.Join(dir, e.Name()), cutoff, &st)
+		trimGoCacheSubdir(root, e.Name(), cutoff, &st)
 	}
 	return st
 }
 
-// trimGoCacheSubdir applies the age rule inside one hex subdir — no descent
-// beyond it, no symlink following (entries are filtered on lstat type before
-// Info() is ever called).
-func trimGoCacheSubdir(sub string, cutoff time.Time, st *goCacheTrimStats) {
-	entries, err := os.ReadDir(sub)
+// readRootDir lists a directory through the Root (no escape via symlinks).
+func readRootDir(root *os.Root, name string) ([]os.DirEntry, error) {
+	d, err := root.Open(name)
 	if err != nil {
-		st.errs++
-		if st.firstErr == nil {
-			st.firstErr = err
-		}
+		return nil, err
+	}
+	defer d.Close()
+	return d.ReadDir(-1)
+}
+
+// fail records an error, keeping the first one for the per-run WARN.
+func (s *goCacheTrimStats) fail(err error) {
+	s.errs++
+	if s.firstErr == nil {
+		s.firstErr = err
+	}
+}
+
+// trimGoCacheSubdir applies the entry-name and age rules inside one hex
+// subdir — no descent beyond it, no symlink following (entries are filtered
+// on lstat type before Info() is ever called).
+func trimGoCacheSubdir(root *os.Root, sub string, cutoff time.Time, st *goCacheTrimStats) {
+	entries, err := readRootDir(root, sub)
+	if err != nil {
+		st.fail(err)
 		return
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() {
+		if !e.Type().IsRegular() || !goCacheEntryPattern.MatchString(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
-			st.errs++
-			if st.firstErr == nil {
-				st.firstErr = err
+			if !errors.Is(err, fs.ErrNotExist) {
+				st.fail(err)
 			}
 			continue
 		}
 		if !info.ModTime().Before(cutoff) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(sub, e.Name())); err != nil {
-			st.errs++
-			if st.firstErr == nil {
-				st.firstErr = err
+		if err := root.Remove(filepath.Join(sub, e.Name())); err != nil {
+			// ENOENT: raced with Go's own trim or `go clean` — already gone.
+			if !errors.Is(err, fs.ErrNotExist) {
+				st.fail(err)
 			}
 			continue
 		}
 		st.files++
 		st.bytes += info.Size()
 	}
+}
+
+// validateGoCacheRoot refuses anything that does not look like a Go build
+// cache: a relative path, "/", the user's home, or a dir lacking the README
+// the go tool writes at the cache root. Pointing GOCACHE at an unrelated tree
+// must never turn the trimmer into a deleter of its files.
+func validateGoCacheRoot(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("not an absolute path: %q", dir)
+	}
+	clean := filepath.Clean(dir)
+	if clean == string(os.PathSeparator) {
+		return errors.New("refusing filesystem root")
+	}
+	if home, err := os.UserHomeDir(); err == nil && clean == filepath.Clean(home) {
+		return errors.New("refusing the home directory")
+	}
+	f, err := os.Open(filepath.Join(clean, "README"))
+	if err != nil {
+		return fmt.Errorf("no Go cache README at root: %w", err)
+	}
+	defer f.Close()
+	buf := make([]byte, len(goCacheReadmePrefix))
+	n, _ := io.ReadFull(f, buf)
+	if string(buf[:n]) != goCacheReadmePrefix {
+		return errors.New("root README is not the Go build cache README")
+	}
+	return nil
+}
+
+// goCacheWarned dedups the skipped-dir WARN to once per dir per process.
+var goCacheWarned sync.Map
+
+func warnGoCacheSkippedOnce(dir string, err error) {
+	if _, dup := goCacheWarned.LoadOrStore(dir, struct{}{}); dup {
+		return
+	}
+	slog.Warn("gocache trim: skipping directory that is not a Go build cache",
+		slog.String("dir", dir), slog.Any("error", err))
 }
