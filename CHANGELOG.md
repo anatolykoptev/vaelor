@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.75.0](https://github.com/anatolykoptev/go-code/compare/v1.74.3...v1.75.0) (2026-10-11)
+
+
+### Added
+
+* **http:** bearer-token auth on /mcp and /api with off/report/enforce rollout ([#945](https://github.com/anatolykoptev/go-code/issues/945)) ([02f3fe8](https://github.com/anatolykoptev/go-code/commit/02f3fe8e09635eede830b6c8cf382123e2067096))
+
 ## [1.74.3](https://github.com/anatolykoptev/vaelor/compare/v1.74.2...v1.74.3) (2026-10-10)
 
 
