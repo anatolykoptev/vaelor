@@ -38,7 +38,8 @@ func TestBuildCallGraph_CrossPackage(t *testing.T) {
 		{Name: "Serve", Kind: parser.KindFunction, File: "/project/internal/server/server.go", StartLine: 1, EndLine: 30},
 	}
 	calls := []parser.CallSite{
-		{Name: "Serve", File: "/project/cmd/main.go", Line: 5},
+		// Go reaches another package only through a qualifier: server.Serve().
+		{Name: "Serve", Receiver: "server", File: "/project/cmd/main.go", Line: 5},
 	}
 
 	g := BuildCallGraph(symbols, calls)
@@ -319,7 +320,7 @@ func TestBuildCallGraph_UniqueGlobalNameKeepsEdge(t *testing.T) {
 		{Name: "Serve", Kind: parser.KindFunction, File: "/src/internal/server/server.go", StartLine: 1, EndLine: 30},
 	}
 	calls := []parser.CallSite{
-		{Name: "Serve", File: "/src/cmd/main.go", Line: 5},
+		{Name: "Serve", Receiver: "server", File: "/src/cmd/main.go", Line: 5},
 	}
 
 	g := BuildCallGraph(symbols, calls)

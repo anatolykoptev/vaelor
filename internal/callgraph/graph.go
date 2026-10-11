@@ -145,6 +145,9 @@ func findCaller(fileSymbols []*parser.Symbol, line uint32) *parser.Symbol {
 // and same-package resolution still run first, so a package that genuinely
 // shadows a builtin keeps working.
 func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser.Symbol) *parser.Symbol {
+	if parser.DetectLanguageFromPath(cs.File) == langGo {
+		return resolveGoCall(cs, byFile, byDir, byName)
+	}
 	name := cs.Name
 
 	if syms, ok := byFile[cs.File]; ok {
@@ -180,10 +183,89 @@ func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser
 }
 
 func findByName(symbols []*parser.Symbol, name string) *parser.Symbol {
+	return findByNameWhere(symbols, name, func(sym *parser.Symbol) bool {
+		return sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod
+	})
+}
+
+// findByNameWhere returns the first symbol called name that satisfies ok.
+func findByNameWhere(symbols []*parser.Symbol, name string, ok func(*parser.Symbol) bool) *parser.Symbol {
 	for _, sym := range symbols {
-		if sym.Name == name && (sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod) {
+		if sym.Name == name && ok(sym) {
 			return sym
 		}
 	}
 	return nil
+}
+
+const langGo = "go"
+
+// resolveGoCall is resolveCall under Go's scoping rules. The generic resolver
+// binds a site to a same-named symbol with no regard for what the syntax can
+// denote, which for the heuristic argument-position / struct-literal captures
+// (@call.argref, @call.argref_method) meant a LOCAL VARIABLE `f` passed as an
+// argument bound to the repo's only method called `f`, and a field read
+// `Run: p.Run` bound to the repo's only function called `Run`. Typed
+// resolution does not cover those positions, and MergeCallGraphs appends every
+// tree-sitter edge the typed pass did not produce, so the enhanced tier carried
+// them too. The rules below are language-spec facts, not heuristics:
+//
+//   - a bare identifier (no qualifier) names a package-level function of its
+//     OWN package — never a method (Go has no implicit receiver) and never a
+//     symbol of another package (no dot-imports are modelled);
+//   - a qualified `x.Name` whose Name is a package-level function of the SAME
+//     package cannot be a call or reference to it (a package never imports
+//     itself), so x is a value and Name a field or method;
+//   - a qualified reference to a function of ANOTHER package must be spelled
+//     with that package's name (the directory base approximates it), or it is
+//     a value selector that merely shares the function's name. Plain call
+//     sites keep the older permissive behaviour here: import aliases are
+//     legal, and in the enhanced tier the typed edge decides.
+//
+// A missing edge beats a wrong edge (issue #793).
+func resolveGoCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser.Symbol) *parser.Symbol {
+	callDir := filepath.Dir(cs.File)
+	samePackage := func(sym *parser.Symbol) bool { return goSamePackageTarget(cs, sym) }
+
+	if found := findByNameWhere(byFile[cs.File], cs.Name, samePackage); found != nil {
+		return found
+	}
+	if found := findByNameWhere(byDir[callDir], cs.Name, samePackage); found != nil {
+		return found
+	}
+	if cs.Receiver == "" {
+		return nil
+	}
+	cands := byName[cs.Name]
+	if len(cands) != 1 || filepath.Dir(cands[0].File) == callDir {
+		return nil
+	}
+	if sym := cands[0]; goCrossPackageTarget(cs, sym) {
+		return sym
+	}
+	return nil
+}
+
+// goSamePackageTarget reports whether sym, declared in the call site's own
+// package, can be what cs denotes: a bare identifier names a function, a
+// qualified one names a method (the qualifier is a value).
+func goSamePackageTarget(cs *parser.CallSite, sym *parser.Symbol) bool {
+	if cs.Receiver == "" {
+		return sym.Kind == parser.KindFunction
+	}
+	return sym.Kind == parser.KindMethod
+}
+
+// goCrossPackageTarget reports whether sym, declared in another package, can be
+// what the qualified site cs denotes. Methods are reached through any value
+// qualifier. A function needs a qualifier naming its package for heuristic
+// reference captures; plain call sites keep the permissive name match.
+func goCrossPackageTarget(cs *parser.CallSite, sym *parser.Symbol) bool {
+	switch sym.Kind {
+	case parser.KindMethod:
+		return true
+	case parser.KindFunction:
+		return !cs.IsArgRef || filepath.Base(filepath.Dir(sym.File)) == cs.Receiver
+	}
+	return false
 }
