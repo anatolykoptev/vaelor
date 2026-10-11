@@ -64,3 +64,30 @@ func recordAutoIndexDuration(repo, outcome string, d time.Duration) {
 func recordAutoIndexDeferred(repo string) {
 	autoindexDeferredTotal.WithLabelValues(repo).Inc()
 }
+
+// gocode_autoindex_skipped_busy_total counts repos a pass skipped because a
+// full index of that repo was already running. A rejection path with no
+// counter reads as "never happens".
+var autoindexSkippedBusyTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_autoindex_skipped_busy_total",
+		Help: "Autoindex repos skipped because an index of the same repo was already in flight, by repo.",
+	},
+	[]string{"repo"},
+)
+
+// gocode_autoindex_last_pass_timestamp_seconds is the unix time the most recent
+// autoindex pass (boot or periodic) finished. If the periodic loop dies this
+// stops advancing; alert on time() minus this against the configured interval.
+var autoindexLastPassTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "gocode_autoindex_last_pass_timestamp_seconds",
+	Help: "Unix time the last autoindex pass (boot or periodic) completed.",
+})
+
+func recordAutoIndexSkippedBusy(repo string) {
+	autoindexSkippedBusyTotal.WithLabelValues(repo).Inc()
+}
+
+func recordAutoIndexPassDone() {
+	autoindexLastPassTimestamp.SetToCurrentTime()
+}

@@ -27,6 +27,10 @@ type AutoIndexOpts struct {
 	RetryMax int
 	// RetryBase is the initial backoff duration; doubles on each retry.
 	RetryBase time.Duration
+	// QuietUnchanged logs a repo whose main has not moved (mode skip-sha-match)
+	// at debug instead of info. The periodic pass sets it: ~90 unchanged repos
+	// per tick would otherwise drown the one line that matters.
+	QuietUnchanged bool
 }
 
 // Default tuning for AutoIndex.
@@ -64,6 +68,10 @@ type repoIndexer interface {
 	IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error)
 }
 
+// indexingChecker is implemented by *Pipeline; fakes that do not model an
+// in-flight index simply do not implement it.
+type indexingChecker interface{ IsIndexing(repoKey string) bool }
+
 // AutoIndex scans directories for Git repositories and indexes them with a
 // bounded worker pool plus per-repo retry-with-backoff on transient errors.
 //
@@ -96,6 +104,47 @@ func AutoIndex(pipeline *Pipeline, dirs []string, keyFn RepoKeyFunc, opts AutoIn
 		}
 	}
 	autoIndex(ctx, pipeline, dirs, keyFn, opts)
+}
+
+// AutoIndexLoop re-runs the AutoIndex pass every interval until ctx is done,
+// so a local repo whose main branch moves while the service stays up is
+// re-synced without a restart. AutoIndex alone ran once at boot: afterwards
+// head_sha advanced only when a semantic_search/code_research call happened to
+// land on the repo, and the stale_warning on every other tool stayed up for
+// as long as the container did. Each pass is the same IncrementalSync the boot
+// pass uses (git-diff of the changed files; an unchanged repo is a SHA compare
+// plus a timestamp bump), serialized by opts.Concurrency, so a quiet fleet
+// costs a handful of cheap queries per tick. Passes run back to back, never
+// overlapping; interval <= 0 disables the loop. Call it after the boot
+// AutoIndex returns.
+func AutoIndexLoop(ctx context.Context, pipeline *Pipeline, dirs []string, keyFn RepoKeyFunc, opts AutoIndexOpts, interval time.Duration) {
+	if pipeline == nil {
+		return
+	}
+	autoIndexLoop(ctx, pipeline, dirs, keyFn, opts, interval)
+}
+
+// autoIndexLoop is the testable core of AutoIndexLoop.
+func autoIndexLoop(
+	ctx context.Context,
+	pipeline repoIndexer,
+	dirs []string,
+	keyFn RepoKeyFunc,
+	opts AutoIndexOpts,
+	interval time.Duration,
+) {
+	if interval <= 0 || pipeline == nil || len(dirs) == 0 {
+		return
+	}
+	opts.QuietUnchanged = true
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+		autoIndex(ctx, pipeline, dirs, keyFn, opts)
+	}
 }
 
 // autoIndex is the testable core: takes an indexer interface and a context.
@@ -140,6 +189,16 @@ func autoIndex(
 				}
 			}
 			defer sem.Release(1)
+			// A full index of this repo is already running (a lazy
+			// semantic_search/code_research index, or a previous pass). The
+			// incremental path writes per-file rows without taking the
+			// single-flight slot, so running it alongside would race the full
+			// index. Skip; the next pass picks the repo up.
+			if c, ok := pipeline.(indexingChecker); ok && c.IsIndexing(r.key) {
+				slog.Debug("autoindex: skipped, index already running", slog.String("repo", r.key))
+				recordAutoIndexSkippedBusy(r.key)
+				return
+			}
 			// Track in-flight autoindex jobs for operational visibility.
 			autoindexInFlight.Inc()
 			defer autoindexInFlight.Dec()
@@ -147,6 +206,7 @@ func autoIndex(
 		}(r)
 	}
 	wg.Wait()
+	recordAutoIndexPassDone()
 	slog.Info("autoindex: complete", slog.Int("repos", len(repos)))
 }
 
@@ -174,7 +234,11 @@ func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts Auto
 		result, err := pipeline.IncrementalSync(ctx, r.key, r.root)
 		if err == nil && (result == nil || len(result.Errors) == 0) {
 			if result != nil {
-				slog.Info("autoindex: done",
+				level := slog.LevelInfo
+				if opts.QuietUnchanged && result.Mode == IncrementalSyncSkipSHAMatch {
+					level = slog.LevelDebug
+				}
+				slog.Log(ctx, level, "autoindex: done",
 					slog.String("repo", r.key),
 					slog.String("mode", string(result.Mode)),
 					slog.Int("embedded", result.FilesEmbedded),

@@ -391,3 +391,24 @@ func TestLoadConfig_EmbedModelEmptyFallsToDefault(t *testing.T) {
 		t.Errorf("EMBED_MODEL override: want %q, got %q", "some-embed-model", cfg.EmbedModel)
 	}
 }
+
+// The periodic autoindex pass ships ON: a default of 0 would make the whole
+// feature unreachable in production (compose sets no AUTOINDEX_INTERVAL).
+func TestLoadConfig_AutoIndexIntervalDefaultsOn(t *testing.T) {
+	t.Setenv("AUTOINDEX_INTERVAL", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.AutoIndexInterval != 15*time.Minute {
+		t.Errorf("AutoIndexInterval default = %v, want 15m", cfg.AutoIndexInterval)
+	}
+	t.Setenv("AUTOINDEX_INTERVAL", "0")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.AutoIndexInterval != 0 {
+		t.Errorf("AUTOINDEX_INTERVAL=0 must disable the loop, got %v", cfg.AutoIndexInterval)
+	}
+}

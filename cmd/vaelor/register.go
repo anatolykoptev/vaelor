@@ -349,7 +349,13 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 			RetryMax:    cfg.AutoIndexRetryMax,
 			RetryBase:   cfg.AutoIndexRetryBase,
 		}
-		go embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
+		// Boot pass first, then the periodic re-sync: without the loop head_sha
+		// only advanced at boot or on a lucky semantic_search, and every other
+		// tool kept warning "index built against main X" until the next restart.
+		go func() {
+			embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
+			embeddings.AutoIndexLoop(ctx, semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts, cfg.AutoIndexInterval)
+		}()
 	}
 
 	// Orphan gauge — boot + periodic ticker so gocode_orphan_repo_keys reflects

@@ -113,6 +113,7 @@
 | `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `code-rank-embed` | Model name for OpenAI-compatible embed API |
 | `AUTO_INDEX_DIRS` | optional | Comma-separated dirs eligible for auto-indexing (e.g. `/host/src`). Indexing is lazy per-repo on first semantic query, not eager at boot. Runtime compose sets `/host/src` |
+| `AUTOINDEX_INTERVAL` | `15m` | Repeats the boot auto-index pass on this interval so repos whose main moves while the service is up are re-synced (clears `stale_warning` without a restart). `0` = boot-only. Metric `gocode_autoindex_last_pass_timestamp_seconds` shows the loop is alive |
 | `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/path/to/repos:/host`) |
 | `OUTPUT_DIR` | optional | Output dir for generated files (e.g. `/tmp/go-code-output`) |
 | `GITHUB_WEBHOOK_SECRET` | optional | When set, enables `/webhook/github` PR-review receiver |

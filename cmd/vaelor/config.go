@@ -121,6 +121,12 @@ type Config struct {
 	// Doubles on each subsequent attempt. Default 5s.
 	AutoIndexRetryBase time.Duration
 
+	// AutoIndexInterval is how often the boot AutoIndex pass is repeated so a
+	// local repo whose main moves while the service is up is re-synced (and its
+	// stale_warning clears) without a restart. Default 15m; <=0 disables, which
+	// reverts to boot-only indexing. Env: AUTOINDEX_INTERVAL.
+	AutoIndexInterval time.Duration
+
 	// OxBrowserURL is the base URL for ox-browser HTTP API (e.g. http://ox-browser:8901).
 	// Empty means site_analyze tool is disabled.
 	OxBrowserURL string
@@ -481,6 +487,7 @@ const (
 	defaultAutoIndexConcurrency = 1
 	defaultAutoIndexRetryMax    = 3
 	defaultAutoIndexRetryBase   = 5 * time.Second
+	defaultAutoIndexInterval    = 15 * time.Minute
 
 	// AnalyzeRank fusion defaults (Stream 3). pagerank centrality outweighs
 	// pure text relevance; exact-match seed boost is auxiliary. These apply
@@ -649,6 +656,7 @@ func loadConfig() (Config, error) {
 		AutoIndexConcurrency:   env.Int("AUTOINDEX_CONCURRENCY", defaultAutoIndexConcurrency),
 		AutoIndexRetryMax:      env.Int("AUTOINDEX_RETRY_MAX", defaultAutoIndexRetryMax),
 		AutoIndexRetryBase:     env.Duration("AUTOINDEX_RETRY_BASE", defaultAutoIndexRetryBase),
+		AutoIndexInterval:      env.Duration("AUTOINDEX_INTERVAL", defaultAutoIndexInterval),
 		OxBrowserURL:           env.Str("OX_BROWSER_URL", ""),
 		GoSearchURL:            env.Str("GO_SEARCH_URL", ""),
 		GitLabToken:            env.Str("GITLAB_TOKEN", ""),
