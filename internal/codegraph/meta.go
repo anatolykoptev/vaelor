@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anatolykoptev/vaelor/internal/callgraph"
 	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -170,6 +172,19 @@ func isSchemaNotReady(err error) bool {
 	return strings.Contains(err.Error(), "42P01")
 }
 
+// contentFingerprint is what a persisted graph's content_hash column holds: the
+// repo content hash plus the call-resolver version. A binary that resolves
+// edges differently builds different graphs from identical bytes, so the
+// version is part of the cache identity -- otherwise an upgrade serves the old
+// resolver's edges until the TTL expires.
+func contentFingerprint(root string) string {
+	h := ingest.RepoContentHash(root)
+	if h == "" {
+		return "" // unhashable root: keep the temporal-only contract
+	}
+	return h + "+r" + strconv.Itoa(callgraph.ResolverVersion)
+}
+
 // contentHashCacheTTL bounds how long a freshness hash is reused on the hot
 // AGE-gate path (CacheStatus → RepoContentHash). A burst of tool calls within
 // the TTL doesn't re-walk the tree. Kept small (5s) so a git checkout or file
@@ -313,7 +328,7 @@ func CacheStatus(ctx context.Context, store *Store, root string) (bool, error) {
 	if meta.ContentHash != "" {
 		currentHash, ok := contentHashMemo.get(root)
 		if !ok {
-			currentHash = ingest.RepoContentHash(root)
+			currentHash = contentFingerprint(root)
 			contentHashMemo.set(root, currentHash)
 		}
 		return currentHash == meta.ContentHash, nil

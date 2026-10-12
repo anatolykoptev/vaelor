@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,7 +24,20 @@ const (
 // cgL2KeyVersion is embedded in the Redis key prefix so a wire-format or
 // struct-shape change can invalidate stale L2 entries by bumping it.
 const cgL2KeyVersion = "v1"
-const cgL2Prefix = "gc:callgraph:" + cgL2KeyVersion + ":"
+
+// ResolverVersion identifies the call-edge semantics of this binary. Bump it in
+// any change that alters which edges BuildCallGraph / the typed pass produce
+// for unchanged source: persisted graphs (AGE meta fingerprint) and shared L2
+// entries built by an older resolver are then ignored instead of serving the
+// old edges until their TTL expires.
+//
+//	1: bare-name resolution for every language
+//	2: Go call sites resolved under Go's scoping rules (graph_go.go)
+const ResolverVersion = 2
+
+// cgL2Prefix carries the resolver version so entries cached by an older resolver
+// are never read back.
+var cgL2Prefix = "gc:callgraph:" + cgL2KeyVersion + "r" + strconv.Itoa(ResolverVersion) + ":"
 
 // cgCacheEntry holds a cached CallGraph and when it was computed.
 type cgCacheEntry struct {

@@ -38,7 +38,8 @@ func TestBuildCallGraph_CrossPackage(t *testing.T) {
 		{Name: "Serve", Kind: parser.KindFunction, File: "/project/internal/server/server.go", StartLine: 1, EndLine: 30},
 	}
 	calls := []parser.CallSite{
-		// Go reaches another package only through a qualifier: server.Serve().
+		// Go reaches another package only through a qualifier (or a dot import,
+		// which these header-less synthetic files cannot declare): server.Serve().
 		{Name: "Serve", Receiver: "server", File: "/project/cmd/main.go", Line: 5},
 	}
 
@@ -320,6 +321,7 @@ func TestBuildCallGraph_UniqueGlobalNameKeepsEdge(t *testing.T) {
 		{Name: "Serve", Kind: parser.KindFunction, File: "/src/internal/server/server.go", StartLine: 1, EndLine: 30},
 	}
 	calls := []parser.CallSite{
+		// Qualified on purpose: a bare cross-package call is not Go (see above).
 		{Name: "Serve", Receiver: "server", File: "/src/cmd/main.go", Line: 5},
 	}
 

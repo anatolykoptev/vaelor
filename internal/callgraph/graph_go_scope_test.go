@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -193,4 +195,194 @@ func Wire(p Hooks) Hooks {
 	if got := resolvedCallees(t, cg, "Wire"); got["Sync@pkg"] {
 		t.Errorf("Wire -> pkg.Sync: value selector p.Sync bound to the caller's own package function; edges=%v", got)
 	}
+}
+
+// tiers runs fn on the tree-sitter tier (no go.mod) and the enhanced tier
+// (go.mod present, so the typed pass runs and tree-sitter edges are merged in).
+func tiers(t *testing.T, fn func(t *testing.T, withModule bool, wantTier string)) {
+	t.Helper()
+	for _, tc := range []struct {
+		name       string
+		withModule bool
+		wantTier   string
+	}{
+		{"tree-sitter tier", false, "basic"},
+		{"enhanced tier", true, "enhanced"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { fn(t, tc.withModule, tc.wantTier) })
+	}
+}
+
+func buildTier(t *testing.T, dir, wantTier string) *CallGraph {
+	t.Helper()
+	cg, err := BuildFromRepo(context.Background(), TraceRepoInput{Root: dir, Language: "go"})
+	if err != nil {
+		t.Fatalf("BuildFromRepo: %v", err)
+	}
+	if cg.Tier != wantTier {
+		t.Fatalf("tier = %q, want %q (fixture does not exercise the intended leg)", cg.Tier, wantTier)
+	}
+	return cg
+}
+
+// A function referenced ONLY as a value (`Register("k", q.Handle)`) must keep
+// its edge however the qualifier is spelled: the typed pass emits no
+// value-reference edges, so dropping it makes the function look dead. The
+// qualifier is whatever the referencing file's import table says -- an alias,
+// or the imported package's `package` clause name -- never the directory base
+// (`foo-go` declares `package foo`; `vx/v2` declares `package vx`).
+func TestBuildFromRepo_GoQualifiedReferenceSpellings(t *testing.T) {
+	tiers(t, func(t *testing.T, withModule bool, wantTier string) {
+		dir := writeGoFixture(t, withModule, map[string]string{
+			"app/app.go": `package app
+
+import (
+	"strconv"
+	"strings"
+	ext2 "example.com/scoped/ext"
+	"example.com/scoped/foo-go"
+	"example.com/scoped/vx/v2"
+)
+
+func Register(string, func()) {}
+
+func RefAlias()   { Register("a", ext2.HandleAlias) }
+func RefDirName() { Register("b", foo.HandleFoo) }
+func RefV2()      { Register("c", vx.HandleV2) }
+`,
+			"ext/ext.go":    "package ext\n\nfunc HandleAlias() {}\n",
+			"foo-go/foo.go": "package foo\n\nfunc HandleFoo() {}\n",
+			"vx/v2/vx.go":   "package vx\n\nfunc HandleV2() {}\n",
+		})
+		cg := buildTier(t, dir, wantTier)
+		for caller, want := range map[string]string{
+			"RefAlias":   "HandleAlias@ext",
+			"RefDirName": "HandleFoo@foo-go",
+			"RefV2":      "HandleV2@v2",
+		} {
+			if got := resolvedCallees(t, cg, caller); !got[want] {
+				t.Errorf("%s -> %s: value reference through an import spelling the directory base does not match was dropped; edges=%v", caller, want, got)
+			}
+		}
+	})
+}
+
+// With the import table the qualifier picks the package even when the function
+// name is not unique repo-wide.
+func TestBuildFromRepo_GoQualifiedReferencePicksImportedPackage(t *testing.T) {
+	tiers(t, func(t *testing.T, withModule bool, wantTier string) {
+		dir := writeGoFixture(t, withModule, map[string]string{
+			"app/app.go": `package app
+
+import other "example.com/scoped/b"
+
+func Register(string, func()) {}
+
+func Wire() { Register("a", other.Handle) }
+`,
+			"a/a.go": "package a\n\nfunc Handle() {}\n",
+			"b/b.go": "package b\n\nfunc Handle() {}\n",
+		})
+		cg := buildTier(t, dir, wantTier)
+		got := resolvedCallees(t, cg, "Wire")
+		if !got["Handle@b"] || got["Handle@a"] {
+			t.Errorf("Wire must reference b.Handle only; edges=%v", got)
+		}
+	})
+}
+
+// An external test package (`package x_test`, same dir) reaches x only through
+// `x.Foo`. The target sits in the caller's directory but in another package.
+func TestBuildFromRepo_GoExternalTestPackageQualifiedCall(t *testing.T) {
+	tiers(t, func(t *testing.T, withModule bool, wantTier string) {
+		dir := writeGoFixture(t, withModule, map[string]string{
+			"ext/ext.go": "package ext\n\nfunc OnlyTested() {}\n",
+			"ext/ext_test.go": `package ext_test
+
+import (
+	"strconv"
+	"strings"
+	"testing"
+
+	"example.com/scoped/ext"
+)
+
+func TestX(t *testing.T) { ext.OnlyTested() }
+`,
+			// Same name elsewhere: the repo-wide unique-name tier cannot decide.
+			"other/other.go": "package other\n\nfunc OnlyTested() {}\n",
+		})
+		cg := buildTier(t, dir, wantTier)
+		got := resolvedCallees(t, cg, "TestX")
+		if !got["OnlyTested@ext"] || got["OnlyTested@other"] {
+			t.Errorf("TestX -> ext.OnlyTested lost (or bound to the wrong package); edges=%v", got)
+		}
+	})
+}
+
+// `import . "pkg"` puts pkg's exported names in file scope: a bare identifier
+// may then name a function of another package.
+func TestBuildFromRepo_GoDotImport(t *testing.T) {
+	tiers(t, func(t *testing.T, withModule bool, wantTier string) {
+		dir := writeGoFixture(t, withModule, map[string]string{
+			"app/app.go": `package app
+
+import . "example.com/scoped/dot"
+
+func Register(string, func()) {}
+
+func CallDot() { DotFn() }
+func RefDot()  { Register("d", DotFn) }
+`,
+			"dot/dot.go": "package dot\n\nfunc DotFn() {}\n",
+			// A same-named function in a package that is NOT dot-imported.
+			"elsewhere/e.go": "package elsewhere\n\nfunc DotFn() {}\n",
+		})
+		cg := buildTier(t, dir, wantTier)
+		for _, caller := range []string{"CallDot", "RefDot"} {
+			got := resolvedCallees(t, cg, caller)
+			if !got["DotFn@dot"] || got["DotFn@elsewhere"] {
+				t.Errorf("%s -> dot.DotFn lost (or bound to a non-imported package); edges=%v", caller, got)
+			}
+		}
+	})
+}
+
+// Shared L2 entries built by an older resolver must not be read back by this
+// binary: the resolver version is part of the key prefix.
+func TestCGL2PrefixCarriesResolverVersion(t *testing.T) {
+	want := "r" + strconv.Itoa(ResolverVersion) + ":"
+	if !strings.HasSuffix(cgL2Prefix, want) {
+		t.Errorf("cgL2Prefix = %q, want suffix %q", cgL2Prefix, want)
+	}
+}
+
+// A method called through a value in an external test package targets the
+// package under test (same directory), even when other packages declare a
+// method with the same name: without types, the pair x / x_test is one family.
+func TestBuildFromRepo_GoExternalTestPackageMethodCall(t *testing.T) {
+	tiers(t, func(t *testing.T, withModule bool, wantTier string) {
+		dir := writeGoFixture(t, withModule, map[string]string{
+			"ext/ext.go": "package ext\n\ntype Reg struct{}\n\nfunc (r *Reg) Register() {}\n",
+			"ext/ext_test.go": `package ext_test
+
+import (
+	"testing"
+
+	"example.com/scoped/ext"
+)
+
+func TestY(t *testing.T) {
+	r := &ext.Reg{}
+	r.Register()
+}
+`,
+			"other/other.go": "package other\n\ntype Reg struct{}\n\nfunc (r *Reg) Register() {}\n",
+		})
+		cg := buildTier(t, dir, wantTier)
+		got := resolvedCallees(t, cg, "TestY")
+		if !got["Register@ext"] || got["Register@other"] {
+			t.Errorf("TestY -> ext.Reg.Register lost (or bound to the wrong package); edges=%v", got)
+		}
+	})
 }
