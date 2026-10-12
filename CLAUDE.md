@@ -112,8 +112,10 @@
 | `GO_WOWA_GITHUB_SESSION` | `github-search` | Named go-wowa browser session holding the github.com login |
 | `EMBED_URL` | optional | Embedding server (e.g. `http://embed-server:8082`) — enables semantic_search |
 | `EMBED_MODEL` | `code-rank-embed` | Model name for OpenAI-compatible embed API |
-| `AUTO_INDEX_DIRS` | optional | Comma-separated dirs eligible for auto-indexing (e.g. `/host/src`). Indexing is lazy per-repo on first semantic query, not eager at boot. Runtime compose sets `/host/src` |
-| `AUTOINDEX_INTERVAL` | `15m` | Repeats the boot auto-index pass on this interval so repos whose main moves while the service is up are re-synced (clears `stale_warning` without a restart). `0` = boot-only. Metric `gocode_autoindex_last_pass_timestamp_seconds` shows the loop is alive |
+| `AUTO_INDEX_DIRS` | optional | Comma-separated dirs whose git repos are auto-indexed: a boot pass (incremental when the repo was indexed before), then the periodic re-sync below. A repo never indexed before is first indexed at boot or lazily on its first semantic query. Runtime compose sets `/host/src` |
+| `AUTOINDEX_INTERVAL` | `15m` | Repeats the boot auto-index pass so repos whose main moves while the service is up are re-synced (clears `stale_warning` without a restart). Needs a unit (`15m`, not `15`), floor `1m`; `0` = boot-only; anything else invalid fails startup. The periodic pass only syncs repos already indexed with a resolvable git HEAD (others are counted in `gocode_autoindex_loop_skipped_total{reason}`). Liveness: `gocode_autoindex_last_pass_timestamp_seconds` |
+| `AUTOINDEX_PASS_BUDGET` | `10m` | Time budget of one periodic pass (floor `1m`); unfinished repos continue next tick |
+| `AUTOINDEX_MAX_FILES` | `100` | Max files re-embedded per repo per periodic pass (about 170 s at the measured 1.6 rows/s); the rest continues next tick |
 | `PATH_MAPPINGS` | optional | Host-to-container path mapping (e.g. `/path/to/repos:/host`) |
 | `OUTPUT_DIR` | optional | Output dir for generated files (e.g. `/tmp/go-code-output`) |
 | `GITHUB_WEBHOOK_SECRET` | optional | When set, enables `/webhook/github` PR-review receiver |

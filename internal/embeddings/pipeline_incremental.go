@@ -45,6 +45,12 @@ type IncrementalSyncResult struct {
 	// FilesDeleted is the sum of FileIndexResult.Deleted (tombstoned symbols).
 	FilesDeleted int64
 
+	// Truncated is true when the sync stopped at the per-pass cap on re-embedded
+	// files (WithMaxEmbeddedFiles) with changed files still unprocessed. head_sha
+	// is NOT advanced, so the next sync resumes: files already embedded
+	// hash-skip for free and the cap applies to the rest.
+	Truncated bool
+
 	// Errors collects per-file errors. When non-empty, SHA is NOT advanced so the
 	// next boot retries the affected files (hash-skip from IndexFile makes retries cheap).
 	Errors []error
@@ -170,7 +176,16 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		CurrentSHA: currentSHA,
 	}
 
+	maxEmbedded := maxEmbeddedFilesFrom(ctx)
+	embeddedFiles := 0
 	for _, relPath := range changedFiles {
+		// Cap reached and more files remain: stop here, leave head_sha where it
+		// is. Counting only RE-EMBEDDED files keeps the resume progressing --
+		// files done on an earlier tick hash-skip and cost no backend time.
+		if maxEmbedded > 0 && embeddedFiles >= maxEmbedded {
+			result.Truncated = true
+			break
+		}
 		result.FilesChanged++
 		fileStart := time.Now()
 		fr, fileErr := p.IndexFile(ctx, repoKey, root, relPath)
@@ -182,6 +197,9 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 			continue
 		}
 		indexFileDuration.WithLabelValues("success").Observe(elapsed.Seconds())
+		if fr.Embedded > 0 {
+			embeddedFiles++
+		}
 		result.FilesEmbedded += fr.Embedded
 		result.FilesSkipped += fr.Skipped
 		result.FilesDeleted += fr.Deleted
@@ -198,8 +216,13 @@ func (p *Pipeline) IncrementalSync(ctx context.Context, repoKey, root string) (*
 		incrementalFilesTotal.WithLabelValues("deleted").Add(float64(result.FilesDeleted))
 	}
 
-	// Step 7: advance SHA only on full success.
-	if len(result.Errors) == 0 {
+	if result.Truncated {
+		recordAutoIndexTruncated(repoKey)
+	}
+
+	// Step 7: advance SHA only on full success (and only when no changed file
+	// was left behind by the per-pass cap).
+	if len(result.Errors) == 0 && !result.Truncated {
 		if err := p.writeRepoState(ctx, repoKey, currentSHA, root); err != nil {
 			recordRepoStateWriteFailure(repoKey, "incrementalSync:sha-advance", err)
 		}
@@ -247,4 +270,58 @@ func gitDiffNames(ctx context.Context, root, prevSHA, currentSHA string) ([]stri
 		}
 	}
 	return files, nil
+}
+
+type maxEmbeddedFilesKey struct{}
+
+// withMaxEmbeddedFiles returns ctx carrying a cap on how many files one
+// IncrementalSync may re-embed. n <= 0 means no cap.
+func withMaxEmbeddedFiles(ctx context.Context, n int) context.Context {
+	return context.WithValue(ctx, maxEmbeddedFilesKey{}, n)
+}
+
+func maxEmbeddedFilesFrom(ctx context.Context) int {
+	n, _ := ctx.Value(maxEmbeddedFilesKey{}).(int)
+	return n
+}
+
+// Reasons LoopSkipReason returns; also the label values of
+// gocode_autoindex_loop_skipped_total.
+const (
+	loopSkipNoGit        = "no_git"
+	loopSkipBootstrap    = "bootstrap"
+	loopSkipNoEmbeddings = "no_embeddings"
+)
+
+// LoopSkipReason says why the periodic autoindex pass must leave a repo alone,
+// or "" when it should sync it. The loop only does the cheap, resumable work:
+//
+//   - no_git: no resolvable HEAD (e.g. a linked worktree whose gitdir is not
+//     mounted). IncrementalSync would run a full fallback on every tick and
+//     never write a state row;
+//   - bootstrap: never indexed. A first index cannot be capped by files and a
+//     budget cut mid-way would roll its partial rows back, restarting from zero
+//     every tick. The boot pass and the lazy semantic_search path own it;
+//   - no_embeddings: same SHA and zero rows (a docs-only repo, or a frozen-empty
+//     desync) -- both are full-index territory, not incremental.
+//
+// Errors reading state fall through to "": the sync itself fails closed.
+func (p *Pipeline) LoopSkipReason(ctx context.Context, repoKey, root string) string {
+	currentSHA, _ := repoMainBranchSHA(root)
+	if currentSHA == "" {
+		return loopSkipNoGit
+	}
+	prevSHA, err := p.store.GetRepoState(ctx, repoKey)
+	if err != nil {
+		return ""
+	}
+	if prevSHA == "" {
+		return loopSkipBootstrap
+	}
+	if prevSHA == currentSHA {
+		if n, countErr := p.store.CountEmbeddings(ctx, repoKey); countErr == nil && n == 0 {
+			return loopSkipNoEmbeddings
+		}
+	}
+	return ""
 }

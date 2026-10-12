@@ -342,21 +342,9 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	setCapability("web_search", deps.WebSearch != nil)
 	setCapability("llm", hasKey)
 
-	// Auto-index local repos in background.
-	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
-		opts := embeddings.AutoIndexOpts{
-			Concurrency: cfg.AutoIndexConcurrency,
-			RetryMax:    cfg.AutoIndexRetryMax,
-			RetryBase:   cfg.AutoIndexRetryBase,
-		}
-		// Boot pass first, then the periodic re-sync: without the loop head_sha
-		// only advanced at boot or on a lucky semantic_search, and every other
-		// tool kept warning "index built against main X" until the next restart.
-		go func() {
-			embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
-			embeddings.AutoIndexLoop(ctx, semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts, cfg.AutoIndexInterval)
-		}()
-	}
+	// Auto-index local repos in background: a boot pass, then the periodic
+	// re-sync loop (see startAutoIndex).
+	startAutoIndex(ctx, cfg, semDeps.Pipeline, defaultAutoIndexRunners)
 
 	// Orphan gauge — boot + periodic ticker so gocode_orphan_repo_keys reflects
 	// reality continuously rather than only after an operator-run orphan_sweep.

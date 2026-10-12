@@ -394,8 +394,10 @@ func TestLoadConfig_EmbedModelEmptyFallsToDefault(t *testing.T) {
 
 // The periodic autoindex pass ships ON: a default of 0 would make the whole
 // feature unreachable in production (compose sets no AUTOINDEX_INTERVAL).
-func TestLoadConfig_AutoIndexIntervalDefaultsOn(t *testing.T) {
+func TestLoadConfig_AutoIndexDefaultsShipOn(t *testing.T) {
 	t.Setenv("AUTOINDEX_INTERVAL", "")
+	t.Setenv("AUTOINDEX_PASS_BUDGET", "")
+	t.Setenv("AUTOINDEX_MAX_FILES", "")
 	cfg, err := loadConfig()
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -403,12 +405,64 @@ func TestLoadConfig_AutoIndexIntervalDefaultsOn(t *testing.T) {
 	if cfg.AutoIndexInterval != 15*time.Minute {
 		t.Errorf("AutoIndexInterval default = %v, want 15m", cfg.AutoIndexInterval)
 	}
-	t.Setenv("AUTOINDEX_INTERVAL", "0")
-	cfg, err = loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig: %v", err)
+	if cfg.AutoIndexPassBudget != 10*time.Minute {
+		t.Errorf("AutoIndexPassBudget default = %v, want 10m", cfg.AutoIndexPassBudget)
 	}
-	if cfg.AutoIndexInterval != 0 {
-		t.Errorf("AUTOINDEX_INTERVAL=0 must disable the loop, got %v", cfg.AutoIndexInterval)
+	if cfg.AutoIndexMaxFilesPerRepo != 100 {
+		t.Errorf("AutoIndexMaxFilesPerRepo default = %d, want 100", cfg.AutoIndexMaxFilesPerRepo)
+	}
+}
+
+// AUTOINDEX_INTERVAL is parsed strictly: a bare number is not seconds, a
+// negative or sub-floor value is not silently disabled or hammered, and "0" is
+// the one explicit way to switch the loop off.
+func TestLoadConfig_AutoIndexIntervalStrict(t *testing.T) {
+	for _, tc := range []struct {
+		raw     string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"15m", 15 * time.Minute, false},
+		{"1m", time.Minute, false},
+		{"0", 0, false},
+		{"15", 0, true},    // bare number: seconds by accident
+		{"15min", 0, true}, // not a Go duration
+		{"abc", 0, true},
+		{"-5m", 0, true},
+		{"30s", 0, true}, // below the 1m floor
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			t.Setenv("AUTOINDEX_INTERVAL", tc.raw)
+			cfg, err := loadConfig()
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "AUTOINDEX_INTERVAL") {
+					t.Fatalf("AUTOINDEX_INTERVAL=%q: want an error naming the variable, got %v", tc.raw, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("AUTOINDEX_INTERVAL=%q: %v", tc.raw, err)
+			}
+			if cfg.AutoIndexInterval != tc.want {
+				t.Errorf("AUTOINDEX_INTERVAL=%q parsed to %v, want %v", tc.raw, cfg.AutoIndexInterval, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_AutoIndexBudgetAndCapStrict(t *testing.T) {
+	for _, tc := range []struct{ name, val string }{
+		{"AUTOINDEX_PASS_BUDGET", "600"}, // bare number
+		{"AUTOINDEX_PASS_BUDGET", "10s"}, // below floor
+		{"AUTOINDEX_PASS_BUDGET", "0"},   // a pass needs a budget
+		{"AUTOINDEX_MAX_FILES", "0"},     // cap must be >= 1
+		{"AUTOINDEX_MAX_FILES", "many"},
+	} {
+		t.Run(tc.name+"="+tc.val, func(t *testing.T) {
+			t.Setenv(tc.name, tc.val)
+			if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), tc.name) {
+				t.Fatalf("%s=%q: want an error naming the variable, got %v", tc.name, tc.val, err)
+			}
+		})
 	}
 }

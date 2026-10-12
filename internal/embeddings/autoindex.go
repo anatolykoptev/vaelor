@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -27,11 +30,43 @@ type AutoIndexOpts struct {
 	RetryMax int
 	// RetryBase is the initial backoff duration; doubles on each retry.
 	RetryBase time.Duration
-	// QuietUnchanged logs a repo whose main has not moved (mode skip-sha-match)
-	// at debug instead of info. The periodic pass sets it: ~90 unchanged repos
-	// per tick would otherwise drown the one line that matters.
-	QuietUnchanged bool
+	// Periodic marks a pass run by AutoIndexLoop rather than at boot. It
+	//   - logs a repo whose main has not moved (mode skip-sha-match) at debug
+	//     instead of info (~90 unchanged repos per tick would drown the line
+	//     that matters);
+	//   - skips repos the loop must not touch (no resolvable git HEAD, never
+	//     indexed, nothing embeddable), counting them in
+	//     gocode_autoindex_loop_skipped_total instead of re-running a full
+	//     fallback and warning about it every tick;
+	//   - caps the files re-embedded per repo (MaxFilesPerRepo).
+	Periodic bool
+	// PassBudget bounds the wall-clock time of one periodic pass. A pass that
+	// hits it stops; unfinished work continues on the next tick because the
+	// incremental path is resumable (head_sha only advances on full success and
+	// IndexFile hash-skips what is already embedded). <= 0 uses
+	// DefaultPassBudget; values below MinPassBudget are raised to it.
+	PassBudget time.Duration
+	// MaxFilesPerRepo caps how many files are RE-EMBEDDED per repo per periodic
+	// pass (files that hash-skip are free and do not count). <= 0 uses
+	// DefaultMaxFilesPerRepo.
+	MaxFilesPerRepo int
 }
+
+// Periodic-pass defaults. Sized from measured numbers on the prod embed backend
+// (single worker): 658 rows in 404 s over 22 h = 1.63 rows/s, and ~2.7 embedded
+// rows per changed file => about 1.7 s per re-embedded file. A 100-file cap is
+// therefore about 170 s for one repo; the 10 minute pass budget fits roughly
+// 350 re-embedded files, i.e. three or four repos at the cap. A merge touching
+// 1000 files is spread over several ticks instead of occupying the backend for
+// half an hour in one go.
+const (
+	DefaultPassBudget      = 10 * time.Minute
+	MinPassBudget          = time.Minute
+	DefaultMaxFilesPerRepo = 100
+	// MinInterval is the smallest accepted AUTOINDEX_INTERVAL: a pass costs
+	// seconds of CPU on an idle fleet (88 repos), so anything faster is churn.
+	MinInterval = time.Minute
+)
 
 // Default tuning for AutoIndex.
 //
@@ -70,7 +105,22 @@ type repoIndexer interface {
 
 // indexingChecker is implemented by *Pipeline; fakes that do not model an
 // in-flight index simply do not implement it.
+//
+// The IsIndexing check is a one-way guard, deliberately not a slot claim: the
+// incremental path takes no single-flight slot, and a lazy semantic_search
+// index that starts while an incremental sync is mid-flight embeds the same new
+// symbols a second time (wasted backend time, no corruption: Upsert is keyed by
+// (repo_key, file_path, symbol_name) and each writer records the SHA it saw at
+// its own start). Claiming the slot around IncrementalSync would make its
+// fallbackToFull -> IndexRepo lose the slot and silently no-op, so it needs to
+// claim only the incremental branch; tracked as a follow-up.
 type indexingChecker interface{ IsIndexing(repoKey string) bool }
+
+// loopGate is implemented by *Pipeline. LoopSkipReason returns "" when the
+// periodic loop should sync the repo, else why it must not (see Periodic).
+type loopGate interface {
+	LoopSkipReason(ctx context.Context, repoKey, root string) string
+}
 
 // AutoIndex scans directories for Git repositories and indexes them with a
 // bounded worker pool plus per-repo retry-with-backoff on transient errors.
@@ -112,11 +162,13 @@ func AutoIndex(pipeline *Pipeline, dirs []string, keyFn RepoKeyFunc, opts AutoIn
 // head_sha advanced only when a semantic_search/code_research call happened to
 // land on the repo, and the stale_warning on every other tool stayed up for
 // as long as the container did. Each pass is the same IncrementalSync the boot
-// pass uses (git-diff of the changed files; an unchanged repo is a SHA compare
-// plus a timestamp bump), serialized by opts.Concurrency, so a quiet fleet
-// costs a handful of cheap queries per tick. Passes run back to back, never
-// overlapping; interval <= 0 disables the loop. Call it after the boot
-// AutoIndex returns.
+// pass uses (git-diff of the changed files; an unchanged repo costs a SHA
+// compare, a few queries and a timestamp bump), so a quiet fleet is cheap.
+// Repos are synced one after another when opts.Concurrency is 1 (the default
+// and the only safe value for a single-worker embed backend). Passes never
+// overlap; a pass is bounded by opts.PassBudget and each repo by
+// opts.MaxFilesPerRepo. interval <= 0 disables the loop. Call it after the
+// boot AutoIndex returns.
 func AutoIndexLoop(ctx context.Context, pipeline *Pipeline, dirs []string, keyFn RepoKeyFunc, opts AutoIndexOpts, interval time.Duration) {
 	if pipeline == nil {
 		return
@@ -136,15 +188,57 @@ func autoIndexLoop(
 	if interval <= 0 || pipeline == nil || len(dirs) == 0 {
 		return
 	}
-	opts.QuietUnchanged = true
+	opts.Periodic = true
+	if opts.PassBudget <= 0 {
+		opts.PassBudget = DefaultPassBudget
+	}
+	opts.PassBudget = max(opts.PassBudget, MinPassBudget)
+	if opts.MaxFilesPerRepo <= 0 {
+		opts.MaxFilesPerRepo = DefaultMaxFilesPerRepo
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
 		}
-		autoIndex(ctx, pipeline, dirs, keyFn, opts)
+		runLoopPass(ctx, pipeline, dirs, keyFn, opts)
 	}
+}
+
+// runLoopPass runs one periodic pass under its budget. A panic anywhere in the
+// pass is logged and counted and the loop carries on: without this a parser
+// panic on a file an agent is editing would repeat on every tick.
+func runLoopPass(ctx context.Context, pipeline repoIndexer, dirs []string, keyFn RepoKeyFunc, opts AutoIndexOpts) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			recordAutoIndexPanic()
+			slog.Error("autoindex: periodic pass panicked; loop continues",
+				slog.Any("panic", rec), slog.String("stack", string(debug.Stack())))
+		}
+	}()
+	passCtx, cancel := context.WithTimeout(ctx, opts.PassBudget)
+	defer cancel()
+	autoIndex(passCtx, pipeline, dirs, keyFn, opts)
+	if ctx.Err() == nil && errors.Is(passCtx.Err(), context.DeadlineExceeded) {
+		recordAutoIndexPassBudgetExceeded()
+		slog.Warn("autoindex: periodic pass hit its time budget; unfinished repos continue next tick",
+			slog.Duration("budget", opts.PassBudget))
+	}
+}
+
+var (
+	// periodicPassCount numbers periodic passes for the start-offset rotation.
+	periodicPassCount atomic.Int32
+	closedChan        = func() <-chan struct{} { c := make(chan struct{}); close(c); return c }()
+)
+
+// passResult summarises one autoIndex pass.
+type passResult struct {
+	Repos, OK, Failed, Skipped int
+	// Completed is true when the pass ran to its end (its context was not
+	// cancelled or timed out), regardless of per-repo outcomes.
+	Completed bool
 }
 
 // autoIndex is the testable core: takes an indexer interface and a context.
@@ -154,60 +248,142 @@ func autoIndex(
 	dirs []string,
 	keyFn RepoKeyFunc,
 	opts AutoIndexOpts,
-) {
+) passResult {
 	if pipeline == nil || len(dirs) == 0 {
-		return
+		return passResult{}
 	}
 	opts = normalizeOpts(opts)
 
 	repos := discoverRepos(dirs, keyFn)
 	if len(repos) == 0 {
-		return
+		// Nothing discovered (e.g. the mount is gone) is still a pass that ran:
+		// the liveness gauge must keep advancing so it measures the loop, not
+		// the content of the directory.
+		recordAutoIndexPassDone()
+		return passResult{Completed: ctx.Err() == nil}
+	}
+	if opts.Periodic && opts.MaxFilesPerRepo > 0 {
+		ctx = withMaxEmbeddedFiles(ctx, opts.MaxFilesPerRepo)
 	}
 
 	slog.Info("autoindex: indexing repos",
 		slog.Int("repos", len(repos)),
 		slog.Int("concurrency", opts.Concurrency),
 		slog.Int("retry_max", opts.RetryMax),
+		slog.Bool("periodic", opts.Periodic),
 	)
 
+	var ok, failed, skipped atomic.Int32
 	sem := semaphore.NewWeighted(int64(opts.Concurrency))
 	var wg sync.WaitGroup
+	if opts.Periodic && len(repos) > 1 {
+		// Start each periodic pass at a different repo, so a pass cut off by its
+		// budget does not spend every tick on the same first repos while the
+		// last ones starve. Repos take the slot in the order listed (below).
+		k := int(periodicPassCount.Add(1)) % len(repos)
+		repos = append(slices.Clone(repos[k:]), repos[:k]...)
+	}
+	prevAcquired := closedChan
 	for _, r := range repos {
+		// Decide "got a slot without waiting" HERE, sequentially, so which repos
+		// run first is the listed order and not a goroutine-scheduling accident.
+		// Repos that must wait are counted now (true queue pressure) and queue on
+		// the semaphore behind their predecessor: the chain of channels makes
+		// them reach sem.Acquire one after another, and the semaphore is FIFO.
+		gotSlot := sem.TryAcquire(1)
+		if !gotSlot {
+			recordAutoIndexDeferred(r.key)
+		}
+		acquired := make(chan struct{})
 		wg.Add(1)
-		go func(r repo) {
+		go func(r repo, gotSlot bool, prev <-chan struct{}, acquired chan struct{}) {
 			defer wg.Done()
-			// Count repos that had to WAIT for a semaphore slot (true queue
-			// pressure). TryAcquire succeeds immediately when a slot is free;
-			// only the blocking path (slot already held) increments the counter,
-			// so the metric reflects actual contention, not mere entry.
-			if !sem.TryAcquire(1) {
-				recordAutoIndexDeferred(r.key)
-				if err := sem.Acquire(ctx, 1); err != nil {
-					// ctx cancelled before slot available — give up silently.
+			defer func() {
+				if rec := recover(); rec != nil {
+					failed.Add(1)
+					recordAutoIndexPanic()
+					slog.Error("autoindex: repo sync panicked; continuing with the next repo",
+						slog.String("repo", r.key), slog.Any("panic", rec),
+						slog.String("stack", string(debug.Stack())))
+				}
+			}()
+			if !gotSlot {
+				select {
+				case <-prev:
+				case <-ctx.Done():
+				}
+				err := sem.Acquire(ctx, 1)
+				close(acquired)
+				if err != nil {
+					// ctx cancelled before a slot freed: wait for the next pass.
+					skipped.Add(1)
 					return
 				}
+			} else {
+				close(acquired)
 			}
 			defer sem.Release(1)
 			// A full index of this repo is already running (a lazy
-			// semantic_search/code_research index, or a previous pass). The
-			// incremental path writes per-file rows without taking the
-			// single-flight slot, so running it alongside would race the full
-			// index. Skip; the next pass picks the repo up.
-			if c, ok := pipeline.(indexingChecker); ok && c.IsIndexing(r.key) {
+			// semantic_search/code_research index, or a previous pass); see
+			// indexingChecker for why this is a skip and not a slot claim.
+			if c, isChecker := pipeline.(indexingChecker); isChecker && c.IsIndexing(r.key) {
 				slog.Debug("autoindex: skipped, index already running", slog.String("repo", r.key))
 				recordAutoIndexSkippedBusy(r.key)
+				skipped.Add(1)
 				return
+			}
+			if opts.Periodic {
+				if g, isGate := pipeline.(loopGate); isGate {
+					if reason := g.LoopSkipReason(ctx, r.key, r.root); reason != "" {
+						recordLoopSkip(r.key, reason)
+						skipped.Add(1)
+						return
+					}
+				}
 			}
 			// Track in-flight autoindex jobs for operational visibility.
 			autoindexInFlight.Inc()
 			defer autoindexInFlight.Dec()
-			indexWithRetry(ctx, pipeline, r, opts)
-		}(r)
+			switch indexWithRetry(ctx, pipeline, r, opts) {
+			case outcomeOK:
+				ok.Add(1)
+			case outcomeFailed:
+				failed.Add(1)
+			default:
+				skipped.Add(1)
+			}
+		}(r, gotSlot, prevAcquired, acquired)
+		prevAcquired = acquired
 	}
 	wg.Wait()
-	recordAutoIndexPassDone()
-	slog.Info("autoindex: complete", slog.Int("repos", len(repos)))
+
+	res := passResult{
+		Repos: len(repos), OK: int(ok.Load()), Failed: int(failed.Load()), Skipped: int(skipped.Load()),
+		Completed: ctx.Err() == nil,
+	}
+	if res.Failed > 0 && res.OK == 0 && res.Skipped == 0 {
+		recordAutoIndexPassFailure()
+	}
+	// Stamp liveness only for a pass that ran to its end: a pass cut short by
+	// shutdown or by its time budget did not complete.
+	if res.Completed {
+		recordAutoIndexPassDone()
+	}
+	slog.Info("autoindex: complete", slog.Int("repos", len(repos)),
+		slog.Int("ok", res.OK), slog.Int("failed", res.Failed), slog.Int("skipped", res.Skipped))
+	return res
+}
+
+// loopSkipLogged remembers which (repo, reason) pairs were already logged, so a
+// repo the loop never touches costs one debug line per process, not one per tick.
+var loopSkipLogged sync.Map
+
+func recordLoopSkip(repoKey, reason string) {
+	recordAutoIndexLoopSkipped(reason)
+	if _, seen := loopSkipLogged.LoadOrStore(repoKey+"|"+reason, struct{}{}); !seen {
+		slog.Debug("autoindex: periodic pass skips repo (logged once)",
+			slog.String("repo", repoKey), slog.String("reason", reason))
+	}
 }
 
 type repo struct{ key, root string }
@@ -227,7 +403,7 @@ func discoverRepos(dirs []string, keyFn RepoKeyFunc) []repo {
 // IncrementalSync selects the git-diff path when a previous SHA is stored, or
 // falls back to IndexRepo for first-time indexing. Partial failures are
 // propagated as a non-nil error so the retry loop can reschedule the repo.
-func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts AutoIndexOpts) {
+func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts AutoIndexOpts) syncOutcome {
 	start := time.Now()
 	backoff := opts.RetryBase
 	for attempt := 0; attempt <= opts.RetryMax; attempt++ {
@@ -235,7 +411,7 @@ func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts Auto
 		if err == nil && (result == nil || len(result.Errors) == 0) {
 			if result != nil {
 				level := slog.LevelInfo
-				if opts.QuietUnchanged && result.Mode == IncrementalSyncSkipSHAMatch {
+				if opts.Periodic && result.Mode == IncrementalSyncSkipSHAMatch {
 					level = slog.LevelDebug
 				}
 				slog.Log(ctx, level, "autoindex: done",
@@ -248,7 +424,13 @@ func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts Auto
 				)
 			}
 			recordAutoIndexDuration(r.key, "success", time.Since(start))
-			return
+			return outcomeOK
+		}
+		// The pass was cut (shutdown or time budget): not a failure of this
+		// repo. Unfinished work resumes on the next pass.
+		if ctx.Err() != nil {
+			recordAutoIndexDuration(r.key, "cancelled", time.Since(start))
+			return outcomeCancelled
 		}
 		// Treat per-file errors (result.Errors) as a retryable transient failure.
 		// The first error in the slice is representative for classification.
@@ -271,19 +453,29 @@ func indexWithRetry(ctx context.Context, pipeline repoIndexer, r repo, opts Auto
 				outcome = "non_retryable"
 			}
 			recordAutoIndexDuration(r.key, outcome, time.Since(start))
-			return
+			return outcomeFailed
 		}
 		recordAutoIndexRetry(r.key, reason)
 		// Sleep for backoff, but respect ctx cancellation.
 		select {
 		case <-ctx.Done():
 			recordAutoIndexDuration(r.key, "cancelled", time.Since(start))
-			return
+			return outcomeCancelled
 		case <-time.After(backoff):
 		}
 		backoff *= 2
 	}
+	return outcomeFailed
 }
+
+// syncOutcome is how one repo's sync ended within a pass.
+type syncOutcome int
+
+const (
+	outcomeOK syncOutcome = iota
+	outcomeFailed
+	outcomeCancelled
+)
 
 // Retry reasons used as low-cardinality Prometheus labels.
 const (

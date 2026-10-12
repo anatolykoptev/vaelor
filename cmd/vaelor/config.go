@@ -123,9 +123,19 @@ type Config struct {
 
 	// AutoIndexInterval is how often the boot AutoIndex pass is repeated so a
 	// local repo whose main moves while the service is up is re-synced (and its
-	// stale_warning clears) without a restart. Default 15m; <=0 disables, which
-	// reverts to boot-only indexing. Env: AUTOINDEX_INTERVAL.
+	// stale_warning clears) without a restart. Default 15m, floor 1m; "0"
+	// disables (boot-only). Parsed strictly: a bare number, a negative value or
+	// one below the floor is a startup error. Env: AUTOINDEX_INTERVAL.
 	AutoIndexInterval time.Duration
+
+	// AutoIndexPassBudget bounds one periodic pass (default 10m, floor 1m);
+	// unfinished repos continue on the next tick. Env: AUTOINDEX_PASS_BUDGET.
+	AutoIndexPassBudget time.Duration
+
+	// AutoIndexMaxFilesPerRepo caps files re-embedded per repo per periodic
+	// pass (default 100, about 170 s on the measured 1.6 rows/s backend); the
+	// rest continues next tick. Env: AUTOINDEX_MAX_FILES.
+	AutoIndexMaxFilesPerRepo int
 
 	// OxBrowserURL is the base URL for ox-browser HTTP API (e.g. http://ox-browser:8901).
 	// Empty means site_analyze tool is disabled.
@@ -575,6 +585,18 @@ const (
 // outside {minmax, rrf} and any negative ANALYZE_RANK_WEIGHT_*). Other env values
 // fall back to documented defaults silently per the env package contract.
 func loadConfig() (Config, error) {
+	autoIndexInterval, err := parseAutoIndexDuration("AUTOINDEX_INTERVAL", defaultAutoIndexInterval, embeddings.MinInterval, true)
+	if err != nil {
+		return Config{}, err
+	}
+	autoIndexPassBudget, err := parseAutoIndexDuration("AUTOINDEX_PASS_BUDGET", embeddings.DefaultPassBudget, embeddings.MinPassBudget, false)
+	if err != nil {
+		return Config{}, err
+	}
+	autoIndexMaxFiles, err := parseAutoIndexMaxFiles(embeddings.DefaultMaxFilesPerRepo)
+	if err != nil {
+		return Config{}, err
+	}
 	mode, err := parseFusionMode(env.Str("ANALYZE_RANK_FUSION_MODE", string(analyze.FusionModeMinmax)))
 	if err != nil {
 		return Config{}, err
@@ -627,55 +649,57 @@ func loadConfig() (Config, error) {
 	}
 
 	cfg := Config{
-		Port:                   env.Str("MCP_PORT", defaultPort),
-		LLMURL:                 env.Str("LLM_API_BASE", defaultLLMURL),
-		LLMAPIKey:              env.Str("LLM_API_KEY", ""),
-		LLMModel:               env.Str("LLM_MODEL", defaultLLMModel),
-		LLMMaxTokens:           env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
-		LLMPerAttemptTimeout:   env.Duration("LLM_PER_ATTEMPT_TIMEOUT", defaultLLMPerAttemptTimeout),
-		GithubToken:            env.Str("GITHUB_TOKEN", ""),
-		GithubAppConfig:        loadGithubAppConfig(),
-		WorkspaceDir:           env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
-		RedisURL:               env.Str("REDIS_URL", ""),
-		LLMFallbackKeys:        env.List("LLM_API_KEY_FALLBACK", ""),
-		LLMModelFallback:       env.Str("LLM_MODEL_FALLBACK", ""),
-		GithubSearchRepos:      env.List("GITHUB_SEARCH_REPOS", ""),
-		OutputDir:              env.Str("OUTPUT_DIR", ""),
-		PathMappings:           parsePathMappings(env.Str("PATH_MAPPINGS", "")),
-		MaxFileBytes:           int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
-		MaxRepoBytes:           int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
-		DatabaseURL:            databaseURLEnv,
-		GraphTTLLocal:          env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
-		GraphTTLRemote:         env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
-		GraphBatchSize:         env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
-		EmbedURL:               env.Str("EMBED_URL", ""),
-		EmbedModel:             env.Str("EMBED_MODEL", defaultEmbedModel),
-		EmbedHTTPTimeout:       env.Duration("EMBED_HTTP_TIMEOUT", defaultEmbedHTTPTimeout),
-		IndexBudget:            env.Duration("INDEX_BUDGET", defaultIndexBudget),
-		AutoIndexDirs:          env.List("AUTO_INDEX_DIRS", ""),
-		AutoIndexConcurrency:   env.Int("AUTOINDEX_CONCURRENCY", defaultAutoIndexConcurrency),
-		AutoIndexRetryMax:      env.Int("AUTOINDEX_RETRY_MAX", defaultAutoIndexRetryMax),
-		AutoIndexRetryBase:     env.Duration("AUTOINDEX_RETRY_BASE", defaultAutoIndexRetryBase),
-		AutoIndexInterval:      env.Duration("AUTOINDEX_INTERVAL", defaultAutoIndexInterval),
-		OxBrowserURL:           env.Str("OX_BROWSER_URL", ""),
-		GoSearchURL:            env.Str("GO_SEARCH_URL", ""),
-		GitLabToken:            env.Str("GITLAB_TOKEN", ""),
-		GitLabURL:              env.Str("GITLAB_URL", ""),
-		SourcegraphURL:         env.Str("SOURCEGRAPH_URL", ""),
-		SourcegraphToken:       env.Str("SOURCEGRAPH_TOKEN", ""),
-		WowaBaseURL:            env.Str("GO_WOWA_BASE_URL", ""),
-		WowaGithubSession:      env.Str("GO_WOWA_GITHUB_SESSION", ""),
-		InternalServiceSecret:  env.Str("INTERNAL_SERVICE_SECRET", ""),
-		OxCodesURL:             env.Str("OX_CODES_URL", ""),
-		DesignMDDir:            env.Str("DESIGN_MD_DIR", ""),
-		DesignEmbedURL:         env.Str("DESIGN_EMBED_URL", ""),
-		DesignEmbedModel:       env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
-		LearningsDSN:           learningsDSN,
-		LearningsDSNFallback:   learningsFallbackState(learningsURLEnv, databaseURLEnv) == 1,
-		CodegraphSurpriseIndex: env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
-		FlowsMax:               env.Int("FLOWS_MAX", 0),       // 0 → applyConfigDefaults uses flowsMax=50
-		FlowsDFSDepth:          env.Int("FLOWS_DFS_DEPTH", 0), // 0 → applyConfigDefaults uses flowsDFSDepth=8
-		EmbedPipelineCache:     env.Bool("EMBED_PIPELINE_CACHE", true),
+		Port:                     env.Str("MCP_PORT", defaultPort),
+		LLMURL:                   env.Str("LLM_API_BASE", defaultLLMURL),
+		LLMAPIKey:                env.Str("LLM_API_KEY", ""),
+		LLMModel:                 env.Str("LLM_MODEL", defaultLLMModel),
+		LLMMaxTokens:             env.Int("LLM_MAX_TOKENS", defaultLLMMaxTokens),
+		LLMPerAttemptTimeout:     env.Duration("LLM_PER_ATTEMPT_TIMEOUT", defaultLLMPerAttemptTimeout),
+		GithubToken:              env.Str("GITHUB_TOKEN", ""),
+		GithubAppConfig:          loadGithubAppConfig(),
+		WorkspaceDir:             env.Str("WORKSPACE_DIR", defaultWorkspaceDir),
+		RedisURL:                 env.Str("REDIS_URL", ""),
+		LLMFallbackKeys:          env.List("LLM_API_KEY_FALLBACK", ""),
+		LLMModelFallback:         env.Str("LLM_MODEL_FALLBACK", ""),
+		GithubSearchRepos:        env.List("GITHUB_SEARCH_REPOS", ""),
+		OutputDir:                env.Str("OUTPUT_DIR", ""),
+		PathMappings:             parsePathMappings(env.Str("PATH_MAPPINGS", "")),
+		MaxFileBytes:             int64(env.Int("MAX_FILE_KB", defaultMaxFileBytesKB)) * bytesPerKB,
+		MaxRepoBytes:             int64(env.Int("MAX_REPO_MB", defaultMaxRepoBytesMB)) * bytesPerMB,
+		DatabaseURL:              databaseURLEnv,
+		GraphTTLLocal:            env.Int("GRAPH_TTL_LOCAL", defaultGraphTTLLocal),
+		GraphTTLRemote:           env.Int("GRAPH_TTL_REMOTE", defaultGraphTTLRemote),
+		GraphBatchSize:           env.Int("GRAPH_BATCH_SIZE", defaultGraphBatchSize),
+		EmbedURL:                 env.Str("EMBED_URL", ""),
+		EmbedModel:               env.Str("EMBED_MODEL", defaultEmbedModel),
+		EmbedHTTPTimeout:         env.Duration("EMBED_HTTP_TIMEOUT", defaultEmbedHTTPTimeout),
+		IndexBudget:              env.Duration("INDEX_BUDGET", defaultIndexBudget),
+		AutoIndexDirs:            env.List("AUTO_INDEX_DIRS", ""),
+		AutoIndexConcurrency:     env.Int("AUTOINDEX_CONCURRENCY", defaultAutoIndexConcurrency),
+		AutoIndexRetryMax:        env.Int("AUTOINDEX_RETRY_MAX", defaultAutoIndexRetryMax),
+		AutoIndexRetryBase:       env.Duration("AUTOINDEX_RETRY_BASE", defaultAutoIndexRetryBase),
+		AutoIndexInterval:        autoIndexInterval,
+		AutoIndexPassBudget:      autoIndexPassBudget,
+		AutoIndexMaxFilesPerRepo: autoIndexMaxFiles,
+		OxBrowserURL:             env.Str("OX_BROWSER_URL", ""),
+		GoSearchURL:              env.Str("GO_SEARCH_URL", ""),
+		GitLabToken:              env.Str("GITLAB_TOKEN", ""),
+		GitLabURL:                env.Str("GITLAB_URL", ""),
+		SourcegraphURL:           env.Str("SOURCEGRAPH_URL", ""),
+		SourcegraphToken:         env.Str("SOURCEGRAPH_TOKEN", ""),
+		WowaBaseURL:              env.Str("GO_WOWA_BASE_URL", ""),
+		WowaGithubSession:        env.Str("GO_WOWA_GITHUB_SESSION", ""),
+		InternalServiceSecret:    env.Str("INTERNAL_SERVICE_SECRET", ""),
+		OxCodesURL:               env.Str("OX_CODES_URL", ""),
+		DesignMDDir:              env.Str("DESIGN_MD_DIR", ""),
+		DesignEmbedURL:           env.Str("DESIGN_EMBED_URL", ""),
+		DesignEmbedModel:         env.Str("DESIGN_EMBED_MODEL", "multilingual-e5-large"),
+		LearningsDSN:             learningsDSN,
+		LearningsDSNFallback:     learningsFallbackState(learningsURLEnv, databaseURLEnv) == 1,
+		CodegraphSurpriseIndex:   env.Bool("CODEGRAPH_SURPRISE_INDEX", false),
+		FlowsMax:                 env.Int("FLOWS_MAX", 0),       // 0 → applyConfigDefaults uses flowsMax=50
+		FlowsDFSDepth:            env.Int("FLOWS_DFS_DEPTH", 0), // 0 → applyConfigDefaults uses flowsDFSDepth=8
+		EmbedPipelineCache:       env.Bool("EMBED_PIPELINE_CACHE", true),
 
 		AnalyzeRankFusionMode:     mode,
 		AnalyzeRankWeightBM25:     wBM25,
