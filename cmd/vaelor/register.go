@@ -342,15 +342,9 @@ func registerTools(ctx context.Context, server *mcp.Server, cfg Config, reg *kit
 	setCapability("web_search", deps.WebSearch != nil)
 	setCapability("llm", hasKey)
 
-	// Auto-index local repos in background.
-	if semDeps.Pipeline != nil && len(cfg.AutoIndexDirs) > 0 {
-		opts := embeddings.AutoIndexOpts{
-			Concurrency: cfg.AutoIndexConcurrency,
-			RetryMax:    cfg.AutoIndexRetryMax,
-			RetryBase:   cfg.AutoIndexRetryBase,
-		}
-		go embeddings.AutoIndex(semDeps.Pipeline, autoIndexDirs(cfg), codegraph.GraphNameFor, opts)
-	}
+	// Auto-index local repos in background: a boot pass, then the periodic
+	// re-sync loop (see startAutoIndex).
+	startAutoIndex(ctx, cfg, semDeps.Pipeline, defaultAutoIndexRunners)
 
 	// Orphan gauge — boot + periodic ticker so gocode_orphan_repo_keys reflects
 	// reality continuously rather than only after an operator-run orphan_sweep.

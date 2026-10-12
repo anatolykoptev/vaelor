@@ -601,8 +601,15 @@ func (p *Pipeline) advanceStateNoEmbed(ctx context.Context, repoKey, root, curre
 // a present row, is treated as NOT first index — compensating-deleting on
 // uncertainty would erase a live repo's embeddings. Pure function so the
 // dangerous error branches are unit-testable without a DB.
-func firstIndexVerdict(prevErr error, stateExists bool, existErr error) bool {
-	return prevErr == nil && existErr == nil && !stateExists
+//
+// existingRows is the number of rows the repo_key already holds BEFORE this
+// attempt. A missing state row does not mean the rows are ours: a repo with no
+// resolvable git SHA (a worktree whose gitdir is not mounted) never gets a state
+// row, yet keeps its embeddings across attempts. A failure of such a re-index
+// must not DeleteRepo what earlier attempts committed, so any pre-existing row
+// makes this NOT a first index.
+func firstIndexVerdict(prevErr error, stateExists bool, existErr error, existingRows int) bool {
+	return prevErr == nil && existErr == nil && !stateExists && existingRows == 0
 }
 
 // orphanCompensation is the outcome of compensateFirstIndexOrphan, embedded
@@ -687,7 +694,6 @@ func (p *Pipeline) indexRepoWithTool(
 	if prevErr == nil && prevSHA == "" {
 		stateExists, existErr = p.store.RepoStateExists(ctx, repoKey)
 	}
-	firstIndex := firstIndexVerdict(prevErr, stateExists, existErr)
 
 	if currentSHA != "" {
 		if result, skip := p.checkSameSHAFastPath(ctx, repoKey, root, currentSHA, prevSHA, prevErr); skip {
@@ -706,6 +712,10 @@ func (p *Pipeline) indexRepoWithTool(
 	if err != nil {
 		return nil, fmt.Errorf("get existing hashes: %w", err)
 	}
+
+	// Decided only now, with the pre-existing row count in hand: see
+	// firstIndexVerdict. It guards a DESTRUCTIVE delete, so it fails closed.
+	firstIndex := firstIndexVerdict(prevErr, stateExists, existErr, len(existing))
 
 	toEmbed, seen := filterSymbols(symbols, files, existing, result, p.expandSymbolKinds)
 

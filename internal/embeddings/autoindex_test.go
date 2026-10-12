@@ -29,6 +29,12 @@ type fakeIndexer struct {
 	// blockUntil, when non-nil, causes IncrementalSync to block until the
 	// channel is closed. Tests use this to hold a slot and force contention.
 	blockUntil chan struct{}
+	// mode is the IncrementalSyncMode the fake reports ("" = incremental).
+	mode IncrementalSyncMode
+	// capSeen records the per-repo file cap carried by the context of each call.
+	capSeen []int
+	// panicOn makes IncrementalSync panic for that repo key.
+	panicOn string
 }
 
 func newFakeIndexer() *fakeIndexer {
@@ -77,6 +83,12 @@ func (f *fakeIndexer) IndexRepo(ctx context.Context, repoKey, _ string) (*IndexR
 // (or ctx is cancelled) BEFORE delegating, so tests can hold a semaphore slot
 // and force contention on the acquire path.
 func (f *fakeIndexer) IncrementalSync(ctx context.Context, repoKey, root string) (*IncrementalSyncResult, error) {
+	f.mu.Lock()
+	f.capSeen = append(f.capSeen, maxEmbeddedFilesFrom(ctx))
+	f.mu.Unlock()
+	if f.panicOn != "" && repoKey == f.panicOn {
+		panic("boom in " + repoKey)
+	}
 	if f.blockUntil != nil {
 		select {
 		case <-f.blockUntil:
@@ -88,8 +100,12 @@ func (f *fakeIndexer) IncrementalSync(ctx context.Context, repoKey, root string)
 	if err != nil {
 		return nil, err
 	}
+	mode := f.mode
+	if mode == "" {
+		mode = IncrementalSyncIncremental
+	}
 	return &IncrementalSyncResult{
-		Mode:          "incremental",
+		Mode:          mode,
 		FilesEmbedded: result.Indexed,
 		FilesSkipped:  result.Skipped,
 	}, nil
