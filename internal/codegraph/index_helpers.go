@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/anatolykoptev/vaelor/internal/ingest"
 	"github.com/anatolykoptev/vaelor/internal/langutil"
 )
 
@@ -34,7 +33,7 @@ func checkCache(ctx context.Context, store *Store, repoKey, gname, root string) 
 		// Temporal TTL hit — validate content hash to detect file changes
 		// within the TTL window (#592).
 		if existing.ContentHash != "" {
-			currentHash := ingest.RepoContentHash(root)
+			currentHash := contentFingerprint(root)
 			if currentHash != existing.ContentHash {
 				slog.Info("codegraph: cache hit but content hash mismatch — rebuilding",
 					slog.String("repo", root),

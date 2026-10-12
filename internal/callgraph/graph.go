@@ -82,12 +82,13 @@ func BuildCallGraphWithOpts(symbols []*parser.Symbol, calls []parser.CallSite, o
 	byName := indexByName(symbols)
 	byFile := indexByFile(symbols)
 	byDir := indexByDir(symbols)
+	gr := newGoResolver(byFile, byDir, byName)
 
 	edges := make([]CallEdge, 0, len(calls))
 	for i := range calls {
 		cs := &calls[i]
 		caller := findCaller(byFile[cs.File], cs.Line)
-		callee := resolveCall(cs, byFile, byDir, byName)
+		callee := resolveCall(cs, byFile, byDir, byName, gr)
 
 		if cs.IsArgRef {
 			if callee != nil {
@@ -144,7 +145,10 @@ func findCaller(fileSymbols []*parser.Symbol, line uint32) *parser.Symbol {
 // symbol that shares a builtin's name is not the call's target. Same-file
 // and same-package resolution still run first, so a package that genuinely
 // shadows a builtin keeps working.
-func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser.Symbol) *parser.Symbol {
+func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser.Symbol, gr *goResolver) *parser.Symbol {
+	if parser.DetectLanguageFromPath(cs.File) == langGo {
+		return gr.resolve(cs)
+	}
 	name := cs.Name
 
 	if syms, ok := byFile[cs.File]; ok {
@@ -180,8 +184,15 @@ func resolveCall(cs *parser.CallSite, byFile, byDir, byName map[string][]*parser
 }
 
 func findByName(symbols []*parser.Symbol, name string) *parser.Symbol {
+	return findByNameWhere(symbols, name, func(sym *parser.Symbol) bool {
+		return sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod
+	})
+}
+
+// findByNameWhere returns the first symbol called name that satisfies ok.
+func findByNameWhere(symbols []*parser.Symbol, name string, ok func(*parser.Symbol) bool) *parser.Symbol {
 	for _, sym := range symbols {
-		if sym.Name == name && (sym.Kind == parser.KindFunction || sym.Kind == parser.KindMethod) {
+		if sym.Name == name && ok(sym) {
 			return sym
 		}
 	}

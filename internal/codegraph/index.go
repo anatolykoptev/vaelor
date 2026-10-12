@@ -269,7 +269,7 @@ func IndexRepo(ctx context.Context, store *Store, root string, isRemote bool, cf
 		RepoKey: repoKey, RepoPath: root, GraphName: gname,
 		FileCount: len(allFiles), SymbolCount: len(allSymbols), EdgeCount: len(edges),
 		BuiltAt: time.Now().UTC(), TTLSeconds: ttl,
-		ContentHash: ingest.RepoContentHash(root),
+		ContentHash: contentFingerprint(root),
 	}
 	if err := upsertMeta(ctx, store, meta); err != nil {
 		return nil, fmt.Errorf("upsert meta: %w", err)
