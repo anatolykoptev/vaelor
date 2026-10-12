@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.75.1](https://github.com/anatolykoptev/go-code/compare/v1.75.0...v1.75.1) (2026-10-12)
+
+
+### Fixed
+
+* **autoindex:** re-run the index pass periodically so head_sha follows main ([#953](https://github.com/anatolykoptev/go-code/issues/953)) ([d1b58f8](https://github.com/anatolykoptev/go-code/commit/d1b58f8f6f4b81e3550d1b78948cb4a89e995e8a))
+
 ## [1.75.0](https://github.com/anatolykoptev/go-code/compare/v1.74.3...v1.75.0) (2026-10-11)
 
 
