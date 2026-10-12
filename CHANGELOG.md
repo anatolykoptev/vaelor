@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.75.2](https://github.com/anatolykoptev/vaelor/compare/v1.75.1...v1.75.2) (2026-10-12)
+
+
+### Fixed
+
+* **callgraph:** resolve Go call sites under Go's scoping rules ([#952](https://github.com/anatolykoptev/vaelor/issues/952)) ([5110efd](https://github.com/anatolykoptev/vaelor/commit/5110efd98ffbd90b3d46e1afbd307ef5748a33d4))
+
 ## [1.75.1](https://github.com/anatolykoptev/go-code/compare/v1.75.0...v1.75.1) (2026-10-12)
 
 
