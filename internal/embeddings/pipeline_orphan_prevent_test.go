@@ -334,19 +334,23 @@ func TestFirstIndexVerdict(t *testing.T) {
 		prevErr    error
 		stateExist bool
 		existErr   error
+		rows       int
 		want       bool
 	}{
-		{"true first index: no row, no errors", nil, false, nil, true},
-		{"re-index: row present", nil, true, nil, false},
-		{"lookup error on GetRepoState → not first index", errBoom, false, nil, false},
-		{"error on existence probe → not first index", nil, false, errBoom, false},
-		{"present row wins even with nil errors", nil, true, nil, false},
+		{"true first index: no row, no errors, no rows", nil, false, nil, 0, true},
+		{"re-index: row present", nil, true, nil, 0, false},
+		{"lookup error on GetRepoState → not first index", errBoom, false, nil, 0, false},
+		{"error on existence probe → not first index", nil, false, errBoom, 0, false},
+		{"present row wins even with nil errors", nil, true, nil, 0, false},
+		// A repo with no resolvable git SHA never gets a state row but keeps its
+		// embeddings across attempts: pre-existing rows are not ours to roll back.
+		{"no state row but rows already exist → not first index", nil, false, nil, 7, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := firstIndexVerdict(c.prevErr, c.stateExist, c.existErr); got != c.want {
-				t.Fatalf("firstIndexVerdict(%v,%v,%v)=%v want %v",
-					c.prevErr, c.stateExist, c.existErr, got, c.want)
+			if got := firstIndexVerdict(c.prevErr, c.stateExist, c.existErr, c.rows); got != c.want {
+				t.Fatalf("firstIndexVerdict(%v,%v,%v,%d)=%v want %v",
+					c.prevErr, c.stateExist, c.existErr, c.rows, got, c.want)
 			}
 		})
 	}

@@ -64,3 +64,72 @@ func recordAutoIndexDuration(repo, outcome string, d time.Duration) {
 func recordAutoIndexDeferred(repo string) {
 	autoindexDeferredTotal.WithLabelValues(repo).Inc()
 }
+
+// gocode_autoindex_skipped_busy_total counts repos a pass skipped because a
+// full index of that repo was already running. A rejection path with no
+// counter reads as "never happens".
+var autoindexSkippedBusyTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_autoindex_skipped_busy_total",
+		Help: "Autoindex repos skipped because an index of the same repo was already in flight, by repo.",
+	},
+	[]string{"repo"},
+)
+
+// gocode_autoindex_last_pass_timestamp_seconds is the unix time the most recent
+// autoindex pass (boot or periodic) RAN TO COMPLETION. A pass cut short by
+// shutdown or by its time budget does not stamp it, and a pass that finds no
+// repos at all does (the loop is alive). It reads 0 until the first pass ends,
+// so a rule on it needs `and gocode_autoindex_last_pass_timestamp_seconds > 0`
+// or a grace period after boot.
+var autoindexLastPassTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "gocode_autoindex_last_pass_timestamp_seconds",
+	Help: "Unix time the last autoindex pass (boot or periodic) completed.",
+})
+
+func recordAutoIndexSkippedBusy(repo string) {
+	autoindexSkippedBusyTotal.WithLabelValues(repo).Inc()
+}
+
+func recordAutoIndexPassDone() {
+	autoindexLastPassTimestamp.SetToCurrentTime()
+}
+
+var autoindexLoopSkippedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_autoindex_loop_skipped_total",
+		Help: "Repos the periodic autoindex pass did not sync, by reason (no_git | bootstrap | no_embeddings).",
+	},
+	[]string{"reason"},
+)
+
+var autoindexPanicsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gocode_autoindex_panics_total",
+	Help: "Panics recovered inside an autoindex pass (per-repo sync or the pass itself).",
+})
+
+var autoindexPassFailuresTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gocode_autoindex_pass_failures_total",
+	Help: "Autoindex passes in which every repo that was attempted failed.",
+})
+
+var autoindexPassBudgetExceededTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gocode_autoindex_pass_budget_exceeded_total",
+	Help: "Periodic autoindex passes cut off by their time budget (work continues next tick).",
+})
+
+var autoindexTruncatedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gocode_autoindex_truncated_total",
+		Help: "Incremental syncs that stopped at the per-pass file cap with files left for the next tick, by repo.",
+	},
+	[]string{"repo"},
+)
+
+func recordAutoIndexLoopSkipped(reason string) {
+	autoindexLoopSkippedTotal.WithLabelValues(reason).Inc()
+}
+func recordAutoIndexPanic()                { autoindexPanicsTotal.Inc() }
+func recordAutoIndexPassFailure()          { autoindexPassFailuresTotal.Inc() }
+func recordAutoIndexPassBudgetExceeded()   { autoindexPassBudgetExceededTotal.Inc() }
+func recordAutoIndexTruncated(repo string) { autoindexTruncatedTotal.WithLabelValues(repo).Inc() }
