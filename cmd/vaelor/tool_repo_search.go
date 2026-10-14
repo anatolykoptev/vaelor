@@ -19,13 +19,16 @@ const (
 	maxReadmeRunes   = 3000
 )
 
-const systemPromptRepoSearch = `You are recommending GitHub repositories based on search results.
+const systemPromptRepoSearch = `You are recommending repositories based on the search results provided.
+Use ONLY facts present in the provided data. Never infer dates, star counts,
+or features from memory, and never recommend or describe a repository that is
+not in the provided list.
 For each relevant repository, explain:
 1. What it does and why it's relevant to the query
-2. Key stats (stars, language, last activity)
-3. Notable features from the README
+2. Key stats (stars, language, last push) - write "n/a" for any field absent from the data
+3. Notable features stated in the README excerpt
 
-Rank by relevance to the query. Be concise. Include GitHub URLs.`
+Rank by relevance to the query. Be concise. Include repository URLs.`
 
 // RepoSearchInput is the input schema for the repo_search tool.
 type RepoSearchInput struct {
@@ -84,7 +87,7 @@ func handleRepoSearch(ctx context.Context, input RepoSearchInput, deps analyze.D
 	}
 
 	// Check cache.
-	cacheKey := cache.Key("repo_search", query, input.Sort)
+	cacheKey := cache.Key("repo_search_v2", query, input.Sort)
 	if cached, ok, _ := kitcache.GetJSON[string](deps.ToolCache, ctx, cacheKey); ok {
 		return textResult(cached), nil
 	}

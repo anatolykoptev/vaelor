@@ -1,0 +1,44 @@
+{
+  "id": 3601513,
+  "description": "[Gitter](https://gitter.im) is a community for software developers. This project is the main monolith web application.",
+  "name": "webapp",
+  "name_with_namespace": "gitter / webapp",
+  "path": "webapp",
+  "path_with_namespace": "gitterHQ/webapp",
+  "created_at": "2017-06-29T09:35:16.603Z",
+  "default_branch": "develop",
+  "tag_list": [
+    "Gitter",
+    "gitter.im",
+    "javascript",
+    "node",
+    "nodejs"
+  ],
+  "topics": [
+    "Gitter",
+    "gitter.im",
+    "javascript",
+    "node",
+    "nodejs"
+  ],
+  "ssh_url_to_repo": "git@gitlab.com:gitterHQ/webapp.git",
+  "http_url_to_repo": "https://gitlab.com/gitterHQ/webapp.git",
+  "web_url": "https://gitlab.com/gitterHQ/webapp",
+  "readme_url": "https://gitlab.com/gitterHQ/webapp/-/blob/develop/README.md",
+  "forks_count": 515,
+  "avatar_url": "https://gitlab.com/uploads/-/system/project/avatar/3601513/gitter_logo.png?v=1705590720",
+  "star_count": 898,
+  "last_activity_at": "2023-02-25T02:19:45.421Z",
+  "visibility": "public",
+  "namespace": {
+    "id": 1540914,
+    "name": "gitter",
+    "path": "gitterHQ",
+    "kind": "group",
+    "full_path": "gitterHQ",
+    "parent_id": null,
+    "avatar_url": "/uploads/-/system/group/avatar/1540914/icon_128x128.png?v=1736547516",
+    "web_url": "https://gitlab.com/groups/gitterHQ"
+  },
+  "archived": true
+}

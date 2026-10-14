@@ -80,13 +80,16 @@ func encodeSlug(slug string) string {
 
 // glProjectResponse is the subset of GitLab's project API response we use.
 type glProjectResponse struct {
-	PathWithNamespace string `json:"path_with_namespace"`
-	Description       string `json:"description"`
-	DefaultBranch     string `json:"default_branch"`
-	StarCount         int    `json:"star_count"`
-	ForksCount        int    `json:"forks_count"`
-	HTTPURLToRepo     string `json:"http_url_to_repo"`
-	Visibility        string `json:"visibility"`
+	PathWithNamespace string   `json:"path_with_namespace"`
+	Description       string   `json:"description"`
+	DefaultBranch     string   `json:"default_branch"`
+	StarCount         int      `json:"star_count"`
+	ForksCount        int      `json:"forks_count"`
+	HTTPURLToRepo     string   `json:"http_url_to_repo"`
+	Visibility        string   `json:"visibility"`
+	LastActivityAt    string   `json:"last_activity_at"`
+	Topics            []string `json:"topics"`
+	Archived          bool     `json:"archived"`
 }
 
 // FetchRepoMeta implements Forge.
@@ -128,6 +131,9 @@ func (g *GitLabForge) FetchRepoMeta(ctx context.Context, slug string) (_ *RepoMe
 		Forks:         raw.ForksCount,
 		CloneURL:      raw.HTTPURLToRepo,
 		Private:       raw.Visibility != "public",
+		PushedAt:      raw.LastActivityAt,
+		Topics:        raw.Topics,
+		Archived:      raw.Archived,
 	}, nil
 }
 
