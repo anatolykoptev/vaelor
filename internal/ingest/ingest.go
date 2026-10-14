@@ -7,7 +7,9 @@ import (
 	"context"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,8 +94,31 @@ type IngestResult struct {
 // maxWalkDepth is the maximum directory depth before descending is stopped.
 const maxWalkDepth = 20
 
-// maxWalkFiles is the maximum number of files collected in one walk.
-const maxWalkFiles = 10_000
+// defaultMaxWalkFiles is the default maximum number of files collected in one
+// walk. Override with the MAX_WALK_FILES env var.
+const defaultMaxWalkFiles = 10_000
+
+// maxWalkFiles is the effective walk cap: MAX_WALK_FILES when set to a
+// positive integer, else defaultMaxWalkFiles. Large monorepos exceed the
+// default — the walk stops at the cap in directory order, so files past it are
+// never seen and a file_glob that only matches them returns zero files.
+var maxWalkFiles = walkFilesFromEnv()
+
+// walkFilesFromEnv reads MAX_WALK_FILES. Empty, non-numeric, or non-positive
+// values fall back to defaultMaxWalkFiles (with a WARN for malformed values).
+func walkFilesFromEnv() int {
+	val := strings.TrimSpace(os.Getenv("MAX_WALK_FILES"))
+	if val == "" {
+		return defaultMaxWalkFiles
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n <= 0 {
+		slog.Warn("ingest: ignoring invalid MAX_WALK_FILES",
+			slog.String("value", val), slog.Int("default", defaultMaxWalkFiles))
+		return defaultMaxWalkFiles
+	}
+	return n
+}
 
 // effectiveMaxFiles returns the file cap for a walk. optsMaxFiles<=0 means
 // use the default maxWalkFiles; otherwise it caps to the requested value (not
