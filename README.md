@@ -178,6 +178,7 @@ Reaching a remote host uses the system `ssh` binary directly; Vaelor doesn't mai
 | `WORKSPACE_DIR` | `/tmp/go-code-workspace` | Temp directory for cloned repos |
 | `MAX_FILE_KB` | `512` | Max file size to parse (KB) |
 | `MAX_REPO_MB` | `200` | Max repo size to accept (MB) |
+| `MAX_WALK_FILES` | `10000` | Max files collected per repo walk; raise for large monorepos |
 | `REDIS_URL` | *(optional)* | Redis URL for the L2 parse/LLM cache |
 | `DATABASE_URL` | *(optional)* | PostgreSQL DSN for the Apache AGE code graph (required for `code_graph`, the learnings loop, and the graph signals above) |
 | `EMBED_URL` | *(optional)* | Embedding server endpoint (required for `semantic_search`) |

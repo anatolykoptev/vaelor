@@ -97,6 +97,7 @@
 | `MAX_FILE_KB` | `512` | |
 | `INDEX_SKIP_DIRS` | `` | Comma-separated dir names appended to the built-in skip set (`vendor`, `node_modules`, `target`, etc.). E.g. `INDEX_SKIP_DIRS=mygenerated,legacy`. Empty = default list only. |
 | `MAX_REPO_MB` | `250` | Total ingested-source cap for deep repo_analyze. Per-request override via the `max_repo_mb` tool arg (>0 wins; 0 uses this default). Truncation emits a WARN. |
+| `MAX_WALK_FILES` | `10000` | Max files collected per repo walk (every ingest-based tool, incl. `code_research`). The walk stops at the cap in directory order, so on larger monorepos files past it are invisible and a `file_glob` over them returns 0 files. Raise it for big repos (memory/time grow roughly linearly). |
 | `REDIS_URL` | optional | L2 cache, DB 6 |
 | `DATABASE_URL` | optional | PostgreSQL DSN for Apache AGE (`gocode` database) |
 | `LEARNINGS_DATABASE_URL` | optional | PostgreSQL DSN (pgvector) for the review learnings store; falls back to `DATABASE_URL` when unset — startup WARNs on the co-location and again when both are empty (loop disabled) |
