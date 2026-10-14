@@ -119,6 +119,9 @@ func enrichSingleRepo(ctx context.Context, hit repoHit, deps analyze.Deps) enric
 		out.Description = meta.Description
 		out.Stars = meta.Stars
 		out.Language = meta.Language
+		out.LastPush = meta.PushedAt
+		out.Topics = meta.Topics
+		out.Archived = meta.Archived
 	}()
 
 	go func() {

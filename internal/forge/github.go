@@ -70,6 +70,16 @@ func WithCache(c *kitcache.Cache) GitHubForgeOption {
 	}
 }
 
+// WithAPIBase overrides the API base URL (default https://api.github.com).
+// Intended for GitHub Enterprise and for tests that serve from httptest.
+func WithAPIBase(base string) GitHubForgeOption {
+	return func(g *GitHubForge) {
+		if base != "" {
+			g.apiBase = base
+		}
+	}
+}
+
 // NewGitHubForge creates a GitHubForge targeting api.github.com.
 //
 // Authentication priority (first match wins):

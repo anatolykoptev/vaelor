@@ -60,6 +60,16 @@ type RepoMeta struct {
 
 	// Size is the approximate disk size in kilobytes.
 	Size int `json:"size"`
+
+	// PushedAt is the RFC 3339 timestamp of the last push (GitLab:
+	// last_activity_at). Empty when the forge does not report it.
+	PushedAt string `json:"pushed_at"`
+
+	// Topics are the repository topics/tags.
+	Topics []string `json:"topics"`
+
+	// Archived indicates whether the repository is archived (read-only).
+	Archived bool `json:"archived"`
 }
 
 // CodeResult represents a single result from a code search.
