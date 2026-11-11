@@ -753,7 +753,7 @@ These fixes were discovered and shipped while debugging code_graph performance:
 - web-api-sfu (Rust): `acme_sfu::client_ws::handler:185` + body excerpts
 
 **State of the art comparison** (research-confirmed):
-DataDog APM, Beyla, OTel auto-instrumentation, Honeycomb, Pixie, Coroot, OTel-go-contrib all stop at HTTP route templates. `tilegroxy` is the only public Go project emitting `code.*` on HTTP server spans, and they hardcode strings — not runtime reflection. Krolik is the first Go middleware doing function-level attribution at runtime.
+DataDog APM, Beyla, OTel auto-instrumentation, Honeycomb, Pixie, Coroot, OTel-go-contrib all stop at HTTP route templates. `tilegroxy` is the only public Go project emitting `code.*` on HTTP server spans, and they hardcode strings — not runtime reflection. Vaelor is the first Go middleware doing function-level attribution at runtime.
 
 ---
 

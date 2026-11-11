@@ -23,7 +23,7 @@ import (
 const (
 	// jeffTopFiles bounds the option count in the single choice question —
 	// latency grows with option count (measured 0.78s at 10 options
-	// edge→kisol). 10 keeps the call ~1s typical.
+	// edge→shared host). 10 keeps the call ~1s typical.
 	jeffTopFiles = 10
 	// jeffMinSeeds skips arbitration when the seed set is too small to
 	// hide a hub inside.
@@ -35,7 +35,7 @@ const (
 	// topically-scored hub keeps a residual rank instead of disappearing.
 	jeffInfraPenalty = 0.35
 	// jeffCallTimeout bounds the single batched Ask — a 10-option choice
-	// takes ≈0.8s typical edge→kisol; 5s leaves margin for a busy shared
+	// takes ≈0.8s typical edge→shared host; 5s leaves margin for a busy shared
 	// model box and matches the client's transport headroom.
 	jeffCallTimeout = 5 * time.Second
 )

@@ -27,7 +27,7 @@ var rerankTimeout = defaultRerankTimeout // set in init via parseTimeoutSecs
 // rerankClient is the shared cross-encoder client (go-kit/rerank). It is
 // configured from EMBED_URL + EMBED_TOKEN — the same embedding server used for
 // semantic_search — so dead_code and semantic rerank reach whatever host
-// EMBED_URL points at (local embed-server or the embed.krolik.tools edge),
+// EMBED_URL points at (local embed-server or the shared embed edge),
 // authenticated via the EMBED_TOKEN bearer.
 //
 // Timeout is left at 0 so each caller bounds the call with its own ctx deadline
