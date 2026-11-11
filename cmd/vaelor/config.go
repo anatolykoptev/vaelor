@@ -476,7 +476,7 @@ const (
 	defaultLLMCacheTTL   = 60 // minutes
 
 	// defaultEmbedHTTPTimeout: generous default for the shared external embed host
-	// (code-rank-embed on embed.krolik.tools). Boot-time load (48 repos indexing in
+	// (code-rank-embed on the shared embed host). Boot-time load (48 repos indexing in
 	// parallel) causes p99 > 30s on a 32-text sub-batch. 120s gives ≈4× headroom
 	// over the observed 30s timeout tail while still bounding a stuck goroutine.
 	// Override via EMBED_HTTP_TIMEOUT env (Go duration syntax, e.g. "90s", "2m").

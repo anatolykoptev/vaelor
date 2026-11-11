@@ -365,7 +365,7 @@ func (b *BlackbirdClient) pullCookies(ctx context.Context) error {
 
 // fetchSearchHTTP performs the bare-cookie GET. Accept: application/json makes
 // github.com/search return the blackbirdSearchRoute payload as JSON directly —
-// no HTML scraping. A 3xx or logged_in:false maps to errBlackbirdLoggedOut.
+// no HTML parsing. A 3xx or logged_in:false maps to errBlackbirdLoggedOut.
 func (b *BlackbirdClient) fetchSearchHTTP(ctx context.Context, searchURL string) (bbRoute, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
 	if err != nil {

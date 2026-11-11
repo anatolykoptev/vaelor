@@ -71,7 +71,7 @@ const (
 // Default tuning for AutoIndex.
 //
 // Concurrency=1 serializes autoindex embed calls onto the single-worker
-// embed backend (code-rank-embed on embed.krolik.tools, pool_size=1). With
+// embed backend (code-rank-embed on the shared embed host, pool_size=1). With
 // concurrency=2 and the fleet (~48 repos), the backend queue depth was
 // unbounded: second-repo batches queued behind first-repo's ~13s inference,
 // causing context deadline exceeded on the 120s client timeout and triggering
