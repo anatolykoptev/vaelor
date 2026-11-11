@@ -608,7 +608,7 @@ const (
 //
 // WithTimeout overrides the go-kit default (30s) when cfg.EmbedHTTPTimeout > 0.
 // The default 30s causes background index aborts under boot-time load on the shared
-// external embed host (embed.krolik.tools), where 32-text sub-batches exceed 30s
+// external embed host (the shared embed host), where 32-text sub-batches exceed 30s
 // p14 — triggering 3× retry (~90s total) then goroutine exit before SHA advance.
 func newCodeEmbedder(cfg Config) (*embed.Client, error) {
 	opts := []embed.Opt{

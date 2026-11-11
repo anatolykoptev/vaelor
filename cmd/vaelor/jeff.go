@@ -19,7 +19,7 @@ import (
 // forces separation — live probes showed noul compresses to ~0.4-0.5
 // regardless of topicality (even inverting), while choice spreads
 // topical files at 0.3-0.45 and infra at ~0.04-0.09. Latency ≈0.8s at
-// 10 candidates edge→kisol. The caller's ctx is the real bound (research
+// 10 candidates edge→shared host. The caller's ctx is the real bound (research
 // caps at 5s); the client's timeout is transport headroom for callers
 // that forget a deadline.
 type jeffScorer struct {
@@ -27,8 +27,8 @@ type jeffScorer struct {
 }
 
 // newJeffScorer wires the scorer from JEFF_URL/JEFF_TOKEN — the same env
-// pair go-search/go-wowa/quarryn use for the shared kisol edge
-// (https://jeff.krolik.tools), and the same raw-read convention as
+// pair go-search/go-wowa/quarryn use for the shared edge host
+// (the jeff service endpoint), and the same raw-read convention as
 // EMBED_URL for shared services. Returns nil when JEFF_URL is unset so
 // the research pipeline keeps its byte-identical cold path.
 func newJeffScorer() research.JeffScorer {

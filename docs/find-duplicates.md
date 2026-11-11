@@ -144,7 +144,7 @@ For every cross-file pair in reported groups (re-queried against the live AGE gr
 
 ### (a) Vaelor self-dogfood deferred
 
-Vaelor itself (`github.com/anatolykoptev/vaelor`) is not currently indexed in `code_embeddings`. The embed backend (`embed.krolik.tools`) was saturated and timing-out during this feature's development, and the `code_embeddings` table was wiped. Indexing Vaelor is the highest-value validation because reinvention of helpers (e.g. multiple `pgError` extractors, multiple `retry` patterns) is the exact target class.
+Vaelor itself (`github.com/anatolykoptev/vaelor`) is not currently indexed in `code_embeddings`. The embed backend (the shared embed host) was saturated and timing-out during this feature's development, and the `code_embeddings` table was wiped. Indexing Vaelor is the highest-value validation because reinvention of helpers (e.g. multiple `pgError` extractors, multiple `retry` patterns) is the exact target class.
 
 **Operator action after embed-server recovers:** run `find_duplicates repo=vaelor` to complete the dogfood validation. No code changes needed.
 
@@ -200,7 +200,7 @@ Documented in §3 above. Not a bug — the filter operates on pairs; union-find 
 - `calls_edge` filter demonstrably works: 12 pairs dropped on `code_f40acc09`.
 
 **Remaining caveat (operator step, not a blocking concern):**
-The Vaelor dogfood run is DEFERRED. Once `embed.krolik.tools` recovers and Vaelor is re-indexed, run `find_duplicates repo=vaelor` to confirm the tool finds the known reinvented helpers (multiple retry patterns, multiple pgError extractors, etc.).
+The Vaelor dogfood run is DEFERRED. Once the shared embed host recovers and Vaelor is re-indexed, run `find_duplicates repo=vaelor` to confirm the tool finds the known reinvented helpers (multiple retry patterns, multiple pgError extractors, etc.).
 
 **What would change the recommendation to SHELVE:**
 - If the Vaelor dogfood run shows > 50% false positives in the `related` tier AND the `very-close` tier also degrades.
