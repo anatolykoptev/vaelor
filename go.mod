@@ -2,7 +2,7 @@ module github.com/anatolykoptev/vaelor
 
 go 1.26.3
 
-toolchain go1.26.9
+toolchain go1.26.11
 
 require (
 	github.com/anatolykoptev/go-kit v0.97.18
