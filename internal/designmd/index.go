@@ -15,6 +15,21 @@ import (
 
 const maxEmbedText = 2000
 
+// embedScheme identifies the document embedding scheme folded into body_hash.
+// Rows stamped under a different scheme — e.g. the un-prefixed e5 rows written
+// before instruction prefixes — no longer match and are re-embedded on the
+// next index-designs run. Bump the version when the wire format changes
+// independently of the prefix.
+const embedScheme = "v1:" + embed.E5PassagePrefix
+
+// SectionStore is the persistence seam Index needs: existing body hashes for
+// skip detection plus batched upserts of freshly embedded sections.
+// *Store implements it; tests substitute a fake.
+type SectionStore interface {
+	GetHashes(ctx context.Context) (map[string]uint64, error)
+	Upsert(ctx context.Context, records []Record) error
+}
+
 // IndexResult summarizes an indexing run.
 type IndexResult struct {
 	Brands  int
@@ -22,10 +37,11 @@ type IndexResult struct {
 	Skipped int
 }
 
-// Index reads all */DESIGN.md files under dir, embeds sections via e5-large,
-// and upserts to the design_embeddings table (1024-dim).
+// Index reads all */DESIGN.md files under dir, embeds sections via e5-large
+// (with the "passage: " document prefix the model was trained on), and upserts
+// to the design_embeddings table (1024-dim).
 // Writes index.json with per-brand metadata.
-func Index(ctx context.Context, dir string, client *embed.Client, store *Store) (*IndexResult, error) {
+func Index(ctx context.Context, dir string, client embed.Embedder, store SectionStore) (*IndexResult, error) {
 	pattern := filepath.Join(dir, "*", "DESIGN.md")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
@@ -62,7 +78,7 @@ func Index(ctx context.Context, dir string, client *embed.Client, store *Store) 
 				embedText = embedText[:maxEmbedText]
 			}
 
-			h := strutil.TextHash(embedText)
+			h := strutil.TextHash(embedScheme + embedText)
 			key := brand + ":" + sec.Title
 			if prev, ok := existing[key]; ok && prev == h {
 				result.Skipped++
@@ -82,7 +98,7 @@ func Index(ctx context.Context, dir string, client *embed.Client, store *Store) 
 
 	if len(texts) > 0 {
 		slog.Info("designmd: embedding sections", slog.Int("count", len(texts)))
-		vectors, err := client.Embed(ctx, texts)
+		vectors, err := embed.Prefixed(client, embed.E5PassagePrefix).Embed(ctx, texts)
 		if err != nil {
 			return nil, fmt.Errorf("embed: %w", err)
 		}
