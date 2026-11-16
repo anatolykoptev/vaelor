@@ -16,10 +16,16 @@ type DesignSearchInput struct {
 	TopK  int    `json:"top_k,omitempty" jsonschema:"Number of results (default 5, max 20)"`
 }
 
+// designSearcher is the query-side store seam. *designmd.Store implements it;
+// tests fake it to reach the EmbedQuery boundary without a database.
+type designSearcher interface {
+	Search(ctx context.Context, vector []float32, topK int) ([]designmd.SearchResult, error)
+}
+
 // DesignDeps holds dependencies for design_search tool.
 type DesignDeps struct {
-	Client *embed.Client
-	Store  *designmd.Store
+	Client embed.Embedder
+	Store  designSearcher
 }
 
 const (
@@ -54,7 +60,7 @@ func handleDesignSearch(
 		topK = defaultDesignTopK
 	}
 
-	vector, err := deps.Client.EmbedQuery(ctx, input.Query)
+	vector, err := deps.Client.EmbedQuery(ctx, embed.E5QueryPrefix+input.Query)
 	if err != nil {
 		return errResult(fmt.Sprintf("embed query: %s", err)), nil
 	}
