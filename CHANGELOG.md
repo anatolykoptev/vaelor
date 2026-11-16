@@ -2,6 +2,13 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.76.0](https://github.com/anatolykoptev/vaelor/compare/v1.75.4...v1.76.0) (2026-11-16)
+
+
+### Added
+
+* **designmd:** e5 query/passage prefixes for design embeddings ([#983](https://github.com/anatolykoptev/vaelor/issues/983)) ([36290fd](https://github.com/anatolykoptev/vaelor/commit/36290fdcd6efa2c04f7b881fbd9284763b8764f6))
+
 ## [1.75.4](https://github.com/anatolykoptev/vaelor/compare/v1.75.3...v1.75.4) (2026-11-11)
 
 
