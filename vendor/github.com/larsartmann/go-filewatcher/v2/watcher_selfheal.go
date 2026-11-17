@@ -3,7 +3,6 @@ package filewatcher
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"time"
 )
 
@@ -55,8 +54,9 @@ func (w *Watcher) attemptSelfHeal() {
 	}
 
 	// Snapshot the failed paths to avoid holding the lock during fsnotify operations.
+	// Values are original-case paths; keys are canonical pathKeys.
 	paths := make([]string, 0, len(w.failedPaths))
-	for p := range w.failedPaths {
+	for _, p := range w.failedPaths {
 		paths = append(paths, p)
 	}
 
@@ -82,6 +82,14 @@ func (w *Watcher) attemptSelfHeal() {
 			if w.onAdd != nil {
 				w.onAdd(path)
 			}
+		} else {
+			watcherErr := NewWatcherError("selfHeal", path, addErr)
+			if watcherErr.IsPermanent() {
+				w.removeFailedPath(path)
+				w.debugLog("self-heal: permanently failed, abandoning path",
+					slog.String("path", path),
+					slog.String("error", addErr.Error()))
+			}
 		}
 	}
 
@@ -101,7 +109,9 @@ func (w *Watcher) isPathWatched(path string) bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
-	return slices.Contains(w.watchList, path)
+	_, ok := w.watchListKeys[w.pathKey(path)]
+
+	return ok
 }
 
 // appendToWatchList adds path to the watch list under mutex protection.
@@ -109,7 +119,13 @@ func (w *Watcher) appendToWatchList(path string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	w.watchList = append(w.watchList, path)
+	key := w.pathKey(path)
+
+	if _, ok := w.watchListKeys[key]; ok {
+		return
+	}
+
+	w.addToWatchList(path)
 }
 
 // removeFailedPath removes a path from the failed set under mutex protection.
@@ -117,7 +133,7 @@ func (w *Watcher) removeFailedPath(path string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	delete(w.failedPaths, path)
+	delete(w.failedPaths, w.pathKey(path))
 }
 
 // failedPathCount returns the number of paths still failing.

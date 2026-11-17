@@ -2,7 +2,7 @@ package filewatcher
 
 import (
 	"encoding"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,7 +10,7 @@ import (
 
 // Op represents a file system operation type.
 //
-//nolint:recvcheck // UnmarshalText/UnmarshalJSON must have pointer receiver to modify the receiver.
+
 type Op int
 
 // String representations for Op values.

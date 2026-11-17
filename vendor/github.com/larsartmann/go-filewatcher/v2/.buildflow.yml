@@ -1,0 +1,16 @@
+# go.mod's `go 1.26.7` patch floor is documented policy (AGENTS.md: matches the
+# CI matrix and the encoding/json/v2 GOEXPERIMENT toolchain). Three pipeline
+# tools fight it, all verified by strace attribution on 2026-10-07:
+#   - go-version-auto-configure wants a major.minor-only directive.
+#   - go-mod-update minor mode bumps the directive to the latest Go release;
+#     patch mode fails outright on this module graph. Run `buildflow update`
+#     explicitly instead.
+#   - go-structure-linter (new in buildflow 202b114) auto-repairs its
+#     "Go 1.27 is available" finding by bumping the directive mid-run; its
+#     root-package-files and agent-config findings also contradict this
+#     repo's documented single-package layout. Re-enable after an upstream
+#     policy fix.
+skip_steps:
+  - go-version-auto-configure
+  - go-mod-update
+  - go-structure-linter

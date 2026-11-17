@@ -48,6 +48,11 @@ func buildGogenFilterOptions(options []gogenfilter.FilterOption) []gogenfilter.F
 	return options
 }
 
+// defaultGogenMaxFileSize is the maximum file size for content-based generated
+// code detection. Files larger than this are checked by filename only.
+// Matches the 10 MiB cap used by hashFile in filter.go.
+const defaultGogenMaxFileSize = 10 * 1024 * 1024
+
 // FilterGeneratedCodeFull creates a filter with configurable content checking.
 //
 // Use ContentCheckDisabled for only filename-based detection (zero I/O).
@@ -56,6 +61,10 @@ func buildGogenFilterOptions(options []gogenfilter.FilterOption) []gogenfilter.F
 // Content checking is more accurate but requires file I/O. For file watching
 // scenarios, filename-only detection is usually sufficient since generated
 // files typically have distinctive naming patterns.
+//
+// When content checking is enabled, files larger than 10 MiB skip the content
+// check and fall back to filename-only detection to avoid blocking the event
+// loop on large files.
 //
 // The filter returns true to keep (non-generated) files, false to discard
 // (generated) files.
@@ -73,6 +82,11 @@ func FilterGeneratedCodeFull(mode ContentCheckMode, options ...gogenfilter.Filte
 		}
 
 		if mode == ContentCheckEnabled {
+			info, statErr := os.Stat(event.Path)
+			if statErr != nil || info.Size() > defaultGogenMaxFileSize {
+				return true // skip content check for missing or oversized files
+			}
+
 			content, err := os.ReadFile(event.Path)
 			if err == nil {
 				reason = gogenfilter.DetectReason(event.Path, string(content), filterOpts...)

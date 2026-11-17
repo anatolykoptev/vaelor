@@ -1,8 +1,13 @@
 # Migration to Nix Flakes — Comprehensive Proposal
 
+> **Historical document.** This proposal was completed on 2026-05-23. It is
+> retained for reference but no longer reflects the current state of the
+> project. For up-to-date build commands and Nix flake usage, see
+> [AGENTS.md](./AGENTS.md) ("Critical Commands") and [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 **Project:** `github.com/larsartmann/go-filewatcher`
 **Date:** 2026-04-21
-**Status:** ✅ COMPLETED (2026-05-23)
+**Status:** ✅ COMPLETED (2026-05-23) — retained as historical record
 **Scope:** Full Nix Flakes adoption across dev environment, CI, and release tooling
 
 ---
@@ -100,13 +105,13 @@ The removal of `justfile` without Nix-native replacements **regressed developer 
 
 ### 3.1 Critical Gaps
 
-| #   | Gap                                           | Impact                                          | Severity     |
-| --- | --------------------------------------------- | ----------------------------------------------- | ------------ |
-| G1  | **Go version mismatch** (`go_1_24` vs 1.26.1) | Build failures, incorrect behavior              | **CRITICAL** |
-| G2  | **No `packages` output**                      | Cannot `nix build`, no reproducible packaging   | **HIGH**     |
-| G3  | **No `apps` output**                          | Cannot `nix run .#test`, `nix run .#lint`, etc. | **HIGH**     |
-| G4  | **No `checks` output**                        | Cannot `nix flake check` for automated QA       | **HIGH**     |
-| G5  | **CI not using Nix**                          | CI ≠ dev environment                            | **MEDIUM**   |
+| #  | Gap                                           | Impact                                          | Severity     |
+| -- | --------------------------------------------- | ----------------------------------------------- | ------------ |
+| G1 | **Go version mismatch** (`go_1_24` vs 1.26.1) | Build failures, incorrect behavior              | **CRITICAL** |
+| G2 | **No `packages` output**                      | Cannot `nix build`, no reproducible packaging   | **HIGH**     |
+| G3 | **No `apps` output**                          | Cannot `nix run .#test`, `nix run .#lint`, etc. | **HIGH**     |
+| G4 | **No `checks` output**                        | Cannot `nix flake check` for automated QA       | **HIGH**     |
+| G5 | **CI not using Nix**                          | CI ≠ dev environment                            | **MEDIUM**   |
 
 ### 3.2 Quality Gaps
 
@@ -666,7 +671,7 @@ jobs:
 ```yaml
 jobs:
   test:
-    # ... existing test job unchanged ...
+  # ... existing test job unchanged ...
 
   nix-check:
     runs-on: ubuntu-latest
@@ -817,26 +822,26 @@ If Nix proves problematic:
 
 ### Summary of All Steps (Ordered by Priority)
 
-| #   | Step                                              | Phase | Est. Time | Dependency |
-| --- | ------------------------------------------------- | ----- | --------- | ---------- |
-| 1   | Update `flake.lock` to get `go_1_26`              | 1     | 5 min     | —          |
-| 2   | Fix `go_1_24` → `go_1_26` in `flake.nix`          | 1     | 5 min     | Step 1     |
-| 3   | Pin `nixpkgs.url` to explicit GitHub ref          | 1     | 2 min     | —          |
-| 4   | Add missing dev tools (gopls, delve, golines)     | 1     | 5 min     | —          |
-| 5   | Verify `nix develop` works with correct Go        | 1     | 5 min     | Steps 1-4  |
-| 6   | Add `packages` output with `buildGoModule`        | 2     | 30 min    | Step 5     |
-| 7   | Compute and set `vendorHash`                      | 2     | 10 min    | Step 6     |
-| 8   | Add `apps` output (test, lint, check, ci, etc.)   | 2     | 45 min    | Step 5     |
-| 9   | Add `checks` output (build, test, lint, fmt, vet) | 2     | 30 min    | Steps 6, 8 |
-| 10  | Add `formatter` output                            | 2     | 5 min     | —          |
-| 11  | Verify `nix flake check` passes                   | 2     | 10 min    | Steps 6-10 |
-| 12  | Update `.envrc` with `watch_file` directives      | 3     | 2 min     | —          |
-| 13  | Add shell aliases in `shellHook`                  | 3     | 5 min     | Step 8     |
-| 14  | Update `AGENTS.md` with new commands              | 3     | 10 min    | Step 8     |
-| 15  | Update `README.md` with Nix instructions          | 3     | 15 min    | Step 8     |
-| 16  | Migrate `ci.yml` to Nix                           | 3     | 30 min    | Step 11    |
-| 17  | Set up Cachix (optional)                          | 3     | 30 min    | Step 16    |
-| 18  | Final verification: all commands work             | 3     | 15 min    | Steps 1-17 |
+| #  | Step                                              | Phase | Est. Time | Dependency |
+| -- | ------------------------------------------------- | ----- | --------- | ---------- |
+| 1  | Update `flake.lock` to get `go_1_26`              | 1     | 5 min     | —          |
+| 2  | Fix `go_1_24` → `go_1_26` in `flake.nix`          | 1     | 5 min     | Step 1     |
+| 3  | Pin `nixpkgs.url` to explicit GitHub ref          | 1     | 2 min     | —          |
+| 4  | Add missing dev tools (gopls, delve, golines)     | 1     | 5 min     | —          |
+| 5  | Verify `nix develop` works with correct Go        | 1     | 5 min     | Steps 1-4  |
+| 6  | Add `packages` output with `buildGoModule`        | 2     | 30 min    | Step 5     |
+| 7  | Compute and set `vendorHash`                      | 2     | 10 min    | Step 6     |
+| 8  | Add `apps` output (test, lint, check, ci, etc.)   | 2     | 45 min    | Step 5     |
+| 9  | Add `checks` output (build, test, lint, fmt, vet) | 2     | 30 min    | Steps 6, 8 |
+| 10 | Add `formatter` output                            | 2     | 5 min     | —          |
+| 11 | Verify `nix flake check` passes                   | 2     | 10 min    | Steps 6-10 |
+| 12 | Update `.envrc` with `watch_file` directives      | 3     | 2 min     | —          |
+| 13 | Add shell aliases in `shellHook`                  | 3     | 5 min     | Step 8     |
+| 14 | Update `AGENTS.md` with new commands              | 3     | 10 min    | Step 8     |
+| 15 | Update `README.md` with Nix instructions          | 3     | 15 min    | Step 8     |
+| 16 | Migrate `ci.yml` to Nix                           | 3     | 30 min    | Step 11    |
+| 17 | Set up Cachix (optional)                          | 3     | 30 min    | Step 16    |
+| 18 | Final verification: all commands work             | 3     | 15 min    | Steps 1-17 |
 
 **Total estimated time:** ~4-5 hours
 
@@ -1196,13 +1201,13 @@ golangci-lint run ./...
 
 The following decisions are needed before execution:
 
-| #   | Decision                              | Options                           | Recommendation                                     |
-| --- | ------------------------------------- | --------------------------------- | -------------------------------------------------- |
-| D1  | Go version if `go_1_26` unavailable   | `pkgs.go` / custom overlay / wait | Update flake.lock first; use `pkgs.go` as fallback |
-| D2  | Include `packages` output for library | Yes / No                          | Yes — validates build, minimal maintenance         |
-| D3  | CI: full Nix or hybrid                | Full Nix / Hybrid                 | Full Nix — eliminates version drift                |
-| D4  | Set up Cachix now or later            | Now / Later                       | Later — add when CI is stable                      |
-| D5  | Include `buildGoModule` or skip       | Include / Skip                    | Include — catches dependency issues early          |
+| #  | Decision                              | Options                           | Recommendation                                     |
+| -- | ------------------------------------- | --------------------------------- | -------------------------------------------------- |
+| D1 | Go version if `go_1_26` unavailable   | `pkgs.go` / custom overlay / wait | Update flake.lock first; use `pkgs.go` as fallback |
+| D2 | Include `packages` output for library | Yes / No                          | Yes — validates build, minimal maintenance         |
+| D3 | CI: full Nix or hybrid                | Full Nix / Hybrid                 | Full Nix — eliminates version drift                |
+| D4 | Set up Cachix now or later            | Now / Later                       | Later — add when CI is stable                      |
+| D5 | Include `buildGoModule` or skip       | Include / Skip                    | Include — catches dependency issues early          |
 
 ---
 

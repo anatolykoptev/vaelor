@@ -86,6 +86,69 @@ if errors.Is(err, filewatcher.ErrWatcherClosed) {
 
 ---
 
+## Migrating to v2.3+ (Soft Deprecations)
+
+Two symbols are **soft-deprecated** in v2.3 and will be removed in v3. They
+still work, but `golint`/`staticcheck` will flag them. Migrate now to avoid
+breakage at the v3 boundary.
+
+### `WithOnError` → `WithErrorHandler`
+
+`WithOnError` only receives the bare `error`, giving you no operation, path, or
+retryability context. `WithErrorHandler` provides a full `ErrorContext`.
+
+#### Before
+
+```go
+watcher, _ := filewatcher.New(
+    []string{"./src"},
+    filewatcher.WithOnError(func(err error) {
+        log.Printf("Error: %v", err)
+    }),
+)
+```
+
+#### After
+
+```go
+watcher, _ := filewatcher.New(
+    []string{"./src"},
+    filewatcher.WithErrorHandler(func(ctx filewatcher.ErrorContext, err error) {
+        log.Printf("[%s] Error on %s: %v", ctx.Operation, ctx.Path, err)
+    }),
+)
+```
+
+If you only need the original simple behavior, ignore the `ErrorContext`:
+
+```go
+filewatcher.WithErrorHandler(func(_ filewatcher.ErrorContext, err error) {
+    log.Printf("Error: %v", err)
+})
+```
+
+### `MiddlewareRateLimit` → `MiddlewareThrottle`
+
+`MiddlewareRateLimit(maxEvents)` uses a fixed burst equal to `maxEvents`.
+`MiddlewareThrottle` exposes the `burst` parameter directly for finer control.
+
+#### Before
+
+```go
+mw := filewatcher.MiddlewareRateLimit(100)
+```
+
+#### After (equivalent)
+
+```go
+mw := filewatcher.MiddlewareThrottle(100, 100)
+```
+
+`MiddlewareRateLimit(maxEvents)` is exactly `MiddlewareThrottle(maxEvents, maxEvents)`,
+so the behavior is identical — only the name and explicitness change.
+
+---
+
 ## Other Changes in v2.0
 
 ### Watcher State Flags

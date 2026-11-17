@@ -1,80 +1,65 @@
-# go-filewatcher
+<h1 align="center">go-filewatcher</h1>
 
-[![Go Version](https://img.shields.io/badge/go-1.26.3+-blue.svg)](https://golang.org/dl/)
-[![Go Reference](https://pkg.go.dev/badge/github.com/larsartmann/go-filewatcher/v2.svg)](https://pkg.go.dev/github.com/larsartmann/go-filewatcher/v2)
-[![CI](https://github.com/larsartmann/go-filewatcher/actions/workflows/ci.yml/badge.svg)](https://github.com/larsartmann/go-filewatcher/actions)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center"><strong>A high-performance, composable file system watcher for Go.</strong></p>
 
-A high-performance, composable file system watcher for Go, built on [fsnotify](https://github.com/fsnotify/fsnotify). Eliminates the boilerplate of raw fsnotify usage with sensible defaults, automatic recursive watching, powerful filtering, and elegant middleware chains.
+<p align="center">
+<a href="https://pkg.go.dev/github.com/larsartmann/go-filewatcher/v2"><img src="https://pkg.go.dev/badge/github.com/larsartmann/go-filewatcher/v2.svg" alt="Go Reference"></a>
+<a href="https://github.com/larsartmann/go-filewatcher/actions/workflows/ci.yml"><img src="https://github.com/larsartmann/go-filewatcher/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 
----
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
 
-## ✨ Features
+</p>
 
-- **🎯 Zero Boilerplate** — Start watching with 5 lines of code
-- **🌳 Automatic Recursion** — Subdirectories watched automatically, including newly created ones
-- **⏱️ Smart Debouncing** — Global or per-path debouncing to handle rapid file changes
-- **🔍 Powerful Filtering** — 13 built-in filters with AND/OR/NOT composition
-- **🤖 Auto-Generated Code Detection** — Filter files from sqlc, protobuf, templ, etc. via gogenfilter
-- **🔗 Middleware Chains** — Cross-cutting concerns (logging, recovery, metrics) via composable middleware
-- **🎬 Context-Aware** — Graceful shutdown with Go's `context.Context`
-- **⚡ High Performance** — Channel-based streaming, minimal allocations, race-safe
-- **📦 Minimal Dependencies** — Only `fsnotify` (stdlib for everything else)
-- **🧪 Battle Tested** — Comprehensive test suite with race detection
+<p align="center">
+<a href="https://filewatcher.lars.software">Documentation</a> · <a href="https://pkg.go.dev/github.com/larsartmann/go-filewatcher/v2">API Reference</a>
+</p>
 
 ---
 
-## 📑 Table of Contents
+Built on [fsnotify](https://github.com/fsnotify/fsnotify). Eliminates the boilerplate of raw fsnotify with sensible defaults, automatic recursion, 17+ composable filters, 18 middleware, and production-grade resilience.
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Configuration Options](#configuration-options)
-- [Filters](#filters)
-- [Middleware](#middleware)
-- [Debounce Modes](#debounce-modes)
-- [Event Types](#event-types)
-- [Error Handling](#error-handling)
-- [Advanced Usage](#advanced-usage)
-- [Design Principles](#design-principles)
-- [Examples](#examples)
-- [License](#license)
+## Why?
 
----
+Raw fsnotify gives you events and nothing else. Every real-world file watcher needs the same infrastructure:
 
-## Installation
+- **Recursion** — you must walk directories and add each one manually
+- **Filtering** — you write the same extension/ignore/pattern logic every time
+- **Debouncing** — editors trigger 5 events on a single save; you coalesce them yourself
+- **Resilience** — ENOSPC crashes your watcher; you handle it or you don't
+- **Observability** — no stats, no metrics, no tracing hooks
+
+go-filewatcher handles all of this. Built for production, tested with `-race`, and deployed in real systems.
+
+## Comparison
+
+| Feature            | Raw fsnotify | Other wrappers | go-filewatcher |
+| ------------------ | :----------: | :------------: | :------------: |
+| Recursive watching |              |    Partial     |       ✓        |
+| Built-in filters   |              |      Few       |      17+       |
+| Middleware chains  |              |                |       18       |
+| Debouncing         |              |    Partial     | Global+PerPath |
+| .gitignore-aware   |              |                |       ✓        |
+| ENOSPC resilience  |              |                |       ✓        |
+| NFS/FUSE polling   |              |                |       ✓        |
+| Self-healing       |              |                |       ✓        |
+| Prometheus + OTel  |              |                |       ✓        |
+
+## How it works
+
+1. **Create** — `New(paths, opts...)` validates paths, walks directories, applies options, and registers inotify watches
+2. **Watch** — `Watch(ctx)` starts the event loop goroutine, returns a read-only event channel
+3. **Pipeline** — each event passes through your filter chain (AND/OR/NOT composition) and middleware (logging, recovery, rate limiting, metrics)
+4. **Deliver** — filtered events arrive on the channel with path, op, timestamp, size, modtime, and optional content hash
+
+## Install
 
 ```bash
 go get github.com/larsartmann/go-filewatcher/v2
 ```
 
-Requires Go 1.26.3 or later.
+Requires Go 1.26.7 or later (the version pinned in `go.mod` and the CI matrix).
 
-### Development with Nix
-
-This project uses [Nix Flakes](https://nixos.wiki/wiki/Flakes) for reproducible builds and development:
-
-```bash
-# Enter development shell (all tools included)
-nix develop
-
-# Or use direnv for automatic environment loading
-direnv allow
-
-# Run commands via Nix (no dev shell needed)
-nix run .#check          # vet + lint + test
-nix run .#ci             # full CI pipeline
-nix run .#test           # run tests with -race
-nix run .#lint           # run linter
-nix run .#lint-fix       # auto-fix lint issues
-nix flake check          # run all quality gates
-nix build .              # validate reproducible build
-```
-
----
-
-## Quick Start
-
-### Basic Usage
+## Usage
 
 ```go
 package main
@@ -89,7 +74,6 @@ import (
 )
 
 func main() {
-    // Create watcher with extensions filter and debounce
     watcher, err := filewatcher.New(
         []string{"./src"},
         filewatcher.WithExtensions(".go"),
@@ -101,14 +85,11 @@ func main() {
     }
     defer watcher.Close()
 
-    // Start watching
-    ctx := context.Background()
-    events, err := watcher.Watch(ctx)
+    events, err := watcher.Watch(context.Background())
     if err != nil {
         log.Fatal(err)
     }
 
-    // Process events
     for event := range events {
         fmt.Printf("%s: %s\n", event.Op, event.Path)
     }
@@ -122,13 +103,13 @@ watcher, err := filewatcher.New(
     []string{"./src"},
     filewatcher.WithExtensions(".go"),
     filewatcher.WithMiddleware(
-        filewatcher.MiddlewareRecovery(),   // Recover from panics
-        filewatcher.MiddlewareLogging(nil), // Structured logging
+        filewatcher.MiddlewareRecovery(),   // Runs LAST (innermost)
+        filewatcher.MiddlewareLogging(nil), // Runs FIRST (outermost)
     ),
 )
 ```
 
-### With Custom Filter
+### With Custom Filters
 
 ```go
 filter := filewatcher.FilterAnd(
@@ -143,499 +124,321 @@ watcher, err := filewatcher.New(
 )
 ```
 
----
+### Filtering Generated Code
+
+Exclude auto-generated Go files via [gogenfilter](https://github.com/LarsArtmann/gogenfilter):
+
+```go
+watcher, err := filewatcher.New(
+    []string{"./src"},
+    filewatcher.WithFilter(filewatcher.FilterGeneratedCode()),
+)
+```
+
+Detects sqlc, protobuf, templ, mockgen, stringer, and 13 more generators.
+
+> **sqlc note (gogenfilter v3.6):** weak filenames like `models.go` are NOT
+> treated as sqlc-generated on their own (hand-written `models.go` is too
+> common). Strong `*.sql.go` patterns still match by filename, and the
+> `// Code generated by sqlc. DO NOT EDIT.` content marker is detected when
+> content checking is enabled.
 
 ## Configuration Options
 
-| Option                    | Description                                                          | Default                               |
-| ------------------------- | -------------------------------------------------------------------- | ------------------------------------- |
-| `WithDebounce(d)`         | Global debounce — all events coalesced into one emission after delay | `0` (disabled)                        |
-| `WithPerPathDebounce(d)`  | Per-path debounce — each file debounced independently                | `0` (disabled)                        |
-| `WithFilter(f)`           | Add a custom filter function                                         | —                                     |
-| `WithExtensions(exts...)` | Only emit events for given file extensions                           | —                                     |
-| `WithIgnoreDirs(dirs...)` | Discard events from given directory names                            | —                                     |
-| `WithIgnoreHidden()`      | Discard events for hidden files/dirs (dot prefix)                    | `true` (dot dirs skipped during walk) |
-| `WithRecursive(b)`        | Enable/disable recursive directory watching                          | `true`                                |
-| `WithMiddleware(m...)`    | Add middleware to the event processing pipeline                      | —                                     |
-| `WithErrorHandler(fn)`    | Set custom error handler for watcher errors                          | `stderr` logging                      |
-| `WithSkipDotDirs(skip)`   | Skip directories starting with a dot during walking                  | `true`                                |
-| `WithBuffer(size)`        | Event channel buffer size for handling bursts                        | `64`                                  |
-| `WithOnAdd(fn)`           | Callback invoked when a new path is added to the watcher             | —                                     |
-
----
+| Option                        | Description                                                                 | Default                   |
+| ----------------------------- | --------------------------------------------------------------------------- | ------------------------- |
+| `WithDebounce(d)`             | Global debounce — all events coalesced into one emission after delay        | `0` (disabled)            |
+| `WithPerPathDebounce(d)`      | Per-path debounce — each file debounced independently                       | `0` (disabled)            |
+| `WithFilter(f)`               | Add a custom filter function                                                | —                         |
+| `WithExtensions(exts...)`     | Only emit events for given file extensions                                  | —                         |
+| `WithIgnoreDirs(dirs...)`     | Discard events from given directory names (also skips during walk)          | —                         |
+| `WithIgnorePatterns(pats...)` | Discard events for files matching glob patterns (filename only)             | —                         |
+| `WithIgnoreHidden()`          | Discard events for hidden files/dirs (dot prefix)                           | —                         |
+| `WithRecursive(b)`            | Enable/disable recursive directory watching                                 | `true`                    |
+| `WithMiddleware(m...)`        | Add middleware to the event processing pipeline                             | —                         |
+| `WithErrorHandler(fn)`        | Set custom error handler for watcher errors                                 | `stderr` logging          |
+| `WithOnError(fn)` ⚠️           | **Deprecated.** Use `WithErrorHandler`. Simplified callback (`func(error)`) | —                         |
+| `WithSkipDotDirs(skip)`       | Skip directories starting with a dot during walking                         | `true`                    |
+| `WithBuffer(size)`            | Event channel buffer size for handling bursts                               | `64`                      |
+| `WithOnAdd(fn)`               | Callback invoked when a new path is added to the watcher                    | —                         |
+| `WithLazyIsDir()`             | Skip `os.Stat` calls in event conversion (IsDir always false)               | `false`                   |
+| `WithPolling(fallback)`       | Supplement fsnotify with periodic polling (NFS/FUSE/Docker volumes)         | `false`                   |
+| `WithPollInterval(d)`         | Polling interval (requires `WithPolling(true)`)                             | `2s` when polling enabled |
+| `WithDebug(logger)`           | Enable verbose structured debug logging                                     | —                         |
+| `WithFollowSymlinks(b)`       | Follow symbolic links during directory walking                              | `false`                   |
+| `WithGitignore(b)`            | `.gitignore`-aware walk filtering (skips ignored subtrees)                  | `true`                    |
+| `WithExcludePaths(paths...)`  | Exclude absolute paths (and subtrees) during walk (prefix matching)         | —                         |
+| `WithMaxWatches(n)`           | Override inotify watch budget (auto-detected from `/proc/sys/...` on Linux) | auto-detected             |
+| `WithContentHashing()`        | Populate `Event.Hash` with SHA-256 of file content (capped 10 MiB)          | `false`                   |
+| `WithSelfHeal(interval)`      | Auto-retry failed watch registrations at the given interval                 | `0` (disabled)            |
 
 ## Filters
 
 Filters determine which events are emitted. Return `true` to keep, `false` to discard.
 
-### Built-in Filters
+| Filter                            | Description                                              |
+| --------------------------------- | -------------------------------------------------------- |
+| `FilterExtensions(exts...)`       | Only files with given extensions                         |
+| `FilterIgnoreExtensions(exts...)` | Exclude files with given extensions                      |
+| `FilterIgnoreDirs(dirs...)`       | Exclude files within given directory names               |
+| `FilterExcludePaths(paths...)`    | Exclude files within given absolute paths (prefix match) |
+| `FilterIgnoreHidden()`            | Exclude hidden files/directories                         |
+| `FilterIgnoreGlobs(patterns...)`  | Exclude files matching glob patterns (filename only)     |
+| `FilterOperations(ops...)`        | Only given operation types                               |
+| `FilterNotOperations(ops...)`     | Exclude given operation types                            |
+| `FilterGlob(pattern)`             | Match file name against glob pattern                     |
+| `FilterRegex(pattern)`            | Match path against regex pattern                         |
+| `FilterMinSize(bytes)`            | Only files at least the given size                       |
+| `FilterMaxSize(bytes)`            | Only files at most the given size                        |
+| `FilterMinAge(age)`               | Only files older than given duration                     |
+| `FilterModifiedSince(t)`          | Only files modified after given time                     |
+| `FilterContentHash(expectedHex)`  | Only files matching expected SHA-256                     |
+| `FilterGitignore(repoRoot)`       | Exclude files ignored by `.gitignore` in `repoRoot`      |
+| `FilterGeneratedCode(gens...)`    | Exclude auto-generated Go files (sqlc, protobuf, ...)    |
 
-| Filter                            | Description                            |
-| --------------------------------- | -------------------------------------- |
-| `FilterExtensions(exts...)`       | Only files with given extensions       |
-| `FilterIgnoreExtensions(exts...)` | Exclude files with given extensions    |
-| `FilterIgnoreDirs(dirs...)`       | Exclude files within given directories |
-| `FilterIgnoreHidden()`            | Exclude hidden files/directories       |
-| `FilterOperations(ops...)`        | Only given operation types             |
-| `FilterNotOperations(ops...)`     | Exclude given operation types          |
-| `FilterGlob(pattern)`             | Match file name against glob pattern   |
-| `FilterRegex(pattern)`            | Match path against regex pattern       |
-| `FilterMinSize(bytes)`            | Only files ≥ given size                |
-
-### Composition Filters
-
-| Filter                  | Description                        |
-| ----------------------- | ---------------------------------- |
-| `FilterAnd(filters...)` | All filters must pass (AND)        |
-| `FilterOr(filters...)`  | At least one filter must pass (OR) |
-| `FilterNot(filter)`     | Invert the filter (NOT)            |
-
-### Filter Examples
-
-```go
-// Only .go files, excluding vendor
-filter := filewatcher.FilterAnd(
-    filewatcher.FilterExtensions(".go"),
-    filewatcher.FilterNot(filewatcher.FilterIgnoreDirs("vendor")),
-)
-
-// Either .go or .md files
-goOrMd := filewatcher.FilterOr(
-    filewatcher.FilterExtensions(".go"),
-    filewatcher.FilterExtensions(".md"),
-)
-
-// Only write and create operations
-writeOrCreate := filewatcher.FilterOperations(
-    filewatcher.Write,
-    filewatcher.Create,
-)
-
-// Match files by glob
-logsOnly := filewatcher.FilterGlob("*.log")
-
-// Minimum file size (1KB+)
-largeFiles := filewatcher.FilterMinSize(1024)
-
-// Complex: .go files, not in vendor, not hidden, write/create only
-complexFilter := filewatcher.FilterAnd(
-    filewatcher.FilterExtensions(".go"),
-    filewatcher.FilterNot(filewatcher.FilterIgnoreDirs("vendor", "node_modules")),
-    filewatcher.FilterNot(filewatcher.FilterIgnoreHidden()),
-    filewatcher.FilterOperations(filewatcher.Write, filewatcher.Create),
-)
-```
-
-### Filter Generated Code (gogenfilter)
-
-Use the `FilterGeneratedCode` filter to automatically exclude auto-generated Go files from events. This integrates with [gogenfilter](https://github.com/LarsArtmann/gogenfilter) to detect files from common generators:
-
-| Generator | Detection Pattern                                     |
-| --------- | ----------------------------------------------------- |
-| sqlc      | `models.go`, `querier.go`, `*.sql.go`                 |
-| templ     | `*_templ.go`                                          |
-| go-enum   | `*_enum.go`                                           |
-| protobuf  | `*.pb.go`, `*_grpc.pb.go`                             |
-| mockgen   | `*_mock.go`, `mock_*.go`                              |
-| stringer  | Content detection (`// Code generated by "stringer"`) |
-| Generic   | Content detection (`// Code generated by ...`)        |
-
-```go
-import "github.com/LarsArtmann/gogenfilter"
-
-// Filter all generated code types
-watcher, _ := filewatcher.New("./src",
-    filewatcher.WithFilter(filewatcher.FilterGeneratedCode()),
-)
-
-// Filter specific generators only
-watcher, _ := filewatcher.New("./src",
-    filewatcher.WithFilter(filewatcher.FilterGeneratedCode(
-        gogenfilter.FilterSQLC,
-        gogenfilter.FilterProtobuf,
-    )),
-)
-
-// Combine with other filters
-filter := filewatcher.FilterAnd(
-    filewatcher.FilterExtensions(".go"),
-    filewatcher.FilterGeneratedCode(),  // Exclude generated .go files
-)
-```
-
-### Filter Composition Examples
-
-```go
-// Only .go files, excluding generated code AND vendor
-cleanFilter := filewatcher.FilterAnd(
-    filewatcher.FilterExtensions(".go"),
-    filewatcher.FilterNot(filewatcher.FilterIgnoreDirs("vendor")),
-    filewatcher.FilterGeneratedCode(),  // Auto-excludes sqlc, protobuf, etc.
-)
-
-// Combine with other filters using FilterOr
-goOrTempl := filewatcher.FilterOr(
-    filewatcher.FilterExtensions(".go"),
-    filewatcher.FilterGlob("*_templ.go"),  // Explicitly watch templ files
-)
-```
-
----
+Compose with `FilterAnd`, `FilterOr`, and `FilterNot`.
 
 ## Middleware
 
 Middleware wraps event handlers for cross-cutting concerns. Applied in **reverse order** (last added runs first).
 
-### Built-in Middleware
+| Middleware                                      | Description                                                            |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| `MiddlewareLogging(logger)`                     | Log all events with structured logging (slog)                          |
+| `MiddlewareRecovery()`                          | Recover from panics, log stack trace                                   |
+| `MiddlewareFilter(filter)`                      | Filter events (same as WithFilter)                                     |
+| `MiddlewareOnError(handler)`                    | Handle errors from downstream handlers                                 |
+| `MiddlewareRateLimit(maxEvents)` ⚠️              | **Deprecated.** Use `MiddlewareThrottle(maxEvents, maxEvents)` instead |
+| `MiddlewareSlidingWindowRateLimit(n, win)`      | Sliding-window rate limiting                                           |
+| `MiddlewareThrottle(maxEvents, burst)`          | Token-bucket rate limiting via `golang.org/x/time/rate`                |
+| `MiddlewareMetrics(counter)`                    | Count processed events by operation                                    |
+| `MiddlewareDeduplicate(window)`                 | Drop duplicate events within a time window                             |
+| `MiddlewareBatch(window, maxSize, flush)`       | Batch events over a window or size threshold                           |
+| `MiddlewareWriteFileLog(path)`                  | Write events to file for audit trail                                   |
+| `MiddlewareCircuitBreaker(maxFail, reset)`      | Fault tolerance with closed/open/half-open states                      |
+| `MiddlewareExponentialBackoff(maxF, init, max)` | Configurable backoff for event processing                              |
+| `MiddlewareErrorRateLimit(maxErrs, window)`     | Per-error-type rate limiting                                           |
+| `MiddlewareErrorRecovery(strategy)`             | Recoverable error handling with custom strategies                      |
+| `MiddlewareErrorCorrelation(idGen)`             | Attach correlation IDs for request tracing                             |
+| `MiddlewareErrorSanitization(sanitize)`         | Safe error message scrubbing preserving error chains                   |
+| `MiddlewareErrorBatch(window, maxSize, flush)`  | Batch errors for analytics                                             |
 
-| Middleware                       | Description                                   |
-| -------------------------------- | --------------------------------------------- |
-| `MiddlewareLogging(logger)`      | Log all events with structured logging (slog) |
-| `MiddlewareRecovery()`           | Recover from panics, log stack trace          |
-| `MiddlewareRateLimit(maxEvents)` | Limit to maxEvents events per second          |
-| `MiddlewareFilter(filter)`       | Filter events (same as WithFilter)            |
-| `MiddlewareOnError(handler)`     | Handle errors from downstream handlers        |
-| `MiddlewareMetrics(counter)`     | Count processed events by operation           |
-| `MiddlewareWriteFileLog(path)`   | Write events to file for audit trail          |
-
-### Middleware Examples
-
-```go
-// Basic: logging + recovery
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(
-        filewatcher.MiddlewareRecovery(),
-        filewatcher.MiddlewareLogging(nil),
-    ),
-)
-
-// With metrics
-var createCount, writeCount atomic.Int64
-
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(
-        filewatcher.MiddlewareRecovery(),
-        filewatcher.MiddlewareLogging(nil),
-        filewatcher.MiddlewareMetrics(func(op filewatcher.Op) {
-            switch op {
-            case filewatcher.Create:
-                createCount.Add(1)
-            case filewatcher.Write:
-                writeCount.Add(1)
-            }
-        }),
-    ),
-)
-
-// Rate limiting (max 1 event per second)
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(
-        filewatcher.MiddlewareRateLimit(100),
-    ),
-)
-
-// Audit logging to file
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(
-        filewatcher.MiddlewareWriteFileLog("/var/log/filewatcher.log"),
-    ),
-)
-
-// Custom error handling
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(
-        filewatcher.MiddlewareOnError(func(event filewatcher.Event, err error) {
-            slog.Error("event processing failed",
-                "path", event.Path,
-                "error", err,
-            )
-        }),
-    ),
-)
-```
-
----
-
-## Debounce Modes
-
-### Global Debounce (`WithDebounce`)
-
-All events are coalesced into a single emission after the delay since the last event.
-
-**Use case:** Build systems, test runners — you want to trigger once after a burst of changes.
-
-```go
-// Wait 500ms after last event, then emit once
-filewatcher.WithDebounce(500 * time.Millisecond)
-```
-
-### Per-Path Debounce (`WithPerPathDebounce`)
-
-Each file path is debounced independently.
-
-**Use case:** Hot reloading where each file triggers its own reload.
-
-```go
-// Each file emits independently after 500ms since its last change
-filewatcher.WithPerPathDebounce(500 * time.Millisecond)
-```
-
-### No Debounce
-
-Events are emitted immediately (may cause high frequency for rapid changes).
-
----
-
-## Event Types
+## Event
 
 ```go
 type Event struct {
     Path      string    // Absolute path of changed file/directory
-    Op        Op        // Operation type
+    Op        Op        // Create, Write, Remove, or Rename
     Timestamp time.Time // When the event was detected
     IsDir     bool      // True if directory, false if file
     Size      int64     // File size in bytes (0 if unavailable)
     ModTime   time.Time // File modification time (zero if unavailable)
+    Hash      string    // SHA-256 hex digest (populated only with WithContentHashing)
 }
 ```
 
-### Operations
+Event priority when multiple operations coalesce: `Create > Write > Remove > Rename`.
 
-| Op       | Description               |
-| -------- | ------------------------- |
-| `Create` | File or directory created |
-| `Write`  | File modified             |
-| `Remove` | File or directory removed |
-| `Rename` | File or directory renamed |
+Full JSON marshaling and `slog.LogValuer` support. Chmod events are ignored.
 
-**Note:** Event priority when multiple operations occur: `Create` > `Write` > `Remove` > `Rename`.
+## Resilience
 
-### Event Methods
+Built for large, long-running watchers:
 
 ```go
-event.String()              // "CREATE /path/to/file at 2026-01-15T10:30:00Z"
-event.Op.String()           // "CREATE", "WRITE", "REMOVE", "RENAME"
-
-// JSON marshaling supported
-data, _ := json.Marshal(event)
-```
-
----
-
-## Error Handling
-
-All errors are returned explicitly (no panics). Sentinel errors for common cases:
-
-```go
-var (
-    ErrWatcherClosed = errors.New("watcher is closed")
-    ErrNoPaths       = errors.New("at least one path is required")
-    ErrPathNotFound  = errors.New("path not found")
-    ErrPathNotDir    = errors.New("path is not a directory")
-    ErrWatcherRunning = errors.New("watcher is already running")
-    ErrUnknownOp     = errors.New("unknown operation")
+watcher, err := filewatcher.New(
+    []string{"./large-monorepo"},
+    filewatcher.WithGitignore(true),                   // default: true
+    filewatcher.WithExcludePaths("/home/me/forks"),    // skip subtrees
+    filewatcher.WithMaxWatches(524288),                 // override inotify budget
+    filewatcher.WithSelfHeal(30 * time.Second),         // auto-retry failures
+    filewatcher.WithFollowSymlinks(true),               // follow symlinks
 )
 ```
 
-### Error Handling Example
+When the inotify budget is exhausted, directories are skipped silently and counted in `Stats.WatchErrors` — the watcher starts in degraded mode instead of failing entirely.
+
+### NFS/FUSE Support
 
 ```go
-watcher, err := filewatcher.New(paths)
-if err != nil {
-    if errors.Is(err, filewatcher.ErrPathNotFound) {
-        log.Printf("Path not found: %v", err)
-    } else {
-        log.Fatalf("Failed to create watcher: %v", err)
-    }
-}
-
-// Set error handler for runtime errors
-watcher, _ = filewatcher.New(paths,
-    filewatcher.WithErrorHandler(func(err error) {
-        slog.Error("watcher error", "error", err)
-    }),
-)
-```
-
----
-
-## Advanced Usage
-
-### Dynamic Path Management
-
-```go
-watcher, _ := filewatcher.New([]string{"./src"})
-
-// Add paths dynamically
-if err := watcher.Add("./extra"); err != nil {
-    log.Printf("Failed to add path: %v", err)
-}
-
-// Remove paths
-if err := watcher.Remove("./src/old"); err != nil {
-    log.Printf("Failed to remove path: %v", err)
-}
-
-// Get currently watched paths
-paths := watcher.WatchList()
-
-// Get statistics
-stats := watcher.Stats()
-fmt.Printf("Watching %d paths\n", stats.WatchCount)
-```
-
-### Context Cancellation
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-events, _ := watcher.Watch(ctx)
-
-// Process events until context is cancelled
-for event := range events {
-    // Handle event
-}
-// Channel is closed, watcher stopped
-```
-
-### Custom Middleware
-
-```go
-func MyMiddleware(next filewatcher.Handler) filewatcher.Handler {
-    return func(ctx context.Context, event filewatcher.Event) error {
-        // Before processing
-        start := time.Now()
-
-        err := next(ctx, event)
-
-        // After processing
-        duration := time.Since(start)
-        fmt.Printf("Processed %s in %v\n", event.Path, duration)
-
-        return err
-    }
-}
-
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(MyMiddleware),
-)
-```
-
-### Safe Defaults Reference
-
-```go
-// Common directories to ignore
-filewatcher.DefaultIgnoreDirs
-// []string{
-//     ".git", ".hg", ".svn",
-//     "vendor", "node_modules",
-//     "dist", "build", "bin", "out",
-//     "__pycache__", ".cache",
-// }
-```
-
-### Structured Logging
-
-```go
-import "log/slog"
-
-// Create a custom JSON logger for production
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
-
-watcher, _ := filewatcher.New(paths,
-    filewatcher.WithMiddleware(
-        filewatcher.MiddlewareRecovery(),
-        filewatcher.MiddlewareLogging(logger), // Uses your custom logger
-    ),
-)
-```
-
-### Dependency Injection Patterns
-
-go-filewatcher integrates naturally with Go DI frameworks:
-
-#### Manual DI (Constructor Injection)
-
-```go
-type FileProcessor struct {
-    watcher *filewatcher.Watcher
-}
-
-func NewFileProcessor(dirs []string, logger *slog.Logger) (*FileProcessor, error) {
-    w, err := filewatcher.New(dirs,
-        filewatcher.WithExtensions(".go"),
-        filewatcher.WithMiddleware(
-            filewatcher.MiddlewareRecovery(),
-            filewatcher.MiddlewareLogging(logger),
-        ),
-    )
-    if err != nil {
-        return nil, fmt.Errorf("creating watcher: %w", err)
-    }
-
-    return &FileProcessor{watcher: w}, nil
-}
-
-func (fp *FileProcessor) Run(ctx context.Context) error {
-    defer fp.watcher.Close()
-
-    events, err := fp.watcher.Watch(ctx)
-    if err != nil {
-        return err
-    }
-
-    for event := range events {
-        // Process events
-    }
-
-    return nil
-}
-```
-
-#### Interface-based Testing
-
-```go
-// Define an interface for the watcher dependency
-type Watcher interface {
-    Watch(ctx context.Context) (<-chan filewatcher.Event, error)
-    Close() error
-}
-
-// Production implementation
-func NewWatcher(paths []string, opts ...filewatcher.Option) (Watcher, error) {
-    return filewatcher.New(paths, opts...)
-}
-
-// Test mock
-type mockWatcher struct {
-    events chan filewatcher.Event
-}
-
-func (m *mockWatcher) Watch(_ context.Context) (<-chan filewatcher.Event, error) {
-    return m.events, nil
-}
-
-func (m *mockWatcher) Close() error {
-    close(m.events)
-    return nil
-}
-```
-
-### Polling Mode (NFS/Docker Volumes)
-
-```go
-// For environments where OS-native events don't work
-watcher, _ := filewatcher.New(
+watcher, err := filewatcher.New(
     []string{"/mnt/nfs/share"},
     filewatcher.WithPolling(true),
     filewatcher.WithPollInterval(2 * time.Second),
 )
 ```
 
----
+### Filesystem Compatibility
+
+Filesystems differ in two ways that silently break naive watchers: **case
+sensitivity** (NTFS/APFS are case-insensitive, ext4/XFS are case-sensitive) and
+**Unicode normalization** (macOS stores filenames as decomposed NFD; most other
+systems use composed NFC). `go-filewatcher` handles both automatically.
+
+```go
+watcher, err := filewatcher.New(
+    []string{"./project"},
+    // Auto-detects from the OS: case-insensitive on macOS/Windows,
+    // case-sensitive on Linux. Override explicitly when needed:
+    filewatcher.WithCaseSensitivity(filewatcher.CaseSensitivityAuto),
+)
+```
+
+How it works:
+
+- **NFC normalization is always on.** Every path key (`Add`, `Remove`, debounce,
+  exclude-path, poll snapshot, and gitignore matching) is normalized to NFC, so
+  an NFD path from the macOS filesystem and an NFC path from user input resolve
+  to the same key. ASCII paths are unaffected (zero-cost fast path).
+- **Case-sensitivity is configurable.** In case-insensitive mode, path keys are
+  lowercased so `File.txt` and `file.txt` collide — preventing duplicate watches,
+  missed `Remove()` calls, and case-only-rename phantom events.
+- **Check the resolved mode at runtime:** `watcher.EffectiveCaseSensitivity()` returns the type-safe `FilesystemCaseSensitivity` enum, or `stats.CaseSensitivity` for the string form.
+
+Filter-level wrappers (without changing the watcher-wide mode):
+
+```go
+// Case-insensitive: lowercase + NFC-normalize before the inner filter:
+filter := filewatcher.FilterCaseInsensitive(filewatcher.FilterExtensions(".go"))
+
+// Case-sensitive: NFC-normalize only (useful on macOS NFD paths):
+filter := filewatcher.FilterCaseSensitive(filewatcher.FilterRegex(`^/Project/.*\.go$`))
+```
+
+## Observability
+
+### Stats
+
+```go
+stats := watcher.Stats()
+fmt.Printf("watching %d/%d paths (%.1f%% budget), %d add failures\n",
+    stats.WatchCount, stats.WatchBudgetCap,
+    stats.WatchBudgetUsed*100, stats.WatchErrors)
+```
+
+### Prometheus
+
+The `PrometheusCollector` is dependency-free: it exposes `Counters()` and
+`Gauges()` that you adapt to your own metrics registry. Here is a complete
+adapter using the standard `prometheus/client_golang` package:
+
+```go
+import "github.com/prometheus/client_golang/prometheus"
+
+// filewatcherCollector implements prometheus.Collector by delegating
+// to filewatcher.PrometheusCollector. Prometheus calls Collect on each
+// scrape — no polling loop needed.
+type filewatcherCollector struct {
+    coll  *filewatcher.PrometheusCollector
+    descs map[string]*prometheus.Desc
+}
+
+func newFilewatcherCollector(coll *filewatcher.PrometheusCollector) *filewatcherCollector {
+    descs := make(map[string]*prometheus.Desc)
+    for _, c := range coll.Counters() {
+        descs[c.Name] = prometheus.NewDesc(c.Name, c.Help, nil, nil)
+    }
+    for _, g := range coll.Gauges() {
+        descs[g.Name] = prometheus.NewDesc(g.Name, g.Help, nil, nil)
+    }
+    return &filewatcherCollector{coll: coll, descs: descs}
+}
+
+func (f *filewatcherCollector) Describe(ch chan<- *prometheus.Desc) {
+    for _, desc := range f.descs {
+        ch <- desc
+    }
+}
+
+func (f *filewatcherCollector) Collect(ch chan<- prometheus.Metric) {
+    for _, c := range f.coll.Counters() {
+        ch <- prometheus.MustNewConstMetric(f.descs[c.Name], prometheus.CounterValue, float64(c.Value))
+    }
+    for _, g := range f.coll.Gauges() {
+        ch <- prometheus.MustNewConstMetric(f.descs[g.Name], prometheus.GaugeValue, g.Value)
+    }
+}
+
+// Register once at startup — Prometheus scrapes on its own schedule:
+coll := filewatcher.NewPrometheusCollector(watcher.Stats)
+prometheus.MustRegister(newFilewatcherCollector(coll))
+```
+
+The `filewatcher_case_sensitivity` gauge encodes the resolved mode as a number:
+`0` = case-sensitive, `1` = case-insensitive, `2` = auto (will resolve to 0 or 1
+at runtime). Use this to alert when a watcher is unexpectedly in the wrong mode.
+
+### OpenTelemetry
+
+`OTelMiddleware` is zero-dependency: you provide an `OTelSpan` adapter that
+bridges to the real `go.opentelemetry.io/otel/trace.Span`. Spans are created
+per event, with `filewatcher.path`, `filewatcher.op`, and `filewatcher.is_dir`
+attributes attached. Status is set to `ok` or `error` automatically.
+
+```go
+import (
+    "context"
+
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/codes"
+    "go.opentelemetry.io/otel/trace"
+)
+
+// otelSpanAdapter bridges trace.Span to filewatcher.OTelSpan.
+type otelSpanAdapter struct {
+    span trace.Span
+}
+
+func (a *otelSpanAdapter) End() { a.span.End() }
+
+func (a *otelSpanAdapter) SetStatus(code, desc string) {
+    if code == "error" {
+        a.span.SetStatus(codes.Error, desc)
+    } else {
+        a.span.SetStatus(codes.Ok, desc)
+    }
+}
+
+func (a *otelSpanAdapter) SetAttributes(attrs ...filewatcher.Attribute) {
+    converted := make([]attribute.KeyValue, len(attrs))
+    for i, attr := range attrs {
+        converted[i] = attribute.String(attr.Key, attr.Value)
+    }
+    a.span.SetAttributes(converted...)
+}
+
+// Wire it into the watcher pipeline:
+watcher, err := filewatcher.New(paths,
+    filewatcher.WithMiddleware(
+        filewatcher.OTelMiddleware(func(path, op string) filewatcher.OTelSpan {
+            _, span := otel.Tracer("filewatcher").Start(
+                context.Background(), "filewatcher.event",
+            )
+            return &otelSpanAdapter{span: span}
+        }),
+    ),
+)
+```
+
+To see spans in a real exporter, initialize the OTel SDK with a stdout or
+Jaeger exporter at program startup. Each file event will produce a span that
+propagates to the configured exporter:
+
+```go
+import (
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+)
+
+// stdout exporter for development — pretty-prints spans as JSON:
+exp, _ := stdouttrace.New(stdouttrace.WithPrettyPrint())
+tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp))
+otel.SetTracerProvider(tp)
+
+// Each filewatcher event now produces a span you can see in the trace output.
+```
 
 ## Benchmarks
 
@@ -656,62 +459,73 @@ Performance characteristics on Apple M2 (arm64):
 
 Run benchmarks: `nix run .#bench` or `go test -bench=. -benchmem`
 
----
+## Dependencies
 
-## Design Principles
+| Dependency                                                                            | Purpose                                              |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| [`fsnotify/fsnotify`](https://github.com/fsnotify/fsnotify)                           | Core file watching (v1.10.1)                         |
+| [`LarsArtmann/gogenfilter/v3`](https://github.com/LarsArtmann/gogenfilter)            | Generated code detection (v3.6.1)                    |
+| [`sabhiram/go-gitignore`](https://github.com/sabhiram/go-gitignore)                   | `.gitignore` pattern matching (zero transitive deps) |
+| [`golang.org/x/text/unicode/norm`](https://pkg.go.dev/golang.org/x/text/unicode/norm) | NFC Unicode normalization in path keys               |
+| [`golang.org/x/time/rate`](https://pkg.go.dev/golang.org/x/time/rate)                 | Token-bucket rate limiting for `MiddlewareThrottle`  |
 
-- **Functional Options** — Clean, extensible configuration API
-- **Sentinel Errors** — `errors.Is()` for error checking
-- **No Panics** — Explicit error handling throughout
+## Design Decisions
+
+- **Functional Options** — clean, extensible configuration API
+- **Channel Streaming** — natural Go concurrency patterns, no callbacks
+- **Middleware Chains** — composable cross-cutting concerns, applied in reverse order
+- **Sentinel Errors** — `errors.Is()` for error checking, typed `WatcherError` with codes and categories
 - **Context First** — `context.Context` for cancellation and timeouts
-- **Channel Streaming** — Natural Go concurrency patterns
-- **Middleware Chains** — Composable cross-cutting concerns
-- **Composition** — Filters and middleware compose elegantly
-- **Minimal Dependencies** — Only `fsnotify`, stdlib for rest
+- **Composition** — filters and middleware compose elegantly with AND/OR/NOT
+- **Minimal Dependencies** — only `fsnotify`, `gogenfilter`, `gitignore`, `x/text/norm`, and `x/time/rate`
+- **Phantom Types** — `EventPath`, `RootPath`, `DebounceKey` for compile-time type safety
 
-**Related docs:** [API Stability](./API_STABILITY.md) · [Troubleshooting](./Troubleshooting.md) · [Migration Guide](./MIGRATION.md)
+## Error Handling
 
----
+All errors are wrapped and checkable with `errors.Is`:
+
+```go
+watcher, err := filewatcher.New(paths)
+if errors.Is(err, filewatcher.ErrPathNotFound) {
+    // Handle missing path
+}
+```
+
+11 sentinel errors, 11 error codes, and structured `WatcherError` with transient/permanent categorization. Access runtime errors via `watcher.Errors()` channel.
+
+## Development
+
+This project uses [Nix Flakes](https://nixos.wiki/wiki/Flakes) for reproducible builds:
+
+```bash
+nix develop              # Enter development shell
+nix run .#check          # Full quality: vet + lint + test
+nix run .#ci             # Full CI: tidy + fmt + vet + lint + test
+nix run .#lint-fix       # Auto-fix linter issues
+nix run .#test           # Run tests with -race
+nix flake check          # Run all quality gates
+```
+
+**Related docs:** [Features](./FEATURES.md) · [Roadmap](./ROADMAP.md) · [API Stability](./API_STABILITY.md) · [Troubleshooting](./Troubleshooting.md) · [Migration Guide](./MIGRATION.md) · [Changelog](./CHANGELOG.md)
 
 ## Examples
 
 Runnable examples in the [`examples/`](./examples) directory:
 
 ```bash
-# Basic usage with extensions and debounce
-go run ./examples/basic
-
-# Per-path debounce (each file independently)
-go run ./examples/per-path-debounce
-
-# Middleware chain (logging, recovery, metrics)
-go run ./examples/middleware
-
-# Filter auto-generated code (sqlc, protobuf, templ, etc.)
-go run ./examples/filter-generated
+go run ./examples/basic              # Simplest usage
+go run ./examples/per-path-debounce   # Each file independently
+go run ./examples/middleware          # Logging, recovery, metrics
 ```
 
-| Example                                           | Description                                               |
-| ------------------------------------------------- | --------------------------------------------------------- |
-| [basic](./examples/basic)                         | Simplest usage with extensions filter and global debounce |
-| [per-path-debounce](./examples/per-path-debounce) | Each file debounced independently                         |
-| [middleware](./examples/middleware)               | Logging, recovery, and metrics middleware                 |
-| [filter-generated](./examples/filter-generated)   | Exclude auto-generated Go files from events               |
+## Related Projects
 
----
+- **[go-daemon](https://github.com/LarsArtmann/go-daemon)** — building blocks for long-lived daemons served over unix domain sockets: socket lifecycle, `sd_notify` readiness/watchdog, graceful drain, JSON/CBOR/SSE. The natural companion when a watcher outgrows its process: start watching in its `Lifecycle.OnListen` hook and stop in `OnShutdown`, gate systemd readiness on established watches, stream `Event`s over the socket, and back a health endpoint with `Stats()`. Its systemd watchdog pairs well with `WithSelfHeal` — self-heal recovers transient failures in-process, the watchdog catches hard hangs.
+
+## API Stability
+
+This library follows [Go module versioning](https://go.dev/doc/modules/version-numbers). The core `New`/`Watch`/`Event` API is stable and unlikely to change. See [API_STABILITY.md](./API_STABILITY.md) for details.
 
 ## License
 
-MIT — See [LICENSE](LICENSE) file for details.
-
-Copyright © 2026 Lars Artmann.
-
----
-
-<div align="center">
-
-**Made with ❤️ for Go developers**
-
-[Report Issue](https://github.com/larsartmann/go-filewatcher/issues) · [View Documentation](https://pkg.go.dev/github.com/larsartmann/go-filewatcher/v2)
-
-</div>
+[MIT](LICENSE) &copy; Lars Artmann

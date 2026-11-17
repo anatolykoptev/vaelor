@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,12 +46,7 @@ var DefaultIgnoreDirs = []string{
 
 // DefaultIgnoreDirsCopy returns a defensive copy of DefaultIgnoreDirs
 // so callers cannot mutate the global default.
-func DefaultIgnoreDirsCopy() []string {
-	result := make([]string, len(DefaultIgnoreDirs))
-	copy(result, DefaultIgnoreDirs)
-
-	return result
-}
+func DefaultIgnoreDirsCopy() []string { return slices.Clone(DefaultIgnoreDirs) }
 
 // Watcher watches file system paths for changes and emits filtered,
 // debounced events through a channel.
@@ -64,46 +60,55 @@ func DefaultIgnoreDirsCopy() []string {
 //   - The error channel returned by Errors() is closed when the watcher stops
 //   - All callbacks (errorHandler, onAdd) may be called concurrently
 type Watcher struct {
-	fswatcher *fsnotify.Watcher
+	fswatcher watchBackend
 
 	// Configuration
-	paths            []string
-	filters          []Filter
-	middleware       []Middleware
-	recursive        bool
-	globalDebounce   time.Duration
-	perPathDebounce  time.Duration
-	skipDotDirs      bool
-	bufferSize       int
-	onAdd            func(path string)   // callback when a path is added
-	ignoreDirNames   []string            // user-configured dir names to skip during walk
-	excludePaths     map[string]struct{} // absolute paths to exclude during walk
-	errorHandler     ErrorHandler        // callback for errors during event processing
-	lazyIsDir        bool                // skip os.Stat calls in convertEvent for performance
-	pollInterval     time.Duration       // polling interval for NFS/FUSE filesystems (0 = disabled)
-	polling          bool                // polling mode enabled (supplements fsnotify with periodic scans)
-	debug            bool                // enable verbose debug logging
-	debugLogger      *slog.Logger        // logger for debug output
-	followSymlinks   bool                // follow symbolic links during directory walking
-	gitignoreEnabled bool                // enable .gitignore-aware walk filtering
-	gitignoreCache   *gitignoreCache     // cache of compiled gitignore matchers
-	contentHashing   bool                // compute SHA-256 hash of file content on events
-	selfHealInterval time.Duration       // interval for self-healing failed watch registrations (0=disabled)
-	failedPaths      map[string]struct{} // paths that failed to add; retried by selfHealLoop
-	done             chan struct{}       // closed by Close() to signal shutdown to in-flight goroutines
+	paths                    []string
+	filters                  []Filter
+	middleware               []Middleware
+	recursive                bool
+	globalDebounce           time.Duration
+	perPathDebounce          time.Duration
+	skipDotDirs              bool
+	bufferSize               int
+	onAdd                    func(path string)         // callback when a path is added
+	ignoreDirNames           []string                  // user-configured dir names to skip during walk
+	excludePaths             map[string]struct{}       // absolute paths to exclude during walk
+	errorHandler             ErrorHandler              // callback for errors during event processing
+	lazyIsDir                bool                      // skip os.Stat calls in convertEvent for performance
+	pollInterval             time.Duration             // polling interval for NFS/FUSE filesystems (0 = disabled)
+	polling                  bool                      // polling mode enabled (supplements fsnotify with periodic scans)
+	errorBufferSize          int                       // size of the error channel (0 = use bufferSize)
+	eventDropOnFull          bool                      // drop events when channel is full instead of blocking
+	debug                    bool                      // enable verbose debug logging
+	debugLogger              *slog.Logger              // logger for debug output
+	followSymlinks           bool                      // follow symbolic links during directory walking
+	watchFilteredDirs        bool                      // watch new directories even when the Create event was filtered out
+	gitignoreEnabled         bool                      // enable .gitignore-aware walk filtering
+	gitignoreCache           *gitignoreCache           // cache of compiled gitignore matchers
+	contentHashMaxSize       int64                     // Max file size for content hashing (0 = disabled, default 10 MiB when enabled)
+	selfHealInterval         time.Duration             // interval for self-healing failed watch registrations (0=disabled)
+	failedPaths              map[string]string         // pathKey → original path; retried by selfHealLoop
+	done                     chan struct{}             // closed by Close() to signal shutdown to in-flight goroutines
+	cleanups                 []func() error            // lifecycle cleanup funcs registered via WithCleanup
+	caseSensitivity          FilesystemCaseSensitivity // configured case-sensitivity mode
+	effectiveCaseSensitivity FilesystemCaseSensitivity // resolved (auto → concrete) for fast pathKey
 
 	// Internal state
-	mu        sync.RWMutex
-	state     WatcherStateFlags // bit flags: closed, watching
-	watchList []string          // tracked paths currently being watched
-	walkBatch []string          // batch accumulator for walkDirFunc (nil when not batching)
-	wg        sync.WaitGroup    // tracks watchLoop goroutine for clean shutdown
+	mu             sync.RWMutex
+	state          WatcherStateFlags   // bit flags: closed, watching
+	watchList      []string            // tracked paths currently being watched
+	watchListKeys  map[string]struct{} // pathKey(path) → present; O(1) watched check and dedup
+	walkBatch      []string            // batch accumulator for walkDirFunc (nil when not batching)
+	symlinkVisited map[string]struct{} // canonical paths already visited via symlink (nil when not walking)
+	wg             sync.WaitGroup      // tracks watchLoop goroutine for clean shutdown
 
 	// Event channel - stored so Close() can close it after stopping debouncer
 	// This prevents race between debouncer callbacks and channel close
 	eventCh chan<- Event
-	// closeEventChOnce ensures eventCh is closed exactly once, either by watchLoop
-	// when context is cancelled, or by Close() when watcher is stopped
+	// closeEventChOnce ensures eventCh is closed exactly once, either by the
+	// per-Watch closer goroutine once every channel-sending loop has exited,
+	// or by Close() when the watcher is stopped
 	closeEventChOnce sync.Once
 
 	// Debouncer (initialized based on config)
@@ -115,12 +120,18 @@ type Watcher struct {
 	errorsOnce sync.Once
 
 	// Observability metrics (atomic counters for thread-safe access)
-	eventsProcessed   atomic.Uint64 // Total events that passed all filters
-	eventsFilteredOut atomic.Uint64 // Events filtered out (dropped by filters)
-	errorsEncountered atomic.Uint64 // Errors encountered during processing
-	watchErrors       atomic.Uint64 // Watch add failures (ENOSPC, permission denied, etc.)
-	startTime         time.Time     // When watcher was created/started
-	maxWatches        int           // Maximum inotify watches allowed (0 = no limit)
+	eventsProcessed             atomic.Uint64 // Total events that reached the event channel (passed all middleware)
+	eventsFilteredOut           atomic.Uint64 // Events filtered out (dropped by filters)
+	eventsDroppedByMiddleware   atomic.Uint64 // Events dropped by middleware (rate limit, dedup, circuit breaker, etc.)
+	eventsDroppedByBackpressure atomic.Uint64 // Events dropped because the event channel was full (DropOnFull mode)
+	errorsEncountered           atomic.Uint64 // Errors encountered during processing
+	errorsDropped               atomic.Uint64 // Errors dropped because the error channel was full
+	watchErrors                 atomic.Uint64 // Watch add failures (ENOSPC, permission denied, etc.)
+	startTime                   time.Time     // When watcher was created/started
+	maxWatches                  int           // Maximum inotify watches allowed (0 = no limit)
+	maxWatchesExplicit          bool          // True when maxWatches was set via WithMaxWatches(n)
+	maxWatchesFraction          float64       // Safety fraction applied to auto-detected maxWatches (default 1.0)
+	maxWatchesDetected          int           // Raw system-detected limit before safety fraction (0 if explicit or unknown)
 }
 
 // Compile-time interface check: Watcher implements io.Closer.
@@ -165,6 +176,46 @@ func (w *Watcher) checkClosedOp(operation string) error {
 	return nil
 }
 
+// validateDirExists stats abs and returns a wrapped sentinel error if the
+// path is missing or not a directory. This prevents non-existent paths from
+// silently entering the self-heal retry loop and gives consumers a clear,
+// categorized error. abs must already be an absolute, cleaned path.
+func validateDirExists(abs string) error {
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrPathNotFound, abs)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s", ErrPathNotDir, abs)
+	}
+
+	return nil
+}
+
+// withResolvedPath acquires the watcher mutex, verifies the watcher isn't closed,
+// resolves path to an absolute path, then invokes fn with the resolved path.
+// The mutex is held for the duration of fn. opName describes the operation for
+// the closed-check error; caller identifies the public method for the resolution
+// error. This is the canonical entry point for mutating watcher operations
+// (Add, Remove, AddRecursive) — keeping their pre-op validation in one place.
+func (w *Watcher) withResolvedPath(path, opName string, fn func(abs string) error) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	err := w.checkClosedOp(opName)
+	if err != nil {
+		return err //nolint:erraudit // checkClosedOp already embeds opName in its message
+	}
+
+	abs, resolveErr := normalizePath(path)
+	if resolveErr != nil {
+		return fmt.Errorf("resolving path %q during %s: %w", path, opName, resolveErr)
+	}
+
+	return fn(abs)
+}
+
 // DebouncerInterface is the interface for debouncer implementations.
 type DebouncerInterface interface {
 	Debounce(key DebounceKey, fn func())
@@ -182,7 +233,7 @@ var (
 // At least one path must be provided. Paths are validated to exist.
 //
 // The watcher is not started until Watch() is called.
-func New( //nolint:funlen // constructor with full field initialization
+func New(
 	paths []string,
 	opts ...Option,
 ) (*Watcher, error) {
@@ -190,75 +241,97 @@ func New( //nolint:funlen // constructor with full field initialization
 		return nil, fmt.Errorf("%w: at least one path must be provided", ErrNoPaths)
 	}
 
-	// Validate all paths exist
-	for _, p := range paths {
-		abs, resolveErr := filepath.Abs(p)
-		if resolveErr != nil {
-			return nil, fmt.Errorf("resolving path %q during validation: %w", p, resolveErr)
-		}
-
-		info, statErr := os.Stat(abs)
-		if statErr != nil {
-			return nil, fmt.Errorf("%w: path %q (resolved: %q)", ErrPathNotFound, p, abs)
-		}
-
-		if !info.IsDir() {
-			return nil, fmt.Errorf("%w: path %q must be a directory", ErrPathNotDir, p)
-		}
-	}
-
-	fswatcher, fsErr := fsnotify.NewWatcher()
-	if fsErr != nil {
-		return nil, fmt.Errorf("creating fsnotify watcher: %w", fsErr)
+	normalizedPaths, err := validateAndNormalizePaths(paths)
+	if err != nil {
+		return nil, err
 	}
 
 	w := &Watcher{
-		fswatcher:         fswatcher,
-		paths:             paths,
-		recursive:         true,
-		filters:           nil,
-		middleware:        nil,
-		globalDebounce:    0,
-		perPathDebounce:   0,
-		errorHandler:      nil,
-		skipDotDirs:       true,
-		bufferSize:        defaultEventBufferSize,
-		onAdd:             nil,
-		ignoreDirNames:    nil,
-		excludePaths:      make(map[string]struct{}),
-		mu:                sync.RWMutex{},
-		state:             0,
-		watchList:         make([]string, 0, len(paths)),
-		walkBatch:         nil,
-		wg:                sync.WaitGroup{},
-		eventCh:           nil,
-		closeEventChOnce:  sync.Once{},
-		debounceInterface: nil,
-		errorsCh:          nil,
-		errorsMu:          sync.Mutex{},
-		errorsOnce:        sync.Once{},
-		eventsProcessed:   atomic.Uint64{},
-		eventsFilteredOut: atomic.Uint64{},
-		errorsEncountered: atomic.Uint64{},
-		watchErrors:       atomic.Uint64{},
-		startTime:         time.Time{},
-		maxWatches:        0,
-		lazyIsDir:         false,
-		pollInterval:      0,
-		polling:           false,
-		debug:             false,
-		debugLogger:       nil,
-		followSymlinks:    false,
-		gitignoreEnabled:  true,
-		gitignoreCache:    newGitignoreCache(),
-		contentHashing:    false,
-		selfHealInterval:  0,
-		failedPaths:       make(map[string]struct{}),
-		done:              make(chan struct{}),
+		fswatcher:                   nil,
+		paths:                       normalizedPaths,
+		recursive:                   true,
+		filters:                     nil,
+		middleware:                  nil,
+		globalDebounce:              0,
+		perPathDebounce:             0,
+		errorHandler:                nil,
+		skipDotDirs:                 true,
+		bufferSize:                  defaultEventBufferSize,
+		onAdd:                       nil,
+		ignoreDirNames:              nil,
+		excludePaths:                make(map[string]struct{}),
+		mu:                          sync.RWMutex{},
+		state:                       0,
+		watchList:                   make([]string, 0, len(paths)),
+		watchListKeys:               make(map[string]struct{}),
+		walkBatch:                   nil,
+		symlinkVisited:              nil,
+		wg:                          sync.WaitGroup{},
+		eventCh:                     nil,
+		closeEventChOnce:            sync.Once{},
+		debounceInterface:           nil,
+		errorsCh:                    nil,
+		errorsMu:                    sync.Mutex{},
+		errorsOnce:                  sync.Once{},
+		eventsProcessed:             atomic.Uint64{},
+		eventsFilteredOut:           atomic.Uint64{},
+		eventsDroppedByMiddleware:   atomic.Uint64{},
+		eventsDroppedByBackpressure: atomic.Uint64{},
+		errorsEncountered:           atomic.Uint64{},
+		errorsDropped:               atomic.Uint64{},
+		watchErrors:                 atomic.Uint64{},
+		startTime:                   time.Time{},
+		maxWatches:                  0,
+		maxWatchesExplicit:          false,
+		maxWatchesFraction:          1.0, // default: use full system limit (set WithMaxWatchesSafetyFraction for shared environments)
+		maxWatchesDetected:          0,
+		lazyIsDir:                   false,
+		pollInterval:                0,
+		polling:                     false,
+		eventDropOnFull:             false,
+		errorBufferSize:             0,
+		debug:                       false,
+		debugLogger:                 nil,
+		followSymlinks:              false,
+		watchFilteredDirs:           true, // default: keep watching new dirs even if Create event was filtered
+		gitignoreEnabled:            true,
+		gitignoreCache:              newGitignoreCache(),
+		contentHashMaxSize:          0,
+		selfHealInterval:            0,
+		failedPaths:                 make(map[string]string),
+		done:                        make(chan struct{}),
+		cleanups:                    nil,
+		caseSensitivity:             CaseSensitivityAuto,
+		effectiveCaseSensitivity:    CaseSensitive,
 	}
 
 	for _, opt := range opts {
 		opt(w)
+	}
+
+	// Resolve auto case-sensitivity after options have been applied.
+	w.effectiveCaseSensitivity = resolveCaseSensitivity(w.caseSensitivity)
+
+	// Normalize exclude-path keys to the effective case-sensitivity mode so
+	// that lookups in shouldExcludePath are O(1) and case-aware.
+	if len(w.excludePaths) > 0 {
+		normalized := make(map[string]struct{}, len(w.excludePaths))
+
+		for p := range w.excludePaths {
+			normalized[w.pathKey(p)] = struct{}{}
+		}
+
+		w.excludePaths = normalized
+	}
+
+	// Create real backend if not injected by withBackend option (tests)
+	if w.fswatcher == nil {
+		fw, fsErr := fsnotify.NewWatcher()
+		if fsErr != nil {
+			return nil, fmt.Errorf("creating fsnotify watcher: %w", fsErr)
+		}
+
+		w.fswatcher = fsnotifyBackend{fw}
 	}
 
 	// Initialize debouncer based on configuration
@@ -269,9 +342,13 @@ func New( //nolint:funlen // constructor with full field initialization
 		w.gitignoreCache = nil
 	}
 
-	// Auto-detect max watches from system if not explicitly set
+	// Auto-detect max watches from system if not explicitly set.
+	// The safety fraction only applies to auto-detected limits — explicit
+	// limits from WithMaxWatches(n) are used as-is.
 	if w.maxWatches == 0 {
 		w.maxWatches = detectMaxWatches()
+		w.maxWatchesDetected = w.maxWatches
+		w.applyMaxWatchesFraction()
 	}
 
 	return w, nil
@@ -299,6 +376,15 @@ func (w *Watcher) Watch(ctx context.Context) (<-chan Event, error) {
 		return nil, fmt.Errorf("%w: watcher is already running", ErrWatcherRunning)
 	}
 
+	// Re-validate paths still exist before adding (they may have been deleted
+	// between New() and Watch()). This gives a clear error instead of a
+	// generic fsnotify failure or silent self-heal retry loop.
+	for _, p := range w.paths {
+		if err := validateDirExists(p); err != nil {
+			return nil, fmt.Errorf("Watch(): %w", err)
+		}
+	}
+
 	// Add initial paths to the fsnotify watcher
 	for _, p := range w.paths {
 		addErr := w.addPath(NewRootPath(p))
@@ -317,15 +403,37 @@ func (w *Watcher) Watch(ctx context.Context) (<-chan Event, error) {
 		w.startTime = time.Now()
 	}
 
+	// chUsers tracks every goroutine that can send on eventCh (watchLoop,
+	// pollLoop). A closer goroutine closes the channel only after ALL of them
+	// have exited, so close can never race an in-flight send — the poll loop
+	// and the fsnotify loop share this channel, and closing it from whichever
+	// loop happens to exit first raced the other's trackedEmit select (CI
+	// run 37585089337: "DATA RACE closechan vs chansend" under -bench -race).
+	// WaitGroup.Wait provides the happens-before edge between the last
+	// sender's return and the close.
+	var chUsers sync.WaitGroup
+
+	chUsers.Add(1)
+
 	w.wg.Add(1)
 
-	go w.watchLoop(ctx, eventCh)
+	go w.watchLoop(ctx, eventCh, &chUsers)
 
 	if w.polling {
+		chUsers.Add(1)
 		w.wg.Add(1)
 
-		go w.pollLoop(ctx, eventCh)
+		go w.pollLoop(ctx, eventCh, &chUsers)
 	}
+
+	// The closer joins w.wg so Close()'s wg.Wait() also awaits it — Reset()
+	// reassigns closeEventChOnce, and it is only safe to touch the old Once
+	// (and the field) when no goroutine can still be doing so. The drain in
+	// cancelAndDrain-style callers unblocks when this closes the channel.
+	w.wg.Go(func() {
+		chUsers.Wait()
+		w.closeEventChOnce.Do(func() { close(eventCh) })
+	})
 
 	if w.selfHealInterval > 0 {
 		w.wg.Add(1)
@@ -380,25 +488,18 @@ func (w *Watcher) WatchOnce(ctx context.Context) (Event, error) {
 // Add adds a new path to the watcher. The path must be an existing directory.
 // This method is safe for concurrent use with other methods.
 func (w *Watcher) Add(path string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	return w.withResolvedPath(path, "add path", func(abs string) error {
+		if err := validateDirExists(abs); err != nil {
+			return err
+		}
 
-	err := w.checkClosedOp("add path")
-	if err != nil {
-		return err
-	}
+		pathErr := w.addPath(NewRootPath(abs))
+		if pathErr != nil {
+			return fmt.Errorf("adding resolved path %q to watcher: %w", abs, pathErr)
+		}
 
-	abs, resolveErr := filepath.Abs(path)
-	if resolveErr != nil {
-		return fmt.Errorf("resolving path %q in Add(): %w", path, resolveErr)
-	}
-
-	pathErr := w.addPath(NewRootPath(abs))
-	if pathErr != nil {
-		return fmt.Errorf("adding resolved path %q to watcher: %w", abs, pathErr)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // AddRecursive adds a path with selective recursive depth.
@@ -407,43 +508,40 @@ func (w *Watcher) Add(path string) error {
 // If maxDepth is N > 0, directories up to N levels deep are watched.
 // This method is safe for concurrent use with other methods.
 func (w *Watcher) AddRecursive(path string, maxDepth int) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	err := w.checkClosedOp("add recursive path")
-	if err != nil {
-		return err
-	}
-
-	abs, resolveErr := filepath.Abs(path)
-	if resolveErr != nil {
-		return fmt.Errorf("resolving path %q in AddRecursive(): %w", path, resolveErr)
-	}
-
-	if maxDepth == 0 {
-		return w.addPath(NewRootPath(abs))
-	}
-
-	if maxDepth < 0 {
-		addErr := w.walkAndAddPaths(NewRootPath(abs))
-		if addErr != nil {
-			return fmt.Errorf("adding resolved path %q to watcher: %w", abs, addErr)
+	err := w.withResolvedPath(path, "add recursive path", func(abs string) error {
+		if err := validateDirExists(abs); err != nil {
+			return err
 		}
 
-		return nil
+		if maxDepth == 0 {
+			return w.addPath(NewRootPath(abs))
+		}
+
+		if maxDepth < 0 {
+			addErr := w.walkAndAddPaths(NewRootPath(abs))
+			if addErr != nil {
+				return fmt.Errorf("adding resolved path %q to watcher: %w", abs, addErr)
+			}
+
+			return nil
+		}
+
+		currentDepth := 0
+
+		return w.addPathWithDepth(NewRootPath(abs), maxDepth, &currentDepth)
+	})
+	if err != nil {
+		return fmt.Errorf("maxDepth=%d: %w", maxDepth, err)
 	}
 
-	// Depth-limited recursive add
-	currentDepth := 0
-
-	return w.addPathWithDepth(NewRootPath(abs), maxDepth, &currentDepth)
+	return nil
 }
 
 // addPathWithDepth adds directories up to the specified depth.
 func (w *Watcher) addPathWithDepth(root RootPath, maxDepth int, currentDepth *int) error {
 	entries, err := os.ReadDir(root.Get())
 	if err != nil {
-		return fmt.Errorf("reading directory %q: %w", root, err)
+		return fmt.Errorf("reading directory %q (maxDepth=%d): %w", root, maxDepth, err)
 	}
 
 	w.tryAddPath(root.Get())
@@ -477,7 +575,7 @@ func (w *Watcher) addPathWithDepth(root RootPath, maxDepth int, currentDepth *in
 
 		addPathErr := w.addPathWithDepth(NewRootPath(subPath), maxDepth, currentDepth)
 		if addPathErr != nil {
-			return addPathErr
+			return fmt.Errorf("adding %q (maxDepth=%d): %w", subPath, maxDepth, addPathErr)
 		}
 
 		*currentDepth--
@@ -493,38 +591,42 @@ const opAddPath = "add-path"
 // this path and all its subdirectories (if recursive).
 // This method is safe for concurrent use with other methods.
 func (w *Watcher) Remove(path string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	return w.withResolvedPath(path, "remove path", func(abs string) error {
+		// Remove the path itself from fsnotify
+		_ = w.fswatcher.Remove(abs) //nolint:erraudit // best-effort: an unwatched path is expected here
 
-	err := w.checkClosedOp("remove path")
-	if err != nil {
-		return err
-	}
+		// Remove all subdirectory watches under this path, respecting
+		// filesystem case-sensitivity for the comparison.
+		absKey := w.pathKey(abs)
+		prefix := absKey + string(filepath.Separator)
 
-	abs, resolveErr := filepath.Abs(path)
-	if resolveErr != nil {
-		return fmt.Errorf("resolving path %q in Remove(): %w", path, resolveErr)
-	}
+		var remaining []string
 
-	// Remove the path itself from fsnotify
-	_ = w.fswatcher.Remove(abs)
+		for _, p := range w.watchList {
+			pKey := w.pathKey(p)
 
-	// Remove all subdirectory watches under this path
-	prefix := abs + string(filepath.Separator)
-
-	var remaining []string
-
-	for _, p := range w.watchList {
-		if p == abs || strings.HasPrefix(p, prefix) {
-			_ = w.fswatcher.Remove(p)
-		} else {
-			remaining = append(remaining, p)
+			if pKey == absKey || strings.HasPrefix(pKey, prefix) {
+				_ = w.fswatcher.Remove(
+					p,
+				) //nolint:erraudit // best-effort subtree prune; not-watched paths are expected
+				delete(w.watchListKeys, pKey) // incremental: drop only pruned subtree keys
+			} else {
+				remaining = append(remaining, p)
+			}
 		}
-	}
 
-	w.watchList = remaining
+		w.watchList = remaining
 
-	return nil
+		return nil
+	})
+}
+
+// addToWatchList appends path to both watchList and watchListKeys, keeping the
+// parallel data structures in sync. The caller must hold w.mu and must have
+// already verified the path is not already watched (via watchListKeys).
+func (w *Watcher) addToWatchList(path string) {
+	w.watchList = append(w.watchList, path)
+	w.watchListKeys[w.pathKey(path)] = struct{}{}
 }
 
 // copyWatchList returns a defensive copy of the watch list under RLock.
@@ -532,8 +634,7 @@ func (w *Watcher) copyWatchList() []string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
-	result := make([]string, len(w.watchList))
-	copy(result, w.watchList)
+	result := slices.Clone(w.watchList)
 
 	return result
 }
@@ -546,16 +647,22 @@ func (w *Watcher) WatchList() []string {
 
 // Stats provides observability metrics for the watcher.
 type Stats struct {
-	WatchCount        int
-	IsWatching        bool
-	IsClosed          bool
-	EventsProcessed   uint64        // Total events that passed all filters
-	EventsFilteredOut uint64        // Events filtered out (dropped by filters)
-	ErrorsEncountered uint64        // Errors encountered during processing
-	WatchErrors       uint64        // Watch add failures (ENOSPC, permission denied, etc.)
-	Uptime            time.Duration // Time since watcher was started
-	WatchLimit        int           // System inotify limit (0 if unknown)
-	WatchBudgetUsed   float64       // Percentage of budget used (0.0-1.0)
+	WatchCount                  int                       // Number of paths currently being watched
+	IsWatching                  bool                      // Whether the watcher is running
+	IsClosed                    bool                      // Whether the watcher is closed
+	EventsProcessed             uint64                    // Total events that reached the event channel
+	EventsFilteredOut           uint64                    // Events dropped by filters
+	EventsDroppedByMiddleware   uint64                    // Events dropped by middleware (rate limit, dedup, etc.)
+	EventsDroppedByBackpressure uint64                    // Events dropped because the event channel was full (DropOnFull mode)
+	ErrorsEncountered           uint64                    // Total errors encountered
+	ErrorsDropped               uint64                    // Errors dropped because the error channel was full
+	WatchErrors                 uint64                    // Watch add failures (ENOSPC, permission denied, etc.)
+	Uptime                      time.Duration             // Time since watcher was started
+	WatchLimit                  int                       // System inotify limit before safety fraction (0 if unknown or explicit)
+	WatchBudgetCap              int                       // Effective watch budget cap after safety fraction
+	WatchBudgetUsed             float64                   // Percentage of budget used (0.0-1.0)
+	CaseSensitivity             string                    // Resolved case-sensitivity mode ("case-sensitive", "case-insensitive", "auto")
+	CaseSensitivityMode         FilesystemCaseSensitivity // Resolved case-sensitivity mode (enum, type-safe)
 }
 
 // Stats returns current statistics about the watcher.
@@ -575,17 +682,35 @@ func (w *Watcher) Stats() Stats {
 	}
 
 	return Stats{
-		WatchCount:        len(w.watchList),
-		IsWatching:        w.state&flagWatching != 0,
-		IsClosed:          w.state&flagClosed != 0,
-		EventsProcessed:   w.eventsProcessed.Load(),
-		EventsFilteredOut: w.eventsFilteredOut.Load(),
-		ErrorsEncountered: w.errorsEncountered.Load(),
-		WatchErrors:       w.watchErrors.Load(),
-		Uptime:            uptime,
-		WatchLimit:        w.maxWatches,
-		WatchBudgetUsed:   budgetUsed,
+		WatchCount:                  len(w.watchList),
+		IsWatching:                  w.state&flagWatching != 0,
+		IsClosed:                    w.state&flagClosed != 0,
+		EventsProcessed:             w.eventsProcessed.Load(),
+		EventsFilteredOut:           w.eventsFilteredOut.Load(),
+		EventsDroppedByMiddleware:   w.eventsDroppedByMiddleware.Load(),
+		EventsDroppedByBackpressure: w.eventsDroppedByBackpressure.Load(),
+		ErrorsEncountered:           w.errorsEncountered.Load(),
+		ErrorsDropped:               w.errorsDropped.Load(),
+		WatchErrors:                 w.watchErrors.Load(),
+		Uptime:                      uptime,
+		WatchLimit:                  w.maxWatchesDetected,
+		WatchBudgetCap:              w.maxWatches,
+		WatchBudgetUsed:             budgetUsed,
+		CaseSensitivity:             w.effectiveCaseSensitivity.String(),
+		CaseSensitivityMode:         w.effectiveCaseSensitivity,
 	}
+}
+
+// EffectiveCaseSensitivity returns the resolved case-sensitivity mode
+// (auto-detection resolved to concrete CaseSensitive or CaseInsensitive).
+// This is the type-safe enum equivalent of Stats().CaseSensitivity (string).
+//
+// This method is safe for concurrent use with other methods.
+func (w *Watcher) EffectiveCaseSensitivity() FilesystemCaseSensitivity {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	return w.effectiveCaseSensitivity
 }
 
 // Errors returns a receive-only channel that receives errors from the watcher.
@@ -596,7 +721,12 @@ func (w *Watcher) Stats() Stats {
 // This method is safe for concurrent use with other methods.
 func (w *Watcher) Errors() <-chan error {
 	w.errorsOnce.Do(func() {
-		w.errorsCh = make(chan error, w.bufferSize)
+		size := w.errorBufferSize
+		if size <= 0 {
+			size = w.bufferSize
+		}
+
+		w.errorsCh = make(chan error, size)
 	})
 
 	return w.errorsCh
@@ -618,30 +748,36 @@ func (w *Watcher) Reset() error {
 	}
 
 	// Create a new fsnotify watcher
-	fswatcher, err := fsnotify.NewWatcher()
+	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("creating fsnotify watcher during reset: %w", err)
 	}
 
 	// Close old fsnotify watcher if it exists
 	if w.fswatcher != nil {
-		_ = w.fswatcher.Close()
+		_ = w.fswatcher.Close() //nolint:erraudit // the old watcher is discarded either way
 	}
 
 	// Reset runtime state
-	w.fswatcher = fswatcher
+	w.fswatcher = fsnotifyBackend{fw}
 	w.state = 0
 	w.watchList = make([]string, 0, len(w.paths))
+	w.watchListKeys = make(map[string]struct{})
 	w.done = make(chan struct{})
 	w.closeEventChOnce = sync.Once{}
 	w.eventCh = nil
 	w.errorsOnce = sync.Once{}
 	w.errorsCh = nil
+	w.cleanups = nil
+	w.effectiveCaseSensitivity = resolveCaseSensitivity(w.caseSensitivity)
 
 	// Reset metrics
 	w.eventsProcessed.Store(0)
 	w.eventsFilteredOut.Store(0)
+	w.eventsDroppedByMiddleware.Store(0)
+	w.eventsDroppedByBackpressure.Store(0)
 	w.errorsEncountered.Store(0)
+	w.errorsDropped.Store(0)
 	w.watchErrors.Store(0)
 	w.startTime = time.Time{}
 
@@ -653,10 +789,23 @@ func (w *Watcher) Reset() error {
 		w.gitignoreCache = newGitignoreCache()
 	}
 
-	// Re-detect max watches from system
-	w.maxWatches = detectMaxWatches()
+	// Re-detect max watches from system (only when not explicitly configured)
+	if !w.maxWatchesExplicit {
+		w.maxWatches = detectMaxWatches()
+		w.maxWatchesDetected = w.maxWatches
+		w.applyMaxWatchesFraction()
+	}
 
 	return nil
+}
+
+// applyMaxWatchesFraction reduces the watch limit by the configured safety
+// fraction, leaving headroom for other processes on shared machines.
+// No-op when the fraction is 1.0 (default) or when maxWatches is 0/unlimited.
+func (w *Watcher) applyMaxWatchesFraction() {
+	if w.maxWatches > 0 && w.maxWatchesFraction > 0 && w.maxWatchesFraction < 1.0 {
+		w.maxWatches = int(float64(w.maxWatches) * w.maxWatchesFraction)
+	}
 }
 
 // Close stops the watcher and releases all resources.
@@ -673,6 +822,7 @@ func (w *Watcher) Close() error {
 	w.state |= flagClosed
 	w.state &^= flagWatching
 	w.watchList = w.watchList[:0]
+	clear(w.watchListKeys)
 
 	w.mu.Unlock()
 
@@ -696,7 +846,7 @@ func (w *Watcher) Close() error {
 	w.wg.Wait()
 
 	// Now safe to close eventCh - watchLoop and all callbacks are done.
-	// Use sync.Once to coordinate with watchLoop's defer.
+	// Use sync.Once to coordinate with the per-Watch closer goroutine.
 	w.mu.RLock()
 	ch := w.eventCh
 	w.mu.RUnlock()
@@ -712,5 +862,40 @@ func (w *Watcher) Close() error {
 	}
 	w.errorsMu.Unlock()
 
+	// Run registered cleanup functions (e.g., close file handles from
+	// NewFileLogMiddleware + WithCleanup). Called after all goroutines and
+	// channels are torn down so cleanup funcs can safely release resources.
+	for _, cleanup := range w.cleanups {
+		if cleanup != nil {
+			_ = cleanup() //nolint:erraudit // teardown: cleanup errors have nowhere to be reported
+		}
+	}
+
 	return nil
+}
+
+// validateAndNormalizePaths validates that all paths exist and are directories,
+// then returns absolute paths. Centralized so the constructor stays lean.
+func validateAndNormalizePaths(paths []string) ([]string, error) {
+	normalized := make([]string, 0, len(paths))
+
+	for _, p := range paths {
+		abs, resolveErr := normalizePath(p)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("resolving path %q during validation: %w", p, resolveErr)
+		}
+
+		info, statErr := os.Stat(abs)
+		if statErr != nil {
+			return nil, fmt.Errorf("%w: path %q (resolved: %q)", ErrPathNotFound, p, abs)
+		}
+
+		if !info.IsDir() {
+			return nil, fmt.Errorf("%w: path %q must be a directory", ErrPathNotDir, p)
+		}
+
+		normalized = append(normalized, abs)
+	}
+
+	return normalized, nil
 }

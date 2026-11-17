@@ -38,3 +38,40 @@ GOWORK=off go test -race ./...
 
 - Use GitHub Issues
 - Include Go version, OS, and minimal reproduction steps
+
+## Benchmarking
+
+The project tracks performance regressions via `benchstat` comparisons against a
+captured baseline. Three Nix apps handle the workflow:
+
+```bash
+# 1. Run benchmarks with -race (includes race-detector overhead)
+nix run .#bench
+
+# 2. Capture a clean baseline (no -race, -count=6 for stable deltas)
+#    Writes bench-baseline.txt in the project root (gitignored)
+nix run .#bench-baseline
+
+# 3. Compare current benchmarks against the baseline
+nix run .#bench-diff
+```
+
+### Baseline format
+
+`bench-baseline.txt` is captured with these flags for reproducibility:
+
+- **`-count=6`** — enough samples for `benchstat` to compute stable deltas.
+- **No `-race`** — the race detector adds overhead and noise that obscures
+  real regressions.
+- **`-run=^$`** — skips all tests, runs only benchmarks.
+
+When making performance-impacting changes, capture a fresh baseline:
+
+```bash
+nix run .#bench-baseline   # captures new baseline
+nix run .#bench-diff        # verify deltas are expected
+```
+
+Commit `bench-baseline.txt` updates in the same PR as the change that warrants
+them. Note: `bench-baseline.txt` is gitignored — it exists locally for
+comparison, not in the repo.

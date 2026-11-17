@@ -3,7 +3,9 @@ package filewatcher
 import (
 	"errors"
 	"fmt"
+	"os"
 	"runtime/debug"
+	"syscall"
 )
 
 // Sentinel errors for common failure modes.
@@ -123,7 +125,9 @@ type WatcherError struct {
 	Category ErrorCategory
 
 	// Stack holds the goroutine stack trace captured at the time the error
-	// was created. This is populated automatically by NewWatcherError.
+	// was wrapped by NewWatcherError — not at the original failure site.
+	// This is useful for tracing the error-handling path. To capture the
+	// stack at the failure site instead, use NewWatcherErrorWithStack.
 	Stack []byte
 }
 
@@ -214,6 +218,21 @@ func NewWatcherError(op OpString, path string, err error) *WatcherError {
 	}
 }
 
+// NewWatcherErrorWithStack creates a WatcherError using the provided stack
+// trace instead of capturing one at the wrapper site. Callers should capture
+// the stack at the original failure point using debug.Stack() and pass it here.
+// This is useful when the underlying error originates in a different goroutine
+// or deep in a syscall where NewWatcherError's stack would be misleading.
+func NewWatcherErrorWithStack(op OpString, path string, err error, stack []byte) *WatcherError {
+	return &WatcherError{
+		Op:       op,
+		Path:     path,
+		Err:      err,
+		Category: categorizeError(err),
+		Stack:    stack,
+	}
+}
+
 // categorizeError determines the category of an error based on its type.
 func categorizeError(err error) ErrorCategory {
 	if err == nil {
@@ -233,6 +252,15 @@ func categorizeError(err error) ErrorCategory {
 		return CategoryPermanent
 	}
 
+	// Syscall-level permanent errors: permission denied, file not found,
+	// or "not a directory". These will never resolve on retry, so self-heal
+	// should abandon them immediately.
+	if errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, os.ErrNotExist) ||
+		errors.Is(err, syscall.ENOTDIR) {
+		return CategoryPermanent
+	}
+
 	// Transient errors - these might resolve on retry
 	if matchesAnyError(
 		err,
@@ -242,6 +270,12 @@ func categorizeError(err error) ErrorCategory {
 		ErrPathResolveFailed,
 		ErrMiddlewareFailed,
 	) {
+		return CategoryTransient
+	}
+
+	// ENOSPC (no space left on device / inotify watch limit exhausted) is
+	// transient: it may resolve when resources are freed or the limit is raised.
+	if errors.Is(err, syscall.ENOSPC) {
 		return CategoryTransient
 	}
 

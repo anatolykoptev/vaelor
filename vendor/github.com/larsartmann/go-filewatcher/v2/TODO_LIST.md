@@ -1,187 +1,285 @@
 # TODO List
 
-**Generated:** 2026-04-11 (updated 2026-06-03)
-**Files Processed:** 166
+**Last Updated:** 2026-10-07 (docs-health harvest from the 2026-08-12 reliability series + seven 2026-10-07 reports)
 
-## 🔴 HIGH Priority
+Short- and mid-term actionable work. Each item is scoped — pick one, do it, tick
+the box. An item lives here only when it is bounded and estimable; vague or
+long-term ideas live in [ROADMAP.md](./ROADMAP.md). Completed work is recorded in
+[CHANGELOG.md](./CHANGELOG.md), never here.
 
-- [x] ~~Add test coverage for `Stats()` method~~ - Already exists in watcher_test.go
-- [x] ~~Add test for `Remove()` method~~ - Already exists in watcher_test.go
-- [x] ~~Add test for `WatchList()` method~~ - Already exists in watcher_test.go
-- [x] ~~Add integration test for full Watch→Event→Close lifecycle~~ - Added TestWatcher_FullLifecycle
-- [x] ~~Add `WithOnError(func(error))` option~~ - Added
-- [x] ~~Add `MiddlewareRateLimit(maxEvents int, window time.Duration) Middleware~~ - Added MiddlewareRateLimitWindow
-- [x] ~~Implement event batching with configurable window~~ - Added MiddlewareBatch
-- [x] ~~Add `FilterGlob(pattern string) Filter`~~ - Already exists
-- [x] ~~Document thread-safety guarantees on all public methods~~ - Added
-- [x] ~~Fix GlobalDebouncer.Debounce key parameter (use it or remove it)~~ - Documented intentional behavior
-- [x] ~~Add `Event.Path` phantom type integration~~ - Added GetPath() returning EventPath
-- [x] ~~Add Error Context Wrapping in production code~~ - Already using fmt.Errorf with %w
-- [x] ~~Add `slog.LogValuer` to Event type for structured logging~~ - Added
-- [x] ~~Complete Phantom Type Integration for medium/low priority items~~ - EventPath added
-- [x] ~~Add benchmark results table to README.md~~ - Added
-- [x] ~~Tag v0.1.0 release~~ - Obsolete (not needed)
-- [x] ~~Tag v2.0.0 release~~ - See CHANGELOG.md for v2.0.0 status
+---
 
-## 🟡 MEDIUM Priority
+## Urgent
 
-- [x] ~~Investigate race condition in TestWatcher_Watch_WithDebounce~~ - Fixed race in debouncer
-- [x] ~~Add `Watcher.WatchOnce()` for one-shot mode~~ - Done: Added WatchOnce method with auto-close
-- [x] ~~Add `WithRecursive(false)` option~~ - Already exists (WithRecursive)
-- [x] ~~Add `WithPolling(fallback bool)` for NFS/network mounts~~ - Done: Added WithPolling option with 2s default interval
-- [x] ~~Implement exponential backoff for errors~~ - Done: MiddlewareExponentialBackoff with configurable initial/max
-- [x] ~~Add symlink following support~~ - Done: WithFollowSymlinks option already exists
-- [x] ~~Add `Event.ModTime()` field~~ - Done: Event now has ModTime and Size fields populated from os.Stat
-- [x] ~~Add `Event.Name` (just filename) alongside `Event.Path`~~ - Can use filepath.Base(event.Path)
-- [x] ~~Add file content hashing option~~ - Done: WithContentHashing() option, SHA-256 hash in Event.Hash (capped 10 MiB)
-- [x] ~~Add `FilterExcludePaths`~~ - Done: FilterExcludePaths added with test coverage
-- [x] ~~Add `FilterMinAge()` for ignoring old files~~ - Added
-- [x] ~~Add `FilterModifiedSince(t)`~~ - Added
-- [x] ~~Add `FilterMaxSize()` complement to FilterMinSize~~ - Added
-- [x] ~~Add `WithIgnorePatterns()` using glob patterns~~ - Done: Added WithIgnorePatterns option + FilterIgnoreGlobs
-- [x] ~~Expose `convertEvent` for testing~~ - Done: Testable via internal tests with 3-arg signature
-- [x] ~~Add `MiddlewareRateBurst()` for token bucket rate limiting~~ - Done: Added MiddlewareThrottle using golang.org/x/time/rate
-- [x] ~~Add `MiddlewareDeduplicate()` to drop duplicate events~~ - Done: Implemented with background cleanup goroutine
-- [x] ~~Add `MiddlewareBatch()` to batch events over a window~~ - Done: Implemented with timer and maxSize flush
-- [x] ~~Add integration test for recursive directory watching~~ - Done: watcher_test.go TestWatcher_Watch_NewDirectory
-- [x] ~~Add integration test for per-path debounce correctness~~ - Done: watcher_test.go per-path debounce tests
-- [x] ~~Add benchmark regression tests~~ - Done: CI saves benchmark artifacts, examples-build job added
-- [x] ~~Add issue templates~~ - Done: .github/ISSUE_TEMPLATE/ added
-- [x] ~~Document public API with godoc examples~~ - Done: 7 new godoc examples in example_test.go
-- [x] ~~Create standalone CLI tool~~ - CANCELLED: this is a library, NOT a CLI tool
-- [x] ~~Write Troubleshooting.md~~ - Done: Troubleshooting.md created with platform-specific guidance
-- [x] ~~Add Architecture.md~~ - Done: Comprehensive architecture documentation added
-- [x] ~~Fix getDebounceKey type assertion smell~~ - Done: Added UsesPerPathKeys() to DebouncerInterface
-- [x] ~~Fix Boolean Blindness~~ - Done: Added ContentCheckMode type for FilterGeneratedCodeFull
-- [x] ~~Prometheus metrics export~~ - Done: PrometheusCollector with zero-dependency interfaces (metrics.go)
-- [x] ~~Create debug mode with verbose structured logging~~ - Done: Added WithDebug option
-- [x] ~~Add `just coverage` target~~ - Done: use `nix run .#coverage`
-- [x] ~~Add stack traces to `WatcherError`~~ - Done: NewWatcherError captures debug.Stack()
-- [x] ~~Write migration guide for ErrorHandler signature change~~ - Done: MIGRATION.md
-- [x] ~~Add `Errors() <-chan error` method as alternative to error handler callback~~ - Added
-- [x] ~~Add comprehensive error context in production code~~ - Already using fmt.Errorf with %w
-- [x] ~~Replace bare `atomic int64` with `atomic.Int64` in MiddlewareRateLimit~~ - Done
-- [x] ~~Add `Watcher.IsWatching()`~~ - Done
-- [x] ~~Add `MiddlewareBatch()` to batch events over a window~~ - Done
-- [x] ~~Fix race condition between event emission and channel close~~ - Fixed with emitWg
-- [x] ~~Replace `log.Logger` with `log/slog` in middleware~~ - Done: MiddlewareLogging already uses slog.Logger
-- [x] ~~Add slog support to MiddlewareLogging~~ - Done: Already implemented, accepts \*slog.Logger
-- [x] ~~Add `Event` batch accumulation~~ - Done via MiddlewareBatch
-- [x] ~~Add Op.MarshalText/UnmarshalText for JSON~~ - Done: Already implemented
-- [x] ~~Add `UnmarshalText` to Op type~~ - Done: Already implemented
-- [x] ~~Enrich Stats struct: event counts, filter stats, error count, uptime~~ - Done: Added atomic counters for eventsProcessed, eventsFilteredOut, errorsEncountered, and startTime for uptime
-- [x] ~~Make convertEvent's os.Stat optional or cacheable~~ - Done: Added WithLazyIsDir() option to skip os.Stat calls
-- [ ] Goreleaser configuration
-- [ ] Configure semantic-release
-- [ ] Localizable error messages
-- [x] ~~Add coverage threshold enforcement in CI (>=90%)~~ - Done: CI workflow has ≥90% threshold
-- [x] ~~Add structured logging example~~ - Done: ExampleMiddlewareLogging_structured in example_test.go
-- [x] ~~Consolidate doc.go~~ - Done: 61-line doc.go with Quick Start, Design, Filters, Middleware
-- [ ] Integrate into file-and-image-renamer
-- [ ] Integrate into dynamic-markdown-site
-- [ ] Integrate into auto-deduplicate
-- [ ] Integrate into Cyberdom
-- [x] ~~Add `Close()` to `DebouncerInterface`~~ - Done: Close() added as alias for Stop()
-- [x] ~~Add `WithPollInterval` fallback~~ - Done: Added WithPollInterval option for NFS/FUSE polling
-- [x] ~~Add `Watcher.IsWatching()`~~ - Done
-- [x] ~~Add `Watcher.Restart()` method~~ - Can be done via Close + New + Watch
-- [x] ~~Add `Watcher.WatchOnce()` for one-shot mode~~ - Done (duplicate entry, see MEDIUM)
-- [x] ~~Self-healing watcher~~ - Done: WithSelfHeal(interval) option with auto-retry of failed paths (watcher_selfheal.go)
-- [x] ~~Add `Event.Size` field~~ - Done: Event now has Size field populated from os.Stat
-- [x] ~~Add `FilterModifiedSince(t)`~~ - Done
-- [x] ~~Filter func type could return match metadata~~ - Done: MatchResult struct, FilterWithMeta type, FilterFromWithMeta/WithMeta wrappers
-- [x] ~~Add `MiddlewareThrottle()`~~ - Done: Token bucket with burst using golang.org/x/time/rate
-- [x] ~~Error rate limiting middleware~~ - Done: MiddlewareErrorRateLimit already exists
-- [x] ~~Circuit breaker middleware~~ - Done: MiddlewareCircuitBreaker already exists with closed/open/half-open states
-- [x] ~~Context propagation through pipeline~~ - Done: Handler accepts context.Context, Watch()/WatchOnce() accept ctx
-- [x] ~~Error recovery strategies~~ - Done: MiddlewareErrorRecovery already exists
-- [x] ~~Batch error handling~~ - Done: MiddlewareErrorBatch already exists
-- [x] ~~Error correlation IDs~~ - Done: MiddlewareErrorCorrelation already exists
-- [x] ~~Error sanitization~~ - Done: MiddlewareErrorSanitization already exists
-- [x] ~~Error code constants~~ - Done: Added ErrorCode type with all sentinel error mappings
-- [x] ~~Dead letter queue~~ - Done: Buildable with MiddlewareErrorBatch + custom handler
-- [x] ~~OpenTelemetry integration~~ - Done: OTelMiddleware with zero-dependency OTelSpan interface (otel.go)
-- [x] ~~Error analytics~~ - Done: Hooks exist via MiddlewareOnError for custom analytics integration
+- [ ] **Ubuntu 26 runner migration audit — deadline 2026-10-12** — GitHub is
+      migrating `ubuntu-latest`; warnings already appear in every run log.
+      Audit all workflows (`.github/workflows/*.yml`) for runner-compat
+      breakage and pin or adapt.
+      (`src: 2026-10-07_03-09 §f22, 2026-10-07_02-24 §f11`)
 
-## 🟢 LOW Priority
+## Testing & Platform
 
-- [x] ~~Review all parallel tests for race safety~~ - Done: Safe with //nolint:paralleltest where needed, CI uses -race
-- [x] ~~Document DI integration patterns in README~~ - Done: README now has DI patterns section
-- [x] ~~Consider `Watcher.AddRecursive(path)` for partial recursion~~ - Done: AddRecursive already exists
-- [ ] Consider `Watch.WatchChanges(ctx, targetState)` for idempotent sync
-- [ ] Explore fsnotify v2 API changes
-- [x] ~~Validate WithBuffer(0) — error or document~~ - Done: WithBuffer(0) creates unbuffered channel, documented
+- [ ] **Windows CI matrix** — add a `windows-latest` job to `ci.yml` that runs
+      `go test ./...`. Windows has different event semantics (no inotify);
+      document any platform-specific skips.
+- [ ] **macOS CI matrix for case-insensitive verification** — the case-
+      sensitivity and NFD/NFC behavior is verified as _logic_ on Linux
+      (case-sensitive ext4). Real APFS behavior (case-only rename coalescing,
+      NFD event paths) is only provable on macOS. Add a `macos-latest` job or
+      document the limitation explicitly. (See ROADMAP → Platform Coverage.)
+- [ ] **Expand fuzz tests** — current corpus covers `FilterRegex`,
+      `FilterExtensions`, `FilterIgnoreGlobs`, `OpUnmarshalText`, `FilterMinSize`,
+      and `PathKey` (NFC/idempotency/case-folding). Add fuzzers for
+      `FilterAnd`/`FilterOr`/`FilterNot` composition, `Event` JSON round-trip,
+      the gitignore matcher, `FilterIgnoreDirsCaseInsensitive`, and
+      `MiddlewareDeduplicateCaseInsensitive`.
+      (`src: 2026-08-12_19-22 §f16`)
+- [ ] **Large-tree stress harness** — synthetic 100k-directory fixture that
+      validates batched registration, budget enforcement, and self-heal under
+      load.
+- [ ] **Investigate the July 6-hour Benchmark hang** — PR #14's Benchmark job ran
+      02:23→08:24 UTC (6h, killed at runner timeout): possible benchmark/watcher
+      deadlock. Timeout caps now bound the blast radius (`b2caf11`); root cause
+      still unknown.
+      (`src: 2026-10-07_03-10 §b5/f4`)
+- [ ] **Test: `WithContentHashing()` + `WithContentHashMaxSize(0)` interaction** —
+      pin the (currently undocumented) semantics of combining both options;
+      the interaction is debatable and should be a tested decision.
+      (`src: 2026-08-12_19-22 §F8, §G1`)
+- [ ] **Test: `Stats.WatchBudgetCap == Stats.WatchLimit` when fraction is 1.0** —
+      end-to-end guard that the default (no safety fraction) never reduces the
+      detected limit.
+      (`src: 2026-08-12_19-22 §F9`)
+- [ ] **Test: `ErrorContext.Event` population** — the field is populated on
+      handler/middleware error paths (added in the v2.4.0 lint fix) but untested.
+      (`src: 2026-10-07_02-24 §f13`)
 
-## ✅ COMPLETED (Recently Done)
+## CI & Release Hardening
 
-- [x] ~~Fix 5 Critical Phantom Types~~ - Done: `DebounceKey`, `RootPath`, `LogSubstring`, `TempDir`, `OpString`
-- [x] ~~Create/Update CHANGELOG.md~~ - Done: `CHANGELOG.md` with breaking changes
-- [x] ~~Fix handleNewDirectory race~~ - Done: Lock acquisition fixed in `watcher_internal.go`
-- [x] ~~Fix shouldSkipDir to respect WithIgnoreDirs during walking~~ - Done: `watcher_walk.go:shouldSkipDir` checks `w.ignoreDirs`
-- [x] ~~Fix race conditions in test suite~~ - Done: All `t.Parallel()` issues resolved
-- [x] ~~Fix MiddlewareWriteFileLog — cache file handle~~ - Done: Opens file on first write only
-- [x] ~~Fix 10 exhaustruct violations in filter_test.go~~ - Done: All struct fields initialized
-- [x] ~~Fix 5 gocritic exitAfterDefer issues in examples~~ - Done: Added nolint directives
-- [x] ~~Fix 1 golines issue in filter_test.go:36~~ - Done: Line formatted
-- [x] ~~Fix Go cache corruption manually~~ - Done: Cleared
-- [x] ~~Fix convertEvent combined ops (Create|Write → Create only)~~ - Done: Priority logic implemented
-- [x] ~~Fix Watcher Large Struct~~ - Done: Struct splitting analysis complete
-- [x] ~~Add IsClosed() bool method~~ - Done: Public method added
-- [x] ~~Fix TestWatcher_Watch_Deletes flakiness~~ - Done: Proper synchronization
-- [x] ~~Add t.Parallel() to filter subtests~~ - Done: `filter_test.go` subtests run in parallel
-- [x] ~~Rename short variables in tests~~ - Done: `tt→tc`, `d→debouncer`, etc.
-- [x] ~~Move test files to \*\_test packages~~ - Deferred: Tests need internal access
-- [x] ~~Refactor inline error handling in tests~~ - Deferred: Current pattern acceptable
-- [x] ~~Add integration tests~~ - Partial: Basic integration in place
-- [x] ~~Add Stats() method~~ - Done: Method exists
-- [x] ~~Update examples with new ErrorHandler signature~~ - Done: All examples updated
-- [x] ~~Fix GlobalDebouncer.Debounce key parameter~~ - Partial: Key parameter exists, usage needs review
-- [x] ~~Fix ExampleEvent test output~~ - Done: Fixed
-- [x] ~~Fix 10 exhaustruct violations~~ - Done: All fixed
-- [x] ~~Add OpString phantom type integration~~ - Done: `WatcherError.Op` uses `OpString`
-- [x] ~~Fix Debouncer Race~~ - Done: `stopped` atomic flag with proper cleanup
-- [x] ~~Examples Linter~~ - Done: All 20 violations resolved
-- [x] ~~Replace cockroachdb/errors with stdlib~~ - Done: Eliminated 39 transitive dependencies
-- [x] ~~Remove dead artifacts~~ - Done: `report/jscpd-report.json`, empty `pkg/` removed
-- [x] ~~Add GitHub Actions CI pipeline~~ - Done: `.github/workflows/ci.yml` exists
-- [x] ~~Split watcher.go~~ - Done: Split into `watcher.go`, `watcher_internal.go`, `watcher_walk.go`
+- [ ] **CI guard: go-directive floor** — fail the build if `go.mod`'s `go`
+      directive ≠ `1.26.7` (or exceeds the CI matrix version). Three incidents
+      (2026-09-29, 2026-10-07 ×2) were caused by silent bumps; the buildflow
+      skip-list is name-fragile, a CI check is structural.
+      (`src: 2026-10-07_02-24 §f8, 05-17 §f36, 06-00 §f4/C5`)
+- [ ] **Go 1.27 in the CI test matrix** — add alongside the 1.26 floor; pairs
+      with the fleet Go-strategy decision (see open questions).
+      (`src: 2026-10-07_02-24 §f9, 04-34 §f22`)
+- [ ] **Required status checks on master + release PRs** — the v2.4.0 release
+      PR merged while master was red; nothing structurally prevents that.
+      (`src: 2026-10-07_02-24 §f10/c7`)
+- [ ] **`release.yml` `workflow_dispatch` trigger** — the workflow is dead code
+      for GITHUB_TOKEN-created tags (they don't re-trigger workflows); the
+      manual path needs a trigger or its test+lint should fold into
+      release-please flow.
+      (`src: 2026-10-07_02-24 §f12/b3`)
+- [ ] **BuildFlow binary upgrade + skip-list re-verify** — binary is `202b114`,
+      BuildFlow HEAD moved past it; after upgrade re-run the pipeline and
+      re-prove the three skips still resolve (provider renames silently
+      unskip). Also triage the non-gating finding noise (9-tools-unavailable
+      warning, go-auto-upgrade ×12, nix-checker ×8, nix-build-verify fate,
+      vulnix CVEs) and file the two upstream BuildFlow issues once approved
+      (see open questions).
+      (`src: 2026-10-07_06-00 §f7/B2/B3/C1`)
+- [ ] **Re-capture benchmark baseline post-v2.4.x** — `nix run .#bench-baseline`
+      on a quiet machine (AGENTS.md bench discipline: no parallel load).
+      (`src: 2026-10-07_02-24 §f16, 03-09 §f17`)
+- [ ] **Post-release smoke-test script** — after each release-please merge, assert
+      tag + GitHub Release exist and the changelog section matches the merge
+      (done manually on v2.4.0/v2.4.1).
+      (`src: 2026-10-07_03-10 §f23`)
 
-## ⚪ BACKLOG / DEFERRED
+## Documentation
 
-- [x] ~~Make `just check` pass with race detector~~ - Done: Nix flake check passes
-- [x] ~~Add `-race` to benchmark CI step~~ - Done: nix run .#bench uses -race, CI uses -race
-- [x] ~~Add benchmark regression detection in CI~~ - Done: benchmark_test.go has baseline comparisons
-- [x] ~~Fix `nix run .#coverage` to write to `$TMPDIR`~~ - Done: Uses `${TMPDIR:-/tmp}/coverage.out`
-- [x] ~~Add meta attributes to all nix apps~~ - Done: All apps have meta descriptions
-- [x] ~~Document vendorHash update procedure in AGENTS.md~~ - Done: AGENTS.md updated
-- [x] ~~Address flaky middleware test `TestWatcher_Watch_WithMiddleware`~~ - Done: Assertion relaxed to >= 1
-- [x] ~~Add test for `handleError()` stderr path~~ - Done: errors_test.go TestErrorHandler_DefaultLogsToStderr
-- [x] ~~Add test for `GlobalDebouncer.Flush()`~~ - Done: debouncer_test.go TestGlobalDebouncer_Flush
-- [x] ~~Add test for `handleError` with ErrorContext~~ - Done: errors_test.go TestErrorHandler_WithContext
-- [ ] Windows-specific edge case tests
-- [ ] Fuzz testing
-- [ ] Extract drainEvents to testutil package
-- [x] ~~Test examples/ in CI pipeline~~ - Done: CI has examples-build job
-- [x] ~~Add context cancellation integration test~~ - Done: watcher_test.go TestWatcher_ContextCancellation_Integration
-- [ ] Error simulation testing
-- [x] ~~Add Example_FilterRegex test~~ - Done: example_test.go ExampleFilterRegex
-- [x] ~~Ensure FilterRegex compiles are validated in constructor~~ - Done: Uses regexp.MustCompile
-- [x] ~~Remove `nolint:unparam` from getDebounceKey~~ - Done: No nolint:unparam in watcher_internal.go
-- [ ] Implement DebounceEntry Mixin phantom type
-- [ ] Remaining uint conversions
-- [x] ~~Push 2 unpushed commits to origin - Git~~ - Done: All commits pushed
-- [x] ~~Check if examples/ directory is worth keeping vs. just example_test.go~~ - Done: Both serve different purposes; examples/ for runnable programs, example_test.go for Godoc
+- [ ] **Shrink docs-consistency exemption list** — the CI gate exempts 15
+      symbols (11 phantom-type helpers + `WatcherStateFlags` +
+      `WithWatchedIgnoreDirs` (deprecated) + 2 real gaps:
+      `FilterGeneratedCodeFull` and `FilterGeneratedCodeWithFilter`). Document
+      the two filters in FEATURES.md to reach zero real exemptions.
+- [ ] **Split AGENTS.md to carrying capacity** — ~645 lines vs the doctor's
+      220-line max; move File Organization table, gogenfilter API notes, CI
+      Workflows table, and Linter Cheat Sheet to `docs/` with pointers. Every
+      distinct concept must survive the move.
+      (`src: 2026-10-07_04-34 §c1, 06-00 §f18/B5`)
+- [ ] **Website deploy runbook** — document install → build → deploy via flake
+      apps, the `trailingSlash: false` quirk, cleanUrls, and "verify built
+      slugs before publishing URLs" (the v2.4.0 release-notes 404 lesson) in
+      AGENTS.md or a RELEASE.md.
+      (`src: 2026-10-07_03-09 §f5/#30, 02-24 §e1/e5`)
 
-## 📊 Status Summary
+## Website Maintenance
 
-| Metric          | Value     | Status |
-| --------------- | --------- | ------ |
-| Linter Issues   | 0         | ✅     |
-| Build Status    | Clean     | ✅     |
-| Test Passing    | 100%      | ✅     |
-| Race Conditions | Mitigated | 🟡     |
-| HIGH Priority   | 0         | ✅     |
-| MEDIUM Priority | 18        | 🟡     |
-| LOW Priority    | 2         | 🟢     |
-| BACKLOG         | 6         | ⚪     |
-| Completed       | 139       | ✅     |
+- [ ] **Fix website dependabot alerts** — `fast-uri` (high, host confusion) and
+      `astro` (medium, reflected XSS) in `website/package.json`. Update with
+      `cd website && pnpm update`. (`src: 2026-07-29_14-06 §Dependabot`)
+- [ ] **Website CI build job** — `pnpm install && pnpm build` (+ `html-validate`,
+      already a devDep) in CI; today website breakage is only caught at manual
+      deploy time (hit twice on 2026-10-07).
+      (`src: 2026-10-07_03-09 §f2/#6, 02-24 §f24`)
+- [ ] **Website link checker** — `html-validate` or an Astro dead-link plugin in
+      the build; would have caught the migration-guide 404.
+      (`src: 2026-10-07_03-09 §f3`)
+- [ ] **Post-audit website chores** — `pnpm dedupe` after the 2026-10-07
+      lockfile churn; review the 7 `minimumReleaseAgeExclude` entries once the
+      patched versions age out (see open questions); drop the
+      `postcss-selector-parser` override when expressive-code bumps
+      postcss-nested; document the override's existence; redeploy after dep
+      updates; spot-check sharp 0.35.5 rendering on an image-heavy page.
+      (`src: 2026-10-07_06-00 §f5/#22/#23/#24/#36/#37/B4`)
+- [ ] **Commit the pnpm `minimumReleaseAge` window** — only the excludes list is
+      in `pnpm-workspace.yaml`; the actual age window lives in a machine-local
+      global config nobody else can see.
+      (`src: 2026-10-07_03-10 §f17`)
+- [ ] **Website small items** — add `editLink`/`lastUpdated` to astro.config if
+      missing; consider gitignoring `changelog.mdx` (committed build artifact);
+      check the OG image renders on social cards.
+      (`src: 2026-10-07_03-09 §f24/#25/#28`)
+
+## Hygiene
+
+- [ ] **Review/merge dependabot PRs #31, #32; close stale #14.**
+      (`src: 2026-10-07_02-24 §f15/c4`)
+- [ ] **Verify prettier's "3 fixed" daemon-committed files** from the 06:00
+      buildflow run 1 (unreviewed auto-edits).
+      (`src: 2026-10-07_06-00 §f31`)
+- [ ] **Run gitleaks + codespell once** — never run in the pipeline.
+      (`src: 2026-10-07_06-00 §f32`)
+- [ ] **Clean /tmp evidence logs** once CI is confirmed green after this push
+      (`/tmp/gfw-main-run*.log`, `/tmp/proof-run.log`, `/tmp/strace-*.log`,
+      `/tmp/gomod-*.log`, `/tmp/bf-*.log`).
+      (`src: 2026-10-07_06-00 §f34`)
+
+## Process debts (2026-10-07 docs sweep tail)
+
+- [ ] **Audit the 292 marker-free tables in archived files** — check-rows now
+      passes (86/86 uniform), but tables with zero `~~` anywhere were left as
+      non-task data tables or potentially-open items; one bounded pass should
+      classify them (data vs open task).
+      (`src: 2026-10-07 docs/sweep-followups pass`)
+- [ ] **Overnight merge-ownership protocol for release PRs** — define who/what may
+      merge a release PR while other sessions push to master (v2.4.1 race window
+      was seconds-wide).
+      (`src: 2026-10-07_03-10 §f32`)
+- [ ] **Consumer sweep** — check no dependent repos' CI keyed off red-master
+      windows (the go.mod incidents).
+      (`src: 2026-10-07_03-10 §f39`)
+- [ ] **Content-verify DOMAIN_LANGUAGE / API_STABILITY / Troubleshooting /
+      MIGRATION / ARCHITECTURE against code** (existence-checked only so far).
+      (`src: 2026-10-07_08-14 §c2`)
+- [ ] **Full `nix flake check` + verify second vendorHash (flake.nix:111)**.
+      (`src: 2026-10-07_06-00 §B6`)
+- [ ] **Status-dir index** (`docs/status/README.md`: active reports + archived
+      pointer) + CHANGELOG v2.4.0 cosmetic blank-line fix.
+      (`src: 2026-10-07_08-14 §c5/c6`)
+- [ ] **Cross-repo (crush-config):** commit `lessons.md` entry (instrument
+      writers before racing them) + fix buildflow skill DB path
+      (`buildflow.db`→`cache.db`) with fan-out verify.
+      (`src: 2026-10-07_05-17 §f10, 06-00 §f9`)
+- [ ] **v3 decision doc** — collect Q1/Q2/Q4/Q9 + micro-polish bundle into
+      `docs/research/v3-decisions.md`.
+      (`src: 2026-10-07_08-17 plan task 26`)
+
+## v3 Candidates
+
+- [ ] **Phantom-typed `PathKey`** — `type PathKey string` for compile-time safety
+      on path keys. Currently keys are bare strings. Would prevent accidental
+      mixing of raw paths and canonicalized keys.
+- [ ] **`CaseSensitivityProbed` mode** — actually probe the filesystem (write a
+      test file with mixed-case name, check if it collides) instead of relying
+      on `runtime.GOOS`. More accurate for edge cases (case-sensitive NTFS,
+      case-sensitive APFS volume).
+      (`src: 2026-07-29_09-44 §f #27`)
+- [ ] **Filesystem API micro-polish** — `Parse(string)` for
+      `FilesystemCaseSensitivity`, a `CaseSensitivityConfigured` stat (vs the
+      resolved-mode stat), a lock-policy doc note for
+      `EffectiveCaseSensitivity`, a symlink-to-watched-path dedup test, and an
+      `EffectiveCaseSensitivity`-vs-`Reset()` concurrency test.
+      (`src: 2026-07-29_14-38 §f4/5/10/13/17`)
+
+---
+
+## Status Snapshot
+
+| Metric         | Value | Status |
+| -------------- | ----- | ------ |
+| Linter issues  | 0     | ✅     |
+| Build          | Clean | ✅     |
+| Tests          | 100%  | ✅     |
+| Flaky tests    | 0     | ✅     |
+| Broken benches | 0     | ✅     |
+| Open items     | 39    | 🟡     |
+
+---
+
+## Open questions (blockers, not tasks — need user decision)
+
+These are **not** actionable until answered. They do not belong in the
+checklist above.
+
+1. **Is `.goreleaser.yml` dead config to delete, or an unfinished wiring task?**
+   `release.yml` uses `softprops/action-gh-release` with auto-generated notes and
+   has no goreleaser step. Now that release-please is wired in, goreleaser may be
+   fully obsolete. Deleting it simplifies FEATURES (Cross-platform releases →
+   not-planned); keeping it means it should be wired in eventually.
+   (`src: 2026-07-26_18-39 §g Q2`)
+
+2. **Should the benchmark baseline be committed (CI-enforceable) or stay
+   gitignored (local-only)?** The baseline is currently gitignored per the
+   original TODO, but the ROADMAP says "benchmark freshness CI." A gitignored
+   file can never drive a CI regression gate. Machine-specific noise makes
+   committed baselines imperfect, but they are the only way CI can catch
+   regressions.
+   (`src: 2026-07-26_21-00 §g Q1`)
+
+3. **The `WatchChanges(ctx, targetState)` open design questions** (reporting
+   granularity, closed-watcher semantics, depth reconciliation) live in
+   `docs/research/watchchanges-contract.md`; the implementation becomes a TODO
+   once those are answered.
+
+4. **Should the `watchBackend` interface be exported?** Currently unexported
+   (test-internal only). Consumers might want their own fake backends for
+   integration testing. Tradeoff: more public API surface vs. more consumer
+   value. This is a v3 decision — exporting it is a breaking commitment.
+   (`src: 2026-07-26_20-00 §G Q1`)
+
+5. **Should website deploys be automated from CI** (Firebase service-account
+   secret on master push / workflow_dispatch), or stay manual-and-local?
+   Determines the website CI job's scope.
+   (`src: 2026-10-07_03-09 §g Q2`)
+
+6. **File the two upstream BuildFlow issues?** (a) go-structure-linter
+   auto-bumps the `go` directive mid-run (strace evidence ready); (b) result
+   cache ignores `pnpm-lock.yaml` for pnpm-audit (stale replay until TTL).
+   Both are fleet-wide hazards; filings need your go-ahead since you own
+   BuildFlow.
+   (`src: 2026-10-07_05-17 §g Q1, 06-00 §g Q1/C1`)
+
+7. **go-daemon ecosystem follow-ups** — mirror the "Related Projects" note in
+   go-daemon's README (cross-repo edit), and choose the host for a
+   `watcher-daemon` example: bump this module to Go 1.27, host in go-daemon's
+   repo, or a sibling repo.
+   (`src: 2026-10-07_00-42 §b1/g1/g2`)
+
+8. **Are the 7 new `minimumReleaseAgeExclude` entries an acceptable standing
+   supply-chain tradeoff** (trusting same-day patched releases), and when
+   should they be pruned?
+   (`src: 2026-10-07_06-00 §g Q3/B4`) Also: Dependabot can propose versions
+   younger than the window (bot cadence vs supply-chain policy mismatch —
+   devalue 5.9.4 merged within hours of existing).
+   (`src: 2026-10-07_03-10 §f27`)
+
+9. **Changelog policy for releases** — should future releases block tagging on
+   curated changelog content (curate inside the release PR before merge), or is
+   the tag-gets-stub/master-gets-curation split acceptable (as shipped for
+   v2.4.0)?
+
+10. **Keep or retract v2.4.1?** It shipped as a Go patch release whose only
+    change is website CSS (pre-path-scoping incident). Published and
+    pkg.go.dev-indexed; retraction means deleting the release + tag. The
+    policy call is yours. (`src: 2026-10-07_03-10 §g1`)
+
+11. **May the auto-commit daemon ignore dependency manifests** (`go.mod`,
+    `go.sum`, lockfiles)? The daemon committed a `go 1.27` bump once (the
+    war class). A daemon-side ignore list is implementable; whether the
+    daemon should ever commit manifests is your decision.
+    (`src: 2026-10-07_03-10 §g2`)
+   (`src: 2026-10-07_02-24 §g Q3`)

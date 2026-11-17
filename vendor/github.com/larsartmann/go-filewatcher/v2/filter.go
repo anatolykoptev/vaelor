@@ -11,6 +11,7 @@ import (
 	"time"
 
 	gitignore "github.com/sabhiram/go-gitignore"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Filter determines whether a file event should be processed.
@@ -47,9 +48,9 @@ func makeSetFilter[T comparable](items []T, extract func(Event) T, include bool)
 }
 
 func makeExtFilter(exts []string, include bool) Filter {
-	normalized := make([]string, len(exts))
-	for i, ext := range exts {
-		normalized[i] = strings.ToLower(ext)
+	normalized := make([]string, 0, len(exts))
+	for _, ext := range exts {
+		normalized = append(normalized, strings.ToLower(ext))
 	}
 
 	return makeSetFilter(normalized, func(event Event) string {
@@ -87,6 +88,31 @@ func FilterIgnoreDirs(dirs ...string) Filter {
 	}
 }
 
+// FilterIgnoreDirsCaseInsensitive is like [FilterIgnoreDirs] but compares
+// directory names case-insensitively. Use this on case-insensitive filesystems
+// (NTFS, APFS) where "BUILD" and "build" refer to the same directory.
+func FilterIgnoreDirsCaseInsensitive(dirs ...string) Filter {
+	dirSet := make(map[string]struct{}, len(dirs))
+	for _, dir := range dirs {
+		dirSet[strings.ToLower(dir)] = struct{}{}
+	}
+
+	return func(event Event) bool {
+		loweredPath := strings.ToLower(event.Path)
+
+		for part := range dirSet {
+			sep := string(filepath.Separator)
+			if strings.Contains(loweredPath, sep+part+sep) ||
+				strings.HasSuffix(loweredPath, sep+part) ||
+				strings.ToLower(filepath.Base(event.Path)) == part {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
 // FilterExcludePaths creates a filter that discards events for files
 // matching any of the given exact paths. Paths are matched after
 // normalization (absolute path conversion).
@@ -106,14 +132,17 @@ func FilterIgnoreDirs(dirs ...string) Filter {
 func FilterExcludePaths(paths ...string) Filter {
 	pathSet := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
-		// Normalize to absolute path for consistent matching
+		// Normalize to absolute so comparisons against event.Path (always
+		// absolute from the watcher) succeed even when the caller passes a
+		// relative path.
 		abs, err := filepath.Abs(path)
-		if err == nil {
-			pathSet[abs] = struct{}{}
+		if err != nil {
+			abs = filepath.Clean(path) // fall back to best-effort canonical form
 		} else {
-			// Fall back to original path if Abs fails
-			pathSet[path] = struct{}{}
+			abs = filepath.Clean(abs)
 		}
+
+		pathSet[abs] = struct{}{}
 	}
 
 	return func(event Event) bool {
@@ -410,7 +439,7 @@ func FilterContentHash(expectedHex string) Filter {
 			return true
 		}
 
-		actual := hashFile(event.Path)
+		actual := hashFile(event.Path, defaultContentHashMaxSize)
 		if actual == "" {
 			return false
 		}
@@ -419,18 +448,20 @@ func FilterContentHash(expectedHex string) Filter {
 	}
 }
 
+// defaultContentHashMaxSize is the default upper bound for content hashing.
+// Files larger than this are skipped to avoid blocking the event loop on disk I/O.
+const defaultContentHashMaxSize = 10 * 1024 * 1024 // 10 MiB
+
 // hashFile computes the hex-encoded SHA-256 hash of the file at path.
 // Returns empty string on any error (file missing, permission denied, etc.).
-// Files larger than maxHashFileSize are skipped to avoid reading huge files.
-func hashFile(path string) string {
-	const maxHashFileSize = 10 * 1024 * 1024 // 10 MiB cap
-
+// Files larger than maxSize are skipped to avoid reading huge files.
+func hashFile(path string, maxSize int64) string {
 	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() > maxHashFileSize {
+	if err != nil || info.IsDir() || info.Size() > maxSize {
 		return ""
 	}
 
-	file, err := os.Open(path) //nolint:gosec // path comes from fsnotify event, not user input
+	file, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
@@ -453,7 +484,16 @@ func hashFile(path string) string {
 // The .gitignore file is loaded from repoRoot at filter creation time.
 // If the .gitignore file cannot be loaded, all events pass through.
 func FilterGitignore(repoRoot string) Filter {
-	gitignorePath := filepath.Join(repoRoot, ".gitignore")
+	// Make repoRoot absolute so filepath.Rel against the always-absolute
+	// event.Path works regardless of the caller's CWD.
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		absRoot = repoRoot // fall back to the original if Abs fails
+	}
+
+	absRoot = filepath.Clean(absRoot)
+
+	gitignorePath := filepath.Join(absRoot, ".gitignore")
 
 	ignoreMatcher, err := gitignore.CompileIgnoreFile(gitignorePath)
 	if err != nil {
@@ -461,11 +501,42 @@ func FilterGitignore(repoRoot string) Filter {
 	}
 
 	return func(event Event) bool {
-		relPath, relErr := filepath.Rel(repoRoot, event.Path)
+		relPath, relErr := filepath.Rel(absRoot, event.Path)
 		if relErr != nil {
 			return true
 		}
 
 		return !ignoreMatcher.MatchesPath(relPath)
+	}
+}
+
+// FilterCaseInsensitive wraps an inner Filter, normalizing the event path to
+// lowercase + NFC before passing it to the inner filter. This makes path-based
+// filters (FilterRegex, FilterGlob, FilterExcludePaths, etc.) match
+// case-insensitively without modifying their implementation.
+//
+// This is a standalone filter-level wrapper. For full filesystem-awareness
+// (watch dedup, Remove matching, debounce keys, gitignore, poll loop), use
+// WithCaseSensitivity(CaseInsensitive) instead — this wrapper only affects
+// the specific filter it wraps.
+func FilterCaseInsensitive(inner Filter) Filter {
+	return func(event Event) bool {
+		normalized := event
+		normalized.Path = norm.NFC.String(strings.ToLower(event.Path))
+
+		return inner(normalized)
+	}
+}
+
+// FilterCaseSensitive wraps an inner Filter, NFC-normalizing the event path
+// before passing it to the inner filter. Unlike FilterCaseInsensitive, it
+// preserves character case. This is useful on macOS (where event paths may
+// arrive as NFD) to ensure NFC-normalized matching without case-folding.
+func FilterCaseSensitive(inner Filter) Filter {
+	return func(event Event) bool {
+		normalized := event
+		normalized.Path = norm.NFC.String(event.Path)
+
+		return inner(normalized)
 	}
 }
