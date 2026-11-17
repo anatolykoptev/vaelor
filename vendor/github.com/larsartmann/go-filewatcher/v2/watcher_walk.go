@@ -40,6 +40,14 @@ func (w *Watcher) addPath(root RootPath) error {
 // Skips silently when the inotify budget is exhausted; otherwise handles
 // fswatcher.Add failures via handleError and failedPaths (for self-heal).
 func (w *Watcher) tryAddPath(path string) {
+	pathKey := w.pathKey(path)
+
+	if _, alreadyWatched := w.watchListKeys[pathKey]; alreadyWatched {
+		w.debugLog("path already watched, skipping", slog.String("path", path))
+
+		return
+	}
+
 	if w.maxWatches > 0 && len(w.watchList) >= w.maxWatches {
 		w.debugLog(
 			"watch budget exhausted, skipping path",
@@ -54,7 +62,7 @@ func (w *Watcher) tryAddPath(path string) {
 	addErr := w.fswatcher.Add(path)
 	if addErr != nil {
 		w.watchErrors.Add(1)
-		w.failedPaths[path] = struct{}{}
+		w.failedPaths[pathKey] = path
 		w.handleError(ErrorContext{
 			Operation: opAddPath,
 			Path:      path,
@@ -65,8 +73,8 @@ func (w *Watcher) tryAddPath(path string) {
 		return
 	}
 
-	delete(w.failedPaths, path)
-	w.watchList = append(w.watchList, path)
+	delete(w.failedPaths, pathKey)
+	w.addToWatchList(path)
 
 	if w.onAdd != nil {
 		w.onAdd(path)
@@ -77,6 +85,23 @@ func (w *Watcher) tryAddPath(path string) {
 // Directories are collected during walking and added in batches to yield to
 // event processing between batches. Caller must hold w.mu lock.
 func (w *Watcher) walkAndAddPaths(root RootPath) error {
+	// Track whether we're the top-level caller (responsible for init/cleanup).
+	// Recursive calls from handleFollowedSymlink reuse the existing map.
+	topLevel := w.symlinkVisited == nil
+	if topLevel {
+		w.symlinkVisited = make(map[string]struct{})
+	}
+
+	defer func() {
+		if topLevel {
+			w.symlinkVisited = nil
+		}
+	}()
+
+	// Record the root so a symlink pointing back to it is detected as a cycle.
+	rootKey := w.pathKey(root.Get())
+	w.symlinkVisited[rootKey] = struct{}{}
+
 	w.walkBatch = make([]string, 0, watchBatchSize)
 
 	err := filepath.WalkDir(root.Get(), w.walkDirFunc)
@@ -89,13 +114,17 @@ func (w *Watcher) walkAndAddPaths(root RootPath) error {
 	w.walkBatch = nil
 
 	if err != nil {
-		return fmt.Errorf("walking directory %q: %w", root, err)
+		return fmt.Errorf(
+			"walking directory %q: %w",
+			root,
+			err,
+		) //nolint:erraudit // root already identifies the directory; rootKey is its canonical form
 	}
 
 	// Track the root path only if it wasn't already added via addBatch.
 	// filepath.WalkDir visits the root first, so it's already in watchList.
-	if len(w.watchList) == 0 || w.watchList[len(w.watchList)-1] != root.Get() {
-		w.watchList = append(w.watchList, root.Get())
+	if _, ok := w.watchListKeys[rootKey]; !ok {
+		w.addToWatchList(root.Get())
 	}
 
 	return nil
@@ -104,8 +133,6 @@ func (w *Watcher) walkAndAddPaths(root RootPath) error {
 // walkDirFunc is the WalkDirFunc for adding paths during directory traversal.
 // When walkBatch is set, it collects paths into the batch for batched registration.
 // When walkBatch is nil, it adds paths immediately (used by tests).
-//
-//nolint:cyclop // walk logic with multiple skip conditions
 func (w *Watcher) walkDirFunc(path string, d os.DirEntry, walkErr error) error {
 	if walkErr != nil {
 		isDir := d != nil && d.IsDir()
@@ -118,21 +145,7 @@ func (w *Watcher) walkDirFunc(path string, d os.DirEntry, walkErr error) error {
 	}
 
 	if w.followSymlinks && d.Type()&os.ModeSymlink != 0 {
-		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			return fmt.Errorf("resolving symlink %q: %w", path, err)
-		}
-
-		info, err := os.Stat(resolved)
-		if err != nil {
-			return fmt.Errorf("stat resolved symlink target %q: %w", resolved, err)
-		}
-
-		if !info.IsDir() {
-			return nil
-		}
-
-		return w.walkAndAddPaths(NewRootPath(resolved))
+		return w.handleFollowedSymlink(path)
 	}
 
 	if w.shouldSkipDir(d.Name()) {
@@ -167,10 +180,50 @@ func (w *Watcher) walkDirFunc(path string, d os.DirEntry, walkErr error) error {
 	return nil
 }
 
+// handleFollowedSymlink resolves a symlink to its target, performs cycle
+// detection, and recursively walks the target if it's a new directory.
+func (w *Watcher) handleFollowedSymlink(path string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolving symlink %q: %w", path, err)
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return fmt.Errorf("stat resolved symlink target %q: %w", resolved, err)
+	}
+
+	if !info.IsDir() {
+		return nil
+	}
+
+	// Cycle detection: skip if this target was already visited via another
+	// symlink or is the walk root. Prevents infinite recursion on symlink
+	// cycles (e.g., /a/b -> /a).
+	resolvedKey := w.pathKey(resolved)
+	if _, visited := w.symlinkVisited[resolvedKey]; visited {
+		w.debugLog("symlink cycle detected, skipping",
+			slog.String("symlink", path),
+			slog.String("target", resolved))
+
+		return nil
+	}
+
+	w.symlinkVisited[resolvedKey] = struct{}{}
+
+	return w.walkAndAddPaths(NewRootPath(resolved))
+}
+
 // shouldSkipDir checks if a directory should be skipped based on ignore rules.
+// On case-insensitive filesystems, directory names are compared case-insensitively
+// so that "BUILD" matches "build" and "Node_Modules" matches "node_modules".
 func (w *Watcher) shouldSkipDir(name string) bool {
 	if w.skipDotDirs && strings.HasPrefix(name, ".") && name != "." {
 		return true
+	}
+
+	if w.effectiveCaseSensitivity == CaseInsensitive {
+		return w.shouldSkipDirCaseInsensitive(name)
 	}
 
 	if slices.Contains(DefaultIgnoreDirs, name) {
@@ -180,6 +233,25 @@ func (w *Watcher) shouldSkipDir(name string) bool {
 	return slices.Contains(w.ignoreDirNames, name)
 }
 
+// shouldSkipDirCaseInsensitive checks ignore rules with lowercased comparison.
+func (w *Watcher) shouldSkipDirCaseInsensitive(name string) bool {
+	lowered := strings.ToLower(name)
+
+	for _, dir := range DefaultIgnoreDirs {
+		if strings.ToLower(dir) == lowered {
+			return true
+		}
+	}
+
+	for _, dir := range w.ignoreDirNames {
+		if strings.ToLower(dir) == lowered {
+			return true
+		}
+	}
+
+	return false
+}
+
 // shouldExcludePath checks if a path should be excluded based on absolute path matching.
 // It matches exact paths and path prefixes (subtree exclusion).
 func (w *Watcher) shouldExcludePath(path string) bool {
@@ -187,19 +259,24 @@ func (w *Watcher) shouldExcludePath(path string) bool {
 		return false
 	}
 
-	_, exact := w.excludePaths[path]
+	key := w.pathKey(path)
+
+	_, exact := w.excludePaths[key]
 	if exact {
 		return true
 	}
 
-	prefix := path + string(filepath.Separator)
+	sep := string(filepath.Separator)
+	prefix := key + sep
 
 	for excludedPath := range w.excludePaths {
-		if strings.HasPrefix(excludedPath, prefix) {
+		excludedKey := w.pathKey(excludedPath)
+
+		if strings.HasPrefix(excludedKey, prefix) {
 			return false // path is a parent of an excluded path, don't skip it
 		}
 
-		if strings.HasPrefix(path, excludedPath+string(filepath.Separator)) {
+		if strings.HasPrefix(key, excludedKey+sep) {
 			return true // path is under an excluded subtree
 		}
 	}

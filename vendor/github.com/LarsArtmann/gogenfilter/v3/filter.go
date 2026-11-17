@@ -7,10 +7,12 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
 )
 
 // FilterConfig is a functional option for configuring a Filter.
-// Returns an error if the configuration is invalid.
+// It is a closure that mutates the Filter during construction.
+// Errors are collected and joined by NewFilter after all configs are applied.
 type FilterConfig func(*Filter) error
 
 // WithFilterOptions specifies which generated code types to filter.
@@ -82,10 +84,16 @@ type Filter struct {
 	includePatterns []string
 	excludePatterns []string
 	fsys            fs.FS
+
+	// sqlcDerived lazily holds the distilled sqlc configuration (output dirs +
+	// accepted filenames) for the project. It is computed once (see
+	// sqlcDerivedConfigForFS) and cached for the filter's lifetime.
+	// A nil pointer means "not yet computed".
+	sqlcDerived atomic.Pointer[sqlcDerivedConfig]
 }
 
 // NewFilter creates a new filter configured with the given functional options.
-// A filter with no options is disabled — Filter always returns false.
+// A filter with no options is disabled — Filter always returns (false, nil).
 // A filter is enabled when it has filter options, include patterns, or exclude patterns.
 //
 // Returns an error if any configuration option is invalid.
@@ -93,10 +101,18 @@ type Filter struct {
 //
 // Examples:
 //
-//	filter, err := NewFilter(WithFilterOptions(FilterAll))
-//	filter, err := NewFilter(WithFilterOptions(FilterSQLC, FilterTempl), WithExcludePatterns("**/db/*.go"))
-//	filter, err := NewFilter() // disabled, always returns (false, nil)
+//	opts, err := WithFilterOptions(FilterAll)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	filter, err := NewFilter(opts)
+//
+//	opts, err = WithFilterOptions(FilterSQLC, FilterTempl)
+//	filter, err = NewFilter(opts, WithExcludePatterns("**/db/*.go"))
+//
+//	filter, err = NewFilter() // disabled, always returns (false, nil)
 func NewFilter(configs ...FilterConfig) (*Filter, error) {
+	//nolint:exhaustruct // sqlcDerived is atomic.Pointer, zero-valued by design
 	filter := &Filter{
 		options:         make(map[FilterOption]struct{}),
 		includePatterns: make([]string, 0),
@@ -118,10 +134,33 @@ func NewFilter(configs ...FilterConfig) (*Filter, error) {
 	}
 
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		return nil, &FilterConfigError{ //nolint:exhaustruct
+			Code: CodeInvalidFilterOption,
+			Err:  errors.Join(errs...),
+		}
 	}
 
 	return filter, nil
+}
+
+// sqlcDerivedConfig lazily returns the distilled sqlc config, or an empty
+// derived config (never nil) if no sqlc config exists or it can't be parsed.
+// The result is cached after the first computation.
+func (f *Filter) sqlcDerivedConfig() *sqlcDerivedConfig {
+	if cached := f.sqlcDerived.Load(); cached != nil {
+		return cached
+	}
+
+	derived, err := sqlcDerivedConfigForFS(f.fsys, []string{"."})
+	if err != nil {
+		derived = &sqlcDerivedConfig{dirFiles: make(map[string]map[string]bool)}
+	}
+
+	// Best-effort: cache whatever we computed; a parse error just voids the
+	// config signal (falls back to header-content detection).
+	f.sqlcDerived.CompareAndSwap(nil, derived)
+
+	return derived
 }
 
 // IsEnabled returns whether the filter is active.
@@ -164,7 +203,8 @@ func (f *Filter) Filter(filePath string) (bool, error) {
 //
 // Example:
 //
-//	filter, _ := NewFilter(WithFilterOptions(FilterSQLC))
+//	opts, err := WithFilterOptions(FilterSQLC)
+//	filter, err := NewFilter(opts)
 //	result, err := filter.FilterDetailed("db/models.go")
 //	if err != nil { log.Fatal(err) }
 //	if result.Filtered {
@@ -180,6 +220,133 @@ func (f *Filter) FilterDetailed(filePath string) (FilterResult, error) {
 	}
 
 	return f.shouldFilterDetailedWithExcludes(filePath)
+}
+
+// FilterWithContent is like Filter but accepts pre-read file content.
+// Use this when you already have the file content (e.g., from an AST parser)
+// to avoid redundant file I/O. When content is nil or empty, only filename-based
+// detection is performed.
+func (f *Filter) FilterWithContent(filePath string, content []byte) (bool, error) {
+	if !f.IsEnabled() {
+		return false, nil
+	}
+
+	if len(f.includePatterns) > 0 && !f.matchesAnyPattern(filePath, f.includePatterns) {
+		return true, nil
+	}
+
+	if f.matchesAnyPattern(filePath, f.excludePatterns) {
+		return true, nil
+	}
+
+	return f.shouldFilterByContent(filePath, content)
+}
+
+// FilterDetailedWithContent is like FilterDetailed but accepts pre-read file content.
+// Use this when you already have the file content to avoid redundant file I/O.
+func (f *Filter) FilterDetailedWithContent(filePath string, content []byte) (FilterResult, error) {
+	if !f.IsEnabled() {
+		return FilterResult{Filtered: false, Reason: "", Path: filePath, Trace: ""}, nil
+	}
+
+	if len(f.includePatterns) > 0 && !f.matchesAnyPattern(filePath, f.includePatterns) {
+		return FilterResult{
+			Filtered: true, Reason: ReasonOutsideScope,
+			Path: filePath, Trace: "excluded by include pattern scope",
+		}, nil
+	}
+
+	if f.matchesAnyPattern(filePath, f.excludePatterns) {
+		return FilterResult{
+			Filtered: true, Reason: ReasonExcludePattern,
+			Path: filePath, Trace: "matched exclude pattern",
+		}, nil
+	}
+
+	return f.shouldFilterDetailedByContent(filePath, content)
+}
+
+// FilterDetailedAndContent is like FilterDetailed but also returns the file
+// content if it was read during phase-2 detection. The content is nil when:
+//   - The filter is disabled
+//   - The file is caught by an include or exclude pattern
+//   - The file is caught by filename detection (phase 1)
+//   - No enabled detector requires content checks
+//
+// When content is non-nil, it was read exactly once from the filter's filesystem
+// and can be reused by the caller for additional checks without re-reading the
+// file. This avoids the double-read that FilterDetailed forces on callers that
+// need the content for post-detection logic (e.g., classifying a ReasonGeneric
+// hit into a specific generator category).
+//
+// Unlike FilterDetailedWithContent, which requires the caller to supply
+// pre-read content, FilterDetailedAndContent performs the lazy read itself
+// and returns the content it read.
+//
+// Example:
+//
+//	opts, err := WithFilterOptions(FilterAll)
+//	filter, err := NewFilter(opts)
+//	result, content, err := filter.FilterDetailedAndContent("repository.go")
+//	if err != nil { log.Fatal(err) }
+//	if result.Filtered && result.Reason == ReasonGeneric && isSQLC(content) {
+//	    // rescue this file from the generic catch-all
+//	}
+func (f *Filter) FilterDetailedAndContent(filePath string) (FilterResult, []byte, error) {
+	if !f.IsEnabled() {
+		return FilterResult{Filtered: false, Reason: "", Path: filePath, Trace: ""}, nil, nil
+	}
+
+	if len(f.includePatterns) > 0 && !f.matchesAnyPattern(filePath, f.includePatterns) {
+		return FilterResult{
+			Filtered: true, Reason: ReasonOutsideScope,
+			Path: filePath, Trace: "excluded by include pattern scope",
+		}, nil, nil
+	}
+
+	if f.matchesAnyPattern(filePath, f.excludePatterns) {
+		return FilterResult{
+			Filtered: true, Reason: ReasonExcludePattern,
+			Path: filePath, Trace: "matched exclude pattern",
+		}, nil, nil
+	}
+
+	if result, found := f.configOrFilenameResult(filePath); found {
+		return result, nil, nil
+	}
+
+	if !needsContentCheck(f.options) {
+		return FilterResult{
+			Filtered: false,
+			Reason:   ReasonNotFiltered,
+			Path:     filePath,
+			Trace:    "",
+		}, nil, nil
+	}
+
+	content, err := readFile(f.fsys, filePath)
+	if err != nil {
+		return FilterResult{
+			Filtered: false, Reason: ReasonNotFiltered, Path: filePath, Trace: "",
+		}, nil, err
+	}
+
+	reason, trace := getContentBasedReasonWithTrace(filePath, string(content), f.options)
+	if reason != ReasonNotFiltered {
+		return FilterResult{
+			Filtered: true,
+			Reason:   reason,
+			Path:     filePath,
+			Trace:    trace,
+		}, content, nil
+	}
+
+	return FilterResult{
+		Filtered: false,
+		Reason:   ReasonNotFiltered,
+		Path:     filePath,
+		Trace:    "",
+	}, content, nil
 }
 
 // FilterPathsDetailed is like FilterPaths but returns FilterResult values with
@@ -227,6 +394,13 @@ func (f *Filter) matchesAnyPattern(filePath string, patterns []string) bool {
 	return anyMatch(filePath, patterns, MatchPattern)
 }
 
+// isOptionEnabled reports whether the given filter option is enabled.
+func (f *Filter) isOptionEnabled(opt FilterOption) bool {
+	_, enabled := f.options[opt]
+
+	return enabled
+}
+
 func (f *Filter) shouldFilterWithIncludes(filePath string) (bool, error) {
 	return f.shouldFilterByPattern(
 		filePath,
@@ -253,12 +427,12 @@ func (f *Filter) shouldFilterByPattern(
 }
 
 func (f *Filter) shouldFilterByDetection(filePath string) (bool, error) {
-	reason, err := detectReasonFS(f.fsys, filePath, f.options)
+	result, err := detectReasonFSWithConfig(f.fsys, filePath, f.options, f.sqlcDerivedConfig())
 	if err != nil {
 		return false, err
 	}
 
-	return reason != ReasonNotFiltered, nil
+	return result.Filtered, nil
 }
 
 func (f *Filter) shouldFilterDetailedWithIncludes(filePath string) (FilterResult, error) {
@@ -298,7 +472,67 @@ func (f *Filter) shouldFilterDetailedByPattern(
 }
 
 func (f *Filter) shouldFilterDetailedByDetection(filePath string) (FilterResult, error) {
-	return detectReasonFSWithTrace(f.fsys, filePath, f.options)
+	return detectReasonFSWithConfig(f.fsys, filePath, f.options, f.sqlcDerivedConfig())
+}
+
+// configOrFilenameResult checks config-aware SQLC detection then filename-based
+// detection. Returns the result and true if the file is filtered without needing
+// to read content. Shared by FilterDetailedAndContent and shouldFilterDetailedByContent.
+func (f *Filter) configOrFilenameResult(filePath string) (FilterResult, bool) {
+	if reason, ok := configAwareSQLCReason(
+		filePath,
+		f.sqlcDerivedConfig(),
+	); ok &&
+		f.isOptionEnabled(FilterSQLC) {
+		return FilterResult{
+			Filtered: true, Reason: reason, Path: filePath,
+			Trace: sqlcConfigTrace,
+		}, true
+	}
+
+	reason, trace := getFilenameBasedReasonWithTrace(filePath, f.options)
+	if reason != ReasonNotFiltered {
+		return FilterResult{Filtered: true, Reason: reason, Path: filePath, Trace: trace}, true
+	}
+
+	return FilterResult{
+		Filtered: false,
+		Reason:   ReasonNotFiltered,
+		Path:     filePath,
+		Trace:    "",
+	}, false
+}
+
+func (f *Filter) shouldFilterByContent(filePath string, content []byte) (bool, error) {
+	if reason, ok := configAwareSQLCReason(
+		filePath,
+		f.sqlcDerivedConfig(),
+	); ok &&
+		f.isOptionEnabled(FilterSQLC) {
+		return reason != ReasonNotFiltered, nil
+	}
+
+	reason := detectReasonFromMap(filePath, string(content), f.options)
+
+	return reason != ReasonNotFiltered, nil
+}
+
+func (f *Filter) shouldFilterDetailedByContent(
+	filePath string,
+	content []byte,
+) (FilterResult, error) {
+	if result, found := f.configOrFilenameResult(filePath); found {
+		return result, nil
+	}
+
+	if len(content) > 0 {
+		reason, trace := getContentBasedReasonWithTrace(filePath, string(content), f.options)
+		if reason != ReasonNotFiltered {
+			return FilterResult{Filtered: true, Reason: reason, Path: filePath, Trace: trace}, nil
+		}
+	}
+
+	return FilterResult{Filtered: false, Reason: ReasonNotFiltered, Path: filePath, Trace: ""}, nil
 }
 
 func (f *Filter) appendPatternPart(parts []string, label string, patterns []string) []string {

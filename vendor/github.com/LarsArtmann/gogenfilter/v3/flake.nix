@@ -12,15 +12,20 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     systems.url = "github:nix-systems/default";
+    md-go-validator = {
+      url = "github:LarsArtmann/md-go-validator";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     inputs@{
       self,
-      nixpkgs,
       flake-parts,
       treefmt-nix,
       systems,
+      md-go-validator,
+      ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import systems;
@@ -37,7 +42,7 @@
           ...
         }:
         let
-          lib = pkgs.lib;
+          inherit (pkgs) lib;
           goPkg = pkgs.go_1_26;
 
           goFiles = lib.fileset.fileFilter (file: file.hasExt "go") ./.;
@@ -46,6 +51,7 @@
             fileset = lib.fileset.unions [
               ./go.mod
               ./go.sum
+              ./README.md
               ./testhelpers
               ./testdata
               goFiles
@@ -53,15 +59,17 @@
           };
 
           mkApp =
-            name: runtimeInputs: text:
+            name: description: runtimeInputs: text:
             let
               script = pkgs.writeShellApplication {
                 inherit name runtimeInputs text;
+                meta.description = description;
               };
             in
             {
               type = "app";
               program = lib.getExe script;
+              meta.description = description;
             };
 
           pkg = pkgs.buildGoModule {
@@ -69,8 +77,25 @@
             version = self.rev or self.dirtyRev or "dev";
             inherit src;
             go = goPkg;
-            vendorHash = "sha256-Thhxw5MwemGtcNP/5skcQVbHdChpAtgSV1k/aBC/pkQ=";
+            vendorHash = "sha256-x4cy+Lyr68u7CrLuUq/fHP/qOmj8j43BD/drOkY8g50=";
+            proxyVendor = true;
+            meta = with pkgs.lib; {
+              description = "Go library for detecting and filtering auto-generated code files";
+              license = licenses.mit;
+              homepage = "https://gogenfilter.lars.software";
+              platforms = platforms.unix ++ platforms.windows;
+              maintainers = [
+                {
+                  name = "Lars Artmann";
+                  github = "LarsArtmann";
+                }
+              ];
+            };
           };
+
+          mdgo = md-go-validator.packages.${system}.default.overrideAttrs (_: {
+            vendorHash = "sha256-oNZTI5SywT9C4guLdULUwvSlJ9KhNHurg7fqhyxDB7k=";
+          });
         in
         {
           treefmt = {
@@ -83,6 +108,7 @@
             };
           };
 
+          checks.format = config.treefmt.build.check self;
           devShells.default = pkgs.mkShell {
             packages = [
               goPkg
@@ -93,6 +119,7 @@
               pkgs.gotools
               pkgs.govulncheck
               pkgs.trash-cli
+              mdgo
             ];
 
             GOWORK = "off";
@@ -100,6 +127,15 @@
             shellHook = ''
               echo "gogenfilter dev shell — $(go version)"
             '';
+          };
+
+          devShells.ci = pkgs.mkShellNoCC {
+            packages = [
+              goPkg
+              pkgs.golangci-lint
+            ];
+
+            GOWORK = "off";
           };
 
           checks = {
@@ -110,37 +146,41 @@
           };
 
           apps = {
-            test = mkApp "test" [ goPkg ] ''
+            test = mkApp "test" "Run the Go test suite" [ goPkg ] ''
               go test ./... -count=1 "$@"
             '';
 
-            test-race = mkApp "test-race" [ goPkg ] ''
+            test-race = mkApp "test-race" "Run tests with the race detector" [ goPkg ] ''
               go test ./... -race -count=1 "$@"
             '';
 
-            build = mkApp "build" [ goPkg ] ''
+            build = mkApp "build" "Compile all Go packages" [ goPkg ] ''
               go build ./...
             '';
 
-            vet = mkApp "vet" [ goPkg ] ''
+            vet = mkApp "vet" "Run go vet on all packages" [ goPkg ] ''
               go vet ./...
             '';
 
-            lint = mkApp "lint" [ pkgs.golangci-lint ] ''
+            lint = mkApp "lint" "Run golangci-lint" [ pkgs.golangci-lint ] ''
               golangci-lint run ./...
             '';
 
-            coverage = mkApp "coverage" [ goPkg ] ''
+            gendocs = mkApp "gendocs" "Generate documentation from the detectors table" [ goPkg ] ''
+              go run ./cmd/gendocs "$@"
+            '';
+
+            coverage = mkApp "coverage" "Generate test coverage report" [ goPkg ] ''
               go test ./... -coverprofile=coverage.out -covermode=atomic "$@"
               go tool cover -func=coverage.out
             '';
 
-            vulncheck = mkApp "vulncheck" [ pkgs.govulncheck ] ''
+            vulncheck = mkApp "vulncheck" "Scan for Go vulnerabilities with govulncheck" [ pkgs.govulncheck ] ''
               govulncheck ./...
             '';
 
             clean =
-              mkApp "clean"
+              mkApp "clean" "Remove coverage artifacts and clear test cache"
                 [
                   goPkg
                   pkgs.trash-cli
@@ -149,7 +189,18 @@
                   trash-put coverage.out 2>/dev/null || true
                   go clean -testcache
                 '';
+
+            validate-docs =
+              mkApp "validate-docs" "Validate website docs structure with md-go-validator" [ mdgo ]
+                ''
+                  md-go-validator -f table website/src/content/docs/
+                '';
           };
         };
+
+      flake.overlays.default = final: _prev: {
+        gogenfilter = self.packages.${final.stdenv.system}.default;
+      };
+
     };
 }

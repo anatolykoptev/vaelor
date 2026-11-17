@@ -54,6 +54,7 @@ Thumbs.db
 
 # Build artifacts
 /gogenfilter
+/gendocs
 /md-go-validator-bin
 /go-output/
 /md-go-validator/
@@ -74,6 +75,8 @@ Thumbs.db
 
 # Templ generated files
 *_templ.go
+# Keep templ test fixture tracked (needed by integration tests)
+!testdata/templ/page_templ.go
 
 # Build artifacts
 /v3
@@ -81,3 +84,65 @@ Thumbs.db
 /report/jscpd-report.json
 # Nix build output
 /result
+
+# >>> buildflow-managed (.gitignore) >>>
+# Auto-managed by buildflow. Edit outside these markers; this block is regenerated on `buildflow --fix`.
+
+## Secrets and environment
+*.pem
+*.key
+
+## Databases
+*.db-shm
+*.db-wal
+
+## Operating systems
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+## Buildflow artifacts
+audit-log.*
+workflow-audit-log.*
+.buildflow-workflow-baseline.json
+
+## Go
+go.work.sum
+
+## Nix
+result-*
+.envrc
+.direnv/
+
+## Javascript and typescript
+*.tsbuildinfo
+.next/
+.nuxt/
+.docusaurus/
+.eslintcache
+.cache/
+.parcel-cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+## Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.ipynb_checkpoints/
+.hypothesis/
+cython_debug/
+.coverage
+htmlcov/
+# <<< buildflow-managed (.gitignore) <<<

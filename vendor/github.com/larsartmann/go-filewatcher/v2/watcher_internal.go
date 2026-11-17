@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -19,7 +21,7 @@ const operationFsnotify = "fsnotify"
 // Note: eventCh is closed by Close() after debouncer is stopped.
 // debugLog logs a debug message if debug mode is enabled.
 func (w *Watcher) debugLog(msg string, args ...any) {
-	if w.debug {
+	if w.debug && w.debugLogger != nil {
 		w.debugLogger.Debug(msg, args...)
 	}
 }
@@ -30,14 +32,13 @@ func (w *Watcher) debugLogEvent(msg string, event Event) {
 	w.debugLog(msg, slog.String("path", event.Path), slog.String("op", event.Op.String()))
 }
 
-func (w *Watcher) watchLoop(ctx context.Context, eventCh chan<- Event) {
+func (w *Watcher) watchLoop(ctx context.Context, eventCh chan<- Event, chUsers *sync.WaitGroup) {
 	defer w.wg.Done()
+	defer chUsers.Done()
 	defer func() {
 		if w.debounceInterface != nil {
 			w.debounceInterface.Stop()
 		}
-
-		w.closeEventChOnce.Do(func() { close(eventCh) })
 	}()
 
 	w.debugLog("watch loop started")
@@ -49,7 +50,7 @@ func (w *Watcher) watchLoop(ctx context.Context, eventCh chan<- Event) {
 
 			return
 
-		case fsEvent, ok := <-w.fswatcher.Events:
+		case fsEvent, ok := <-w.fswatcher.Events():
 			if !ok {
 				w.debugLog("watch loop exiting: fsnotify events channel closed")
 
@@ -58,14 +59,17 @@ func (w *Watcher) watchLoop(ctx context.Context, eventCh chan<- Event) {
 
 			w.processEvent(ctx, fsEvent, eventCh)
 
-		case err, ok := <-w.fswatcher.Errors:
+		case err, ok := <-w.fswatcher.Errors():
 			if !ok {
 				w.debugLog("watch loop exiting: fsnotify errors channel closed")
 
 				return
 			}
 
-			w.handleError(ErrorContext{Operation: operationFsnotify, Retryable: true}, err)
+			w.handleError(
+				ErrorContext{Operation: operationFsnotify, Path: "", Event: nil, Retryable: true},
+				err,
+			)
 		}
 	}
 }
@@ -73,7 +77,7 @@ func (w *Watcher) watchLoop(ctx context.Context, eventCh chan<- Event) {
 // processEvent converts an fsnotify event, applies filters and debounce,
 // and emits it to the channel.
 func (w *Watcher) processEvent(ctx context.Context, fsEvent fsnotify.Event, eventCh chan<- Event) {
-	event := convertEvent(fsEvent, w.lazyIsDir, w.contentHashing)
+	event := convertEvent(fsEvent, w.lazyIsDir, w.contentHashMaxSize)
 	if event == nil {
 		w.debugLog(
 			"event ignored: unrecognized fsnotify operation",
@@ -99,14 +103,17 @@ func (w *Watcher) processEvent(ctx context.Context, fsEvent fsnotify.Event, even
 }
 
 // handleFilteredEvent processes events that don't pass filters.
+// When watchFilteredDirs is disabled, filtered Create events for directories
+// are NOT added to the watcher — this lets consumers truly ignore subtrees
+// without spending inotify budget on them.
 func (w *Watcher) handleFilteredEvent(fsEvent fsnotify.Event, event Event) {
-	if event.Op == Create {
+	if event.Op == Create && w.watchFilteredDirs {
 		w.handleNewDirectory(fsEvent.Name)
 	}
 }
 
 // incrementProcessedEvent increments the eventsProcessed counter.
-// Called from emitEvent when an event successfully passes through.
+// Called from emitEvent when an event successfully reaches the event channel.
 func (w *Watcher) incrementProcessedEvent() {
 	w.eventsProcessed.Add(1)
 }
@@ -114,9 +121,54 @@ func (w *Watcher) incrementProcessedEvent() {
 // emitEvent handles the actual event emission with middleware and debouncing.
 func (w *Watcher) emitEvent(ctx context.Context, event Event, eventCh chan<- Event) {
 	execute := func() {
-		emit := w.buildEmitFunc(ctx, eventCh)
-		handler := w.buildMiddlewareHandler(emit)
-		w.executeHandler(ctx, event, handler)
+		var emitted atomic.Bool
+
+		// trackedEmit combines middleware-drop tracking with the channel send
+		// logic (inlined from buildEmitFunc) in a single closure to avoid an
+		// extra heap allocation per event. If the middleware chain returns nil
+		// without calling this function, the event was dropped (e.g., by rate
+		// limiting, dedup, or circuit breaker middleware).
+		trackedEmit := func(e Event) {
+			emitted.Store(true)
+
+			if w.eventDropOnFull {
+				select {
+				case eventCh <- e:
+					w.incrementProcessedEvent()
+				case <-w.done:
+				case <-ctx.Done():
+				default:
+					w.eventsDroppedByBackpressure.Add(1)
+
+					w.debugLog("event dropped: channel full", slog.String("path", e.Path))
+				}
+
+				return
+			}
+
+			select {
+			case eventCh <- e:
+				w.incrementProcessedEvent()
+			case <-w.done:
+			case <-ctx.Done():
+			}
+		}
+
+		handler := w.buildMiddlewareHandler(trackedEmit)
+
+		err := handler(ctx, event)
+		if err != nil {
+			w.handleError(
+				ErrorContext{Operation: "handler", Path: event.Path, Event: &event, Retryable: false},
+				fmt.Errorf("handler error: %w", err),
+			)
+
+			return
+		}
+
+		if !emitted.Load() {
+			w.eventsDroppedByMiddleware.Add(1)
+		}
 	}
 
 	if w.debounceInterface == nil {
@@ -129,17 +181,6 @@ func (w *Watcher) emitEvent(ctx context.Context, event Event, eventCh chan<- Eve
 	key := w.getDebounceKey(event.Path)
 	w.debugLog("debouncing event", slog.String("path", event.Path), slog.String("key", string(key)))
 	w.debounceInterface.Debounce(key, execute)
-}
-
-// buildEmitFunc creates the emit function for sending events.
-func (w *Watcher) buildEmitFunc(ctx context.Context, eventCh chan<- Event) func(Event) {
-	return func(e Event) {
-		select {
-		case eventCh <- e:
-		case <-w.done:
-		case <-ctx.Done():
-		}
-	}
 }
 
 // buildMiddlewareHandler creates the handler chain with all middleware applied.
@@ -156,6 +197,22 @@ func (w *Watcher) buildMiddlewareHandler(emit func(Event)) Handler {
 }
 
 // wrapHandlerWithNilReturn wraps a handler to return nil error.
+//
+// This is applied to every inner handler in the middleware chain so that
+// middleware calling next() never receives a downstream error. This is
+// intentional: it prevents one middleware's error from cascading through
+// the entire chain and aborting event delivery.
+//
+// Architectural implication: error-aware middleware (circuit breaker,
+// error recovery, error rate limiting) can only observe their OWN errors —
+// not failures from middleware they wrap. For such middleware to see handler
+// errors, they must be placed as the INNERMOST layer (closest to the base
+// handler). Middleware added AFTER an error-aware layer will not propagate
+// errors back to it.
+//
+// If middleware itself returns an error, wrapWithMiddleware catches it and
+// routes it to handleError — the error is never lost, just not visible to
+// outer middleware.
 func wrapHandlerWithNilReturn(handler func(context.Context, Event)) Handler {
 	return func(ctx context.Context, e Event) error {
 		handler(ctx, e)
@@ -175,31 +232,15 @@ func (w *Watcher) wrapWithMiddleware(
 		err := wrapped(ctx, e)
 		if err != nil {
 			w.handleError(
-				ErrorContext{Operation: "middleware", Path: e.Path, Retryable: false},
+				ErrorContext{Operation: "middleware", Path: e.Path, Event: &e, Retryable: false},
 				fmt.Errorf("middleware error: %w", err),
 			)
 		}
 	}
 }
 
-// executeHandler runs the handler.
-func (w *Watcher) executeHandler(ctx context.Context, event Event, handler Handler) {
-	err := handler(ctx, event)
-	if err != nil {
-		w.handleError(
-			ErrorContext{Operation: "handler", Path: event.Path, Retryable: false},
-			fmt.Errorf("handler error: %w", err),
-		)
-
-		return
-	}
-
-	// Event was successfully processed
-	w.incrementProcessedEvent()
-}
-
 func (w *Watcher) getDebounceKey(path string) DebounceKey {
-	return NewDebounceKey(path)
+	return NewDebounceKey(w.pathKey(path))
 }
 
 // handleNewDirectory adds newly created directories to the watcher
@@ -265,6 +306,7 @@ func (w *Watcher) handleError(ctx ErrorContext, err error) {
 		case w.errorsCh <- err:
 		default:
 			// Channel is full or closed, drop the error
+			w.errorsDropped.Add(1)
 		}
 	}
 	w.errorsMu.Unlock()
@@ -278,9 +320,20 @@ func (w *Watcher) handleError(ctx ErrorContext, err error) {
 
 	// Default: log to stderr
 	if ctx.Path != "" {
-		_, _ = fmt.Fprintf(os.Stderr, "filewatcher: %s: %s: %v\n", ctx.Operation, ctx.Path, err)
+		_, _ = fmt.Fprintf(
+			os.Stderr,
+			"filewatcher: %s: %s: %v\n",
+			ctx.Operation,
+			ctx.Path,
+			err,
+		) //nolint:erraudit // last-resort stderr write in the error handler itself
 	} else {
-		_, _ = fmt.Fprintf(os.Stderr, "filewatcher: %s: %v\n", ctx.Operation, err)
+		_, _ = fmt.Fprintf(
+			os.Stderr,
+			"filewatcher: %s: %v\n",
+			ctx.Operation,
+			err,
+		) //nolint:erraudit // last-resort stderr write in the error handler itself
 	}
 }
 
@@ -295,7 +348,7 @@ func (w *Watcher) handleError(ctx ErrorContext, err error) {
 // If computeHash is true and the event is a Create or Write for a regular file,
 // reads the file and computes a SHA-256 hex hash. Hash is empty for directories,
 // removed files, permission errors, or when lazyIsDir is true.
-func convertEvent(fsEvent fsnotify.Event, lazyIsDir, computeHash bool) *Event {
+func convertEvent(fsEvent fsnotify.Event, lazyIsDir bool, maxHashSize int64) *Event {
 	var op Op
 
 	switch {
@@ -331,8 +384,8 @@ func convertEvent(fsEvent fsnotify.Event, lazyIsDir, computeHash bool) *Event {
 
 	hash := ""
 
-	if computeHash && !isDir && (op == Create || op == Write) {
-		hash = hashFileContents(fsEvent.Name)
+	if maxHashSize > 0 && !isDir && (op == Create || op == Write) {
+		hash = hashFileContents(fsEvent.Name, maxHashSize)
 	}
 
 	return &Event{
@@ -348,7 +401,7 @@ func convertEvent(fsEvent fsnotify.Event, lazyIsDir, computeHash bool) *Event {
 
 // hashFileContents returns the hex-encoded SHA-256 hash of the file at path.
 // Returns empty string on any error (file missing, permission denied, etc.).
-// Hashing is bounded by maxHashFileSize to avoid reading huge files.
-func hashFileContents(path string) string {
-	return hashFile(path)
+// Hashing is bounded by maxSize to avoid reading huge files.
+func hashFileContents(path string, maxSize int64) string {
+	return hashFile(path, maxSize)
 }

@@ -8,12 +8,13 @@ import (
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
-// gitignoreCache stores compiled .gitignore matchers keyed by the directory
-// that contains the .gitignore file. This allows hierarchical matching:
-// a path is checked against all ancestor .gitignore files.
+// gitignoreCache stores compiled .gitignore matchers keyed by the canonical
+// (case-aware, NFC-normalized) path key of the directory that contains the
+// .gitignore file. This allows hierarchical matching: a path is checked
+// against all ancestor .gitignore files.
 type gitignoreCache struct {
 	mu       sync.RWMutex
-	matchers map[string]*gitignore.GitIgnore // key: directory containing .gitignore
+	matchers map[string]*gitignore.GitIgnore // key: pathKey of directory containing .gitignore
 }
 
 func newGitignoreCache() *gitignoreCache {
@@ -24,11 +25,13 @@ func newGitignoreCache() *gitignoreCache {
 }
 
 // load loads and caches a .gitignore file from the given directory.
+// dir is the original filesystem path (used to read the .gitignore file);
+// key is the canonical pathKey used for map storage and lookup.
 // No-op if no .gitignore exists or loading fails.
-func (c *gitignoreCache) load(dir string) {
+func (c *gitignoreCache) load(dir string, key string) {
 	c.mu.RLock()
 
-	if _, ok := c.matchers[dir]; ok {
+	if _, ok := c.matchers[key]; ok {
 		c.mu.RUnlock()
 
 		return
@@ -44,7 +47,7 @@ func (c *gitignoreCache) load(dir string) {
 	}
 
 	c.mu.Lock()
-	c.matchers[dir] = ignoreMatcher
+	c.matchers[key] = ignoreMatcher
 	c.mu.Unlock()
 }
 
@@ -55,12 +58,16 @@ func (w *Watcher) loadGitignoreForDir(dir string) {
 		return
 	}
 
-	w.gitignoreCache.load(dir)
+	w.gitignoreCache.load(dir, w.pathKey(dir))
 }
 
 // shouldSkipByGitignore checks if a path should be skipped based on accumulated
 // gitignore rules. Only checks matchers that are ancestors of the path
 // (i.e., the path must be inside the gitignore directory).
+//
+// Both the path and the gitignore directory keys are canonicalized via pathKey
+// before comparison, so the ancestor-prefix check respects filesystem
+// case-sensitivity and Unicode normalization.
 func (w *Watcher) shouldSkipByGitignore(path string) bool {
 	if !w.gitignoreEnabled || w.gitignoreCache == nil {
 		return false
@@ -69,17 +76,20 @@ func (w *Watcher) shouldSkipByGitignore(path string) bool {
 	w.gitignoreCache.mu.RLock()
 	defer w.gitignoreCache.mu.RUnlock()
 
+	canonicalPath := w.pathKey(path)
 	sep := string(filepath.Separator)
 
-	for gitignoreDir, ignoreMatcher := range w.gitignoreCache.matchers {
-		// Only check matchers from ancestor directories
-		prefix := gitignoreDir + sep
-		if !strings.HasPrefix(path, prefix) && path != gitignoreDir {
+	for gitignoreKey, ignoreMatcher := range w.gitignoreCache.matchers {
+		// Only check matchers from ancestor directories (using canonical keys)
+		prefix := gitignoreKey + sep
+		if !strings.HasPrefix(canonicalPath, prefix) && canonicalPath != gitignoreKey {
 			continue
 		}
 
-		relPath, err := filepath.Rel(gitignoreDir, path)
-		if err != nil {
+		// Compute relative path using canonical forms so the ancestor
+		// relationship is consistent on case-insensitive filesystems.
+		relPath, err := filepath.Rel(gitignoreKey, canonicalPath)
+		if err != nil { //nolint:erraudit // both paths are canonical keys; on Rel failure just skip this matcher
 			continue
 		}
 

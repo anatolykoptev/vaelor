@@ -1,0 +1,6 @@
+# LarsArtmann repos include private packages (e.g. go-daemon); unauthenticated
+# link checks 404 on them. nixos.wiki blocks bots with 403.
+exclude = [
+  '(?i)https://github\.com/larsartmann/.*',
+  'https://nixos\.wiki/.*',
+]

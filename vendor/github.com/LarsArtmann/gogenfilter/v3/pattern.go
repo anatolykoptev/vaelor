@@ -24,7 +24,10 @@ func MatchPattern(path, pattern string) bool {
 	normalizedPattern := filepath.ToSlash(pattern)
 
 	// For absolute paths with relative patterns, prepend **/ to match at any depth.
-	if strings.HasPrefix(normalizedPath, "/") &&
+	// Detect both Unix absolute paths (leading /) and Windows drive paths
+	// (C:/... after ToSlash): a drive-colon path must not be treated as
+	// relative, or depth-anchored patterns never match on Windows.
+	if isAbsLike(normalizedPath) &&
 		!strings.HasPrefix(normalizedPattern, "/") &&
 		!strings.HasPrefix(normalizedPattern, "**") {
 		normalizedPattern = "**/" + normalizedPattern
@@ -36,4 +39,12 @@ func MatchPattern(path, pattern string) bool {
 	}
 
 	return matched
+}
+
+// isAbsLike reports whether a slash-normalized path is absolute: a leading
+// slash (Unix, and UNC after ToSlash) or a Windows drive prefix (C:/).
+func isAbsLike(p string) bool {
+	return strings.HasPrefix(p, "/") ||
+		(len(p) >= 3 && p[1] == ':' && p[2] == '/' &&
+			(p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z'))
 }

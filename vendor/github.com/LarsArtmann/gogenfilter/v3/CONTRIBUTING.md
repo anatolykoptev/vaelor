@@ -59,13 +59,19 @@ All pull requests must pass:
 ## Adding a New Generator Detector
 
 1. Add a `FilterOption` and `FilterReason` constant in `types.go`
-2. Add a detector entry to the `detectors` table in `detection.go`
-3. Implement `matchFilename` and/or `checkContent` functions
+2. Add a detector entry to the `detectors` table in `detection.go`:
+   - Set `matchFilename` and/or `checkContent` functions
+   - Set `url` to the generator's homepage
+   - Set `filenameDesc` to a human-readable filename pattern (use `filenameNoneDesc` if no filename detection)
+   - Set `contentDesc` to a human-readable content marker description
+3. Add a `websiteMetadata` entry in `cmd/gendocs/main.go` with the generator's logo path and display filename
 4. Add a real generated file to `testdata/<generator>/` as an integration fixture
 5. Update `integration_test.go` with the new fixture
-6. Update the Supported Generators table in `README.md`
+6. Run `go generate ./...` to regenerate `generators.json`, README tables, `generators.mdx`, `detection.mdx`, and `doc.go`
 
-The derivation system automatically updates `AllFilterOptions()`, `AllFilterReasons()`, and `IsValid()` — no manual list maintenance needed.
+The derivation system automatically updates `AllFilterOptions()`, `AllGeneratorOptions()`, `AllFilterReasons()`, `AllDetectorDocs()`, and `IsValid()` — no manual list maintenance needed.
+
+**CI enforcement:** The docs freshness job runs `go generate ./...` and fails if any generated file has uncommitted changes. Adding a detector without a `websiteMetadata` entry will fail the build (gendocs exits with an error), and adding a detector without running `go generate` will fail the freshness check.
 
 ## Pull Request Process
 
@@ -85,6 +91,9 @@ The derivation system automatically updates `AllFilterOptions()`, `AllFilterReas
 ├── pattern.go         # Glob pattern matching via doublestar/v4
 ├── sqlc.go            # SQLC config discovery and parsing
 ├── project.go         # Project root discovery
+├── scan.go            # ScanProject for walking fs.FS
+├── doc.go             # Package documentation
+├── cmd/gendocs/       # Documentation generator binary (reads detectors table)
 ├── bench_test.go      # Benchmarks
 ├── integration_test.go # Tests against real tool output
 ├── testdata/          # Fixture files from real generators

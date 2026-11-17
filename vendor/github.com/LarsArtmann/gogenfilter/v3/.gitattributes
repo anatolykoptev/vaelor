@@ -6,3 +6,9 @@ docs/status/*.md linguist-documentation
 *_mock.go linguist-generated
 # Exclude from language statistics
 reports/** linguist-generated
+# Enforce consistent line endings across all platforms
+* text=auto eol=lf
+# Binary files should not be diffed or merged
+*.png binary
+*.ico binary
+*.woff2 binary

@@ -7,9 +7,11 @@ import (
 	"os"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"golang.org/x/text/unicode/norm"
 	"golang.org/x/time/rate"
 )
 
@@ -20,6 +22,16 @@ const defaultDedupeWindow = 100 * time.Millisecond
 
 // dedupeCleanupMultiplier is the multiplier for cleanup ticker interval.
 const dedupeCleanupMultiplier = 2
+
+// dedupeCleanupInterval is the number of events between lazy cleanup passes
+// in MiddlewareDeduplicate. Uses an event counter rather than map size to
+// avoid triggering cleanup every event when the map size hovers at a multiple
+// of the interval.
+const dedupeCleanupInterval = 100
+
+// dedupeCleanupMaxSize is the hard cap on the dedup map before a forced
+// cleanup pass, regardless of the event counter.
+const dedupeCleanupMaxSize = 10000
 
 // Middleware wraps an event handler for cross-cutting concerns.
 // Middleware is applied in reverse order (last added runs first),
@@ -111,22 +123,47 @@ func rateLimiterMiddleware(limiter *rate.Limiter) Middleware {
 // MiddlewareRateLimit returns a middleware that limits the rate of events
 // using a token bucket algorithm. It allows maxEvents events per second
 // with burst=maxEvents. Events exceeding the limit are dropped.
+//
+// Deprecated: Use MiddlewareThrottle instead, which exposes the burst
+// parameter directly. MiddlewareRateLimit(maxEvents) is exactly equivalent
+// to MiddlewareThrottle(maxEvents, maxEvents).
 func MiddlewareRateLimit(maxEvents int) Middleware {
 	return MiddlewareThrottle(maxEvents, maxEvents)
+}
+
+// defaultRateLimitWindow is the default window for rate-limiting middlewares.
+const defaultRateLimitWindow = time.Second
+
+// defaultSlidingWindowEvents is the default max events per window for
+// MiddlewareSlidingWindowRateLimit.
+const defaultSlidingWindowEvents = 100
+
+// defaultErrorRateLimit is the default max errors per window for
+// MiddlewareErrorRateLimit.
+const defaultErrorRateLimit = 10
+
+// resolveRateLimitDefaults returns the provided max value and window,
+// substituting package defaults when either is non-positive. defaultMax is
+// used when maxValue is non-positive (callers differ in their default count).
+// Centralizes the defaulting logic shared by MiddlewareSlidingWindowRateLimit
+// and MiddlewareErrorRateLimit.
+func resolveRateLimitDefaults(maxValue, defaultMax int, window time.Duration) (int, time.Duration) {
+	if maxValue <= 0 {
+		maxValue = defaultMax
+	}
+
+	if window <= 0 {
+		window = defaultRateLimitWindow
+	}
+
+	return maxValue, window
 }
 
 // MiddlewareSlidingWindowRateLimit returns a middleware that limits events
 // to maxEvents per window duration using a token bucket. This provides
 // smooth rate limiting without the boundary-burst problem of fixed windows.
 func MiddlewareSlidingWindowRateLimit(maxEvents int, window time.Duration) Middleware {
-	if maxEvents <= 0 {
-		maxEvents = 100
-	}
-
-	if window <= 0 {
-		window = time.Second
-	}
-
+	maxEvents, window = resolveRateLimitDefaults(maxEvents, defaultSlidingWindowEvents, window)
 	// Convert maxEvents/window to events per second
 	eventsPerSec := float64(maxEvents) / window.Seconds()
 	limiter := rate.NewLimiter(rate.Limit(eventsPerSec), maxEvents)
@@ -156,13 +193,44 @@ type dedupeKey struct {
 	op   Op
 }
 
+// normalizeDedupePath returns a canonical key for deduplication.
+// Always applies NFC normalization so that NFD (macOS decomposed) and NFC
+// (composed) forms of the same path collide in the dedup map.
+func normalizeDedupePath(path string) string {
+	return norm.NFC.String(path)
+}
+
+// normalizeDedupePathCaseInsensitive lowercases in addition to NFC normalization,
+// for case-insensitive filesystems (NTFS, APFS).
+func normalizeDedupePathCaseInsensitive(path string) string {
+	return strings.ToLower(norm.NFC.String(path))
+}
+
 // MiddlewareDeduplicate returns a middleware that drops duplicate events
 // for the same file path and operation within a time window.
 // This is useful for reducing noise from rapid successive file operations.
 //
+// Path normalization: NFC Unicode normalization is applied so that NFD
+// (macOS decomposed) and NFC (composed) forms of the same path are treated
+// as duplicates. For case-insensitive deduplication, use
+// [MiddlewareDeduplicateCaseInsensitive].
+//
 // Example: A file saved twice in quick succession generates two events,
 // but only the first is processed.
 func MiddlewareDeduplicate(window time.Duration) Middleware {
+	return newDeduplicateMiddleware(window, normalizeDedupePath)
+}
+
+// MiddlewareDeduplicateCaseInsensitive is like [MiddlewareDeduplicate] but
+// also folds character case when comparing paths. Use this on case-insensitive
+// filesystems (NTFS, APFS) where File.txt and file.txt refer to the same file.
+func MiddlewareDeduplicateCaseInsensitive(window time.Duration) Middleware {
+	return newDeduplicateMiddleware(window, normalizeDedupePathCaseInsensitive)
+}
+
+// newDeduplicateMiddleware builds a dedup middleware with the given path
+// normalizer applied to the dedup key.
+func newDeduplicateMiddleware(window time.Duration, normalizePath func(string) string) Middleware {
 	if window <= 0 {
 		window = defaultDedupeWindow
 	}
@@ -172,20 +240,23 @@ func MiddlewareDeduplicate(window time.Duration) Middleware {
 	}
 
 	var (
-		mu   sync.Mutex //nolint:varnamelen // conventional mutex name
-		seen = make(map[dedupeKey]seenEntry)
+		mu         sync.Mutex //nolint:varnamelen // conventional mutex name
+		seen       = make(map[dedupeKey]seenEntry)
+		eventCount int
 	)
 
 	return func(next Handler) Handler {
 		return func(ctx context.Context, event Event) error {
-			key := dedupeKey{path: event.Path, op: event.Op}
+			key := dedupeKey{path: normalizePath(event.Path), op: event.Op}
 
 			mu.Lock()
 			now := time.Now()
 
-			// Lazy cleanup: remove old entries periodically
-			// (every 100 events or when map grows large)
-			if len(seen)%100 == 0 || len(seen) > 10000 {
+			// Lazy cleanup: remove expired entries periodically.
+			// Uses an event counter (not map size) to avoid the quirk where
+			// len(seen) hovering at a multiple of 100 triggers cleanup every event.
+			eventCount++
+			if eventCount%dedupeCleanupInterval == 0 || len(seen) > dedupeCleanupMaxSize {
 				cutoff := now.Add(-window * dedupeCleanupMultiplier)
 				for k, entry := range seen {
 					if entry.timestamp.Before(cutoff) {
@@ -215,6 +286,21 @@ const defaultBatchWindow = 100 * time.Millisecond
 // defaultBatchSize is the default maximum number of events in a batch.
 const defaultBatchSize = 100
 
+// resolveBatchDefaults returns the provided window/maxSize, substituting the
+// package defaults when either is non-positive. Centralizes the defaulting
+// logic shared by MiddlewareBatch and MiddlewareErrorBatch.
+func resolveBatchDefaults(window time.Duration, maxSize int) (time.Duration, int) {
+	if window <= 0 {
+		window = defaultBatchWindow
+	}
+
+	if maxSize <= 0 {
+		maxSize = defaultBatchSize
+	}
+
+	return window, maxSize
+}
+
 // stopAndClearTimer stops the timer if it exists and resets it to nil.
 // Centralizes the timer cleanup pattern used by batching middlewares.
 func stopAndClearTimer(t **time.Timer) {
@@ -232,31 +318,37 @@ func stopAndClearTimer(t **time.Timer) {
 // If it returns an error, the error is passed to the next handler.
 // If it returns nil, processing continues normally.
 //
-//nolint:funlen // Complex middleware requiring inline logic
-func MiddlewareBatch(window time.Duration, maxSize int, flush func([]Event) error) Middleware {
-	if window <= 0 {
-		window = defaultBatchWindow
-	}
 
-	if maxSize <= 0 {
-		maxSize = defaultBatchSize
-	}
+func MiddlewareBatch(window time.Duration, maxSize int, flush func([]Event) error) Middleware {
+	window, maxSize = resolveBatchDefaults(window, maxSize)
 
 	type batchState struct {
-		mu     sync.Mutex
-		events []Event
-		timer  *time.Timer
+		mu       sync.Mutex
+		events   []Event
+		timer    *time.Timer
+		flushErr error // stores the last timer-flush error; returned on next event
 	}
 
 	state := &batchState{
-		events: make([]Event, 0, maxSize),
-		mu:     sync.Mutex{},
-		timer:  nil,
+		events:   make([]Event, 0, maxSize),
+		mu:       sync.Mutex{},
+		timer:    nil,
+		flushErr: nil,
 	}
 
 	return func(next Handler) Handler {
 		return func(ctx context.Context, event Event) error {
 			state.mu.Lock()
+
+			// If a timer-flush error is pending, return it now so it routes
+			// through the watcher's error handler instead of being swallowed.
+			if state.flushErr != nil {
+				err := state.flushErr
+				state.flushErr = nil
+				state.mu.Unlock()
+
+				return err
+			}
 
 			state.events = append(state.events, event)
 
@@ -274,7 +366,10 @@ func MiddlewareBatch(window time.Duration, maxSize int, flush func([]Event) erro
 					return err
 				}
 
-				return next(ctx, event)
+				// The triggering event is already in the flushed batch — do not
+				// emit it individually. The timer-expiry branch already follows
+				// this pattern (flush only, no next call).
+				return nil
 			}
 
 			// Start or reset timer
@@ -289,10 +384,11 @@ func MiddlewareBatch(window time.Duration, maxSize int, flush func([]Event) erro
 					if len(events) > 0 {
 						err := flush(events)
 						if err != nil {
-							slog.Error(
-								"filewatcher: batch flush error",
-								slog.String("error", err.Error()),
-							)
+							// Store the error so the next event handler returns it,
+							// routing it through the watcher's handleError pipeline.
+							state.mu.Lock()
+							state.flushErr = err
+							state.mu.Unlock()
 						}
 					}
 				})
@@ -305,42 +401,115 @@ func MiddlewareBatch(window time.Duration, maxSize int, flush func([]Event) erro
 	}
 }
 
+// fileLogCache holds a lazily-opened file handle for file-logging middleware.
+type fileLogCache struct {
+	mu sync.Mutex
+	f  *os.File
+}
+
+// close safely closes the cached file handle. Safe to call multiple times.
+func (c *fileLogCache) close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.f == nil {
+		return nil
+	}
+
+	err := c.f.Close()
+	c.f = nil
+
+	if err != nil {
+		return fmt.Errorf("closing log file: %w", err)
+	}
+
+	return nil
+}
+
+// write appends a formatted event line to the cached file, opening it lazily
+// on first write. Returns an error if the file cannot be opened or written.
+func (c *fileLogCache) write(filePath string, event Event) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var writeErr error
+
+	if c.f == nil {
+		c.f, writeErr = os.OpenFile(
+			filePath,
+			os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+			logFilePermission,
+		)
+	}
+
+	if writeErr != nil {
+		return fmt.Errorf("opening log file %q: %w", filePath, writeErr)
+	}
+
+	if c.f != nil {
+		_, writeErr = fmt.Fprintf(
+			c.f, "[%s] %s: %s\n",
+			event.Timestamp.Format(time.RFC3339),
+			event.Op,
+			event.Path,
+		)
+		if writeErr != nil {
+			return fmt.Errorf("writing event to log file %q: %w", filePath, writeErr)
+		}
+	}
+
+	return nil
+}
+
 // MiddlewareWriteFileLog returns a middleware that appends event logs
 // to a file at the given path. This is useful for audit trails.
 // The file handle is cached for the lifetime of the middleware.
+//
+// Note: the file handle is opened lazily on the first event and is NOT
+// closed automatically. For long-lived watchers or watchers that use Reset()
+// cycles, prefer NewFileLogMiddleware + WithCleanup to avoid fd leaks:
+//
+//	mw, closeLog := filewatcher.NewFileLogMiddleware("audit.log")
+//	watcher, _ := filewatcher.New(paths,
+//	    filewatcher.WithMiddleware(mw),
+//	    filewatcher.WithCleanup(closeLog),
+//	)
 func MiddlewareWriteFileLog(filePath string) Middleware {
-	type cachedFile struct {
-		mu sync.Mutex
-		f  *os.File
+	middleware, _ := NewFileLogMiddleware(filePath)
+
+	return middleware
+}
+
+// NewFileLogMiddleware returns a file-logging middleware and a cleanup function
+// that closes the underlying file handle. The cleanup function is safe to call
+// multiple times.
+//
+// Pair with WithCleanup to ensure the file handle is released when the watcher
+// closes:
+//
+//	mw, closeLog := filewatcher.NewFileLogMiddleware("audit.log")
+//	watcher, _ := filewatcher.New(paths,
+//	    filewatcher.WithMiddleware(mw),
+//	    filewatcher.WithCleanup(closeLog),
+//	)
+func NewFileLogMiddleware(filePath string) (Middleware, func() error) {
+	cached := &fileLogCache{mu: sync.Mutex{}, f: nil}
+
+	closeOnce := &sync.Once{}
+
+	closer := func() error {
+		var closeErr error
+
+		closeOnce.Do(func() {
+			closeErr = cached.close()
+		})
+
+		return closeErr
 	}
 
-	//nolint:exhaustruct // f is lazily initialized on first write
-	cached := &cachedFile{}
-
-	return func(next Handler) Handler {
+	middleware := func(next Handler) Handler {
 		return func(ctx context.Context, event Event) error {
-			cached.mu.Lock()
-
-			var writeErr error
-
-			if cached.f == nil {
-				cached.f, writeErr = os.OpenFile( //nolint:gosec // file path from user config is intentional
-					filePath,
-					os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-					logFilePermission,
-				)
-			}
-
-			if writeErr == nil && cached.f != nil {
-				_, writeErr = fmt.Fprintf(
-					cached.f, "[%s] %s: %s\n",
-					event.Timestamp.Format(time.RFC3339),
-					event.Op,
-					event.Path,
-				)
-			}
-
-			cached.mu.Unlock()
+			writeErr := cached.write(filePath, event)
 
 			err := next(ctx, event)
 			if err != nil {
@@ -354,7 +523,12 @@ func MiddlewareWriteFileLog(filePath string) Middleware {
 			return nil
 		}
 	}
+
+	return middleware, closer
 }
+
+// defaultThrottleEvents is the default maximum events per second for throttling.
+const defaultThrottleEvents = 100
 
 // MiddlewareThrottle returns a middleware that limits event processing to
 // maxEvents per second with burst support. Up to burst events can be
@@ -362,7 +536,7 @@ func MiddlewareWriteFileLog(filePath string) Middleware {
 // Excess events are dropped. Uses golang.org/x/time/rate for correctness.
 func MiddlewareThrottle(maxEvents, burst int) Middleware {
 	if maxEvents <= 0 {
-		maxEvents = 100
+		maxEvents = defaultThrottleEvents
 	}
 
 	if burst <= 0 {
@@ -402,17 +576,30 @@ func (s CircuitState) String() string {
 
 const circuitBreakerDefaultTimeout = 30 * time.Second
 
+// defaultMaxFailures is the default failure threshold for breaker-style
+// middlewares. Used when the caller passes a non-positive maxFailures.
+const defaultMaxFailures = 5
+
+// resolveMaxFailures returns maxFailures or the package default when non-positive.
+// Centralizes the defaulting logic shared by MiddlewareCircuitBreaker
+// and MiddlewareExponentialBackoff.
+func resolveMaxFailures(maxFailures int) int {
+	if maxFailures <= 0 {
+		return defaultMaxFailures
+	}
+
+	return maxFailures
+}
+
 // MiddlewareCircuitBreaker returns a middleware that implements the circuit breaker pattern.
 // After maxFailures consecutive failures from the downstream handler, the circuit opens
 // and drops all events for the resetTimeout duration. After the timeout, the circuit
 // enters half-open state and allows one event through. If it succeeds, the circuit closes;
 // if it fails, the circuit opens again.
 //
-//nolint:funlen // Complex state machine requiring inline logic
+
 func MiddlewareCircuitBreaker(maxFailures int, resetTimeout time.Duration) Middleware {
-	if maxFailures <= 0 {
-		maxFailures = 5
-	}
+	maxFailures = resolveMaxFailures(maxFailures)
 
 	if resetTimeout <= 0 {
 		resetTimeout = circuitBreakerDefaultTimeout
@@ -490,13 +677,7 @@ func MiddlewareCircuitBreaker(maxFailures int, resetTimeout time.Duration) Middl
 // and applies backoff when errors exceed maxErrors within the window duration.
 // During backoff, events are still forwarded but errors are suppressed.
 func MiddlewareErrorRateLimit(maxErrors int, window time.Duration) Middleware {
-	if maxErrors <= 0 {
-		maxErrors = 10
-	}
-
-	if window <= 0 {
-		window = time.Second
-	}
+	maxErrors, window = resolveRateLimitDefaults(maxErrors, defaultErrorRateLimit, window)
 
 	type errorRateState struct {
 		mu      sync.Mutex
@@ -615,16 +796,8 @@ type BatchError struct {
 // in batches. The flush function receives all collected errors when the window
 // expires or the batch reaches maxSize. Events are always forwarded regardless
 // of errors.
-//
-//nolint:funlen // Complex batching logic requiring inline state management
 func MiddlewareErrorBatch(window time.Duration, maxSize int, flush func([]BatchError)) Middleware {
-	if window <= 0 {
-		window = defaultBatchWindow
-	}
-
-	if maxSize <= 0 {
-		maxSize = defaultBatchSize
-	}
+	window, maxSize = resolveBatchDefaults(window, maxSize)
 
 	type errorBatchState struct {
 		mu     sync.Mutex
@@ -706,11 +879,9 @@ const defaultExponentialBackoffMax = 30 * time.Second
 // the drop window simply grows. Use MiddlewareCircuitBreaker for strict
 // open/closed/half-open semantics.
 //
-//nolint:funlen // Exponential backoff state machine with inline mutex locking
+
 func MiddlewareExponentialBackoff(maxFailures int, initialBackoff, maxBackoff time.Duration) Middleware {
-	if maxFailures <= 0 {
-		maxFailures = 5
-	}
+	maxFailures = resolveMaxFailures(maxFailures)
 
 	if initialBackoff <= 0 {
 		initialBackoff = defaultExponentialBackoffInitial

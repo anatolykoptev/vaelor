@@ -5,11 +5,13 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 // fileState holds the metadata snapshot for a single file/directory.
 type fileState struct {
+	path    string // original filesystem path (used for event emission)
 	modTime time.Time
 	size    int64
 	isDir   bool
@@ -18,8 +20,9 @@ type fileState struct {
 // pollLoop runs a periodic filesystem poll to detect changes that fsnotify
 // may miss (NFS, FUSE, Docker volumes, etc.). It maintains a snapshot of
 // file states and emits events for detected changes.
-func (w *Watcher) pollLoop(ctx context.Context, eventCh chan<- Event) {
+func (w *Watcher) pollLoop(ctx context.Context, eventCh chan<- Event, chUsers *sync.WaitGroup) {
 	defer w.wg.Done()
+	defer chUsers.Done()
 
 	w.debugLog("poll loop started", "interval", w.pollInterval)
 
@@ -58,28 +61,42 @@ func (w *Watcher) pollSnapshot(snapshot map[string]fileState) {
 
 //nolint:nilerr
 func (w *Watcher) pollWalkDir(rootPath string, snapshot map[string]fileState) {
-	_ = filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error { //nolint:nilerr,varnamelen
-		if err != nil {
+	_ = filepath.WalkDir(
+		rootPath,
+		func(path string, d os.DirEntry, err error) error { //nolint:nilerr,erraudit,varnamelen // poll loop tolerates unreadable dirs; the next poll retries
+			if err != nil {
+				return nil
+			}
+
+			if d.IsDir() {
+				if w.shouldSkipDir(d.Name()) ||
+					w.shouldExcludePath(path) {
+					return filepath.SkipDir
+				}
+
+				// Load .gitignore for this directory before checking, mirroring walkDirFunc.
+				w.loadGitignoreForDir(path)
+
+				if w.shouldSkipByGitignore(path) {
+					return filepath.SkipDir
+				}
+			}
+
+			info, statErr := d.Info()
+			if statErr != nil {
+				return nil //nolint:nilerr
+			}
+
+			snapshot[w.pathKey(path)] = fileState{
+				path:    path,
+				modTime: info.ModTime(),
+				size:    info.Size(),
+				isDir:   d.IsDir(),
+			}
+
 			return nil
-		}
-
-		if d.IsDir() && w.shouldSkipDir(d.Name()) {
-			return filepath.SkipDir
-		}
-
-		info, statErr := d.Info()
-		if statErr != nil {
-			return nil //nolint:nilerr
-		}
-
-		snapshot[path] = fileState{
-			modTime: info.ModTime(),
-			size:    info.Size(),
-			isDir:   d.IsDir(),
-		}
-
-		return nil
-	})
+		},
+	)
 }
 
 // pollDetectChanges compares the current filesystem state against the snapshot
@@ -96,27 +113,26 @@ func (w *Watcher) pollDetectChanges(
 	}
 
 	// Detect new and modified files
-	for path, curState := range current {
-		prevState, existed := snapshot[path]
+	for key, curState := range current {
+		prevState, existed := snapshot[key]
 
 		if !existed {
-			w.pollEmitEvent(ctx, Create, path, curState, eventCh)
+			w.pollEmitEvent(ctx, Create, curState.path, curState, eventCh)
 
 			continue
 		}
 
 		if !curState.isDir &&
 			(curState.modTime != prevState.modTime || curState.size != prevState.size) {
-			w.pollEmitEvent(ctx, Write, path, curState, eventCh)
+			w.pollEmitEvent(ctx, Write, curState.path, curState, eventCh)
 		}
 	}
 
 	// Detect removed files
-	for path := range snapshot {
-		if _, exists := current[path]; !exists {
-			prevState := snapshot[path]
-
-			w.pollEmitEvent(ctx, Remove, path, fileState{
+	for key, prevState := range snapshot {
+		if _, exists := current[key]; !exists {
+			w.pollEmitEvent(ctx, Remove, prevState.path, fileState{
+				path:    prevState.path,
 				modTime: time.Time{},
 				size:    0,
 				isDir:   prevState.isDir,
