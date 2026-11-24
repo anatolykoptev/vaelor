@@ -180,6 +180,11 @@ make deploy  # docker compose build --no-cache + up -d
 - **Semantic search stack**: embed-server (code-rank-embed, 768 dim via `EMBED_MODELS` multi-model) → pgvector (HNSW cosine) → hybrid RRF (semantic + keyword) → graph expansion (1-hop AGE)
 - **MCP registration**: `claude mcp add -s user -t http go-code http://127.0.0.1:8897/mcp`
 - **`GOWORK=off` mandatory**: without it, `go test`/`go build` resolve against the user-wide `go.work` and break imports
+- **Query the service DB as the service role** (`gocode_app`, search_path `public`) or fully qualify `public.<table>`: under the AGE superuser a bare table name can resolve to a stale `ag_catalog` mirror. Check with `SELECT current_user, current_schema()`
+- **Never drop the four by-design `ag_catalog` tables** (`code_graph_meta`, `code_file_mtimes`, `code_graph_snapshots`, `code_dead_code_scores`) or any `ag_*` object
+- **pgx pool resets with `RESET ALL`, never `DISCARD ALL`**: DISCARD deallocates pgx's prepared statements and causes a `26000` storm. Keep the `agePool` / `dataPool` split (`cmd/vaelor/register.go`)
+- **Large HNSW-indexed backfills need `SET statement_timeout=0`** (the DB default of 30s cancels them)
+- **`go mod vendor` strips the tree-sitter PHP C headers** under `vendor/github.com/smacker/go-tree-sitter/php/tree_sitter/`: restore them (`make vendor`, or `git checkout origin/main -- <those .h files>`) and check `git diff --stat vendor/`
 - **Extension → language is single source of truth via `handler.Extensions()`** — don't duplicate in a separate map (historical bug: `.cjs` was in handler but missing from the lang map, making `ParseFile("foo.cjs")` fail silently)
 
 ## Contributing
