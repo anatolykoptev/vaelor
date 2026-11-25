@@ -2,6 +2,18 @@
 
 **2026-07-17:** The project was renamed from **go-code** to **Vaelor**. Older entries refer to the project under its former name and are left intact.
 
+## [1.76.1](https://github.com/anatolykoptev/vaelor/compare/v1.76.0...v1.76.1) (2026-11-25)
+
+
+### Fixed
+
+* **deps:** bump OpenTelemetry to v1.47.0 (GO-2026-6974, GO-2026-6975) ([#986](https://github.com/anatolykoptev/vaelor/issues/986)) ([70d15c3](https://github.com/anatolykoptev/vaelor/commit/70d15c3af6009580295458ce2817eb15f985bd55))
+
+
+### Documentation
+
+* **claude:** house rules moved from agent memory ([#985](https://github.com/anatolykoptev/vaelor/issues/985)) ([8c2a719](https://github.com/anatolykoptev/vaelor/commit/8c2a719ae4add1f9c5893ea6efabab3af2363c57))
+
 ## [1.76.0](https://github.com/anatolykoptev/vaelor/compare/v1.75.4...v1.76.0) (2026-11-16)
 
 
