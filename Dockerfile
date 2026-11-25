@@ -39,11 +39,12 @@ FROM golang:1.26.11-alpine
 # ca-certificates: HTTPS to GitHub API and LLM proxy.
 # git: shallow cloning of repositories for analysis.
 # tzdata: proper timezone handling in logs.
-# nodejs/npm: SCIP indexers for TypeScript and Python.
+# nodejs-current/npm: SCIP indexers for TypeScript and Python. `nodejs-current` is Node 26 on Alpine 3.24
+# (plain `nodejs` is the 24 LTS line); it provides `nodejs`, so `npm` is satisfied by it.
 # rust/cargo/rust-analyzer: rust-analyzer ships a `scip` subcommand.
 # openjdk17-jre-headless: required by the scip-java launcher (JAR with embedded coursier bootstrap).
 # curl: download scip-java release asset during the next layer.
-RUN apk add --no-cache ca-certificates git tzdata nodejs npm rust cargo rust-analyzer openjdk17-jre-headless curl openssh-client && \
+RUN apk add --no-cache ca-certificates git tzdata nodejs-current npm rust cargo rust-analyzer openjdk17-jre-headless curl openssh-client && \
     git config --global --add safe.directory '*'
 
 # SCIP indexers for multi-language type-aware analysis.
